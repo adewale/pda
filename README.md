@@ -28,10 +28,12 @@ npx wrangler secret put GITHUB_CLIENT_SECRET
 
 ### 3. A Google OAuth client
 
-Google Cloud console → **APIs & Services**:
+In the Google Cloud console's **Google Auth Platform** (https://console.cloud.google.com/auth/overview), in a project of its own:
 
-1. **OAuth consent screen**: External, app name, support email. Scopes: `openid` and `email` only, which need no Google verification. While the app is in *Testing*, only listed test users can sign in; **Publish** it to let anyone in.
-2. **Credentials → Create credentials → OAuth client ID**, type *Web application*, authorized redirect URI `https://personal-agent.adewale-883.workers.dev/auth/google/callback`.
+1. **Get started**: app name, support email, audience **External**, contact email.
+2. Leave the logo empty (a logo triggers brand verification). The app asks only for `openid` and `email`, which need no Google verification.
+3. **Audience**: while the app is in *Testing*, only listed test users can sign in; **Publish app** to let anyone in.
+4. **Clients → Create client**, type *Web application*, authorized redirect URI `https://personal-agent.adewale-883.workers.dev/auth/google/callback`. Copy the client secret when it is shown.
 
 Then run:
 
