@@ -11,7 +11,10 @@ import {
   CheckCircleIcon,
   GearIcon,
   MoonIcon,
+  GithubLogoIcon,
+  GoogleLogoIcon,
   PaperPlaneRightIcon,
+  SignOutIcon,
   StopIcon,
   SunIcon,
   XCircleIcon
@@ -26,11 +29,33 @@ import "./styles.css";
 
 const MODEL = "Claude Opus 5.5";
 
-/** Who is signed in, from `/api/me`; the Worker verifies the Access JWT. */
+/** Who is signed in, from `/api/me`; the Worker checks the session cookie. */
 type Me =
   | { readonly state: "loading" }
-  | { readonly state: "signed-in"; readonly email: string | null }
-  | { readonly state: "failed"; readonly message: string };
+  | {
+      readonly state: "signed-in";
+      readonly email: string | null;
+      readonly provider: "google" | "github";
+    }
+  | { readonly state: "signed-out"; readonly message: string | null };
+
+/** Set by the Worker's OAuth callback when a sign-in did not complete. */
+const SIGN_IN_ERRORS: Record<string, string> = {
+  denied: "Sign-in was cancelled.",
+  state: "That sign-in link expired. Please try again.",
+  code: "The provider did not complete sign-in. Please try again.",
+  token: "The provider did not confirm who you are. Please try again.",
+  profile: "The provider did not share your account id. Please try again."
+};
+
+function takeSignInError(): string | null {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get("signin_error");
+  if (code === null) return null;
+  url.searchParams.delete("signin_error");
+  window.history.replaceState(null, "", url);
+  return SIGN_IN_ERRORS[code] ?? "Sign-in failed. Please try again.";
+}
 
 function useMe(): Me {
   const [me, setMe] = useState<Me>({ state: "loading" });
@@ -40,20 +65,23 @@ function useMe(): Me {
       .then(async (response) => {
         if (cancelled) return;
         if (response.ok) {
-          const body = (await response.json()) as { email: string | null };
-          setMe({ state: "signed-in", email: body.email });
+          const body = (await response.json()) as {
+            email: string | null;
+            provider: "google" | "github";
+          };
+          setMe({ state: "signed-in", ...body });
         } else if (response.status === 401) {
-          setMe({ state: "failed", message: "You are not signed in." });
+          setMe({ state: "signed-out", message: takeSignInError() });
         } else {
           setMe({
-            state: "failed",
+            state: "signed-out",
             message: `Sign-in is not set up yet: ${await response.text()}`
           });
         }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setMe({ state: "failed", message: String(error) });
+          setMe({ state: "signed-out", message: String(error) });
         }
       });
     return () => {
@@ -324,7 +352,7 @@ function Message({
 }
 
 /** Shown instead of the chat when `/api/me` says no one is signed in. */
-function SignedOut({ message }: { message: string }) {
+function SignedOut({ message }: { message: string | null }) {
   return (
     <div className="flex h-dvh items-center justify-center bg-kumo-elevated px-4 text-kumo-default">
       <Surface className="max-w-md rounded-xl p-6 ring ring-kumo-line">
@@ -334,17 +362,60 @@ function SignedOut({ message }: { message: string }) {
           </div>
           <h1 className="text-base font-semibold">Personal agent</h1>
         </div>
-        <p className="text-sm text-kumo-subtle">{message}</p>
-        <p className="mt-3 text-sm text-kumo-subtle">
-          This page is protected by Cloudflare Access. Sign in with Google or
-          GitHub to reach your agent.
+        <p className="text-sm text-kumo-subtle">
+          Sign in to reach your own agent. Each account gets one private,
+          continuous conversation.
         </p>
+        {message ? (
+          <p
+            role="alert"
+            className="mt-3 rounded-lg bg-kumo-danger/10 px-3 py-2 text-sm text-kumo-danger"
+          >
+            {message}
+          </p>
+        ) : null}
+        <div className="mt-5 flex flex-col gap-2">
+          <a
+            href="/auth/google"
+            className="flex items-center justify-center gap-2 rounded-lg border border-kumo-line bg-kumo-base px-4 py-2.5 text-sm font-medium hover:bg-kumo-elevated"
+          >
+            <GoogleLogoIcon size={18} weight="bold" />
+            Sign in with Google
+          </a>
+          <a
+            href="/auth/github"
+            className="flex items-center justify-center gap-2 rounded-lg border border-kumo-line bg-kumo-base px-4 py-2.5 text-sm font-medium hover:bg-kumo-elevated"
+          >
+            <GithubLogoIcon size={18} weight="bold" />
+            Sign in with GitHub
+          </a>
+        </div>
       </Surface>
     </div>
   );
 }
 
-function Chat({ email }: { email: string | null }) {
+function SignOutButton() {
+  return (
+    <form method="post" action="/logout">
+      <Button
+        type="submit"
+        variant="ghost"
+        shape="square"
+        aria-label="Sign out"
+        icon={<SignOutIcon size={16} />}
+      />
+    </form>
+  );
+}
+
+function Chat({
+  email,
+  provider
+}: {
+  email: string | null;
+  provider: "google" | "github";
+}) {
   const [prompt, setPrompt] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const {
@@ -391,7 +462,8 @@ function Chat({ email }: { email: string | null }) {
                   Personal agent
                 </h1>
                 <p className="truncate text-xs text-kumo-subtle">
-                  {email ?? "Signed in"}
+                  {email ?? "Signed in"} ·{" "}
+                  {provider === "google" ? "Google" : "GitHub"}
                 </p>
               </div>
             </div>
@@ -407,6 +479,7 @@ function Chat({ email }: { email: string | null }) {
                     : "Reconnecting"}
               </Badge>
               <ModeToggle />
+              <SignOutButton />
             </div>
           </div>
         </header>
@@ -563,8 +636,8 @@ function App() {
   if (me.state === "loading") {
     return <div className="h-dvh bg-kumo-elevated" />;
   }
-  if (me.state === "failed") return <SignedOut message={me.message} />;
-  return <Chat email={me.email} />;
+  if (me.state === "signed-out") return <SignedOut message={me.message} />;
+  return <Chat email={me.email} provider={me.provider} />;
 }
 
 const root = document.getElementById("root");

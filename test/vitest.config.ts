@@ -1,36 +1,82 @@
 import path from "node:path";
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
-import { exportJWK, generateKeyPair } from "jose";
+import { SignJWT } from "jose";
 import { defineConfig } from "vitest/config";
 
 const testsDir = import.meta.dirname;
 
-/** Must match TEAM_DOMAIN in test/wrangler.jsonc. */
-const TEAM_DOMAIN = "https://test-team.cloudflareaccess.com";
-const KID = "test-key";
+/** Must match test/wrangler.jsonc. */
+const GOOGLE_CLIENT = { id: "google-test-client", secret: "google-test-secret" };
+const GITHUB_CLIENT = { id: "github-test-client", secret: "github-test-secret" };
 
-// Access is simulated without touching the code: a fresh RS256 key per run,
-// whose public half is served at the real certs URL. The tests sign tokens
-// with the private half.
-const { publicKey, privateKey } = await generateKeyPair("RS256", {
-  extractable: true
-});
-const publicJwk = { ...(await exportJWK(publicKey)), kid: KID, alg: "RS256" };
-const privateJwk = { ...(await exportJWK(privateKey)), kid: KID, alg: "RS256" };
+/** Signs the fake Google ID tokens; the Worker does not check this signature. */
+const idTokenKey = crypto.getRandomValues(new Uint8Array(32));
+
+/**
+ * A test authorization code is `ok:<user id>:<email>`; anything else is a bad
+ * code. The fakes also insist on the client secret and a PKCE verifier.
+ */
+function parseCode(form: URLSearchParams, secret: string) {
+  const [ok, id, email] = (form.get("code") ?? "").split(":");
+  if (
+    ok !== "ok" ||
+    !id ||
+    form.get("client_secret") !== secret ||
+    !form.get("code_verifier") ||
+    !form.get("redirect_uri")?.endsWith("/callback")
+  ) {
+    return null;
+  }
+  return { id, email: email ?? "" };
+}
+
+async function fakeProviders(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  if (request.method === "POST" && url.href === "https://oauth2.googleapis.com/token") {
+    const user = parseCode(new URLSearchParams(await request.text()), GOOGLE_CLIENT.secret);
+    if (!user) return Response.json({ error: "invalid_grant" }, { status: 400 });
+    const now = Math.floor(Date.now() / 1000);
+    const idToken = await new SignJWT({ email: user.email, email_verified: true })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("https://accounts.google.com")
+      .setAudience(GOOGLE_CLIENT.id)
+      .setSubject(user.id)
+      .setIssuedAt(now)
+      .setExpirationTime(now + 3600)
+      .sign(idTokenKey);
+    return Response.json({ id_token: idToken, access_token: "unused" });
+  }
+  if (request.method === "POST" && url.href === "https://github.com/login/oauth/access_token") {
+    const user = parseCode(new URLSearchParams(await request.text()), GITHUB_CLIENT.secret);
+    // GitHub reports a bad code as a 200 with an `error` field.
+    if (!user) return Response.json({ error: "bad_verification_code" });
+    return Response.json({ access_token: `tok:${user.id}:${user.email}` });
+  }
+  if (url.origin === "https://api.github.com") {
+    const [, id, email] = (request.headers.get("Authorization") ?? "")
+      .replace(/^Bearer /, "")
+      .split(":");
+    if (!id || !request.headers.get("User-Agent")) {
+      return Response.json({ message: "Bad credentials" }, { status: 401 });
+    }
+    if (url.pathname === "/user") {
+      return Response.json({ id: Number(id), login: `user${id}`, email: null });
+    }
+    if (url.pathname === "/user/emails") {
+      return Response.json([
+        { email: `other-${email}`, primary: false, verified: true },
+        { email, primary: true, verified: true }
+      ]);
+    }
+  }
+  return new Response("No network in tests", { status: 502 });
+}
 
 export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: path.join(testsDir, "wrangler.jsonc") },
-      miniflare: {
-        bindings: { TEST_ACCESS_PRIVATE_JWK: JSON.stringify(privateJwk) },
-        outboundService: (request: Request) => {
-          if (request.url === `${TEAM_DOMAIN}/cdn-cgi/access/certs`) {
-            return Response.json({ keys: [publicJwk] });
-          }
-          return new Response("No network in tests", { status: 502 });
-        }
-      }
+      miniflare: { outboundService: fakeProviders }
     })
   ],
   resolve: {
