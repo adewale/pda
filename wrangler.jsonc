@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "personal-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "ai": { "binding": "AI", "remote": true },
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/ws", "/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "PersonalAgent", "class_name": "PersonalAgent" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PersonalAgent"] }],
+  // Product choices. TEAM_DOMAIN and POLICY_AUD are per deployment:
+  // set them with `wrangler secret put`, never in this file.
+  "vars": {
+    "MODEL_ID": "anthropic/claude-opus-5-5",
+    "THINKING_LEVEL": "medium",
+    "AI_GATEWAY_ID": "default"
+  },
+  "observability": { "enabled": true }
+}
