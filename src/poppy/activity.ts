@@ -1,0 +1,317 @@
+import type { PoppyClient } from "./client";
+import type { Operation } from "./operations";
+import { rows } from "./store";
+import type { ActivityAccess, ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
+
+/**
+ * The page's Activity view, built from the agent's own tables rather than
+ * from cards, so it keeps what happened after a card's hour is up. Each
+ * query names its columns: sign-in secrets, state hashes, sealed tokens and
+ * stored requests are never read here, so they can't reach the page.
+ */
+
+/** How many log lines the page gets, newest first. */
+export const ACTIVITY_LOG_LIMIT = 200;
+
+/** Longest quoted text in an entry. */
+const QUOTE_LIMIT = 280;
+
+function clip(text: string, limit = QUOTE_LIMIT): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
+}
+
+/** View, or view and change, from Poppy's built-in scopes; null when only custom scopes say. */
+export function accessOf(scope: string): ActivityAccess | null {
+  const scopes = new Set(scope.split(" ").filter(Boolean));
+  if (scopes.has("poppy:write")) return "view_and_change";
+  if (scopes.has("poppy:read")) return "view";
+  return null;
+}
+
+type OperationRow = {
+  issuer: string;
+  operation_id: string;
+  account: string | null;
+  operation: string;
+  approved_revision: number | null;
+  approved_by: string | null;
+  confirmed: number;
+  updated_at: number;
+};
+
+type ApprovalRow = { id: string; issuer: string; summary: string; kind: string | null; status: string; result: string | null; created_at: number };
+
+type SignInRow = { id: string; type: string; issuer: string; account: string; scopes: string; status: string; expires_at: number; created_at: number };
+
+type ConversationRow = { id: string; issuer: string; direct: number; status: string; responder: string; last_event_at: number; created_at: number };
+
+type MessageRow = { id: string; issuer: string; conversation_id: string | null; body: string; created_at: number };
+
+const OPERATION_RESULT: Record<string, ActivityResult> = {
+  proposed: "waiting",
+  in_progress: "in_progress",
+  succeeded: "done",
+  failed: "failed",
+  cancelled: "cancelled",
+  expired: "expired"
+};
+
+const APPROVAL_RESULT: Record<string, ActivityResult> = {
+  pending: "waiting",
+  executing: "in_progress",
+  done: "done",
+  declined: "declined",
+  failed: "failed",
+  unknown: "unknown"
+};
+
+const SIGN_IN_RESULT: Record<string, ActivityResult> = {
+  pending: "waiting",
+  code: "waiting",
+  sent: "in_progress",
+  used: "in_progress",
+  done: "done",
+  failed: "failed"
+};
+
+const SIGN_IN_WAY: Record<string, string> = {
+  direct: "on its own page",
+  device: "with a code on another device",
+  mediated: "through this page"
+};
+
+export function buildActivity(client: PoppyClient, now = Date.now()): Extract<PoppyServerFrame, { type: "poppy.activity" }> {
+  const sql = client.sql;
+  const names = new Map<string, string>();
+  const name = (issuer: string): string => {
+    let found = names.get(issuer);
+    if (found === undefined) {
+      try {
+        found = client.companyByIssuer(issuer).name;
+      } catch {
+        found = URL.canParse(issuer) ? new URL(issuer).host : issuer;
+      }
+      names.set(issuer, found);
+    }
+    return found;
+  };
+  const log: ActivityEntry[] = [];
+  const inProgress: ActivityTask[] = [];
+
+  // Operations (Ops): the Company's summary and result, verbatim.
+  const operationsFromAgent = new Set(
+    rows<{ event: string }>(sql, "SELECT event FROM poppy_inbox WHERE instr(event, '\"operation\"') > 0").flatMap(({ event }) => {
+      try {
+        const parsed = JSON.parse(event) as { message?: { operation?: { operation_id?: unknown } } };
+        const id = parsed.message?.operation?.operation_id;
+        return typeof id === "string" ? [id] : [];
+      } catch {
+        return [];
+      }
+    })
+  );
+  for (const row of rows<OperationRow>(
+    sql,
+    "SELECT issuer, operation_id, account, operation, approved_revision, approved_by, confirmed, updated_at FROM poppy_operations"
+  )) {
+    const operation = JSON.parse(row.operation) as Operation;
+    const company = name(row.issuer);
+    const approved = row.approved_revision !== null && row.approved_revision === operation.revision;
+    const result: ActivityResult =
+      operation.state === "proposed" && approved ? "in_progress" : (OPERATION_RESULT[operation.state] ?? "unknown");
+    log.push({
+      id: `op-${row.issuer}-${row.operation_id}`,
+      at: row.updated_at,
+      kind: "operation",
+      issuer: row.issuer,
+      company,
+      account: row.account,
+      what: `${company} proposed`,
+      quote: operation.summary,
+      quoteBy: "company",
+      how: operationsFromAgent.has(row.operation_id) ? "company_agent" : "api",
+      access: "view_and_change",
+      decidedBy: row.approved_by === "user" ? "you" : row.approved_by === "standing_permission" ? "standing_permission" : null,
+      result,
+      ...(operation.result?.summary ? { outcome: clip(operation.result.summary), outcomeBy: "company" as const } : {})
+    });
+    if (operation.state === "in_progress") {
+      inProgress.push({
+        id: `op-${row.issuer}-${row.operation_id}`,
+        kind: "operation",
+        issuer: row.issuer,
+        company,
+        what: `${company} is carrying out`,
+        quote: operation.summary,
+        quoteBy: "company",
+        since: row.updated_at,
+        stop: { type: "poppy.operation", issuer: row.issuer, operationId: row.operation_id, revision: operation.revision, decision: "cancel" }
+      });
+    } else if (operation.state === "proposed" && approved && !row.confirmed) {
+      inProgress.push({
+        id: `op-${row.issuer}-${row.operation_id}`,
+        kind: "operation",
+        issuer: row.issuer,
+        company,
+        what: `Confirming with ${company}`,
+        quote: operation.summary,
+        quoteBy: "company",
+        note: "Approved. It's confirmed as soon as the account is signed in.",
+        since: row.updated_at
+      });
+    }
+  }
+
+  // Local approvals, at Companies without the operations extension.
+  for (const row of rows<ApprovalRow>(
+    sql,
+    "SELECT id, issuer, summary, json_extract(request, '$.kind') AS kind, status, result, created_at FROM poppy_approvals"
+  )) {
+    const company = name(row.issuer);
+    const result = APPROVAL_RESULT[row.status] ?? "unknown";
+    // What an approved API call returned stays out of the log; what the website showed, and why something failed, go in.
+    const outcome = row.result && (result !== "done" || row.kind === "browse-submit") ? clip(row.result) : undefined;
+    log.push({
+      id: `approval-${row.id}`,
+      at: row.created_at,
+      kind: "approval",
+      issuer: row.issuer,
+      company,
+      account: null,
+      what: "Asked you to approve",
+      quote: row.summary,
+      quoteBy: "agent",
+      how: row.kind === "browse-submit" ? "website" : "api",
+      access: "view_and_change",
+      decidedBy: row.status === "pending" ? null : "you",
+      result,
+      ...(outcome ? { outcome, outcomeBy: "agent" as const } : {})
+    });
+    if (row.status === "executing") {
+      inProgress.push({
+        id: `approval-${row.id}`,
+        kind: "approval",
+        issuer: row.issuer,
+        company,
+        what: `Doing what you approved at ${company}`,
+        quote: row.summary,
+        quoteBy: "agent",
+        since: row.created_at
+      });
+    }
+  }
+
+  // Sign-ins: type, scopes and outcome only.
+  for (const row of rows<SignInRow>(
+    sql,
+    "SELECT id, type, issuer, account, scopes, status, expires_at, created_at FROM poppy_signins"
+  )) {
+    const company = name(row.issuer);
+    const expired = (row.status === "pending" || row.status === "code") && row.expires_at <= now;
+    const result: ActivityResult = expired ? "expired" : (SIGN_IN_RESULT[row.status] ?? "unknown");
+    log.push({
+      id: `signin-${row.id}`,
+      at: row.created_at,
+      kind: "sign_in",
+      issuer: row.issuer,
+      company,
+      account: row.account === "default" ? null : row.account,
+      what: `Sign-in at ${company} ${SIGN_IN_WAY[row.type] ?? ""}`.trim(),
+      how: "sign_in",
+      access: accessOf(row.scopes),
+      decidedBy: result === "done" ? "you" : null,
+      result
+    });
+    if (row.type === "device" && row.status === "pending" && !expired) {
+      inProgress.push({
+        id: `signin-${row.id}`,
+        kind: "device_sign_in",
+        issuer: row.issuer,
+        company,
+        what: `Waiting for you to sign in at ${company} on another device`,
+        since: row.created_at,
+        until: row.expires_at,
+        stop: { type: "poppy.signin.cancel", signInId: row.id }
+      });
+    }
+  }
+
+  // Conversations with the Company's agent, and Direct Conversations.
+  const direct = new Set<string>();
+  for (const row of rows<ConversationRow>(
+    sql,
+    "SELECT id, issuer, direct, status, responder, last_event_at, created_at FROM poppy_conversations"
+  )) {
+    const company = name(row.issuer);
+    const open = row.status !== "closed";
+    if (row.direct) direct.add(row.id);
+    log.push({
+      id: `conversation-${row.id}`,
+      at: row.created_at,
+      kind: "conversation",
+      issuer: row.issuer,
+      company,
+      account: null,
+      what: row.direct ? `You talked with ${company} directly` : `Conversation with ${company}'s agent`,
+      how: row.direct ? "direct" : "company_agent",
+      access: null,
+      decidedBy: row.direct ? "you" : null,
+      result: open ? "in_progress" : "done"
+    });
+    if (open) {
+      inProgress.push({
+        id: `conversation-${row.id}`,
+        kind: "conversation",
+        issuer: row.issuer,
+        company,
+        what: row.direct ? `Your conversation with ${company}` : `Listening for replies from ${company}'s agent`,
+        note:
+          row.responder === "human"
+            ? `A person at ${company} is answering.`
+            : row.status === "working" || row.status === "queued"
+              ? `${company}'s agent is working on it.`
+              : `${company}'s agent is answering.`,
+        since: row.last_event_at,
+        stop: { type: "poppy.direct.close", conversationId: row.id }
+      });
+    }
+  }
+
+  // Messages we sent; context-only updates aren't news.
+  for (const row of rows<MessageRow>(
+    sql,
+    "SELECT id, issuer, conversation_id, body, created_at FROM poppy_messages ORDER BY created_at DESC LIMIT ?",
+    ACTIVITY_LOG_LIMIT
+  )) {
+    let body: { parent_conversation_id?: string; message?: { sender?: string; text?: unknown; data?: unknown } };
+    try {
+      body = JSON.parse(row.body);
+    } catch {
+      continue;
+    }
+    const message = body.message;
+    if (!message || (typeof message.text !== "string" && message.data === undefined)) continue;
+    const company = name(row.issuer);
+    const human = message.sender === "human";
+    const isDirect = human || !!body.parent_conversation_id || (row.conversation_id !== null && direct.has(row.conversation_id));
+    log.push({
+      id: `message-${row.id}`,
+      at: row.created_at,
+      kind: "message",
+      issuer: row.issuer,
+      company,
+      account: null,
+      what: human ? `You wrote to ${company}` : typeof message.text === "string" ? `Wrote to ${company}'s agent` : `Sent details to ${company}'s agent`,
+      ...(typeof message.text === "string" ? { quote: clip(message.text), quoteBy: human ? ("you" as const) : ("agent" as const) } : {}),
+      how: isDirect ? "direct" : "company_agent",
+      access: null,
+      decidedBy: null,
+      result: "done"
+    });
+  }
+
+  log.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));
+  inProgress.sort((a, b) => b.since - a.since || a.id.localeCompare(b.id));
+  return { type: "poppy.activity", inProgress, log: log.slice(0, ACTIVITY_LOG_LIMIT) };
+}
