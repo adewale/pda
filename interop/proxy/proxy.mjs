@@ -18,6 +18,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
+import zlib from "node:zlib";
 import { upstreamFor } from "./routing.mjs";
 
 const DIR = process.env.INTEROP_CERT_DIR ?? "/interop";
@@ -40,6 +41,25 @@ function headerList(headers) {
     for (const one of Array.isArray(value) ? value : [value]) list.push({ name, value: String(one) });
   }
   return list;
+}
+
+/**
+ * Undo Content-Encoding (workerd, for one, answers `br` when asked), so checks read the JSON the
+ * Company meant. An encoding that won't decode leaves the bytes as they came.
+ */
+function decode(buffer, encoding) {
+  const codings = String(encoding ?? "").split(",").map((item) => item.trim().toLowerCase()).filter((item) => item && item !== "identity");
+  try {
+    for (const coding of codings.reverse()) {
+      if (coding === "br") buffer = zlib.brotliDecompressSync(buffer);
+      else if (coding === "gzip" || coding === "x-gzip") buffer = zlib.gunzipSync(buffer);
+      else if (coding === "deflate") buffer = zlib.inflateSync(buffer);
+      else return buffer;
+    }
+  } catch {
+    // Keep the raw bytes.
+  }
+  return buffer;
 }
 
 /** Body text for HAR: UTF-8 when it decodes, else base64. */
@@ -108,7 +128,9 @@ function finishEntry(entry, started, status, headers, chunks) {
   entry.response.headers = headerList(headers);
   entry.response.redirectURL = String(headers.location ?? "");
   entry.response.bodySize = body.length;
-  entry.response.content = { size: body.length, mimeType: String(headers["content-type"] ?? ""), ...content(body) };
+  // HAR 1.2: content.text is the decoded body; bodySize stays the bytes on the wire.
+  const decoded = decode(body, headers["content-encoding"]);
+  entry.response.content = { size: decoded.length, mimeType: String(headers["content-type"] ?? ""), ...content(decoded) };
   entry._complete = true;
 }
 

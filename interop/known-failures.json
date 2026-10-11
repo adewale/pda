@@ -224,6 +224,440 @@
       "scenario": "RL",
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
       "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "dpa-mock",
+      "scenario": "D",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock's issuer is https://auth.dpa-mock.company.interop.test (draft 3.2 allows both)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "ilmer",
+      "scenario": "D",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "Ilmer is signed-out only, so its OAuth metadata has no authorization_endpoint; poppy-demo's discovery runs new URL(undefined) on it and throws (action_failed)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "adonis-agora",
+      "scenario": "D",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "dpa-mock",
+      "scenario": "S0",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock's issuer is https://auth.dpa-mock.company.interop.test (draft 3.2 allows both)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "ilmer",
+      "scenario": "S0",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "Ilmer is signed-out only, so its OAuth metadata has no authorization_endpoint; poppy-demo's discovery runs new URL(undefined) on it and throws (action_failed)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "adonis-agora",
+      "scenario": "S0",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "S0",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppy-demo",
+      "scenario": "S0",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "ilmer",
+      "scenario": "S0",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; ilmer requires it (S2 reading; Ilmer answers invalid_client)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "dpa-mock",
+      "scenario": "N",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock's issuer is https://auth.dpa-mock.company.interop.test (draft 3.2 allows both)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "adonis-agora",
+      "scenario": "N",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "N",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "dpa-mock",
+      "scenario": "SD",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock's issuer is https://auth.dpa-mock.company.interop.test (draft 3.2 allows both)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "adonis-agora",
+      "scenario": "SD",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "SD",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppy-demo",
+      "scenario": "SD",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "SV",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppyseed",
+      "scenario": "SV",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora uses the token endpoint as the client assertion aud at the device authorization endpoint; poppyseed requires the endpoint the assertion is sent to (S1: \"token-endpoint\" can't tell these readings apart)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "SM",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "SMC",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "dpa-mock",
+      "scenario": "SX",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock's issuer is https://auth.dpa-mock.company.interop.test (draft 3.2 allows both)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "adonis-agora",
+      "scenario": "SX",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "SX",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppy-demo",
+      "scenario": "SX",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "SXV",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppyseed",
+      "scenario": "SXV",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora uses the token endpoint as the client assertion aud at the device authorization endpoint; poppyseed requires the endpoint the assertion is sent to (S1: \"token-endpoint\" can't tell these readings apart)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "dpa-mock",
+      "scenario": "C",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock's issuer is https://auth.dpa-mock.company.interop.test (draft 3.2 allows both)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "ilmer",
+      "scenario": "C",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "Ilmer is signed-out only, so its OAuth metadata has no authorization_endpoint; poppy-demo's discovery runs new URL(undefined) on it and throws (action_failed)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "adonis-agora",
+      "scenario": "C",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "C",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppy-demo",
+      "scenario": "C",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "ilmer",
+      "scenario": "C",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; ilmer requires it (S2 reading; Ilmer answers invalid_client)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "CI",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppy-demo",
+      "scenario": "CI",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "ilmer",
+      "scenario": "CI",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; ilmer requires it (S2 reading; Ilmer answers invalid_client)."
+    },
+    {
+      "agent": "dpa",
+      "company": "adonis-agora",
+      "scenario": "CS",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-company/README.md",
+      "reason": "@adonis-agora/agent's SSE handler waits for the first event before sending headers, so a resumed stream on an idle conversation never answers; dpa's sse has no header deadline, so the control call never returns (HTTP 0)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "CS",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "dpa",
+      "company": "poppyseed",
+      "scenario": "CA",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppyseed-company/README.md",
+      "reason": "poppyseed returns a POST ?wait as soon as any event follows the cursor (or ignores it), with status working and no reply; the scenario expects the reply in the send result. Poppy 7.3 makes wait a hint, so CA should read with wait after the send, as C does."
+    },
+    {
+      "agent": "dpa",
+      "company": "adonis-agora",
+      "scenario": "CA",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-company/README.md",
+      "reason": "adonis-agora returns a POST ?wait as soon as any event follows the cursor (or ignores it), with status working and no reply; the scenario expects the reply in the send result. Poppy 7.3 makes wait a hint, so CA should read with wait after the send, as C does."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "dpa-mock",
+      "scenario": "CA",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock's issuer is https://auth.dpa-mock.company.interop.test (draft 3.2 allows both)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "poppyseed",
+      "scenario": "CA",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppyseed-company/README.md",
+      "reason": "poppyseed returns a POST ?wait as soon as any event follows the cursor (or ignores it), with status working and no reply; the scenario expects the reply in the send result. Poppy 7.3 makes wait a hint, so CA should read with wait after the send, as C does."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "adonis-agora",
+      "scenario": "CA",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "CA",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppy-demo",
+      "scenario": "CA",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "dpa-mock",
+      "scenario": "SO",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock's issuer is https://auth.dpa-mock.company.interop.test (draft 3.2 allows both)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "poppyseed",
+      "scenario": "SO",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppyseed answers revocation with 200 and an empty body (RFC 7009 allows it); the caller JSON.parses it and throws, so signout reports action_failed though the token was revoked."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "adonis-agora",
+      "scenario": "SO",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "SO",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppy-demo",
+      "scenario": "SO",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppyseed",
+      "scenario": "SO",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora uses the token endpoint as the client assertion aud at the revocation endpoint; poppyseed requires the endpoint the assertion is sent to (S1: \"token-endpoint\" can't tell these readings apart)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "SE",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "R",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "dpa-mock",
+      "scenario": "AO",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock's issuer is https://auth.dpa-mock.company.interop.test (draft 3.2 allows both)."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "adonis-agora",
+      "scenario": "AO",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "AO",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppy-demo",
+      "scenario": "AO",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "AM",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "dpa",
+      "company": "poppy-demo",
+      "scenario": "AS",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-company/README.md",
+      "reason": "dpa holds non-GET API calls for the User's approval at a Company without the Operations extension (src/poppy/apis.ts), so the write is never sent and no insufficient_scope comes back; the scenario has no approval step."
+    },
+    {
+      "agent": "dpa",
+      "company": "adonis-agora",
+      "scenario": "AS",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-company/README.md",
+      "reason": "dpa holds non-GET API calls for the User's approval at a Company without the Operations extension (src/poppy/apis.ts), so the write is never sent and no insufficient_scope comes back; the scenario has no approval step."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "AS",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "poppy-demo",
+      "scenario": "AS",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "dpa-mock",
+      "scenario": "RL",
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; dpa-mock requires it (S2 reading; mock violation client-assertion.typ)."
     }
   ]
 }

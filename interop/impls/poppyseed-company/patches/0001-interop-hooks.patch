@@ -1,0 +1,87 @@
+Interop only: two extra test hooks, on only with POPPYSEED_TEST_HOOKS=1 and POPPYSEED_INTEROP_HOOKS=1.
+interopEndAllSessions ends every Session the memory store has held (spec 5.3 end_sessions takes no id);
+interopConversation reads a conversation, so the adapter can find the operation the Company Agent proposed.
+
+diff --git a/fixtures/next-app/lib/reference.ts b/fixtures/next-app/lib/reference.ts
+--- a/fixtures/next-app/lib/reference.ts
++++ b/fixtures/next-app/lib/reference.ts
+@@ -1,8 +1,25 @@
+-import { memoryStore } from "poppyseed";
++import { memoryStore, type Store } from "poppyseed";
+ import { after } from "next/server";
+ import { referenceCompany, type Reference } from "poppyseed-reference";
+ 
+ /**
++ * Interop only (POPPYSEED_INTEROP_HOOKS=1): the memory store also remembers which Session
++ * ids it has held, so a test hook can end every Session. Off, the store is unchanged.
++ */
++const g0 = globalThis as { __poppyseedSessionIds?: Set<string> };
++export const sessionIds = (g0.__poppyseedSessionIds ??= new Set<string>());
++function interopStore(): Store {
++	const store = memoryStore();
++	if (process.env.POPPYSEED_INTEROP_HOOKS !== "1") return store;
++	const seen = (key: string) => key.startsWith("session:") && sessionIds.add(key.slice("session:".length));
++	return {
++		...store,
++		set: (key, value, options) => (seen(key), store.set(key, value, options)),
++		add: (key, value, options) => (seen(key), store.add(key, value, options)),
++	};
++}
++
++/**
+  * One reference company per server process. It lives on globalThis because
+  * Next.js may load route modules separately, and the in-memory store must be
+  * shared by every route.
+@@ -12,7 +29,7 @@
+ 	baseUrl: process.env.POPPYSEED_BASE_URL ?? "http://localhost:3100",
+ 	secret: process.env.POPPYSEED_SECRET,
+ 	// One long-lived `next start` process serves every request, so memory is shared state enough.
+-	store: memoryStore(),
++	store: interopStore(),
+ 	// Test agents serve their metadata from 127.0.0.1 over http.
+ 	allowInsecureClients: true,
+ 	// Keeps slow operations and Company Agent replies running after the response.
+diff --git a/fixtures/next-app/app/test-hooks/[hook]/route.ts b/fixtures/next-app/app/test-hooks/[hook]/route.ts
+--- a/fixtures/next-app/app/test-hooks/[hook]/route.ts
++++ b/fixtures/next-app/app/test-hooks/[hook]/route.ts
+@@ -1,4 +1,4 @@
+-import { reference } from "../../../lib/reference";
++import { reference, sessionIds } from "../../../lib/reference";
+ 
+ /**
+  * Company-side powers for the conformance suite (--hooks), only when
+@@ -10,16 +10,31 @@
+ const enabled = () => process.env.POPPYSEED_TEST_HOOKS === "1";
+ const { hooks, profile } = reference.target;
+ 
++/** Interop only (POPPYSEED_INTEROP_HOOKS=1, with test hooks on): end every Session; read a conversation. */
++const interop: Record<string, (...args: unknown[]) => Promise<unknown>> = {
++	async interopEndAllSessions() {
++		const ids = [...sessionIds];
++		for (const id of ids) await reference.company.endSession(id);
++		sessionIds.clear();
++		return ids.length;
++	},
++	interopConversation: async (id) => (await inbox?.get(String(id))) ?? null,
++};
++// The reference company offers conversations; its generic type doesn't say so.
++const inbox = reference.company.conversations as unknown as { get(id: string): Promise<unknown> } | undefined;
++const interopOn = () => enabled() && process.env.POPPYSEED_INTEROP_HOOKS === "1";
++
+ export async function GET(_request: Request, context: Context): Promise<Response> {
+ 	if (!enabled() || (await context.params).hook !== "hooks") return new Response("not found", { status: 404 });
+-	return Response.json({ hooks: Object.keys(hooks), profile });
++	return Response.json({ hooks: [...Object.keys(hooks), ...(interopOn() ? Object.keys(interop) : [])], profile });
+ }
+ 
+ export async function POST(request: Request, context: Context): Promise<Response> {
+ 	const { hook } = await context.params;
+-	if (!enabled() || !Object.hasOwn(hooks, hook)) return new Response("not found", { status: 404 });
++	const extra = interopOn() && Object.hasOwn(interop, hook);
++	if (!enabled() || !(Object.hasOwn(hooks, hook) || extra)) return new Response("not found", { status: 404 });
+ 	const { args = [] } = (await request.json()) as { args?: unknown[] };
+ 	// JSON arguments from the suite, passed through as they came.
+-	const call = hooks[hook as keyof typeof hooks] as (...args: unknown[]) => Promise<unknown>;
++	const call = (extra ? interop[hook] : hooks[hook as keyof typeof hooks]) as (...args: unknown[]) => Promise<unknown>;
+ 	return Response.json({ result: (await call(...args)) ?? null });
+ }
