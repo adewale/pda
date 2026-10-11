@@ -52,6 +52,22 @@
       "notes": "Signed-out only; wrangler dev without Workers AI, so replies are a fixed apology."
     },
     {
+      "name": "adonis-agora",
+      "role": "company",
+      "source": "https://github.com/DavideCarvalho/adonis-agora-authkit",
+      "commit": "97838853c44e55c5d4c71ac5741f26fc34f720dc",
+      "build": "interop/impls/adonis-agora-company",
+      "notes": "authkit-server 0.78.0 + @adonis-agora/agent 0.79.0 (Company conversations, agent commit e66a2329d436f603dd7c57a0ca81b36e65bd486f) in a minimal AdonisJS host; scripted model; allowInsecureClientIds on for private-network peers."
+    },
+    {
+      "name": "adonis-agora",
+      "role": "agent",
+      "source": "https://github.com/DavideCarvalho/adonis-agora-agent",
+      "commit": "e66a2329d436f603dd7c57a0ca81b36e65bd486f",
+      "build": "interop/impls/adonis-agora-agent",
+      "notes": "Drives packages/adonis/src/poppy-client directly; no model."
+    },
+    {
       "name": "ilmer-live",
       "role": "company",
       "source": "https://github.com/rbirkby/Ilmer.org",

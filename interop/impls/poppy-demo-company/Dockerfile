@@ -1,4 +1,5 @@
 # poppy-demo's Company ("Northstar", workers/receiver) under wrangler dev, plus the spec 5.3 adapter.
+# Nothing goes in /interop: the runner copies its CA there before the container starts.
 FROM node:22-bookworm-slim
 
 RUN apt-get update \
@@ -10,17 +11,18 @@ ARG COMMIT=02a9b304e92fdfee465c57f2822742eecac8bdc8
 WORKDIR /app
 RUN git clone --quiet "$UPSTREAM" . && git checkout --quiet "$COMMIT"
 
-COPY patches /interop/patches
-RUN git apply --verbose /interop/patches/*.patch
+COPY patches /interop-adapter/patches
+RUN git apply --verbose /interop-adapter/patches/*.patch
 RUN npm ci --no-audit --no-fund --loglevel=error
 
 COPY wrangler.interop.jsonc /app/workers/receiver/wrangler.interop.jsonc
-COPY adapter.mjs entrypoint.sh /interop/
+COPY adapter.mjs entrypoint.sh /interop-adapter/
 
+# INTEROP_DOMAIN (set by the runner) overrides COMPANY_HOST.
 ENV WRANGLER_SEND_METRICS=false \
     COMPANY_HOST=poppy-demo.company.interop.test \
     AGENT_HOST=poppy-demo.agent.interop.test \
     INTEROP_PEER_SUFFIX=.agent.interop.test \
-    INTEROP_COMMIT=02a9b30
+    INTEROP_COMMIT=02a9b304e92fdfee465c57f2822742eecac8bdc8
 EXPOSE 8080 8081
-CMD ["bash", "/interop/entrypoint.sh"]
+CMD ["bash", "/interop-adapter/entrypoint.sh"]

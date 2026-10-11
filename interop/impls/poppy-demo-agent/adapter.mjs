@@ -13,7 +13,8 @@ import { spawn } from 'node:child_process';
 import { rmSync } from 'node:fs';
 
 const SECRET = process.env.INTEROP_SECRET ?? '';
-const AGENT_ORIGIN = `https://${process.env.AGENT_HOST}`; // publishes /agent.json and /jwks.json
+const AGENT_HOST = process.env.INTEROP_DOMAIN ?? process.env.AGENT_HOST;
+const AGENT_ORIGIN = `https://${AGENT_HOST}`; // publishes /agent.json and /jwks.json
 const STATE = '/data/wrangler-state';
 const WORKER = 'http://127.0.0.1:8080';
 
@@ -24,7 +25,7 @@ const MANIFEST = {
   commit: process.env.INTEROP_COMMIT,
   poppy: ['0.1'],
   extensions: [],
-  scenarios: ['D', 'S0', 'N', 'SD', 'SX', 'SO', 'C', 'AO'],
+  scenarios: ['D', 'S0', 'N', 'SD', 'SX', 'SO', 'C', 'CA', 'AO'],
   // S1: client assertions name the endpoint they're sent to (token or revocation endpoint).
   // S3: OAuth metadata is fetched at `${auth.issuer}/.well-known/oauth-authorization-server`.
   // S4: signed-out Session requests carry no scope. Nonces are not cached (S23 n/a).
@@ -48,7 +49,7 @@ function startWorker(target) {
   company = target;
   visitor = undefined;
   const args = ['wrangler', 'dev', '-c', 'wrangler.interop.jsonc', '--ip', '0.0.0.0', '--port', '8080',
-    '--local-upstream', process.env.AGENT_HOST, '--upstream-protocol', 'https', '--persist-to', STATE, '--show-interactive-dev-session=false',
+    '--local-upstream', AGENT_HOST, '--upstream-protocol', 'https', '--persist-to', STATE, '--show-interactive-dev-session=false',
     '--var', `CALLER_ORIGIN:${AGENT_ORIGIN}`, '--var', `RECEIVER_ORIGIN:https://${target}`];
   child = spawn('npx', args, { cwd: '/app/workers/caller', stdio: 'inherit', detached: true });
   child.on('exit', code => { if (child && !child.stopping) console.error(`wrangler exited (${code})`); });
@@ -76,7 +77,9 @@ async function waitReady(ms = 180000) {
 let switching = Promise.resolve();
 async function useCompany(target) {
   await switching;
-  if (!target || target === company) return;
+  if (!target && child) return;
+  target ??= company ?? process.env.DEFAULT_COMPANY ?? 'poppy-demo.company.interop.test';
+  if (target === company && child) return;
   if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(target)) throw new AdapterError(400, 'bad_params', `company must be a host name, got ${target}`);
   switching = (async () => { await stopWorker(); startWorker(target); await waitReady(); })();
   await switching;
@@ -105,7 +108,7 @@ async function action(name, input = {}) {
     body: JSON.stringify({ ...input, action: name })
   });
   const body = await res.json().catch(() => ({ error: 'action_failed' }));
-  if (!res.ok || body.error) throw failure(body.error ?? 'action_failed', res.status);
+  if (!res.ok || body.error) throw failure(body.error ?? 'action_failed', res.status, name);
   return body;
 }
 async function newChat() {
@@ -115,11 +118,19 @@ async function newChat() {
   });
   if (!res.ok) throw new AdapterError(502, 'adapter_error', `caller /api/pi/new answered ${res.status}: ${await res.text()}`);
 }
-function failure(code, status) {
-  // A Poppy error the Company returned is a result, not an adapter error (5.2). Errors the caller
-  // raises itself (it refused a document, it wasn't ready) have no shape in 5.2; we report them
-  // as {ok: false, agent_error}.
-  return new Outcome(LOCAL.has(code) ? { ok: false, agent_error: code, status } : { ok: false, poppy_error: code, status });
+function failure(code, status, op) {
+  // A Poppy error the Company returned is a result, not an adapter error (5.2), and so is the
+  // agent's own refusal, with status 0. A discovery the caller won't use is `discovery_failed`
+  // whatever its reason (including the caller throwing on a document it didn't expect).
+  if (!LOCAL.has(code)) return new Outcome({ ok: false, poppy_error: code, status });
+  if (op === 'discover') return new Outcome({ ok: false, poppy_error: 'discovery_failed', status: 0, detail: `caller: ${code}` });
+  return new Outcome({ ok: false, poppy_error: code, status: 0, detail: `raised by the caller (HTTP ${status})` });
+}
+// The caller's UI makes the user discover and start a Session first; the steps don't.
+async function ready_to_talk() {
+  const s = await state();
+  if (!s.discovered) await action('discover');
+  if (!s.session_id) await action('start');
 }
 const conversation = (s, id) => (s.conversations ?? []).find(c => c.id === id);
 const messagesOf = events => events.filter(e => e.type === 'message' && e.message)
@@ -134,16 +145,18 @@ const ops = {
     return {
       issuer: d.auth?.issuer, poppy_version: d.protocol_version,
       conversations: Boolean(d.agent?.protocols?.some(p => p.type === 'poppy')),
-      apis: (d.apis ?? []).map(a => a.name ?? a.url)
+      apis: [...new Set((d.apis ?? []).map(a => a.type))]
     };
   },
   async session() {
-    const before = await state();
-    const s = await action(before.session_id ? 'new-session' : 'start');
+    // 'start' keeps the Session the caller already has, or starts a signed-out one.
+    if (!(await state()).discovered) await action('discover');
+    const s = await action('start');
     return { session_id: s.session_id, signed_in: s.signed_in, scope: s.scope };
   },
   async signin(p) {
     if ((p.method ?? 'direct') !== 'direct') unsupported('poppy-demo implements Direct Sign-In only');
+    await ready_to_talk();
     // The caller always asks for poppy:read poppy:write; a different p.scopes isn't honoured.
     const s = await action('signin');
     return { pending: { url: s.sign_in_url } };
@@ -155,8 +168,8 @@ const ops = {
     const res = await fetch(`${WORKER}/oauth/callback${cb.search}`, { redirect: 'manual', headers: { Cookie: await visitorCookie() } });
     if (res.status !== 303) {
       const code = (await res.text()).match(/<p>([^.<]+)\./)?.[1] ?? 'callback_failed';
-      // An `error` on the redirect (access_denied, ...) is the Company's answer.
-      if (cb.searchParams.get('error') === code) throw new Outcome({ ok: false, poppy_error: code, status: res.status });
+      // An `error` on the redirect (access_denied, ...): the agent stops the sign-in (status 0).
+      if (cb.searchParams.get('error') === code) throw new Outcome({ ok: false, poppy_error: code, status: 0 });
       throw failure(code, res.status);
     }
     const s = await state();
@@ -164,6 +177,7 @@ const ops = {
   },
   async send(p) {
     if (p.message_id) unsupported('the caller generates its own message ids, so a retry with a chosen id (CI) is not possible');
+    await ready_to_talk();
     // Without a conversation the caller continues its active one; its "New session" button
     // (/api/pi/new) clears that, so the next message starts a new conversation.
     if (!p.conversation && (await state()).active_conversation) await newChat();
@@ -179,7 +193,13 @@ const ops = {
     };
   },
   async read(p) {
-    const s = await action('events', { conversation: p.conversation });
+    // The caller reads events once, with no long poll. For `wait`, the adapter repeats the read
+    // (every 500 ms, up to `wait` seconds) while the conversation is still `working`.
+    let s = await action('events', { conversation: p.conversation });
+    for (const end = Date.now() + Number(p.wait ?? 0) * 1000; conversation(s, p.conversation)?.status === 'working' && Date.now() < end;) {
+      await new Promise(r => setTimeout(r, 500));
+      s = await action('events', { conversation: p.conversation });
+    }
     const c = conversation(s, p.conversation);
     const events = c?.events ?? [];
     const from = p.cursor ? events.findIndex(e => e.id === p.cursor) + 1 : 0;
@@ -188,13 +208,14 @@ const ops = {
   },
   async api(p) {
     // The caller knows exactly one API operation, Northstar's GET /api/orders.
-    if (p.operation !== 'listOrders') unsupported('the caller can call only Northstar\'s listOrders');
+    if (p.api !== 'openapi' || p.operation !== 'listOrders') unsupported('the caller can call only Northstar\'s listOrders (GET /api/orders)');
+    await ready_to_talk();
     const s = await action('orders');
     return { status: 200, body: s.orders };
   },
   async signout() {
     try { await action('revoke'); return { revoked: true }; }
-    catch (e) { if (e instanceof Outcome && e.body.agent_error === 'not_connected') return { revoked: false }; throw e; }
+    catch (e) { if (e instanceof Outcome && e.body.poppy_error === 'not_connected') return { revoked: false }; throw e; }
   },
   async state() {
     const s = await state();
@@ -219,11 +240,13 @@ http.createServer(async (req, res) => {
   const path = new URL(req.url, 'http://adapter').pathname;
   try {
     if (req.method === 'GET' && path === '/manifest') return send(res, 200, MANIFEST);
-    if (req.method === 'GET' && path === '/healthz') { await switching; return (await ready()) ? send(res, 200, { ok: true }) : send(res, 503, { error: 'starting', detail: 'wrangler dev not ready' }); }
+    if (req.method === 'GET' && path === '/healthz') { await switching; return (!child || await ready()) ? send(res, 200, { ok: true }) : send(res, 503, { error: 'starting', detail: 'wrangler dev not ready' }); }
     if (!SECRET || req.headers.authorization !== `Bearer ${SECRET}`) return send(res, 401, { error: 'unauthorized', detail: 'control requests need Authorization: Bearer $INTEROP_SECRET' });
     if (req.method === 'POST' && path === '/reset') {
       await switching;
-      switching = (async () => { await stopWorker(); rmSync(STATE, { recursive: true, force: true }); startWorker(process.env.DEFAULT_COMPANY ?? 'poppy-demo.company.interop.test'); await waitReady(); })();
+      // Stop and forget everything (a new key on the next start); the next step starts wrangler
+      // for its own Company, so a cell costs one start, not two.
+      switching = (async () => { await stopWorker(); rmSync(STATE, { recursive: true, force: true }); visitor = undefined; })();
       await switching; return send(res, 200, { ok: true });
     }
     if (req.method === 'POST' && path === '/step') {

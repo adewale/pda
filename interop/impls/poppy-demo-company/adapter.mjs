@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { rmSync } from 'node:fs';
 
 const SECRET = process.env.INTEROP_SECRET ?? '';
-const HOST = process.env.COMPANY_HOST;            // public name, e.g. poppy-demo.company.interop.test
+const HOST = process.env.INTEROP_DOMAIN ?? process.env.COMPANY_HOST; // e.g. poppy-demo.company.interop.test
 const ORIGIN = `https://${HOST}`;
 const AGENT = `https://${process.env.AGENT_HOST}`; // sibling agent; Northstar links to it
 const STATE = '/data/wrangler-state';
@@ -19,7 +19,7 @@ const MANIFEST = {
   commit: process.env.INTEROP_COMMIT,
   poppy: ['0.1'],
   extensions: [],
-  scenarios: ['D', 'S0', 'SD', 'SX', 'SO', 'C', 'CI', 'H', 'DC', 'AO', 'AS'],
+  scenarios: ['D', 'S0', 'SD', 'SX', 'SO', 'C', 'CI', 'CA', 'AO', 'AS'],
   readings: { S1: 'token-endpoint', S2: 'jwt-60s', S4: 'omit' },
   relaxations: [
     'INTEROP_PEER_SUFFIX=.agent.interop.test (patch 0001): admits any HTTPS client_id under *.agent.interop.test besides the sibling agent, fetched over the network rather than the CALLER service binding; its jwks_uri must share the client_id origin. Off (unset) by default.',
@@ -85,11 +85,16 @@ async function consent(url, decision, scopes) {
 const hooks = {
   approve_authorization: p => consent(p.url, 'approve', p.scopes),
   deny_authorization: p => consent(p.url, 'deny'),
-  // Northstar has one synthetic account and an OpenAPI description; no MCP, no Mediated or Device sign-in.
+  // Northstar has one synthetic account and an OpenAPI description whose two operations both need
+  // sign-in; no MCP, no Mediated or Device sign-in, no operations. Its replies are fixed: anything
+  // mentioning an order needs sign-in (an `authorization` event with sign_in_required).
   fixture: async () => ({
     accounts: ['demo-account'],
     scopes: ['poppy:read', 'poppy:write'],
-    openapi: { api: `${ORIGIN}/openapi.json`, operation: 'listOrders' }
+    openapi: { api: 'openapi', operation: 'listOrders', args: {} },
+    openapi_write: { api: 'openapi', operation: 'exchangeJacket', args: { body: { replacement_sku: 'stormline-insulated-m' } } },
+    prompts: { hello: 'What jackets do you have?', sign_in: 'Can you look up my order?' },
+    otp_account: null
   })
 };
 
@@ -115,8 +120,8 @@ http.createServer(async (req, res) => {
     const m = path.match(/^\/hooks\/([a-z_]+)$/);
     if (req.method === 'POST' && m) {
       if (!hooks[m[1]]) return send(res, 501, { error: 'unsupported', detail: `hook ${m[1]} is not supported by poppy-demo` });
-      const b = await body(req); const params = b.params ?? b; // 5.3 leaves the envelope open: accept {params} or the bare object
-      return send(res, 200, { ok: true, result: await hooks[m[1]](params) });
+      // Bare params in, bare result out, as the runner calls hooks.
+      return send(res, 200, await hooks[m[1]](await body(req)));
     }
     return send(res, 404, { error: 'not_found', detail: path });
   } catch (e) {
