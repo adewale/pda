@@ -8,7 +8,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 - **Running it under different readings.** Our conformance tests run under six readings of the questions below.
 - **Reading other implementations.** We read nine other implementations; their issues are in [poppy-issues.md](poppy-issues.md). Their disagreements are often the evidence for an issue here.
 - **A discovery-document validator** ([`src/validator/`](../src/validator)).
-- **An interop grid.** Our [harness](interop-spec.md) ran six agents against eight Companies from seven projects, in containers, through a recording proxy; [the results](interop-results/) are committed. Where two implementations that each pass alone fail together, the cause is usually one of the issues here, and the row says "Grid:".
+- **An interop grid.** Our [harness](interop-spec.md) ran six agents against eight Companies from seven projects, in containers, through a recording proxy; [a summary of the results](interop-results/README.md) is committed. Where two implementations that each pass alone fail together, the cause is usually one of the issues here, and the row says "Grid:".
 - **A full crawl of the site on 11 October 2026.**
   - The sitemap lists nine pages: home, overview, spec, extensions, Operations, guides, open topics, license, contributions.
   - There's no `llms.txt`, changelog or public source repository; the only copy of the source is in poppyseed.
@@ -101,6 +101,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | ID | Severity | Problem | Suggested fix | What we do |
 | --- | --- | --- | --- | --- |
 | <a id="n13"></a>N13 | Security | **The browser cookie is a bearer credential.** It isn't bound to a key, lives as long as the Session, and may be `SameSite=None`, so other pages in the agent's browser send it cross-site. `Lax` is enough for the POST, 303 and GET. | Require `Lax`; recommend short lifetimes. | One browser context per Session of each User, replaced with the Session; cookies host-only and sent only to that host, and no other site's pages load in it. |
+| <a id="n43"></a>N43 | Security | **Website actions have no approval step.** The Operations extension gives an API write a propose-and-confirm step the User approves, but once the agent's browser joins the Session (5) it can submit any form on the Company's website (place an order, change an address, cancel a plan) and nothing in the draft says which submissions are consequential or that the User must approve them. An agent that gates API writes can be routed around through the website, and a Company can't tell an approved submission from an unapproved one. | Say that a Personal Agent MUST get the User's approval before a website submission that a write through the Company's API would need approved, or let a Company mark forms (or URLs) as consequential, or route them through Operations by returning a proposal instead of acting. | Every form submission waits for the User's approval on a card listing exactly what will be sent, and exactly that is sent; `click` follows links only, so it can't submit a form. |
 
 ## APIs (6)
 

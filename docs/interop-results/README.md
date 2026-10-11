@@ -1,18 +1,18 @@
 # Interop grid results
 
-A copy of one run of the [interop harness](../../interop/README.md), so the grid can be read without running it:
+A snapshot: the summary of one run of the [interop harness](../../interop/README.md), on 11 October 2026. It isn't regenerated, so it goes stale as the code changes. The full results (`results.json`, the `index.html` grid and a HAR file per cell) aren't committed. To get them:
 
-- [`results.json`](results.json): every cell's outcome, blame, rule, steps and checks ([interop spec](../interop-spec.md) section 9).
-- [`index.html`](index.html): the same as one grid per scenario. Its links to each cell's HAR point at files that aren't committed (they hold every request and response of the run).
+- **Run the grid locally** (needs Docker): `npm run interop` with the command below, or `npm run interop -- --agents dpa --companies dpa-mock,dpa-mock-strict` for our own pair. Each run writes to `interop/results/<run>/` (gitignored); [interop spec](../interop-spec.md) section 9 describes the files.
+- **Download CI's**: the Interop workflow (`.github/workflows/interop.yml`) runs our agent against both of our mocks and uploads the `interop-results` artifact from each run.
 
-The run, on 11 October 2026 (`2026-10-11T20:18:42Z`), local lane:
+The command, run at `2026-10-11T20:18:42Z` on the local lane:
 
 ```sh
 npm run interop -- --no-build --agents dpa,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora \
   --companies dpa-mock,dpa-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,adonis-agora
 ```
 
-Our implementations are at `18cbaa6` (the images were not rebuilt; `src/`, the mock and our adapters are unchanged since, and `results.json` records `04c2471-dirty`, the runner's own uncommitted retry, cleanup and attribution changes); Datalayer at `12d71877`, pi-poppy at `11ea1063`, poppy-demo at `02a9b304`, poppyseed at `f479fb6b`, Ilmer at `4ca76e00`, adonis-agora's Company at `97838853` and its agent at `e66a2329`. 1,242 cells: 659 pass, 143 fail, 440 unsupported, 0 errors. Every failed cell was run a second time and failed again, so no cell was flaky. Every failure is a known upstream or spec failure, and no known failure was stale (each matched a failed cell), so the run exits 0.
+Our implementations are at `18cbaa6` (the images were not rebuilt; `src/`, the mock and our adapters were unchanged since, and the run's `results.json` recorded `04c2471-dirty`, the runner's own uncommitted retry, cleanup and attribution changes); Datalayer at `12d71877`, pi-poppy at `11ea1063`, poppy-demo at `02a9b304`, poppyseed at `f479fb6b`, Ilmer at `4ca76e00`, adonis-agora's Company at `97838853` and its agent at `e66a2329`. 1,242 cells: 659 pass, 143 fail, 440 unsupported, 0 errors. Every failed cell was run a second time and failed again, so no cell was flaky. Every failure is a known upstream or spec failure, and no known failure was stale (each matched a failed cell), so the run exits 0.
 
 Pass / fail / unsupported, by agent (rows) and Company (columns), over 23 scenarios:
 

@@ -1,10 +1,13 @@
-# Types, tests and the docs check on every push and pull request.
+# Types, tests and the docs check on pushes to main and on pull requests
+# (a branch with an open pull request runs once, as the pull request).
 # The tests need no secrets: the Vitest config generates fresh keys, and
 # Google, GitHub, the model and Companies are all faked. Nothing deploys here.
+# The Docker interop grid is its own workflow, interop.yml.
 name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -39,30 +42,5 @@ jobs:
 
       - run: npm test
 
-      # Appendix A's test names and the docs' test counts match the suite.
+      # Every test Appendix A and docs/adversarial-interop.md name exists.
       - run: npm run check:docs
-
-  # The interop grid for our own pair: our agent against our mock
-  # Company, lenient and strict, in containers behind the recording proxy (interop/).
-  interop:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.x
-          cache: npm
-
-      - run: npm ci --legacy-peer-deps
-
-      - run: npm run interop -- --agents dpa --companies dpa-mock,dpa-mock-strict
-
-      - name: Upload the grid, HAR files and container logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: interop-results
-          path: interop/results/
-          if-no-files-found: ignore

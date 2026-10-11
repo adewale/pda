@@ -1,0 +1,60 @@
+# The interop grid for our own pair: our agent against our mock Company,
+# lenient and strict, in containers behind the recording proxy (interop/).
+# Docker makes it slow, so it runs on pushes to main and on pull requests
+# only when something the grid builds or runs has changed: the Poppy client
+# (and the config error it imports), the validator, the mock Company, the
+# harness, the dependencies, or this file.
+name: Interop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/poppy/**"
+      - "src/validator/**"
+      - "src/config.ts"
+      - "test/mock-company/**"
+      - "interop/**"
+      - "package*.json"
+      - ".github/workflows/interop.yml"
+  # The same paths as for push.
+  pull_request:
+    paths:
+      - "src/poppy/**"
+      - "src/validator/**"
+      - "src/config.ts"
+      - "test/mock-company/**"
+      - "interop/**"
+      - "package*.json"
+      - ".github/workflows/interop.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: interop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  interop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm run interop -- --agents dpa --companies dpa-mock,dpa-mock-strict
+
+      - name: Upload the grid, HAR files and container logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interop-results
+          path: interop/results/
+          if-no-files-found: ignore

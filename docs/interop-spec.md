@@ -262,7 +262,7 @@ The runner also writes `index.html`: the grid, one table per scenario with agent
 
 ## 11. One-sided vectors
 
-Hardening cases that need no peer (SSRF, duplicate JSON members, redirects on `client_id`, malformed documents) stay as pirate vectors in `interop/vectors/`, using Datalayer's schema (`id`, `kind`, `role`, `requirements`, `check`, `input`, `expect`). `validator.json` holds our validator's fixtures (a document's text, or the responses a fake network served, and the message ids expected); `mock-company.json` holds the mock Company's tamper rows (what an agent got wrong, and the check a strict Company names for it). Both are generated from the tests (`npm run interop:vectors`), and the tests fail while they are stale.
+Hardening cases that need no peer (SSRF, duplicate JSON members, redirects on `client_id`, malformed documents) stay out of the grid, as one-sided tests: our validator's fixtures in `test/validator.test.ts` and the mock Company's tamper rows in `test/mock-company.test.ts`. Version 1 of this document also exported both as language-neutral vectors in `interop/vectors/`, in Datalayer's schema (`id`, `kind`, `role`, `requirements`, `check`, `input`, `expect`), to seed a shared vectors repository. That repository was never made and nothing consumed the files, so they and the tests that kept them current were removed. The other direction remains: `interop/vectors/datalayer/run.mjs` runs Datalayer's cases, in that schema, against our client and validator.
 
 ## 12. Versioning
 
