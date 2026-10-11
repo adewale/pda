@@ -28,6 +28,6 @@
     "GITHUB_CLIENT_SECRET": "github-test-secret",
     "PUBLIC_ORIGIN": "https://agent.test",
     "POPPY_CLIENT_NAME": "Test Personal Agent",
-    "POPPY_LOGO_URI": "https://agent.test/logo.png"
+    "POPPY_LOGO_URI": "https://agent.test/logo.svg"
   }
 }

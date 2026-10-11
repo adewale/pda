@@ -16,6 +16,7 @@ import {
   PaperPlaneRightIcon,
   SignOutIcon,
   StopIcon,
+  StorefrontIcon,
   SunIcon,
   XCircleIcon
 } from "@phosphor-icons/react";
@@ -23,6 +24,7 @@ import { code } from "@streamdown/code";
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Streamdown } from "streamdown";
+import { DirectConversations, PoppyCards, PoppySettings } from "./poppy-ui";
 import type { TranscriptMessage, TranscriptPart } from "./protocol";
 import { usePiSession } from "./use-pi-session";
 import "./styles.css";
@@ -417,8 +419,11 @@ function Chat({
   provider: "google" | "github";
 }) {
   const [prompt, setPrompt] = useState("");
+  const [companiesOpen, setCompaniesOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const {
+    poppy,
+    sendPoppy,
     status,
     messages,
     live,
@@ -434,7 +439,7 @@ function Chat({
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, live, running]);
+  }, [messages, live, running, poppy.cards, poppy.direct]);
 
   const connected = status === "open";
 
@@ -449,7 +454,11 @@ function Chat({
   const empty = messages.length === 0 && !live && !running;
 
   return (
-    <div className="grid h-dvh grid-cols-1 overflow-hidden bg-kumo-elevated text-kumo-default">
+    <div
+      className={`grid h-dvh overflow-hidden bg-kumo-elevated text-kumo-default ${
+        companiesOpen ? "lg:grid-cols-[minmax(480px,1fr)_minmax(300px,26vw)]" : "grid-cols-1"
+      }`}
+    >
       <section className="flex min-h-0 min-w-0 flex-col" aria-label="Chat">
         <header className="shrink-0 border-b border-kumo-line bg-kumo-base">
           <div className="mx-auto flex h-[68px] max-w-3xl items-center justify-between gap-3 px-4 sm:px-5">
@@ -478,6 +487,14 @@ function Chat({
                     ? "Connecting"
                     : "Reconnecting"}
               </Badge>
+              <Button
+                variant="ghost"
+                shape="square"
+                aria-label="Companies"
+                aria-expanded={companiesOpen}
+                onClick={() => setCompaniesOpen((open) => !open)}
+                icon={<StorefrontIcon size={16} />}
+              />
               <ModeToggle />
               <SignOutButton />
             </div>
@@ -542,6 +559,9 @@ function Chat({
                 {queued} queued behind this run
               </p>
             ) : null}
+
+            <PoppyCards view={poppy} send={sendPoppy} />
+            <DirectConversations view={poppy} send={sendPoppy} />
 
             {error ? (
               <div
@@ -627,6 +647,9 @@ function Chat({
           </div>
         </div>
       </section>
+      {companiesOpen ? (
+        <PoppySettings view={poppy} send={sendPoppy} onClose={() => setCompaniesOpen(false)} />
+      ) : null}
     </div>
   );
 }
