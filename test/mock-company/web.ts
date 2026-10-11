@@ -152,6 +152,17 @@ export class Web {
       if (error instanceof HttpError) return page("browser-assertion.unknown-agent", "unknown Personal Agent");
       throw error;
     }
+    // Signed like the assertion that starts a Session (5, 4.2), so checked like one (Guides).
+    if (!header.alg || !["ES256", "RS256"].includes(header.alg)) {
+      return page("browser-assertion.alg", `alg ${String(header.alg)} is not allowed`);
+    }
+    // Guides: ignore jku, x5u and any embedded key; verify only with the jwks_uri keys.
+    if (header.jku || header.x5u || header.x5c || header.jwk) {
+      co.violation("browser-assertion.embedded-key", "browser session: assertion embeds or points to a key (jku/x5u/x5c/jwk)");
+    }
+    if (co.config.strictAssertions && (!header.kid || !client.jwks.keys.some((key) => key.kid === header.kid))) {
+      return page("browser-assertion.kid", `strict Company: kid ${JSON.stringify(header.kid)} names no published key`);
+    }
     try {
       await jwtVerify(assertion, createLocalJWKSet(client.jwks), {
         algorithms: ["ES256", "RS256"],
@@ -164,7 +175,14 @@ export class Web {
     if (Array.isArray(claims.aud) || claims.aud !== co.hosts.browserSessionEndpoint) {
       return page("browser-assertion.aud", `aud ${JSON.stringify(claims.aud)}`);
     }
-    if (typeof claims.iat !== "number" || typeof claims.exp !== "number" || claims.exp - claims.iat > 60) {
+    if (typeof claims.iat !== "number" || typeof claims.exp !== "number") {
+      return page("browser-assertion.iat-exp-missing", "iat and exp are required");
+    }
+    // Guides: check iat, allowing a small clock skew. Assertions carry the agent's real time.
+    if (claims.iat > Math.floor(Date.now() / 1000) + 30) {
+      return page("browser-assertion.iat-future", `iat ${claims.iat} is in the future`);
+    }
+    if (claims.exp - claims.iat > 60) {
       return page("browser-assertion.lifetime", "exp must be no more than 60 seconds after iat");
     }
     // freshJti records the violation.

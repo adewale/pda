@@ -93,6 +93,7 @@ export const VIOLATIONS = {
   "dpop.ath": "DPoP proof ath isn't the hash of the token sent",
   "dpop.nonce-ignored": "DPoP proof without the nonce this key already used at this server",
   "dpop.key-mismatch": "DPoP proof key isn't the key the token is bound to",
+  "dpop.key-shared": "One DPoP key used for two User IDs (4.3: a key pair for each User at each Company)",
 
   // ---- Session Tokens on resources (4.3, 6) ----
   "resource.no-token": "API, conversation or operations request without a Session Token",
@@ -134,6 +135,7 @@ export const VIOLATIONS = {
   "device.no-session-id": "Device code exchanged without session_id",
   "mediated.missing-field": "Mediated Sign-In without a field the Company asked for",
   "mediated.credentials-with-code": "Credentials resent with the one-time code (4.7)",
+  "mediated.code-other-session": "One-time code submitted from a Session other than the one that started the sign-in (4.7)",
 
   // ---- Browser join (5) ----
   "browser-assertion.in-url": "Browser assertion sent in the URL",
@@ -142,6 +144,11 @@ export const VIOLATIONS = {
   "browser-assertion.missing": "Browser join without an assertion",
   "browser-assertion.not-jwt": "Browser assertion is not a JWT",
   "browser-assertion.typ": "Browser assertion typ isn't poppy-browser+jwt",
+  "browser-assertion.alg": "Browser assertion alg isn't ES256 or RS256",
+  "browser-assertion.embedded-key": "Browser assertion embeds or points to a key (jku, x5u, x5c, jwk)",
+  "browser-assertion.kid": "Strict Company: browser assertion kid names no published key",
+  "browser-assertion.iat-exp-missing": "Browser assertion without iat or exp",
+  "browser-assertion.iat-future": "Browser assertion iat is in the future, beyond clock skew",
   "browser-assertion.no-iss": "Browser assertion without iss",
   "browser-assertion.unknown-agent": "Browser assertion iss isn't a client_id the Company can load",
   "browser-assertion.signature": "Browser assertion doesn't verify, or has expired",
@@ -169,11 +176,14 @@ export const VIOLATIONS = {
   "context.time-zone": "context.time_zone isn't an IANA name",
   "context.user-available": "context.user_available isn't a boolean",
   "direct.agent-words": "Direct Conversation opened with words not marked as the User's",
+  "direct.agent-words-later": "The agent's own words sent into an open Direct Conversation (7.10; S12)",
   "handoff.body": "Handoff body isn't {}",
   "close.body": "Close body isn't {}",
 
   // ---- Operations extension ----
   "confirm.approved-by": "Confirm without approved_by user or standing_permission",
+  "confirm.revision": "Confirm without the revision number the User approved (Ops 5.2)",
+  "proposal.while-open": "A new proposal asked for while the confirmed operation for the same action isn't final (Ops 6)",
   "confirm.standing-permission-overrides-user": "Confirmed under a standing permission when user_approval_required is true"
 } as const;
 

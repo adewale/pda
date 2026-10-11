@@ -192,6 +192,8 @@ export class Company {
   #stampedNow: number | null = null;
   readonly clients = new Map<string, ClientInfo>();
   readonly userIds = new Set<string>();
+  /** The User each DPoP key was first bound for, by thumbprint: a key pair for each User (4.3). */
+  readonly dpopKeyUsers = new Map<string, { clientId: string; userId: string }>();
   readonly sessions = new Map<string, Session>();
   readonly accessTokens = new Map<string, AccessToken>();
   /** Latest token issued per Session and kind/resource, with when. */
@@ -778,11 +780,25 @@ export class Company {
     return session;
   }
 
+  /**
+   * "The Personal Agent generates a key pair for each User at each Company"
+   * (4.3): not a MUST, so recorded and the token still issued.
+   */
+  #checkKeyUser(jkt: string, session: Session): void {
+    const first = this.dpopKeyUsers.get(jkt);
+    if (!first) {
+      this.dpopKeyUsers.set(jkt, { clientId: session.clientId, userId: session.userId });
+    } else if (first.clientId !== session.clientId || first.userId !== session.userId) {
+      this.violation("dpop.key-shared", `DPoP key ${jkt} used for User ${session.userId} after User ${first.userId}`);
+    }
+  }
+
   issueAccess(
     session: Session,
     binding: { jkt: string | null; resource: string | null },
     scope: readonly string[]
   ): AccessToken {
+    if (binding.jkt) this.#checkKeyUser(binding.jkt, session);
     const now = Date.now();
     const token: AccessToken = {
       value: randomId("at_", 24),

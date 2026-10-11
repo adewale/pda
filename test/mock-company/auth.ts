@@ -615,6 +615,10 @@ export class AuthServer {
     co.rateLimit("other", inbound);
     const context = await co.authorizeResource(inbound);
     const signIn = this.#mediated.get(signInId);
+    // "Only the Session that started a sign-in can finish it" (4.7).
+    if (signIn && !signIn.finished && signIn.sessionId !== context.session.id) {
+      co.violation("mediated.code-other-session", `one-time code for ${signIn.id} submitted from another Session`);
+    }
     if (!signIn || signIn.sessionId !== context.session.id || signIn.finished) {
       return json({ error: "not_found" }, 404);
     }
