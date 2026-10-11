@@ -551,7 +551,10 @@ export async function main(argv: readonly string[]): Promise<number> {
     rmSync(certs, { recursive: true, force: true });
   }
 
-  const readings = Object.fromEntries(implementations.map((impl) => [impl.entry.name, { ...(impl.manifest?.readings ?? {}) }]));
+  // By role: a project with both sides has one name in each, and its two sides may read differently.
+  const byRole = (role: "agent" | "company") =>
+    Object.fromEntries(implementations.filter((impl) => impl.entry.role === role).map((impl) => [impl.entry.name, { ...(impl.manifest?.readings ?? {}) }]));
+  const readings = { agent: byRole("agent"), company: byRole("company") };
   attributeAll(cells, { readings, scenarios: new Map(scenarios.map((scenario) => [scenario.id, scenario])), known });
   const summary = {
     interop: 1,

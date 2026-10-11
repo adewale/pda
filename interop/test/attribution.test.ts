@@ -11,7 +11,7 @@ function cell(agent: string, company: string, outcome: Outcome, checks: Check[] 
 }
 
 const scenarios = new Map<string, Scenario>([["SD", { id: "SD", title: "Direct", readings: ["S1", "S2"], steps: [] }]]);
-const none = { readings: {}, scenarios };
+const none = { readings: { agent: {}, company: {} }, scenarios };
 
 describe("attribution", () => {
   it("rule 1: errors on one side blame that side; on both, it falls through", () => {
@@ -40,19 +40,30 @@ describe("attribution", () => {
   });
 
   it("rule 3: incompatible readings of a question the scenario depends on blame the spec", () => {
-    const readings = { a: { S2: "any" }, c: { S2: "jwt-60s" } };
+    const readings = { agent: { a: { S2: "any" } }, company: { c: { S2: "jwt-60s" } } };
     expect(attribute(cell("a", "c", "fail"), [], { readings, scenarios })).toMatchObject({ blame: "spec", rule: "reading" });
     expect(attribute(cell("a", "c", "fail", [], "C"), [], { readings, scenarios }).rule).toBe("unattributed");
+  });
+
+  it("reads each side's readings under its own role, where one name has both", () => {
+    // adonis-agora's agent reads S1 token-endpoint; its Company accepts either.
+    const readings = { agent: { "adonis-agora": { S1: "token-endpoint" } }, company: { "adonis-agora": { S1: "either" }, poppyseed: { S1: "endpoint" } } };
+    expect(attribute(cell("adonis-agora", "poppyseed", "fail"), [], { readings, scenarios })).toEqual({
+      blame: "spec",
+      rule: "reading",
+      detail: "S1: adonis-agora reads token-endpoint, poppyseed reads endpoint"
+    });
+    expect(attribute(cell("adonis-agora", "adonis-agora", "fail"), [], { readings, scenarios }).rule).toBe("unattributed");
   });
 
   it("rule 3, before rule 1: a Company-recorded error that is exactly a declared reading difference", () => {
     // A strict Company refuses a typ-less Session assertion; the agent declared S2 any.
     const typ: Check = { id: "session-assertion.typ", side: "agent", severity: "error", exchange: null, detail: "typ", source: "company:dpa-mock-strict" };
-    const readings = { "pi-poppy": { S2: "any" }, "dpa-mock-strict": { S2: "jwt-60s" }, "dpa-mock": { S2: "any" } };
+    const readings = { agent: { "pi-poppy": { S2: "any" } }, company: { "dpa-mock-strict": { S2: "jwt-60s" }, "dpa-mock": { S2: "any" } } };
     const strict = cell("pi-poppy", "dpa-mock-strict", "fail", [typ], "C");
     expect(attribute(strict, [strict], { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S2: pi-poppy reads any, dpa-mock-strict reads jwt-60s" });
     // An agent that declared jwt-60s and sent no typ broke its own word: a violation.
-    expect(attribute(strict, [strict], { readings: { ...readings, "pi-poppy": { S2: "jwt-60s" } }, scenarios })).toEqual({ blame: "agent", rule: "violation" });
+    expect(attribute(strict, [strict], { readings: { ...readings, agent: { "pi-poppy": { S2: "jwt-60s" } } }, scenarios })).toEqual({ blame: "agent", rule: "violation" });
     // Another error beside it is still a violation, by the side that made it.
     const both = cell("pi-poppy", "dpa-mock-strict", "fail", [typ, error("agent")], "C");
     expect(attribute(both, [both], { readings, scenarios })).toEqual({ blame: "agent", rule: "violation" });
@@ -185,13 +196,17 @@ describe("reading compatibility", () => {
 
   it("rule 3, before rule 2: a refusal the Company's declared reading explains, between incompatible readings", () => {
     const s1: Check = { id: "reading.S1.refused", side: "agent", severity: "warning", exchange: 2, detail: "", source: "trace" };
-    const readings = { "adonis-agora": { S1: "token-endpoint" }, poppyseed: { S1: "endpoint" }, "dpa-mock": { S1: "either" }, dpa: { S1: "endpoint" } };
+    // adonis-agora's Company, under the same name, reads S1 either: it mustn't stand in for the agent.
+    const readings = {
+      agent: { "adonis-agora": { S1: "token-endpoint" }, dpa: { S1: "endpoint" } },
+      company: { "adonis-agora": { S1: "either" }, poppyseed: { S1: "endpoint" }, "dpa-mock": { S1: "either" } }
+    };
     const target = cell("adonis-agora", "poppyseed", "fail", [s1], "SV");
     // The grid would blame the agent: it fails SV everywhere, and poppyseed passes it with dpa.
     const grid = [target, cell("adonis-agora", "dpa-mock", "fail", [], "SV"), cell("dpa", "poppyseed", "pass", [], "SV")];
     expect(attribute(target, grid, { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S1: adonis-agora reads token-endpoint, poppyseed reads endpoint" });
     // Compatible readings (the agent broke its own word): the refusal decides nothing.
-    expect(attribute(target, grid, { readings: { ...readings, "adonis-agora": { S1: "endpoint" } }, scenarios })).toMatchObject({ blame: "agent", rule: "grid" });
+    expect(attribute(target, grid, { readings: { ...readings, agent: { ...readings.agent, "adonis-agora": { S1: "endpoint" } } }, scenarios })).toMatchObject({ blame: "agent", rule: "grid" });
     // A one-sided error still decides by rule 1.
     const both = cell("adonis-agora", "poppyseed", "fail", [s1, error("agent")], "SV");
     expect(attribute(both, [both], { readings, scenarios })).toEqual({ blame: "agent", rule: "violation" });

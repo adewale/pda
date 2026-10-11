@@ -23,7 +23,12 @@ import type { Blame, Cell, Check, KnownFailure, Rule, Scenario } from "./types.t
 
 export const REFERENCE_COMPANY = "dpa-mock";
 
-export type Readings = Readonly<Record<string, Readonly<Record<string, string>>>>;
+/**
+ * Each implementation's declared readings, by role, then name: a project with
+ * both sides (adonis-agora, pi-poppy) registers one name per role, and its
+ * agent and Company may read a question differently.
+ */
+export type Readings = Readonly<Record<"agent" | "company", Readonly<Record<string, Readonly<Record<string, string>>>>>>;
 
 export type Verdict = { readonly blame: Blame; readonly rule: Rule; readonly detail?: string };
 
@@ -38,7 +43,10 @@ export function attribute(
   if (cell.outcome !== "fail") return { blame: null, rule: null };
   const reference = context.reference ?? REFERENCE_COMPANY;
 
-  const readingOf = (question: string) => ({ agent: context.readings[cell.agent]?.[question], company: context.readings[cell.company]?.[question] });
+  const readingOf = (question: string) => ({
+    agent: context.readings.agent[cell.agent]?.[question],
+    company: context.readings.company[cell.company]?.[question]
+  });
   const reading = (question: string): Verdict => {
     const { agent, company } = readingOf(question);
     return { blame: "spec", rule: "reading", detail: `${question}: ${cell.agent} reads ${agent}, ${cell.company} reads ${company}` };
