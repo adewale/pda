@@ -92,12 +92,15 @@ export function CompanySays({ company, children, className }: { company: string;
 
 /** One request waiting for the User. Primary action last, at the right. */
 function CardFrame({
+  domain,
   icon,
   title,
   meta,
   children,
   actions
 }: {
+  /** The Company's verified domain, under its self-chosen name (N14). */
+  domain: string | undefined;
   icon: ReactNode;
   title: string;
   meta?: ReactNode;
@@ -115,6 +118,13 @@ function CardFrame({
           <h3 id={id} className="text-base font-semibold text-balance text-kumo-strong">
             {title}
           </h3>
+          {domain ? (
+            <p className="mt-0.5 text-[13px] text-kumo-subtle">
+              <code className="font-mono break-all" title="The Company's verified domain">
+                {domain}
+              </code>
+            </p>
+          ) : null}
           {meta ? <div className="mt-0.5 text-[13px] text-kumo-subtle">{meta}</div> : null}
           <div className="mt-3 space-y-3">{children}</div>
         </div>
@@ -132,6 +142,7 @@ function CredentialsCard({ card, send }: { card: Extract<Card, { kind: "signin_c
   const formId = useId();
   return (
     <CardFrame
+      domain={card.domain}
       icon={<KeyIcon size={16} />}
       title={`Sign in to ${card.company}`}
       meta="Your details go straight to the Company. Your agent's model never sees them, and they aren't stored."
@@ -180,6 +191,7 @@ function CodeCard({ card, send }: { card: Extract<Card, { kind: "signin_code" }>
   const formId = useId();
   return (
     <CardFrame
+      domain={card.domain}
       icon={<KeyIcon size={16} />}
       title={`Enter the code from ${card.company}`}
       actions={
@@ -221,6 +233,7 @@ function DeviceCard({ card, send }: { card: Extract<Card, { kind: "signin_device
   const left = card.expiresAt - now;
   return (
     <CardFrame
+      domain={card.domain}
       icon={<DeviceMobileIcon size={16} />}
       title={`Sign in to ${card.company} on any device`}
       actions={
@@ -262,6 +275,7 @@ function OperationCard({ card, send }: { card: Extract<Card, { kind: "operation"
     send({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision });
   return (
     <CardFrame
+      domain={card.domain}
       icon={<HandIcon size={16} />}
       title={`Approve this at ${card.company}?`}
       meta={
@@ -305,6 +319,7 @@ function DirectInvite({ card, send }: { card: Extract<Card, { kind: "direct_invi
   const empty = !text.trim();
   return (
     <CardFrame
+      domain={card.domain}
       icon={<UsersIcon size={16} />}
       title={`Talk to ${card.company} yourself?`}
       actions={
@@ -339,6 +354,7 @@ function SignInLinkCard({ card, send }: { card: Extract<Card, { kind: "signin_li
   const href = httpsHref(card.url);
   return (
     <CardFrame
+      domain={card.domain}
       icon={<SignInIcon size={16} />}
       title={`Sign in to ${card.company}`}
       meta="You sign in on the Company's own page. Your agent never sees your password."
@@ -365,6 +381,7 @@ function SignInLinkCard({ card, send }: { card: Extract<Card, { kind: "signin_li
 function ApprovalCard({ card, send }: { card: Extract<Card, { kind: "approval" }>; send: Send }) {
   return (
     <CardFrame
+      domain={card.domain}
       icon={<HandIcon size={16} />}
       title={`Approve this at ${card.company}?`}
       meta="View and change · Nothing happens unless you approve"

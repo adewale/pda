@@ -124,6 +124,7 @@ async function showOperation(client: PoppyClient, company: Company, row: Operati
     id: `op-${row.issuer}-${operation.operation_id}`,
     kind: "operation",
     company: company.name,
+    domain: company.domain,
     open,
     issuer: row.issuer,
     operationId: operation.operation_id,
@@ -547,7 +548,7 @@ export async function proposeLocal(
     JSON.stringify({ kind, request }),
     Date.now()
   );
-  await client.host.showCard({ id: `approval-${id}`, kind: "approval", company: company.name, open: true, approvalId: id, summary, status: "pending" });
+  await client.host.showCard({ id: `approval-${id}`, kind: "approval", company: company.name, domain: company.domain, open: true, approvalId: id, summary, status: "pending" });
   return id;
 }
 
@@ -562,6 +563,7 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
       id: `approval-${id}`,
       kind: "approval",
       company: company.name,
+      domain: company.domain,
       open: false,
       approvalId: id,
       summary: row.summary,

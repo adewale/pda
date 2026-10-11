@@ -331,6 +331,7 @@ async function handleEvent(
         id: `direct-invite-${row.id}`,
         kind: "direct_invite",
         company: company.name,
+        domain: company.domain,
         open: true,
         conversationId: row.id,
         reason
@@ -418,6 +419,7 @@ export async function readConversation(
             id: `cursor-expired-${id}`,
             kind: "notice",
             company: company.name,
+            domain: company.domain,
             open: false,
             text: `${company.name} no longer has part of an earlier conversation, so some messages may be missing.`
           });
@@ -637,6 +639,7 @@ export async function startDirectConversation(
     id: `direct-invite-${parentId}`,
     kind: "notice",
     company: company.name,
+    domain: company.domain,
     open: false,
     text: `You're talking with ${company.name} directly.`
   });
@@ -671,6 +674,7 @@ export async function inviteUser(client: PoppyClient, id: string, reason: string
     id: `direct-invite-${id}`,
     kind: "direct_invite",
     company: company.name,
+    domain: company.domain,
     open: true,
     conversationId: id,
     reason
@@ -686,6 +690,7 @@ export async function declineDirect(client: PoppyClient, parentId: string): Prom
     id: `direct-invite-${parentId}`,
     kind: "notice",
     company: company.name,
+    domain: company.domain,
     open: false,
     text: `You declined to talk with ${company.name} directly.`
   });

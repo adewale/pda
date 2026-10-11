@@ -22,6 +22,8 @@ class StubPage {
   current = "about:blank";
   /** The status the next navigation reports, after any redirects. */
   status = 200;
+  /** Its response headers, lowercased as Puppeteer gives them. */
+  headers: Record<string, string> = {};
   /** Where the next navigation lands. */
   landAt: string | null = null;
   #document: Document | null = null;
@@ -47,7 +49,7 @@ class StubPage {
     this.calls.push("waitForNavigation");
     await Promise.resolve();
     if (this.landAt) this.current = this.landAt;
-    return { status: () => this.status };
+    return { status: () => this.status, headers: () => this.headers };
   }
 
   async evaluate(fn: () => unknown) {
@@ -67,7 +69,7 @@ class StubPage {
     this.current = url;
     await this.setContent(`<!doctype html><title>Shop</title><body><p>Hello</p><a href="${url}/next">Next</a></body>`);
     this.calls.pop();
-    return { status: () => this.status };
+    return { status: () => this.status, headers: () => this.headers };
   }
 
   async click(selector: string) {
@@ -217,7 +219,7 @@ describe("Browser Rendering adapter", () => {
     expect(contexts[1]!.closed).toBe(true);
   });
 
-  it("reuses the Session's page and returns text and links, never cookies", async () => {
+  it("reuses the Session's page and returns text, links and Retry-After, never cookies", async () => {
     const { rendering, contexts } = stubBrowser();
     const context = await rendering.newContext();
     const opened = await context.goto("https://shop.example/");
@@ -225,6 +227,10 @@ describe("Browser Rendering adapter", () => {
     expect(opened.text).toContain("Hello");
     expect(opened.links).toEqual([{ text: "Next", href: "https://shop.example//next" }]);
     expect(Object.keys(opened).sort()).toEqual(["forms", "links", "status", "text", "title", "url"]);
+
+    contexts[0]!.pages[0]!.status = 429;
+    contexts[0]!.pages[0]!.headers = { "retry-after": "2" };
+    expect(await context.goto("https://shop.example/")).toMatchObject({ status: 429, retryAfter: "2" });
 
     await context.fill("#search", "socks");
     await context.click("#go");

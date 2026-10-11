@@ -213,7 +213,7 @@ export class Conversations {
     const text = typeof message.text === "string" ? message.text.toLowerCase() : "";
     if (text.includes("person")) {
       this.#say(conversation, "Let me find a person to help with this.");
-      this.#setState(conversation, "queued");
+      this.#setState(conversation, co.config.neverQueued ? "working" : "queued");
       return;
     }
     if (/order|exchange|return/.test(text)) {
@@ -222,11 +222,12 @@ export class Conversations {
         this.#say(conversation, "Please sign in so I can look up your order.");
         return;
       }
-      if (!["poppy:read", "poppy:write"].every((scope) => context.scope.includes(scope))) {
+      const { read, write } = co.orderScopes;
+      if (![read, write].every((scope) => context.scope.includes(scope))) {
         this.#add(conversation, {
           type: "authorization",
           error: "insufficient_scope",
-          scope: "poppy:read poppy:write"
+          scope: `${read} ${write}`
         });
         this.#say(conversation, "I need permission to view and change your orders to do that.");
         return;
@@ -294,7 +295,7 @@ export class Conversations {
   /** A POST's reply: plain, or a read when `wait` is given (7.3). */
   async #answer(inbound: Inbound, conversation: Conversation, status: number): Promise<Response> {
     const { cursor, wait } = this.#params(inbound);
-    if (inbound.url.searchParams.has("wait")) {
+    if (inbound.url.searchParams.has("wait") && !this.company.config.ignoreWait) {
       return json(await this.#read(conversation, cursor, wait), status);
     }
     return json(
@@ -394,7 +395,9 @@ export class Conversations {
     const page = await this.#read(conversation, cursor, wait);
     const wantsStream = (inbound.request.headers.get("Accept") ?? "").includes("text/event-stream");
     if (!wantsStream || !this.company.config.streaming) return json(page);
-    let body = "";
+    // SSE comments, which keep idle connections open, carry no event (7.6).
+    const keepAlive = this.company.config.sseKeepAlive ? ": keep-alive\n\n" : "";
+    let body = keepAlive;
     for (const event of page.events) {
       const message = event.message as { id?: string; role?: string; text?: string } | undefined;
       if (event.type === "message" && message?.role === "company" && message.text && this.company.config.textDeltas) {
@@ -403,7 +406,7 @@ export class Conversations {
           body += `event: text-delta\ndata: ${JSON.stringify({ message_id: message.id, text: piece })}\n\n`;
         }
       }
-      body += `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`;
+      body += `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n${keepAlive}`;
     }
     // The Company may close a stream at any time (7.6); this one closes after one page.
     return new Response(body, {
@@ -428,7 +431,7 @@ export class Conversations {
         json({ error: "direct_conversation_open", conversation_id: conversation.directChild }, 409)
       );
     }
-    this.#setState(conversation, "queued");
+    this.#setState(conversation, this.company.config.neverQueued ? "working" : "queued");
     return json({ status: conversation.status, responder: conversation.responder }, 202);
   }
 

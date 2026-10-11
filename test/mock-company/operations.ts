@@ -4,7 +4,8 @@ import {
   json,
   randomId,
   type Inbound,
-  type ResourceContext
+  type ResourceContext,
+  type Session
 } from "./core";
 
 export type Operation = {
@@ -162,7 +163,7 @@ export class Operations {
     const record = this.#owned(context, id);
     const body = JSON.parse(inbound.bodyText || "{}") as { revision?: unknown; approved_by?: unknown };
     record.confirms += 1;
-    co.requireScopes(context, ["poppy:write"]);
+    co.requireScopes(context, [co.orderScopes.write]);
     const operation = record.operation;
     if (operation.state !== "proposed") return this.#respond(record);
     if (body.revision !== operation.revision) {
@@ -206,6 +207,31 @@ export class Operations {
       operation.result = { summary: "Stopped before any changes were made." };
     }
     return this.#respond(record);
+  }
+
+  /** The operation its `url` shows on the website, to a Session that may see it (Ops 4.4). */
+  forWebsite(session: Session, id: string): Operation | null {
+    const record = this.#records.get(id);
+    if (!record || record.clientId !== session.clientId || record.userId !== session.userId) return null;
+    if (record.account ? session.account !== record.account : record.sessionId !== session.id) return null;
+    this.#expire(record);
+    return record.operation;
+  }
+
+  /**
+   * Test control: the User confirms on the website, in the same Session (Ops
+   * 4.4). It's the same operation, so it's performed once, whichever way it
+   * is confirmed.
+   */
+  confirmOnWebsite(id: string): void {
+    const record = this.#records.get(id);
+    if (!record || record.operation.state !== "proposed") throw new Error(`can't confirm ${id} on the website`);
+    record.operation.confirmation = {
+      revision: record.operation.revision,
+      approved_by: "user",
+      confirmed_at: new Date().toISOString()
+    };
+    this.#perform(record);
   }
 
   /** Test control: the Company issues a new revision with new terms (Ops 3.1). */
