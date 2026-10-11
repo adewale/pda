@@ -57,7 +57,13 @@ export class PoppyError extends Error {
     readonly code: string,
     message: string,
     readonly status: number,
-    readonly detail: { readonly scope?: string; readonly retryAfter?: number; readonly body?: Json } = {}
+    readonly detail: {
+      readonly scope?: string;
+      readonly retryAfter?: number;
+      readonly body?: Json;
+      /** The extension an `extension_required` error names (spec 3.3). */
+      readonly extension?: string;
+    } = {}
   ) {
     super(message);
   }

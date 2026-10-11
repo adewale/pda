@@ -33,12 +33,15 @@ function text(value: unknown): { content: { type: "text"; text: string }[]; deta
   };
 }
 
-function failure(error: unknown): { content: { type: "text"; text: string }[]; isError: true } {
+function failure(error: unknown): { content: { type: "text"; text: string }[]; details: Json; isError: true } {
   const message =
     error instanceof PoppyError || error instanceof DiscoveryError
       ? `${error.message}${error instanceof PoppyError ? ` [${error.code}]` : ""}`
       : `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
-  return { content: [{ type: "text", text: message }], isError: true };
+  // The error's code, and the extension an `extension_required` names, as data (spec 3.3).
+  const details: Json =
+    error instanceof PoppyError ? { error: error.code, ...(error.detail.extension ? { extension: error.detail.extension } : {}) } : null;
+  return { content: [{ type: "text", text: message }], details, isError: true };
 }
 
 type Args<T extends TSchema> = import("@earendil-works/pi-ai").Static<T>;

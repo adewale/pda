@@ -91,6 +91,16 @@ export class Apis {
             responses: { "200": { description: "The order" }, "404": { description: "No such order" } }
           }
         },
+        // Templated with no `parameters` declared, as some Companies' descriptions are
+        // (Datalayer's Manzanita): the agent fills it from the call's arguments by name.
+        "/orders/{order_id}/items/{item_id}": {
+          get: {
+            operationId: "getOrderItem",
+            summary: `One item of an order. Needs ${read}.`,
+            ...secured(read),
+            responses: { "200": { description: "The item" }, "404": { description: "No such item" } }
+          }
+        },
         "/orders/{order_id}/exchanges": {
           post: {
             operationId: "exchangeItem",
@@ -163,6 +173,13 @@ export class Apis {
     if (method === "GET" && pathname === "/addresses") {
       co.requireScopes(context, ["addresses"]);
       return json({ addresses: [{ address_id: "adr_1", city: "Portland" }] });
+    }
+    const item = /^\/orders\/([^/]+)\/items\/([^/]+)$/.exec(pathname);
+    if (method === "GET" && item) {
+      co.requireScopes(context, [read]);
+      const found = orderFor(context.account!).items.find((entry) => entry.item_id === item[2]);
+      if (item[1] !== "ord_7Hk2" || !found) return json({ error: "not_found" }, 404);
+      return json(found);
     }
     const order = /^\/orders\/([^/]+)$/.exec(pathname);
     if (method === "GET" && order) {

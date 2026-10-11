@@ -48,25 +48,46 @@ export function cacheSeconds(headers: Headers, now = Date.now()): number | null 
   return null;
 }
 
-async function readLimited(response: Response, maxBytes: number): Promise<Uint8Array | null> {
+/**
+ * The body, up to `maxBytes` (null beyond). Rejects with the signal's reason
+ * when it aborts mid-read, whether or not the fetcher ties the body to it.
+ */
+async function readLimited(response: Response, maxBytes: number, signal: AbortSignal): Promise<Uint8Array | null> {
   if (Number(response.headers.get("Content-Length") ?? "0") > maxBytes) {
     await response.body?.cancel();
     return null;
   }
   if (!response.body) return new Uint8Array();
   const reader = response.body.getReader();
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  });
+  aborted.catch(() => undefined);
   const chunks: Uint8Array[] = [];
   let size = 0;
   for (;;) {
-    const { done, value } = await reader.read();
+    let next: ReadableStreamReadResult<Uint8Array>;
+    try {
+      next = await Promise.race([reader.read(), aborted]);
+    } catch (error) {
+      signal.removeEventListener("abort", onAbort);
+      await reader.cancel().catch(() => undefined);
+      throw error;
+    }
+    const { done, value } = next;
     if (done) break;
     size += value.byteLength;
     if (size > maxBytes) {
+      signal.removeEventListener("abort", onAbort);
       await reader.cancel();
       return null;
     }
     chunks.push(value);
   }
+  signal.removeEventListener("abort", onAbort);
   const all = new Uint8Array(size);
   let offset = 0;
   for (const chunk of chunks) {
@@ -101,6 +122,14 @@ export async function fetchDocument(
       c.report("http-non-public-host", "", `${current.hostname} isn't a public host name.`);
       return { url, finalUrl: at, maxAgeSeconds: null };
     }
+    // One deadline for the response and its body: a body that stalls is as failed as no answer.
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(new DOMException("The fetch timed out", "TimeoutError")), LIMITS.timeoutMs);
+    const failed = (error: unknown): Fetched => {
+      const reason = error instanceof Error && error.name === "TimeoutError" ? `timed out after ${LIMITS.timeoutMs / 1000} seconds` : "failed";
+      c.report("http-failed", "", `Fetching ${at} ${reason}.`);
+      return { url, finalUrl: at, maxAgeSeconds: null };
+    };
     let response: Response;
     try {
       response = await fetcher(
@@ -108,14 +137,15 @@ export async function fetchDocument(
           method: "GET",
           headers: { Accept: "application/json" },
           redirect: "manual",
-          signal: AbortSignal.timeout(LIMITS.timeoutMs)
+          signal: deadline.signal
         })
       );
     } catch (error) {
-      const reason = error instanceof Error && error.name === "TimeoutError" ? "timed out after 5 seconds" : "failed";
-      c.report("http-failed", "", `Fetching ${at} ${reason}.`);
-      return { url, finalUrl: at, maxAgeSeconds: null };
+      clearTimeout(timer);
+      return failed(error);
     }
+    // Only a 200 has its body read; nothing else needs the deadline after this.
+    if (response.status !== 200) clearTimeout(timer);
     if (response.status >= 300 && response.status < 400 && response.status !== 304) {
       await response.body?.cancel();
       const location = response.headers.get("Location");
@@ -141,7 +171,14 @@ export async function fetchDocument(
       c.report("http-status", "", `${at} answered HTTP ${response.status}.`);
       return { ...base, maxAgeSeconds: null };
     }
-    const bytes = await readLimited(response, LIMITS.maxBytes);
+    let bytes: Uint8Array | null;
+    try {
+      bytes = await readLimited(response, LIMITS.maxBytes, deadline.signal);
+    } catch (error) {
+      return failed(error);
+    } finally {
+      clearTimeout(timer);
+    }
     if (!bytes) {
       c.report("http-too-large", "", `${at} is larger than 100 KB.`);
       return { ...base, maxAgeSeconds: null };
