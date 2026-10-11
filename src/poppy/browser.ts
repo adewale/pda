@@ -129,6 +129,13 @@ export async function browse(
       throw new PoppyError("invalid_request", `Browsing is limited to ${company.domain}`, 0);
     }
     assertPublicHost(url);
+    // Sign-in pages are the User's alone (spec 4.4): never in our browser.
+    const signInHosts = [company.issuer, company.endpoints.authorization, company.endpoints.deviceAuthorization]
+      .filter((value): value is string => !!value)
+      .map((value) => new URL(value).origin);
+    if (signInHosts.includes(url.origin)) {
+      throw new PoppyError("refused", "The agent never opens a company's sign-in pages; the User signs in themselves (use poppy_sign_in)", 0);
+    }
     const context = await sessionContext(client, browser, company, label, url);
     let snapshot = await context.goto(url.href);
     // The website stopped recognising the Session: post a new assertion (Guides).

@@ -1,12 +1,12 @@
 # Durable Personal Agent
 
-Sign in with Google or GitHub, then chat with your own Claude Opus 5.5 agent in one conversation that survives reloads, crashes and deploys. Built to v0 of [`durable-personal-agent-spec.md`](durable-personal-agent-spec.md).
+Sign in with Google or GitHub, then chat with your own Claude Opus 5.5 agent in one conversation that survives reloads, crashes and deploys. The agent is also a Personal Agent for [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1: it can find a company, sign you in on the company's own page, talk to the company's agent, use its APIs and website, and ask you before anything that changes your account. Design: [`durable-personal-agent-spec.md`](durable-personal-agent-spec.md).
 
 Deployed at https://personal-agent.adewale-883.workers.dev. Sign-in is built into the Worker (the spec's Option B): Google and GitHub OAuth with PKCE, then an HMAC-signed `__Host-session` cookie (HttpOnly, Secure, SameSite=Lax, 30 days). Cloudflare Access is not used. Anyone with a Google or GitHub account can sign in; a Google and a GitHub sign-in are separate agents.
 
 ## Setup still needed
 
-`SESSION_SECRET` is already set on the deployed Worker. Three things remain.
+`SESSION_SECRET`, `POPPY_SIGNING_JWKS` and `TOKEN_ENC_KEY` are already set on the deployed Worker (the last two with `scripts/poppy-secrets.mjs`). Three things remain.
 
 ### 1. Pay for Claude on AI Gateway
 
@@ -48,7 +48,7 @@ Secrets take effect immediately; no redeploy is needed.
 
 ```sh
 npm install --legacy-peer-deps
-npm test           # 30 tests in the Workers runtime
+npm test           # 100 tests in the Workers runtime, including Poppy conformance
 npm run typecheck
 npm run deploy
 ```

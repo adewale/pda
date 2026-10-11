@@ -421,6 +421,13 @@ describe("5 web browsing", () => {
     expect(result.isError).toBe(true);
   });
 
+  it("never opens the Company's sign-in pages", async () => {
+    const c = await company();
+    const result = await tool(await agent(), "poppy_browse", { domain: c.domain, action: "open", url: `${c.hosts.issuer}/oauth/authorize` });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("sign-in pages");
+  });
+
   it("never types credentials into a website", async () => {
     const c = await company();
     const a = await agent();
