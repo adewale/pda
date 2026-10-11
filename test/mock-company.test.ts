@@ -1846,6 +1846,21 @@ describe("the mock Company", () => {
     expect(metadata).toMatchObject({ issuer: slashed.issuer, token_endpoint: c.hosts.tokenEndpoint });
   });
 
+  it("serves an issuer with a path, its metadata only where RFC 8414 inserts it (S3)", async () => {
+    const c = company();
+    await c.stub.configure({ issuerPath: "/tenant" });
+    const pathed = hostsFor(c.id, { issuerPath: "/tenant" });
+    expect(pathed.issuer).toBe(`https://auth.${c.hosts.domain}/tenant`);
+    const document = (await (await c.call(`https://${c.hosts.domain}/.well-known/poppy.json`)).json()) as { auth: { issuer: string } };
+    expect(document.auth.issuer).toBe(pathed.issuer);
+    const inserted = await c.call(`https://auth.${c.hosts.domain}/.well-known/oauth-authorization-server/tenant`);
+    expect(inserted.status).toBe(200);
+    expect(await inserted.json()).toMatchObject({ issuer: pathed.issuer, token_endpoint: c.hosts.tokenEndpoint });
+    expect((await c.call(`${pathed.issuer}/.well-known/oauth-authorization-server`)).status).toBe(404);
+    expect((await c.call(`https://auth.${c.hosts.domain}/.well-known/oauth-authorization-server`)).status).toBe(404);
+    expect(() => hostsFor(c.id, { issuerPath: "tenant/" })).toThrow(/issuerPath/);
+  });
+
   it("rejects assertions a strict Company would, and records why", async () => {
     const cases = [
       { shape: { typ: null }, expected: 'header typ must be "JWT", got undefined' },

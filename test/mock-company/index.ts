@@ -145,7 +145,8 @@ export class MockCompany extends DurableObject<Env> {
     }
 
     if (sub === "auth") {
-      if (path === "/.well-known/oauth-authorization-server") return web.authorizationServerMetadata();
+      // Only where RFC 8414 puts it: the appended form of an issuer with a path is 404 (S3).
+      if (path === company.hosts.metadataPath) return web.authorizationServerMetadata();
       if (path === "/oauth/token" && method === "POST") return auth.token(inbound);
       if (path === "/oauth/revoke" && method === "POST") return auth.revoke(inbound);
       if (path === "/oauth/authorize" && method === "GET") return auth.authorize(inbound);

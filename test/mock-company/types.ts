@@ -88,6 +88,14 @@ export type MockConfig = {
   readonly nonceScope: "company" | "origin";
   /** The issuer ends in a slash (`https://auth.<domain>/`), compared exactly (S7). */
   readonly issuerTrailingSlash: boolean;
+  /**
+   * The issuer has a path (`/tenant` gives `https://auth.<domain>/tenant`),
+   * and the server metadata is served only where RFC 8414 section 3.1 puts
+   * it, inserted between the host and that path:
+   * `/.well-known/oauth-authorization-server/tenant` (S3). The OAuth
+   * endpoints don't move. Null: no path.
+   */
+  readonly issuerPath: string | null;
   /** The exchange's price difference, in its proposal's terms. */
   readonly exchangePrice: { readonly amount: string; readonly currency: string };
   /** Overrides the OpenAPI entry's `url` in poppy.json. */
@@ -186,6 +194,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   clientAssertionAud: "lenient",
   nonceScope: "company",
   issuerTrailingSlash: false,
+  issuerPath: null,
   exchangePrice: { amount: "70.00", currency: "USD" },
   openapiUrlOverride: null,
   endSessionsOnSignOut: false,
@@ -292,6 +301,8 @@ export type Hosts = {
   readonly domain: string;
   readonly altDomain: string;
   readonly issuer: string;
+  /** The path of the issuer's server metadata on the auth host (RFC 8414 section 3.1). */
+  readonly metadataPath: string;
   readonly api: string;
   readonly mcpUrl: string;
   readonly web: string;
@@ -331,15 +342,23 @@ export function placeCompanies(next: Placement): void {
   placement = next;
 }
 
-export function hostsFor(id: string, options: { issuerTrailingSlash?: boolean } = {}): Hosts {
+/** Where an issuer's metadata lives, and the issuer: `/.well-known/oauth-authorization-server` before its path. */
+export type IssuerOptions = { readonly issuerTrailingSlash?: boolean; readonly issuerPath?: string | null };
+
+export function hostsFor(id: string, options: IssuerOptions = {}): Hosts {
   const domain = placement.domain(id);
   const auth = `https://auth.${domain}`;
+  const path = options.issuerPath ?? "";
+  if (path !== "" && !/^(\/[A-Za-z0-9._~-]+)+$/.test(path)) {
+    throw new Error(`issuerPath must be like /tenant, with no trailing slash: ${JSON.stringify(path)}`);
+  }
   const api = `https://api.${domain}`;
   return {
     id,
     domain,
     altDomain: placement.altDomain(id),
-    issuer: options.issuerTrailingSlash ? `${auth}/` : auth,
+    issuer: `${auth}${path}${options.issuerTrailingSlash ? "/" : ""}`,
+    metadataPath: `/.well-known/oauth-authorization-server${path}`,
     api,
     mcpUrl: `https://mcp.${domain}/mcp`,
     web: `https://${domain}`,

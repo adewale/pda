@@ -44,7 +44,7 @@ const SPEC = "Personal Agent Protocol Draft 0.1";
 
 /** The order scenarios run and are shown in; others follow by id. */
 export const SCENARIO_ORDER = [
-  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "SE", "R", "AO", "AM", "AS", "O", "OX", "RL",
+  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "SE", "R", "AO", "AM", "AS", "O", "OX", "RL", "DP",
   // Adversarial (docs/adversarial-interop.md): network faults, then malicious agent and Company.
   "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "XH", "XI", "BX"
 ];

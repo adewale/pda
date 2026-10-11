@@ -156,7 +156,7 @@ export async function company(config: Partial<MockConfig> = {}): Promise<Company
     id,
     stub,
     domain: `${id}.shop.test`,
-    hosts: hostsFor(id, { issuerTrailingSlash: config.issuerTrailingSlash ?? false }),
+    hosts: hostsFor(id, { issuerTrailingSlash: config.issuerTrailingSlash ?? false, issuerPath: config.issuerPath ?? null }),
     expectViolations: (...patterns) => entry.expected.push(...patterns)
   };
   created.push(entry);

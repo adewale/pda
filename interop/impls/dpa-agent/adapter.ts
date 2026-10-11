@@ -60,7 +60,7 @@ const MANIFEST = {
   scenarios: ADVERSARY
     ? [...ATTACKS]
     : [
-        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL",
+        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL", "DP",
         // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
         "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX"
       ],

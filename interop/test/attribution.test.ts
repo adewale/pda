@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { attribute, attributeAll, knownFailure, staleKnown, unexpected } from "../runner/attribution.ts";
-import { compatible, readingChecks, refusedReadingChecks } from "../runner/readings.ts";
+import { compatible, QUESTIONS, readingChecks, refusedReadingChecks } from "../runner/readings.ts";
 import { jwt, NOW, recording } from "./helpers.ts";
 import type { Cell, Check, Outcome, Scenario } from "../runner/types.ts";
 
@@ -288,5 +290,50 @@ describe("reading compatibility", () => {
     expect(compatible("S2", "any", "jwt-60s")).toBe(false);
     expect(compatible("S23", "per-origin", "per-company")).toBe(true);
     expect(compatible("S23", "per-company", "per-origin")).toBe(false);
+  });
+
+  it("S2 lenient-300s (the reference dpa-mock): accepts jwt-60s and itself, not an agent that promises nothing", () => {
+    expect(QUESTIONS.S2.values).toContain("lenient-300s");
+    expect(compatible("S2", "jwt-60s", "lenient-300s")).toBe(true);
+    expect(compatible("S2", "lenient-300s", "lenient-300s")).toBe(true);
+    expect(compatible("S2", "any", "lenient-300s")).toBe(false);
+    // A strict Company accepts only jwt-60s; an `any` Company everything.
+    expect(compatible("S2", "lenient-300s", "jwt-60s")).toBe(false);
+    expect(compatible("S2", "lenient-300s", "any")).toBe(true);
+
+    const token = "https://auth.x.company.interop.test/token";
+    const assertion = (lifetime: number) => jwt({ alg: "ES256", kid: "k" }, { iss: "c", sub: "c", aud: token, iat: NOW, exp: NOW + lifetime, jti: `j${lifetime}` });
+    const grant = (lifetime: number) => ({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", client_assertion: assertion(lifetime) });
+    const trace = recording(
+      { url: "https://auth.x.company.interop.test/.well-known/oauth-authorization-server", response: { issuer: "https://auth.x.company.interop.test", token_endpoint: token } },
+      // 120 s and no typ: lenient-300s accepts it, jwt-60s doesn't.
+      { url: token, form: grant(120), status: 401, response: { error: "invalid_client" } },
+      // 301 s: refused by both.
+      { url: token, form: grant(301), status: 401, response: { error: "invalid_client" } }
+    );
+    const refusedAt = (s2: string) => refusedReadingChecks(trace, { S2: s2 }).map((check) => `${check.id}@${check.exchange}`);
+    expect(refusedAt("lenient-300s")).toEqual(["reading.S2.refused@2"]);
+    expect(refusedAt("jwt-60s")).toEqual(["reading.S2.refused@1", "reading.S2.refused@2"]);
+    expect(refusedAt("any")).toEqual([]);
+    // An agent that declares lenient-300s is held to 300 s, not to typ or 60 s.
+    const sentBeyond = (s2: string) => readingChecks(trace, { S2: s2 }).filter((check) => check.id === "reading.S2").map((check) => check.exchange);
+    expect(sentBeyond("lenient-300s")).toEqual([2]);
+    expect(sentBeyond("jwt-60s")).toEqual([1, 2]);
+
+    // The lenient mock recording a 301 s assertion is the open question with an `any` agent, the agent's own fault with a jwt-60s one.
+    const lifetime: Check = { id: "client-assertion.lifetime", side: "agent", severity: "error", exchange: 2, detail: "", source: "company:dpa-mock" };
+    const target = cell("a", "dpa-mock", "fail", [lifetime], "SD");
+    const declared = (agent: string) => ({ agent: { a: { S2: agent } }, company: { "dpa-mock": { S2: "lenient-300s" } } });
+    expect(attribute(target, [target], { readings: declared("any"), scenarios })).toMatchObject({ blame: "spec", rule: "reading" });
+    expect(attribute(target, [target], { readings: declared("jwt-60s"), scenarios })).toEqual({ blame: "agent", rule: "violation" });
+  });
+
+  it("dpa-mock declares the S2 reading the mock enforces: lenient-300s, at the mock's 300 s, or jwt-60s when strict", () => {
+    const root = path.join(import.meta.dirname, "../..");
+    const adapter = readFileSync(path.join(root, "interop/impls/dpa-mock/adapter.ts"), "utf8");
+    const core = readFileSync(path.join(root, "test/mock-company/core.ts"), "utf8");
+    expect(adapter).toMatch(/S2: PROFILE === "strict" \? "jwt-60s" : "lenient-300s"/);
+    expect(core).toMatch(/const MAX_ASSERTION_LIFETIME = 300;/);
+    expect(core).toMatch(/const STRICT_ASSERTION_LIFETIME = 60;/);
   });
 });

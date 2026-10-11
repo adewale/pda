@@ -6,7 +6,7 @@ How to test every Personal Agent implementation of the [Personal Agent Protocol]
 
 - **The runner** ([`interop/runner/`](../interop/runner)): a Node CLI, `npm run interop`. It builds each implementation's image, makes a CA and certificate per run with `openssl`, starts a Docker network with the recording proxy and every implementation, and runs each scenario × agent × Company cell, resetting both adapters first. It writes `results.json`, a HAR file per cell and an `index.html` grid to `interop/results/<run>/`.
 - **The recording proxy** ([`interop/proxy/`](../interop/proxy)): terminates TLS for every `*.interop.test` name, forwards to each container on port 8080, and records each exchange in full.
-- **Scenarios as data** ([`interop/scenarios/`](../interop/scenarios)): D, S0, N, SD, SV, SVN, SM, SMC, SX, SXV, C, CI, CS, CA, SO, SE, R, AO, AM, AS, O, OX and RL. Scopes come from each Company's fixture, so a Company with only custom scopes can take part.
+- **Scenarios as data** ([`interop/scenarios/`](../interop/scenarios)): D, S0, N, SD, SV, SVN, SM, SMC, SX, SXV, C, CI, CS, CA, SO, SE, R, AO, AM, AS, O, OX, RL and DP. Scopes come from each Company's fixture, so a Company with only custom scopes can take part.
 - **The checker** ([`checks.ts`](../interop/runner/checks.ts), [`documents.ts`](../interop/runner/documents.ts), [`readings.ts`](../interop/runner/readings.ts)): pure functions over the recording, named with the mock Company's violation ids where one fits, plus `src/validator` over every discovery document and client metadata served.
 - **Attribution** ([`attribution.ts`](../interop/runner/attribution.ts)) by the four rules, and known failures ([`known-failures.json`](../interop/known-failures.json)).
 - **Our two adapters:** [`dpa-agent`](../interop/impls/dpa-agent) runs `src/poppy` in Node, with Node's SQLite behind the Durable Object SQL API it uses, and no model; [`dpa-mock`](../interop/impls/dpa-mock) runs the mock Company behind the hooks API and reports its violations. It is registered twice: `dpa-mock`, the reference Company, is lenient where the draft is silent (assertion `typ`, `kid` and lifetime, reading S2), and `dpa-mock-strict` keeps the strict checks, so a failure caused only by an open question is blamed on the spec, not hidden behind it. Node was chosen over `wrangler dev` because Node trusts the run's CA through `NODE_EXTRA_CA_CERTS`, starts in a second, and needs no `workerd` networking in a container; the mock and the client are plain TypeScript over `fetch`, so the bundle is our shipped code.
@@ -87,7 +87,7 @@ Datalayer already applies it to Poppy: 124 shared JSON cases in `protocol/fixtur
 
 | Area | Scenarios |
 | --- | --- |
-| Discovery and identity | `D` discovery (RFC 8414 location, validator verdict); `CM` the Company fetches our `client_id` and keys |
+| Discovery and identity | `D` discovery (RFC 8414 location, validator verdict); `DP` discovery and a Session at an issuer with a path (S3); `CM` the Company fetches our `client_id` and keys |
 | Sessions | `S0` signed-out Session; `N` DPoP nonce, retried with a fresh proof |
 | Sign-in | `SD` Direct (PKCE, `iss`); `SV` Device (polling, `slow_down`); `SM` Mediated (and a wrong password); `SX` denied |
 | Lifecycle | `R` renew and rotate; `SE` Session ended by the Company, then recovery; `SO` sign out and revoke |

@@ -719,7 +719,8 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
     - the client assertion's `aud` exactly the endpoint called (S1);
     - a DPoP nonce per origin, or one per Company (S23);
     - lenient 300-second assertions (S2);
-    - an issuer with a trailing slash (S7).
+    - an issuer with a trailing slash (S7);
+    - an issuer with a path, its metadata inserted before the path (S3).
 - **Time.**
   - The test agent's clock is frozen: `sleep` returns at once and records how long was asked for, and `poppyAdvance(ms)` runs the jobs that are due.
   - The mock uses the same clock for rate limits, device polling and token age.

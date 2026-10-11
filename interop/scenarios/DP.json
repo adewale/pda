@@ -1,0 +1,15 @@
+{
+  "id": "DP",
+  "title": "Discovery and a Session at an issuer with a path",
+  "requirements": ["3.2", "4.2"],
+  "readings": ["S3"],
+  "needs": { "agent": ["discover", "session"], "company": ["issuer_path"] },
+  "steps": [
+    { "company": "issuer_path", "params": { "path": "/tenant" }, "note": "The issuer becomes https://auth.<domain>/tenant; its metadata is then only at /.well-known/oauth-authorization-server/tenant (RFC 8414 3.1)." },
+    { "agent": "discover", "save": "d" },
+    { "expect": { "${d.issuer}": { "$match": "^https://[^/]+/tenant$" } } },
+    { "agent": "session", "save": "s" },
+    { "expect": { "${s.session_id}": { "$exists": true } } },
+    { "runner": "assert_trace", "params": { "check": "request_seen", "method": "GET", "path": "^/\\.well-known/oauth-authorization-server/tenant$", "status": 200 } }
+  ]
+}

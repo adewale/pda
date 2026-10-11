@@ -22,7 +22,7 @@ Back to [spec-issues.md](spec-issues.md) · [interop-spec.md §7](interop-spec.m
 | **Strict mock** | `test/mock-company/` with its defaults (`DEFAULT_CONFIG` in `types.ts`), as the conformance tests run it; `dpa-mock-strict` in the grid | `strictAssertions: true`, `clientAssertionAud: "lenient"`, `nonceScope: "company"` |
 | **Lenient mock** | The same mock with `strictAssertions: false`; `dpa-mock`, the grid's reference Company for attribution rule 2 | As the strict mock, except S2 |
 
-The conformance tests also run sign-in, Sessions and sign-out under five other profiles (`PROFILES` in `test/poppy.test.ts`): exact `aud` (S1), a DPoP nonce per origin and per Company (S23), lenient assertions (S2), and a trailing-slash issuer (S7). So the client is tested against both answers to S1, S2, S7 and S23, not only the mock's default.
+The conformance tests also run sign-in, Sessions and sign-out under six other profiles (`PROFILES` in `test/poppy.test.ts`): exact `aud` (S1), a DPoP nonce per origin and per Company (S23), lenient assertions (S2), a trailing-slash issuer (S7), and an issuer with a path (S3). So the client is tested against both answers to S1, S2, S7 and S23, and against an issuer with a path, not only the mock's default.
 
 ## Section 7 questions (declared in the grid)
 
@@ -31,8 +31,8 @@ Each adapter declares these in its manifest (`readings` in `interop/impls/dpa-ag
 | Id | Question | Client | Strict mock | Lenient mock | Strict or lenient |
 | --- | --- | --- | --- | --- | --- |
 | [S1](spec-issues.md#s1) | Client assertion `aud` | `endpoint` | `either` | `either` | Client strict; mocks lenient among values that all name this Company, strict otherwise |
-| [S2](spec-issues.md#s2) | Assertion `typ` and lifetime | `jwt-60s` | `jwt-60s` | `any` (but at most 300 s) | Strict, except the reference Company |
-| [S3](spec-issues.md#s3) | Metadata location for an issuer with a path | `insertion` | `insertion` (no path issuer) | `insertion` (no path issuer) | Strict |
+| [S2](spec-issues.md#s2) | Assertion `typ` and lifetime | `jwt-60s` | `jwt-60s` | `lenient-300s` | Strict, except the reference Company |
+| [S3](spec-issues.md#s3) | Metadata location for an issuer with a path | `insertion` | `insertion` | `insertion` | Strict |
 | [S4](spec-issues.md#s4) | `scope` on a signed-out Session request | `omit` | `either` | `either` | Client strict; mocks lenient |
 | [S23](spec-issues.md#s23) | DPoP nonce scope | `per-origin` | `per-company` | `per-company` | Lenient, both sides |
 
@@ -46,13 +46,13 @@ Each adapter declares these in its manifest (`readings` in `interop/impls/dpa-ag
 
 - **Client:** header `typ: "JWT"`, a `kid` naming a published key, and `exp` 60 s after `iat`, on both client and Session assertions (`ASSERTION_SECONDS` in `src/poppy/jwt.ts`).
 - **Strict mock:** refuses an assertion without `typ: "JWT"` (`client-assertion.typ`, `session-assertion.typ`), without a published `kid` (`.kid`), or living longer than 60 s (`.lifetime`).
-- **Lenient mock:** no `typ` or `kid` needed, and assertions up to 300 s (`MAX_ASSERTION_LIFETIME`). It still refuses a DPoP proof or browser assertion used as one (`client-assertion.wrong-typ`, `session-assertion.browser-typ`), an algorithm other than ES256 or RS256, a bad signature against the published keys, and a reused `jti`, and records an embedded key (`.embedded-key`).
+- **Lenient mock:** no `typ` or `kid` needed, and assertions up to 300 s (`MAX_ASSERTION_LIFETIME`), which it declares as `lenient-300s`: the runner counts it compatible with agents reading `jwt-60s` or `lenient-300s`, not with `any`. It still refuses a DPoP proof or browser assertion used as one (`client-assertion.wrong-typ`, `session-assertion.browser-typ`), an algorithm other than ES256 or RS256, a bad signature against the published keys, and a reused `jti`, and records an embedded key (`.embedded-key`).
 - **Why.** The parts that stop confusion and replay are strict in both mocks: a distinct `typ` for the other JWT kinds (see N25), a signature from a published key, single-use `jti`. Requiring `typ: "JWT"` on top, and 60 s rather than 300, is what the strictest live Companies do, so the client sends it and the strict mock checks it. The lenient mock is the grid's reference Company: its job is attribution, not gatekeeping, and the interop spec treats S2 as a warning. If it refused typ-less agents, every cell for pi-poppy's and adonis-agora's agents would stop at the first token request and nothing past it would be tested. `dpa-mock-strict` runs in the same grid, so the strict reading is still checked.
 
 ### S3: metadata location for an issuer with a path
 
 - **Client:** RFC 8414 §3.1 insertion: `/.well-known/oauth-authorization-server` between the host and the issuer's path (`metadataUrl` in `src/validator/fetch.ts`, used by discovery through `validateCompany`). It doesn't fall back to the appended form. Tested in `test/validator.test.ts` with a `/tenant/` issuer.
-- **Mocks:** the issuer is `https://auth.<domain>` with no path (optionally with a trailing slash), and metadata is served only at `/.well-known/oauth-authorization-server` on that host. Both readings give the same URL, so the declared `insertion` is true but untested by any cell (see [Mismatches](#mismatches-between-declarations-and-code)).
+- **Mocks:** the issuer is `https://auth.<domain>` with no path by default (optionally with a trailing slash). With `issuerPath` (`/tenant`), it is `https://auth.<domain>/tenant` and the metadata is served only at the inserted location, `/.well-known/oauth-authorization-server/tenant`; the appended one is 404. The conformance tests run sign-in, Sessions and sign-out under that profile too, and the grid's `DP` scenario (the `issuer_path` hook) runs it between our agent and both mocks.
 - **Why strict.** This isn't cosmetic: it decides which document is trusted as the issuer's. RFC 8414, which the draft builds on, has one answer. Falling back would make two requests where one should do, and would entrench a misreading RFC 9413 warns about. The security control is that the metadata's `issuer` must equal `auth.issuer` exactly (`metadata-issuer-mismatch`), and that holds either way.
 
 ### S4: `scope` on a signed-out Session request
@@ -94,11 +94,7 @@ These aren't declared in the grid's manifests, because they don't change what go
 
 ## Mismatches between declarations and code
 
-Found while writing this; none has been changed.
-
-1. **`dpa-mock` declares S2 `any`, but refuses an assertion living over 300 s** (`MAX_ASSERTION_LIFETIME` in `test/mock-company/core.ts`). The runner's `compatible()` treats `any` as accepting everything, so a refusal of a 301-second assertion there wouldn't be explained by rule 3. Section 7 offers no value for "lenient up to 300 s".
-2. **Both mocks declare S3 `insertion` but never serve an issuer with a path**, so the declaration is true by construction and no cell tests it. The Companies whose issuers have paths are typo3-dirnbauer's and everruns' (which serves both locations).
-3. **[interop-spec.md §4](interop-spec.md#4-manifest)'s example manifest** shows `dpa` declaring S1 `token-endpoint`; the adapter declares `endpoint`, which is what `src/poppy/client.ts` sends.
+None known. The three found while writing this were fixed: `dpa-mock` now declares S2 `lenient-300s`, which is what it enforces; the mocks can serve an issuer with a path, so `insertion` is tested; and [interop-spec.md §4](interop-spec.md#4-manifest)'s example manifest shows the `dpa` adapter's own readings.
 
 ## Gaps in our own code
 

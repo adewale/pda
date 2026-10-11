@@ -30,7 +30,8 @@ const PROFILES: readonly { name: string; config: Partial<MockConfig> }[] = [
   { name: "a DPoP nonce per origin (S23)", config: { requireNonce: true, nonceScope: "origin" } },
   { name: "one DPoP nonce per Company (S23)", config: { requireNonce: true, nonceScope: "company" } },
   { name: "lenient assertions: no typ or kid needed, 300 s (S2)", config: { strictAssertions: false } },
-  { name: "an issuer with a trailing slash, compared exactly (S7)", config: { issuerTrailingSlash: true } }
+  { name: "an issuer with a trailing slash, compared exactly (S7)", config: { issuerTrailingSlash: true } },
+  { name: "an issuer with a path, its metadata inserted before the path (S3)", config: { issuerPath: "/tenant" } }
 ];
 
 describe("the violation check after each test", () => {
@@ -132,6 +133,21 @@ describe("3 discovery", () => {
     const result = await tool(await agent(), "poppy_discover", { domain: c.domain });
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/poppy_domains/);
+  });
+
+  it("finds an issuer's metadata before its path (RFC 8414 3.1, S3), and signs in there", async () => {
+    const c = await company({ issuerPath: "/tenant" });
+    expect(c.hosts.issuer).toBe(`https://auth.${c.domain}/tenant`);
+    const a = await agent();
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
+    const result = await signInDirect(a, c, ["poppy:read"]);
+    expect(result!.callback.status).toBe(200);
+    expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).sessions[0]).toMatchObject({ signedIn: true });
+    const metadata = (await requests(c)).filter((request) => request.url.includes("/.well-known/oauth-authorization-server"));
+    expect(metadata.length).toBeGreaterThan(0);
+    for (const request of metadata) {
+      expect(`${request.status} ${request.method} ${request.url}`).toBe(`200 GET https://auth.${c.domain}/.well-known/oauth-authorization-server/tenant`);
+    }
   });
 
   it("treats two domains naming one issuer as one Company, with one User ID", async () => {

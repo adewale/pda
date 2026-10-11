@@ -9,7 +9,7 @@ import type { Check } from "./types.ts";
 
 export const QUESTIONS = {
   S1: { question: "Client assertion aud", values: ["issuer", "token-endpoint", "endpoint", "either"] },
-  S2: { question: "Assertion typ and lifetime", values: ["jwt-60s", "any"] },
+  S2: { question: "Assertion typ and lifetime", values: ["jwt-60s", "lenient-300s", "any"] },
   S3: { question: "Metadata location for an issuer with a path", values: ["insertion", "append", "either"] },
   S4: { question: "scope on a signed-out Session request", values: ["omit", "poppy-read", "either"] },
   S23: { question: "DPoP nonce scope", values: ["per-origin", "per-company"] }
@@ -38,6 +38,13 @@ export function questionOf(checkId: string): QuestionId | undefined {
 }
 
 /**
+ * S2 readings from narrowest to widest. An agent's says what it sends; a
+ * Company's what it accepts. `jwt-60s`: `typ: "JWT"` and at most 60 s.
+ * `lenient-300s`: any `typ`, at most 300 s. `any`: no limit stated.
+ */
+const S2_ORDER = ["jwt-60s", "lenient-300s", "any"] as const;
+
+/**
  * Can an agent with one reading work with a Company with another? An agent
  * states what it sends; a Company what it accepts or does. "either" and
  * "any" on the accepting side accept everything.
@@ -45,9 +52,14 @@ export function questionOf(checkId: string): QuestionId | undefined {
 export function compatible(question: string, agent: string | undefined, company: string | undefined): boolean {
   if (!agent || !company) return true;
   switch (question) {
-    case "S2":
-      // A strict Company needs typ JWT and 60 s; an agent that sends "any" may not.
-      return !(company === "jwt-60s" && agent === "any");
+    case "S2": {
+      // A Company accepts every agent reading at least as narrow as its own:
+      // `jwt-60s` only `jwt-60s`; `lenient-300s` also `lenient-300s`, but not
+      // `any`, which may live past 300 s; `any` everything.
+      const sent = S2_ORDER.indexOf(agent as (typeof S2_ORDER)[number]);
+      const accepted = S2_ORDER.indexOf(company as (typeof S2_ORDER)[number]);
+      return sent < 0 || accepted < 0 || sent <= accepted;
+    }
     case "S23":
       // An agent that keeps a nonce per origin copes with one per Company; not the converse.
       return !(company === "per-origin" && agent === "per-company");
@@ -88,10 +100,18 @@ function wantedAud(reading: string, endpoint: AssertionEndpoint, called: string)
   return null;
 }
 
-/** What S2 `jwt-60s` refuses in an assertion (no `typ: "JWT"`, or a lifetime over 60 s); null when it is accepted. */
-function strictAssertionFault(jwt: DecodedJwt): string | null {
+/**
+ * What an S2 reading refuses in an assertion; null when it is accepted, or
+ * the reading sets no limit. `jwt-60s`: no `typ: "JWT"`, or a lifetime over
+ * 60 s. `lenient-300s`: a lifetime over 300 s.
+ */
+function assertionFault(reading: string | undefined, jwt: DecodedJwt): string | null {
   const lifetime = Number(jwt.payload.exp) - Number(jwt.payload.iat);
-  return jwt.header.typ !== "JWT" || !(lifetime <= 60) ? `typ ${JSON.stringify(jwt.header.typ)} and a ${lifetime} s lifetime` : null;
+  if (reading === "jwt-60s") {
+    return jwt.header.typ !== "JWT" || !(lifetime <= 60) ? `typ ${JSON.stringify(jwt.header.typ)} and a ${lifetime} s lifetime` : null;
+  }
+  if (reading === "lenient-300s") return !(lifetime <= 300) ? `a ${lifetime} s lifetime` : null;
+  return null;
 }
 
 /** The assertions an OAuth request carries: the client assertion and, on the jwt-bearer grant, the Session assertion. */
@@ -122,11 +142,9 @@ export function readingChecks(all: readonly Exchange[], readings: Readonly<Recor
       found.push(warning("S1", x, `declared ${readings.S1}, sent aud ${JSON.stringify(client.payload.aud)} to ${called}`));
     }
     if (!fields.has("grant_type")) continue;
-    if (readings.S2 === "jwt-60s") {
-      for (const decoded of assertionsOf(fields)) {
-        const fault = strictAssertionFault(decoded);
-        if (fault) found.push(warning("S2", x, `declared jwt-60s, sent ${fault}`));
-      }
+    for (const decoded of assertionsOf(fields)) {
+      const fault = assertionFault(readings.S2, decoded);
+      if (fault) found.push(warning("S2", x, `declared ${readings.S2}, sent ${fault}`));
     }
     if (fields.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer" && readings.S4 && readings.S4 !== "either") {
       const scope = fields.get("scope");
@@ -148,7 +166,8 @@ export const REFUSED_READING = /^reading\.(S\d+)\.refused$/;
  * request answered `invalid_client` or `invalid_grant` that carried an
  * assertion the Company's reading doesn't accept: a client assertion `aud`
  * other than the one its S1 reading wants at that endpoint, or, for S2
- * `jwt-60s`, an assertion without `typ: "JWT"` or living over 60 s.
+ * `jwt-60s`, an assertion without `typ: "JWT"` or living over 60 s, and
+ * for `lenient-300s`, one living over 300 s.
  * Attribution reads them as evidence that the cell failed on that question
  * (rule 3). They are warnings and judge neither side.
  */
@@ -177,12 +196,11 @@ export function refusedReadingChecks(all: readonly Exchange[], companyReadings: 
     if (client && want !== null && client.payload.aud !== want) {
       found.push(refused("S1", x, `${error} at ${called}: aud ${JSON.stringify(client.payload.aud)}; the Company's S1 reading (${s1}) wants ${JSON.stringify(want)}`));
     }
-    if (companyReadings.S2 === "jwt-60s") {
-      const faults = assertionsOf(fields)
-        .map(strictAssertionFault)
-        .filter((fault): fault is string => fault !== null);
-      if (faults.length > 0) found.push(refused("S2", x, `${error} at ${called}: an assertion with ${faults[0]}, which the Company's S2 reading (jwt-60s) refuses`));
-    }
+    const s2 = companyReadings.S2;
+    const faults = assertionsOf(fields)
+      .map((jwt) => assertionFault(s2, jwt))
+      .filter((fault): fault is string => fault !== null);
+    if (faults.length > 0) found.push(refused("S2", x, `${error} at ${called}: an assertion with ${faults[0]}, which the Company's S2 reading (${s2}) refuses`));
   }
   return found;
 }

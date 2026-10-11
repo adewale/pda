@@ -151,6 +151,13 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
     },
     async expire_tokens() {
       return { expired: await current().expireSessionTokens() };
+    },
+    /** From now until reset, the issuer has a path, its metadata inserted before it (RFC 8414 3.1, S3). */
+    async issuer_path(params) {
+      const issuerPath = params.path === undefined ? "/tenant" : str(params.path, "path");
+      if (!/^(\/[A-Za-z0-9._~-]+)+$/.test(issuerPath)) throw new HookError(400, "invalid_path", `path must be like /tenant: ${JSON.stringify(issuerPath)}`);
+      await current().configure({ issuerPath });
+      return { path: issuerPath };
     }
   };
 }
