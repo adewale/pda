@@ -677,13 +677,16 @@ export class Company {
     if (!this.userIds.has(userId)) {
       const lower = userId.toLowerCase();
       // The local part counts only as a whole word ("usr_ada", "ada_lovelace"):
-      // 22 random base64url characters contain "ada" in about 1 ID in 1,600,
-      // which made tests fail at random.
+      // 22 random base64url characters contain "ada" in about 1 ID in 1,600.
+      // And not at all in an ID shaped like 128 random bits after a prefix,
+      // whose `-` and `_` can make "ada" a word by chance (about 10 in a
+      // million, as in "usr_hB1U-xQz3FnJ1q7J8u_adA"): both made tests fail at random.
+      const random = /^[a-z]+_[A-Za-z0-9_-]{22,}$/.test(userId);
       const words = lower.split(/[^a-z0-9]+/);
       const personal = this.config.accounts.some(
         (account) =>
           lower.includes(account.email.toLowerCase()) ||
-          words.includes(account.email.split("@")[0]!.toLowerCase())
+          (!random && words.includes(account.email.split("@")[0]!.toLowerCase()))
       );
       if (userId.includes("@") || personal) {
         this.violation("user-id.personal", `User ID ${JSON.stringify(userId)} contains personal information`);

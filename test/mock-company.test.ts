@@ -743,10 +743,13 @@ const TAMPERS: readonly Tamper[] = [
     what: "the User's name as a word in the User ID",
     detail: '[user-id.personal] User ID "usr_ada_7" contains personal information',
     run: async (c) => {
-      // Random ids that merely contain the letters are fine: this one has "ADA" inside.
-      const random = await startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub: "usr_rTcRuOEIIRADAIQTZPEmrA" } }) });
-      expect(random.status).toBe(200);
-      expect((await c.stub.state()).violations).toEqual([]);
+      // Random ids that merely contain the letters are fine: this one has "ADA" inside,
+      // and the next has "adA" as a word between `_` and the end, as 128 random bits may.
+      for (const sub of ["usr_rTcRuOEIIRADAIQTZPEmrA", "usr_hB1U-xQz3FnJ1q7J8u_adA"]) {
+        const random = await startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub } }) });
+        expect(random.status).toBe(200);
+        expect((await c.stub.state()).violations, sub).toEqual([]);
+      }
       return startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub: "usr_ada_7" } }) });
     }
   },
@@ -1766,22 +1769,39 @@ describe("each check the mock Company makes", () => {
 });
 
 describe("the mock Company", () => {
-  it("checks conversation ownership before message-id idempotency on a signed-out retry (S8)", async () => {
-    // A signed-in User opens a conversation (owned by the account). A signed-out Session of the
-    // same User then retries the first message id. The idempotency cache would hand back the
-    // original conversation and its events; the ownership gate must come first, so the retry
-    // gets sign_in_required, not the reply.
+  // A signed-in User opens a conversation, which an order-related message makes the account's
+  // (7.2). Then the retry of its first message id comes from a Session that has left that account:
+  // another, signed-out Session of the same User, or the same Session once its Account Token is
+  // revoked (7.11). The idempotency cache would hand back the original conversation and its
+  // reply; the ownership gate must come first, so the retry gets sign_in_required.
+  it.each(([
+    {
+      name: "checks conversation ownership before message-id idempotency on a signed-out retry (S8)",
+      retryFrom: async (c: C) => signedOut(c)
+    },
+    {
+      name: "checks conversation ownership before message-id idempotency on a retry after the Account Token is revoked (7.11, S8)",
+      retryFrom: async (c: C, s: Awaited<ReturnType<typeof signedIn>>) => {
+        const revoke = await form(c, c.hosts.revocationEndpoint, { token: s.refreshToken, token_type_hint: "refresh_token" }, null);
+        expect(revoke.status).toBe(200);
+        return s;
+      }
+    }
+  ] as const).map((row) => [row.name, row] as const))("%s", async (_name, { retryFrom }) => {
     const c = company();
-    const signedInSession = await signedIn(c);
-    // An order-related message makes the conversation belong to the User's account (7.2).
-    const first = message({ id: "msg_retry_after_signout", text: "Where is my order?" });
-    const opened = (await (await converse(c, signedInSession, first)).json()) as { conversation_id: string };
-    expect(opened.conversation_id).toMatch(/^cnv_/);
-    // A signed-out Session of the same User (same User ID) retries the same message id.
-    const signedOutSession = await signedOut(c);
-    const retry = await converse(c, signedOutSession, first);
+    const s = await signedIn(c);
+    const first = message({ id: `msg_${jti()}`, text: "I'd like to exchange the jacket on my order" });
+    const opened = await converse(c, s, first);
+    expect(opened.status).toBe(201);
+    const { conversation_id } = (await opened.json()) as { conversation_id: string };
+    expect(conversation_id).toMatch(/^cnv_/);
+    const retry = await call(c, await retryFrom(c, s), "POST", `${c.hosts.conversationsEndpoint}?wait=1`, { body: { message: first } });
     expect(retry.status).toBe(403);
-    expect(await retry.json()).toMatchObject({ error: "sign_in_required" });
+    expect(retry.headers.get("WWW-Authenticate")).toContain("sign_in_required");
+    const body = JSON.stringify(await retry.json());
+    expect(JSON.parse(body)).toMatchObject({ error: "sign_in_required" });
+    expect(body).not.toContain(conversation_id);
+    expect(body).not.toContain("ord_7Hk2");
     // The same User retried their own message: no cross-user violation.
     expect((await c.stub.state()).violations).toEqual([]);
   });
@@ -1979,20 +1999,6 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     const retry = await converse(c, s, { data: { colour: "blue", size: "M" }, text: first.text, sender: first.sender, id: first.id });
     expect(retry.status).toBe(201);
     expect(((await retry.json()) as { conversation_id: string }).conversation_id).toBe(conversation_id);
-    expect((await c.stub.state()).violations).toEqual([]);
-  });
-
-  it("answers a retried first message with sign_in_required once the conversation used an account the Session left (7.11, S8)", async () => {
-    const c = company();
-    const s = await signedIn(c);
-    const first = message({ text: "I'd like to exchange the jacket on my order" });
-    expect((await converse(c, s, first)).status).toBe(201);
-    const revoke = await form(c, c.hosts.revocationEndpoint, { token: s.refreshToken, token_type_hint: "refresh_token" }, null);
-    expect(revoke.status).toBe(200);
-    const retry = await call(c, s, "POST", `${c.hosts.conversationsEndpoint}?wait=1`, { body: { message: first } });
-    expect(retry.status).toBe(403);
-    expect(retry.headers.get("WWW-Authenticate")).toContain("sign_in_required");
-    expect(JSON.stringify(await retry.json())).not.toContain("ord_7Hk2");
     expect((await c.stub.state()).violations).toEqual([]);
   });
 
