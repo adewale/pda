@@ -1,6 +1,6 @@
 # Problems in the Personal Agent Protocol specification
 
-Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1 ("Updated Oct 9, 2026"), its Guides and the Operations extension v1, written so they can go to the spec's authors. Each has a suggested fix and says what our client does meanwhile.
+Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1 ("Updated Oct 9, 2026"), its Guides and the Operations extension v1, written so they can go to the spec's authors. Each has a suggested fix and says what our client does meanwhile. [readings.md](readings.md) records, for the S-numbered questions, which reading our client and our strict and lenient mock Companies take, and why.
 
 ## How we found them
 

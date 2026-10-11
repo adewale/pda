@@ -181,7 +181,13 @@ npm run typecheck
 npm run check:docs               # every test the spec's Appendix A names exists
 npm run interop                  # the interop grid in Docker (interop/README.md)
 npm run deploy
+npm run deploy:staging           # the staging Worker (docs/setup.md#staging)
+npm run smoke -- <base-url>      # read-only checks of a deployed Worker
 ```
+
+**Before a push.** `.githooks/pre-push` runs `npm run typecheck` and `npm run check:docs`, and stops the push if either fails. Turn it on once per clone with `git config core.hooksPath .githooks`; `git push --no-verify` skips it.
+
+**Deploying.** Try a change on staging first: `npm run deploy:staging`, then `npm run smoke` against it. [`docs/setup.md`](docs/setup.md) covers staging's one-time setup (you create its OAuth apps and secrets), the smoke test, and rolling back or deploying gradually with Wrangler versions.
 
 CI runs typecheck, the tests and the docs check on every push, and the interop grid for our agent against our mock Company (`.github/workflows/ci.yml`).
 
@@ -196,6 +202,7 @@ CI runs typecheck, the tests and the docs check on every push, and the interop g
   - A frozen clock makes Retry-After, device polling and slow operations instant.
 - **Validator:** fixtures declared as data, with a test that every message has one. They include the spec's own examples and poppy-demo's live documents.
 - **JSON parsers:** property tests against `JSON.parse`.
+- **Smoke test:** `scripts/smoke.mjs`'s checks pass against the Worker and fail against broken answers, and it only ever sends credential-free GETs.
 - **Page:** the four places, the needs-you tray, cards, the Activity log (no secrets ever reach it), the sign-in page and the Browser Rendering adapter, in happy-dom.
 - **Interop harness:** its scenario interpreter, trace checks, attribution and report, in Node. The validator fixtures and the mock's tamper rows are also exported as language-neutral vectors (`interop/vectors/`), and a test fails while those files are stale.
 
@@ -233,7 +240,7 @@ Poppy implementations we know of, as of 11 Oct 2026. All were days old. [`docs/i
 | [introspection-js-sdk `examples/pap-travel`](https://github.com/introspection-org/introspection-js-sdk/pull/441) | Demo of both sides (pull request open) | TypeScript |
 | [dirnbauer/webconsulting-typo3-lab](https://github.com/dirnbauer/webconsulting-typo3-lab) | Minimal signed-out Company (the extension itself is private) | PHP |
 
-[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 65 problems in the specification itself, with suggested fixes, [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, [`interop/`](interop/README.md) runs it, and [`docs/interop-results/`](docs/interop-results/) has the latest grid. [`docs/conformance-testing-history.md`](docs/conformance-testing-history.md) traces where pirate testing and interop runners came from, [`docs/adversarial-interop.md`](docs/adversarial-interop.md) designs deliberately misbehaving peers, and [`docs/proposals/`](docs/proposals/) holds unposted drafts proposing Poppy support in OpenClaw and Hermes Agent.
+[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 65 problems in the specification itself, with suggested fixes ([`docs/readings.md`](docs/readings.md) records which reading we chose for each open question, and why), [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, [`interop/`](interop/README.md) runs it, and [`docs/interop-results/`](docs/interop-results/) has the latest grid. [`docs/conformance-testing-history.md`](docs/conformance-testing-history.md) traces where pirate testing and interop runners came from, [`docs/adversarial-interop.md`](docs/adversarial-interop.md) designs deliberately misbehaving peers, and [`docs/proposals/`](docs/proposals/) holds unposted drafts proposing Poppy support in OpenClaw and Hermes Agent.
 
 ## Limitations
 
@@ -263,5 +270,6 @@ docs/               Setup guide; spec problems; issues in other implementations;
 ## Support, contributing and license
 
 - **Support:** this is a private repository for its collaborators. Report problems with [GitHub issues](https://github.com/adewale/dpa/issues).
+- **Security:** report a vulnerability privately, as [`SECURITY.md`](SECURITY.md) describes. It also sets out how we disclose what interop and adversarial testing finds in other projects: to their maintainers, privately, first.
 - **Contributing:** pull requests should keep `npm test` and `npm run typecheck` passing. A new Poppy feature needs a test, and a check in the mock Company where the spec has a MUST.
 - **License:** no license has been chosen yet. Files copied from Cloudflare's `agents` examples keep their MIT license; see [`NOTICE.md`](NOTICE.md).
