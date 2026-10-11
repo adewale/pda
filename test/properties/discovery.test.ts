@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { discover, DiscoveryError, isCompany, protocolEndpoint, tokenHostAllowed, type Company } from "../../src/poppy/discovery";
-import { validateText } from "../../src/validator/validate";
+import { validateCompany, validateText } from "../../src/validator/validate";
 import { companies, hosts, serving, type GeneratedCompany } from "./companies";
 import { gs, jsonValues, propertyAsync, property, type Json } from "./hegel";
 
@@ -134,15 +134,51 @@ describe("discovery refuses a Company whose documents break a MUST (3.1, 3.2)", 
   );
 
   it(
-    "refuses a Company any of whose endpoints isn't HTTPS",
+    "refuses a Company any of whose endpoints isn't HTTPS, naming that endpoint",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
-      const field = tc.draw(gs.sampledFrom(["token_endpoint", "revocation_endpoint"]));
-      const result = await outcome({ ...company, metadata: { ...company.metadata, [field]: company.metadata[field].replace("https://", "http://") } });
+      const fields = urlFields(company);
+      const { document, path } = fields[tc.draw(gs.integers({ minValue: 0, maxValue: fields.length - 1 }))]!;
+      const scheme = tc.draw(gs.sampledFrom(["http", "ftp", "ws", "wss", "file"]));
+      const insecure = (url: string) => url.replace(/^https:/, `${scheme}:`);
+      let changed: { poppy: unknown; metadata: unknown } = { poppy: company.poppy, metadata: company.metadata };
+      changed = { ...changed, [document]: replaced(changed[document], path, insecure(lookup(company[document], path))) };
+      // The issuer is in both documents, which must agree; it changes in both.
+      if (document === "poppy" && path.join("/") === "auth/issuer") changed.metadata = { ...company.metadata, issuer: insecure(company.metadata.issuer) };
+      tc.note(`${document} /${path.join("/")} as ${scheme}`);
+      const result = await outcome({ ...company, ...changed });
       expect(result.ok).toBe(false);
+      const report = await validateCompany(serving({ ...company, ...changed }).fetcher, company.requested);
+      expect(report.messages.filter((message) => message.id === "not-https-url").map((message) => [message.document, message.pointer])).toEqual([
+        [document === "poppy" ? "poppy" : "oauth-metadata", `/${path.join("/")}`]
+      ]);
     })
   );
 });
+
+/**
+ * Every member of a generated Company's documents that is a URL the client
+ * fetches or sends to, and so must be HTTPS: the issuer, sign-in, conversation,
+ * API, browser-session and extension endpoints in poppy.json, and the
+ * endpoints in the issuer's metadata.
+ */
+function urlFields(company: GeneratedCompany): { document: "poppy" | "metadata"; path: (string | number)[] }[] {
+  const { poppy, metadata } = company;
+  const fields: { document: "poppy" | "metadata"; path: (string | number)[] }[] = [{ document: "poppy", path: ["auth", "issuer"] }];
+  if (poppy.auth.mediated) fields.push({ document: "poppy", path: ["auth", "mediated", "endpoint"] });
+  (poppy.agent?.protocols ?? []).forEach((_: unknown, index: number) => fields.push({ document: "poppy", path: ["agent", "protocols", index, "endpoint"] }));
+  (poppy.apis ?? []).forEach((_: unknown, index: number) => fields.push({ document: "poppy", path: ["apis", index, "url"] }));
+  if (poppy.web?.browser_session_endpoint) fields.push({ document: "poppy", path: ["web", "browser_session_endpoint"] });
+  for (const name of Object.keys(poppy.extensions ?? {})) fields.push({ document: "poppy", path: ["extensions", name, "endpoint"] });
+  for (const key of ["token_endpoint", "revocation_endpoint", "authorization_endpoint", "device_authorization_endpoint"]) {
+    if (key in metadata) fields.push({ document: "metadata", path: [key] });
+  }
+  return fields;
+}
+
+function lookup(value: unknown, path: readonly (string | number)[]): string {
+  return path.reduce<unknown>((at, key) => (at as Record<string | number, unknown>)[key], value) as string;
+}
 
 /** Every path to a member or element of a JSON value. */
 function paths(value: unknown, at: (string | number)[] = []): (string | number)[][] {

@@ -14,9 +14,12 @@ export { gs };
 
 const cases = Number(process.env.HEGEL_CASES ?? "0");
 
-/** Settings for every property: the default case count, or `HEGEL_CASES`. */
+/**
+ * Settings for every property: the default case count, or the property's own
+ * `testCases`; `HEGEL_CASES`, when set, overrides both.
+ */
 export function settings(extra: Partial<hegel.Settings> = {}): Partial<hegel.Settings> {
-  return { ...(cases > 0 ? { testCases: cases } : {}), ...extra };
+  return { ...extra, ...(cases > 0 ? { testCases: cases } : {}) };
 }
 
 /** Run a synchronous property. */
