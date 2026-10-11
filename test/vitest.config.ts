@@ -1,6 +1,6 @@
 import path from "node:path";
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
-import { SignJWT } from "jose";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { defineConfig } from "vitest/config";
 
 const testsDir = import.meta.dirname;
@@ -8,6 +8,19 @@ const testsDir = import.meta.dirname;
 /** Must match test/wrangler.jsonc. */
 const GOOGLE_CLIENT = { id: "google-test-client", secret: "google-test-secret" };
 const GITHUB_CLIENT = { id: "github-test-client", secret: "github-test-secret" };
+
+/** The Personal Agent's Poppy signing keys and token key, fresh per run. */
+async function poppySecrets() {
+  const keys = [];
+  for (const kid of ["test-current", "test-next"]) {
+    const { privateKey } = await generateKeyPair("ES256", { extractable: true });
+    keys.push({ ...(await exportJWK(privateKey)), kid, alg: "ES256", use: "sig" });
+  }
+  return {
+    POPPY_SIGNING_JWKS: JSON.stringify(keys),
+    TOKEN_ENC_KEY: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
+  };
+}
 
 /** Signs the fake Google ID tokens; the Worker does not check this signature. */
 const idTokenKey = crypto.getRandomValues(new Uint8Array(32));
@@ -76,7 +89,7 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: path.join(testsDir, "wrangler.jsonc") },
-      miniflare: { outboundService: fakeProviders }
+      miniflare: { outboundService: fakeProviders, bindings: await poppySecrets() }
     })
   ],
   resolve: {

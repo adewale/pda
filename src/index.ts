@@ -1,8 +1,10 @@
 import { ConfigError, readModelConfig, readSessionSecret } from "./config";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
+import { handleIdentityRoute } from "./poppy/routes";
 import { agentNameFor, AuthError, clearSession, verifySession } from "./session";
 
 export { PersonalAgent } from "./agent";
+export { CompanyLimiter } from "./poppy/limiter";
 
 function text(status: number, body: string): Response {
   return new Response(body, {
@@ -54,6 +56,29 @@ function handleLogout(request: Request): Response {
   });
 }
 
+/**
+ * Poppy routes that belong to one person's agent: the Direct Sign-In
+ * callback arrives in that person's browser, so their app session picks the
+ * agent. Without a session there is no agent to give the code to.
+ */
+async function handlePoppy(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  if (url.pathname !== "/poppy/callback") return text(404, "Not found");
+  if (request.method !== "GET") return text(405, "Method not allowed");
+  let identity;
+  try {
+    identity = await verifySession(request, readSessionSecret(env));
+  } catch (error) {
+    if (!(error instanceof AuthError)) throw error;
+    return new Response(
+      "Sign in to your personal agent in this browser, then start the company sign-in again.",
+      { status: 401, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } }
+    );
+  }
+  const agent = env.PersonalAgent.getByName(await agentNameFor(identity));
+  return agent.fetch(new Request(url.toString(), { method: "GET" }));
+}
+
 /** `/auth/<provider>` and `/auth/<provider>/callback`. */
 async function handleAuth(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return text(405, "Method not allowed");
@@ -72,6 +97,9 @@ export default {
       if (pathname === "/api/me") return await handleMe(request, env);
       if (pathname === "/logout") return handleLogout(request);
       if (pathname.startsWith("/auth/")) return await handleAuth(request, env);
+      if (pathname.startsWith("/poppy/")) {
+        return (await handleIdentityRoute(request, env)) ?? (await handlePoppy(request, env));
+      }
       // Static assets serve everything outside `run_worker_first`, so this
       // is only reached by unknown `/api/*` paths, including the SDK's own
       // `/agents/<class>/<name>` URLs, which are deliberately not routed.

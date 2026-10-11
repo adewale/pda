@@ -5,9 +5,18 @@
   "compatibility_date": "2026-10-09",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
-    "bindings": [{ "name": "PersonalAgent", "class_name": "PersonalAgent" }]
+    "bindings": [
+      { "name": "PersonalAgent", "class_name": "PersonalAgent" },
+      { "name": "CompanyLimiter", "class_name": "CompanyLimiter" },
+      { "name": "MOCK_COMPANY", "class_name": "MockCompany" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PersonalAgent"] }],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["PersonalAgent", "CompanyLimiter", "MockCompany"]
+    }
+  ],
   "vars": {
     "MODEL_ID": "anthropic/claude-opus-5-5",
     "THINKING_LEVEL": "medium",
@@ -16,6 +25,9 @@
     "GOOGLE_CLIENT_ID": "google-test-client",
     "GOOGLE_CLIENT_SECRET": "google-test-secret",
     "GITHUB_CLIENT_ID": "github-test-client",
-    "GITHUB_CLIENT_SECRET": "github-test-secret"
+    "GITHUB_CLIENT_SECRET": "github-test-secret",
+    "PUBLIC_ORIGIN": "https://agent.test",
+    "POPPY_CLIENT_NAME": "Test Personal Agent",
+    "POPPY_LOGO_URI": "https://agent.test/logo.png"
   }
 }

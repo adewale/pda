@@ -7,6 +7,11 @@ import { Lifecycle } from "agents/lifecycle";
 import { createAI } from "agents/models/pi-ai";
 import { WebSockets } from "agents/websockets";
 import { readModelConfig } from "./config";
+import type { PoppyBrowser } from "./poppy/browser";
+import { PoppyCapability } from "./poppy/capability";
+import type { Fetcher } from "./poppy/fetch";
+import { RenderingBrowser } from "./poppy/rendering";
+import { poppyExtension } from "./poppy/tools";
 import { PiSessionSockets } from "./sockets";
 
 const PREAMBLE =
@@ -25,11 +30,21 @@ export class PersonalAgent extends DurableObject<Env> {
   readonly harness: PiHarness;
   readonly sockets: PiSessionSockets;
   readonly webSockets: WebSockets;
+  readonly poppy: PoppyCapability;
   readonly lifecycle: Lifecycle;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const source = this.modelSource();
+    let browser: PoppyBrowser | undefined;
+    this.poppy = new PoppyCapability({
+      env,
+      storage: ctx.storage,
+      fetcher: this.poppyFetcher(),
+      browser: () => (browser ??= this.poppyBrowser()),
+      notifyModel: (text, operationId) => this.poppyNotify(text, operationId),
+      ...this.poppySettings()
+    });
     this.harness = new PiHarness({
       harness: async ({ storage, context }) => {
         this.registry.install({
@@ -37,6 +52,12 @@ export class PersonalAgent extends DurableObject<Env> {
           sections: [{ key: "preamble", render: () => PREAMBLE, tag: false }],
           tools: []
         });
+        this.registry.install(
+          poppyExtension(
+            () => this.poppy.client,
+            () => this.poppy.browser
+          )
+        );
         const models = createModels();
         models.setProvider(source.provider);
         return Harness.open(
@@ -60,7 +81,9 @@ export class PersonalAgent extends DurableObject<Env> {
       this.ctx.getWebSockets(tag)
     );
     this.webSockets = new WebSockets(this.sockets.options());
+    // Poppy first, so it sees `poppy.*` frames before the chat socket does.
     this.lifecycle = Lifecycle.install(this)
+      .use(this.poppy)
       .use(this.webSockets)
       .use(this.harness);
   }
@@ -74,6 +97,26 @@ export class PersonalAgent extends DurableObject<Env> {
       model: ai(config.modelId),
       thinkingLevel: config.thinkingLevel
     };
+  }
+
+  /** Where Poppy requests go; tests route them to the mock Company. */
+  protected poppyFetcher(): Fetcher {
+    return (request) => fetch(request);
+  }
+
+  /** The browser for Poppy web browsing: Cloudflare Browser Rendering. */
+  protected poppyBrowser(): PoppyBrowser {
+    return new RenderingBrowser(this.env.BROWSER);
+  }
+
+  /** Hand a Poppy notice to the model, once per operation id. */
+  protected async poppyNotify(text: string, operationId: string): Promise<void> {
+    await this.harness.submit(text, { operationId, whenBusy: "followUp" });
+  }
+
+  /** Timings tests shorten. */
+  protected poppySettings(): { readWaitSeconds: number; idleReadMs?: number; sleep?: (ms: number) => Promise<void> } {
+    return { readWaitSeconds: 20 };
   }
 
   /** Host startup, after the harness has opened pi. */
