@@ -64,7 +64,8 @@ async function send(response: Response, res: http.ServerResponse): Promise<void>
   res.end();
 }
 
-export function serve(port: number, handler: Handler): http.Server {
+/** Listens on every interface by default (inside a container); `host` narrows it, e.g. to 127.0.0.1. */
+export function serve(port: number, handler: Handler, host = "0.0.0.0"): http.Server {
   const server = http.createServer((req, res) => {
     toRequest(req)
       .then(handler)
@@ -75,7 +76,7 @@ export function serve(port: number, handler: Handler): http.Server {
         res.end(JSON.stringify({ error: "adapter_error", detail: String(error) }));
       });
   });
-  server.listen(port, "0.0.0.0");
+  server.listen(port, host);
   return server;
 }
 

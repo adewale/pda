@@ -9,3 +9,9 @@ dist/
 # Agent worktrees
 .claude/worktrees/
 interop/results/
+
+# Python (test/hypothesis)
+.venv/
+.hypothesis/
+__pycache__/
+.pytest_cache/

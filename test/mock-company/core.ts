@@ -57,6 +57,8 @@ export type Session = {
   account: string | null;
   /** The account it was ever signed in to; it can't switch (4.4). */
   boundAccount: string | null;
+  /** The sign-in whose Account Token it is signed in with, if any: revoking that token signs it out (4.9). */
+  grant: string | null;
   scope: string[];
   ended: boolean;
 };
@@ -79,6 +81,8 @@ export type AccountToken = {
   readonly clientId: string;
   readonly userId: string;
   readonly account: string;
+  /** The sign-in it descends from; a rotated token keeps its predecessor's. */
+  readonly grant: string;
   readonly scope: readonly string[];
   readonly expiresAt: number | null;
   revoked: boolean;
@@ -787,6 +791,7 @@ export class Company {
       userId,
       account: null,
       boundAccount: null,
+      grant: null,
       scope: [],
       ended: false
     };
@@ -834,12 +839,14 @@ export class Company {
     return token;
   }
 
+  /** An Account Token for the sign-in the Session is signed in with (`signIn` first). */
   issueAccountToken(session: Session, scope: readonly string[]): AccountToken {
     const token: AccountToken = {
       value: randomId("pat_", 24),
       clientId: session.clientId,
       userId: session.userId,
       account: session.account!,
+      grant: session.grant!,
       scope,
       expiresAt: this.config.refreshTokenTtl
         ? Date.now() + this.config.refreshTokenTtl * 1000
@@ -870,13 +877,18 @@ export class Company {
     return json(body, 200, { "Cache-Control": "no-store", Pragma: "no-cache" });
   }
 
-  /** Signs a Session in to an account, enforcing one account per Session (4.4). */
-  signIn(session: Session, account: string, scope: readonly string[]): void {
+  /**
+   * Signs a Session in to an account, enforcing one account per Session
+   * (4.4): with a new sign-in, or with `grant`, the sign-in of the Account
+   * Token it was renewed with (4.8).
+   */
+  signIn(session: Session, account: string, scope: readonly string[], grant: string = randomId("grt_", 8)): void {
     if (session.boundAccount && session.boundAccount !== account) {
       throw oauthError(400, "account_mismatch", "Session is signed in to a different account");
     }
     session.account = account;
     session.boundAccount = account;
+    session.grant = grant;
     session.scope = [...scope];
   }
 

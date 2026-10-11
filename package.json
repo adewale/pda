@@ -18,6 +18,7 @@
     "types": "wrangler types env.d.ts --include-runtime false",
     "test": "vitest run --config test/vitest.config.ts && vitest run --config test/durability/vitest.config.ts && vitest run --config test/ui/vitest.config.ts && vitest run --config interop/vitest.config.ts",
     "test:ui": "vitest run --config test/ui/vitest.config.ts",
+    "test:hypothesis": "uv run --directory test/hypothesis --frozen pytest",
     "validate": "node scripts/poppy-validate.ts",
     "check:docs": "node scripts/check-docs.mjs",
     "interop": "node interop/runner/cli.ts",
