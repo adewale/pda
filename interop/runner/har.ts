@@ -17,6 +17,8 @@ export type HarEntry = {
     readonly content: { readonly mimeType: string; readonly text?: string; readonly encoding?: string };
   };
   readonly _upstream?: string | null;
+  /** Set by the fault-injection proxy on exchanges it created or altered (spec §6). */
+  readonly _interop?: { readonly injected?: boolean; readonly fault?: string } | null;
 };
 
 export type Har = { readonly log: { readonly entries: readonly HarEntry[] } };
@@ -33,6 +35,10 @@ export type Exchange = {
   readonly peer: string | null;
   /** The runner's own probes (`runner fetch`), which no check judges. */
   readonly probe: boolean;
+  /** An exchange the fault-injection proxy created or altered, never blamed on an honest side (spec §6). */
+  readonly injected: boolean;
+  /** The fault's action, when this exchange was altered by one. */
+  readonly fault: string | null;
   readonly started: number;
   readonly ended: number;
   readonly requestHeaders: ReadonlyMap<string, string>;
@@ -79,6 +85,8 @@ export function exchanges(har: Har): Exchange[] {
       url,
       ...direction(url.hostname),
       probe: requestHeaders.has(PROBE_HEADER),
+      injected: !!entry._interop?.injected,
+      fault: entry._interop?.fault ?? null,
       started,
       ended: started + entry.time,
       requestHeaders,

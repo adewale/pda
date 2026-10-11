@@ -49,6 +49,8 @@ export type Options = {
   /** Extra container environment, by implementation name. */
   readonly set: ReadonlyMap<string, Readonly<Record<string, string>>>;
   readonly out: string | null;
+  /** The image tag to build and run (default `latest`). `--image-tag adv` keeps the full grid's `:latest` images untouched. */
+  readonly imageTag: string;
 };
 
 const list = (value: string | undefined) => (value ? value.split(",").map((item) => item.trim()).filter(Boolean) : null);
@@ -65,11 +67,13 @@ export function parseOptions(argv: readonly string[]): Options {
       "no-build": { type: "boolean", default: false },
       keep: { type: "boolean", default: false },
       set: { type: "string", multiple: true },
-      out: { type: "string" }
+      out: { type: "string" },
+      "image-tag": { type: "string", default: "latest" }
     },
     strict: true
   });
   if (values.lane !== "local" && values.lane !== "live") throw new Error(`--lane must be local or live, not ${values.lane}`);
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(values["image-tag"]!)) throw new Error(`--image-tag must be a Docker tag, not ${values["image-tag"]}`);
   const set = new Map<string, Record<string, string>>();
   for (const entry of values.set ?? []) {
     const match = /^([a-z0-9-]+):([A-Z][A-Z0-9_]*)=(.*)$/.exec(entry);
@@ -84,7 +88,8 @@ export function parseOptions(argv: readonly string[]): Options {
     build: values.build && !values["no-build"],
     keep: values.keep,
     set,
-    out: values.out ?? null
+    out: values.out ?? null,
+    imageTag: values["image-tag"] ?? "latest"
   };
 }
 
@@ -173,8 +178,8 @@ class Proxy {
       return { status: answer.status, body: parse(answer.body) };
     };
   }
-  async cell(id: string): Promise<void> {
-    await this.post("/cell", { id });
+  async cell(id: string, faults: readonly unknown[] = []): Promise<void> {
+    await this.post("/cell", { id, faults });
   }
   async har(): Promise<Har> {
     return (await (await fetch(`${this.base}/har`)).json()) as Har;
@@ -212,6 +217,29 @@ type Implementation = {
 const domainOf = (entry: RegistryEntry, lane: "local" | "live") =>
   lane === "live" && entry.url ? entry.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "") : `${entry.name}.${entry.role}.interop.test`;
 
+/**
+ * The own-project rule (docs/adversarial-interop.md, Part B): a cell with an
+ * adversarial side, or a proxy `faults` list, runs only on the local lane and
+ * only when every honest side is an implementation this project owns
+ * (`owner: "self"`). No flag lifts this; lifting it is a code change that
+ * needs the disclosure process (see SECURITY.md). Returns why a cell must be
+ * refused, or null when it may run.
+ */
+export function adversarialRefusal(
+  scenario: Scenario,
+  agent: RegistryEntry,
+  company: RegistryEntry,
+  lane: "local" | "live"
+): string | null {
+  const isSecurity = !!scenario.adversary || !!scenario.faults?.length || !!agent.adversarial || !!company.adversarial;
+  if (!isSecurity) return null;
+  if (lane === "live") return "adversarial cells never run in the live lane";
+  const honest = [agent, company].filter((entry) => !entry.adversarial);
+  const outsiders = honest.filter((entry) => entry.owner !== "self").map((entry) => entry.name);
+  if (outsiders.length) return `adversarial cells run only against our own implementations; ${outsiders.join(", ")} is not owner:self`;
+  return null;
+}
+
 async function runCells(options: {
   scenarios: readonly Scenario[];
   agents: readonly Implementation[];
@@ -219,6 +247,7 @@ async function runCells(options: {
   control: Control;
   proxy: Proxy | null;
   resultsDir: string;
+  lane: "local" | "live";
   log: (line: string) => void;
 }): Promise<Cell[]> {
   const cells: Cell[] = [];
@@ -227,6 +256,14 @@ async function runCells(options: {
       for (const company of options.companies) {
         const cell: Cell = { agent: agent.entry.name, company: company.entry.name, scenario: scenario.id, outcome: "unsupported", blame: null, rule: null, steps: [], checks: [], har: null };
         cells.push(cell);
+        const refusal = adversarialRefusal(scenario, agent.entry, company.entry, options.lane);
+        if (refusal) {
+          cell.outcome = "error";
+          cell.reason = refusal;
+          cell.security = true;
+          options.log(`${scenario.id.padEnd(4)} ${cell.agent} × ${cell.company}: refused — ${refusal}`);
+          continue;
+        }
         const broken = agent.broken ?? company.broken;
         if (broken) {
           cell.outcome = "error";
@@ -264,7 +301,7 @@ async function runOne(
       return;
     }
   }
-  await proxy?.cell(cellId(cell));
+  await proxy?.cell(cellId(cell), scenario.faults ?? []);
 
   let fixture: unknown = {};
   if (company.hooks.includes("fixture")) {
@@ -323,8 +360,12 @@ async function runOne(
   const violations = await control(company.target, "GET", "/violations").catch(() => ({ status: 0, body: null }));
   const recordedViolations = (violations.body as { violations?: { id: string; detail: string }[] } | null)?.violations;
   if (violations.status === 200 && Array.isArray(recordedViolations)) {
+    // In an adversarial cell the bad request is the attack's (an injected fault, or the evil
+    // side's), so the Company catching it is expected: record such violations as warnings, not
+    // errors, and let the harm oracles and attribution rule 0 decide the cell (spec §9).
+    const isSecurity = !!scenario.adversary || !!scenario.faults?.length || !!agent.entry.adversarial || !!company.entry.adversarial;
     for (const violation of recordedViolations) {
-      checks.push({ id: violation.id, side: "agent", severity: "error", exchange: null, detail: violation.detail, source: `company:${company.entry.name}` });
+      checks.push({ id: violation.id, side: "agent", severity: isSecurity ? "warning" : "error", exchange: null, detail: violation.detail, source: `company:${company.entry.name}` });
     }
   }
   cell.checks = checks;
@@ -349,24 +390,24 @@ function selected(registry: Registry, role: Role, names: readonly string[] | nul
  * directory in the same context (`dpa-mock` and `dpa-mock-strict`, told
  * apart by `env`) share one image, named after the first in the registry.
  */
-export function imageOf(entry: RegistryEntry, registry: Registry): string {
+export function imageOf(entry: RegistryEntry, registry: Registry, tag = "latest"): string {
   const same = (other: RegistryEntry) => other.role === entry.role && other.build === entry.build && (other.context ?? other.build) === (entry.context ?? entry.build);
   const first = entry.build ? (registry.implementations.find(same) ?? entry) : entry;
-  return `poppy-interop/${first.role}-${first.name}:latest`;
+  return `poppy-interop/${first.role}-${first.name}:${tag}`;
 }
 
-async function buildImages(entries: readonly RegistryEntry[], registry: Registry, logs: string, log: (line: string) => void): Promise<Map<string, string>> {
+async function buildImages(entries: readonly RegistryEntry[], registry: Registry, logs: string, log: (line: string) => void, tag = "latest"): Promise<Map<string, string>> {
   const failures = new Map<string, string>();
   const byImage = new Map<string, RegistryEntry[]>();
-  for (const entry of entries) byImage.set(imageOf(entry, registry), [...(byImage.get(imageOf(entry, registry)) ?? []), entry]);
+  for (const entry of entries) byImage.set(imageOf(entry, registry, tag), [...(byImage.get(imageOf(entry, registry, tag)) ?? []), entry]);
   const builds = [
-    { key: "proxy", targets: ["proxy"], args: ["build", "-t", "poppy-interop/proxy:latest", path.join(INTEROP, "proxy")] },
+    { key: "proxy", targets: ["proxy"], args: ["build", "-t", `poppy-interop/proxy:${tag}`, path.join(INTEROP, "proxy")] },
     ...[...byImage].map(([image, sharing]) => {
       const entry = sharing[0]!;
       const dir = path.join(ROOT, entry.build!);
       const context = entry.context ? path.join(ROOT, entry.context) : dir;
       return {
-        key: image.replace(/^poppy-interop\//, "").replace(/:latest$/, ""),
+        key: image.replace(/^poppy-interop\//, "").replace(/:[^:]+$/, ""),
         targets: sharing.map((item) => `${item.role}-${item.name}`),
         args: ["build", "-t", image, "-f", path.join(dir, "Dockerfile"), context]
       };
@@ -391,9 +432,15 @@ export async function main(argv: readonly string[]): Promise<number> {
     for (const id of options.scenarios) if (!scenarios.some((scenario) => scenario.id === id)) throw new Error(`No scenario ${id}`);
     scenarios = scenarios.filter((scenario) => options.scenarios!.includes(scenario.id));
   }
-  if (options.lane === "live") scenarios = scenarios.filter((scenario) => scenario.live && !(scenario.needs?.company?.length));
-  const agents = selected(registry, "agent", options.agents, options.lane);
-  const companies = selected(registry, "company", options.companies, options.lane);
+  // The live lane never runs adversarial scenarios (spec §10): never attack a public deployment.
+  if (options.lane === "live") scenarios = scenarios.filter((scenario) => scenario.live && !scenario.adversary && !scenario.faults?.length && !(scenario.needs?.company?.length));
+  let agents = selected(registry, "agent", options.agents, options.lane);
+  let companies = selected(registry, "company", options.companies, options.lane);
+  if (options.lane === "live") {
+    // Adversarial implementations never run in the live lane (spec §10).
+    agents = agents.filter((entry) => !entry.adversarial);
+    companies = companies.filter((entry) => !entry.adversarial);
+  }
   if (!agents.length || !companies.length) throw new Error("Nothing to run: no agents or no Companies selected");
 
   const run = new Date().toISOString().replace(/\.\d+Z$/, "Z");
@@ -418,7 +465,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   let cells: Cell[] = [];
   const certs = mkdtempSync(path.join(tmpdir(), "poppy-interop-"));
   try {
-    const buildFailures = options.build ? await buildImages(liveAgents ? agents : [...agents, ...companies], registry, logs, log) : new Map<string, string>();
+    const buildFailures = options.build ? await buildImages(liveAgents ? agents : [...agents, ...companies], registry, logs, log, options.imageTag) : new Map<string, string>();
     if (buildFailures.has("proxy") && !liveAgents) throw new Error(`The proxy didn't build: ${buildFailures.get("proxy")}`);
     for (const impl of implementations) impl.broken = buildFailures.get(impl.target) ?? null;
 
@@ -439,7 +486,7 @@ export async function main(argv: readonly string[]): Promise<number> {
         agents.map((entry) => entry.name),
         companies.map((entry) => ({ name: entry.name, ...(entry.subdomains ? { subdomains: entry.subdomains } : {}) }))
       );
-      docker(["create", "--name", proxyName, "--network", network, ...aliases.flatMap((alias) => ["--network-alias", alias]), "-p", "127.0.0.1::8082", "poppy-interop/proxy:latest"], { quiet: true });
+      docker(["create", "--name", proxyName, "--network", network, ...aliases.flatMap((alias) => ["--network-alias", alias]), "-p", "127.0.0.1::8082", `poppy-interop/proxy:${options.imageTag}`], { quiet: true });
       containers.push(proxyName);
       docker(["cp", proxyCerts, `${proxyName}:/interop`], { quiet: true });
       docker(["start", proxyName], { quiet: true });
@@ -465,7 +512,7 @@ export async function main(argv: readonly string[]): Promise<number> {
           ...(impl.entry.env ?? {}),
           ...(options.set.get(impl.entry.name) ?? {})
         };
-        docker(["create", "--name", name, "--network", network, "--network-alias", impl.target, ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry, registry)], { quiet: true });
+        docker(["create", "--name", name, "--network", network, "--network-alias", impl.target, ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry, registry, options.imageTag)], { quiet: true });
         containers.push(name);
         docker(["cp", trust, `${name}:/interop`], { quiet: true });
         docker(["start", name], { quiet: true });
@@ -476,7 +523,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       for (const impl of implementations.filter((item) => item.entry.role === "agent" && !item.broken)) {
         const name = `${network}-${impl.target}`;
         const env = { INTEROP_SECRET: secret, INTEROP_NAME: impl.entry.name, INTEROP_COMMIT: commitOf(impl.entry), INTEROP_PACE_MS: "1000", ...(options.set.get(impl.entry.name) ?? {}) };
-        docker(["run", "-d", "--name", name, "-p", "127.0.0.1::8081", ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry, registry)], { quiet: true });
+        docker(["run", "-d", "--name", name, "-p", "127.0.0.1::8081", ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry, registry, options.imageTag)], { quiet: true });
         containers.push(name);
         ports.set(impl.target, Number(docker(["port", name, "8081/tcp"], { quiet: true }).split("\n")[0]!.split(":").at(-1)));
       }
@@ -524,6 +571,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       control,
       proxy,
       resultsDir: runDir,
+      lane: options.lane,
       log
     });
   } finally {
@@ -555,7 +603,8 @@ export async function main(argv: readonly string[]): Promise<number> {
   const byRole = (role: "agent" | "company") =>
     Object.fromEntries(implementations.filter((impl) => impl.entry.role === role).map((impl) => [impl.entry.name, { ...(impl.manifest?.readings ?? {}) }]));
   const readings = { agent: byRole("agent"), company: byRole("company") };
-  attributeAll(cells, { readings, scenarios: new Map(scenarios.map((scenario) => [scenario.id, scenario])), known });
+  const adversarial = new Set(implementations.filter((impl) => impl.entry.adversarial).map((impl) => impl.entry.name));
+  attributeAll(cells, { readings, scenarios: new Map(scenarios.map((scenario) => [scenario.id, scenario])), known, adversarial });
   const summary = {
     interop: 1,
     run,
@@ -567,6 +616,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       commit: commitOf(impl.entry),
       readings: { ...(impl.manifest?.readings ?? {}) },
       relaxations: [...(impl.manifest?.relaxations ?? [])],
+      ...(impl.entry.adversarial ? { adversarial: true } : {}),
       ...(impl.broken ? { broken: impl.broken } : {})
     })),
     cells

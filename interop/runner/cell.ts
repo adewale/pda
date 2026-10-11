@@ -108,7 +108,10 @@ export async function runCell(scenario: Scenario, fixture: unknown, driver: Driv
       }
       if (reply.kind === "failed") {
         record(false, { error: reply.detail });
-        return end("fail", `step ${index} (runner ${op}): ${reply.detail}`);
+        // The attack-observed precondition (spec §6): if the trace doesn't show the attack
+        // happened, the cell is in error with blame harness, not a failure of the honest side.
+        const attackCheck = op === "assert_trace" && (params as { check?: unknown } | null)?.check === "attack_observed";
+        return end(attackCheck ? "error" : "fail", `step ${index} (runner ${op}): ${reply.detail}`);
       }
       record(true, reply.result === undefined ? {} : { result: reply.result });
       if (step.save) saved[step.save] = reply.result;

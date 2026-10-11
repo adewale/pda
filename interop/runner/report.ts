@@ -9,10 +9,13 @@ export type RunSummary = {
   readonly run: string;
   readonly lane: string;
   readonly spec: string;
-  readonly implementations: readonly { name: string; role: string; commit: string; readings: Record<string, string>; relaxations: readonly string[] }[];
+  readonly implementations: readonly { name: string; role: string; commit: string; readings: Record<string, string>; relaxations: readonly string[]; adversarial?: boolean }[];
   readonly scenarios: readonly Scenario[];
   readonly cells: readonly Cell[];
 };
+
+/** An adversarial scenario (docs/adversarial-interop.md): one that names an adversary or injects faults. */
+const isSecurityScenario = (scenario: Scenario) => !!scenario.adversary || !!scenario.faults?.length;
 
 const escape = (value: unknown) =>
   String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
@@ -76,12 +79,19 @@ ${checks}
 export function renderReport(summary: RunSummary): string {
   const agents = summary.implementations.filter((impl) => impl.role === "agent").map((impl) => impl.name);
   const companies = summary.implementations.filter((impl) => impl.role === "company").map((impl) => impl.name);
+  const honestAgents = summary.implementations.filter((impl) => impl.role === "agent" && !impl.adversarial).map((impl) => impl.name);
+  const honestCompanies = summary.implementations.filter((impl) => impl.role === "company" && !impl.adversarial).map((impl) => impl.name);
+  // Adversarial cells (a proxy faults list or an adversarial side) are shown in the security grid
+  // only, and never count toward the interop pass rates (spec §9, rule 2 and reporting).
+  const interopScenarios = summary.scenarios.filter((scenario) => !isSecurityScenario(scenario));
+  const securityScenarios = summary.scenarios.filter(isSecurityScenario);
+  const interopCells = summary.cells.filter((cell) => !cell.security);
   const counts = new Map<string, number>();
-  for (const cell of summary.cells) counts.set(cell.outcome, (counts.get(cell.outcome) ?? 0) + 1);
+  for (const cell of interopCells) counts.set(cell.outcome, (counts.get(cell.outcome) ?? 0) + 1);
   const impls = summary.implementations
     .map(
       (impl) =>
-        `<tr><td>${escape(impl.name)}</td><td>${escape(impl.role)}</td><td><code>${escape(impl.commit)}</code></td><td>${escape(
+        `<tr><td>${escape(impl.name)}${impl.adversarial ? " <b>(adversarial)</b>" : ""}</td><td>${escape(impl.role)}</td><td><code>${escape(impl.commit)}</code></td><td>${escape(
           Object.entries(impl.readings)
             .map(([key, value]) => `${key}=${value}`)
             .join(" ")
@@ -113,7 +123,14 @@ code { font-size: 0.9em; }
 Each failed cell is blamed by the first rule that decides it: violation, grid, reading, or unattributed (docs/interop-spec.md, section 9).</p>
 <h2>Implementations</h2>
 <table><thead><tr><th>name</th><th>role</th><th>commit</th><th>readings</th><th>interop-only relaxations</th></tr></thead><tbody>${impls}</tbody></table>
-${summary.scenarios.map((scenario) => grid(scenario, summary.cells, agents, companies)).join("\n")}
+${interopScenarios.map((scenario) => grid(scenario, interopCells, honestAgents, honestCompanies)).join("\n")}
+${
+  securityScenarios.length
+    ? `<h2 id=security>Security grid (adversarial)</h2>
+<p class=meta>Adversarial cells (docs/adversarial-interop.md): a malicious peer or an injected network fault. Attribution rule 0 applies — the adversarial side's violations are expected, the cell passes when the honest side refuses, and a failure is the honest side's (or the spec's when permitted by a draft gap). These cells never count toward the interop pass rates above.</p>
+${securityScenarios.map((scenario) => grid(scenario, summary.cells, agents, companies)).join("\n")}`
+    : ""
+}
 <h2>Cells</h2>
 ${summary.cells.map(details).join("\n")}
 </html>
