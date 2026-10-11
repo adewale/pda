@@ -18,9 +18,9 @@ Datalayer's TypeScript Personal Agent SDK ([datalayer/personal-agent-protocol](h
 | `session` | yes | Signed-out Session. |
 | `signin` | yes | `direct` returns `pending.url`; `device` returns `pending.url` and `user_code`; `mediated` returns the field names. |
 | `signin_continue` | yes | Direct: `callback_url`. Device: polls until approved (60 s). Mediated: `fields`, then `{code}` if the Company asks for one. A callback carrying `error=access_denied` is `{"ok": false, "poppy_error": "access_denied", "status": null}`. |
-| `send` | yes | Starts or continues a conversation; with no `wait`, reads the events after the last cursor so `messages` holds the reply. Also returns `cursor` and the raw `events`. |
+| `send` | yes | Starts or continues a conversation; with no `wait`, reads the events after the last cursor so `messages` holds the reply. Also returns `operations` (proposals seen), `cursor` and the raw `events`. |
 | `read` | yes | One page from `cursor`. |
-| `sse` | yes | Collects up to `max_events` from the SSE stream (`timeout_ms`, default 10 s). |
+| `sse` | yes | Collects up to `max_events` from the SSE stream; ends at `timeout_ms` (default 10 s) even if the stream is silent, with `timed_out: true`. |
 | `api` | OpenAPI only | `operation` is `"METHOD /path"` or an `operationId` (looked up in the description); `args` fills path parameters, `args.body` is the JSON body. MCP (`tool`) is 501. |
 | `approve_op` | yes | `approve` confirms with the user's approval; `decline` cancels. Needs a proposal seen in an earlier `send` or `read`. |
 | `signout` | yes | Revokes the Account Token at the revocation endpoint. |
@@ -37,4 +37,10 @@ None. The SDK's default URL policy (`assertObviouslyPublic`) checks only the hos
 
 - Against **datalayer-ts** (Company): discover, session, signed-out send (`sign_in_required` event), Direct, Device and Mediated (with one-time code) Sign-In, signed-in send that proposes an operation, read, SSE, OpenAPI `GET /api/orders`, `approve_op` (succeeded), signout (revoked); same message id twice (no duplicate) and with different text (`409 message_id_conflict`); denied sign-in; Sessions ended by the Company (`401 invalid_token`, then a new Session works).
 - Against **datalayer-py** (Company): the same Direct journey, all green.
-- Against **pi-poppy** (Company, nonces required): the same Direct journey, all green, including the `createExchange` operationId call (`202` with a proposed operation).
+- Against **pi-poppy** (Company, nonces required): the same Direct journey, all green, including the `createExchange` operationId call (`202` with a proposed operation). Mediated works. **Device fails** at the poll: `{"ok": false, "poppy_error": "use_dpop_nonce", "status": 400, "detail": "Company refused the device token request"}`. The SDK's `DeviceSignInClient.poll` (`src/device.ts`) never answers a nonce challenge, unlike its Session, code, refresh and revocation requests. The Python SDK has the same gap.
+
+## Known upstream issues seen here
+
+- Device polling ignores `use_dpop_nonce` (above; Poppy 4.3, RFC 9449 section 8).
+- `validateDirectSignInCallback` (`src/auth.ts`) reports an `error` callback before checking `state`, after the pending state has been taken, so any `error=` callback for the redirect URI ends a pending sign-in. Low severity.
+- Against Datalayer's own Companies, resuming SSE from the latest event fails with `stream_unavailable`: the Company sends the backlog after `Last-Event-ID` and closes, and the client treats an empty, closed stream as unavailable (found by the datalayer-py adapter work; Poppy 7.6).

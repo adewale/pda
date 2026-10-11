@@ -226,6 +226,13 @@ function messagesOf(page) {
   return out;
 }
 
+function operationsOf(page) {
+  return (page?.events ?? [])
+    .map((event) => event.message?.operation)
+    .filter((operation) => operation?.operation_id)
+    .map((operation) => ({ operation_id: operation.operation_id, state: operation.state, summary: operation.summary }));
+}
+
 function remember(c, page) {
   for (const event of page?.events ?? []) {
     const operation = event.message?.operation;
@@ -398,6 +405,7 @@ const ops = {
       message_id: message.id,
       status: response.status,
       messages: messagesOf(response),
+      operations: operationsOf(response),
       cursor: response.cursor ?? null,
       events: response.events ?? [],
     };
@@ -412,7 +420,7 @@ const ops = {
       ...(params.wait === undefined ? {} : { wait: params.wait }),
     });
     remember(c, page);
-    return { messages: messagesOf(page), cursor: page.cursor, has_more: page.has_more, status: page.status, events: page.events };
+    return { messages: messagesOf(page), operations: operationsOf(page), cursor: page.cursor, has_more: page.has_more, status: page.status, events: page.events };
   },
 
   async sse(c, params) {
@@ -421,24 +429,33 @@ const ops = {
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), params.timeout_ms ?? 10_000);
     const events = [];
-    try {
-      const stream = world.conversations.stream(conversationEndpoint(c), params.conversation, {
-        token,
-        ...who(c),
-        ...(params.cursor ? { lastEventId: params.cursor } : {}),
-        signal: abort.signal,
-      });
+    const stream = world.conversations.stream(conversationEndpoint(c), params.conversation, {
+      token,
+      ...who(c),
+      ...(params.cursor ? { lastEventId: params.cursor } : {}),
+      signal: abort.signal,
+    });
+    const reading = (async () => {
       for await (const item of stream) {
         if (item.kind !== undefined) continue; // text deltas and reconnect notices
         events.push({ id: item.id, type: item.type, data: item });
-        if (events.length >= max) break;
+        if (events.length >= max) return;
       }
+    })();
+    // The abort signal alone doesn't stop a read that is waiting on a quiet stream, so
+    // the step also ends at the deadline whatever the stream is doing.
+    const deadline = new Promise((resolve) => abort.signal.addEventListener("abort", resolve, { once: true }));
+    try {
+      await Promise.race([reading, deadline]);
     } catch (error) {
       if (!abort.signal.aborted) throw error;
     } finally {
       clearTimeout(timer);
+      abort.abort();
+      reading.catch(() => undefined);
+      stream.return?.().catch(() => undefined);
     }
-    return { events };
+    return { events, timed_out: events.length < max };
   },
 
   async api(c, params) {

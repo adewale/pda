@@ -1,0 +1,27 @@
+--- a/src/net.ts	2026-10-11 16:54:55
++++ b/src/net.ts	2026-10-11 16:55:00
+@@ -154,12 +154,23 @@
+ 			if (!options.allowLoopback) throw new HttpError(`refusing loopback address ${ip}`, "loopback");
+ 			continue;
+ 		}
+-		if (isPrivateOrLinkLocal(ip) && !options.allowPrivate) {
++		if (isPrivateOrLinkLocal(ip) && !options.allowPrivate && !interopPrivateHost(hostname)) {
+ 			throw new HttpError(`refusing private address ${ip}`, "private_address");
+ 		}
+ 	}
+ }
+ 
++/**
++ * Interop testing only, off by default: PI_POPPY_INTEROP_PRIVATE_SUFFIX (e.g.
++ * ".interop.test") lets names under that suffix resolve to private addresses,
++ * as every name does on the interop grid's private network. Loopback stays refused.
++ */
++function interopPrivateHost(hostname: string): boolean {
++	const suffix = process.env.PI_POPPY_INTEROP_PRIVATE_SUFFIX;
++	if (!suffix || !suffix.startsWith(".") || suffix.length < 3) return false;
++	return hostname.toLowerCase().endsWith(suffix.toLowerCase());
++}
++
+ export function isLoopback(ip: string): boolean {
+ 	if (ip === "::1") return true;
+ 	const mapped = ip.startsWith("::ffff:") ? ip.slice(7) : ip;
