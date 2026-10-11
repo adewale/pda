@@ -563,10 +563,12 @@ async function runStep(body: any): Promise<{ status: number; body: unknown }> {
 			return { status: 200, body: { ok: false, poppy_error: error.code, status: error.status, detail: error.message } };
 		}
 		const message = String(error?.message ?? error);
-		const httpStatus = lastExchange?.status;
+		// Set by the fetch hook while the step ran; TypeScript narrows it to undefined from the reset above.
+		const exchange = lastExchange as Exchange | undefined;
+		const httpStatus = exchange?.status;
 		// pi-poppy throws the Company's `error` member as the message for refused requests.
 		if (httpStatus && httpStatus >= 400 && /^[a-z][a-z0-9_]*$/.test(message)) {
-			return { status: 200, body: { ok: false, poppy_error: message, status: httpStatus, detail: `${lastExchange?.method} ${lastExchange?.url}` } };
+			return { status: 200, body: { ok: false, poppy_error: message, status: httpStatus, detail: `${exchange?.method} ${exchange?.url}` } };
 		}
 		if (error instanceof TypeError || error instanceof ReferenceError) {
 			return { status: 500, body: { error: "adapter_error", detail: error.stack ?? message } };
@@ -574,7 +576,7 @@ async function runStep(body: any): Promise<{ status: number; body: unknown }> {
 		// pi-poppy's own refusal (a document it won't parse, a check that failed, a network
 		// error such as a timeout): status 0, with pi-poppy's message (spec 5.2).
 		const code = typeof error?.code === "string" && /^[a-z][a-z0-9_]*$/.test(error.code) ? error.code : /^[a-z][a-z0-9_]*$/.test(message) ? message : "agent_refused";
-		const last = lastExchange ? ` (last request: ${lastExchange.method} ${lastExchange.url} -> ${lastExchange.status ?? lastExchange.error ?? "no answer"})` : "";
+		const last = exchange ? ` (last request: ${exchange.method} ${exchange.url} -> ${exchange.status ?? exchange.error ?? "no answer"})` : "";
 		return { status: 200, body: { ok: false, poppy_error: code, status: 0, detail: `${message}${last}` } };
 	}
 }
