@@ -153,25 +153,42 @@ export function one<T>(sql: Sql, query: string, ...bindings: unknown[]): T | und
   return rows<T>(sql, query, ...bindings)[0];
 }
 
+/** The format of everything `Sealer.seal` writes: `v1.<base64url(iv | ciphertext)>`. */
+const SEALED_PREFIX = "v1.";
+
+function importKey(name: string, encoded: string | undefined): Promise<CryptoKey> | null {
+  const value = encoded?.trim();
+  if (!value) return null;
+  let raw: Uint8Array<ArrayBuffer>;
+  try {
+    raw = Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+  } catch {
+    throw new ConfigError(`${name} must be base64`);
+  }
+  if (raw.byteLength !== 32) throw new ConfigError(`${name} must be 32 bytes, base64`);
+  return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
 /**
- * Encryption at rest for Account Tokens and pending sign-in secrets: AES-GCM
- * under `TOKEN_ENC_KEY`, with additional data binding each value to where it
- * belongs, so a ciphertext copied to another row fails to decrypt.
+ * Encryption at rest for Account Tokens, pending sign-in secrets and model
+ * keys: AES-GCM under `TOKEN_ENC_KEY`, with additional data binding each
+ * value to where it belongs, so a ciphertext copied to another row fails to
+ * decrypt.
+ *
+ * Values are written as `v1.<base64url>`. For rotation, the old key goes in
+ * `TOKEN_ENC_KEY_PREVIOUS`: values it sealed still open, and `openChecked`
+ * says so, so their owner can seal them again under the new key. Values
+ * written before the prefix existed (no `v1.`) still open, and count as stale.
  */
 export class Sealer {
   readonly #key: Promise<CryptoKey>;
+  readonly #previous: Promise<CryptoKey> | null;
 
-  constructor(env: { readonly TOKEN_ENC_KEY?: string }) {
-    const encoded = env.TOKEN_ENC_KEY?.trim();
-    if (!encoded) throw new ConfigError("Missing required setting TOKEN_ENC_KEY");
-    let raw: Uint8Array<ArrayBuffer>;
-    try {
-      raw = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
-    } catch {
-      throw new ConfigError("TOKEN_ENC_KEY must be base64");
-    }
-    if (raw.byteLength !== 32) throw new ConfigError("TOKEN_ENC_KEY must be 32 bytes, base64");
-    this.#key = crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+  constructor(env: { readonly TOKEN_ENC_KEY?: string; readonly TOKEN_ENC_KEY_PREVIOUS?: string }) {
+    const key = importKey("TOKEN_ENC_KEY", env.TOKEN_ENC_KEY);
+    if (!key) throw new ConfigError("Missing required setting TOKEN_ENC_KEY");
+    this.#key = key;
+    this.#previous = importKey("TOKEN_ENC_KEY_PREVIOUS", env.TOKEN_ENC_KEY_PREVIOUS);
   }
 
   async seal(plaintext: string, context: string): Promise<string> {
@@ -184,21 +201,40 @@ export class Sealer {
     const out = new Uint8Array(12 + sealed.byteLength);
     out.set(iv);
     out.set(new Uint8Array(sealed), 12);
-    return base64url(out);
+    return SEALED_PREFIX + base64url(out);
   }
 
+  /** The plaintext; throws if the value was sealed for another context or under neither key. */
   async open(sealed: string, context: string): Promise<string> {
-    const padded = sealed.replace(/-/g, "+").replace(/_/g, "/");
+    return (await this.openChecked(sealed, context)).plaintext;
+  }
+
+  /**
+   * The plaintext, and whether the value is current: sealed under
+   * `TOKEN_ENC_KEY` in the `v1.` format. A stale value should be sealed again.
+   */
+  async openChecked(sealed: string, context: string): Promise<{ plaintext: string; current: boolean }> {
+    const versioned = sealed.startsWith(SEALED_PREFIX);
+    const body = versioned ? sealed.slice(SEALED_PREFIX.length) : sealed;
+    const padded = body.replace(/-/g, "+").replace(/_/g, "/");
     const bytes: Uint8Array<ArrayBuffer> = Uint8Array.from(
       atob(padded + "=".repeat((4 - (padded.length % 4)) % 4)),
       (char) => char.charCodeAt(0)
     );
-    const plain = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: bytes.slice(0, 12), additionalData: new TextEncoder().encode(context) },
-      await this.#key,
-      bytes.slice(12)
-    );
-    return new TextDecoder().decode(plain);
+    const decrypt = async (key: Promise<CryptoKey>) =>
+      new TextDecoder().decode(
+        await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: bytes.slice(0, 12), additionalData: new TextEncoder().encode(context) },
+          await key,
+          bytes.slice(12)
+        )
+      );
+    try {
+      return { plaintext: await decrypt(this.#key), current: versioned };
+    } catch (error) {
+      if (!this.#previous) throw error;
+      return { plaintext: await decrypt(this.#previous), current: false };
+    }
   }
 }
 

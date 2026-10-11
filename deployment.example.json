@@ -1,0 +1,7 @@
+{
+  "OWNERS": { "emails": ["you@example.com"], "github": { "your-login": 1234567 } },
+  "SIGNIN_ALLOWLIST": { "emails": ["friend@example.com"], "domains": ["your-company.example"], "github": {} },
+  "DEMO_ALLOWLIST": { "emails": ["friend@example.com"], "domains": [], "github": {} },
+  "PUBLIC_ORIGIN": "https://personal-agent.your-subdomain.workers.dev",
+  "POPPY_LOGO_URI": "https://personal-agent.your-subdomain.workers.dev/logo.svg"
+}

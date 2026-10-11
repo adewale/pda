@@ -1,5 +1,5 @@
 import { importJWK, type JWK } from "jose";
-import { ConfigError } from "../config";
+import { ConfigError } from "../config.ts";
 
 /** One of our ES256 signing keys: the private half for signing, the public half for the JWKS. */
 export type SigningKey = {

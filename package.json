@@ -13,7 +13,7 @@
   "scripts": {
     "start": "vite dev",
     "build": "vite build",
-    "deploy": "vite build && wrangler deploy",
+    "deploy": "vite build && node scripts/check-deployment.ts && wrangler deploy",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types env.d.ts --include-runtime false",
     "test": "vitest run --config test/vitest.config.ts && vitest run --config test/durability/vitest.config.ts && vitest run --config test/ui/vitest.config.ts && vitest run --config interop/vitest.config.ts && vitest run --config test/properties/vitest.config.ts",
@@ -27,7 +27,6 @@
   },
   "dependencies": {
     "@cloudflare/kumo": "^2.6.0",
-    "@cloudflare/puppeteer": "^1.4.0",
     "@earendil-works/chord": "^1.1.0",
     "@earendil-works/pi-ai": "^1.1.0",
     "@earendil-works/pi-durable": "^1.1.0",

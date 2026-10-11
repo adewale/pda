@@ -301,7 +301,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         {
           name: "poppy_browse",
           description:
-            "Use a company's website in the session: open a URL on its domain, click, fill a field (never credentials), or submit a form (waits for the User's approval).",
+            "Use a company's website in the session: open a URL on its domain, click a link by its selector, fill a form field (never credentials), or submit a form by its selector (waits for the User's approval). No JavaScript runs, and click never sends a form.",
           parameters: Type.Object({
             domain: Domain,
             action: Type.Union([Type.Literal("open"), Type.Literal("click"), Type.Literal("fill"), Type.Literal("submit")]),

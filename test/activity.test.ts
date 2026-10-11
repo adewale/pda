@@ -29,6 +29,8 @@ async function company(config: Partial<MockConfig> = {}) {
 async function agent() {
   const identity = { provider: "google" as const, sub: `u${crypto.randomUUID()}`, email: "person@workspace.example", domain: "workspace.example" };
   const stub = testEnv.PersonalAgent.getByName(await agentNameFor(identity)) as unknown as DurableObjectStub<PersonalAgent>;
+  // Who the agent belongs to, as the Worker records on every request: on the demo, so notices reach the model.
+  await stub.recordIdentity(identity);
   const cookie = (await createSession(identity, env.SESSION_SECRET)).split(";")[0]!;
   return { stub, cookie };
 }

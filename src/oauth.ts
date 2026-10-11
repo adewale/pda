@@ -1,5 +1,5 @@
 import { decodeJwt } from "jose";
-import { isAllowed, readAllowlist } from "./allowlist";
+import { maySignIn } from "./allowlist";
 import {
   readProviderConfig,
   readSessionSecret,
@@ -107,7 +107,6 @@ export async function finishSignIn(
 ): Promise<Response> {
   const client = readProviderConfig(env, provider);
   const secret = readSessionSecret(env);
-  const allowlist = readAllowlist(env);
   const clearFlow = cookie(FLOW_COOKIE, "", { maxAge: 0 });
   try {
     const url = new URL(request.url);
@@ -132,7 +131,7 @@ export async function finishSignIn(
       provider === "google"
         ? await googleIdentity(client, code, flow.verifier, redirectUri)
         : await githubIdentity(client, code, flow.verifier, redirectUri);
-    if (!isAllowed(identity, allowlist)) {
+    if (!maySignIn(identity, env)) {
       const who = provider === "github" ? `GitHub id ${identity.sub}` : identity.email ?? `Google ${identity.sub}`;
       throw new SignInError("not_allowed", `${who} is not on the allowlist`);
     }

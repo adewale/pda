@@ -11,6 +11,8 @@ interface SignInSecrets {
   POPPY_SIGNING_JWKS: string;
   /** Base64 of 32 random bytes: AES-GCM key for Account Tokens at rest. */
   TOKEN_ENC_KEY: string;
+  /** Only while rotating `TOKEN_ENC_KEY`: the old key, so values it sealed still open (and are sealed again). */
+  TOKEN_ENC_KEY_PREVIOUS?: string;
 }
 
 interface Env extends SignInSecrets {}

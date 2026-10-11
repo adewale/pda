@@ -12,15 +12,15 @@
   "durable_objects": {
     "bindings": [
       { "name": "PersonalAgent", "class_name": "PersonalAgent" },
-      { "name": "CompanyLimiter", "class_name": "CompanyLimiter" }
+      { "name": "CompanyLimiter", "class_name": "CompanyLimiter" },
+      { "name": "DomainBudget", "class_name": "DomainBudget" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["PersonalAgent"] },
-    { "tag": "v2", "new_sqlite_classes": ["CompanyLimiter"] }
+    { "tag": "v2", "new_sqlite_classes": ["CompanyLimiter"] },
+    { "tag": "v3", "new_sqlite_classes": ["DomainBudget"] }
   ],
-  // Poppy web browsing (Browser Rendering).
-  "browser": { "binding": "BROWSER" },
   // Product choices. Secrets are per deployment, set with `wrangler secret
   // put`, never in this file: SESSION_SECRET, GOOGLE_CLIENT_ID,
   // GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
@@ -29,22 +29,38 @@
   "ratelimits": [
     { "name": "VALIDATOR_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }
   ],
+  // TOKEN_ENC_KEY_PREVIOUS is an optional secret, set only while rotating
+  // TOKEN_ENC_KEY: values it sealed still open, and are sealed again.
   "vars": {
-    "MODEL_ID": "anthropic/claude-opus-5-5",
     "THINKING_LEVEL": "medium",
-    "AI_GATEWAY_ID": "default",
-    // The Poppy client_id lives on this origin forever; see the spec.
-    "PUBLIC_ORIGIN": "https://personal-agent.adewale-883.workers.dev",
+    // The demo lane: model calls the operator pays for, through this AI
+    // Gateway (Unified Billing), capped per person and per Google Workspace
+    // domain each UTC day. A cap of 0 turns the demo off.
+    "DEMO_GATEWAY_ID": "demo",
+    "DEMO_MODEL_ID": "anthropic/claude-opus-5-5",
+    "DEMO_DAILY_USD_PER_USER": 2,
+    "DEMO_DAILY_USD_PER_DOMAIN": 10,
+    // The own-key lane: each provider's model, from pi-ai's catalogs.
+    "ANTHROPIC_MODEL_ID": "claude-opus-5-5",
+    "OPENAI_MODEL_ID": "gpt-6.1-sol",
+    "OPENROUTER_MODEL_ID": "anthropic/claude-opus-5.5",
+    // `allowlist`: only OWNERS and SIGNIN_ALLOWLIST sign in. `open`: anyone
+    // with a Google or GitHub account (they need their own key or the demo).
+    "SIGNUP": "allowlist",
     "POPPY_CLIENT_NAME": "Durable Personal Agent",
-    "POPPY_LOGO_URI": "https://personal-agent.adewale-883.workers.dev/logo.svg",
-    // Who may sign in; edit and redeploy. Emails and domains are checked
-    // against Google sign-in (domains as Google Workspace accounts), GitHub
-    // accounts by numeric id: `gh api users/<login> --jq .id`.
-    "ALLOWLIST": {
-      "emails": ["adewale@gmail.com"],
-      "domains": ["sierra.ai"],
-      "github": { "adewale": 43644, "ToddKerpelman": 4397978 }
-    }
+    // Who this deployment is for and where it lives. Empty here, so a copy
+    // nobody has configured fails closed; each deployer sets their own in
+    // the untracked deployment.local.json (see deployment.example.json),
+    // which `npm run deploy` merges in and checks before uploading.
+    // Emails and domains are checked against Google sign-in (domains as
+    // Google Workspace accounts), GitHub accounts by numeric id:
+    // `gh api users/<login> --jq .id`.
+    "OWNERS": { "emails": [], "github": {} },
+    "SIGNIN_ALLOWLIST": { "emails": [], "domains": [], "github": {} },
+    "DEMO_ALLOWLIST": { "emails": [], "domains": [], "github": {} },
+    // The Poppy client_id lives on this origin forever; see the spec.
+    "PUBLIC_ORIGIN": "",
+    "POPPY_LOGO_URI": ""
   },
   "observability": { "enabled": true }
 }

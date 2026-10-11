@@ -7,6 +7,7 @@ import { ActivityPage } from "./activity";
 import { ChatPage } from "./chat";
 import { CompaniesPage } from "./companies";
 import { Action, IconAction } from "./controls";
+import { ModelBanner, useEntitlement } from "./model";
 import { isPlainClick, routePath, useRoute, type Place, type Route } from "./route";
 import { PROVIDER_NAME, SettingsPage, useFollowDeviceTheme, type Identity } from "./settings";
 
@@ -118,6 +119,13 @@ export function Workspace({ identity, session }: { identity: Identity; session: 
   useFollowDeviceTheme();
   const hiddenOpen = openDirect(session.poppy).filter((update) => hidden.has(update.conversationId)).length;
   const waiting = needsYou(session.poppy.cards).length + hiddenOpen;
+  const [entitlement, refreshEntitlement] = useEntitlement();
+  // The agent posts a notice when model calls stop or start again: read the lane again then.
+  const modelNotice = session.poppy.cards.find((card) => card.id === "model-access");
+  const modelNoticeKey = modelNotice ? `${modelNotice.open}:${modelNotice.kind === "notice" ? modelNotice.text : ""}` : "";
+  useEffect(() => {
+    if (modelNoticeKey) refreshEntitlement();
+  }, [modelNoticeKey, refreshEntitlement]);
 
   useEffect(() => {
     document.title = waiting > 0 ? `(${waiting}) ${TITLE}` : TITLE;
@@ -171,6 +179,7 @@ export function Workspace({ identity, session }: { identity: Identity; session: 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-kumo-canvas">
           <MobileBar title={label} waiting={waiting} onChat={route.place === "chat" ? null : () => navigate({ place: "chat", company: null })} />
           <ConnectionBanner status={session.status} />
+          <ModelBanner entitlement={entitlement} onSettings={route.place === "settings" ? null : () => navigate({ place: "settings", company: null })} />
           <main ref={main} className={route.place === "chat" ? "min-h-0 flex-1" : "min-h-0 flex-1 overflow-y-auto"}>
             {route.place === "chat" ? (
               <ChatPage session={session} hidden={hidden} setHidden={setHidden} />
@@ -186,7 +195,7 @@ export function Workspace({ identity, session }: { identity: Identity; session: 
                     onSelect={(issuer) => navigate({ place: "companies", company: issuer })}
                   />
                 ) : (
-                  <SettingsPage identity={identity} modelId={session.model?.modelId ?? null} />
+                  <SettingsPage identity={identity} entitlement={entitlement} onEntitlement={refreshEntitlement} />
                 )}
               </div>
             )}

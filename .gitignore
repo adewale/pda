@@ -10,6 +10,10 @@ dist/
 .claude/worktrees/
 interop/results/
 
+# The deployer's own vars (deployment.example.json shows the shape)
+deployment.local.json
+!.dev.vars.example
+
 # Hegel's local example database (test/properties)
 .hegel/
 

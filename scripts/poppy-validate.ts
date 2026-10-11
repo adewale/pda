@@ -25,7 +25,7 @@ Options:
   --version, --help
 
 Exit status: 0 valid, 1 invalid, 2 couldn't check or bad usage.
-Every message's explanation: https://personal-agent.adewale-883.workers.dev/validator/messages`;
+Every message's explanation: /validator/messages on any deployment of this agent.`;
 
 const KINDS: readonly DocumentKind[] = ["poppy", "oauth-metadata", "client-metadata", "jwks"];
 

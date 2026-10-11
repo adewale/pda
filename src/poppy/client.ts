@@ -558,7 +558,19 @@ export class PoppyClient {
 
   /** The Account Token itself, decrypted only for a token-endpoint request. */
   async #accountToken(row: AccountRow): Promise<string> {
-    return this.sealer.open(row.token, `account|${row.issuer}|${this.userId(row.issuer)}|${row.account}`);
+    const context = `account|${row.issuer}|${this.userId(row.issuer)}|${row.account}`;
+    const { plaintext, current } = await this.sealer.openChecked(row.token, context);
+    // Sealed under TOKEN_ENC_KEY_PREVIOUS, or before values were versioned: seal it again under the current key.
+    if (!current) {
+      this.sql.exec(
+        "UPDATE poppy_accounts SET token = ? WHERE issuer = ? AND account = ? AND token = ?",
+        await this.sealer.seal(plaintext, context),
+        row.issuer,
+        row.account,
+        row.token
+      );
+    }
+    return plaintext;
   }
 
   /** Store a new or rotated Account Token at once, encrypted (spec 4.8). */

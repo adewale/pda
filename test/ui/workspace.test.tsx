@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TranscriptMessage } from "../../src/protocol";
 import type { ActivityEntry, ActivityTask, Card, PoppyClientFrame } from "../../src/poppy/wire";
+import type { Entitlement } from "../../src/model-router";
 import { Workspace } from "../../src/ui/shell";
 import type { PiSession, PoppyView } from "../../src/use-pi-session";
 
@@ -67,16 +68,31 @@ function open(path: string, fixture = session()) {
   return { ...result, ...fixture };
 }
 
-beforeEach(() => {
-  document.title = "Personal agent";
+const DEMO: Entitlement = {
+  lane: "demo",
+  reason: null,
+  key: null,
+  demo: { spentUsd: 0.5, capUsd: 2, domainCapped: false, resetsAt: Date.UTC(2026, 9, 12) },
+  model: { provider: "cloudflare", id: "anthropic/claude-opus-5-5", name: "Claude Opus 5.5" }
+};
+
+/** `fetch` for the page: the agent's identity, and `/api/entitlement` answering `entitlement`. */
+function stubFetch(entitlement: Entitlement = DEMO) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) =>
       String(input) === "/poppy/client.json"
         ? Response.json({ client_id: "https://agent.example/poppy/client.json", client_name: "Durable Personal Agent" })
-        : new Response("Not found", { status: 404 })
+        : String(input) === "/api/entitlement"
+          ? Response.json(entitlement)
+          : new Response("Not found", { status: 404 })
     )
   );
+}
+
+beforeEach(() => {
+  document.title = "Personal agent";
+  stubFetch();
 });
 
 afterEach(() => {
@@ -415,14 +431,15 @@ describe("companies page", () => {
 });
 
 describe("settings page", () => {
-  it("shows the account, the model and the agent's public identity, read-only", async () => {
+  it("shows the account, the model and the agent's public identity", async () => {
     open("/settings");
     expect(screen.getByText(/Signed in as/).textContent).toBe("Signed in as ada@example.com with Google.");
     expect(screen.getByRole("button", { name: "Sign out of this agent" })).toBeTruthy();
-    expect(screen.getByText("Claude Opus 5.5")).toBeTruthy();
-    expect(screen.getByText("anthropic/claude-opus-5-5")).toBeTruthy();
+    expect(await screen.findByText("anthropic/claude-opus-5-5")).toBeTruthy();
+    expect(screen.getByText(/Using the demo \(Claude Opus 5.5\)/)).toBeTruthy();
     expect(await screen.findByText("https://agent.example/poppy/client.json")).toBeTruthy();
     expect(screen.getByText("Durable Personal Agent")).toBeTruthy();
+    // The only text field is the key, which is a password field.
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 
@@ -446,5 +463,99 @@ describe("settings page", () => {
     expect(localStorage.getItem("theme")).toBe("dark");
     fireEvent.click(screen.getByRole("radio", { name: "Match this device" }));
     expect(localStorage.getItem("theme")).toBeNull();
+  });
+});
+
+describe("model settings", () => {
+  const NO_KEY: Entitlement = { lane: "none", reason: "no_key", key: null, demo: null, model: null };
+  const OWN_KEY: Entitlement = {
+    lane: "own_key",
+    reason: null,
+    key: { provider: "anthropic", status: "valid", source: "pasted", addedAt: Date.UTC(2026, 9, 11) },
+    demo: null,
+    model: { provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5" }
+  };
+
+  it("shows today's demo spend as a meter, and the deployment's operator's access to keys", async () => {
+    open("/settings");
+    const meter = await screen.findByRole("meter", { name: "Demo allowance used today" });
+    expect(meter.getAttribute("aria-valuenow")).toBe("0.5");
+    expect(meter.getAttribute("aria-valuemax")).toBe("2");
+    expect(screen.getByText("$0.50 of $2.00 used today")).toBeTruthy();
+    expect(screen.getByText(/Whoever runs this deployment can technically read it/)).toBeTruthy();
+    expect(screen.getByText(/an OpenRouter key with a credit limit is the safest choice/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Connect OpenRouter" }).getAttribute("href")).toBe("/auth/openrouter/start");
+  });
+
+  it("says plainly when the agent needs a key, on every place, and leads to Settings", async () => {
+    stubFetch(NO_KEY);
+    open("/");
+    expect((await screen.findByText("Your agent needs a model key before it can answer.")).closest("[role=status]")).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Add a key in Settings" }));
+    expect(window.location.pathname).toBe("/settings");
+    expect(await screen.findByText("Needs a key: your agent can't call a model until you add one.")).toBeTruthy();
+    expect(screen.getByText("None until your agent has a key or the demo")).toBeTruthy();
+  });
+
+  it("says a refused key stopped the agent, with no demo fallback", async () => {
+    stubFetch({ ...OWN_KEY, lane: "none", reason: "key_invalid", key: { ...OWN_KEY.key!, status: "invalid" }, model: null });
+    open("/settings");
+    expect(await screen.findByText(/Anthropic refused your key, so your agent has stopped calling the model. It won't fall back to the demo./)).toBeTruthy();
+  });
+
+  it("sends a pasted key once, then shows only its provider", async () => {
+    const posted: Array<{ method: string; body: unknown }> = [];
+    const key = "sk-ant-test-good-0123456789abcdef";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/entitlement") return Response.json(NO_KEY);
+        if (String(input) === "/api/model-key") {
+          posted.push({ method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+          return init?.method === "DELETE" ? Response.json(NO_KEY) : Response.json(OWN_KEY);
+        }
+        return new Response("Not found", { status: 404 });
+      })
+    );
+    const { container } = open("/settings");
+    const input = (await screen.findByLabelText("API key")) as HTMLInputElement;
+    expect(input.type).toBe("password");
+    fireEvent.change(input, { target: { value: key } });
+    fireEvent.click(screen.getByRole("button", { name: "Check and save key" }));
+    expect(await screen.findByText(/Using your/)).toBeTruthy();
+    expect(screen.getByText(/Using your/).textContent).toContain("Anthropic key for Claude Opus 5.5");
+    expect(posted).toEqual([{ method: "POST", body: { provider: "anthropic", key } }]);
+    expect(input.value).toBe("");
+    expect(container.innerHTML).not.toContain(key);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove key" }));
+    expect(await screen.findByText("Needs a key: your agent can't call a model until you add one.")).toBeTruthy();
+    expect(posted.at(-1)).toEqual({ method: "DELETE", body: null });
+  });
+
+  it("shows the agent's refusal of a key, and keeps what was typed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input) === "/api/entitlement"
+          ? Response.json(NO_KEY)
+          : String(input) === "/api/model-key"
+            ? Response.json({ error: "Anthropic refused that key." }, { status: 400 })
+            : new Response("Not found", { status: 404 })
+      )
+    );
+    open("/settings");
+    const input = (await screen.findByLabelText("API key")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "sk-ant-test-bad-0123456789" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check and save key" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Anthropic refused that key.");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("reports how connecting OpenRouter went, once", async () => {
+    stubFetch(NO_KEY);
+    open("/settings?model_key_error=state");
+    expect(await screen.findByText(/that sign-in link expired or was started elsewhere/)).toBeTruthy();
+    expect(window.location.search).toBe("");
   });
 });

@@ -1,17 +1,12 @@
 import { SignOutIcon } from "@phosphor-icons/react";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import type { Entitlement } from "../model-router";
 import { Action, PageHeader, Section } from "./controls";
+import { ModelSettings, type EntitlementState } from "./model";
 
 export type Identity = { readonly email: string | null; readonly provider: "google" | "github" };
 
 export const PROVIDER_NAME: Record<Identity["provider"], string> = { google: "Google", github: "GitHub" };
-
-/** The model's name as people know it, from the id the agent reports. */
-export function modelName(modelId: string | null | undefined): string {
-  if (!modelId) return "Claude Opus 5.5";
-  const known: Record<string, string> = { "claude-opus-5-5": "Claude Opus 5.5" };
-  return known[modelId.split("/").at(-1)!] ?? modelId;
-}
 
 export type Theme = "system" | "light" | "dark";
 
@@ -113,8 +108,17 @@ const THEMES: { value: Theme; label: string }[] = [
   { value: "dark", label: "Dark" }
 ];
 
-/** Settings: who is signed in, how the page looks, and which agent this is. */
-export function SettingsPage({ identity, modelId }: { identity: Identity; modelId: string | null }) {
+/** Settings: who is signed in, how the agent pays for its model, how the page looks, and which agent this is. */
+export function SettingsPage({
+  identity,
+  entitlement,
+  onEntitlement
+}: {
+  identity: Identity;
+  entitlement: EntitlementState;
+  onEntitlement: (next?: Entitlement) => void;
+}) {
+  const model = entitlement.state === "ready" ? entitlement.entitlement.model : null;
   const [theme, setTheme] = useTheme();
   const client = useClientIdentity();
   return (
@@ -132,6 +136,10 @@ export function SettingsPage({ identity, modelId }: { identity: Identity; modelI
             </Action>
           </form>
         </div>
+      </Section>
+
+      <Section title="Model" description="Who pays for your agent's model calls: your own key, or this deployment's demo while it lasts.">
+        <ModelSettings entitlement={entitlement} onChange={onEntitlement} />
       </Section>
 
       <Section title="Appearance">
@@ -154,11 +162,17 @@ export function SettingsPage({ identity, modelId }: { identity: Identity; modelI
         </fieldset>
       </Section>
 
-      <Section title="Agent" description="Read only. The model and identity are set when the agent is deployed.">
+      <Section title="Agent" description="Read only. The models and identity are set when the agent is deployed.">
         <dl className="divide-y divide-kumo-hairline rounded-xl ring ring-kumo-hairline">
           <Fact term="Model">
-            {modelName(modelId)}
-            {modelId ? <code className="ml-2 font-mono text-[13px] text-kumo-subtle">{modelId}</code> : null}
+            {model ? (
+              <>
+                {model.name}
+                <code className="ml-2 font-mono text-[13px] text-kumo-subtle">{model.id}</code>
+              </>
+            ) : (
+              <span className="text-kumo-subtle">None until your agent has a key or the demo</span>
+            )}
           </Fact>
           <Fact term="Identity at Companies">
             {client.state === "loading" ? (

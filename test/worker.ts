@@ -1,22 +1,23 @@
 import {
+  createAssistantMessageEventStream,
   fauxAssistantMessage,
   fauxProvider,
   fauxText,
   fauxToolCall,
   type AssistantMessage,
+  type AssistantMessageEventStream,
   type Message,
+  type Provider,
   type TranscriptContext
 } from "@earendil-works/pi-ai";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
-import { PersonalAgent as ProductionAgent, type ModelSource } from "../src/agent";
-import { readModelConfig } from "../src/config";
+import { PersonalAgent as ProductionAgent } from "../src/agent";
 import worker from "../src/index";
-import type { PoppyBrowser } from "../src/poppy/browser";
+import type { LaneModel, DemoRoute } from "../src/model-router";
 import type { Fetcher } from "../src/poppy/fetch";
 import { readConversation } from "../src/poppy/conversations";
 import { Sealer } from "../src/poppy/store";
 import { poppyExtension } from "../src/poppy/tools";
-import { FakeBrowser } from "./fake-browser";
 import { CLOCK_HEADER, companyIdFromHost, type MockCompany } from "./mock-company";
 
 type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
@@ -233,10 +234,6 @@ export class PersonalAgent extends ProductionAgent {
     return faultyFetcher(recording(this, testFetcher(this.env, () => clockOf(this).now)), () => faultsOf(this));
   }
 
-  protected override poppyBrowser(): PoppyBrowser {
-    return new FakeBrowser(recording(this, testFetcher(this.env, () => clockOf(this).now)));
-  }
-
   /** Every request this agent sent to a host that is neither ours nor a mock Company's. */
   async poppyStrayRequests(): Promise<StrayRequest[]> {
     return strays.get(this) ?? [];
@@ -433,23 +430,71 @@ export class PersonalAgent extends ProductionAgent {
     (this.poppy as unknown as { forgetForTests(): void }).forgetForTests();
   }
 
-  protected override modelSource(): ModelSource {
-    // Still read the real settings, so a bad var fails here as in production.
-    const config = readModelConfig(this.env);
-    const faux = fauxProvider({
-      tokensPerSecond: 400,
-      tokenSize: { min: 2, max: 4 }
-    });
-    faux.setResponses(Array.from({ length: 200 }, () => script));
-    return {
-      provider: faux.provider,
-      model: faux.getModel(),
-      thinkingLevel: config.thinkingLevel
+  #faux: ReturnType<typeof fauxProvider> | undefined;
+
+  /**
+   * The demo lane with pi-ai's faux provider in place of AI Gateway, counted,
+   * and priced by a `[cost 0.25]` marker in the prompt (the faux provider's
+   * own cost is always 0). Own-key lanes keep pi-ai's real providers, which
+   * the outbound service sends to the fake vendors.
+   */
+  protected override demoLane(_route: DemoRoute): LaneModel {
+    if (!this.#faux) {
+      this.#faux = fauxProvider({ tokensPerSecond: 400, tokenSize: { min: 2, max: 4 } });
+      this.#faux.setResponses(Array.from({ length: 200 }, () => script));
+    }
+    const id = this.ctx.id.toString();
+    const faux = this.#faux;
+    const counted = (stream: AssistantMessageEventStream): AssistantMessageEventStream => {
+      demoCalls.set(id, (demoCalls.get(id) ?? 0) + 1);
+      const out = createAssistantMessageEventStream();
+      void (async () => {
+        for await (const event of stream) out.push(event.type === "done" ? { ...event, message: priced(event.message) } : event);
+        out.end(priced(await stream.result()));
+      })();
+      return out;
     };
+    const provider: Provider = {
+      id: faux.provider.id,
+      name: faux.provider.name,
+      auth: faux.provider.auth,
+      getModels: () => faux.provider.getModels(),
+      stream: (model, context, options) => counted(faux.provider.stream(model, context, options)),
+      streamSimple: (model, context, options) => counted(faux.provider.streamSimple(model, context, options))
+    };
+    return { provider, model: faux.getModel() };
+  }
+
+  /** How many calls this agent has made on the demo lane. */
+  async demoCallCount(): Promise<number> {
+    return demoCalls.get(this.ctx.id.toString()) ?? 0;
+  }
+
+  /** The newest assistant message in the transcript: its text and pi's recorded error, if any. */
+  async lastAssistant(): Promise<{ text: string; error: string | null }> {
+    const entries = (await this.harness.messages()) as Array<{ model?: Array<{ role?: string; content?: Message["content"]; errorMessage?: string }> }>;
+    const message = entries.map((entry) => entry.model?.[0]).filter((item) => item?.role === "assistant").at(-1);
+    return { text: textOf(message?.content as Message["content"] | undefined), error: message?.errorMessage ?? null };
+  }
+
+  /** A background turn, as a Company message would start one. */
+  async backgroundTurn(text: string, operationId: string): Promise<void> {
+    await this.poppyNotify(text, operationId);
   }
 }
 
-export { CompanyLimiter } from "../src/index";
+/** Demo-lane calls per agent, by Durable Object id. */
+const demoCalls = new Map<string, number>();
+
+/** A faux answer priced by the `[cost N]` marker its echo carries. */
+function priced(message: AssistantMessage): AssistantMessage {
+  const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+  const cost = Number(/\[cost ([\d.]+)\]/.exec(text)?.[1] ?? 0);
+  if (!cost) return message;
+  return { ...message, usage: { ...message.usage, cost: { ...message.usage.cost, total: cost } } };
+}
+
+export { CompanyLimiter, DomainBudget } from "../src/index";
 export { MockCompany } from "./mock-company";
 
 export default worker;
