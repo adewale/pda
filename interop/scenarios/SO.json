@@ -1,0 +1,19 @@
+{
+  "id": "SO",
+  "title": "Sign out and revoke",
+  "requirements": ["4.9"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue", "signout"], "company": ["approve_authorization"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
+    { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" }, "save": "done" },
+    { "expect": { "${done.signed_in}": true } },
+    { "agent": "signout", "save": "out" },
+    { "expect": { "${out.revoked}": true } },
+    { "runner": "assert_trace", "params": { "check": "revoked" } },
+    { "agent": "session", "save": "after" },
+    { "expect": { "${after.signed_in}": false } }
+  ]
+}

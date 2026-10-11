@@ -1,0 +1,14 @@
+{
+  "id": "RL",
+  "title": "429 with Retry-After",
+  "requirements": ["4.3", "Guides: rate limits"],
+  "needs": { "agent": ["discover", "session", "api"], "company": ["rate_limit"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session" },
+    { "company": "rate_limit", "params": { "requests": 1, "retry_after": 1 } },
+    { "agent": "api", "params": { "api": "${fixture.openapi_public.api}", "operation": "${fixture.openapi_public.operation}", "args": "${fixture.openapi_public.args}" }, "save": "r" },
+    { "expect": { "${r.status}": 200 } },
+    { "runner": "assert_trace", "params": { "check": "retry_after_respected" } }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "C",
+  "title": "Conversation: send and read",
+  "requirements": ["7.2", "7.3", "7.5"],
+  "live": true,
+  "needs": { "agent": ["discover", "send", "read"] },
+  "steps": [
+    { "agent": "discover", "save": "d" },
+    { "expect": { "${d.conversations}": true } },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}" }, "save": "m" },
+    { "expect": { "${m.conversation}": { "$exists": true }, "${m.message_id}": { "$exists": true } } },
+    { "agent": "read", "params": { "conversation": "${m.conversation}", "wait": 2 }, "save": "r" },
+    { "expect": { "${r.messages}": { "$some": { "role": "company" } }, "${r.cursor}": { "$exists": true } } },
+    { "agent": "send", "params": { "conversation": "${m.conversation}", "text": "Thanks" }, "save": "m2" },
+    { "expect": { "${m2.conversation}": "${m.conversation}" } }
+  ]
+}

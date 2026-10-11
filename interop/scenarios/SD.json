@@ -1,0 +1,16 @@
+{
+  "id": "SD",
+  "title": "Direct Sign-In",
+  "requirements": ["4.4", "4.5"],
+  "readings": ["S1", "S2"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["approve_authorization"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session", "save": "s" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "expect": { "${pending.pending.url}": { "$match": "^https://" } } },
+    { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
+    { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" }, "save": "done" },
+    { "expect": { "${done.signed_in}": true, "${done.scope}": { "$includes_scope": "poppy:read" } } }
+  ]
+}

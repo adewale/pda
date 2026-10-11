@@ -1,6 +1,7 @@
 import {
   discover,
   isCompany,
+  tokenHostAllowed,
   DiscoveryError,
   type Company,
   type WebsiteOnly
@@ -134,6 +135,22 @@ export function covers(granted: string | null | undefined, needed: Iterable<stri
   const have = scopeSet(granted);
   for (const scope of needed) if (!have.has(scope)) return false;
   return true;
+}
+
+/**
+ * The scope a token response granted. Stock OAuth servers leave `scope` out
+ * when it is what was asked for, which RFC 6749 §5.1 allows, so an omitted
+ * `scope` means `requested` (docs/spec-issues.md, N6). A grant that asked for
+ * none passes what the Session or Account Token already held; a signed-out
+ * token has no scopes (4.2).
+ */
+export function grantedScope(response: { readonly scope?: unknown; readonly signed_in?: unknown }, requested: string): string {
+  if (typeof response.scope === "string") return response.scope;
+  return response.signed_in === false ? "" : requested;
+}
+
+function withScope<T extends TokenResponse>(response: T, requested: string): T {
+  return { ...response, scope: grantedScope(response, requested) };
 }
 
 /** `WWW-Authenticate: DPoP error="…", scope="…"` (RFC 6750, RFC 9449). */
@@ -310,6 +327,27 @@ export class PoppyClient {
     if (wait === null) return response.status === 429 ? 1_000 : null;
     await this.#limiter(issuer).blockUntil(now + wait);
     return wait;
+  }
+
+  /** The Company's shared limit, before a request that doesn't go through `resource()`: a website page. */
+  async beforeRequest(company: Company): Promise<void> {
+    await this.#respectLimit(company.issuer);
+  }
+
+  /**
+   * A website page answered (spec 4.3): on 429 or 503, record its
+   * `Retry-After` for every User's agent and wait it out inline when short,
+   * returning true so the caller loads the page again. A longer wait throws
+   * `RateLimitedError`; any other status returns false.
+   */
+  async pageLimited(company: Company, status: number, retryAfter: string | undefined): Promise<boolean> {
+    if (status !== 429 && status !== 503) return false;
+    const response = new Response(null, { status, headers: retryAfter ? { "Retry-After": retryAfter } : {} });
+    const wait = await this.#observeLimits(company.issuer, response);
+    if (wait === null) return false;
+    if (wait > INLINE_WAIT_MS) throw new RateLimitedError(wait);
+    await this.host.sleep(wait);
+    return true;
   }
 
   // ---------------------------------------------------------------- Token endpoint
@@ -581,18 +619,22 @@ export class PoppyClient {
     // A signed-in Session renews with its Account Token.
     if (session && session.signed_in && account) {
       try {
-        const response = await this.tokenRequest(
-          company,
-          async () => ({
-            grant_type: "refresh_token",
-            refresh_token: await this.#accountToken(account),
-            session_id: session.session_id,
-            ...extra
-          }),
-          dpop
+        const response = withScope(
+          await this.tokenRequest(
+            company,
+            async () => ({
+              grant_type: "refresh_token",
+              refresh_token: await this.#accountToken(account),
+              session_id: session.session_id,
+              ...extra
+            }),
+            dpop
+          ),
+          options.scope ?? account.scope
         );
         await this.#afterAccountUse(company, account.account, response);
-        this.#saveSession(company.issuer, label, response, account.account);
+        // A token narrowed for one lookup doesn't narrow the Session.
+        this.#saveSession(company.issuer, label, options.scope ? { ...response, scope: session.scope } : response, account.account);
         return response;
       } catch (error) {
         if (!(error instanceof PoppyError)) throw error;
@@ -610,22 +652,25 @@ export class PoppyClient {
     // A signed-out Session renews with our assertion; `invalid_session` starts a new one.
     const current = this.session(company.issuer, label);
     try {
-      const response = await this.tokenRequest(
-        company,
-        async () => ({
-          grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-          assertion: await sessionAssertion(
-            signing,
-            this.identity.clientId,
-            userId,
-            company.endpoints.token
-          ),
-          ...(current ? { session_id: current.session_id } : {}),
-          // A signed-out token has no scopes (4.2), and some Companies reject
-          // `scope` on this grant, so only `resource` narrows it.
-          ...(options.resource ? { resource: options.resource } : {})
-        }),
-        dpop
+      const response = withScope(
+        await this.tokenRequest(
+          company,
+          async () => ({
+            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            assertion: await sessionAssertion(
+              signing,
+              this.identity.clientId,
+              userId,
+              company.endpoints.token
+            ),
+            ...(current ? { session_id: current.session_id } : {}),
+            // A signed-out token has no scopes (4.2), and some Companies reject
+            // `scope` on this grant, so only `resource` narrows it.
+            ...(options.resource ? { resource: options.resource } : {})
+          }),
+          dpop
+        ),
+        current?.scope ?? ""
       );
       this.#saveSession(company.issuer, label, response, null);
       return response;
@@ -663,6 +708,7 @@ export class PoppyClient {
       id: `account-gone-${company.issuer}-${account}`,
       kind: "notice",
       company: company.name,
+      domain: company.domain,
       open: true,
       text: `${company.name} has ended this agent's access to your account. Sign in again when a task needs it.`
     });
@@ -697,11 +743,14 @@ export class PoppyClient {
     // A Session signed in to another account can't switch: start a new one (4.4).
     const sessionId = session && (!session.signed_in || session.account === account.account) ? session.session_id : undefined;
     try {
-      const response = await this.tokenRequest(company, async () => ({
-        grant_type: "refresh_token",
-        refresh_token: await this.#accountToken(account),
-        ...(sessionId ? { session_id: sessionId } : {})
-      }));
+      const response = withScope(
+        await this.tokenRequest(company, async () => ({
+          grant_type: "refresh_token",
+          refresh_token: await this.#accountToken(account),
+          ...(sessionId ? { session_id: sessionId } : {})
+        })),
+        account.scope
+      );
       await this.#afterAccountUse(company, account.account, response);
       this.#forgetTokens(company.issuer, label);
       this.#saveSession(company.issuer, label, response, account.account);
@@ -777,6 +826,14 @@ export class PoppyClient {
   ): Promise<Response> {
     const url = new URL(request.url);
     if (url.protocol !== "https:") throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
+    // Session Tokens go only to the Company's own hosts (N10), whatever a description names.
+    if (!tokenHostAllowed(company, url)) {
+      throw new PoppyError(
+        "untrusted_host",
+        `${url.hostname} isn't one of ${company.name}'s hosts (not listed in its poppy.json, nor under ${company.domain} or its poppy_domains), so it never gets a Session Token`,
+        0
+      );
+    }
     let renewed = false;
     let restarted = false;
     for (let attempt = 0; attempt < 4; attempt++) {

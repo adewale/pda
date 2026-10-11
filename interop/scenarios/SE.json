@@ -1,0 +1,20 @@
+{
+  "id": "SE",
+  "title": "Session ended by the Company, then recovery",
+  "requirements": ["4.2", "4.8", "6"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue", "send"], "company": ["approve_authorization", "end_sessions"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session", "save": "s" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
+    { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" }, "save": "done" },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}" }, "save": "m1" },
+    { "company": "end_sessions", "save": "ended" },
+    { "expect": { "${ended.ended}": { "$gte": 1 } } },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}" }, "save": "m2" },
+    { "expect": { "${m2.conversation}": { "$exists": true } } },
+    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read"] }, "save": "again" },
+    { "expect": { "${again.signed_in}": true, "${again.pending}": { "$exists": false } } }
+  ]
+}

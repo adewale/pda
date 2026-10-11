@@ -1,8 +1,8 @@
-import { PoppyClient, PoppyError } from "./client";
-import type { Company } from "./discovery";
+import { PoppyClient, PoppyError, scopeSet } from "./client";
+import { tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson, readLimited } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
-import { handleProposal, proposeLocal, registerExecutor } from "./operations";
+import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
 import { intent } from "./store";
 
 type Api = Company["apis"][number];
@@ -23,7 +23,17 @@ type OpenApiOperation = {
   readonly parameters: readonly { name: string; in: string; required: boolean; schema?: Json; description?: string }[];
   readonly requestBody?: Json;
   readonly acceptsIdempotencyKey: boolean;
+  /** Scopes its first security requirement names, the operation's own or the document's. */
+  readonly scopes: readonly string[];
 };
+
+/** The scopes of the first security requirement: `[{ scheme: [scopes] }]`. */
+function declaredScopes(security: Json | undefined): string[] {
+  if (!Array.isArray(security) || !isObject(security[0])) return [];
+  return Object.values(security[0]).flatMap((scopes) =>
+    Array.isArray(scopes) ? scopes.filter((scope): scope is string => typeof scope === "string") : []
+  );
+}
 
 type OpenApiDocument = { readonly base: string; readonly operations: readonly OpenApiOperation[] };
 
@@ -79,7 +89,8 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
           summary: [op.summary, op.description].filter((text) => typeof text === "string").join(" — "),
           parameters: parameters.filter((parameter) => !(parameter.in === "header" && /^idempotency-key$/i.test(parameter.name))),
           ...(requestBody !== undefined ? { requestBody } : {}),
-          acceptsIdempotencyKey: parameters.some((parameter) => parameter.in === "header" && /^idempotency-key$/i.test(parameter.name))
+          acceptsIdempotencyKey: parameters.some((parameter) => parameter.in === "header" && /^idempotency-key$/i.test(parameter.name)),
+          scopes: declaredScopes(op.security ?? json.security)
         });
       }
     }
@@ -125,12 +136,33 @@ type OpenApiCall = {
   readonly idempotencyKey?: string;
 };
 
+/**
+ * The narrower scope a read-only lookup asks for (Guides), or null to use
+ * the Session's: the scopes the operation declares, or `poppy:read` when it
+ * declares none, if the signed-in Session holds them all and more besides.
+ * A lookup that needs a custom scope keeps it.
+ */
+function readOnlyScope(sessionScope: string | undefined, op: OpenApiOperation): string | null {
+  const held = scopeSet(sessionScope);
+  const wanted = new Set(op.scopes.length ? op.scopes : ["poppy:read"]);
+  if (![...wanted].every((scope) => held.has(scope)) || wanted.size >= held.size) return null;
+  return [...wanted].join(" ");
+}
+
 async function performOpenApi(client: PoppyClient, company: Company, label: string, call: OpenApiCall): Promise<Json> {
   const api = findApi(company, "openapi", call.apiUrl);
   const document = await openApi(client, api);
   const op = findOperation(document, call.operation);
   let path = op.path;
   const url = new URL(document.base);
+  // The description's `servers` can name any host; Session Tokens go only to the Company's (N10).
+  if (!tokenHostAllowed(company, url)) {
+    throw new PoppyError(
+      "untrusted_server",
+      `${api.url} names the server ${url.origin}, which isn't one of ${company.name}'s hosts (not listed in its poppy.json, nor under ${company.domain} or its poppy_domains), so the agent won't send it a Session Token`,
+      0
+    );
+  }
   for (const parameter of op.parameters) {
     const value = call.params[parameter.name];
     if (value === undefined) {
@@ -142,8 +174,9 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
   }
   url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
   // Read-only lookups ask for a read-only token when the account allows (Guides).
-  const session = client.session(company.issuer, label);
-  const readOnly = op.method === "GET" && session?.signed_in && session.scope.split(" ").includes("poppy:read") && session.scope !== "poppy:read";
+  const write = op.method === "GET" ? null : `${op.method} ${url.href} ${JSON.stringify(call.body ?? null)}`;
+  if (write) refuseWhileConfirming(client, company.issuer, write);
+  const readOnly = op.method === "GET" ? readOnlyScope(client.session(company.issuer, label)?.scope, op) : null;
   const response = await client.resource(
     company,
     {
@@ -155,7 +188,7 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
     {
       label,
       ...(api.resource ? { resource: api.resource } : {}),
-      ...(readOnly ? { scope: "poppy:read" } : {})
+      ...(readOnly ? { scope: readOnly } : {})
     }
   );
   const text = await readLimited(response, 2_000_000);
@@ -172,6 +205,7 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
   if (response.status === 202 && isObject(body) && isObject(body.operation)) {
     const operation = await handleProposal(client, company, label, body.operation);
     if (operation) {
+      if (write) rememberProposal(client, company.issuer, write, operation.operation_id);
       return { status: 202, proposed: { operation_id: operation.operation_id, revision: operation.revision, summary: operation.summary }, note: "Nothing has happened yet; the User decides on the approval card." };
     }
   }
@@ -333,11 +367,14 @@ export async function listMcpTools(client: PoppyClient, company: Company, label:
 
 async function performMcp(client: PoppyClient, company: Company, label: string, call: { apiUrl: string; tool: string; args: Json }): Promise<Json> {
   const api = findApi(company, "mcp", call.apiUrl);
+  const write = `MCP ${api.url} ${call.tool} ${JSON.stringify(call.args)}`;
+  refuseWhileConfirming(client, company.issuer, write);
   const key = await mcpSession(client, company, label, api);
   const { result } = await mcpRequest(client, company, label, api, "tools/call", { name: call.tool, arguments: call.args }, key);
   if (isObject(result) && isObject(result.structuredContent) && isObject(result.structuredContent.operation)) {
     const operation = await handleProposal(client, company, label, result.structuredContent.operation);
     if (operation) {
+      rememberProposal(client, company.issuer, write, operation.operation_id);
       return { proposed: { operation_id: operation.operation_id, revision: operation.revision, summary: operation.summary }, note: "Nothing has happened yet; the User decides on the approval card." };
     }
   }

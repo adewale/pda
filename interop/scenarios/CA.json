@@ -1,0 +1,18 @@
+{
+  "id": "CA",
+  "title": "Conversation: sign_in_required, then the same conversation signed in",
+  "requirements": ["7.8", "7.11", "4.4"],
+  "needs": { "agent": ["discover", "send", "read", "signin", "signin_continue"], "company": ["approve_authorization"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "send", "params": { "text": "${fixture.prompts.sign_in}", "wait": 2 }, "save": "m" },
+    { "agent": "read", "params": { "conversation": "${m.conversation}" }, "save": "r" },
+    { "expect": { "${r.messages}": { "$some": { "role": "company" } } } },
+    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read", "poppy:write"] }, "save": "pending" },
+    { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
+    { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" }, "save": "done" },
+    { "expect": { "${done.signed_in}": true } },
+    { "agent": "send", "params": { "conversation": "${m.conversation}", "text": "${fixture.prompts.sign_in}", "wait": 2 }, "save": "m2" },
+    { "expect": { "${m2.conversation}": "${m.conversation}", "${m2.messages}": { "$some": { "role": "company" } } } }
+  ]
+}

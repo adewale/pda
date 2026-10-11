@@ -1,0 +1,579 @@
+/**
+ * Our Personal Agent as an interop agent (docs/interop-spec.md, section
+ * 5.2). It drives src/poppy directly, never the model: the same PoppyClient,
+ * sign-in, conversation, API and operations code the Durable Object runs,
+ * in Node, with SQLite from node:sqlite in place of the Durable Object's and
+ * jobs run when a step waits on them instead of by alarms.
+ *
+ * Port 8080: our client metadata and keys at `$INTEROP_ORIGIN/poppy/*.json`
+ * (behind the recording proxy), and `/poppy/callback` for Direct Sign-In.
+ * Port 8081: the manifest and control API, with `Authorization: Bearer $INTEROP_SECRET`.
+ *
+ * No relaxation of src/poppy is needed: `*.interop.test` names already pass
+ * its public-host check, and Node trusts the run's CA via NODE_EXTRA_CA_CERTS.
+ * `INTEROP_FAULT` breaks the agent on purpose, to prove attribution; it lives
+ * only here, in the adapter's network seam, never in src/poppy.
+ */
+import { decodeJwt, decodeProtectedHeader, exportJWK, generateKeyPair, SignJWT } from "jose";
+import { memoryState } from "../shared/cloudflare-workers.ts";
+import { authorized, body, failure, json, serve, setting } from "../shared/serve.ts";
+import { memorySql } from "./sqlite.ts";
+import { callMcpTool, callOpenApi } from "../../../src/poppy/apis.ts";
+import { PoppyClient, PoppyError, type JobName, type PoppyHost } from "../../../src/poppy/client.ts";
+import { conversation as conversationRow, readConversation, sendMessage } from "../../../src/poppy/conversations.ts";
+import { DiscoveryError, isCompany, type Company, type SignInType } from "../../../src/poppy/discovery.ts";
+import type { Fetcher } from "../../../src/poppy/fetch.ts";
+import type { Json } from "../../../src/poppy/json.ts";
+import { randomId } from "../../../src/poppy/jwt.ts";
+import { currentKey } from "../../../src/poppy/keys.ts";
+import { CompanyLimiter } from "../../../src/poppy/limiter.ts";
+import { approveAndConfirm, cancelOperation, operation as operationOf, trackOperation } from "../../../src/poppy/operations.ts";
+import { handleIdentityRoute } from "../../../src/poppy/routes.ts";
+import {
+  completeDirectSignIn,
+  pollDeviceSignIn,
+  signOut,
+  startSignIn,
+  submitCredentials,
+  submitSignInCode
+} from "../../../src/poppy/signin.ts";
+import { migrate, rows } from "../../../src/poppy/store.ts";
+import type { Card } from "../../../src/poppy/wire.ts";
+
+const NAME = process.env.INTEROP_NAME ?? "dpa";
+const SECRET = setting("INTEROP_SECRET");
+const ORIGIN = process.env.INTEROP_ORIGIN ?? `https://${NAME}.agent.interop.test`;
+const COMMIT = process.env.INTEROP_COMMIT ?? "unknown";
+/** Interop-only: break the agent on purpose. `assertion-typ` drops `typ` from client and Session assertions. */
+const FAULT = process.env.INTEROP_FAULT ?? "";
+
+const MANIFEST = {
+  interop: 1,
+  name: NAME,
+  role: "agent",
+  commit: COMMIT,
+  poppy: ["0.1"],
+  extensions: ["operations"],
+  scenarios: ["D", "S0", "N", "SD", "SV", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL"],
+  readings: { S1: "token-endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
+  relaxations: [] as string[],
+  ...(FAULT ? { faults: [FAULT] } : {}),
+  notes: "Drives src/poppy directly (PoppyClient, signin, conversations, apis, operations); no model."
+};
+
+// ---------------------------------------------------------------- The agent, per reset
+
+type Job = { fn: JobName; at: number; payload: Json };
+
+type Agent = {
+  client: PoppyClient;
+  env: Env;
+  jobs: Map<string, Job>;
+  cards: Map<string, Card>;
+  notes: string[];
+  /** Labels are suffixed per reset, so module-level caches (MCP sessions) never carry over. */
+  generation: string;
+};
+
+async function signingKeys(): Promise<string> {
+  const keys = [];
+  for (const kid of [`k-${randomId("", 6)}`, `k-${randomId("", 6)}`]) {
+    const { privateKey } = await generateKeyPair("ES256", { extractable: true });
+    keys.push({ ...(await exportJWK(privateKey)), kid, alg: "ES256", use: "sig" });
+  }
+  return JSON.stringify(keys);
+}
+
+/** Re-sign a JWT's claims without `typ` in its header (INTEROP_FAULT=assertion-typ). */
+async function withoutTyp(jwt: string, env: Env): Promise<string> {
+  const header = decodeProtectedHeader(jwt);
+  const key = await currentKey(env);
+  return new SignJWT(decodeJwt(jwt)).setProtectedHeader({ alg: String(header.alg), ...(header.kid ? { kid: header.kid } : {}) }).sign(key.privateKey);
+}
+
+/** Live lane: at most one request per `INTEROP_PACE_MS` to each host. */
+const PACE_MS = Number(process.env.INTEROP_PACE_MS ?? "0");
+const lastRequest = new Map<string, Promise<void>>();
+function pace(host: string): Promise<void> {
+  if (!(PACE_MS > 0)) return Promise.resolve();
+  const previous = lastRequest.get(host) ?? Promise.resolve();
+  const turn = previous.then(() => new Promise<void>((resolve) => setTimeout(resolve, PACE_MS)));
+  lastRequest.set(host, turn);
+  return previous;
+}
+
+/** Every outbound request: the network, through the proxy, with an optional fault. */
+function fetcherFor(env: Env): Fetcher {
+  return async (request) => {
+    await pace(new URL(request.url).host);
+    if (FAULT === "assertion-typ" && request.method === "POST" && (request.headers.get("content-type") ?? "").startsWith("application/x-www-form-urlencoded")) {
+      const form = new URLSearchParams(await request.clone().text());
+      let changed = false;
+      for (const name of ["client_assertion", "assertion"]) {
+        const value = form.get(name);
+        if (value && value.split(".").length === 3) {
+          form.set(name, await withoutTyp(value, env));
+          changed = true;
+        }
+      }
+      if (changed) return fetch(new Request(request, { body: form.toString() }));
+    }
+    return fetch(request);
+  };
+}
+
+async function newAgent(): Promise<Agent> {
+  const limiters = new Map<string, CompanyLimiter>();
+  const env = {
+    PUBLIC_ORIGIN: ORIGIN,
+    POPPY_CLIENT_NAME: `Interop agent ${NAME} (Durable Personal Agent)`,
+    POPPY_LOGO_URI: `${ORIGIN}/logo.png`,
+    POPPY_SIGNING_JWKS: await signingKeys(),
+    TOKEN_ENC_KEY: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"),
+    CompanyLimiter: {
+      getByName(name: string) {
+        let limiter = limiters.get(name);
+        if (!limiter) {
+          limiter = new CompanyLimiter(memoryState(name) as never, {} as Env);
+          limiters.set(name, limiter);
+        }
+        return limiter;
+      }
+    }
+  } as unknown as Env;
+  const sql = memorySql();
+  migrate(sql);
+  const jobs = new Map<string, Job>();
+  const cards = new Map<string, Card>();
+  const notes: string[] = [];
+  const host: PoppyHost = {
+    env,
+    sql,
+    fetcher: fetcherFor(env),
+    showCard: async (card) => {
+      cards.set(card.id, card);
+    },
+    notifyModel: async (text) => {
+      notes.push(text);
+    },
+    schedule: async (fn, at, payload, id) => {
+      jobs.set(id, { fn, at, payload });
+    },
+    pushDirect: () => undefined,
+    userContext: () => ({ locale: "en-GB", time_zone: "Europe/London", user_available: true }),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: () => Date.now()
+  };
+  return { client: new PoppyClient(host), env, jobs, cards, notes, generation: randomId("", 4) };
+}
+
+let agent = await newAgent();
+
+// ---------------------------------------------------------------- Steps
+
+class StepError extends Error {
+  status: number;
+  code: string;
+  constructor(status: number, code: string, detail: string) {
+    super(detail);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+type Params = Record<string, unknown>;
+const text = (value: unknown, name: string): string => {
+  if (typeof value !== "string" || value === "") throw new StepError(400, "invalid_params", `${name} must be a non-empty string`);
+  return value;
+};
+const optional = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
+const label = (params: Params) => `${optional(params.label) ?? "main"}@${agent.generation}`;
+const plainLabel = (value: string) => value.replace(/@[^@]*$/, "");
+
+async function company(domain: string): Promise<Company> {
+  return agent.client.company(domain);
+}
+
+function sessionResult(company: Company, sessionLabel: string) {
+  const session = agent.client.session(company.issuer, sessionLabel);
+  if (!session) throw new StepError(500, "no_session", "No Session after the exchange");
+  return {
+    session_id: session.session_id,
+    signed_in: session.signed_in === 1,
+    scope: session.scope,
+    ...(session.account ? { account: session.account } : {})
+  };
+}
+
+/** Run a scheduled job until it reports done, waiting until each run is due. */
+async function drain(id: string, run: (job: Job) => Promise<number | null>, limitMs: number): Promise<void> {
+  const deadline = Date.now() + limitMs;
+  for (;;) {
+    const job = agent.jobs.get(id);
+    if (!job) return;
+    const wait = job.at - Date.now();
+    if (Date.now() + Math.max(0, wait) > deadline) return;
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    agent.jobs.delete(id);
+    const next = await run(job);
+    if (next !== null && !agent.jobs.has(id)) agent.jobs.set(id, { ...job, at: next });
+  }
+}
+
+/** The sign-in a step started, per Company and label, for `signin_continue`. */
+const pending = new Map<string, { id: string; type: string; issuer: string; label: string }>();
+
+function signInRow(id: string) {
+  return rows<{ status: string; account: string; label: string; issuer: string }>(
+    agent.client.sql,
+    "SELECT status, account, label, issuer FROM poppy_signins WHERE id = ?",
+    id
+  )[0];
+}
+
+/** Why a sign-in didn't complete, from what the agent told the model. */
+function signInFailure(issuer: string): PoppyStepError {
+  const note = [...agent.notes].reverse().find((line) => line.includes("didn't complete")) ?? "";
+  // src/poppy/signin.ts words the outcome for the User; these are the codes behind its words.
+  const worded: [RegExp, string][] = [
+    [/the User declined/, "access_denied"],
+    [/the code expired/, "expired_token"],
+    [/the company returned ([a-z_]+)/, "$1"]
+  ];
+  const match = worded.map(([pattern, code]) => [pattern.exec(note), code] as const).find(([found]) => found);
+  const code = match
+    ? match[1].replace("$1", match[0]![1] ?? "")
+    : (/\(([a-z_]+)\)/.exec(note)?.[1] ?? /: ([a-z_]+)$/.exec(note)?.[1] ?? "sign_in_failed");
+  return new PoppyStepError(code, 0, `${issuer}: ${note}`);
+}
+
+/** A Poppy error the Company returned, or a refusal of ours: `{ok: false, poppy_error}`. */
+class PoppyStepError extends Error {
+  code: string;
+  status: number;
+  constructor(code: string, status: number, detail: string) {
+    super(detail);
+    this.code = code;
+    this.status = status;
+  }
+}
+
+async function signedInResult(company: Company, sessionLabel: string, id: string) {
+  const row = signInRow(id);
+  if (row?.status !== "done") throw signInFailure(company.issuer);
+  pending.delete(`${company.issuer}|${sessionLabel}`);
+  const session = sessionResult(company, sessionLabel);
+  return { signed_in: session.signed_in, account: session.account ?? null, scope: session.scope, session_id: session.session_id };
+}
+
+const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>> = {
+  async discover(domain) {
+    const found = await agent.client.lookup(domain);
+    if (!isCompany(found)) return { issuer: null, website_only: true, name: found.name };
+    return {
+      issuer: found.issuer,
+      poppy_version: found.protocolVersion,
+      conversations: !!found.conversations,
+      apis: found.apis.map((api) => api.type),
+      sign_in: Object.keys(found.signIn),
+      extensions: Object.keys(found.extensions)
+    };
+  },
+
+  async session(domain, params) {
+    const c = await company(domain);
+    await agent.client.token(c, { label: label(params) });
+    return sessionResult(c, label(params));
+  },
+
+  async signin(domain, params) {
+    const c = await company(domain);
+    const method = optional(params.method);
+    if (method && method !== "direct" && method !== "device" && method !== "mediated") {
+      throw new StepError(400, "invalid_params", `Unknown sign-in method ${method}`);
+    }
+    const scopes = Array.isArray(params.scopes) ? params.scopes.filter((s): s is string => typeof s === "string") : ["poppy:read"];
+    const sessionLabel = label(params);
+    const account = optional(params.account);
+    const started = await startSignIn(agent.client, c, {
+      label: sessionLabel,
+      scopes,
+      reason: "Interop scenario",
+      ...(account ? { account } : {}),
+      ...(method ? { type: method as SignInType } : {})
+    });
+    if (started.status === "signed_in") {
+      const session = sessionResult(c, sessionLabel);
+      return { signed_in: true, account: session.account ?? null, scope: started.scope };
+    }
+    pending.set(`${c.issuer}|${sessionLabel}`, { id: started.signInId, type: started.type, issuer: c.issuer, label: sessionLabel });
+    const card = agent.cards.get(`signin-${started.signInId}`);
+    if (card?.kind === "signin_link") return { pending: { type: "direct", url: card.url } };
+    if (card?.kind === "signin_device") {
+      return {
+        pending: {
+          type: "device",
+          url: card.verificationUri,
+          user_code: card.userCode,
+          ...(card.verificationUriComplete ? { url_complete: card.verificationUriComplete } : {})
+        }
+      };
+    }
+    if (card?.kind === "signin_credentials") return { pending: { type: "mediated", fields: card.fields.map((field) => field.name) } };
+    throw new StepError(500, "no_card", `Sign-in ${started.signInId} showed no card`);
+  },
+
+  async signin_continue(domain, params) {
+    const c = await company(domain);
+    const sessionLabel = label(params);
+    const started = pending.get(`${c.issuer}|${sessionLabel}`);
+    if (!started) throw new StepError(409, "no_pending_signin", "No sign-in in progress for this Company and label");
+    if (started.type === "direct") {
+      const callback = new URL(text(params.callback_url, "callback_url"));
+      const outcome = await completeDirectSignIn(agent.client, callback);
+      if (!outcome.ok) {
+        const error = callback.searchParams.get("error");
+        if (error) throw new PoppyStepError(error, 0, outcome.message);
+        throw signInFailure(c.issuer);
+      }
+      return signedInResult(c, sessionLabel, started.id);
+    }
+    if (started.type === "device") {
+      await drain(`device-${started.id}`, async () => pollDeviceSignIn(agent.client, started.id), 90_000);
+      return signedInResult(c, sessionLabel, started.id);
+    }
+    // Mediated: the fields, then perhaps a one-time code.
+    const row = signInRow(started.id);
+    if (row?.status === "code") {
+      const outcome = await submitSignInCode(agent.client, started.id, text(params.code, "code"));
+      if (outcome === "code") return { pending: { type: "mediated", code_required: true } };
+      return signedInResult(c, sessionLabel, started.id);
+    }
+    const fields = typeof params.fields === "object" && params.fields !== null ? (params.fields as Record<string, string>) : {};
+    const outcome = await submitCredentials(agent.client, started.id, fields);
+    if (outcome === "code") return { pending: { type: "mediated", code_required: true } };
+    return signedInResult(c, sessionLabel, started.id);
+  },
+
+  async send(domain, params) {
+    const c = await company(domain);
+    const conversationId = optional(params.conversation);
+    const callKey = optional(params.message_id) ?? randomId("call_");
+    const sent = await sendMessage(agent.client, c, {
+      label: label(params),
+      callKey,
+      ...(conversationId ? { conversationId } : {}),
+      sender: "agent",
+      text: text(params.text, "text"),
+      ...(typeof params.wait === "number" ? { wait: params.wait } : {})
+    });
+    const intent = rows<{ value: string }>(agent.client.sql, "SELECT value FROM poppy_intents WHERE call_key = ?", `message|${callKey}`)[0];
+    const messageId = intent ? (JSON.parse(intent.value) as { message: { id: string } }).message.id : null;
+    return {
+      conversation: sent.conversationId,
+      message_id: messageId,
+      status: sent.status,
+      responder: sent.responder,
+      messages: sent.replies.map((reply) => ({ role: "company", sender: reply.sender, text: reply.text ?? null, ...(reply.data !== undefined ? { data: reply.data } : {}) }))
+    };
+  },
+
+  async read(_domain, params) {
+    const id = text(params.conversation, "conversation");
+    if (!conversationRow(agent.client, id)) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
+    await readConversation(agent.client, id, typeof params.wait === "number" ? params.wait : 0);
+    const row = conversationRow(agent.client, id)!;
+    const events = rows<{ event: string }>(agent.client.sql, "SELECT event FROM poppy_inbox WHERE conversation_id = ? ORDER BY seq", id);
+    return {
+      messages: events.map((entry) => {
+        const event = JSON.parse(entry.event) as { id: string; message: { role?: string; sender?: string; text?: string; data?: Json; operation?: { operation_id?: string } } };
+        return {
+          event: event.id,
+          role: event.message.role ?? null,
+          sender: event.message.sender ?? null,
+          text: event.message.text ?? null,
+          ...(event.message.operation?.operation_id ? { operation: event.message.operation.operation_id } : {})
+        };
+      }),
+      cursor: row.cursor,
+      has_more: false,
+      status: row.status,
+      responder: row.responder
+    };
+  },
+
+  async sse(domain, params) {
+    const c = await company(domain);
+    const id = text(params.conversation, "conversation");
+    const endpoint = c.conversations?.endpoint.replace(/\/+$/, "");
+    if (!endpoint) throw new PoppyStepError("no_company_agent", 0, "No conversation endpoint");
+    const url = new URL(`${endpoint}/${encodeURIComponent(id)}/events`);
+    const cursor = optional(params.cursor);
+    if (cursor) url.searchParams.set("cursor", cursor);
+    url.searchParams.set("wait", String(typeof params.wait === "number" ? params.wait : 1));
+    const response = await agent.client.resource(
+      c,
+      { method: "GET", url: url.href, accept: "text/event-stream", ...(cursor ? { headers: { "Last-Event-ID": cursor } } : {}) },
+      { label: label(params), ...(c.conversations?.resource ? { resource: c.conversations.resource } : {}) }
+    );
+    const max = typeof params.max_events === "number" ? params.max_events : 50;
+    const type = response.headers.get("content-type") ?? "";
+    if (!type.includes("text/event-stream")) {
+      await response.body?.cancel();
+      throw new PoppyStepError("not_streamed", response.status, `Answered ${type || "no content type"}`);
+    }
+    const events: { id: string | null; type: string; data: Json }[] = [];
+    const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+    const deadline = Date.now() + 10_000;
+    let buffer = "";
+    try {
+      while (events.length < max && Date.now() < deadline) {
+        const next = await Promise.race([reader.read(), new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), Math.max(0, deadline - Date.now())))]);
+        if (next === "timeout" || next.done) break;
+        buffer += next.value.replace(/\r\n?/g, "\n");
+        let split: number;
+        while ((split = buffer.indexOf("\n\n")) !== -1 && events.length < max) {
+          const block = buffer.slice(0, split);
+          buffer = buffer.slice(split + 2);
+          let eventId: string | null = null;
+          let eventType = "message";
+          const data: string[] = [];
+          for (const line of block.split("\n")) {
+            if (line.startsWith(":")) continue;
+            const colon = line.indexOf(":");
+            const field = colon === -1 ? line : line.slice(0, colon);
+            const value = colon === -1 ? "" : line.slice(colon + 1).replace(/^ /, "");
+            if (field === "id") eventId = value;
+            else if (field === "event") eventType = value;
+            else if (field === "data") data.push(value);
+          }
+          if (data.length === 0) continue;
+          let payload: Json = data.join("\n");
+          try {
+            payload = JSON.parse(data.join("\n")) as Json;
+          } catch {
+            // Kept as text.
+          }
+          events.push({ id: eventId, type: eventType, data: payload });
+        }
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+    const ids = events.map((event) => event.id).filter((value): value is string => !!value);
+    return { events, last_id: ids.at(-1) ?? null };
+  },
+
+  async api(domain, params) {
+    const c = await company(domain);
+    const args = typeof params.args === "object" && params.args !== null ? (params.args as Record<string, unknown>) : {};
+    const api = optional(params.api) ?? "openapi";
+    if (api === "mcp" || api.endsWith("/mcp")) {
+      const result = await callMcpTool(agent.client, c, label(params), {
+        ...(api.startsWith("https://") ? { apiUrl: api } : {}),
+        tool: text(params.tool, "tool"),
+        args: args as Json
+      });
+      return { status: 200, body: result };
+    }
+    const result = await callOpenApi(agent.client, c, label(params), {
+      ...(api.startsWith("https://") ? { apiUrl: api } : {}),
+      operation: text(params.operation, "operation"),
+      params: (args.params ?? {}) as Record<string, string>,
+      ...(args.body !== undefined ? { body: args.body as Json } : {}),
+      callKey: randomId("call_")
+    });
+    return { status: 200, body: result };
+  },
+
+  async web_join() {
+    throw new StepError(501, "unsupported", "Browser Sessions need Browser Rendering, which the adapter doesn't run");
+  },
+
+  async approve_op(domain, params) {
+    const c = await company(domain);
+    const id = text(params.operation, "operation");
+    const operation = operationOf(agent.client, c.issuer, id);
+    if (!operation) throw new StepError(404, "unknown_operation", `The agent has no operation ${id} from ${c.issuer}`);
+    if (params.decision === "decline") {
+      await cancelOperation(agent.client, c.issuer, id);
+    } else {
+      await approveAndConfirm(agent.client, c.issuer, id, operation.revision, "user");
+      await drain(`op-${c.issuer}-${id}`, async () => trackOperation(agent.client, c.issuer, id), 30_000);
+    }
+    const after = operationOf(agent.client, c.issuer, id)!;
+    return { status: after.state, revision: after.revision, ...(after.result?.summary ? { result: after.result.summary } : {}) };
+  },
+
+  async signout(domain, params) {
+    const c = await company(domain);
+    const session = agent.client.session(c.issuer, label(params));
+    if (!session?.account) return { revoked: false };
+    await signOut(agent.client, c.issuer, session.account);
+    return { revoked: true };
+  },
+
+  async state() {
+    return {
+      sessions: agent.client.sessions().map((session) => ({
+        issuer: session.issuer,
+        label: plainLabel(session.label),
+        session_id: session.session_id,
+        signed_in: session.signed_in === 1,
+        account: session.account,
+        scope: session.scope
+      })),
+      accounts: agent.client.accounts().map((account) => ({ issuer: account.issuer, account: account.account, scope: account.scope }))
+    };
+  }
+};
+
+async function step(request: Request): Promise<Response> {
+  const input = await body(request);
+  const op = typeof input.op === "string" ? input.op : "";
+  const run = STEPS[op];
+  if (!run) return failure(501, "unsupported", `No op ${op}`);
+  const domain = typeof input.company === "string" ? input.company : "";
+  const params = typeof input.params === "object" && input.params !== null ? (input.params as Params) : {};
+  try {
+    return json({ ok: true, result: await run(domain, params) });
+  } catch (error) {
+    if (error instanceof StepError) return failure(error.status, error.code, error.message);
+    if (error instanceof PoppyStepError) return json({ ok: false, poppy_error: error.code, status: error.status, detail: error.message });
+    if (error instanceof PoppyError) return json({ ok: false, poppy_error: error.code, status: error.status, detail: error.message });
+    if (error instanceof DiscoveryError) return json({ ok: false, poppy_error: "discovery_failed", status: 0, detail: error.message });
+    console.error(`step ${op} failed`, error);
+    return failure(500, "step_failed", error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+  }
+}
+
+async function control(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  if (request.method === "GET" && url.pathname === "/healthz") return json({ ok: true });
+  if (request.method === "GET" && url.pathname === "/manifest") return json(MANIFEST);
+  if (!authorized(request, SECRET)) return failure(401, "unauthorized", "Control calls need Authorization: Bearer $INTEROP_SECRET");
+  if (request.method === "POST" && url.pathname === "/reset") {
+    agent = await newAgent();
+    pending.clear();
+    return json({ ok: true });
+  }
+  if (request.method === "POST" && url.pathname === "/step") return step(request);
+  if (request.method === "GET" && url.pathname === "/log") return json({ notes: agent.notes });
+  return failure(404, "not_found", `${request.method} ${url.pathname}`);
+}
+
+/** Our identity documents, and Direct Sign-In's callback for a Company that redirects a browser to it. */
+async function site(request: Request): Promise<Response> {
+  const identity = await handleIdentityRoute(request, agent.env);
+  if (identity) return identity;
+  const url = new URL(request.url);
+  if (url.pathname === "/poppy/callback" && request.method === "GET") {
+    const outcome = await completeDirectSignIn(agent.client, url);
+    return new Response(outcome.message, { status: outcome.ok ? 200 : 400, headers: { "content-type": "text/plain" } });
+  }
+  return new Response("Not found", { status: 404 });
+}
+
+serve(8080, site);
+serve(8081, control);
+console.log(`dpa-agent: ${ORIGIN} on 8080, control on 8081${FAULT ? `, fault ${FAULT}` : ""}`);

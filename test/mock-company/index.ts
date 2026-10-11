@@ -72,6 +72,7 @@ export class MockCompany extends DurableObject<Env> {
     conversations.operations = operations;
     const apis = new Apis(company, operations);
     const web = new Web(company);
+    web.operations = operations;
     this.#parts = { company, auth, conversations, operations, apis, web };
     return this.#parts;
   }
@@ -132,7 +133,10 @@ export class MockCompany extends DurableObject<Env> {
         return web.wellKnown(inbound);
       }
       if (path === "/poppy/browser-session") return web.browserSession(inbound);
-      if (method === "GET") return web.page(inbound);
+      if (method === "GET") {
+      company.rateLimit("page", inbound);
+      return web.page(inbound);
+    }
       return json({ error: "not_found" }, 404);
     }
 
@@ -297,11 +301,39 @@ export class MockCompany extends DurableObject<Env> {
     return this.#named().operations.revise(operationId, newSummary, newTerms);
   }
 
+  /** The User confirms an operation on the Company's website, in its Session (Ops 4.4). */
+  async confirmOnWebsite(operationId: string): Promise<void> {
+    this.#named().operations.confirmOnWebsite(operationId);
+  }
+
   /** The Company ends every Session, as when they expire (4.2). */
   async endAllSessions(): Promise<number> {
     const { company } = this.#named();
     for (const session of company.sessions.values()) session.ended = true;
     return company.sessions.size;
+  }
+
+  /** The next `count` token or other requests get 429 with `Retry-After` (the interop `rate_limit` hook). */
+  async limitNext(kind: "token" | "other", count: number, retryAfterSeconds: number): Promise<void> {
+    const { company } = this.#named();
+    const used = kind === "token" ? company.tokenRequestCount : company.otherRequestCount;
+    company.config = {
+      ...company.config,
+      rateLimit: {
+        ...company.config.rateLimit,
+        retryAfterSeconds,
+        ...(kind === "token" ? { tokenRequests429: used + count } : { requests429: used + count })
+      }
+    };
+  }
+
+  /** Every Session Token issued so far expires now, so the next use gets `invalid_token` (the interop `expire_tokens` hook). */
+  async expireSessionTokens(): Promise<number> {
+    const { company } = this.#named();
+    for (const [value, token] of company.accessTokens) {
+      company.accessTokens.set(value, { ...token, expiresAt: Date.now() - 1 });
+    }
+    return company.accessTokens.size;
   }
 
   /** The User disconnects the Personal Agent in their account settings (4.9). */

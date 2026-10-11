@@ -13,6 +13,7 @@ import {
   CLOCK_HEADER,
   hostsFor,
   VIOLATION_IDS,
+  VIOLATIONS,
   violationId,
   type MockCompany,
   type MockConfig,
@@ -24,6 +25,7 @@ import conversationsSource from "./mock-company/conversations.ts?raw";
 import coreSource from "./mock-company/core.ts?raw";
 import indexSource from "./mock-company/index.ts?raw";
 import operationsSource from "./mock-company/operations.ts?raw";
+import violationsSource from "./mock-company/violations.ts?raw";
 import webSource from "./mock-company/web.ts?raw";
 
 /**
@@ -961,6 +963,17 @@ const TAMPERS: readonly Tamper[] = [
       return call(c, { ...s, key: await dpopKey() }, "GET", `${c.hosts.api}/products`);
     }
   },
+  {
+    id: "dpop.key-shared",
+    what: "one DPoP key for two User IDs",
+    detail: /^\[dpop\.key-shared\] DPoP key [\w-]{43} used for User usr_Hd8pW2zQ5nVb7LtK3xRc9F after User usr_Q7c1vKx9TzLw3NdR5mHa2B$/,
+    run: async (c) => {
+      const key = await dpopKey();
+      expect((await startSession(c, key)).status).toBe(200);
+      const other = await startSession(c, key, { assertion: await sessionAssertion(c, { claims: { sub: "usr_Hd8pW2zQ5nVb7LtK3xRc9F" } }) });
+      expect(other.status).toBe(200);
+    }
+  },
 
   // ---- Session Tokens on resources ----
   {
@@ -1330,6 +1343,16 @@ const TAMPERS: readonly Tamper[] = [
       return call(c, s, "POST", `${c.hosts.mediatedEndpoint}/${signInId}`, { body: { code, email: "grace@example.com" } });
     }
   },
+  {
+    id: "mediated.code-other-session",
+    what: "the one-time code submitted from another Session",
+    detail: /^\[mediated\.code-other-session\] one-time code for sgn_[\w-]+ submitted from another Session$/,
+    run: async (c) => {
+      const { signInId, code } = await oneTimeCode(c);
+      const response = await call(c, await signedOut(c), "POST", `${c.hosts.mediatedEndpoint}/${signInId}`, { body: { code } });
+      expect(response.status).toBe(404);
+    }
+  },
 
   // ---- Browser join ----
   {
@@ -1385,6 +1408,36 @@ const TAMPERS: readonly Tamper[] = [
     run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { header: { typ: "JWT" } }))
   },
   {
+    id: "browser-assertion.alg",
+    what: "a browser assertion signed with HS256",
+    detail: "[browser-assertion.alg] browser session: alg HS256 is not allowed",
+    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { header: { alg: "HS256" }, key: await hmacKey() }))
+  },
+  {
+    id: "browser-assertion.embedded-key",
+    what: "a browser assertion carrying its own jwk",
+    detail: "[browser-assertion.embedded-key] browser session: assertion embeds or points to a key (jku/x5u/x5c/jwk)",
+    run: async (c) => {
+      const s = await signedOut(c);
+      expect((await joinBrowser(c, await browserAssertion(c, s, { header: { jwk: s.key.jwk } }))).status).toBe(303);
+    }
+  },
+  {
+    id: "browser-assertion.embedded-key",
+    what: "a browser assertion carrying a certificate chain",
+    detail: "[browser-assertion.embedded-key] browser session: assertion embeds or points to a key (jku/x5u/x5c/jwk)",
+    run: async (c) => {
+      const s = await signedOut(c);
+      expect((await joinBrowser(c, await browserAssertion(c, s, { header: { x5c: ["MIIBIjANBgkq"] } }))).status).toBe(303);
+    }
+  },
+  {
+    id: "browser-assertion.kid",
+    what: "a browser assertion whose kid names no key",
+    detail: '[browser-assertion.kid] browser session: strict Company: kid "not-a-key" names no published key',
+    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { header: { kid: "not-a-key" } }))
+  },
+  {
     id: "browser-assertion.no-iss",
     what: "a browser assertion without iss",
     detail: "[browser-assertion.no-iss] browser session: no iss",
@@ -1414,6 +1467,19 @@ const TAMPERS: readonly Tamper[] = [
     what: "a browser assertion valid for two minutes",
     detail: "[browser-assertion.lifetime] browser session: exp must be no more than 60 seconds after iat",
     run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: lifetime(120) }))
+  },
+  {
+    id: "browser-assertion.iat-exp-missing",
+    what: "a browser assertion without exp",
+    detail: "[browser-assertion.iat-exp-missing] browser session: iat and exp are required",
+    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: { exp: undefined } }))
+  },
+  {
+    id: "browser-assertion.iat-future",
+    what: "a browser assertion issued an hour from now",
+    detail: /^\[browser-assertion\.iat-future\] browser session: iat \d+ is in the future$/,
+    run: async (c) =>
+      joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: { iat: seconds() + 3600, exp: seconds() + 3660 } }))
   },
   {
     id: "browser-assertion.session",
@@ -1563,6 +1629,23 @@ const TAMPERS: readonly Tamper[] = [
     }
   },
   {
+    id: "direct.agent-words-later",
+    what: "the agent's own words in an open Direct Conversation",
+    detail: /^\[direct\.agent-words-later\] agent's own words sent into Direct Conversation cnv_[\w-]+$/,
+    run: async (c) => {
+      const s = await signedOut(c);
+      const parent = await conversation(c, s);
+      const opened = await converse(c, s, message({ sender: "human", text: "Hi, it's me." }), { parent_conversation_id: parent });
+      const { conversation_id: direct } = (await opened.json()) as { conversation_id: string };
+      const send = (fields: Record<string, unknown>) =>
+        call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${direct}/messages`, { body: { message: message(fields) } });
+      // The User's words, and a context update from the agent, belong there.
+      expect((await send({ sender: "human", text: "Medium, please." })).status).toBe(202);
+      expect((await send({ text: undefined, context: { user_available: false } })).status).toBe(202);
+      expect((await send({ text: "The user means the medium." })).status).toBe(202);
+    }
+  },
+  {
     id: "handoff.body",
     what: "a handoff with a reason in the body",
     detail: '[handoff.body] handoff body should be {}, got {"reason":"needs a person"}',
@@ -1591,6 +1674,31 @@ const TAMPERS: readonly Tamper[] = [
     run: async (c) => {
       const { s, operation } = await proposed(c);
       return call(c, s, "POST", `${c.hosts.operationsEndpoint}/${operation.operation_id}/confirm`, { body: { revision: operation.revision, approved_by: "model" } });
+    }
+  },
+  {
+    id: "confirm.revision",
+    what: "a confirm without revision",
+    detail: "[confirm.revision] confirm with revision undefined",
+    run: async (c) => {
+      const { s, operation } = await proposed(c);
+      const response = await call(c, s, "POST", `${c.hosts.operationsEndpoint}/${operation.operation_id}/confirm`, { body: { approved_by: "user" } });
+      expect(response.status).toBe(400);
+    }
+  },
+  {
+    id: "proposal.while-open",
+    what: "the same exchange asked for again while the confirmed one is in progress",
+    config: { slowConfirm: true },
+    detail: /^\[proposal\.while-open\] new proposal asked for while exc_[\w-]+ is in_progress after a confirm$/,
+    run: async (c) => {
+      const { s, operation } = await proposed(c);
+      const confirmed = await call(c, s, "POST", `${c.hosts.operationsEndpoint}/${operation.operation_id}/confirm`, {
+        body: { revision: operation.revision, approved_by: "user" }
+      });
+      expect(await confirmed.json()).toMatchObject({ state: "in_progress" });
+      // The Company returns the open operation rather than proposing another (Ops 4).
+      expect(await (await exchange(c, s)).json()).toMatchObject({ operation: { operation_id: operation.operation_id } });
     }
   },
   {
@@ -1642,6 +1750,57 @@ describe("each check the mock Company makes", () => {
     expect(unknown).toEqual([]);
     // Nothing records a violation without an id.
     expect(source.match(/\bviolation\(\s*`[^`$]*`/g) ?? []).toEqual([]);
+  });
+});
+
+/**
+ * The rows as one-sided interop vectors, in Datalayer's schema: what an
+ * agent got wrong, and the check a strict Company should name for it. The
+ * requests themselves are code (signed with the test's keys at the test's
+ * time), so a vector describes the mutation rather than replaying it.
+ * Regenerate with `npm run interop:vectors`; this test fails while the file
+ * is stale.
+ */
+describe("interop vectors", () => {
+  it("exports every row to interop/vectors/mock-company.json", async () => {
+    // Each catalog section's heading names the spec sections it checks: `// ---- Title (4.2, 4.3) ----`.
+    const sections = new Map<string, string[]>();
+    let current: string[] = [];
+    for (const line of violationsSource.split("\n")) {
+      const heading = /^\s*\/\/ ---- (.*?)\s*(?:\(([^)]*)\))? ----/.exec(line);
+      if (heading) current = heading[2] ? heading[2].split(/[,;]\s*/).map((part) => part.trim()).filter(Boolean) : [heading[1]!];
+      const entry = /^\s*"([a-z.-]+)":/.exec(line);
+      if (entry) sections.set(entry[1]!, current);
+    }
+    const example = { hosts: hostsFor("acme") } as unknown as C;
+    const seen = new Map<string, number>();
+    const vectors = TAMPERS.map((row) => {
+      const detail = typeof row.detail === "function" ? row.detail(example) : row.detail;
+      const n = (seen.get(row.id) ?? 0) + 1;
+      seen.set(row.id, n);
+      return {
+        id: `dpa.mock.${row.id}${n > 1 ? `.${n}` : ""}`,
+        kind: "agent-request",
+        role: "company",
+        requirements: sections.get(row.id) ?? [],
+        check: row.id,
+        input: { mutation: row.what, ...(row.config ? { company_config: row.config } : {}) },
+        expect: {
+          refused_or_recorded: row.id,
+          ...(row.ids ? { violations: [...row.ids] } : {}),
+          ...(typeof detail === "string" ? { detail } : detail ? { detail_pattern: detail.source } : {})
+        },
+        description: VIOLATIONS[row.id]
+      };
+    });
+    const file = {
+      version: 1,
+      source: "test/mock-company.test.ts (TAMPERS) and test/mock-company/violations.ts",
+      notes:
+        "Each vector is one thing an agent can get wrong in an otherwise correct request; a strict Company refuses it or records the check named in `check`. `detail` is the mock Company's wording for a Company at acme.shop.test.",
+      vectors
+    };
+    await expect(`${JSON.stringify(file, null, 2)}\n`).toMatchFileSnapshot("../interop/vectors/mock-company.json");
   });
 });
 

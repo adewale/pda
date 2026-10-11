@@ -63,6 +63,8 @@ export type MockConfig = {
     readonly tokenRequests429: number;
     /** The first n requests to any other endpoint get 429. */
     readonly requests429: number;
+    /** The first n website page loads get 429. */
+    readonly pages429?: number;
     readonly retryAfterSeconds: number;
   };
   /**
@@ -113,6 +115,27 @@ export type MockConfig = {
   /** Leave the issuer out of the MCP server's protected resource metadata. */
   readonly mcpPrmOmitIssuer: boolean;
   readonly accounts: readonly MockAccount[];
+  /** Overrides the OpenAPI description's `servers` URL, to name another host (N10). */
+  readonly openapiServerOverride: string | null;
+  /** Token responses leave out `scope`, as stock OAuth servers do when it's what was asked for (N6). */
+  readonly omitTokenScope: boolean;
+  /**
+   * Only custom scopes: the Company calls reading and changing orders
+   * `orders:read` and `orders:write`, and offers no `poppy:` scopes.
+   */
+  readonly customScopesOnly: boolean;
+  /** Writes need this extension, which agents don't support: 403 `extension_required` (3.3). */
+  readonly requiredExtension: string | null;
+  /** The OpenAPI entry names `resource` (RFC 8707), and the API takes only tokens issued for it. */
+  readonly apiResource: boolean;
+  /** Ignore `wait` on conversation POSTs: answer at once, without events. */
+  readonly ignoreWait: boolean;
+  /** Never say `queued`: a handoff goes straight to `working`. */
+  readonly neverQueued: boolean;
+  /** With `rotateRefreshTokens`, a rotated Account Token used again revokes its whole family. */
+  readonly reuseDetection: boolean;
+  /** Streams carry SSE comments (`: keep-alive`) between events. */
+  readonly sseKeepAlive: boolean;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -145,7 +168,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   refreshTokenTtl: 2592000,
   deviceInterval: 5,
   deviceExpiresIn: 600,
-  rateLimit: { tokenRequests429: 0, requests429: 0, retryAfterSeconds: 1 },
+  rateLimit: { tokenRequests429: 0, requests429: 0, pages429: 0, retryAfterSeconds: 1 },
   strictAssertions: true,
   clientAssertionAud: "lenient",
   nonceScope: "company",
@@ -174,7 +197,16 @@ export const DEFAULT_CONFIG: MockConfig = {
       password: "battery staple",
       otp: true
     }
-  ]
+  ],
+  openapiServerOverride: null,
+  omitTokenScope: false,
+  customScopesOnly: false,
+  requiredExtension: null,
+  apiResource: false,
+  ignoreWait: false,
+  neverQueued: false,
+  reuseDetection: false,
+  sseKeepAlive: false
 };
 
 /** One request the mock received, with secrets redacted. */
@@ -256,14 +288,40 @@ export type Hosts = {
   readonly browserSessionEndpoint: string;
 };
 
+/**
+ * Where mock Companies live. Tests use `<id>.shop.test` and
+ * `<id>.shop-uk.test`; the interop adapter (`interop/impls/dpa-mock`) moves
+ * them under `company.interop.test`, where the recording proxy serves them.
+ */
+export type Placement = {
+  readonly domain: (id: string) => string;
+  readonly altDomain: (id: string) => string;
+  /** The company id in a host name, or null. */
+  readonly idFromHost: (host: string) => string | null;
+};
+
+const SHOP_TEST: Placement = {
+  domain: (id) => `${id}.shop.test`,
+  altDomain: (id) => `${id}.shop-uk.test`,
+  idFromHost: (host) =>
+    /^(?:(?:www|auth|api|mcp|cdn)\.)?([a-z0-9]+)\.(?:shop|shop-uk)\.test$/.exec(host)?.[1] ?? null
+};
+
+let placement = SHOP_TEST;
+
+/** Move every mock Company to other host names (the interop adapter only). */
+export function placeCompanies(next: Placement): void {
+  placement = next;
+}
+
 export function hostsFor(id: string, options: { issuerTrailingSlash?: boolean } = {}): Hosts {
-  const domain = `${id}.shop.test`;
+  const domain = placement.domain(id);
   const auth = `https://auth.${domain}`;
   const api = `https://api.${domain}`;
   return {
     id,
     domain,
-    altDomain: `${id}.shop-uk.test`,
+    altDomain: placement.altDomain(id),
     issuer: options.issuerTrailingSlash ? `${auth}/` : auth,
     api,
     mcpUrl: `https://mcp.${domain}/mcp`,
@@ -284,9 +342,5 @@ export function hostsFor(id: string, options: { issuerTrailingSlash?: boolean } 
  * `auth.`, `api.`, `mcp.` and `cdn.` subdomains, and `<id>.shop-uk.test`.
  */
 export function companyIdFromHost(host: string): string | null {
-  const name = host.toLowerCase().replace(/:\d+$/, "");
-  const match = /^(?:(?:www|auth|api|mcp|cdn)\.)?([a-z0-9]+)\.(?:shop|shop-uk)\.test$/.exec(
-    name
-  );
-  return match ? match[1]! : null;
+  return placement.idFromHost(host.toLowerCase().replace(/:\d+$/, ""));
 }

@@ -77,7 +77,7 @@ export class AuthServer {
   }
 
   #allowedScopes(type: "direct" | "device" | "mediated"): readonly string[] | null {
-    return this.company.config.signIn[type];
+    return this.company.offeredScopes(type);
   }
 
   /** Each sign-in MUST include `scope`; unknown or unavailable scopes are refused (4.4). */
@@ -113,7 +113,7 @@ export class AuthServer {
         "WWW-Authenticate": 'DPoP error="invalid_dpop_proof"'
       });
     }
-    if (resource !== null && resource !== co.hosts.mcpUrl) {
+    if (resource !== null && resource !== co.hosts.mcpUrl && !(co.config.apiResource && resource === co.hosts.api)) {
       throw oauthError(400, "invalid_target", "unknown resource");
     }
     if (jkt === null && resource === co.hosts.mcpUrl) {
@@ -179,6 +179,14 @@ export class AuthServer {
     }
     if (token.rotated) {
       co.violation("account-token.rotated-reused", "used an Account Token after the Company rotated it (4.8)");
+      if (co.config.reuseDetection) {
+        // Reuse means the token leaked: revoke every token descended from the sign-in (RFC 9700 4.14.2).
+        for (const other of co.accountTokens.values()) {
+          if (other.clientId === token.clientId && other.userId === token.userId && other.account === token.account) {
+            this.revokeToken(other.value);
+          }
+        }
+      }
       throw oauthError(400, "invalid_grant", "Account Token was rotated");
     }
     if (token.revoked || (token.expiresAt !== null && token.expiresAt <= Date.now())) {
@@ -615,6 +623,10 @@ export class AuthServer {
     co.rateLimit("other", inbound);
     const context = await co.authorizeResource(inbound);
     const signIn = this.#mediated.get(signInId);
+    // "Only the Session that started a sign-in can finish it" (4.7).
+    if (signIn && !signIn.finished && signIn.sessionId !== context.session.id) {
+      co.violation("mediated.code-other-session", `one-time code for ${signIn.id} submitted from another Session`);
+    }
     if (!signIn || signIn.sessionId !== context.session.id || signIn.finished) {
       return json({ error: "not_found" }, 404);
     }

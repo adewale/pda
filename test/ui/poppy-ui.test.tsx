@@ -333,6 +333,23 @@ describe("Direct Conversation invitation", () => {
   });
 });
 
+describe("the Company's domain (spec issue N14)", () => {
+  it("shows the verified domain under the name the Company chose, on every request card, as text", () => {
+    const requests = [linkCard("https://auth.acme.example/a"), deviceCard("https://auth.acme.example/device"), credentialsCard, codeCard, operationCard(), approvalCard, inviteCard];
+    const { container } = renderCards(...requests.map((card) => ({ ...card, id: `${card.id}-d`, domain: "acme.example" })));
+    const articles = [...container.querySelectorAll("article")];
+    expect(articles).toHaveLength(requests.length);
+    for (const article of articles) {
+      expect(within(article).getByText("acme.example").tagName).toBe("CODE");
+    }
+  });
+
+  it("shows no domain line when a card has none", () => {
+    const { container } = renderCards(approvalCard);
+    expect(container.querySelector("article code")).toBeNull();
+  });
+});
+
 describe("notice card", () => {
   it("shows the text as text and can be dismissed", () => {
     const { container, sent } = renderCards({ ...noticeCard, text: '<a href="javascript:alert(1)">click</a>' });

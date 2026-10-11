@@ -1,0 +1,2739 @@
+{
+  "version": 1,
+  "source": "test/mock-company.test.ts (TAMPERS) and test/mock-company/violations.ts",
+  "notes": "Each vector is one thing an agent can get wrong in an otherwise correct request; a strict Company refuses it or records the check named in `check`. `detail` is the mock Company's wording for a Company at acme.shop.test.",
+  "vectors": [
+    {
+      "id": "dpa.mock.client-assertion.jti-missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "client-assertion.jti-missing",
+      "input": {
+        "mutation": "a client assertion without jti"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.jti-missing",
+        "detail": "[client-assertion.jti-missing] client-assertion: missing jti"
+      },
+      "description": "Client assertion without a jti"
+    },
+    {
+      "id": "dpa.mock.client-assertion.jti-weak",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "client-assertion.jti-weak",
+      "input": {
+        "mutation": "a client assertion jti of 64 bits"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.jti-weak",
+        "detail": "[client-assertion.jti-weak] client-assertion: jti \"abcdefgh\" is not 128 random bits of base64url"
+      },
+      "description": "Client assertion jti is not 128 random bits of base64url"
+    },
+    {
+      "id": "dpa.mock.client-assertion.jti-reused",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "client-assertion.jti-reused",
+      "input": {
+        "mutation": "the same client assertion twice"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.jti-reused",
+        "detail_pattern": "^\\[client-assertion\\.jti-reused\\] client-assertion: reused jti [\\w-]{22}$"
+      },
+      "description": "Client assertion jti used twice"
+    },
+    {
+      "id": "dpa.mock.session-assertion.jti-missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "session-assertion.jti-missing",
+      "input": {
+        "mutation": "a Session assertion without jti"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.jti-missing",
+        "detail": "[session-assertion.jti-missing] session-assertion: missing jti"
+      },
+      "description": "Session assertion without a jti"
+    },
+    {
+      "id": "dpa.mock.session-assertion.jti-weak",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "session-assertion.jti-weak",
+      "input": {
+        "mutation": "a Session assertion jti of 64 bits"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.jti-weak",
+        "detail": "[session-assertion.jti-weak] session-assertion: jti \"abcdefgh\" is not 128 random bits of base64url"
+      },
+      "description": "Session assertion jti is not 128 random bits of base64url"
+    },
+    {
+      "id": "dpa.mock.session-assertion.jti-reused",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "session-assertion.jti-reused",
+      "input": {
+        "mutation": "the same Session assertion twice"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.jti-reused",
+        "detail_pattern": "^\\[session-assertion\\.jti-reused\\] session-assertion: reused jti [\\w-]{22}$"
+      },
+      "description": "Session assertion jti used twice"
+    },
+    {
+      "id": "dpa.mock.dpop.jti-missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "dpop.jti-missing",
+      "input": {
+        "mutation": "a DPoP proof without jti"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.jti-missing",
+        "detail": "[dpop.jti-missing] dpop: missing jti"
+      },
+      "description": "DPoP proof without a jti"
+    },
+    {
+      "id": "dpa.mock.dpop.jti-weak",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "dpop.jti-weak",
+      "input": {
+        "mutation": "a DPoP proof jti of 64 bits"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.jti-weak",
+        "detail": "[dpop.jti-weak] dpop: jti \"abcdefgh\" is not 128 random bits of base64url"
+      },
+      "description": "DPoP proof jti is not 128 random bits of base64url"
+    },
+    {
+      "id": "dpa.mock.dpop.jti-reused",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "dpop.jti-reused",
+      "input": {
+        "mutation": "the same DPoP proof twice"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.jti-reused",
+        "detail_pattern": "^\\[dpop\\.jti-reused\\] dpop: reused jti [\\w-]{22}$"
+      },
+      "description": "DPoP proof jti used twice"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.jti-missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "browser-assertion.jti-missing",
+      "input": {
+        "mutation": "a browser assertion without jti"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.jti-missing",
+        "detail": "[browser-assertion.jti-missing] browser-assertion: missing jti"
+      },
+      "description": "Browser assertion without a jti"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.jti-weak",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "browser-assertion.jti-weak",
+      "input": {
+        "mutation": "a browser assertion jti of 64 bits"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.jti-weak",
+        "detail": "[browser-assertion.jti-weak] browser-assertion: jti \"abcdefgh\" is not 128 random bits of base64url"
+      },
+      "description": "Browser assertion jti is not 128 random bits of base64url"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.jti-reused",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "5",
+        "Guides"
+      ],
+      "check": "browser-assertion.jti-reused",
+      "input": {
+        "mutation": "the same browser assertion twice"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.jti-reused",
+        "detail_pattern": "^\\[browser-assertion\\.jti-reused\\] browser-assertion: reused jti [\\w-]{22}$"
+      },
+      "description": "Browser assertion jti used twice"
+    },
+    {
+      "id": "dpa.mock.client-assertion.alg",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "client-assertion.alg",
+      "input": {
+        "mutation": "a client assertion signed with HS256"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.alg",
+        "detail": "[client-assertion.alg] client assertion: alg HS256 is not allowed"
+      },
+      "description": "Client assertion alg isn't ES256 or RS256"
+    },
+    {
+      "id": "dpa.mock.client-assertion.embedded-key",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "client-assertion.embedded-key",
+      "input": {
+        "mutation": "a client assertion carrying its own jwk"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.embedded-key",
+        "detail": "[client-assertion.embedded-key] client assertion: embeds or points to a key (jku/x5u/jwk)"
+      },
+      "description": "Client assertion embeds or points to a key (jku, x5u, jwk)"
+    },
+    {
+      "id": "dpa.mock.client-assertion.typ",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "client-assertion.typ",
+      "input": {
+        "mutation": "a client assertion with typ \"at+jwt\""
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.typ",
+        "detail": "[client-assertion.typ] client assertion: strict Company: header typ must be \"JWT\", got \"at+jwt\""
+      },
+      "description": "Strict Company: client assertion header typ isn't \"JWT\""
+    },
+    {
+      "id": "dpa.mock.client-assertion.kid",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "client-assertion.kid",
+      "input": {
+        "mutation": "a client assertion whose kid names no key"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.kid",
+        "detail": "[client-assertion.kid] client assertion: strict Company: kid \"not-a-key\" names no published key"
+      },
+      "description": "Strict Company: client assertion kid names no published key"
+    },
+    {
+      "id": "dpa.mock.client-assertion.signature",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "client-assertion.signature",
+      "input": {
+        "mutation": "a client assertion signed with an unpublished key"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.signature",
+        "detail": "[client-assertion.signature] client assertion: signature verification failed"
+      },
+      "description": "Client assertion doesn't verify against the client's JWKS, or has expired"
+    },
+    {
+      "id": "dpa.mock.client-assertion.iat-exp-missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "client-assertion.iat-exp-missing",
+      "input": {
+        "mutation": "a client assertion without exp"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.iat-exp-missing",
+        "detail": "[client-assertion.iat-exp-missing] client assertion: iat and exp are required"
+      },
+      "description": "Client assertion without iat or exp"
+    },
+    {
+      "id": "dpa.mock.client-assertion.lifetime",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "client-assertion.lifetime",
+      "input": {
+        "mutation": "a client assertion valid for 120 s"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.lifetime",
+        "detail": "[client-assertion.lifetime] client assertion: lifetime 120s is too long (at most 60s)"
+      },
+      "description": "Client assertion lifetime is too long"
+    },
+    {
+      "id": "dpa.mock.client-assertion.lifetime.2",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "client-assertion.lifetime",
+      "input": {
+        "mutation": "a client assertion valid for 301 s at a lenient Company",
+        "company_config": {
+          "strictAssertions": false
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.lifetime",
+        "detail": "[client-assertion.lifetime] client assertion: lifetime 301s is too long (at most 300s)"
+      },
+      "description": "Client assertion lifetime is too long"
+    },
+    {
+      "id": "dpa.mock.client-assertion.missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "RFC 7523"
+      ],
+      "check": "client-assertion.missing",
+      "input": {
+        "mutation": "a token request without a client assertion"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.missing",
+        "detail": "[client-assertion.missing] no client assertion at https://auth.acme.shop.test/oauth/token"
+      },
+      "description": "Token, device or revocation request without a client assertion"
+    },
+    {
+      "id": "dpa.mock.client-assertion.not-jwt",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "RFC 7523"
+      ],
+      "check": "client-assertion.not-jwt",
+      "input": {
+        "mutation": "a client assertion that isn't a JWT"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.not-jwt",
+        "detail": "[client-assertion.not-jwt] client assertion: not a JWT"
+      },
+      "description": "Client assertion is not a JWT"
+    },
+    {
+      "id": "dpa.mock.client-assertion.wrong-typ",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "RFC 7523"
+      ],
+      "check": "client-assertion.wrong-typ",
+      "input": {
+        "mutation": "a DPoP proof as the client assertion"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.wrong-typ",
+        "detail": "[client-assertion.wrong-typ] client assertion has typ dpop+jwt"
+      },
+      "description": "A browser assertion or DPoP proof used as the client assertion"
+    },
+    {
+      "id": "dpa.mock.client-assertion.aud-array",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "RFC 7523"
+      ],
+      "check": "client-assertion.aud-array",
+      "input": {
+        "mutation": "a client assertion whose aud is an array"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.aud-array",
+        "detail": "[client-assertion.aud-array] client assertion: aud is an array"
+      },
+      "description": "Client assertion aud is an array"
+    },
+    {
+      "id": "dpa.mock.client-assertion.aud",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "RFC 7523"
+      ],
+      "check": "client-assertion.aud",
+      "input": {
+        "mutation": "a client assertion for another Company"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.aud",
+        "detail": "[client-assertion.aud] client assertion: aud \"https://auth.other.shop.test/oauth/token\" is not this Company"
+      },
+      "description": "Client assertion aud doesn't name this Company (exactAud: the endpoint called)"
+    },
+    {
+      "id": "dpa.mock.client-assertion.aud.2",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "RFC 7523"
+      ],
+      "check": "client-assertion.aud",
+      "input": {
+        "mutation": "a client assertion for the issuer, at an exact-aud Company (S1)",
+        "company_config": {
+          "clientAssertionAud": "exact"
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.aud",
+        "detail": "[client-assertion.aud] client assertion: aud \"https://auth.acme.shop.test\" is not exactly https://auth.acme.shop.test/oauth/token"
+      },
+      "description": "Client assertion aud doesn't name this Company (exactAud: the endpoint called)"
+    },
+    {
+      "id": "dpa.mock.client-assertion.aud.3",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "RFC 7523"
+      ],
+      "check": "client-assertion.aud",
+      "input": {
+        "mutation": "a revocation client assertion for the token endpoint, at an exact-aud Company (S1)",
+        "company_config": {
+          "clientAssertionAud": "exact"
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.aud",
+        "detail": "[client-assertion.aud] client assertion: aud \"https://auth.acme.shop.test/oauth/token\" is not exactly https://auth.acme.shop.test/oauth/revoke"
+      },
+      "description": "Client assertion aud doesn't name this Company (exactAud: the endpoint called)"
+    },
+    {
+      "id": "dpa.mock.client-assertion.iss-sub",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "RFC 7523"
+      ],
+      "check": "client-assertion.iss-sub",
+      "input": {
+        "mutation": "a client assertion whose sub isn't the client_id"
+      },
+      "expect": {
+        "refused_or_recorded": "client-assertion.iss-sub",
+        "detail": "[client-assertion.iss-sub] client assertion: iss and sub must both be the client_id"
+      },
+      "description": "Client assertion iss and sub aren't both the client_id"
+    },
+    {
+      "id": "dpa.mock.session-assertion.alg",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "session-assertion.alg",
+      "input": {
+        "mutation": "a Session assertion signed with HS256"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.alg",
+        "detail": "[session-assertion.alg] Session assertion: alg HS256 is not allowed"
+      },
+      "description": "Session assertion alg isn't ES256 or RS256"
+    },
+    {
+      "id": "dpa.mock.session-assertion.embedded-key",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "session-assertion.embedded-key",
+      "input": {
+        "mutation": "a Session assertion carrying its own jwk"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.embedded-key",
+        "detail": "[session-assertion.embedded-key] Session assertion: embeds or points to a key (jku/x5u/jwk)"
+      },
+      "description": "Session assertion embeds or points to a key (jku, x5u, jwk)"
+    },
+    {
+      "id": "dpa.mock.session-assertion.typ",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "session-assertion.typ",
+      "input": {
+        "mutation": "a Session assertion without typ"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.typ",
+        "detail": "[session-assertion.typ] Session assertion: strict Company: header typ must be \"JWT\", got undefined"
+      },
+      "description": "Strict Company: Session assertion header typ isn't \"JWT\""
+    },
+    {
+      "id": "dpa.mock.session-assertion.kid",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "session-assertion.kid",
+      "input": {
+        "mutation": "a Session assertion without kid"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.kid",
+        "detail": "[session-assertion.kid] Session assertion: strict Company: kid undefined names no published key"
+      },
+      "description": "Strict Company: Session assertion kid names no published key"
+    },
+    {
+      "id": "dpa.mock.session-assertion.signature",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "session-assertion.signature",
+      "input": {
+        "mutation": "an expired Session assertion"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.signature",
+        "detail": "[session-assertion.signature] Session assertion: \"exp\" claim timestamp check failed"
+      },
+      "description": "Session assertion doesn't verify against the client's JWKS, or has expired"
+    },
+    {
+      "id": "dpa.mock.session-assertion.iat-exp-missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "session-assertion.iat-exp-missing",
+      "input": {
+        "mutation": "a Session assertion without iat"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.iat-exp-missing",
+        "detail": "[session-assertion.iat-exp-missing] Session assertion: iat and exp are required"
+      },
+      "description": "Session assertion without iat or exp"
+    },
+    {
+      "id": "dpa.mock.session-assertion.lifetime",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1",
+        "4.2"
+      ],
+      "check": "session-assertion.lifetime",
+      "input": {
+        "mutation": "a Session assertion valid for an hour"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.lifetime",
+        "detail": "[session-assertion.lifetime] Session assertion: lifetime 3600s is too long (at most 60s)"
+      },
+      "description": "Session assertion lifetime is too long"
+    },
+    {
+      "id": "dpa.mock.session-assertion.missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2"
+      ],
+      "check": "session-assertion.missing",
+      "input": {
+        "mutation": "a JWT bearer grant without an assertion"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.missing",
+        "detail": "[session-assertion.missing] JWT bearer grant without an assertion"
+      },
+      "description": "JWT bearer grant without an assertion"
+    },
+    {
+      "id": "dpa.mock.session-assertion.not-jwt",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2"
+      ],
+      "check": "session-assertion.not-jwt",
+      "input": {
+        "mutation": "a Session assertion that isn't a JWT"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.not-jwt",
+        "detail": "[session-assertion.not-jwt] Session assertion: not a JWT"
+      },
+      "description": "Session assertion is not a JWT"
+    },
+    {
+      "id": "dpa.mock.session-assertion.browser-typ",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2"
+      ],
+      "check": "session-assertion.browser-typ",
+      "input": {
+        "mutation": "a browser assertion at the token endpoint"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.browser-typ",
+        "detail": "[session-assertion.browser-typ] browser assertion sent to the token endpoint"
+      },
+      "description": "Browser assertion sent to the token endpoint"
+    },
+    {
+      "id": "dpa.mock.session-assertion.aud",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2"
+      ],
+      "check": "session-assertion.aud",
+      "input": {
+        "mutation": "a Session assertion for the issuer"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.aud",
+        "detail": "[session-assertion.aud] Session assertion: aud must be the token_endpoint as a single string, got \"https://auth.acme.shop.test\""
+      },
+      "description": "Session assertion aud isn't the token endpoint as a single string"
+    },
+    {
+      "id": "dpa.mock.session-assertion.iss",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2"
+      ],
+      "check": "session-assertion.iss",
+      "input": {
+        "mutation": "a Session assertion from another client"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.iss",
+        "detail": "[session-assertion.iss] Session assertion: iss must be the client_id"
+      },
+      "description": "Session assertion iss isn't the client_id"
+    },
+    {
+      "id": "dpa.mock.session-assertion.sub",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2"
+      ],
+      "check": "session-assertion.sub",
+      "input": {
+        "mutation": "a Session assertion without a User ID"
+      },
+      "expect": {
+        "refused_or_recorded": "session-assertion.sub",
+        "detail": "[session-assertion.sub] Session assertion: sub (User ID) is missing"
+      },
+      "description": "Session assertion has no sub (User ID)"
+    },
+    {
+      "id": "dpa.mock.user-id.personal",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2"
+      ],
+      "check": "user-id.personal",
+      "input": {
+        "mutation": "an email address as the User ID"
+      },
+      "expect": {
+        "refused_or_recorded": "user-id.personal",
+        "detail": "[user-id.personal] User ID \"ada@example.com\" contains personal information"
+      },
+      "description": "User ID contains personal information"
+    },
+    {
+      "id": "dpa.mock.user-id.personal.2",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2"
+      ],
+      "check": "user-id.personal",
+      "input": {
+        "mutation": "the User's name as a word in the User ID"
+      },
+      "expect": {
+        "refused_or_recorded": "user-id.personal",
+        "detail": "[user-id.personal] User ID \"usr_ada_7\" contains personal information"
+      },
+      "description": "User ID contains personal information"
+    },
+    {
+      "id": "dpa.mock.client-metadata.not-url",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.not-url",
+      "input": {
+        "mutation": "a client_id that isn't a URL"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.not-url",
+        "detail": "[client-metadata.not-url] client metadata: client_id \"not a url\" is not a URL"
+      },
+      "description": "client_id is not a URL"
+    },
+    {
+      "id": "dpa.mock.client-metadata.not-https",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.not-https",
+      "input": {
+        "mutation": "an http client_id"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.not-https",
+        "detail": "[client-metadata.not-https] client metadata: client_id must be an https URL"
+      },
+      "description": "client_id is not an https URL"
+    },
+    {
+      "id": "dpa.mock.client-metadata.fetch-status",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.fetch-status",
+      "input": {
+        "mutation": "a client_id that redirects"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.fetch-status",
+        "detail": "[client-metadata.fetch-status] client metadata: fetching client_id returned 302; it must not redirect"
+      },
+      "description": "Fetching client_id didn't return 200 (redirects aren't followed)"
+    },
+    {
+      "id": "dpa.mock.client-metadata.not-json",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.not-json",
+      "input": {
+        "mutation": "client metadata that isn't JSON"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.not-json",
+        "detail": "[client-metadata.not-json] client metadata: client metadata is not JSON"
+      },
+      "description": "Client metadata is not JSON"
+    },
+    {
+      "id": "dpa.mock.client-metadata.client-id-mismatch",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.client-id-mismatch",
+      "input": {
+        "mutation": "client metadata naming another client_id"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.client-id-mismatch",
+        "detail": "[client-metadata.client-id-mismatch] client metadata: client_id in the document doesn't equal the URL it was fetched from"
+      },
+      "description": "client_id in the document isn't the URL it was fetched from"
+    },
+    {
+      "id": "dpa.mock.client-metadata.jwks-uri",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.jwks-uri",
+      "input": {
+        "mutation": "a jwks_uri on another domain"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.jwks-uri",
+        "detail": "[client-metadata.jwks-uri] client metadata: jwks_uri must be https on the client_id domain"
+      },
+      "description": "jwks_uri isn't https on the client_id domain"
+    },
+    {
+      "id": "dpa.mock.client-metadata.redirect-uris",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.redirect-uris",
+      "input": {
+        "mutation": "an http redirect_uri"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.redirect-uris",
+        "detail": "[client-metadata.redirect-uris] client metadata: redirect_uris must be https on the client_id domain"
+      },
+      "description": "A redirect_uri isn't https on the client_id domain"
+    },
+    {
+      "id": "dpa.mock.client-metadata.auth-method",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.auth-method",
+      "input": {
+        "mutation": "token_endpoint_auth_method client_secret_basic"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.auth-method",
+        "detail": "[client-metadata.auth-method] client metadata: token_endpoint_auth_method should be private_key_jwt"
+      },
+      "description": "token_endpoint_auth_method isn't private_key_jwt"
+    },
+    {
+      "id": "dpa.mock.client-metadata.jwks-status",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.jwks-status",
+      "input": {
+        "mutation": "a jwks_uri that answers 404"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.jwks-status",
+        "detail": "[client-metadata.jwks-status] client metadata: jwks_uri returned 404"
+      },
+      "description": "jwks_uri didn't return 200"
+    },
+    {
+      "id": "dpa.mock.client-metadata.jwks-empty",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.jwks-empty",
+      "input": {
+        "mutation": "a JWKS with no keys"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.jwks-empty",
+        "detail": "[client-metadata.jwks-empty] client metadata: JWKS has no keys"
+      },
+      "description": "The JWKS has no keys"
+    },
+    {
+      "id": "dpa.mock.client-metadata.jwks-private",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.jwks-private",
+      "input": {
+        "mutation": "a JWKS publishing a private key"
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.jwks-private",
+        "detail": "[client-metadata.jwks-private] client metadata: JWKS publishes a private key"
+      },
+      "description": "The JWKS publishes a private key"
+    },
+    {
+      "id": "dpa.mock.client-metadata.key-without-kid",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.1"
+      ],
+      "check": "client-metadata.key-without-kid",
+      "input": {
+        "mutation": "a JWKS key without kid, at a lenient Company",
+        "company_config": {
+          "strictAssertions": false
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "client-metadata.key-without-kid",
+        "detail": "[client-metadata.key-without-kid] client metadata: JWKS key without kid (Guides: give every key a kid)"
+      },
+      "description": "A JWKS key has no kid (Guides)"
+    },
+    {
+      "id": "dpa.mock.dpop.missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.missing",
+      "input": {
+        "mutation": "an API request without a DPoP proof"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.missing",
+        "detail": "[dpop.missing] DPoP: missing DPoP header (GET /products)"
+      },
+      "description": "Resource request without a DPoP proof"
+    },
+    {
+      "id": "dpa.mock.dpop.multiple",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.multiple",
+      "input": {
+        "mutation": "two DPoP proofs in one header"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.multiple",
+        "detail": "[dpop.multiple] DPoP: more than one DPoP proof (GET /products)"
+      },
+      "description": "More than one DPoP proof in the header"
+    },
+    {
+      "id": "dpa.mock.dpop.not-jwt",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.not-jwt",
+      "input": {
+        "mutation": "a DPoP proof that isn't a JWT"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.not-jwt",
+        "detail": "[dpop.not-jwt] DPoP: proof is not a JWT (GET /products)"
+      },
+      "description": "DPoP proof is not a JWT"
+    },
+    {
+      "id": "dpa.mock.dpop.typ",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.typ",
+      "input": {
+        "mutation": "a DPoP proof with typ \"JWT\""
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.typ",
+        "detail": "[dpop.typ] DPoP: typ is JWT (GET /products)"
+      },
+      "description": "DPoP proof typ isn't dpop+jwt"
+    },
+    {
+      "id": "dpa.mock.dpop.alg",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.alg",
+      "input": {
+        "mutation": "a DPoP proof signed with ES384"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.alg",
+        "detail": "[dpop.alg] DPoP: alg ES384 not allowed (GET /products)"
+      },
+      "description": "DPoP proof alg isn't ES256 or RS256"
+    },
+    {
+      "id": "dpa.mock.dpop.no-jwk",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.no-jwk",
+      "input": {
+        "mutation": "a DPoP proof without its jwk"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.no-jwk",
+        "detail": "[dpop.no-jwk] DPoP: no jwk in header (GET /products)"
+      },
+      "description": "DPoP proof has no jwk in its header"
+    },
+    {
+      "id": "dpa.mock.dpop.private-jwk",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.private-jwk",
+      "input": {
+        "mutation": "a DPoP proof whose jwk is the private key"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.private-jwk",
+        "detail": "[dpop.private-jwk] DPoP: jwk contains a private key (GET /products)"
+      },
+      "description": "DPoP proof header carries a private key"
+    },
+    {
+      "id": "dpa.mock.dpop.signature",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.signature",
+      "input": {
+        "mutation": "a DPoP proof signed by a key other than its jwk"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.signature",
+        "detail": "[dpop.signature] DPoP: signature: signature verification failed (GET /products)"
+      },
+      "description": "DPoP proof signature doesn't verify"
+    },
+    {
+      "id": "dpa.mock.dpop.htm",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.htm",
+      "input": {
+        "mutation": "a DPoP proof for POST on a GET"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.htm",
+        "detail": "[dpop.htm] DPoP: htm POST != GET (GET /products)"
+      },
+      "description": "DPoP proof htm isn't the request method"
+    },
+    {
+      "id": "dpa.mock.dpop.htu",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.htu",
+      "input": {
+        "mutation": "a DPoP proof whose htu keeps the query"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.htu",
+        "detail": "[dpop.htu] DPoP: htu https://api.acme.shop.test/products?q=jacket != https://api.acme.shop.test/products (GET /products)"
+      },
+      "description": "DPoP proof htu isn't the request URL without query or fragment"
+    },
+    {
+      "id": "dpa.mock.dpop.iat",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.iat",
+      "input": {
+        "mutation": "a DPoP proof made ten minutes ago"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.iat",
+        "detail": "[dpop.iat] DPoP: iat outside the acceptance window (GET /products)"
+      },
+      "description": "DPoP proof iat is outside the acceptance window"
+    },
+    {
+      "id": "dpa.mock.dpop.ath-at-token-endpoint",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.ath-at-token-endpoint",
+      "input": {
+        "mutation": "ath on a token request's proof"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.ath-at-token-endpoint",
+        "detail": "[dpop.ath-at-token-endpoint] DPoP: ath on a token request (POST /oauth/token)"
+      },
+      "description": "DPoP proof at the token endpoint carries ath"
+    },
+    {
+      "id": "dpa.mock.dpop.ath",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.ath",
+      "input": {
+        "mutation": "a DPoP proof whose ath is for another token"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.ath",
+        "detail": "[dpop.ath] DPoP: ath doesn't match the token (GET /products)"
+      },
+      "description": "DPoP proof ath isn't the hash of the token sent"
+    },
+    {
+      "id": "dpa.mock.dpop.nonce-ignored",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.nonce-ignored",
+      "input": {
+        "mutation": "a proof, a second after using the nonce, without it",
+        "company_config": {
+          "requireNonce": true
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.nonce-ignored",
+        "detail": "[dpop.nonce-ignored] DPoP: proof without the nonce this key already used at https://auth.acme.shop.test (must keep using nonces)"
+      },
+      "description": "DPoP proof without the nonce this key already used at this server"
+    },
+    {
+      "id": "dpa.mock.dpop.key-mismatch",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.key-mismatch",
+      "input": {
+        "mutation": "a correct proof from a key the token isn't bound to"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.key-mismatch",
+        "detail": "[dpop.key-mismatch] DPoP proof key isn't the key the token is bound to"
+      },
+      "description": "DPoP proof key isn't the key the token is bound to"
+    },
+    {
+      "id": "dpa.mock.dpop.key-shared",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "RFC 9449"
+      ],
+      "check": "dpop.key-shared",
+      "input": {
+        "mutation": "one DPoP key for two User IDs"
+      },
+      "expect": {
+        "refused_or_recorded": "dpop.key-shared",
+        "detail_pattern": "^\\[dpop\\.key-shared\\] DPoP key [\\w-]{43} used for User usr_Hd8pW2zQ5nVb7LtK3xRc9F after User usr_Q7c1vKx9TzLw3NdR5mHa2B$"
+      },
+      "description": "One DPoP key used for two User IDs (4.3: a key pair for each User at each Company)"
+    },
+    {
+      "id": "dpa.mock.resource.no-token",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "6"
+      ],
+      "check": "resource.no-token",
+      "input": {
+        "mutation": "an API request without a Session Token"
+      },
+      "expect": {
+        "refused_or_recorded": "resource.no-token",
+        "detail": "[resource.no-token] request without a Session Token: GET https://api.acme.shop.test/products"
+      },
+      "description": "API, conversation or operations request without a Session Token"
+    },
+    {
+      "id": "dpa.mock.resource.bearer-scheme",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "6"
+      ],
+      "check": "resource.bearer-scheme",
+      "input": {
+        "mutation": "a Session Token with the Bearer scheme at an API"
+      },
+      "expect": {
+        "refused_or_recorded": "resource.bearer-scheme",
+        "detail": "[resource.bearer-scheme] Bearer token on /products; Bearer is only for MCP"
+      },
+      "description": "Bearer scheme outside MCP"
+    },
+    {
+      "id": "dpa.mock.resource.bearer-token-as-dpop",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "6"
+      ],
+      "check": "resource.bearer-token-as-dpop",
+      "input": {
+        "mutation": "an MCP Bearer token with the DPoP scheme at an API"
+      },
+      "expect": {
+        "refused_or_recorded": "resource.bearer-token-as-dpop",
+        "detail": "[resource.bearer-token-as-dpop] Bearer Session Token sent with the DPoP scheme"
+      },
+      "description": "A Bearer Session Token sent with the DPoP scheme"
+    },
+    {
+      "id": "dpa.mock.resource.stale-token",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "6"
+      ],
+      "check": "resource.stale-token",
+      "input": {
+        "mutation": "an older Session Token, seconds after a newer one"
+      },
+      "expect": {
+        "refused_or_recorded": "resource.stale-token",
+        "detail": "[resource.stale-token] used an older Session Token after a newer one was issued for the Session"
+      },
+      "description": "An older Session Token used after a newer one was issued for the Session"
+    },
+    {
+      "id": "dpa.mock.mcp.not-bearer",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "6"
+      ],
+      "check": "mcp.not-bearer",
+      "input": {
+        "mutation": "an MCP request with the DPoP scheme"
+      },
+      "expect": {
+        "refused_or_recorded": "mcp.not-bearer",
+        "detail": "[mcp.not-bearer] MCP request with DPoP scheme; MCP uses Bearer"
+      },
+      "description": "MCP request without the Bearer scheme"
+    },
+    {
+      "id": "dpa.mock.mcp.wrong-token",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "6"
+      ],
+      "check": "mcp.wrong-token",
+      "input": {
+        "mutation": "a DPoP Session Token as an MCP Bearer token"
+      },
+      "expect": {
+        "refused_or_recorded": "mcp.wrong-token",
+        "detail": "[mcp.wrong-token] MCP request with a token not issued for this MCP server"
+      },
+      "description": "MCP request with a token not issued for this MCP server"
+    },
+    {
+      "id": "dpa.mock.mcp.accept",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "6"
+      ],
+      "check": "mcp.accept",
+      "input": {
+        "mutation": "an MCP request that only Accepts JSON"
+      },
+      "expect": {
+        "refused_or_recorded": "mcp.accept",
+        "detail": "[mcp.accept] MCP request must Accept application/json and text/event-stream, got \"application/json\""
+      },
+      "description": "MCP request doesn't Accept application/json and text/event-stream"
+    },
+    {
+      "id": "dpa.mock.rate-limit.retry-after-ignored",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "4.7",
+        "4.8",
+        "Guides"
+      ],
+      "check": "rate-limit.retry-after-ignored",
+      "input": {
+        "mutation": "a retry before Retry-After elapsed",
+        "company_config": {
+          "rateLimit": {
+            "tokenRequests429": 0,
+            "requests429": 1,
+            "retryAfterSeconds": 1
+          }
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "rate-limit.retry-after-ignored",
+        "detail_pattern": "^\\[rate-limit\\.retry-after-ignored\\] sent GET \\/products \\d+ ms before Retry-After elapsed$"
+      },
+      "description": "Request sent before an earlier Retry-After elapsed"
+    },
+    {
+      "id": "dpa.mock.rate-limit.retry-after-ignored.2",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "4.7",
+        "4.8",
+        "Guides"
+      ],
+      "check": "rate-limit.retry-after-ignored",
+      "input": {
+        "mutation": "a retry before Retry-After elapsed on the fake clock",
+        "company_config": {
+          "rateLimit": {
+            "tokenRequests429": 1,
+            "requests429": 0,
+            "retryAfterSeconds": 2
+          }
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "rate-limit.retry-after-ignored",
+        "detail_pattern": "^\\[rate-limit\\.retry-after-ignored\\] sent POST \\/oauth\\/token \\d+ ms before Retry-After elapsed$"
+      },
+      "description": "Request sent before an earlier Retry-After elapsed"
+    },
+    {
+      "id": "dpa.mock.secret.password",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "4.7",
+        "4.8",
+        "Guides"
+      ],
+      "check": "secret.password",
+      "input": {
+        "mutation": "a password in a header to the website"
+      },
+      "expect": {
+        "refused_or_recorded": "secret.password",
+        "detail": "[secret.password] password sent in headers of GET https://acme.shop.test/"
+      },
+      "description": "A password sent anywhere but the Mediated Sign-In body"
+    },
+    {
+      "id": "dpa.mock.secret.one-time-code",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "4.7",
+        "4.8",
+        "Guides"
+      ],
+      "check": "secret.one-time-code",
+      "input": {
+        "mutation": "a one-time code in the body of a conversation"
+      },
+      "expect": {
+        "refused_or_recorded": "secret.one-time-code",
+        "detail": "[secret.one-time-code] one-time code sent in body of POST https://api.acme.shop.test/poppy/conversations"
+      },
+      "description": "A one-time code sent anywhere but the code submission body"
+    },
+    {
+      "id": "dpa.mock.secret.account-token",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "4.7",
+        "4.8",
+        "Guides"
+      ],
+      "check": "secret.account-token",
+      "input": {
+        "mutation": "an Account Token in a header to an API"
+      },
+      "expect": {
+        "refused_or_recorded": "secret.account-token",
+        "detail": "[secret.account-token] Account Token sent in headers of GET https://api.acme.shop.test/orders"
+      },
+      "description": "An Account Token sent anywhere but the token and revocation bodies"
+    },
+    {
+      "id": "dpa.mock.secret.token-in-url",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.3",
+        "4.7",
+        "4.8",
+        "Guides"
+      ],
+      "check": "secret.token-in-url",
+      "input": {
+        "mutation": "a Session Token in the query string"
+      },
+      "expect": {
+        "refused_or_recorded": "secret.token-in-url",
+        "detail_pattern": "^\\[secret\\.token-in-url\\] token sent in URL https:\\/\\/api\\.\\w+\\.shop\\.test\\/products\\?access_token=at_[\\w-]+$"
+      },
+      "description": "A token sent in a URL"
+    },
+    {
+      "id": "dpa.mock.form.not-form",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2–4.8"
+      ],
+      "check": "form.not-form",
+      "input": {
+        "mutation": "a token request as JSON"
+      },
+      "expect": {
+        "refused_or_recorded": "form.not-form",
+        "detail": "[form.not-form] /oauth/token sent as \"application/json\", not a form"
+      },
+      "description": "OAuth request body isn't application/x-www-form-urlencoded"
+    },
+    {
+      "id": "dpa.mock.token.no-dpop",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2–4.8"
+      ],
+      "check": "token.no-dpop",
+      "input": {
+        "mutation": "a token request without a DPoP proof"
+      },
+      "expect": {
+        "refused_or_recorded": "token.no-dpop",
+        "detail": "[token.no-dpop] token request (urn:ietf:params:oauth:grant-type:jwt-bearer) without a DPoP proof"
+      },
+      "description": "Token request without a DPoP proof (only MCP Bearer requests may omit it)"
+    },
+    {
+      "id": "dpa.mock.token.mcp-dpop",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2–4.8"
+      ],
+      "check": "token.mcp-dpop",
+      "input": {
+        "mutation": "a DPoP proof on a token request for the MCP server"
+      },
+      "expect": {
+        "refused_or_recorded": "token.mcp-dpop",
+        "detail": "[token.mcp-dpop] asked for a DPoP-bound token for the MCP server; MCP uses Bearer"
+      },
+      "description": "DPoP-bound token requested for the MCP server"
+    },
+    {
+      "id": "dpa.mock.token.signed-in-renewed-with-assertion",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2–4.8"
+      ],
+      "check": "token.signed-in-renewed-with-assertion",
+      "input": {
+        "mutation": "a signed-in Session renewed with the assertion"
+      },
+      "expect": {
+        "refused_or_recorded": "token.signed-in-renewed-with-assertion",
+        "detail": "[token.signed-in-renewed-with-assertion] renewed a signed-in Session with the assertion instead of the Account Token"
+      },
+      "description": "A signed-in Session renewed with the Session assertion, not the Account Token"
+    },
+    {
+      "id": "dpa.mock.account-token.other-client",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2–4.8"
+      ],
+      "check": "account-token.other-client",
+      "input": {
+        "mutation": "an Account Token used by another client_id"
+      },
+      "expect": {
+        "refused_or_recorded": "account-token.other-client",
+        "detail": "[account-token.other-client] Account Token used by a different client_id"
+      },
+      "description": "Account Token used by a different client_id"
+    },
+    {
+      "id": "dpa.mock.account-token.rotated-reused",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.2–4.8"
+      ],
+      "check": "account-token.rotated-reused",
+      "input": {
+        "mutation": "an Account Token used after it rotated",
+        "company_config": {
+          "rotateRefreshTokens": true
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "account-token.rotated-reused",
+        "detail": "[account-token.rotated-reused] used an Account Token after the Company rotated it (4.8)"
+      },
+      "description": "Account Token used after the Company rotated it (4.8)"
+    },
+    {
+      "id": "dpa.mock.signin.no-scope",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "signin.no-scope",
+      "input": {
+        "mutation": "a device sign-in without scope"
+      },
+      "expect": {
+        "refused_or_recorded": "signin.no-scope",
+        "detail": "[signin.no-scope] device sign-in without scope"
+      },
+      "description": "Sign-in request without scope (4.4)"
+    },
+    {
+      "id": "dpa.mock.signin.no-scope.2",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "signin.no-scope",
+      "input": {
+        "mutation": "a direct sign-in without scope"
+      },
+      "expect": {
+        "refused_or_recorded": "signin.no-scope",
+        "detail": "[signin.no-scope] direct sign-in without scope"
+      },
+      "description": "Sign-in request without scope (4.4)"
+    },
+    {
+      "id": "dpa.mock.signin.no-scope.3",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "signin.no-scope",
+      "input": {
+        "mutation": "a mediated sign-in without scope"
+      },
+      "expect": {
+        "refused_or_recorded": "signin.no-scope",
+        "detail": "[signin.no-scope] mediated sign-in without scope"
+      },
+      "description": "Sign-in request without scope (4.4)"
+    },
+    {
+      "id": "dpa.mock.authorize.redirect-uri",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "authorize.redirect-uri",
+      "input": {
+        "mutation": "an unregistered redirect_uri"
+      },
+      "expect": {
+        "refused_or_recorded": "authorize.redirect-uri",
+        "detail": "[authorize.redirect-uri] redirect_uri https://agent.test/elsewhere isn't an exact registered redirect_uri"
+      },
+      "description": "redirect_uri isn't exactly a registered redirect_uri"
+    },
+    {
+      "id": "dpa.mock.authorize.no-state",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "authorize.no-state",
+      "input": {
+        "mutation": "an authorization request without state"
+      },
+      "expect": {
+        "refused_or_recorded": "authorize.no-state",
+        "detail": "[authorize.no-state] authorization request without state"
+      },
+      "description": "Authorization request without state"
+    },
+    {
+      "id": "dpa.mock.authorize.no-pkce",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "authorize.no-pkce",
+      "input": {
+        "mutation": "PKCE plain instead of S256"
+      },
+      "expect": {
+        "refused_or_recorded": "authorize.no-pkce",
+        "detail": "[authorize.no-pkce] authorization request without PKCE S256"
+      },
+      "description": "Authorization request without PKCE S256"
+    },
+    {
+      "id": "dpa.mock.authorize.secret-in-url",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "authorize.secret-in-url",
+      "input": {
+        "mutation": "a client assertion in the authorization URL"
+      },
+      "expect": {
+        "refused_or_recorded": "authorize.secret-in-url",
+        "detail": "[authorize.secret-in-url] client_assertion in the authorization URL"
+      },
+      "description": "A token or assertion in the authorization URL"
+    },
+    {
+      "id": "dpa.mock.code.reused",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "code.reused",
+      "input": {
+        "mutation": "an authorization code exchanged twice"
+      },
+      "expect": {
+        "refused_or_recorded": "code.reused",
+        "detail": "[code.reused] authorization code used twice"
+      },
+      "description": "Authorization code exchanged twice"
+    },
+    {
+      "id": "dpa.mock.code.redirect-uri",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "code.redirect-uri",
+      "input": {
+        "mutation": "a different redirect_uri at the token endpoint"
+      },
+      "expect": {
+        "refused_or_recorded": "code.redirect-uri",
+        "detail": "[code.redirect-uri] redirect_uri at the token endpoint differs from the authorization request"
+      },
+      "description": "redirect_uri at the token endpoint differs from the authorization request"
+    },
+    {
+      "id": "dpa.mock.code.pkce",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "code.pkce",
+      "input": {
+        "mutation": "the wrong PKCE verifier"
+      },
+      "expect": {
+        "refused_or_recorded": "code.pkce",
+        "detail": "[code.pkce] PKCE code_verifier doesn't match the challenge"
+      },
+      "description": "PKCE code_verifier doesn't match the code_challenge"
+    },
+    {
+      "id": "dpa.mock.code.no-session-id",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "code.no-session-id",
+      "input": {
+        "mutation": "a code exchanged without session_id"
+      },
+      "expect": {
+        "refused_or_recorded": "code.no-session-id",
+        "detail": "[code.no-session-id] authorization code exchanged without session_id (4.5)"
+      },
+      "description": "Authorization code exchanged without session_id (4.5)"
+    },
+    {
+      "id": "dpa.mock.device.polled-after-final",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "device.polled-after-final",
+      "input": {
+        "mutation": "polling twice after access_denied"
+      },
+      "expect": {
+        "refused_or_recorded": "device.polled-after-final",
+        "detail": "[device.polled-after-final] kept polling after access_denied"
+      },
+      "description": "Device polling continued after completion or access_denied"
+    },
+    {
+      "id": "dpa.mock.device.polled-after-final.2",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "device.polled-after-final",
+      "input": {
+        "mutation": "polling after signing in"
+      },
+      "expect": {
+        "refused_or_recorded": "device.polled-after-final",
+        "detail": "[device.polled-after-final] kept polling after completion"
+      },
+      "description": "Device polling continued after completion or access_denied"
+    },
+    {
+      "id": "dpa.mock.device.polled-after-expiry",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "device.polled-after-expiry",
+      "input": {
+        "mutation": "polling twice after expired_token"
+      },
+      "expect": {
+        "refused_or_recorded": "device.polled-after-expiry",
+        "detail": "[device.polled-after-expiry] kept polling after expired_token"
+      },
+      "description": "Device polling continued after expired_token"
+    },
+    {
+      "id": "dpa.mock.device.too-fast",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "device.too-fast",
+      "input": {
+        "mutation": "polling faster than the interval after slow_down"
+      },
+      "expect": {
+        "refused_or_recorded": "device.too-fast",
+        "detail_pattern": "^\\[device\\.too-fast\\] polled \\d+ ms after the last poll, under the 6 s interval after slow_down$"
+      },
+      "description": "Device polling faster than the interval after slow_down"
+    },
+    {
+      "id": "dpa.mock.device.no-session-id",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "device.no-session-id",
+      "input": {
+        "mutation": "a device code exchanged without session_id"
+      },
+      "expect": {
+        "refused_or_recorded": "device.no-session-id",
+        "detail": "[device.no-session-id] device code exchanged without session_id"
+      },
+      "description": "Device code exchanged without session_id"
+    },
+    {
+      "id": "dpa.mock.mediated.missing-field",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "mediated.missing-field",
+      "input": {
+        "mutation": "credentials without the password field"
+      },
+      "expect": {
+        "refused_or_recorded": "mediated.missing-field",
+        "detail": "[mediated.missing-field] mediated sign-in missing field password"
+      },
+      "description": "Mediated Sign-In without a field the Company asked for"
+    },
+    {
+      "id": "dpa.mock.mediated.credentials-with-code",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "mediated.credentials-with-code",
+      "input": {
+        "mutation": "the password resent with the one-time code"
+      },
+      "expect": {
+        "refused_or_recorded": "mediated.credentials-with-code",
+        "detail": "[mediated.credentials-with-code] credentials resent with the one-time code (4.7: submit only the code)"
+      },
+      "description": "Credentials resent with the one-time code (4.7)"
+    },
+    {
+      "id": "dpa.mock.mediated.code-other-session",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "4.4–4.7"
+      ],
+      "check": "mediated.code-other-session",
+      "input": {
+        "mutation": "the one-time code submitted from another Session"
+      },
+      "expect": {
+        "refused_or_recorded": "mediated.code-other-session",
+        "detail_pattern": "^\\[mediated\\.code-other-session\\] one-time code for sgn_[\\w-]+ submitted from another Session$"
+      },
+      "description": "One-time code submitted from a Session other than the one that started the sign-in (4.7)"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.in-url",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.in-url",
+      "input": {
+        "mutation": "the browser assertion in the URL"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.in-url",
+        "detail": "[browser-assertion.in-url] browser session: assertion sent in the URL"
+      },
+      "description": "Browser assertion sent in the URL"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.not-post",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.not-post",
+      "input": {
+        "mutation": "a GET to the browser-session endpoint"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.not-post",
+        "detail": "[browser-assertion.not-post] browser session: must be a form POST"
+      },
+      "description": "Browser join isn't a POST"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.content-type",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.content-type",
+      "input": {
+        "mutation": "the browser assertion posted as JSON"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.content-type",
+        "detail": "[browser-assertion.content-type] browser session: content type \"application/json\""
+      },
+      "description": "Browser join isn't a form POST"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.missing",
+      "input": {
+        "mutation": "a browser join without an assertion"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.missing",
+        "detail": "[browser-assertion.missing] browser session: no assertion"
+      },
+      "description": "Browser join without an assertion"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.not-jwt",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.not-jwt",
+      "input": {
+        "mutation": "a browser assertion that isn't a JWT"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.not-jwt",
+        "detail": "[browser-assertion.not-jwt] browser session: assertion is not a JWT"
+      },
+      "description": "Browser assertion is not a JWT"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.typ",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.typ",
+      "input": {
+        "mutation": "a browser assertion with typ \"JWT\""
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.typ",
+        "detail": "[browser-assertion.typ] browser session: typ JWT"
+      },
+      "description": "Browser assertion typ isn't poppy-browser+jwt"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.alg",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.alg",
+      "input": {
+        "mutation": "a browser assertion signed with HS256"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.alg",
+        "detail": "[browser-assertion.alg] browser session: alg HS256 is not allowed"
+      },
+      "description": "Browser assertion alg isn't ES256 or RS256"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.embedded-key",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.embedded-key",
+      "input": {
+        "mutation": "a browser assertion carrying its own jwk"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.embedded-key",
+        "detail": "[browser-assertion.embedded-key] browser session: assertion embeds or points to a key (jku/x5u/x5c/jwk)"
+      },
+      "description": "Browser assertion embeds or points to a key (jku, x5u, x5c, jwk)"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.embedded-key.2",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.embedded-key",
+      "input": {
+        "mutation": "a browser assertion carrying a certificate chain"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.embedded-key",
+        "detail": "[browser-assertion.embedded-key] browser session: assertion embeds or points to a key (jku/x5u/x5c/jwk)"
+      },
+      "description": "Browser assertion embeds or points to a key (jku, x5u, x5c, jwk)"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.kid",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.kid",
+      "input": {
+        "mutation": "a browser assertion whose kid names no key"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.kid",
+        "detail": "[browser-assertion.kid] browser session: strict Company: kid \"not-a-key\" names no published key"
+      },
+      "description": "Strict Company: browser assertion kid names no published key"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.no-iss",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.no-iss",
+      "input": {
+        "mutation": "a browser assertion without iss"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.no-iss",
+        "detail": "[browser-assertion.no-iss] browser session: no iss"
+      },
+      "description": "Browser assertion without iss"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.unknown-agent",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.unknown-agent",
+      "input": {
+        "mutation": "a browser assertion from a client_id that isn't a URL"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.unknown-agent",
+        "violations": [
+          "client-metadata.not-url",
+          "browser-assertion.unknown-agent"
+        ],
+        "detail": "[browser-assertion.unknown-agent] browser session: unknown Personal Agent"
+      },
+      "description": "Browser assertion iss isn't a client_id the Company can load"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.signature",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.signature",
+      "input": {
+        "mutation": "a browser assertion signed with an unpublished key"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.signature",
+        "detail": "[browser-assertion.signature] browser session: signature or expiry: signature verification failed"
+      },
+      "description": "Browser assertion doesn't verify, or has expired"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.aud",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.aud",
+      "input": {
+        "mutation": "a browser assertion for the token endpoint"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.aud",
+        "detail": "[browser-assertion.aud] browser session: aud \"https://auth.acme.shop.test/oauth/token\""
+      },
+      "description": "Browser assertion aud isn't the browser_session_endpoint"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.lifetime",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.lifetime",
+      "input": {
+        "mutation": "a browser assertion valid for two minutes"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.lifetime",
+        "detail": "[browser-assertion.lifetime] browser session: exp must be no more than 60 seconds after iat"
+      },
+      "description": "Browser assertion exp is more than 60 seconds after iat"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.iat-exp-missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.iat-exp-missing",
+      "input": {
+        "mutation": "a browser assertion without exp"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.iat-exp-missing",
+        "detail": "[browser-assertion.iat-exp-missing] browser session: iat and exp are required"
+      },
+      "description": "Browser assertion without iat or exp"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.iat-future",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.iat-future",
+      "input": {
+        "mutation": "a browser assertion issued an hour from now"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.iat-future",
+        "detail_pattern": "^\\[browser-assertion\\.iat-future\\] browser session: iat \\d+ is in the future$"
+      },
+      "description": "Browser assertion iat is in the future, beyond clock skew"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.session",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.session",
+      "input": {
+        "mutation": "a browser assertion for a Session that doesn't exist"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.session",
+        "detail": "[browser-assertion.session] browser session: Session isn't active or isn't this agent's and User's"
+      },
+      "description": "Browser assertion session_id isn't this agent and User's active Session"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.return-to-not-url",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.return-to-not-url",
+      "input": {
+        "mutation": "a return_to that isn't a URL"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.return-to-not-url",
+        "detail": "[browser-assertion.return-to-not-url] browser session: return_to is not a URL"
+      },
+      "description": "Browser assertion return_to isn't a URL"
+    },
+    {
+      "id": "dpa.mock.browser-assertion.return-to-off-domain",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "5"
+      ],
+      "check": "browser-assertion.return-to-off-domain",
+      "input": {
+        "mutation": "a return_to on another domain"
+      },
+      "expect": {
+        "refused_or_recorded": "browser-assertion.return-to-off-domain",
+        "detail": "[browser-assertion.return-to-off-domain] browser session: return_to is not on the Company's domain"
+      },
+      "description": "Browser assertion return_to isn't HTTPS on the Company's domain"
+    },
+    {
+      "id": "dpa.mock.idempotency.key-reused",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "6"
+      ],
+      "check": "idempotency.key-reused",
+      "input": {
+        "mutation": "an Idempotency-Key reused with another body",
+        "company_config": {
+          "operations": false
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "idempotency.key-reused",
+        "detail": "[idempotency.key-reused] Idempotency-Key key_1 reused with a different body"
+      },
+      "description": "Idempotency-Key reused with a different body"
+    },
+    {
+      "id": "dpa.mock.exchange.performed-twice",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "6"
+      ],
+      "check": "exchange.performed-twice",
+      "input": {
+        "mutation": "a write retried without its Idempotency-Key",
+        "company_config": {
+          "operations": false
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "exchange.performed-twice",
+        "detail": "[exchange.performed-twice] itm_4Qa on ord_7Hk2 exchanged again for acct_ada (direct API call)"
+      },
+      "description": "The same exchange made twice (a write retried without its key, or confirmed twice)"
+    },
+    {
+      "id": "dpa.mock.exchange.performed-twice.2",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "6"
+      ],
+      "check": "exchange.performed-twice",
+      "input": {
+        "mutation": "a second proposal for the same exchange confirmed"
+      },
+      "expect": {
+        "refused_or_recorded": "exchange.performed-twice",
+        "detail_pattern": "^\\[exchange\\.performed-twice\\] itm_4Qa on ord_7Hk2 exchanged again for acct_ada \\(operation exc_[\\w-]+\\)$"
+      },
+      "description": "The same exchange made twice (a write retried without its key, or confirmed twice)"
+    },
+    {
+      "id": "dpa.mock.message.missing",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "message.missing",
+      "input": {
+        "mutation": "a conversation started without a message"
+      },
+      "expect": {
+        "refused_or_recorded": "message.missing",
+        "detail": "[message.missing] conversation message: missing message"
+      },
+      "description": "Conversation request without a message"
+    },
+    {
+      "id": "dpa.mock.message.id",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "message.id",
+      "input": {
+        "mutation": "a message id with a space"
+      },
+      "expect": {
+        "refused_or_recorded": "message.id",
+        "detail": "[message.id] conversation message: id must be 1-256 base64url characters"
+      },
+      "description": "Message id isn't 1-256 base64url characters"
+    },
+    {
+      "id": "dpa.mock.message.sender",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "message.sender",
+      "input": {
+        "mutation": "a message from sender \"company\""
+      },
+      "expect": {
+        "refused_or_recorded": "message.sender",
+        "detail": "[message.sender] conversation message: sender must be agent or human"
+      },
+      "description": "Message sender isn't agent or human"
+    },
+    {
+      "id": "dpa.mock.message.empty",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "message.empty",
+      "input": {
+        "mutation": "a message with no text, data or context"
+      },
+      "expect": {
+        "refused_or_recorded": "message.empty",
+        "detail": "[message.empty] conversation message: needs at least one of text, data or context"
+      },
+      "description": "Message has none of text, data or context"
+    },
+    {
+      "id": "dpa.mock.message.text-type",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "message.text-type",
+      "input": {
+        "mutation": "a number as text"
+      },
+      "expect": {
+        "refused_or_recorded": "message.text-type",
+        "detail": "[message.text-type] conversation message: text must be a string"
+      },
+      "description": "Message text isn't a string"
+    },
+    {
+      "id": "dpa.mock.message.json-in-text",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "message.json-in-text",
+      "input": {
+        "mutation": "JSON in text"
+      },
+      "expect": {
+        "refused_or_recorded": "message.json-in-text",
+        "detail": "[message.json-in-text] conversation message: JSON in text; use data (7.4)"
+      },
+      "description": "JSON in a message's text; it belongs in data (7.4)"
+    },
+    {
+      "id": "dpa.mock.message.data-type",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "message.data-type",
+      "input": {
+        "mutation": "an array as data"
+      },
+      "expect": {
+        "refused_or_recorded": "message.data-type",
+        "detail": "[message.data-type] conversation message: data must be a JSON object"
+      },
+      "description": "Message data isn't a JSON object"
+    },
+    {
+      "id": "dpa.mock.message.context-type",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "message.context-type",
+      "input": {
+        "mutation": "a string as context"
+      },
+      "expect": {
+        "refused_or_recorded": "message.context-type",
+        "detail": "[message.context-type] conversation message: context must be an object"
+      },
+      "description": "Message context isn't an object"
+    },
+    {
+      "id": "dpa.mock.message.id-reused",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "message.id-reused",
+      "input": {
+        "mutation": "a message id reused for other words"
+      },
+      "expect": {
+        "refused_or_recorded": "message.id-reused",
+        "detail_pattern": "^\\[message\\.id-reused\\] message id msg_[\\w-]+ reused with different content$"
+      },
+      "description": "Message id reused with different content (7.3)"
+    },
+    {
+      "id": "dpa.mock.context.locale",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "context.locale",
+      "input": {
+        "mutation": "a locale that isn't a language tag"
+      },
+      "expect": {
+        "refused_or_recorded": "context.locale",
+        "detail": "[context.locale] context.locale \"English please\" is not an RFC 5646 tag"
+      },
+      "description": "context.locale isn't an RFC 5646 tag"
+    },
+    {
+      "id": "dpa.mock.context.time-zone",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "context.time-zone",
+      "input": {
+        "mutation": "a time zone that isn't an IANA name"
+      },
+      "expect": {
+        "refused_or_recorded": "context.time-zone",
+        "detail": "[context.time-zone] context.time_zone \"GMT+1 please\" is not an IANA name"
+      },
+      "description": "context.time_zone isn't an IANA name"
+    },
+    {
+      "id": "dpa.mock.context.user-available",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "context.user-available",
+      "input": {
+        "mutation": "user_available \"yes\""
+      },
+      "expect": {
+        "refused_or_recorded": "context.user-available",
+        "detail": "[context.user-available] context.user_available must be a boolean"
+      },
+      "description": "context.user_available isn't a boolean"
+    },
+    {
+      "id": "dpa.mock.direct.agent-words",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "direct.agent-words",
+      "input": {
+        "mutation": "a Direct Conversation opened with the agent's words"
+      },
+      "expect": {
+        "refused_or_recorded": "direct.agent-words",
+        "detail": "[direct.agent-words] Direct Conversation opened with words not marked as the User's (sender agent)"
+      },
+      "description": "Direct Conversation opened with words not marked as the User's"
+    },
+    {
+      "id": "dpa.mock.direct.agent-words-later",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "direct.agent-words-later",
+      "input": {
+        "mutation": "the agent's own words in an open Direct Conversation"
+      },
+      "expect": {
+        "refused_or_recorded": "direct.agent-words-later",
+        "detail_pattern": "^\\[direct\\.agent-words-later\\] agent's own words sent into Direct Conversation cnv_[\\w-]+$"
+      },
+      "description": "The agent's own words sent into an open Direct Conversation (7.10; S12)"
+    },
+    {
+      "id": "dpa.mock.handoff.body",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "handoff.body",
+      "input": {
+        "mutation": "a handoff with a reason in the body"
+      },
+      "expect": {
+        "refused_or_recorded": "handoff.body",
+        "detail": "[handoff.body] handoff body should be {}, got {\"reason\":\"needs a person\"}"
+      },
+      "description": "Handoff body isn't {}"
+    },
+    {
+      "id": "dpa.mock.close.body",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "close.body",
+      "input": {
+        "mutation": "a close with a body"
+      },
+      "expect": {
+        "refused_or_recorded": "close.body",
+        "detail": "[close.body] close body should be {}, got {\"done\":true}"
+      },
+      "description": "Close body isn't {}"
+    },
+    {
+      "id": "dpa.mock.confirm.approved-by",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "Operations extension"
+      ],
+      "check": "confirm.approved-by",
+      "input": {
+        "mutation": "a confirm approved_by \"model\""
+      },
+      "expect": {
+        "refused_or_recorded": "confirm.approved-by",
+        "detail": "[confirm.approved-by] confirm with approved_by \"model\""
+      },
+      "description": "Confirm without approved_by user or standing_permission"
+    },
+    {
+      "id": "dpa.mock.confirm.revision",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "Operations extension"
+      ],
+      "check": "confirm.revision",
+      "input": {
+        "mutation": "a confirm without revision"
+      },
+      "expect": {
+        "refused_or_recorded": "confirm.revision",
+        "detail": "[confirm.revision] confirm with revision undefined"
+      },
+      "description": "Confirm without the revision number the User approved (Ops 5.2)"
+    },
+    {
+      "id": "dpa.mock.proposal.while-open",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "Operations extension"
+      ],
+      "check": "proposal.while-open",
+      "input": {
+        "mutation": "the same exchange asked for again while the confirmed one is in progress",
+        "company_config": {
+          "slowConfirm": true
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "proposal.while-open",
+        "detail_pattern": "^\\[proposal\\.while-open\\] new proposal asked for while exc_[\\w-]+ is in_progress after a confirm$"
+      },
+      "description": "A new proposal asked for while the confirmed operation for the same action isn't final (Ops 6)"
+    },
+    {
+      "id": "dpa.mock.confirm.standing-permission-overrides-user",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "Operations extension"
+      ],
+      "check": "confirm.standing-permission-overrides-user",
+      "input": {
+        "mutation": "a standing permission where the User must approve",
+        "company_config": {
+          "userApprovalRequired": true
+        }
+      },
+      "expect": {
+        "refused_or_recorded": "confirm.standing-permission-overrides-user",
+        "detail": "[confirm.standing-permission-overrides-user] confirmed with a standing permission when user_approval_required is true"
+      },
+      "description": "Confirmed under a standing permission when user_approval_required is true"
+    }
+  ]
+}

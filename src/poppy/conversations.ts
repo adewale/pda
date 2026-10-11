@@ -120,6 +120,14 @@ export async function sendMessage(
   if (request.conversationId && !existing) {
     throw new PoppyError("conversation_not_found", `No conversation ${request.conversationId}`, 404);
   }
+  // A Direct Conversation carries the User's own words, as written (7.10); ours stay out of it.
+  if (existing?.direct && request.sender === "agent" && !request.contextOnly && (request.text !== undefined || request.data !== undefined)) {
+    throw new PoppyError(
+      "invalid_request",
+      `${existing.id} is the User's Direct Conversation: only their own words go there. Continue in its parent once it closes.`,
+      0
+    );
+  }
   const body = JSON.parse(
     intent(client.sql, `message|${request.callKey}`, () => {
       const message: Message = { id: randomId("msg_"), sender: request.sender };
@@ -331,6 +339,7 @@ async function handleEvent(
         id: `direct-invite-${row.id}`,
         kind: "direct_invite",
         company: company.name,
+        domain: company.domain,
         open: true,
         conversationId: row.id,
         reason
@@ -418,6 +427,7 @@ export async function readConversation(
             id: `cursor-expired-${id}`,
             kind: "notice",
             company: company.name,
+            domain: company.domain,
             open: false,
             text: `${company.name} no longer has part of an earlier conversation, so some messages may be missing.`
           });
@@ -637,6 +647,7 @@ export async function startDirectConversation(
     id: `direct-invite-${parentId}`,
     kind: "notice",
     company: company.name,
+    domain: company.domain,
     open: false,
     text: `You're talking with ${company.name} directly.`
   });
@@ -671,6 +682,7 @@ export async function inviteUser(client: PoppyClient, id: string, reason: string
     id: `direct-invite-${id}`,
     kind: "direct_invite",
     company: company.name,
+    domain: company.domain,
     open: true,
     conversationId: id,
     reason
@@ -686,6 +698,7 @@ export async function declineDirect(client: PoppyClient, parentId: string): Prom
     id: `direct-invite-${parentId}`,
     kind: "notice",
     company: company.name,
+    domain: company.domain,
     open: false,
     text: `You declined to talk with ${company.name} directly.`
   });

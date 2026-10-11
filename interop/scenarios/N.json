@@ -1,0 +1,16 @@
+{
+  "id": "N",
+  "title": "DPoP nonce, retried with a fresh proof",
+  "requirements": ["4.3"],
+  "readings": ["S23"],
+  "live": true,
+  "needs": { "agent": ["discover", "session", "api"] },
+  "steps": [
+    { "company": "require_nonce", "optional": true, "note": "A Company that always asks for nonces needs no hook." },
+    { "agent": "discover" },
+    { "agent": "session", "save": "s" },
+    { "expect": { "${s.session_id}": { "$exists": true } } },
+    { "agent": "api", "params": { "api": "${fixture.openapi_public.api}", "operation": "${fixture.openapi_public.operation}", "args": "${fixture.openapi_public.args}" }, "save": "r" },
+    { "runner": "assert_trace", "params": { "check": "nonce_retry" } }
+  ]
+}
