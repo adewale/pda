@@ -3,7 +3,7 @@
 This file lists what we found by reading other implementations of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1 (updated 9 October 2026), and the gaps in the specification that their differences expose. It also lists what the comparison found in our own client.
 
 - **Date.** Everything here was checked on 11 October 2026, two days after the draft was published. Every implementation was days old.
-- **Method.** We read the code and compared it with the text of the specification, the Guides and the Operations extension. We didn't run anyone else's code. Live documents were fetched from public URLs. File and line references are to each repository's default branch on that date.
+- **Method.** We read the code and compared it with the text of the specification, the Guides and the Operations extension. Later the same day we ran seven of the projects against each other in our [interop grid](interop-spec.md) ([results](interop-results/)); rows marked "Grid:" come from those runs. Live documents were fetched from public URLs. File and line references are to each repository's default branch on that date.
 - **Severity** is how much an issue matters to interoperability or security, not a judgement of the project. Many of these are demos, and several were built in a day.
 
 The implementations themselves are listed in the [README](../README.md#other-implementations).
@@ -45,6 +45,11 @@ A two-Worker demo: a Company ("Northstar") and a Personal Agent, wired to each o
 | Only ES256; `htu` is checked against `request.url` rather than a configured origin; metadata fetches follow redirects. | `shared/protocol.ts:69,80,82`; `index.ts:13,19` | Guides | Low |
 | The consent page shows only `client_name`: no `client_id` domain, logo or duration. | `ui.ts:24` | 4.5, Guides | Low |
 | By design, the Company accepts only its sibling agent's `client_id`, so other agents get `invalid_client`. | `index.ts:8,12-13,16,19` | 4.1 (allowed) | Note |
+| Grid: the agent requires the issuer to equal the Company's origin, so it fails every scenario at a Company whose issuer is on another host or has a path (our mock, adonis-agora). See spec [N36](spec-issues.md#n36). | caller | 3.2 | High |
+| Grid: the agent parses the revocation response as JSON. RFC 7009 allows an empty 200, so sign-out throws at poppyseed. | caller | 4.9, RFC 7009 | Medium |
+| Grid: the agent throws (`new URL(undefined)`) at a signed-out Company with no `authorization_endpoint`, such as Ilmer. | caller | 3.1 | Medium |
+| Grid: Northstar answers 500 instead of `invalid_client` for client metadata that isn't JSON, and instead of `invalid_token` for a well-formed token naming no Session. | receiver | 4.1, 6 | Low |
+| Grid: agent keys keep `kid: agent-key-1` when rotated, so a Company that caches by `kid` uses a stale key ([N38](spec-issues.md#n38)). | caller | Guides | Low |
 
 Its live documents pass our validator with no errors or warnings, and are fixtures in `test/validator.test.ts`.
 
@@ -62,6 +67,13 @@ The most complete SDK: Python and TypeScript, both sides, reference Companies, a
 | No `WWW-Authenticate` on 400 `invalid_dpop_proof`. | `service.ts:212` | 4.3 | Low |
 | SSE ignores `?cursor`. | `service.ts:1160` | 7.6 | Low |
 | Handoff with no one available adds no message. | | 7.9 | Low |
+| Grid: the TypeScript `ConversationClient.stream` reconnects at once, ignoring `retry:`, and throws `stream_unavailable` after five reconnects that bring nothing, so resuming a stream fails at any Company that closes idle streams. | TS `ConversationClient.stream` | 7.6 | Medium |
+| Grid: Device Sign-In polling never retries on `use_dpop_nonce`, in both SDKs. | `DeviceSignInClient.poll` | 4.3, Guides | Medium |
+| Grid: the Python Company checks DPoP `htu` against the decoded path, not the raw one, so a percent-encoded path gets `invalid_dpop_proof`. | Python ASGI layer | 4.3, RFC 9449 | Medium |
+| Grid: the client checks a callback's `error` before its `state`. | client | 4.5, RFC 6749 §10.12 | Low |
+| Grid: both Companies close an SSE stream after sending the backlog, and answer an ended Session with `invalid_token`, never `invalid_session` ([N39](spec-issues.md#n39)). | Company | 7.6, 4.2 | Low |
+| Grid: optional Operation members are sent as `null` (`expires_at`, `result.data`) rather than omitted ([N41](spec-issues.md#n41)). | Company | Ops | Low |
+| Grid: Manzanita's OpenAPI paths use templates with no declared `parameters`. | reference Company | OpenAPI 3 | Low |
 
 **Worth copying:** `protocol/requirements.yaml` maps 160 requirements to code and tests, with a test that the references exist. Its blind spot: it only holds sentences with RFC 2119 keywords, and three of the bugs above sit in sentences without one.
 
@@ -75,6 +87,8 @@ A Company library for Next.js with a conformance suite, live at withpoppyseed.de
 | withpoppyseed.dev 308-redirects every path from the apex to `www.`, including `POST /oauth/token`, while `auth.issuer` and every endpoint name the apex. Discovery works; every token request fails for a client that, correctly, never follows redirects with credentials. Its demo agent's `client_id` redirects too, so no Company can load it. | Deployment | 3, Guides | High (deployment) |
 | Direct Sign-In always requires `session_id` and `private_key_jwt`, so a plain MCP client can't use MCP's own flow. | `oauth.ts:130` | 6 | Medium |
 | Any `resource` parameter is treated as an MCP Bearer request. | `oauth.ts:77-83` | 4.3 | Low (possible) |
+| Grid: `wait` is honoured only on `GET …/events`, not on sending a message ([N40](spec-issues.md#n40)). | | 7.3 | Low |
+| Grid: withpoppyseed.dev still redirected the apex to `www.` at the end of 11 October. | Deployment | 3 | (see above) |
 
 **Worth copying:** 124 mutants that each break one rule, with the named check required to fail; a CI check that the spec text hasn't changed upstream.
 
@@ -89,6 +103,10 @@ A Company OAuth server (`@adonis-agora/authkit-server`), and Company conversatio
 | Mediated credentials can be posted again after an automatic 401 renewal, possibly into a different Session. | agent `signin.ts:230` with `company.ts:324-337` | 4.7 | Medium |
 | Handoff without hooks never reaches `queued`. | agent `conversations.ts:755` | 7.9 | Low |
 | The client restarts silently on `cursor_expired`; the draft says the agent SHOULD tell the User. | agent `collect()` | 7.5 | Low |
+| Grid: the agent's assertions carry no `typ`, so strict Companies refuse every request ([S2](spec-issues.md#s2)). | agent `poppy-client` | 4.2 | Medium |
+| Grid: the agent's assertion `aud` is the token endpoint at the device and revocation endpoints too, which poppyseed refuses ([S1](spec-issues.md#s1)). | agent `poppy-client` | 4.6, 4.9 | Medium |
+| Grid: the Company sends no headers on an idle resumed SSE stream until an event arrives ([N30](spec-issues.md#n30)). | agent (Company conversations) | 7.6 | Low |
+| Grid: `allowInsecureClientIds`, needed to test against private addresses, also accepts `http` `client_id`s ([N42](spec-issues.md#n42)). | authkit | 4.1 | Low |
 
 ## everruns (everruns/everruns)
 
@@ -104,6 +122,7 @@ Rust, both sides, signed-out only (PRs #4479, #4531, #4549, #4558).
 | `jti` is a UUIDv4 (122 random bits). | `protocol.rs:122` | 4.2 | Low |
 | Message ids come from model tool-call ids. | `poppy_client.rs:261` | 7.3, Guides | Low |
 | 429 `Retry-After` isn't enforced; `cursor: null`; any `evt_N` cursor accepted. | | 4.3, 7.5 | Low |
+| Grid: two migrations share the number 218, which breaks any fresh database. | migrations | | High (deployment) |
 
 **Worth copying:** cross-implementation interop in CI against a pinned pi-poppy, in both directions, with nonces required.
 
@@ -130,7 +149,10 @@ A Personal Agent extension for the pi coding agent, with its own mock Company, r
 | Account Tokens and secrets are stored in plain text. | Guides (Storing tokens) | High |
 | Message ids are 64-bit and regenerated on retry, so a retry can post twice. | 7.3, Guides | Medium |
 | Each send re-reads the whole conversation instead of resuming from a cursor. | 7.5 | Low |
-| Checked only against its own mock. | | Note |
+| Grid: Session assertions have no `typ`, so strict Companies refuse every request ([S2](spec-issues.md#s2)). | 4.2 | Medium |
+| Grid: after `invalid_session` from the token endpoint it gives up instead of starting a new Session ([N39](spec-issues.md#n39)). | 4.2 | Medium |
+| Grid: `null` optional Operation members are rejected, so an operation Datalayer performed is reported as failed ([N41](spec-issues.md#n41)). | Ops | Medium |
+| Grid: its Company answers an unknown `kid` with `invalid_client` and doesn't refetch the JWKS for 60 s ([N38](spec-issues.md#n38)). | Guides | Low |
 
 ## This project
 
@@ -146,7 +168,7 @@ What the comparison found in our own client, and what we did.
 | After a 429, a DPoP nonce challenge on the retry wasn't retried, so the call failed at Companies that require nonces. Found by running the conformance tests under the nonce profiles. | Fixed in `oauthRequest`; reverting it fails both nonce-profile Retry-After tests. |
 | Our mock flagged random User IDs containing "ada" as personal information (about 1 ID in 1,600), and a crash test reset every Durable Object in the shared test runtime, including other files' mock Companies. Both made tests flaky. | Fixed: the mock's check matches whole values; the crash test runs in its own runtime. |
 | Our mock required `token_type_hint` at revocation, which RFC 7009 makes optional. | Fixed: recorded, not required. We send `refresh_token`. |
-| No interop test against another implementation (Datalayer's `CompanyService`, pi-poppy's mock). | Open. The conformance tests now run under six readings of the draft's open questions, which covers part of the risk. |
+| No interop test against another implementation (Datalayer's `CompanyService`, pi-poppy's mock). | Fixed: the [interop grid](interop-spec.md) runs our client against six other projects' Companies, and their agents against our mock and each other's Companies. [Results](interop-results/). |
 | Appendix A is maintained by hand, unlike Datalayer's checked ledger. | Partly fixed: `npm run check:docs` checks every test it names exists. |
 | The site crawl: Retry-After wasn't honoured on website pages (4.3). | Fixed: a page that answers 429 or 503 is loaded again after its `Retry-After`, through the shared `CompanyLimiter`; a long one fails with `rate_limited`. The browser join waits too, since its redirect loads a page. |
 | The site crawl: a read-only GET narrowed to `poppy:read` even when it needed a custom scope. | Fixed: the narrowed token asks for the scopes the operation's security requirement declares, or `poppy:read` when it declares none. Tested at a Company with a custom-scope lookup and at one with only custom scopes. |

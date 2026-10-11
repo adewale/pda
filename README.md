@@ -231,7 +231,7 @@ Poppy implementations we know of, as of 11 Oct 2026. All were days old.
 | [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org) ([poppy.ilmer.org](https://poppy.ilmer.org/.well-known/poppy.json)) | Signed-out Company on Workers | TypeScript |
 | [dirnbauer/webconsulting-typo3-lab](https://github.com/dirnbauer/webconsulting-typo3-lab) | Minimal signed-out Company (the extension itself is private) | PHP |
 
-[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 56 problems in the specification itself, with suggested fixes, [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, and [`interop/`](interop/README.md) runs it.
+[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 65 problems in the specification itself, with suggested fixes, [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, and [`interop/`](interop/README.md) runs it.
 
 ## Limitations
 
