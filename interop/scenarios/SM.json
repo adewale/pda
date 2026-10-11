@@ -1,0 +1,15 @@
+{
+  "id": "SM",
+  "title": "Mediated Sign-In",
+  "requirements": ["4.4", "4.7"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["mediated_answers"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session" },
+    { "agent": "signin", "params": { "method": "mediated", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "expect": { "${pending.pending.fields}": { "$length_gte": 1 } } },
+    { "company": "mediated_answers", "params": { "account": "${fixture.accounts.0}" }, "save": "answers" },
+    { "agent": "signin_continue", "params": { "fields": "${answers.fields}" }, "save": "done" },
+    { "expect": { "${done.signed_in}": true } }
+  ]
+}

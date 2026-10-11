@@ -288,14 +288,40 @@ export type Hosts = {
   readonly browserSessionEndpoint: string;
 };
 
+/**
+ * Where mock Companies live. Tests use `<id>.shop.test` and
+ * `<id>.shop-uk.test`; the interop adapter (`interop/impls/dpa-mock`) moves
+ * them under `company.interop.test`, where the recording proxy serves them.
+ */
+export type Placement = {
+  readonly domain: (id: string) => string;
+  readonly altDomain: (id: string) => string;
+  /** The company id in a host name, or null. */
+  readonly idFromHost: (host: string) => string | null;
+};
+
+const SHOP_TEST: Placement = {
+  domain: (id) => `${id}.shop.test`,
+  altDomain: (id) => `${id}.shop-uk.test`,
+  idFromHost: (host) =>
+    /^(?:(?:www|auth|api|mcp|cdn)\.)?([a-z0-9]+)\.(?:shop|shop-uk)\.test$/.exec(host)?.[1] ?? null
+};
+
+let placement = SHOP_TEST;
+
+/** Move every mock Company to other host names (the interop adapter only). */
+export function placeCompanies(next: Placement): void {
+  placement = next;
+}
+
 export function hostsFor(id: string, options: { issuerTrailingSlash?: boolean } = {}): Hosts {
-  const domain = `${id}.shop.test`;
+  const domain = placement.domain(id);
   const auth = `https://auth.${domain}`;
   const api = `https://api.${domain}`;
   return {
     id,
     domain,
-    altDomain: `${id}.shop-uk.test`,
+    altDomain: placement.altDomain(id),
     issuer: options.issuerTrailingSlash ? `${auth}/` : auth,
     api,
     mcpUrl: `https://mcp.${domain}/mcp`,
@@ -316,9 +342,5 @@ export function hostsFor(id: string, options: { issuerTrailingSlash?: boolean } 
  * `auth.`, `api.`, `mcp.` and `cdn.` subdomains, and `<id>.shop-uk.test`.
  */
 export function companyIdFromHost(host: string): string | null {
-  const name = host.toLowerCase().replace(/:\d+$/, "");
-  const match = /^(?:(?:www|auth|api|mcp|cdn)\.)?([a-z0-9]+)\.(?:shop|shop-uk)\.test$/.exec(
-    name
-  );
-  return match ? match[1]! : null;
+  return placement.idFromHost(host.toLowerCase().replace(/:\d+$/, ""));
 }

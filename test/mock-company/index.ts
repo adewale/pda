@@ -313,6 +313,29 @@ export class MockCompany extends DurableObject<Env> {
     return company.sessions.size;
   }
 
+  /** The next `count` token or other requests get 429 with `Retry-After` (the interop `rate_limit` hook). */
+  async limitNext(kind: "token" | "other", count: number, retryAfterSeconds: number): Promise<void> {
+    const { company } = this.#named();
+    const used = kind === "token" ? company.tokenRequestCount : company.otherRequestCount;
+    company.config = {
+      ...company.config,
+      rateLimit: {
+        ...company.config.rateLimit,
+        retryAfterSeconds,
+        ...(kind === "token" ? { tokenRequests429: used + count } : { requests429: used + count })
+      }
+    };
+  }
+
+  /** Every Session Token issued so far expires now, so the next use gets `invalid_token` (the interop `expire_tokens` hook). */
+  async expireSessionTokens(): Promise<number> {
+    const { company } = this.#named();
+    for (const [value, token] of company.accessTokens) {
+      company.accessTokens.set(value, { ...token, expiresAt: Date.now() - 1 });
+    }
+    return company.accessTokens.size;
+  }
+
   /** The User disconnects the Personal Agent in their account settings (4.9). */
   async revokeAllForAccount(account: string): Promise<number> {
     const { company, auth } = this.#named();

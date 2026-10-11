@@ -1,0 +1,14 @@
+{
+  "id": "SXV",
+  "title": "Device Sign-In denied",
+  "requirements": ["4.6"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["deny_device"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session" },
+    { "agent": "signin", "params": { "method": "device", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "company": "deny_device", "params": { "user_code": "${pending.pending.user_code}" } },
+    { "agent": "signin_continue", "save": "outcome" },
+    { "expect": { "step": "outcome", "poppy_error": "access_denied" } }
+  ]
+}

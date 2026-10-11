@@ -59,16 +59,43 @@ function testEach(fixtures: readonly Fixture[]) {
   );
 }
 
+/**
+ * What the running fixture gave the validator: a document's text, or the
+ * responses its fake network served. The interop vectors test exports these
+ * as language-neutral cases (interop/vectors/validator.json).
+ */
+type Capture =
+  | { readonly kind: "text"; readonly document: DocumentKind; readonly text: string; readonly options: object }
+  | { readonly kind: "network"; readonly order: string[]; readonly responses: Record<string, unknown> };
+let capture: Capture | null = null;
+
 function text(kind: DocumentKind, doc: unknown, options: Parameters<typeof validateText>[2] = {}): Report {
-  return validateText(kind, typeof doc === "string" ? doc : JSON.stringify(doc, null, 2), options);
+  const source = typeof doc === "string" ? doc : JSON.stringify(doc, null, 2);
+  capture = { kind: "text", document: kind, text: source, options: { ...options } };
+  return validateText(kind, source, options);
 }
 
 /** A fake network: URL → response. Anything else fails like a DNS error. */
 function network(routes: Record<string, () => Response>): Fetcher {
   return async (request) => {
+    if (capture?.kind !== "network") capture = { kind: "network", order: [], responses: {} };
+    const recorded = capture;
+    recorded.order.push(request.url);
     const route = routes[request.url];
-    if (!route) throw new TypeError("fetch failed");
-    return route();
+    if (!route) {
+      recorded.responses[request.url] = { error: "network" };
+      throw new TypeError("fetch failed");
+    }
+    const response = route();
+    const bytes = new Uint8Array(await response.clone().arrayBuffer());
+    let body: Record<string, string>;
+    try {
+      body = { body: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+    } catch {
+      body = { body_base64: btoa(String.fromCharCode(...bytes)) };
+    }
+    recorded.responses[request.url] = { status: response.status, headers: Object.fromEntries(response.headers), ...body };
+    return response;
   };
 }
 const jsonResponse = (body: unknown, headers: Record<string, string> = {}) => () =>
@@ -682,5 +709,63 @@ describe("the message catalog", () => {
   it("has fixtures with distinct names", () => {
     const names = fixtures.map((fixture) => fixture.name);
     expect(names.filter((name, index) => names.indexOf(name) !== index)).toEqual([]);
+  });
+});
+
+/**
+ * The fixtures as one-sided interop vectors, in Datalayer's schema (`id`,
+ * `kind`, `role`, `requirements`, `check`, `input`, `expect`), so another
+ * implementation's validator can run them. A fixture that needs our Worker
+ * or the mock Company can't be data, and is listed as skipped. Regenerate
+ * with `npm run interop:vectors`; this test fails while the file is stale.
+ */
+describe("interop vectors", () => {
+  const fixtures = [...VALID, ...POPPY_JSON, ...METADATA, ...CLIENT, ...FETCHING];
+  const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+  it("exports every data-only fixture to interop/vectors/validator.json", async () => {
+    const vectors: unknown[] = [];
+    const skipped: string[] = [];
+    for (const fixture of fixtures) {
+      capture = null;
+      const report = await fixture.run();
+      const captured = capture as Capture | null;
+      if (!captured) {
+        skipped.push(fixture.name);
+        continue;
+      }
+      const declared = declaredIds(fixture);
+      const kinds = new Set(report.documents.map((document) => document.kind));
+      const role =
+        captured.kind === "text"
+          ? captured.document === "client-metadata" || captured.document === "jwks" ? "agent" : "company"
+          : kinds.has("poppy") ? "company" : "agent";
+      const first = captured.kind === "network" ? captured.order[0]! : "";
+      vectors.push({
+        id: `dpa.validator.${slug(fixture.name)}`,
+        kind: captured.kind === "text" ? "document" : "fetch",
+        role,
+        requirements: [...new Set(declared.map((id) => MESSAGES[id].ref.label))],
+        check: "poppy-validator",
+        input:
+          captured.kind === "text"
+            ? { document: captured.document, text: captured.text, options: captured.options }
+            : { target: first.endsWith("/.well-known/poppy.json") ? new URL(first).host : first, responses: captured.responses },
+        expect: {
+          ...("contains" in fixture.ids ? { messages_include: [...fixture.ids.contains] } : { messages: [...(fixture.ids as readonly MessageId[])] }),
+          outcome: fixture.outcome ?? report.outcome
+        },
+        description: fixture.name
+      });
+    }
+    const file = {
+      version: 1,
+      source: "test/validator.test.ts",
+      notes:
+        "Message ids are src/validator/messages.ts. `messages` is the exact list in order; `messages_include` a subset. A fetch vector's target is validated with only `responses` on the network; a URL missing from it fails like a DNS error.",
+      skipped,
+      vectors
+    };
+    await expect(`${JSON.stringify(file, null, 2)}\n`).toMatchFileSnapshot("../interop/vectors/validator.json");
   });
 });

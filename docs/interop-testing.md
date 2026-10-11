@@ -1,6 +1,19 @@
 # M×N interoperability testing for Poppy
 
-How to test every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, using pirate testing. This is a design: nothing here is built yet. The implementations are listed in the [README](../README.md#other-implementations); the spec issues the matrix would exercise are in [poppy-issues.md](poppy-issues.md).
+How to test every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, using pirate testing. This is the design and its rationale; [interop-spec.md](interop-spec.md) is the contract an implementation meets to join, and [`interop/`](../interop/README.md) is the harness. The implementations are listed in the [README](../README.md#other-implementations); the spec issues the matrix would exercise are in [poppy-issues.md](poppy-issues.md).
+
+## What's built
+
+- **The runner** ([`interop/runner/`](../interop/runner)): a Node CLI, `npm run interop`. It builds each implementation's image, makes a CA and certificate per run with `openssl`, starts a Docker network with the recording proxy and every implementation, and runs each scenario × agent × Company cell, resetting both adapters first. It writes `results.json`, a HAR file per cell and an `index.html` grid to `interop/results/<run>/`.
+- **The recording proxy** ([`interop/proxy/`](../interop/proxy)): terminates TLS for every `*.interop.test` name, forwards to each container on port 8080, and records each exchange in full.
+- **Scenarios as data** ([`interop/scenarios/`](../interop/scenarios)): D, S0, N, SD, SV, SM, SMC, SX, SXV, C, CI, CS, CA, SO, SE, R, AO, AM, AS, O, OX and RL.
+- **The checker** ([`checks.ts`](../interop/runner/checks.ts), [`documents.ts`](../interop/runner/documents.ts), [`readings.ts`](../interop/runner/readings.ts)): pure functions over the recording, named with the mock Company's violation ids where one fits, plus `src/validator` over every discovery document and client metadata served.
+- **Attribution** ([`attribution.ts`](../interop/runner/attribution.ts)) by the four rules, and known failures ([`known-failures.json`](../interop/known-failures.json)).
+- **Our two adapters:** [`dpa-agent`](../interop/impls/dpa-agent) runs `src/poppy` in Node, with Node's SQLite behind the Durable Object SQL API it uses, and no model; [`dpa-mock`](../interop/impls/dpa-mock) runs the strict mock Company behind the hooks API and reports its violations. Node was chosen over `wrangler dev` because Node trusts the run's CA through `NODE_EXTRA_CA_CERTS`, starts in a second, and needs no `workerd` networking in a container; the mock and the client are plain TypeScript over `fetch`, so the bundle is our shipped code.
+- **One-sided vectors** ([`interop/vectors/`](../interop/vectors)): the validator fixtures and the mock's tamper rows, in Datalayer's schema, generated from the tests.
+- **CI** runs our agent against our mock Company on every push and keeps the results as an artifact.
+
+Other implementations' adapters go in `interop/impls/<name>-agent` and `interop/impls/<name>-company`, registered in [`interop/registry.json`](../interop/registry.json).
 
 ## Pirate testing
 
@@ -107,7 +120,7 @@ Hardening (SSRF, duplicate JSON members, redirects on `client_id`) stays as one-
 
 - **Churn.** Everything is days old, and Draft 0.1 can break compatibility. Pin commits and the spec revision.
 - **Few runnable servers.** Several implementations need patches to act as interop peers (allowlists, hard-wired peers, SSRF or loopback relaxations). Every relaxation must be an interop-only setting.
-- **Workers under `wrangler dev`.** Trusting a private CA for outbound requests is unverified; our `Fetcher` seam avoids the problem for us.
+- **Workers under `wrangler dev`.** Trusting a private CA for outbound requests is unverified. Our adapters avoid it by running our code in Node; another Workers implementation would need the same, or a `Fetcher`-like seam.
 - **Non-determinism.** LLM-backed Companies, timing, staff queues. Use stand-in runners and hooks rather than real time.
 - **Wrong blame.** Our mock's readings could pass for the spec's. Keep its six profiles, and label every attribution with the rule that made it.
 - **Licences and goodwill.** Check licences before vendoring. Present the grid as being about the spec, not about anyone's project.

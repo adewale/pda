@@ -1,0 +1,16 @@
+{
+  "id": "SV",
+  "title": "Device Sign-In, polling",
+  "requirements": ["4.4", "4.6"],
+  "readings": ["S1", "S2"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["approve_device"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session" },
+    { "agent": "signin", "params": { "method": "device", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "expect": { "${pending.pending.user_code}": { "$exists": true } } },
+    { "company": "approve_device", "params": { "user_code": "${pending.pending.user_code}", "account": "${fixture.accounts.0}" } },
+    { "agent": "signin_continue", "save": "done" },
+    { "expect": { "${done.signed_in}": true, "${done.scope}": { "$includes_scope": "poppy:read" } } }
+  ]
+}

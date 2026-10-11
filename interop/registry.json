@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "implementations": [
+    {
+      "name": "dpa",
+      "role": "agent",
+      "source": "https://github.com/adewale/dpa",
+      "commit": "HEAD",
+      "build": "interop/impls/dpa-agent",
+      "context": ".",
+      "notes": "Drives src/poppy directly (PoppyClient, sign-in, conversations, APIs, operations) in Node; no model."
+    },
+    {
+      "name": "dpa-mock",
+      "role": "company",
+      "source": "https://github.com/adewale/dpa",
+      "commit": "HEAD",
+      "build": "interop/impls/dpa-mock",
+      "context": ".",
+      "notes": "The strict mock Company from test/mock-company, the reference Company for attribution rule 2. Serves its recorded violations at GET /violations."
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "SMC",
+  "title": "Mediated Sign-In with a one-time code",
+  "requirements": ["4.7"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["mediated_answers", "last_one_time_code"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session" },
+    { "agent": "signin", "params": { "method": "mediated", "scopes": ["poppy:read"] } },
+    { "company": "mediated_answers", "params": { "account": "${fixture.otp_account}" }, "save": "answers" },
+    { "agent": "signin_continue", "params": { "fields": "${answers.fields}" }, "save": "asked" },
+    { "expect": { "${asked.pending.code_required}": true } },
+    { "company": "last_one_time_code", "save": "otp" },
+    { "agent": "signin_continue", "params": { "code": "${otp.code}" }, "save": "done" },
+    { "expect": { "${done.signed_in}": true } }
+  ]
+}

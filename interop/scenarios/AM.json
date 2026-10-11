@@ -1,0 +1,12 @@
+{
+  "id": "AM",
+  "title": "MCP tool call",
+  "requirements": ["4.3", "6"],
+  "needs": { "agent": ["discover", "api"] },
+  "steps": [
+    { "agent": "discover", "save": "d" },
+    { "expect": { "${d.apis}": { "$contains": "mcp" } } },
+    { "agent": "api", "params": { "api": "mcp", "tool": "${fixture.mcp.tool}", "args": "${fixture.mcp.args}" }, "save": "r" },
+    { "expect": { "${r.status}": 200, "${r.body}": { "$exists": true } } }
+  ]
+}
