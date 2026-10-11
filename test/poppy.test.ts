@@ -1321,3 +1321,228 @@ describe("Operations extension", () => {
     await a.stub.poppyWaitForNotice("is succeeded");
   });
 });
+
+/**
+ * A step that fails partway, without a restart: a fetcher wrapper lets the
+ * Company handle a request and then loses its answer (or a notice to the
+ * model fails), and the test calls the same entry points again, as the next
+ * alarm or step would. `hold` keeps an answer back while the test forgets
+ * the client's memory, which is what a restart leaves behind.
+ */
+describe("Ops 6 a confirm whose answer never arrives", () => {
+  const exchangeCall = (c: Company) => ({
+    domain: c.domain,
+    operation: "POST /orders/{order_id}/exchanges",
+    params: { order_id: "ord_7Hk2" },
+    body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
+  });
+
+  async function proposal() {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_api_call", exchangeCall(c));
+    const card = (await cards(a)).find((item) => item.kind === "operation")!;
+    return { c, a, card };
+  }
+
+  const approve = (a: Agent, c: Company, card: Record<string, any>) =>
+    a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+  const reads = async (c: Company, id: string) =>
+    (await requests(c)).filter((request) => request.method === "GET" && request.url === `${c.hosts.operationsEndpoint}/${id}`).length;
+
+  it.each(["throw", "gateway"] as const)("reads an operation whose confirm answer was lost (%s), and never confirms it again once final", async (mode) => {
+    const { c, a, card } = await proposal();
+    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode });
+    await approve(a, c, card);
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    // The Company made the exchange; the agent never heard.
+    expect((await c.stub.state()).performs).toBe(1);
+    await a.stub.poppyAdvance(5_000);
+    await a.stub.poppyWaitForNotice("is succeeded");
+    expect((await cards(a)).find((item) => item.kind === "operation")).toMatchObject({ open: false, state: "succeeded" });
+    // A later sign-in retries approved operations waiting on one: this one is final, so it isn't confirmed again.
+    await signInDirect(a, c, ["poppy:read"], { account: "acct_bob" }, { account: "second", session: "second" });
+    // Nor is it read again: the check scheduled before the confirm finds it final.
+    await a.stub.poppyAdvance(60_000);
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
+    expect(await reads(c, card.operationId)).toBe(1);
+  });
+
+  it("checks on a confirm that a restart interrupted, then confirms nothing more", async () => {
+    const { c, a, card } = await proposal();
+    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "hold" });
+    const approving = approve(a, c, card);
+    await until(async () => (await c.stub.state()).performs === 1);
+    // A restart: the client's memory is gone, and the interrupted step never hears back.
+    await a.stub.poppyForgetMemory();
+    await a.stub.poppyAdvance(60_000);
+    await a.stub.poppyWaitForNotice("is succeeded");
+    // The old connection finally fails; what it schedules finds the operation final.
+    expect(await a.stub.poppyReleaseHeld()).toBe(1);
+    await approving;
+    await a.stub.poppyAdvance(60_000);
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
+    expect(await reads(c, card.operationId)).toBe(1);
+  });
+
+  it("confirms the same revision again when the confirm never reached the Company", async () => {
+    const { c, a, card } = await proposal();
+    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "lose" });
+    await approve(a, c, card);
+    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
+    // Read first: still proposed, so the approved revision is confirmed, under the same id.
+    await a.stub.poppyAdvance(5_000);
+    await a.stub.poppyWaitForNotice("is succeeded");
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.operations[0]).toMatchObject({ state: "succeeded", confirms: 1, approvedBy: "user" });
+    expect(await reads(c, card.operationId)).toBe(1);
+  });
+});
+
+describe("7.5 an event whose handling fails", () => {
+  const inboxFor = async (a: Agent, conversationId: string) =>
+    JSON.parse(
+      await a.stub.poppySql(
+        "SELECT json_extract(event, '$.id') AS id, json_extract(event, '$.message.text') AS text FROM poppy_inbox WHERE conversation_id = ? ORDER BY seq",
+        conversationId
+      )
+    ) as { id: string; text: string }[];
+
+  it("handles an event again after its handling failed, then the events after it, in order", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await a.stub.poppyFailNoticeOnce("First of two.");
+    await c.stub.say(first.conversationId, "First of two.");
+    await c.stub.say(first.conversationId, "Second of two.");
+    // Whichever read meets the failure stops there; a later read handles both.
+    const notices = await until(async () => {
+      await a.stub.poppyReadNow(first.conversationId).catch(() => undefined);
+      const told = await a.stub.poppyNotices();
+      return told.some((text) => text.includes("Second of two.")) && told;
+    });
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    const at = (fragment: string) => notices.findIndex((text) => text.includes(fragment));
+    expect(at("First of two.")).toBeGreaterThan(-1);
+    expect(at("First of two.")).toBeLessThan(at("Second of two."));
+    const texts = (await inboxFor(a, first.conversationId)).map((entry) => entry.text);
+    expect(texts.filter((text) => text === "First of two.")).toHaveLength(1);
+    expect(texts.filter((text) => text === "Second of two.")).toHaveLength(1);
+  });
+
+  it("tells the model a person joined even when the first try failed", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await tool(a, "poppy_handoff", { conversation: first.conversationId, summary: "The jacket isn't warm enough; the user wants an exchange." });
+    await a.stub.poppyFailNoticeOnce("has joined");
+    await c.stub.humanJoin(first.conversationId, "Hi, I'm Sam.");
+    await until(async () => {
+      await a.stub.poppyReadNow(first.conversationId).catch(() => undefined);
+      return (await a.stub.poppyNotices()).some((text) => text.includes("has joined"));
+    });
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+  });
+
+  it("doesn't repeat an event's effects when it is handled again before being recorded", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "I'd like to return order ord_7Hk2" })).text);
+    await a.stub.poppyWaitForNotice("needs the User signed in");
+    await signInDirect(a, c);
+    await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "I'm signed in now; please exchange it for the insulated one." });
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "operation" && item.open));
+    const [proposing] = JSON.parse(
+      await a.stub.poppySql("SELECT json_extract(event, '$.id') AS id FROM poppy_inbox WHERE conversation_id = ? AND instr(event, '\"operation\"') > 0", first.conversationId)
+    ) as { id: string }[];
+    // As if the agent had handled it but not yet recorded it, nor saved the cursor past it.
+    await a.stub.poppySql("DELETE FROM poppy_events WHERE conversation_id = ? AND event_id = ?", first.conversationId, proposing!.id);
+    await a.stub.poppySql("UPDATE poppy_conversations SET cursor = NULL WHERE id = ?", first.conversationId);
+    await a.stub.poppyReadNow(first.conversationId);
+    expect(JSON.parse(await a.stub.poppySql("SELECT 1 FROM poppy_events WHERE conversation_id = ? AND event_id = ?", first.conversationId, proposing!.id))).toHaveLength(1);
+    expect((await inboxFor(a, first.conversationId)).filter((entry) => entry.id === proposing!.id)).toHaveLength(1);
+    expect(JSON.parse(await a.stub.poppySql("SELECT operation_id FROM poppy_operations"))).toHaveLength(1);
+    expect((await cards(a)).filter((item) => item.kind === "operation")).toEqual([expect.objectContaining({ operationId: card.operationId, open: true })]);
+    expect((await c.stub.state()).operations).toHaveLength(1);
+  });
+});
+
+describe("4.5 a Direct Sign-In interrupted mid-exchange", () => {
+  const exchange = { method: "POST", url: "/oauth/token", grant: "authorization_code" } as const;
+  const signInRows = async (a: Agent) =>
+    JSON.parse(await a.stub.poppySql("SELECT id, issuer, status, secret FROM poppy_signins")) as { id: string; issuer: string; status: string; secret: string }[];
+  const ourSession = async (a: Agent) =>
+    (JSON.parse(await a.stub.poppySql("SELECT session_id, signed_in FROM poppy_sessions WHERE label = 'main'")) as { session_id: string; signed_in: number }[])[0];
+
+  it.each(["throw", "gateway"] as const)("starts a new Session when a code exchange's answer is lost (%s), and the User can sign in again", async (mode) => {
+    const c = await company();
+    const a = await agent();
+    await a.stub.poppyFault({ ...exchange, mode });
+    const result = await signInDirect(a, c);
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    expect(result!.callback.status).toBe(400);
+    expect(result!.text).toContain("interrupted");
+    // The Company signed the Session in; the agent never got its tokens, so it leaves that Session.
+    const signedIn = (await c.stub.state()).sessions.find((session) => session.signedIn)!;
+    expect(signedIn).toBeDefined();
+    expect(await ourSession(a)).toBeUndefined();
+    expect((await signInRows(a))[0]!.status).toBe("failed");
+    expect((await cards(a)).find((item) => item.id.startsWith("signin-"))).toMatchObject({ kind: "notice", open: false });
+    await a.stub.poppyWaitForNotice("was interrupted");
+    // The next use starts a new Session, signed out, instead of renewing that one with the assertion.
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
+    expect(await ourSession(a)).toMatchObject({ signed_in: 0 });
+    expect((await ourSession(a))!.session_id).not.toBe(signedIn.id);
+    // Signing in again works.
+    expect((await signInDirect(a, c))!.callback.status).toBe(200);
+    expect(await ourSession(a)).toMatchObject({ signed_in: 1 });
+  });
+
+  it("resolves a code exchange a restart interrupted, on the next use", async () => {
+    const c = await company();
+    const a = await agent();
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    const card = (await cards(a)).find((item) => item.kind === "signin_link")!;
+    const location = await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_ada" });
+    await a.stub.poppyFault({ ...exchange, mode: "hold" });
+    const callback = worker.fetch(new Request(location, { headers: { Cookie: a.cookie } }), env);
+    await until(async () => (await requests(c)).some((request) => request.grant === "authorization_code"));
+    // A restart: memory is gone, and the exchange never hears back.
+    await a.stub.poppyForgetMemory();
+    expect((await signInRows(a))[0]!.status).toBe("exchanging");
+    // The next use of the Company finds it and starts a new Session.
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
+    expect((await signInRows(a))[0]!.status).toBe("failed");
+    expect(await ourSession(a)).toMatchObject({ signed_in: 0 });
+    expect((await cards(a)).find((item) => item.id === card.id)).toMatchObject({ kind: "notice", open: false });
+    await a.stub.poppyWaitForNotice("was interrupted");
+    // The old connection finally fails; the sign-in is already resolved.
+    expect(await a.stub.poppyReleaseHeld()).toBe(1);
+    expect((await callback).status).toBe(400);
+    expect((await signInRows(a))[0]!.status).toBe("failed");
+  });
+
+  it("finishes a Direct Sign-In on the next use when its last step failed, keeping no token in the sign-in", async () => {
+    const c = await company();
+    const a = await agent();
+    await a.stub.poppyFailNoticeOnce("Signed in to");
+    const result = await signInDirect(a, c);
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    expect(result!.callback.status).toBe(400);
+    expect(result!.text).toContain("finish here");
+    // The tokens are stored; the next use finishes the rest, renewing with the Account Token.
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
+    await a.stub.poppyWaitForNotice("Signed in to");
+    expect(await ourSession(a)).toMatchObject({ signed_in: 1 });
+    const [row] = await signInRows(a);
+    expect(row!.status).toBe("done");
+    expect(JSON.parse((await a.stub.poppyOpenSealed(row!.secret, `signin|${row!.id}|${row!.issuer}`))!)).toEqual({ scope: "poppy:read poppy:write" });
+    expect((await cards(a)).find((item) => item.id === `signin-${row!.id}`)).toMatchObject({ kind: "notice", open: false });
+  });
+});

@@ -75,7 +75,7 @@ function faultyFetcher(fetcher: Fetcher, faults: () => Faults): Fetcher {
     if (pending.length === 0) return fetcher(request);
     let grant: string | null = null;
     if (request.method === "POST" && (request.headers.get("Content-Type") ?? "").includes("form-urlencoded")) {
-      grant = new URLSearchParams(await request.clone().text()).get("grant_type");
+      grant = new URLSearchParams(new TextDecoder().decode(await request.clone().arrayBuffer())).get("grant_type");
     }
     const index = pending.findIndex(
       (fault) =>
@@ -415,6 +415,11 @@ export class PersonalAgent extends ProductionAgent {
   /** The next notice to the model containing `fragment` fails, as if the harness had thrown. */
   async poppyFailNoticeOnce(fragment: string): Promise<void> {
     this.#failingNotices.push(fragment);
+  }
+
+  /** Faults not yet triggered: network faults and failing notices. Zero once each has fired. */
+  async poppyFaultsLeft(): Promise<number> {
+    return faultsOf(this).pending.length + this.#failingNotices.length;
   }
 
   async poppyCards(): Promise<string> {

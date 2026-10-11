@@ -377,6 +377,8 @@ A document without `auth` can only be browsed as an ordinary website (§3.1), an
    - The authorization code is single-use and short-lived, so it is never parked or retried.
 4. **Check the callback.** The agent finds the pending sign-in by `state` and rejects any that is missing, expired, already used, or for another Company. It requires `iss` to equal the stored issuer's `auth.issuer` exactly, and handles `error=access_denied`.
 5. **Exchange the code.** Exchange it at **that** Company's `token_endpoint`, with `redirect_uri` set exactly to our registered URI, the verifier, `session_id`, the client assertion and a DPoP proof.
+   - The exchange is recorded before it is sent, and its answer kept (sealed, without the Session Token) before it is used, so an interrupted sign-in is resolved on the next use of that Company, on restart, or on a reload of the callback.
+   - With the answer kept, its tokens are stored. Without one (lost, unreadable, or a 5xx), the Company may have signed the Session in, and we have no Account Token to renew it with, so that Session is left for a new one, never renewed with the assertion. The card says the sign-in was interrupted, and the User signs in again.
 6. **Respond.** The callback response carries `Cache-Control: no-store`. The browser tab shows "Connected to {Company}; you can close this tab".
 
 **Device Sign-In (§4.6)**
@@ -491,7 +493,8 @@ Browsing uses Cloudflare Browser Rendering, never the User's browser.
   - It reads again at once while `has_more` is true.
 - **Handling events.** Events are handled strictly in order.
   - Ids already handled are skipped, and unknown event types are skipped.
-  - The cursor is saved only after its events are handled, and cursors are never compared or sorted.
+  - An event is recorded as handled only after it is handled, and the cursor saved only after its events are. A failure in between means the event is seen again, so handling one is safe to repeat: notices to the model carry an id derived from the event, cards are replaced by id, the inbox keeps one copy, and a proposal seen again is the same operation. A failed event stops the batch, so the ones after it wait.
+  - Cursors are never compared or sorted.
   - On `cursor_expired`, the loop reads from the start and tells the User that part of the conversation is missing.
 - **Partial text.** `text-delta` pieces go only to the UI, for display. They are never acted on, never shown to the model, and dropped after a reconnect.
 - **Status.** `status` (working, idle, queued, closed) and `responder` (agent, human) are tracked and shown. Company messages show their `sender`.
@@ -559,6 +562,8 @@ All four go to one handler. It stores the operation and its revision, and pushes
   | `in_progress` | Read again after `Retry-After` |
 
 - **Timeouts.** A timeout leads to a read of the operation or a repeat confirm, with the same operation id. A new proposal of the same action is never requested until this one is final.
+  - Before a confirm is sent, the intent is stored and a tracking job scheduled, so a lost answer, an exception or a restart mid-call is followed up: the job reads the operation first, and confirms the approved revision again only if it is still proposed.
+  - A final operation is never read or confirmed again, including by the confirm retried after a sign-in.
 - **Final states.** These are succeeded, failed, cancelled and expired. `result.summary` is shown to the User as the Company's account of what happened, and recorded.
 - **Withdrawn approval.** If the User withdraws approval before confirmation, the agent doesn't confirm. After confirmation, it cancels.
 
@@ -661,6 +666,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
   - The mock uses the same clock for rate limits, device polling and token age.
   - So Retry-After, device polling and slow confirms are checked without waiting.
 - **Routing.** The test agent sends Poppy requests for Company hosts to the mock and for `agent.test` to our own Worker. A fetch-based fake browser with a cookie jar per context stands in for Browser Rendering. The real adapter is tested separately, against a stub of Puppeteer.
+- **Faults without restarts.** A test can put one fault between the test agent and a Company: the Company handles a request and the answer is lost, or a gateway answers 504, or the request never arrives, or the answer is held while the test forgets the client's memory, as a restart would. It can also make one notice to the model fail. It then calls the same entry points again, as the next alarm or step would, and checks that the step finished once, with no violation at the mock.
 - **Checks that tests catch bugs.** Faults put into the code on purpose, each of which fails at least one named test:
   - sign-in: every Google ID-token check, the PKCE verifier, flow-cookie expiry, the `iss` check in Direct Sign-In, the session cookie's signature, the allowlist check on each request;
   - Poppy: single-use `state`, sealing bound to its context, private-host refusal, standing permissions' use limit and currency, our client assertion's `typ` (fails most Poppy tests);
@@ -754,6 +760,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.4 | One account per Session; `account_mismatch` starts a new Session | `client.ts` | Test: "starts a new Session when the Company says it belongs to another account…"; not yet at the code exchange |
 | 4.5 | Random `state` and PKCE S256; MUST check `iss`; exchange with `session_id` | `signin.ts` | Test: "uses each state once", "rejects a response whose iss…"; Mock |
 | 4.5 | `redirect_uri` exactly a registered URI; handle `access_denied` | `signin.ts` | Test: "handles a declined sign-in"; Mock |
+| 4.2, 4.5 | The code is single-use: an exchange whose answer is lost isn't retried; the Session it may have signed in is left for a new one, never renewed with the assertion; a kept answer's tokens are stored on the next use | `signin.ts` `recoverSignIns`, `client.ts` | Test: "starts a new Session when a code exchange's answer is lost…", "resolves a code exchange a restart interrupted, on the next use", "finishes a Direct Sign-In on the next use when its last step failed…"; Mock |
 | 4.6 | Show `user_code` and the link (HTTPS on the Company's hosts only); keep `device_code` private | `signin.ts` `deviceLink`, page | Test: "shows the code, polls at the interval…", "shows the device code beside a link and a QR code" |
 | 4.6 | Poll at `interval`; `slow_down` adds 5 s; stop on `access_denied` or `expired_token` | `signin.ts` | Test: "stops when the User declines"; Mock |
 | 4.7 | Secret fields MUST never be shown back, logged, or sent elsewhere | `signin.ts`, page | Test: "sends the credentials only to the endpoint…", "labels each field, makes secret fields password inputs…"; Mock |
@@ -780,7 +787,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 7.4 | A message MUST have `text`, `data` or `context`; no JSON in `text` | `conversations.ts` | Test: "refuses JSON in text"; Mock |
 | 7.4 | Shared context MUST use the defined fields and formats; share only what's needed | `conversations.ts` | Test: "starts a conversation with context…"; Mock |
 | 7.5 | MUST skip unknown event types | `conversations.ts` | Test: "skips event types it doesn't know" |
-| 7.5 | MUST NOT compare or sort cursors; handle in order, then save; skip handled ids; read again on `has_more` | `conversations.ts` | Test: "reads later events in the background…"; `has_more` not yet |
+| 7.5 | MUST NOT compare or sort cursors; handle in order, then save; skip handled ids; read again on `has_more` | `conversations.ts` | Test: "reads later events in the background…", "handles an event again after its handling failed, then the events after it, in order", "tells the model a person joined even when the first try failed", "doesn't repeat an event's effects when it is handled again before being recorded"; `has_more` not yet |
 | 7.5 | On `cursor_expired`, read from the start and tell the User | `conversations.ts` | Test: "tells the User when part of a conversation has expired" |
 | 7.3 | `wait` is a hint: a Company that ignores it answers at once, and the reply comes by the background read | `conversations.ts` | Test: "gets the reply by background read from a Company that ignores wait" |
 | 7.6 | Streams resume with `Last-Event-ID`; MUST NOT act on `text-delta`; skip comments | `conversations.ts` | Test: "reads later events in the background, streaming…", "skips SSE keep-alive comments…" |
@@ -805,7 +812,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 5.1 | MUST NOT treat Company text as approval | `capability.ts`; `discovery.ts` `protocolEndpoint`, `apis.ts` | Design: only page frames and standing permissions confirm, and no API tool reaches a Poppy endpoint. Test (a faux model that obeys injected instructions): "never confirms an operation, or speaks as the User, when a Company message says the User approved", "never confirms an operation when another operation's summary tells it to", "never confirms an operation when an MCP tool's description tells it to", "refuses an OpenAPI operation that would reach a Poppy endpoint…" |
 | 5.1 | A standing permission MUST cover the Company, account, action and every term; never when `user_approval_required` | `operations.ts` | Test: "confirms under a standing permission…", "asks the User when… exceeded", "asks the User once a standing permission's uses are spent", "asks the User when a standing permission's currency differs", "never uses a standing permission when…"; Mock |
 | 5.2 | Confirm with `revision` and `approved_by`; handle `terms_changed`, `user_approval_required`, scope errors | `operations.ts` | Test: "needs a new approval when the terms change"; Mock |
-| 6 | Retry or read with the same id; MUST NOT ask for a new proposal until final | `operations.ts`, `apis.ts` | Test: "tracks a slow operation…", "shows the Company's summary… confirms once…", "doesn't ask for a new proposal while a confirmed operation isn't final (Ops 6)", "doesn't ask an MCP tool for a new proposal…"; Mock |
+| 6 | Retry or read with the same id; MUST NOT ask for a new proposal until final | `operations.ts`, `apis.ts` | Test: "tracks a slow operation…", "shows the Company's summary… confirms once…", "doesn't ask for a new proposal while a confirmed operation isn't final (Ops 6)", "doesn't ask an MCP tool for a new proposal…", "reads an operation whose confirm answer was lost…", "checks on a confirm that a restart interrupted, then confirms nothing more", "confirms the same revision again when the confirm never reached the Company"; Mock |
 | 6 | Present `result.summary` as the Company's account | `operations.ts` | Test: "shows the Company's summary verbatim…" |
 | 7 | Withdrawn approval: don't confirm; cancel if confirmed | `operations.ts`, page | Test: "declines a proposal by cancelling it" |
 
