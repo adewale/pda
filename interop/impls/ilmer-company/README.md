@@ -21,13 +21,13 @@ docker run -e INTEROP_SECRET=... [-v ca.pem:/interop/ca.pem] ilmer-company
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `INTEROP_SECRET` | none | Bearer secret for control requests other than `/manifest` and `/healthz`. |
-| `ILMER_ORIGIN` | `https://ilmer.company.interop.test` | Passed as the Worker's `ORIGIN`. Ilmer builds its issuer, endpoints and DPoP `htu` from it. `wrangler dev --local-upstream <host> --upstream-protocol https` also makes `request.url` carry it. |
+| `INTEROP_ORIGIN` | `https://ilmer.company.interop.test` | Set by the runner; passed as the Worker's `ORIGIN`. Ilmer builds its issuer, endpoints and DPoP `htu` from it. `wrangler dev --local-upstream <host> --upstream-protocol https` also makes `request.url` carry it. |
 
 If `/interop/ca.pem` exists, the entrypoint adds it to the system trust store. workerd's outbound `fetch` trusts the system store, so Ilmer can fetch an agent's client metadata and JWKS through the proxy over TLS. Checked.
 
 ## Hooks
 
-Ilmer has no accounts, sign-in, staff or operations, so the only hook is `fixture` (no accounts, no scopes, a conversation prompt). Every other hook answers 501. `POST /reset` stops Wrangler, deletes its Durable Object state and starts it again (about 2 s).
+Ilmer has no accounts, sign-in, staff or operations, so the only hook is `fixture`: no accounts, no scopes, no APIs, `prompts.hello`, and `otp_account: null`. Every other hook answers 501, including `require_nonce`, `rate_limit` and `expire_tokens`: Ilmer has no DPoP nonces, its only limit is a daily prompt budget, and token lifetimes are fixed. Hook bodies and results are bare objects (spec 5.3). `POST /reset` stops Wrangler, deletes its Durable Object state and starts it again (about 2 s).
 
 Scenarios: `D`, `S0`, `C`, `CI`. Readings: S1 `token-endpoint`, S2 `jwt-60s` (`typ: JWT`, a `kid`, at most 60 s), S3 `either` (the issuer is a bare origin), S4 `omit`.
 

@@ -13,11 +13,12 @@ import { spawn } from 'node:child_process';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const ADAPTER_PORT = Number(process.env.ADAPTER_PORT ?? 8081);
-const ORIGIN = (process.env.POPPYSEED_BASE_URL ?? 'https://poppyseed.company.interop.test').replace(/\/+$/, '');
+// The runner sets INTEROP_ORIGIN (spec section 3); POPPYSEED_BASE_URL and the default are for running by hand.
+const ORIGIN = (process.env.INTEROP_ORIGIN ?? process.env.POPPYSEED_BASE_URL ?? 'https://poppyseed.company.interop.test').replace(/\/+$/, '');
 const SECRET = process.env.INTEROP_SECRET ?? '';
 const APP_DIR = '/opt/poppyseed/fixtures/next-app';
 const INNER = `http://127.0.0.1:${PORT}`;
-const COMMIT = 'f479fb6bd1754b9639440515f259e01936b0a18a';
+const COMMIT = process.env.INTEROP_COMMIT ?? 'f479fb6bd1754b9639440515f259e01936b0a18a';
 
 const MANIFEST = {
   interop: 1,
@@ -26,8 +27,10 @@ const MANIFEST = {
   commit: COMMIT,
   poppy: ['0.1'],
   extensions: ['operations'],
-  // N is left out: poppyseed never sends DPoP nonce challenges.
-  scenarios: ['D', 'S0', 'SD', 'SV', 'SM', 'SX', 'R', 'SE', 'SO', 'C', 'CI', 'CS', 'H', 'DC', 'AO', 'AM', 'AS', 'O', 'O2', 'OX', 'RL'],
+  // Not N, R or RL: poppyseed has no DPoP nonces, no way to expire issued tokens and no
+  // way to make the next requests answer 429, so require_nonce, expire_tokens and
+  // rate_limit answer 501.
+  scenarios: ['D', 'S0', 'SD', 'SV', 'SX', 'SXV', 'SM', 'SMC', 'SE', 'SO', 'C', 'CA', 'CI', 'CS', 'AO', 'AM', 'AS', 'O', 'OX'],
   readings: {
     // Each client assertion's aud is the endpoint it is sent to (token, revocation or device authorization).
     S1: 'token-endpoint',
@@ -41,7 +44,8 @@ const MANIFEST = {
   relaxations: [
     'fixtures/next-app hard-wires dev.allowInsecureClients: true (upstream, not a patch): http and private-address client_ids are accepted and metadata is fetched with the platform fetch, not safeFetch, so the proxy\'s private IP is not refused',
     'POPPYSEED_TEST_HOOKS=1 serves poppyseed\'s own test hooks at /test-hooks/{hook} (upstream, off by default)',
-    'POPPYSEED_BASE_URL sets the public origin (upstream setting)'
+    'POPPYSEED_BASE_URL (from INTEROP_ORIGIN) sets the public origin (upstream setting)',
+    'patches/0001-interop-hooks.patch, on only with POPPYSEED_INTEROP_HOOKS=1: two extra test hooks, interopEndAllSessions (end_sessions with no id) and interopConversation (propose_operation reads the operation the Company Agent proposed)'
   ]
 };
 
@@ -52,7 +56,7 @@ function startApp() {
   child = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '-H', '0.0.0.0', '-p', String(PORT)], {
     cwd: APP_DIR,
     stdio: 'inherit',
-    env: { ...process.env, POPPYSEED_BASE_URL: ORIGIN, POPPYSEED_TEST_HOOKS: '1' }
+    env: { ...process.env, POPPYSEED_BASE_URL: ORIGIN, POPPYSEED_TEST_HOOKS: '1', POPPYSEED_INTEROP_HOOKS: '1' }
   });
   child.on('exit', (code, signal) => console.log(`[adapter] next exited (${code ?? signal})`));
 }
@@ -194,11 +198,22 @@ const HOOKS = {
     return { code: await seedHook('lastCode') };
   },
   async end_sessions(params = {}) {
-    // poppyseed ends one Session by id (endSession(sessionId)); it can't enumerate them.
+    // poppyseed's own endSession ends one Session by id. With no id, the patched
+    // interopEndAllSessions hook ends every Session the store has held.
     const ids = params.session_id ? [params.session_id] : params.sessions ?? [];
-    if (!ids.length) throw new AdapterError(400, 'session_id_required', "poppyseed's endSession hook ends one Session by id; pass params.session_id (spec 5.3's end_sessions takes no parameters)");
+    if (!ids.length) return { ended: await seedHook('interopEndAllSessions') };
     for (const id of ids) await seedHook('endSession', id);
     return { ended: ids.length };
+  },
+  async propose_operation({ conversation }) {
+    // The scripted Company Agent proposes exchange_item when asked (prompts.operation);
+    // return the operation it attached to its message in that conversation.
+    if (typeof conversation !== 'string') throw new AdapterError(400, 'invalid_params', 'conversation is required');
+    const info = await seedHook('interopConversation', conversation);
+    if (!info) throw new AdapterError(404, 'conversation_not_found', conversation);
+    const proposed = [...(info.messages ?? [])].reverse().find(m => m.operation?.operation_id);
+    if (!proposed) throw new AdapterError(409, 'no_operation', 'Nothing proposed in this conversation: send fixture.prompts.operation signed in with poppy:write, from an agent that lists the operations extension');
+    return { operation: proposed.operation.operation_id };
   },
   async staff_join({ conversation, text }) {
     await seedHook('staffJoin', conversation);
@@ -216,22 +231,34 @@ const HOOKS = {
     return {};
   },
   async fixture() {
+    // From poppyseed's own TargetProfile. Each tool is one OpenAPI operation,
+    // POST /poppy/tools/{name} with the tool's input as the JSON body.
     const profile = await seedProfile();
     const d = await (await fetch(`${INNER}/.well-known/poppy.json`)).json();
-    const api = type => d.apis?.find(a => a.type === type)?.url;
+    const call = tool => ({ api: 'openapi', operation: tool.name, args: { body: tool.arguments } });
     return {
       accounts: ['alice', 'bob'],
       scopes: d.auth?.direct?.scopes ?? [],
-      openapi: { api: api('openapi'), operation: profile.publicTool.name, args: profile.publicTool.arguments },
-      mcp: { api: api('mcp'), tool: profile.publicTool.name, args: profile.publicTool.arguments },
-      scoped: profile.scopedTool,
-      conversations: profile.conversations,
-      // The whole poppyseed TargetProfile, for scenarios that want more.
+      openapi: call(profile.scopedTool), // private_echo, poppy:read
+      openapi_public: call(profile.publicTool), // echo, signed out
+      openapi_write: call(profile.writeTool), // write_note, poppy:write
+      mcp: { api: 'mcp', tool: profile.publicTool.name, args: profile.publicTool.arguments },
+      prompts: {
+        hello: profile.conversations.hello,
+        // The Company Agent calls private_echo (poppy:read): sign_in_required when signed out.
+        sign_in: profile.conversations.accountRequest,
+        // The Company Agent proposes exchange_item (poppy:write) when signed in.
+        operation: profile.conversations.operationRequest
+      },
+      // bob's Mediated Sign-In always asks for a one-time code.
+      otp_account: 'bob',
+      // The whole poppyseed TargetProfile, for anything else.
       poppyseed_profile: profile
     };
   }
-  // propose_operation: no hook. Operations are proposed by the Company Agent when a
-  // conversation asks for one (fixture().conversations.operationRequest), not by staff.
+  // require_nonce, rate_limit and expire_tokens: 501. poppyseed has no DPoP nonces, its
+  // rate limits are fixed windows set at startup, and issued tokens are sealed with
+  // their expiry.
 };
 
 // --- HTTP ----------------------------------------------------------------------------
@@ -269,8 +296,8 @@ http.createServer(async (req, res) => {
     if (req.method === 'POST' && m) {
       const hook = HOOKS[m[1]];
       if (!hook) return send(res, 501, { error: 'unsupported', detail: `hook ${m[1]} is not supported by poppyseed` });
-      const body = await readJson(req);
-      return send(res, 200, { ok: true, result: await hook(body.params ?? body) });
+      // Bare params in, bare result out (spec 5.3).
+      return send(res, 200, await hook(await readJson(req)));
     }
     send(res, 404, { error: 'not_found', detail: `${req.method} ${path}` });
   } catch (e) {

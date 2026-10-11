@@ -21,8 +21,8 @@ COPY wrangler.jsonc /opt/ilmer/agent/wrangler.jsonc
 COPY adapter.mjs entrypoint.sh /interop-adapter/
 RUN chmod +x /interop-adapter/entrypoint.sh
 
+# The public origin comes from INTEROP_ORIGIN (default https://ilmer.company.interop.test).
 ENV PORT=8080 \
-    ADAPTER_PORT=8081 \
-    ILMER_ORIGIN=https://ilmer.company.interop.test
+    ADAPTER_PORT=8081
 EXPOSE 8080 8081
 ENTRYPOINT ["/interop-adapter/entrypoint.sh"]

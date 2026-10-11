@@ -11,12 +11,13 @@ import { rm } from 'node:fs/promises';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const ADAPTER_PORT = Number(process.env.ADAPTER_PORT ?? 8081);
-const ORIGIN = (process.env.ILMER_ORIGIN ?? 'https://ilmer.company.interop.test').replace(/\/+$/, '');
+// The runner sets INTEROP_ORIGIN (spec section 3); ILMER_ORIGIN and the default are for running by hand.
+const ORIGIN = (process.env.INTEROP_ORIGIN ?? process.env.ILMER_ORIGIN ?? 'https://ilmer.company.interop.test').replace(/\/+$/, '');
 const SECRET = process.env.INTEROP_SECRET ?? '';
 const APP_DIR = '/opt/ilmer/agent';
 const STATE = '/tmp/ilmer-state';
 const INNER = `http://127.0.0.1:${PORT}`;
-const COMMIT = '4ca76e0026a1fa442f9430eddba61e82e6e4c9b4';
+const COMMIT = process.env.INTEROP_COMMIT ?? '4ca76e0026a1fa442f9430eddba61e82e6e4c9b4';
 
 const MANIFEST = {
   interop: 1,
@@ -88,14 +89,17 @@ async function waitReady(ms = 60000) {
 
 const HOOKS = {
   async fixture() {
-    const d = await (await fetch(`${INNER}/.well-known/poppy.json`)).json();
+    // Signed out only: no accounts, no APIs (discovery lists none), no sign-in or
+    // operation prompts. Replies are Ilmer's fixed offline apology (no Workers AI here).
     return {
       accounts: [],
       scopes: [],
-      conversations: { hello: 'Who built St Peter\'s Church in Ilmer?', endpoint: d.agent?.protocols?.[0]?.endpoint },
-      notes: 'Signed out only. Replies are the fixed offline apology, because the container has no Workers AI.'
+      prompts: { hello: "Who built St Peter's Church in Ilmer?" },
+      otp_account: null
     };
   }
+  // require_nonce, rate_limit, expire_tokens: 501. Ilmer has no DPoP nonces, its only
+  // limit is a daily prompt budget, and token lifetimes are fixed.
 };
 
 // --- HTTP ----------------------------------------------------------------------------
@@ -133,8 +137,8 @@ http.createServer(async (req, res) => {
     if (req.method === 'POST' && m) {
       const hook = HOOKS[m[1]];
       if (!hook) return send(res, 501, { error: 'unsupported', detail: `Ilmer Past has no ${m[1]}: it is a signed-out Company with no accounts, staff or operations` });
-      const body = await readJson(req);
-      return send(res, 200, { ok: true, result: await hook(body.params ?? body) });
+      // Bare params in, bare result out (spec 5.3).
+      return send(res, 200, await hook(await readJson(req)));
     }
     send(res, 404, { error: 'not_found', detail: `${req.method} ${path}` });
   } catch (e) {

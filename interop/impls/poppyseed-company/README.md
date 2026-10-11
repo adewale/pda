@@ -4,7 +4,7 @@ poppyseed's reference Company, served by its Next.js fixture app (`fixtures/next
 
 - **Upstream:** [akshay5995/poppyseed](https://github.com/akshay5995/poppyseed), MIT licence. The Dockerfile clones it at a pinned commit; nothing is vendored here.
 - **Pinned commit:** `f479fb6bd1754b9639440515f259e01936b0a18a` (11 Oct 2026).
-- **Patches:** none.
+- **Patches:** one, [`patches/0001-interop-hooks.patch`](patches/0001-interop-hooks.patch), applied in the image. It adds two test hooks to the fixture app, on only with `POPPYSEED_TEST_HOOKS=1` and `POPPYSEED_INTEROP_HOOKS=1`: `interopEndAllSessions`, which ends every Session the memory store has held, and `interopConversation`, which reads a conversation through poppyseed's own staff inbox (`conversations.get`).
 
 ## Run
 
@@ -21,7 +21,8 @@ docker run -e INTEROP_SECRET=... [-v ca.pem:/interop/ca.pem] poppyseed-company
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `INTEROP_SECRET` | none | Bearer secret for every control request except `/manifest` and `/healthz`. Without it they all answer 401. |
-| `POPPYSEED_BASE_URL` | `https://poppyseed.company.interop.test` | The public origin. poppyseed builds every URL and DPoP `htu` from it, never from the inner request. |
+| `INTEROP_ORIGIN` | `https://poppyseed.company.interop.test` | The public origin, set by the runner; passed to the app as `POPPYSEED_BASE_URL`. poppyseed builds every URL and DPoP `htu` from it, never from the inner request. |
+| `INTEROP_COMMIT` | the pinned commit | Reported in the manifest. |
 | `POPPYSEED_SECRET` | a fixed interop-only value | Seals tokens. |
 
 If `/interop/ca.pem` exists, the entrypoint adds it to the system trust store and sets `NODE_EXTRA_CA_CERTS`, so the Company can fetch client metadata through the proxy.
@@ -36,13 +37,14 @@ Each hook maps to poppyseed's own test hooks (`POST /test-hooks/{hook}` with `{"
 | `approve_device`, `deny_device` | `siteSignIn`, then the device page: enter `user_code`, then approve or decline. |
 | `mediated_answers` | The profile's credentials: alice signs in directly; bob always needs a one-time code. |
 | `last_one_time_code` | `lastCode()`. |
-| `end_sessions` | `endSession(id)`. poppyseed ends one Session by id and can't list them, so this needs `params.session_id` (or `sessions: [...]`) and answers 400 without it. |
+| `end_sessions` | With no params (as in the spec), the patched `interopEndAllSessions`: every Session the store has held. With `session_id`, poppyseed's own `endSession(id)`. |
 | `staff_join`, `staff_reply` | `staffJoin(id)` (then `staffReply` if `text` is given), `staffReply(id, text)`. |
 | `settle_operation` | `settle(id, state, summary)`; `outcome` is `succeeded`, `failed` or `cancelled`. |
-| `fixture` | Accounts `alice` and `bob`, the Direct scopes, the `echo` tool by MCP and OpenAPI, the conversation prompts, and poppyseed's whole `TargetProfile` as `poppyseed_profile`. |
-| `propose_operation` | 501. Operations are proposed by the scripted Company Agent when a conversation asks for one (`fixture.conversations.operationRequest`). |
+| `fixture` | Accounts `alice` and `bob`; the Direct scopes; `openapi` `private_echo` (`poppy:read`), `openapi_public` `echo`, `openapi_write` `write_note` (`poppy:write`), each `POST /poppy/tools/{name}` with the input as `args.body`; `mcp` `echo`; `prompts` `hello`, `sign_in` ("What are my notes?": the Company Agent calls `private_echo`, so signed out it answers `sign_in_required`) and `operation` (the Company Agent proposes `exchange_item`); `otp_account` `bob`; poppyseed's whole `TargetProfile` as `poppyseed_profile`. |
+| `propose_operation` | The scripted Company Agent proposes when asked (`prompts.operation`); this reads the conversation with the patched `interopConversation` and returns the operation on its latest message. The agent must list the operations extension, or poppyseed leaves the operation off the message. |
+| `require_nonce`, `rate_limit`, `expire_tokens` | 501. poppyseed has no DPoP nonces, its rate limits are fixed windows set at startup, and tokens are sealed with their expiry. |
 
-Hook bodies may be the params object or `{"params": {...}}`. Results are `{"ok": true, "result": {...}}`.
+Hook bodies are the bare params object and results the bare result object (spec 5.3), as the runner reads them.
 
 `POST /reset` restarts `next start`: everything lives in the fixture's in-memory store, so a restart forgets every Session, token, conversation and rate-limit counter (about 2 s).
 
@@ -50,11 +52,12 @@ Accounts are `alice` and `bob`; `acct_alice` and `alice@reference.test` are acce
 
 ## Relaxations
 
-None are patches. All are upstream settings the fixture app already has:
+Upstream settings the fixture app already has, and one patch:
 
 - `fixtures/next-app` hard-wires `dev.allowInsecureClients: true`. That accepts `http` and private-address `client_id`s, and fetches metadata with the platform `fetch` rather than poppyseed's `safeFetch`, which refuses private addresses at connect time. In the grid the proxy has a private IP, so without this setting poppyseed would refuse every agent. A production poppyseed site with `allowInsecureClients: false` couldn't join the local lane without a resolver-level exception.
 - `POPPYSEED_TEST_HOOKS=1` turns on the test hooks (off by default).
-- `POPPYSEED_BASE_URL` sets the public origin.
+- `POPPYSEED_BASE_URL` (from `INTEROP_ORIGIN`) sets the public origin.
+- The patch's two test hooks, behind `POPPYSEED_INTEROP_HOOKS=1` (off by default).
 
 ## What works
 
@@ -70,7 +73,6 @@ Checked by hand on a private network with a stand-in TLS proxy and a per-run CA,
 
 - No DPoP nonce challenges, so scenario `N` isn't claimed.
 - `wait` is honoured on `GET …/events` only. A `POST` with `?wait=25` answers at once with `status: working`, and the reply arrives in a later read.
-- `end_sessions` needs a Session id; see above.
 
 ## `poppyseed check` against any 5.3 adapter
 

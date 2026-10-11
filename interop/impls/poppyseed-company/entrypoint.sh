@@ -11,5 +11,6 @@ fi
 # poppyseed's fixture app reads these at startup. The secret seals tokens; any
 # per-run value of 32+ characters works.
 export POPPYSEED_TEST_HOOKS=1
+export POPPYSEED_INTEROP_HOOKS=1
 export POPPYSEED_SECRET="${POPPYSEED_SECRET:-interop-only-secret-interop-only-secret-0}"
 exec node /interop-adapter/adapter.mjs
