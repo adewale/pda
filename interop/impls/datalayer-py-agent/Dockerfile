@@ -1,6 +1,6 @@
 # Datalayer's Python Personal Agent SDK behind the interop control adapter.
 # The upstream source is fetched at a pinned commit; nothing upstream is vendored here.
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 ARG UPSTREAM=https://github.com/datalayer/personal-agent-protocol
 ARG UPSTREAM_COMMIT=12d71877d477b93f3ee68ebdc542560ba85997b9

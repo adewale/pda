@@ -5,7 +5,7 @@
 # ("chore: version packages" commits); the build clones both repositories at those commits
 # and fails unless each package.json names the version installed, so the image runs exactly
 # the pinned source as its authors built it. Nothing upstream is vendored into this repository.
-FROM node:24.21.0-bookworm-slim AS build
+FROM node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS build
 ARG AUTHKIT_COMMIT=97838853c44e55c5d4c71ac5741f26fc34f720dc
 ARG AGENT_COMMIT=e66a2329d436f603dd7c57a0ca81b36e65bd486f
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 make g++ \
@@ -24,7 +24,7 @@ if(a.version!==want['@adonis-agora/authkit-server']||g.version!==want['@adonis-a
 console.log('authkit-server',a.version,'agent',g.version,'match the pinned commits')"
 RUN npm install --legacy-peer-deps --no-audit --no-fund --omit=dev && npm ls --depth=0
 
-FROM node:24.21.0-bookworm-slim
+FROM node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
