@@ -149,6 +149,11 @@ export function readOnlyScope(sessionScope: string | undefined, op: OpenApiOpera
   return [...wanted].join(" ");
 }
 
+/** A parameter the call gives: its own member, never one every object inherits (`constructor`, `toString`). */
+function given(params: OpenApiCall["params"], name: string): OpenApiCall["params"][string] | undefined {
+  return Object.hasOwn(params, name) ? params[name] : undefined;
+}
+
 /**
  * The operation's path with its templates filled from the call's arguments,
  * after checking the required parameters are there. A template the
@@ -157,14 +162,15 @@ export function readOnlyScope(sessionScope: string | undefined, op: OpenApiOpera
  * only reach the wrong resource. So is a value that fills a whole segment
  * with nothing, `.` or `..`.
  */
+
 export function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
   for (const parameter of op.parameters) {
-    if (parameter.required && params[parameter.name] === undefined) {
+    if (parameter.required && given(params, parameter.name) === undefined) {
       throw new PoppyError("invalid_request", `Missing parameter ${parameter.name}`, 0);
     }
   }
   const filled = op.path.replace(/\{([^{}/]+)\}/g, (template, name: string) => {
-    const value = params[name];
+    const value = given(params, name);
     return value === undefined ? template : encodeURIComponent(String(value));
   });
   const unfilled = [...filled.matchAll(/\{([^{}/]*)\}/g)].map((match) => match[1]);
@@ -221,7 +227,7 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
   }
   const path = pathFor(op, call.params);
   for (const parameter of op.parameters) {
-    const value = call.params[parameter.name];
+    const value = given(call.params, parameter.name);
     if (parameter.in === "query" && value !== undefined) url.searchParams.set(parameter.name, String(value));
   }
   url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;

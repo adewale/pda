@@ -78,8 +78,10 @@ describe("scenario references (interop spec 6)", () => {
     "refuses, strictly, a reference to nothing",
     property((tc) => {
       const values = tc.draw(saved);
-      const missing = tc.draw(gs.fromRegex("[A-Za-z_][A-Za-z0-9_-]{0,8}", { fullmatch: true }));
-      tc.assume(!(missing in values));
+      const name = tc.draw(gs.fromRegex("[A-Za-z_][A-Za-z0-9_-]{0,8}", { fullmatch: true }));
+      // A name saved nowhere, or one missing from inside a saved value (or under a value that has no members).
+      const missing = tc.draw(gs.oneOf(gs.just(name), pathInto(values).map(([path]) => `${path}.${name}`)));
+      tc.assume(lookup(missing, values) === undefined);
       const text = tc.draw(gs.booleans()) ? `\${${missing}}` : `x \${${missing}.y}`;
       expect(() => interpolate(text, values)).toThrow(ScenarioError);
     })
@@ -111,44 +113,96 @@ describe("scenario references (interop spec 6)", () => {
 });
 
 describe("reading the recording (interop/runner/har.ts)", () => {
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const objects = (depth: number) => gs.maps(gs.text({ maxSize: 6 }), jsonValues(depth), { maxSize: 4 }).map((map) => Object.fromEntries(map) as Json);
+
   it(
-    "decodes any compact JWS's header and claims, and gives null for anything that isn't one",
+    "decodes any compact JWS's header and claims",
     property((tc) => {
-      const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
-      const header = tc.draw(gs.maps(gs.text({ maxSize: 6 }), jsonValues(1), { maxSize: 3 }).map((map) => Object.fromEntries(map)));
-      const payload = tc.draw(gs.maps(gs.text({ maxSize: 6 }), jsonValues(2), { maxSize: 4 }).map((map) => Object.fromEntries(map)));
+      const header = tc.draw(objects(1));
+      const payload = tc.draw(objects(2));
       const signature = Buffer.from(tc.draw(gs.binary({ maxSize: 64 }))).toString("base64url");
       // What the token carries is the JSON text: -0 becomes 0.
       const carried = JSON.parse(JSON.stringify({ header, payload })) as unknown;
       expect(decodeJwt(`${encode(header)}.${encode(payload)}.${signature}`)).toStrictEqual(carried);
-      const junk = tc.draw(gs.text({ maxSize: 40 }));
-      const decoded = decodeJwt(junk);
-      if (decoded !== null) expect(junk.split(".")).toHaveLength(3);
     })
   );
 
   it(
-    "reads the Authorization scheme and token, and joins repeated headers whatever their case",
+    "gives null for three segments whose header or claims aren't a JSON object",
     property((tc) => {
-      const scheme = tc.draw(gs.sampledFrom(["DPoP", "Bearer", "Basic"]));
-      const token = tc.draw(gs.fromRegex("[A-Za-z0-9._~+/-]{1,40}=*", { fullmatch: true }));
-      const extra = tc.draw(gs.arrays(gs.text({ alphabet: "abcdefghijklmnopqrstuvwxyz0123456789", minSize: 1, maxSize: 8 }), { maxSize: 3 }));
-      const spell = (name: string) => [...name].map((char) => (tc.draw(gs.booleans()) ? char.toUpperCase() : char)).join("");
-      const entry: HarEntry = {
-        startedDateTime: new Date(tc.draw(gs.integers({ minValue: 0, maxValue: 4_000_000_000_000 }))).toISOString(),
-        time: tc.draw(gs.integers({ minValue: 0, maxValue: 100_000 })),
-        request: {
-          method: "GET",
-          url: "https://api.shop.company.interop.test/x",
-          headers: [{ name: spell("authorization"), value: `${scheme} ${token}` }, ...extra.map((value) => ({ name: spell("x-extra"), value }))]
-        },
-        response: { status: 200, headers: [], content: { mimeType: "application/json" } }
-      };
-      const [exchange] = exchanges({ log: { entries: [entry] } } satisfies Har);
-      expect(authorization(exchange!)).toEqual({ scheme, token });
-      expect(exchange!.requestHeaders.get("x-extra")).toBe(extra.length ? extra.join(", ") : undefined);
-      expect(exchange!.direction).toBe("to-company");
-      expect(exchange!.ended - exchange!.started).toBe(entry.time);
+      const notObject = gs.oneOf<string>(
+        jsonValues(2).filter((value) => value === null || typeof value !== "object" || Array.isArray(value)).map(encode),
+        gs.text({ maxSize: 20 }).map((text) => Buffer.from(text).toString("base64url")),
+        gs.text({ maxSize: 20, excludeCharacters: "." })
+      );
+      const good = encode(tc.draw(objects(1)));
+      const bad = tc.draw(notObject);
+      tc.assume(bad.split(".").length === 1);
+      // Some text is a JSON object after all, base64url-decoded: that one is a JWS.
+      tc.assume((() => {
+        try {
+          const value: unknown = JSON.parse(Buffer.from(bad, "base64url").toString("utf8"));
+          return value === null || typeof value !== "object" || Array.isArray(value);
+        } catch {
+          return true;
+        }
+      })());
+      const token = tc.draw(gs.booleans()) ? `${bad}.${good}.sig` : `${good}.${bad}.sig`;
+      expect(decodeJwt(token)).toBeNull();
+    })
+  );
+
+  it(
+    "gives null for anything that isn't three dot-separated segments",
+    property((tc) => {
+      const segments = tc.draw(gs.arrays(gs.text({ maxSize: 12, excludeCharacters: "." }), { maxSize: 6 }).filter((parts) => parts.length !== 3));
+      expect(decodeJwt(segments.join("."))).toBeNull();
+    })
+  );
+
+  /** One recorded request, with headers named in any case. */
+  const recorded = gs.composite((tc) => {
+    const scheme = tc.draw(gs.sampledFrom(["DPoP", "Bearer", "Basic"]));
+    const token = tc.draw(gs.fromRegex("[A-Za-z0-9._~+/-]{1,40}=*", { fullmatch: true }));
+    const extra = tc.draw(gs.arrays(gs.text({ alphabet: "abcdefghijklmnopqrstuvwxyz0123456789", minSize: 1, maxSize: 8 }), { maxSize: 3 }));
+    const spell = (name: string) => [...name].map((char) => (tc.draw(gs.booleans()) ? char.toUpperCase() : char)).join("");
+    const entry: HarEntry = {
+      startedDateTime: new Date(tc.draw(gs.integers({ minValue: 0, maxValue: 4_000_000_000_000 }))).toISOString(),
+      time: tc.draw(gs.integers({ minValue: 0, maxValue: 100_000 })),
+      request: {
+        method: "GET",
+        url: "https://api.shop.company.interop.test/x",
+        headers: [{ name: spell("authorization"), value: `${scheme} ${token}` }, ...extra.map((value) => ({ name: spell("x-extra"), value }))]
+      },
+      response: { status: 200, headers: [], content: { mimeType: "application/json" } }
+    };
+    const [exchange] = exchanges({ log: { entries: [entry] } } satisfies Har);
+    return { scheme, token, extra, entry, exchange: exchange! };
+  });
+
+  it(
+    "reads the Authorization scheme and token, whatever the header's case",
+    property((tc) => {
+      const { scheme, token, exchange } = tc.draw(recorded);
+      expect(authorization(exchange)).toEqual({ scheme, token });
+    })
+  );
+
+  it(
+    "joins repeated request headers, whatever their case",
+    property((tc) => {
+      const { extra, exchange } = tc.draw(recorded);
+      expect(exchange.requestHeaders.get("x-extra")).toBe(extra.length ? extra.join(", ") : undefined);
+    })
+  );
+
+  it(
+    "places a request to a Company host as to-company, lasting the entry's time",
+    property((tc) => {
+      const { entry, exchange } = tc.draw(recorded);
+      expect(exchange.direction).toBe("to-company");
+      expect(exchange.ended - exchange.started).toBe(entry.time);
     })
   );
 });

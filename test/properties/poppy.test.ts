@@ -8,7 +8,7 @@ import { highlights } from "../../src/poppy/operations";
 import { chooseSignInType, deviceLink } from "../../src/poppy/signin";
 import { cacheSeconds as validatorCacheSeconds, isPublicHost, metadataUrl } from "../../src/validator/fetch";
 import { hosts, SCOPE_ALPHABET } from "./companies";
-import { gs, jsonValues, property, propertyAsync } from "./hegel";
+import { gs, jsonValues, property, propertyAsync, type Json } from "./hegel";
 
 /** The pure parts of the Poppy client, each against its documented contract, in both directions. */
 
@@ -66,10 +66,9 @@ describe("scopes (4.4, 4.8)", () => {
   it(
     "chooses Direct, then Device, then Mediated: the first offered type that can grant every scope (Guides)",
     property((tc) => {
-      const offered = (type: string) => tc.draw(gs.optional(gs.arrays(gs.sampledFrom(["poppy:read", "poppy:write", "addresses"]), { maxSize: 3 }))) ?? (type ? null : null);
       const signIn = Object.fromEntries(
         (["direct", "device", "mediated"] as const).flatMap((type) => {
-          const scopes = offered(type);
+          const scopes = tc.draw(gs.optional(gs.arrays(gs.sampledFrom(["poppy:read", "poppy:write", "addresses"]), { maxSize: 3 })));
           return scopes ? [[type, type === "mediated" ? { endpoint: "https://a.example/m", fields: [], scopes } : { scopes }]] : [];
         })
       ) as Company["signIn"];
@@ -80,6 +79,13 @@ describe("scopes (4.4, 4.8)", () => {
   );
 });
 
+const NQSCHAR = String.fromCharCode(
+  0x20,
+  0x21,
+  ...Array.from({ length: 0x5b - 0x23 + 1 }, (_, i) => 0x23 + i),
+  ...Array.from({ length: 0x7e - 0x5d + 1 }, (_, i) => 0x5d + i)
+);
+
 /** An RFC 9110 quoted-string. */
 function quoted(text: string): string {
   return `"${text.replace(/[\\"]/g, (char) => `\\${char}`)}"`;
@@ -89,10 +95,13 @@ describe("WWW-Authenticate (RFC 6750, RFC 9449)", () => {
   it(
     "reads error and scope from a challenge, whatever order its parameters come in and whatever the description says",
     property((tc) => {
-      const error = tc.draw(gs.fromRegex("[a-z_]{1,20}", { fullmatch: true }));
-      const scope = tc.draw(gs.arrays(scopeTokens.filter((token) => !token.includes('"') && !token.includes("\\")), { minSize: 1, maxSize: 3 })).join(" ");
+      // RFC 6750 §3: error is 1*NQSCHAR (%x20-21 / %x23-5B / %x5D-7E); scope is scope-tokens joined by spaces.
+      const error = tc.draw(gs.text({ alphabet: NQSCHAR, minSize: 1, maxSize: 20 }));
+      const scope = tc.draw(gs.arrays(scopeTokens, { minSize: 1, maxSize: 3 })).join(" ");
       const params = [`error=${quoted(error)}`, `scope=${quoted(scope)}`];
-      if (tc.draw(gs.booleans())) params.push(`error_description=${quoted(tc.draw(gs.text({ maxSize: 40 })))}`);
+      // Any description, and hostile ones: quotes, backslashes and text that looks like the other parameters.
+      const descriptions = gs.oneOf(gs.text({ maxSize: 40 }), gs.arrays(gs.sampledFrom(['"', "\\", "=", ",", " ", "error", "scope", "x"]), { maxSize: 10 }).map((parts) => parts.join("")));
+      if (tc.draw(gs.booleans())) params.push(`error_description=${quoted(tc.draw(descriptions))}`);
       if (tc.draw(gs.booleans())) params.push(`algs=${quoted("ES256 RS256")}`);
       const order = tc.draw(gs.arrays(gs.integers({ minValue: 0, maxValue: 1000 }), { minSize: params.length, maxSize: params.length }));
       const shuffled = params.map((param, index) => [order[index]!, param] as const).sort((a, b) => a[0] - b[0]).map(([, param]) => param);
@@ -167,11 +176,25 @@ describe("Retry-After (RFC 9110 §10.2.3; spec 4.3)", () => {
       expect(parseRateLimit(header)).toEqual({ remaining, reset });
     })
   );
+
+  it(
+    "reads no RateLimit from a header that gives only one of remaining and reset, in either form",
+    property((tc) => {
+      const n = tc.draw(gs.integers({ minValue: 0, maxValue: 1_000_000 }));
+      const header = tc.draw(gs.sampledFrom([`limit=100, remaining=${n}`, `limit=100, reset=${n}`, `"default";r=${n}`, `"default";t=${n}`]));
+      expect(parseRateLimit(header)).toBeNull();
+    })
+  );
 });
 
 /** A path template of literal and `{name}` segments, and values for its names. */
 const templates = gs.composite((tc) => {
-  const names = [...tc.draw(gs.sets(gs.fromRegex("[a-z_][a-z0-9_]{0,10}", { fullmatch: true }), { maxSize: 3 }))];
+  // A template names anything but braces and slashes, the names every object inherits included.
+  const name = gs.oneOf(
+    gs.text({ minSize: 1, maxSize: 10 }).filter((text) => !/[{}/]/.test(text)),
+    gs.sampledFrom(["order_id", "constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"])
+  );
+  const names = [...tc.draw(gs.sets(name, { maxSize: 3 }))];
   const literals = tc.draw(gs.arrays(gs.fromRegex("[a-z0-9_-]{1,10}", { fullmatch: true }), { maxSize: 3 }));
   const segments = tc.draw(gs.arrays(gs.integers({ minValue: 0, maxValue: 1000 }), { minSize: names.length + literals.length, maxSize: names.length + literals.length }))
     .map((rank, index) => [rank, index < names.length ? `{${names[index]}}` : literals[index - names.length]!] as const)
@@ -209,7 +232,7 @@ describe("OpenAPI path templates (spec 6)", () => {
       const resolved = new URL(filled, "https://api.example.com").pathname.split("/").slice(1).filter((segment, index, all) => all.length > 1 || segment !== "");
       expect(resolved).toHaveLength(segments.length);
       segments.forEach((segment, index) => {
-        const name = /^\{(.+)\}$/.exec(segment)?.[1];
+        const name = /^\{([^]+)\}$/.exec(segment)?.[1];
         expect(decodeURIComponent(resolved[index]!)).toBe(name === undefined ? segment : String(values[name]));
       });
     })
@@ -278,27 +301,27 @@ describe("fetching what Companies control (Guides, 'Fetching metadata safely')",
     })
   );
 
-  it(
-    "a host and its fully qualified form, with the root's trailing dot, are refused alike",
-    property((tc) => {
-      const host = tc.draw(hostnames);
-      tc.assume(!host.startsWith("["));
-      const plain = new URL(`https://${host}/`);
-      const rooted = new URL(`https://${host}./`);
-      expect(clientRefuses(rooted)).toBe(clientRefuses(plain));
-      expect(isPublicHost(rooted)).toBe(isPublicHost(plain));
-    })
-  );
+  for (const [checker, refuses] of [
+    ["the client", clientRefuses],
+    ["the validator", (url: URL) => !isPublicHost(url)]
+  ] as const) {
+    it(
+      `${checker} refuses a host and its fully qualified form, with the root's trailing dot, alike`,
+      property((tc) => {
+        const host = tc.draw(hostnames);
+        tc.assume(!host.startsWith("["));
+        expect(refuses(new URL(`https://${host}./`))).toBe(refuses(new URL(`https://${host}/`)));
+      })
+    );
 
-  it(
-    "refuses every IP literal",
-    property((tc) => {
-      const address = tc.draw(gs.ipAddresses());
-      const url = new URL(`https://${address.includes(":") ? `[${address}]` : address}/`);
-      expect(clientRefuses(url)).toBe(true);
-      expect(isPublicHost(url)).toBe(false);
-    })
-  );
+    it(
+      `${checker} refuses every IP literal`,
+      property((tc) => {
+        const address = tc.draw(gs.ipAddresses());
+        expect(refuses(new URL(`https://${address.includes(":") ? `[${address}]` : address}/`))).toBe(true);
+      })
+    );
+  }
 
   it(
     "reads a body of at most maxBytes as UTF-8, and refuses anything longer or not UTF-8 with a PoppyFetchError",
@@ -388,6 +411,7 @@ function companyAt(domain: string): Company {
     endpoints: {
       token: `https://auth.${domain}/oauth/token`,
       revocation: `https://auth.${domain}/oauth/revoke`,
+      authorization: `https://auth.${domain}/oauth/authorize`,
       deviceAuthorization: `https://login.${domain}/device`
     },
     signIn: { mediated: { endpoint: `https://auth.${domain}/poppy/sign-in`, fields: [], scopes: [] } },
@@ -439,7 +463,16 @@ describe("Poppy endpoints never reached through an API tool (Ops 5.1, 7.8)", () 
       const domain = tc.draw(hosts).toLowerCase();
       const company = companyAt(domain);
       const endpoint = tc.draw(
-        gs.sampledFrom([company.endpoints.token, company.endpoints.revocation, company.conversations!.endpoint, company.extensions.operations!.endpoint, company.signIn.mediated!.endpoint])
+        gs.sampledFrom([
+          company.endpoints.token,
+          company.endpoints.revocation,
+          company.endpoints.authorization!,
+          company.endpoints.deviceAuthorization!,
+          company.signIn.mediated!.endpoint,
+          company.conversations!.endpoint,
+          company.extensions.operations!.endpoint,
+          company.web!.browserSessionEndpoint!
+        ])
       );
       const url = new URL(endpoint);
       const spelledPath = [...url.pathname]
@@ -465,24 +498,98 @@ describe("Poppy endpoints never reached through an API tool (Ops 5.1, 7.8)", () 
   );
 });
 
+/** The words that make a boolean term the Company's word on undoing the action, as `highlights` documents them. */
+const REVERSIBILITY = /(reversible|undo|cancellable|refundable)/i;
+const reversibilityKeys = gs.sampledFrom(["reversible", "undo", "cancellable", "refundable", "Reversible", "UNDO", "is_reversible", "can_undo", "cancellable_until", "refundable_items"]);
+
+/** Keys an operation's terms use, and any other text. */
+const termKeys = gs.oneOf(
+  gs.sampledFrom(["amount", "currency", "price", "total", "items", "delivery", "date", "expires_at", "condition", "restocking_fee", "reversible", "refundable", "cancellable", "undo"]),
+  gs.text({ maxSize: 12 })
+);
+/** Keys that never name a reversibility flag. */
+const silentKeys = termKeys.filter((key) => !REVERSIBILITY.test(key));
+
+/** Money as terms carry it: an amount (any number or string), maybe a currency (or something that isn't one), maybe more. */
+const money = gs.composite((tc) => {
+  const value: Record<string, Json> = {
+    amount: tc.draw(gs.oneOf<Json>(gs.floats({ allowNan: false, allowInfinity: false }), gs.integers({ minValue: Number.MIN_SAFE_INTEGER, maxValue: Number.MAX_SAFE_INTEGER }), gs.text()))
+  };
+  if (tc.draw(gs.booleans())) value.currency = tc.draw(gs.oneOf<Json>(gs.sampledFrom(["GBP", "EUR", "USD"]), gs.text(), jsonValues(0)));
+  for (const [key, item] of tc.draw(gs.maps(termKeys, jsonValues(1), { maxSize: 2 }))) if (key !== "amount" && key !== "currency") value[key] = item;
+  return value as Json;
+});
+
+/** Terms in the shapes Companies send, money included, with member names from `keys`; `depth` bounds the value where it is built. */
+function termsOf(keys: gs.Generator<string>, depth = 4): gs.Generator<Json> {
+  const leaf = gs.oneOf<Json>(jsonValues(0), money);
+  if (depth === 0) return leaf;
+  const inner = termsOf(keys, depth - 1);
+  return gs.oneOf<Json>(leaf, gs.arrays(inner, { maxSize: 4 }), gs.maps(keys, inner, { maxSize: 4 }).map((map) => Object.fromEntries(map)));
+}
+
+/** Where in terms something sits: member names (none an amount or a reversibility flag) and array indices. */
+const termPaths = gs.arrays(gs.oneOf<string | number>(silentKeys.filter((key) => key !== "amount"), gs.integers({ minValue: 0, maxValue: 3 })), { maxSize: 4 });
+
+/** `value` at `path`: inside objects with that member, and arrays with it at that index (earlier items null). */
+function placed(path: readonly (string | number)[], value: Json): Json {
+  return path.reduceRight<Json>((inner, segment) => (typeof segment === "number" ? [...Array<Json>(segment).fill(null), inner] : { [segment]: inner }), value);
+}
+
+/** How a card names a place in terms: `a.b[0].c`, or `amount` for the terms themselves. */
+function where(path: readonly (string | number)[]): string {
+  return path.reduce<string>((at, segment) => (typeof segment === "number" ? `${at}[${segment}]` : at ? `${at}.${segment}` : segment), "") || "amount";
+}
+
+function costLine(path: readonly (string | number)[], value: { readonly amount?: Json; readonly currency?: Json }): string {
+  return `Cost (${where(path)}): ${String(value.amount)}${typeof value.currency === "string" ? ` ${value.currency}` : ""}`;
+}
+
+const UNDONE = { true: "The company says this can be undone.", false: "The company says this can't be undone." } as const;
+const UNSAID = "The company hasn't said whether this can be undone.";
+
 describe("operation highlights (Guides, Operations)", () => {
   it(
-    "names every cost in terms, and ends by saying whether the action can be undone, for any terms",
+    "names an amount, wherever it sits, as `Cost (<where>): <amount> <currency>`",
     property((tc) => {
-      const terms = tc.draw(jsonValues(4));
-      const found = highlights(terms);
-      expect(found.at(-1)).toMatch(/undone/);
-      const amounts: string[] = [];
-      const walk = (value: unknown) => {
-        if (Array.isArray(value)) value.forEach(walk);
-        else if (typeof value === "object" && value !== null) {
-          const record = value as Record<string, unknown>;
-          if (typeof record.amount === "string" || typeof record.amount === "number") amounts.push(String(record.amount));
-          else Object.values(record).forEach(walk);
-        }
+      const path = tc.draw(termPaths);
+      const value = tc.draw(money) as Record<string, Json>;
+      expect(highlights(placed(path, value)).filter((line) => line.startsWith("Cost ("))).toEqual([costLine(path, value)]);
+    })
+  );
+
+  it(
+    "names every amount in any terms, in order, and nothing inside an amount's own object",
+    property((tc) => {
+      const value = tc.draw(termsOf(termKeys));
+      const costs = (at: Json, path: (string | number)[]): string[] => {
+        if (Array.isArray(at)) return at.flatMap((item, index) => costs(item, [...path, index]));
+        if (at === null || typeof at !== "object") return [];
+        if (typeof at.amount === "number" || typeof at.amount === "string") return [costLine(path, at)];
+        return Object.entries(at).flatMap(([key, item]) => costs(item, [...path, key]));
       };
-      walk(terms);
-      expect(found.filter((line) => line.startsWith("Cost (")).length).toBe(amounts.length);
+      expect(highlights(value).filter((line) => line.startsWith("Cost ("))).toEqual(costs(value, []));
+    })
+  );
+
+  it(
+    "ends by saying, in those words, that the action can or can't be undone, when a flag anywhere in terms says which",
+    property((tc) => {
+      const around = tc.draw(termsOf(silentKeys));
+      const key = tc.draw(reversibilityKeys);
+      const reversible = tc.draw(gs.booleans());
+      // The flag sits among other terms (not in money's own object, which says only what it costs), anywhere in them.
+      const others = around !== null && typeof around === "object" && !Array.isArray(around) ? Object.fromEntries(Object.entries(around).filter(([name]) => name !== "amount")) : { other: around };
+      const value = placed(tc.draw(termPaths), { ...others, [key]: reversible });
+      expect(highlights(value).at(-1)).toBe(UNDONE[`${reversible}`]);
+    })
+  );
+
+  it(
+    "ends by saying the company hasn't said whether the action can be undone, when terms carry no such flag",
+    property((tc) => {
+      const value = tc.draw(gs.optional(termsOf(silentKeys)));
+      expect(highlights(value ?? undefined).at(-1)).toBe(UNSAID);
     })
   );
 });
@@ -491,6 +598,17 @@ describe("what these properties found, as examples", () => {
   it("reads a Retry-After that is neither delay-seconds nor an HTTP-date as none, not as a date long past", () => {
     for (const junk of [":0", "1/1/2000", "soon 5", "-1", "1.5"]) {
       expect(retryAfterMs(new Response(null, { status: 503, headers: { "Retry-After": junk } }), Date.now()), junk).toBeNull();
+    }
+  });
+
+  it("reads error and scope after a description holding an escaped quote and something like a parameter", () => {
+    expect(parseWwwAuthenticate('DPoP error="invalid_token", error_description="\\"error=", scope="poppy:read"')).toEqual({ error: "invalid_token", scope: "poppy:read" });
+  });
+
+  it("refuses a call that leaves out a parameter named like a member every object inherits", () => {
+    for (const name of ["constructor", "toString", "__proto__"]) {
+      expect(() => pathFor(operation(`/things/{${name}}`, [name]), {}), name).toThrow(PoppyError);
+      expect(() => pathFor(operation(`/things/{${name}}`), {}), name).toThrow(PoppyError);
     }
   });
 

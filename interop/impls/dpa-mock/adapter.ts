@@ -3,21 +3,22 @@
  * (docs/interop-spec.md, section 5.3). It runs the mock unchanged in Node,
  * moved under `<name>.company.interop.test`, and maps each hook to the RPC
  * the conformance tests use. It is the reference Company for attribution
- * rule 2, and serves the violations it records at `GET /violations`.
+ * rule 2, and serves the violations it records at `GET /violations`. The
+ * placement, base settings, hooks and violations body are shared with the
+ * Hypothesis launcher (interop/impls/shared/mock-hooks.ts).
  *
  * Port 8080: the Company itself (behind the recording proxy).
  * Port 8081: the manifest and hooks, with `Authorization: Bearer $INTEROP_SECRET`.
  */
 import { memoryState } from "../shared/cloudflare-workers.ts";
+import { COMPANY_SUFFIX, HookError, MOCK_BASE, mockHooks, placeInteropCompanies, str, violationsBody, type Hook, type Params } from "../shared/mock-hooks.ts";
 import { authorized, body, failure, json, serve, setting } from "../shared/serve.ts";
 import { MockCompany } from "../../../test/mock-company/index.ts";
-import { DEFAULT_CONFIG, placeCompanies, type MockConfig } from "../../../test/mock-company/types.ts";
-import { violationId } from "../../../test/mock-company/violations.ts";
+import type { MockConfig } from "../../../test/mock-company/types.ts";
 
 const NAME = process.env.INTEROP_NAME ?? "dpa-mock";
 const SECRET = setting("INTEROP_SECRET");
 const COMMIT = process.env.INTEROP_COMMIT ?? "unknown";
-const SUFFIX = "company.interop.test";
 /** Interop-only: the adversarial Company (`evil-company`). Off unless the registry sets it. */
 const ADVERSARY = process.env.INTEROP_ADVERSARY === "company";
 
@@ -31,8 +32,6 @@ const SINK = "https://runner.interop.test";
 const ATTACKS: Record<string, (params: Params) => Partial<MockConfig>> = {
   // XH: an OpenAPI `servers` entry points off the Company's domain (4.3, 6, N10).
   XH: (params) => ({ openapiServerOverride: typeof params.sink === "string" ? params.sink : SINK }),
-  // XK: a rug pull — the endpoints move off-domain after discovery (3, N37). Same lever, armed after discover.
-  XK: (params) => ({ openapiServerOverride: typeof params.sink === "string" ? params.sink : SINK }),
   // XI: the OAuth metadata claims another issuer the Company can't prove (3.2).
   XI: (params) => ({ issuerOverride: typeof params.issuer === "string" ? params.issuer : "https://auth.imposter.company.interop.test" }),
   // BX: a refused agent — the Company admits no client_id (Part A fairness; 4.1).
@@ -40,14 +39,7 @@ const ATTACKS: Record<string, (params: Params) => Partial<MockConfig>> = {
 };
 const ATTACK_IDS = Object.keys(ATTACKS);
 
-// `<id>.company.interop.test`, its `www.`, `auth.`, `api.`, `mcp.` and `cdn.`
-// hosts, and a second domain `uk.<id>.company.interop.test` for poppy_domains.
-placeCompanies({
-  domain: (id) => `${id}.${SUFFIX}`,
-  altDomain: (id) => `uk.${id}.${SUFFIX}`,
-  idFromHost: (host) =>
-    /^(?:(?:www|auth|api|mcp|cdn)\.)?(?:uk\.)?([a-z0-9-]+)\.company\.interop\.test$/.exec(host)?.[1] ?? null
-});
+placeInteropCompanies();
 
 /**
  * Two profiles, chosen by `INTEROP_MOCK_PROFILE` (registry `env`), one image:
@@ -60,18 +52,14 @@ placeCompanies({
  * - `strict` (`dpa-mock-strict`): `strictAssertions` on, as the strictest
  *   live Companies are; it declares S2 `jwt-60s`.
  *
- * Both rotate Account Tokens (scenario R) and poll devices every second so
- * Device Sign-In cells don't wait five.
+ * Both start from the shared base: rotating Account Tokens (scenario R) and
+ * devices polled every second so Device Sign-In cells don't wait five.
  */
 const PROFILE = process.env.INTEROP_MOCK_PROFILE === "strict" ? "strict" : "lenient";
 if (process.env.INTEROP_MOCK_PROFILE && process.env.INTEROP_MOCK_PROFILE !== PROFILE) {
   throw new Error(`INTEROP_MOCK_PROFILE must be lenient or strict, not ${process.env.INTEROP_MOCK_PROFILE}`);
 }
-const BASE: Partial<MockConfig> = {
-  rotateRefreshTokens: true,
-  deviceInterval: 1,
-  strictAssertions: PROFILE === "strict"
-};
+const BASE: Partial<MockConfig> = { ...MOCK_BASE, strictAssertions: PROFILE === "strict" };
 
 // `PUBLIC_ORIGIN` is where the mock would reach our Worker directly in tests;
 // here no host matches it, so every client document is fetched over the network.
@@ -82,7 +70,6 @@ let mock: MockCompany;
 async function reset(): Promise<void> {
   mock = new MockCompany(memoryState(NAME) as never, env);
   await mock.configure(BASE);
-  armedAttack = null;
 }
 await reset();
 
@@ -109,126 +96,8 @@ const MANIFEST = {
     : `test/mock-company, ${PROFILE} profile: checks recorded as named violations (GET /violations).`
 };
 
-/** The attack armed by `arm`, so a rug pull (XK) can be sprung after the agent discovers. */
-let armedAttack: string | null = null;
-
-type Params = Record<string, unknown>;
-const str = (value: unknown, name: string): string => {
-  if (typeof value !== "string" || value === "") throw new HookError(400, "invalid_params", `${name} must be a non-empty string`);
-  return value;
-};
-const scopes = (value: unknown): string[] | undefined =>
-  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined;
-
-class HookError extends Error {
-  status: number;
-  code: string;
-  constructor(status: number, code: string, detail: string) {
-    super(detail);
-    this.status = status;
-    this.code = code;
-  }
-}
-
-function accountFor(account: unknown) {
-  const id = typeof account === "string" ? account : DEFAULT_CONFIG.accounts[0]!.account;
-  const found = DEFAULT_CONFIG.accounts.find((item) => item.account === id);
-  if (!found) throw new HookError(400, "unknown_account", `No account ${id}`);
-  return found;
-}
-
-const HOOKS: Record<string, (params: Params) => Promise<unknown>> = {
-  async fixture() {
-    return {
-      accounts: DEFAULT_CONFIG.accounts.map((item) => item.account),
-      scopes: { read: ["poppy:read"], write: ["poppy:read", "poppy:write"] },
-      openapi_public: { api: "openapi", operation: "searchProducts", args: { params: { q: "jacket" } } },
-      openapi: { api: "openapi", operation: "listOrders", args: {} },
-      openapi_write: {
-        api: "openapi",
-        operation: "exchangeItem",
-        args: { params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } }
-      },
-      mcp: { api: "mcp", tool: "search_products", args: { query: "jacket" } },
-      prompts: {
-        hello: "Hello",
-        operation: "I'd like to exchange the jacket on my order",
-        sign_in: "Where is my order?"
-      },
-      otp_account: DEFAULT_CONFIG.accounts.find((item) => item.otp)?.account ?? null
-    };
-  },
-  async approve_authorization(params) {
-    const account = accountFor(params.account).account;
-    const granted = scopes(params.scopes);
-    const redirect = await mock.approveAuthorization(str(params.url, "url"), {
-      account,
-      approve: true,
-      ...(granted ? { scopes: granted } : {})
-    });
-    return { redirect };
-  },
-  async deny_authorization(params) {
-    return { redirect: await mock.approveAuthorization(str(params.url, "url"), { approve: false }) };
-  },
-  async approve_device(params) {
-    const granted = scopes(params.scopes);
-    await mock.approveDevice(str(params.user_code, "user_code"), {
-      account: accountFor(params.account).account,
-      ...(granted ? { scopes: granted } : {})
-    });
-    return {};
-  },
-  async deny_device(params) {
-    await mock.denyDevice(str(params.user_code, "user_code"));
-    return {};
-  },
-  async mediated_answers(params) {
-    const account = accountFor(params.account);
-    return { fields: { email: account.email, password: account.password } };
-  },
-  async last_one_time_code() {
-    const code = await mock.lastOneTimeCode();
-    if (!code) throw new HookError(409, "no_code", "No one-time code has been sent");
-    return { code };
-  },
-  async end_sessions() {
-    return { ended: await mock.endAllSessions() };
-  },
-  async staff_join(params) {
-    await mock.humanJoin(str(params.conversation, "conversation"), str(params.text, "text"));
-    return {};
-  },
-  async staff_reply(params) {
-    await mock.say(str(params.conversation, "conversation"), str(params.text, "text"));
-    return {};
-  },
-  /**
-   * The mock's Company Agent proposes the exchange when the agent asks for
-   * one (fixture `prompts.operation`) in a signed-in conversation; this
-   * returns that proposal.
-   */
-  async propose_operation() {
-    const state = await mock.state();
-    const proposed = state.operations.filter((item) => item.state === "proposed").at(-1);
-    if (!proposed) {
-      throw new HookError(409, "no_operation", "Nothing proposed: send fixture.prompts.operation in a signed-in conversation first");
-    }
-    return { operation: proposed.id };
-  },
-  async require_nonce() {
-    await mock.configure({ requireNonce: true });
-    return {};
-  },
-  async rate_limit(params) {
-    const count = typeof params.requests === "number" ? params.requests : 1;
-    const retryAfter = typeof params.retry_after === "number" ? params.retry_after : 1;
-    await mock.limitNext(params.endpoint === "token" ? "token" : "other", count, retryAfter);
-    return {};
-  },
-  async expire_tokens() {
-    return { expired: await mock.expireSessionTokens() };
-  },
+const HOOKS: Record<string, Hook> = {
+  ...mockHooks(() => mock),
   /**
    * Adversarial Company only (docs/adversarial-interop.md, Part B): arm an
    * attack, reconfiguring the mock so the attack is its only deviation. An
@@ -239,7 +108,6 @@ const HOOKS: Record<string, (params: Params) => Promise<unknown>> = {
     const attack = str(params.attack, "attack");
     const make = ATTACKS[attack];
     if (!make) throw new HookError(501, "unsupported", `Unknown attack ${attack}`);
-    armedAttack = attack;
     await mock.configure(make(params));
     return { armed: attack };
   }
@@ -255,12 +123,7 @@ async function control(request: Request): Promise<Response> {
     return json({ ok: true });
   }
   if (request.method === "GET" && url.pathname === "/hooks") return json({ hooks: Object.keys(HOOKS) });
-  if (request.method === "GET" && url.pathname === "/violations") {
-    const state = await mock.state();
-    return json({
-      violations: state.violations.map((recorded) => ({ id: violationId(recorded), detail: recorded.replace(/^\[[^\]]+\]\s*/, "") }))
-    });
-  }
+  if (request.method === "GET" && url.pathname === "/violations") return json(violationsBody(await mock.state()));
   const hook = /^\/hooks\/([a-z_]+)$/.exec(url.pathname);
   if (request.method === "POST" && hook) {
     const run = HOOKS[hook[1]!];
@@ -277,4 +140,4 @@ async function control(request: Request): Promise<Response> {
 
 serve(8080, (request) => mock.fetch(request));
 serve(8081, control);
-console.log(`dpa-mock (${PROFILE}): ${NAME}.${SUFFIX} on 8080, control on 8081`);
+console.log(`dpa-mock (${PROFILE}): ${NAME}.${COMPANY_SUFFIX} on 8080, control on 8081`);

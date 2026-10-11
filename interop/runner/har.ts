@@ -133,7 +133,8 @@ export function decodeJwt(token: string): DecodedJwt | null {
     const decode = (part: string) => JSON.parse(Buffer.from(part, "base64url").toString("utf8")) as unknown;
     const header = decode(parts[0]!);
     const payload = decode(parts[1]!);
-    if (!header || typeof header !== "object" || !payload || typeof payload !== "object") return null;
+    const isObject = (value: unknown) => typeof value === "object" && value !== null && !Array.isArray(value);
+    if (!isObject(header) || !isObject(payload)) return null;
     return { header: header as Record<string, unknown>, payload: payload as Record<string, unknown> };
   } catch {
     return null;

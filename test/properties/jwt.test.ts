@@ -1,6 +1,6 @@
 import { exportJWK, generateKeyPair, SignJWT, base64url as joseBase64url, type JWK } from "jose";
 import { describe, expect, it } from "vitest";
-import { clientAssertion, dpopProof, newDpopKey, sessionAssertion, sha256, type DpopKey } from "../../src/poppy/jwt";
+import { clientAssertion, dpopProof, newDpopKey, randomId, sessionAssertion, sha256, type DpopKey } from "../../src/poppy/jwt";
 import { currentKey, readIdentity, readSigningKeys } from "../../src/poppy/keys";
 import { clientMetadata } from "../../src/poppy/routes";
 import { Company, HttpError, type Inbound } from "../mock-company/core";
@@ -108,7 +108,8 @@ describe("our client's JWTs pass the mock Company's checks", () => {
     "a Session assertion, for any User ID our client makes",
     propertyAsync(async (tc) => {
       const company = await companyWith(tc.draw(readings));
-      const userId = `usr_${joseBase64url.encode(crypto.getRandomValues(new Uint8Array(16)))}`;
+      // PoppyClient.userId's generator; its randomness is the client's, not drawn.
+      const userId = randomId("usr_");
       const client = await company.authenticateClient(form(await clientAssertion(signing, identity.clientId, company.hosts.tokenEndpoint)), company.hosts.tokenEndpoint);
       const verified = await company.verifySessionAssertion(client, await sessionAssertion(signing, identity.clientId, userId, company.hosts.tokenEndpoint));
       expect(verified).toBe(userId);
@@ -141,32 +142,108 @@ const jtis = () => joseBase64url.encode(crypto.getRandomValues(new Uint8Array(16
 
 type Claims = Record<string, unknown>;
 type Header = Record<string, unknown>;
-type Mutation = { readonly header?: Header; readonly claims?: Claims; readonly key?: CryptoKey | Uint8Array; readonly raw?: string };
+/**
+ * One thing changed in a JWT: header members, claims, the signing key, the
+ * whole text (`raw`), or a signature segment written by hand (`signature`),
+ * for an algorithm nothing here signs with, `none` included.
+ */
+type Mutation = { readonly header?: Header; readonly claims?: Claims; readonly key?: CryptoKey | Uint8Array; readonly raw?: string; readonly signature?: string };
 
-async function sign(header: Header, claims: Claims, key: CryptoKey | Uint8Array): Promise<string> {
+const encodeSegment = (record: Record<string, unknown>) => joseBase64url.encode(JSON.stringify(record));
+
+async function sign(header: Header, claims: Claims, key: CryptoKey | Uint8Array, signature?: string): Promise<string> {
   const defined = (record: Record<string, unknown>) => Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
+  if (signature !== undefined) return `${encodeSegment(defined(header))}.${encodeSegment(defined(claims))}.${signature}`;
   return new SignJWT(defined(claims)).setProtectedHeader(defined(header) as { alg: string }).sign(key);
 }
 
-/** One thing wrong with a client assertion, and the violation it must be refused with (a strict Company's, where marked). */
+const SHARED_SECRET = new TextEncoder().encode("a shared secret of thirty-two bytes!");
+/** Our two published kids: any other names no key. */
+const realKids = (await readSigningKeys(env)).map((key) => key.kid);
+const strangerJwk = await exportJWK((await generateKeyPair("ES256")).publicKey);
+
+/** Algorithms a Company must refuse: anything but ES256 and RS256. */
+const badAlgs = gs.oneOf(gs.sampledFrom(["none", "None", "NONE", "", "ES384", "ES512", "RS384", "RS512", "PS256", "EdDSA", "HS384"]), gs.text({ maxSize: 8 })).filter((alg) => alg !== "ES256" && alg !== "RS256");
+
+/** Wrong algs, one generator each so a oneOf draws each as often as any other mutation: HS256 really signed with a shared secret, `none` unsigned, or any other with a junk signature. */
+function algMutations<T>(as: (name: string, mutation: Mutation) => T): gs.Generator<T>[] {
+  return [
+    gs.just(as("alg HS256", { header: { alg: "HS256" }, key: SHARED_SECRET })),
+    gs.just(as("alg none, unsigned", { header: { alg: "none" }, signature: "" })),
+    gs.tuples(badAlgs, gs.binary({ maxSize: 64 })).map(([alg, bytes]) => as(`alg ${JSON.stringify(alg)}`, { header: { alg }, signature: joseBase64url.encode(bytes) }))
+  ];
+}
+
+type Wrong = {
+  readonly name: string;
+  readonly mutation: Mutation;
+  /** What a strict Company records. */
+  readonly violation: string;
+  /** What a lenient one records, where that differs. */
+  readonly lenient?: string;
+  readonly strictOnly?: boolean;
+  /** Recorded, but nothing the Company can refuse. */
+  readonly recordedOnly?: boolean;
+};
+
+/**
+ * One thing wrong with a client or Session assertion that both are checked
+ * for (spec 4.1, 4.2): header, signature, key, lifetime, jti, and text that
+ * isn't a JWT at all. Each is named by its own violation, `kind.<check>`, and is
+ * its own generator, spread into the caller's oneOf so each is drawn as often.
+ */
+function signedMutations(kind: "client-assertion" | "session-assertion", rightTyps: readonly string[]): gs.Generator<Wrong>[] {
+  return [
+    gs.text({ maxSize: 10 }).filter((typ) => !rightTyps.includes(typ)).map((typ) => ({ name: "typ", mutation: { header: { typ } }, violation: `${kind}.typ`, strictOnly: true })),
+    // A kid that names no published key: strict Companies say so; lenient ones find no key to verify with.
+    gs.text({ minSize: 1, maxSize: 10 }).filter((kid) => !realKids.includes(kid)).map((kid) => ({ name: "kid", mutation: { header: { kid } }, violation: `${kind}.kid`, lenient: `${kind}.signature` })),
+    gs.just({ name: "no kid", mutation: { header: { kid: undefined } }, violation: `${kind}.kid`, strictOnly: true }),
+    ...algMutations((name, mutation) => ({ name, mutation, violation: `${kind}.alg` })),
+    gs.sampledFrom(["jwk", "jku", "x5u"]).map((member) => ({
+      name: `embedded ${member}`,
+      mutation: { header: { [member]: member === "jwk" ? strangerJwk : "https://keys.attacker.example/jwks.json" } },
+      violation: `${kind}.embedded-key`,
+      recordedOnly: true
+    })),
+    gs.just({ name: "another key", mutation: { key: strangerKey }, violation: `${kind}.signature` }),
+    gs.integers({ minValue: 31, maxValue: 100_000 }).map((ago) => ({ name: "expired", mutation: { claims: { iat: seconds() - ago - 60, exp: seconds() - ago } }, violation: `${kind}.signature` })),
+    gs.sampledFrom(["iat", "exp"]).map((field) => ({ name: `no ${field}`, mutation: { claims: { [field]: undefined } }, violation: `${kind}.iat-exp-missing` })),
+    gs.integers({ minValue: 301, maxValue: 1_000_000 }).map((span) => ({ name: "lifetime", mutation: { claims: { exp: seconds() + span } }, violation: `${kind}.lifetime` })),
+    gs.integers({ minValue: 61, maxValue: 300 }).map((span) => ({ name: "strict lifetime", mutation: { claims: { exp: seconds() + span } }, violation: `${kind}.lifetime`, strictOnly: true })),
+    gs.just({ name: "no jti", mutation: { claims: { jti: undefined } }, violation: `${kind}.jti-missing` }),
+    // A weak jti is recorded but not refused: the draft asks for 128 bits, and a Company can't tell.
+    gs.text({ alphabet: "abcdefghijklmnopqrstuvwxyz0123456789-_", minSize: 1, maxSize: 21 }).map((jti) => ({ name: "weak jti", mutation: { claims: { jti } }, violation: `${kind}.jti-weak`, recordedOnly: true })),
+    gs.text({ maxSize: 30 }).map((raw) => ({ name: "not a JWT", mutation: { raw: raw.replace(/\./g, "") || "x" }, violation: `${kind}.not-jwt` }))
+  ];
+}
+
+/** One thing wrong with a client assertion for `endpoint`. */
 const assertionMutations = (endpoint: string) =>
-  gs.oneOf<{ name: string; mutation: Mutation; violation: string; strictOnly?: boolean }>(
-    gs.text({ maxSize: 10 }).filter((typ) => typ !== "JWT" && typ !== "poppy-browser+jwt" && typ !== "dpop+jwt").map((typ) => ({ name: "typ", mutation: { header: { typ } }, violation: "client-assertion.typ", strictOnly: true })),
-    gs.text({ minSize: 1, maxSize: 10 }).filter((kid) => !kid.startsWith("k-")).map((kid) => ({ name: "kid", mutation: { header: { kid } }, violation: "client-assertion.kid", strictOnly: true })),
+  gs.oneOf<Wrong>(
+    ...signedMutations("client-assertion", ["JWT", "poppy-browser+jwt", "dpop+jwt"]),
     gs.sampledFrom(["poppy-browser+jwt", "dpop+jwt"]).map((typ) => ({ name: "wrong typ", mutation: { header: { typ } }, violation: "client-assertion.wrong-typ" })),
-    gs.just({ name: "alg", mutation: { header: { alg: "HS256" }, key: new TextEncoder().encode("a shared secret of thirty-two bytes!") }, violation: "client-assertion.alg" }),
-    gs.just({ name: "another key", mutation: { key: strangerKey }, violation: "client-assertion.signature" }),
-    gs.integers({ minValue: 31, maxValue: 100_000 }).map((ago) => ({ name: "expired", mutation: { claims: { iat: seconds() - ago - 60, exp: seconds() - ago } }, violation: "client-assertion.signature" })),
     gs.just({ name: "aud array", mutation: { claims: { aud: [endpoint] } }, violation: "client-assertion.aud-array" }),
     gs.urls().filter((aud) => aud !== endpoint).map((aud) => ({ name: "aud", mutation: { claims: { aud } }, violation: "client-assertion.aud" })),
-    gs.sampledFrom(["iss", "sub"]).flatMap((field) => gs.urls().map((value) => ({ name: field, mutation: { claims: { [field]: value } }, violation: "client-assertion.iss-sub" }))),
-    gs.sampledFrom(["iat", "exp"]).map((field) => ({ name: `no ${field}`, mutation: { claims: { [field]: undefined } }, violation: "client-assertion.iat-exp-missing" })),
-    gs.integers({ minValue: 301, maxValue: 1_000_000 }).map((span) => ({ name: "lifetime", mutation: { claims: { exp: seconds() + span } }, violation: "client-assertion.lifetime" })),
-    gs.integers({ minValue: 61, maxValue: 300 }).map((span) => ({ name: "strict lifetime", mutation: { claims: { exp: seconds() + span } }, violation: "client-assertion.lifetime", strictOnly: true })),
-    gs.just({ name: "no jti", mutation: { claims: { jti: undefined } }, violation: "client-assertion.jti-missing" }),
-    gs.text({ alphabet: "abcdefghijklmnopqrstuvwxyz0123456789-_", maxSize: 21 }).filter((jti) => jti !== "").map((jti) => ({ name: "weak jti", mutation: { claims: { jti } }, violation: "client-assertion.jti-weak" })),
-    gs.text({ maxSize: 30 }).map((raw) => ({ name: "not a JWT", mutation: { raw: raw.replace(/\./g, "") || "x" }, violation: "client-assertion.not-jwt" }))
+    gs.sampledFrom(["iss", "sub"]).flatMap((field) => gs.urls().map((value) => ({ name: field, mutation: { claims: { [field]: value } }, violation: "client-assertion.iss-sub" })))
   );
+
+/** One thing wrong with a Session assertion at `company`'s token endpoint. */
+const sessionMutations = (company: Company) =>
+  gs.oneOf<Wrong>(
+    ...signedMutations("session-assertion", ["JWT", "poppy-browser+jwt"]),
+    gs.just({ name: "aud array", mutation: { claims: { aud: [company.hosts.tokenEndpoint] } }, violation: "session-assertion.aud" }),
+    gs.oneOf(gs.just(company.hosts.issuer), gs.just(company.hosts.revocationEndpoint), gs.urls()).map((aud) => ({ name: "aud", mutation: { claims: { aud } }, violation: "session-assertion.aud" })),
+    gs.urls().map((iss) => ({ name: "iss", mutation: { claims: { iss } }, violation: "session-assertion.iss" })),
+    gs.oneOf(gs.just(undefined), gs.just("")).map((sub) => ({ name: "no sub", mutation: { claims: { sub } }, violation: "session-assertion.sub" })),
+    gs.just({ name: "browser typ", mutation: { header: { typ: "poppy-browser+jwt" } }, violation: "session-assertion.browser-typ" }),
+    // A personal User ID is recorded but not refused: the Company has nothing to refuse it with.
+    gs.just({ name: "personal User ID", mutation: { claims: { sub: "ada@example.com" } }, violation: "user-id.personal", recordedOnly: true })
+  );
+
+/** Our assertion, as the client signs it, with one thing wrong. */
+async function wrongAssertion(mutation: Mutation, claims: Claims): Promise<string> {
+  return mutation.raw ?? (await sign({ alg: "ES256", typ: "JWT", kid: signing.kid, ...mutation.header }, { ...claims, ...mutation.claims }, mutation.key ?? signing.privateKey, mutation.signature));
+}
 
 describe("the mock Company refuses each thing wrong with an assertion, naming it", () => {
   it(
@@ -175,21 +252,14 @@ describe("the mock Company refuses each thing wrong with an assertion, naming it
       const strict = tc.draw(gs.booleans());
       const company = await companyWith({ strictAssertions: strict, clientAssertionAud: tc.draw(gs.sampledFrom(["lenient", "exact"] as const)) });
       const endpoint = company.hosts.tokenEndpoint;
-      const { name, mutation, violation, strictOnly } = tc.draw(assertionMutations(endpoint));
-      tc.assume(!strictOnly || strict);
-      tc.note(name);
+      const wrong = tc.draw(assertionMutations(endpoint));
+      tc.assume(!wrong.strictOnly || strict);
+      tc.note(wrong.name);
       const now = seconds();
-      const assertion =
-        mutation.raw ??
-        (await sign(
-          { alg: "ES256", typ: "JWT", kid: signing.kid, ...mutation.header },
-          { iss: identity.clientId, sub: identity.clientId, aud: endpoint, iat: now, exp: now + 60, jti: jtis(), ...mutation.claims },
-          mutation.key ?? signing.privateKey
-        ));
+      const assertion = await wrongAssertion(wrong.mutation, { iss: identity.clientId, sub: identity.clientId, aud: endpoint, iat: now, exp: now + 60, jti: jtis() });
       const result = await attempt(() => company.authenticateClient(form(assertion), endpoint));
-      // A weak jti is recorded but not refused: the draft asks for 128 bits, and a Company can't tell.
-      if (violation !== "client-assertion.jti-weak") expect(result.ok).toBe(false);
-      expect(company.violations.map(violationId)).toEqual([violation]);
+      expect(result.ok).toBe(wrong.recordedOnly === true);
+      expect(company.violations.map(violationId)).toEqual([strict ? wrong.violation : (wrong.lenient ?? wrong.violation)]);
     })
   );
 
@@ -213,7 +283,7 @@ function proofMutations(method: string, url: string, token: string | undefined) 
     gs.just({ name: "missing", mutation: { header: "missing" as const }, violation: "dpop.missing" }),
     gs.just({ name: "two proofs", mutation: { header: "two" as const }, violation: "dpop.multiple" }),
     gs.text({ maxSize: 12 }).filter((typ) => typ !== "dpop+jwt").map((typ) => ({ name: "typ", mutation: { header: { typ } }, violation: "dpop.typ" })),
-    gs.just({ name: "alg", mutation: { header: { alg: "HS256" }, key: new TextEncoder().encode("a shared secret of thirty-two bytes!") }, violation: "dpop.alg" }),
+    ...algMutations((name, mutation) => ({ name, mutation, violation: "dpop.alg" as string | null })),
     gs.just({ name: "no jwk", mutation: { header: { jwk: undefined } }, violation: "dpop.no-jwk" }),
     gs.just({ name: "private jwk", mutation: { header: { jwk: "private" } }, violation: "dpop.private-jwk" }),
     gs.just({ name: "another key", mutation: { key: strangerKey }, violation: "dpop.signature" }),
@@ -235,30 +305,17 @@ describe("the mock Company refuses each thing wrong with a Session assertion, na
   it(
     "a Session assertion with one thing wrong",
     propertyAsync(async (tc) => {
-      const company = await companyWith(tc.draw(readings));
+      const config = tc.draw(readings);
+      const company = await companyWith(config);
       const client = await company.authenticateClient(form(await clientAssertion(signing, identity.clientId, company.hosts.tokenEndpoint)), company.hosts.tokenEndpoint);
-      const { name, claims, header, violation } = tc.draw(
-        gs.oneOf<{ name: string; claims?: Claims; header?: Header; violation: string }>(
-          gs.just({ name: "aud array", claims: { aud: [company.hosts.tokenEndpoint] }, violation: "session-assertion.aud" }),
-          gs.oneOf(gs.just(company.hosts.issuer), gs.just(company.hosts.revocationEndpoint), gs.urls()).map((aud) => ({ name: "aud", claims: { aud }, violation: "session-assertion.aud" })),
-          gs.urls().map((iss) => ({ name: "iss", claims: { iss }, violation: "session-assertion.iss" })),
-          gs.oneOf(gs.just(undefined), gs.just("")).map((sub) => ({ name: "no sub", claims: { sub }, violation: "session-assertion.sub" })),
-          gs.just({ name: "browser typ", header: { typ: "poppy-browser+jwt" }, violation: "session-assertion.browser-typ" }),
-          gs.just({ name: "no jti", claims: { jti: undefined }, violation: "session-assertion.jti-missing" }),
-          gs.just({ name: "personal User ID", claims: { sub: "ada@example.com" }, violation: "user-id.personal" })
-        )
-      );
-      tc.note(name);
+      const wrong = tc.draw(sessionMutations(company));
+      tc.assume(!wrong.strictOnly || config.strictAssertions);
+      tc.note(wrong.name);
       const now = seconds();
-      const assertion = await sign(
-        { alg: "ES256", typ: "JWT", kid: signing.kid, ...header },
-        { iss: identity.clientId, sub: `usr_${jtis()}`, aud: company.hosts.tokenEndpoint, iat: now, exp: now + 60, jti: jtis(), ...claims },
-        signing.privateKey
-      );
+      const assertion = await wrongAssertion(wrong.mutation, { iss: identity.clientId, sub: randomId("usr_"), aud: company.hosts.tokenEndpoint, iat: now, exp: now + 60, jti: jtis() });
       const result = await attempt(() => company.verifySessionAssertion(client, assertion));
-      // A personal User ID is recorded but not refused: the Company has nothing to refuse it with.
-      if (violation !== "user-id.personal") expect(result.ok).toBe(false);
-      expect(company.violations.map(violationId)).toEqual([violation]);
+      expect(result.ok).toBe(wrong.recordedOnly === true);
+      expect(company.violations.map(violationId)).toEqual([config.strictAssertions ? wrong.violation : (wrong.lenient ?? wrong.violation)]);
     })
   );
 });
@@ -284,7 +341,7 @@ describe("the mock Company refuses each thing wrong with a DPoP proof, naming it
         if (typeof merged.ath === "string" && merged.ath.startsWith("hash:")) merged.ath = await sha256(merged.ath.slice(5));
         const header: Header = { alg: "ES256", typ: "dpop+jwt", jwk: key.publicJwk, ...m.header };
         if (header.jwk === "private") header.jwk = privateJwk;
-        return sign(header, merged, m.key ?? key.privateKey);
+        return sign(header, merged, m.key ?? key.privateKey, m.signature);
       };
       const headers: Record<string, string> = {};
       if ("header" in mutation && mutation.header === "two") headers.DPoP = `${await build({})}, ${await build({})}`;
@@ -328,7 +385,7 @@ describe("the mock Company refuses each thing wrong with a DPoP proof, naming it
         expect(await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: dropped }), token))).toEqual({ ok: false, error: "use_dpop_nonce" });
         expect(company.violations.map(violationId)).toEqual(["dpop.nonce-ignored"]);
       },
-      // Each case waits for the clock's next second, so a few cases, not a hundred.
+      // Each case waits for the clock's next second, so a few cases by default, not a hundred; HEGEL_CASES still sets the count.
       { testCases: 3 }
     )
   );
