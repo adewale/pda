@@ -1,5 +1,5 @@
 import { PoppyClient, PoppyError, scopeSet } from "./client";
-import { tokenHostAllowed, type Company } from "./discovery";
+import { protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson, readLimited } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
 import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
@@ -177,6 +177,22 @@ function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
   return filled;
 }
 
+/**
+ * An API call never reaches a Poppy endpoint, whatever the description lists:
+ * the model could otherwise confirm an operation itself (Ops 5.1) or send a
+ * message as the User (7.8).
+ */
+function refuseProtocolEndpoint(company: Company, url: URL): void {
+  const endpoint = protocolEndpoint(company, url);
+  if (endpoint) {
+    throw new PoppyError(
+      "protocol_endpoint",
+      `${url.origin}${url.pathname} is ${company.name}'s Poppy endpoint ${endpoint}, which only the agent's own code calls: operations are confirmed or cancelled by the User on their card, messages go through poppy_message, and sign-in through poppy_sign_in`,
+      0
+    );
+  }
+}
+
 async function performOpenApi(client: PoppyClient, company: Company, label: string, call: OpenApiCall): Promise<Json> {
   const api = findApi(company, "openapi", call.apiUrl);
   const document = await openApi(client, api);
@@ -196,6 +212,7 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
     if (parameter.in === "query" && value !== undefined) url.searchParams.set(parameter.name, String(value));
   }
   url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
+  refuseProtocolEndpoint(company, url);
   // Read-only lookups ask for a read-only token when the account allows (Guides).
   const write = op.method === "GET" ? null : `${op.method} ${url.href} ${JSON.stringify(call.body ?? null)}`;
   if (write) refuseWhileConfirming(client, company.issuer, write);
@@ -254,9 +271,11 @@ export async function callOpenApi(
   request: { apiUrl?: string; operation: string; params?: Record<string, string | number | boolean>; body?: Json; callKey: string }
 ): Promise<Json> {
   const api = findApi(company, "openapi", request.apiUrl);
-  const op = findOperation(await openApi(client, api), request.operation);
-  // A call that can't fill the path is refused now, before a token request or a proposal.
-  pathFor(op, request.params ?? {});
+  const document = await openApi(client, api);
+  const op = findOperation(document, request.operation);
+  // A call that can't fill the path, or that would reach a Poppy endpoint, is
+  // refused now, before a token request or an approval card.
+  refuseProtocolEndpoint(company, new URL(`${document.base}${pathFor(op, request.params ?? {})}`));
   const call: OpenApiCall = {
     apiUrl: api.url,
     operation: op.operationId,

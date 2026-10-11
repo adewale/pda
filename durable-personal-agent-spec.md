@@ -606,7 +606,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
   - Signing keys exist only as a Worker secret.
   - None of them reach the model, tool results, the transcript, logs or URLs. Mediated credentials pass through memory once, from the card to the one request.
   - Responses that carry codes are `Cache-Control: no-store`.
-- **Untrusted content.** Company text and data are presented to the model as information, never instructions, and never the User's approval.
+- **Untrusted content.** Company text and data are presented to the model as information, never instructions, and never the User's approval. That is structural, not left to the model: no tool confirms or cancels an operation, and `poppy_api_call` refuses any URL at or under a Poppy endpoint (token, sign-in, conversation, operations, browser-session), even when a Company's OpenAPI description lists it, so a model that obeys injected text can't confirm an operation or send a message as the User.
 - **Spend.** The sign-in allowlist now, and a per-person daily message cap (milestone 2).
 - **Deletion.** "Delete my agent" (milestone 2) first revokes every Account Token at its Company, then runs `ctx.storage.deleteAll()`.
 
@@ -629,11 +629,12 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | `test/validator.test.ts` | The discovery document validator: fixtures declared as data, a catalog test that every message has one, the spec's examples, live documents, fetching, the HTTP endpoint |
 | `test/mock-company.test.ts` | The mock Company itself: one `TAMPERS` row per check, proving it fires, and a catalog test that every check has a row |
 | `test/poppy.test.ts` | The Poppy client against the mock Company, grouped by spec section, with the sign-in, Session and sign-out sections run under six profiles |
+| `test/prompt-injection.test.ts` | Prompt injection, model lane: a Company's message, operation summary or MCP tool description tells the model to approve an operation or send a secret, and the faux model obeys; nothing is confirmed, nothing is sent as the User, no credential leaves |
 | `test/durability/crash.test.ts` | The conversation after a crash |
 | `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, the Browser Rendering adapter against a stub of Puppeteer |
 
 - **Fakes.**
-  - The model is Pi AI's faux provider.
+  - The model is Pi AI's faux provider. It echoes the latest user message, and obeys any `@@obey <tool> <arguments>` line it has just read, standing in for a model that follows instructions injected into Company text.
   - Google and GitHub are faked in `test/fake-providers.ts`. A test plays the consent page, and the fakes check the client, the redirect URI and the PKCE verifier. Each code can make them refuse or misbehave: a wrong `aud`, `iss` or `exp`, an unverified email, a GitHub profile with no id.
   - Fresh Poppy signing keys and a token key are generated for each run.
 - **The mock Company** (`test/mock-company/`) is a strict Company in a Durable Object, one instance per company id, serving all of its hosts.
@@ -793,7 +794,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.4 | An operation's `url` shows it on the website in the same Session; confirmed there or at the endpoint, it is one operation | `browser.ts`, `operations.ts` | Test: "treats an operation confirmed on the website as the same operation…" |
 | 5.1 | MUST have the User's approval for the exact revision | `operations.ts` | Test: "needs a new approval when the terms change" |
 | 5.1 | MUST show the Company's name and `summary`, and take the answer through our own interface; we show its verified domain too (N14) | `operations.ts`, page | Test: "shows the Company's summary verbatim…", "approves exactly this operation and revision", "shows the verified domain under the name the Company chose…" |
-| 5.1 | MUST NOT treat Company text as approval | `capability.ts` | Design: only page frames and standing permissions confirm |
+| 5.1 | MUST NOT treat Company text as approval | `capability.ts`; `discovery.ts` `protocolEndpoint`, `apis.ts` | Design: only page frames and standing permissions confirm, and no API tool reaches a Poppy endpoint. Test (a faux model that obeys injected instructions): "never confirms an operation, or speaks as the User, when a Company message says the User approved", "never confirms an operation when another operation's summary tells it to", "never confirms an operation when an MCP tool's description tells it to", "refuses an OpenAPI operation that would reach a Poppy endpoint…" |
 | 5.1 | A standing permission MUST cover the Company, account, action and every term; never when `user_approval_required` | `operations.ts` | Test: "confirms under a standing permission…", "asks the User when… exceeded", "asks the User once a standing permission's uses are spent", "asks the User when a standing permission's currency differs", "never uses a standing permission when…"; Mock |
 | 5.2 | Confirm with `revision` and `approved_by`; handle `terms_changed`, `user_approval_required`, scope errors | `operations.ts` | Test: "needs a new approval when the terms change"; Mock |
 | 6 | Retry or read with the same id; MUST NOT ask for a new proposal until final | `operations.ts`, `apis.ts` | Test: "tracks a slow operation…", "shows the Company's summary… confirms once…", "doesn't ask for a new proposal while a confirmed operation isn't final (Ops 6)", "doesn't ask an MCP tool for a new proposal…"; Mock |
