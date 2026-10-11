@@ -101,7 +101,7 @@ async function errors(company: Documents): Promise<string[]> {
 
 describe("discovery refuses a Company whose documents break a MUST (3.1, 3.2)", () => {
   it(
-    "refuses a protocol_version whose major isn't 0, for that reason alone",
+    "refuses a protocol_version whose major isn't 0",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
       const major = tc.draw(gs.integers({ minValue: 1, maxValue: Number.MAX_SAFE_INTEGER }));
@@ -113,7 +113,7 @@ describe("discovery refuses a Company whose documents break a MUST (3.1, 3.2)", 
   );
 
   it(
-    "refuses an organization.domain that isn't the requested host, saying so",
+    "refuses an organization.domain that isn't the requested host",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
       const other = tc.draw(hosts);
@@ -126,7 +126,7 @@ describe("discovery refuses a Company whose documents break a MUST (3.1, 3.2)", 
   );
 
   it(
-    "refuses metadata whose issuer isn't exactly auth.issuer, for that reason alone",
+    "refuses metadata whose issuer isn't exactly auth.issuer",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
       const issuer: string = company.metadata.issuer;
@@ -148,7 +148,7 @@ describe("discovery refuses a Company whose documents break a MUST (3.1, 3.2)", 
   );
 
   it(
-    "refuses metadata whose poppy_domains leaves out organization.domain, for that reason alone",
+    "refuses metadata whose poppy_domains leaves out organization.domain",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
       const others = tc.draw(gs.arrays(hosts, { maxSize: 3 })).filter((domain) => domain.toLowerCase() !== company.domain.toLowerCase());

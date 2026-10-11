@@ -176,6 +176,15 @@ describe("Retry-After (RFC 9110 §10.2.3; spec 4.3)", () => {
       expect(parseRateLimit(header)).toEqual({ remaining, reset });
     })
   );
+
+  it(
+    "reads no RateLimit from a header that gives only one of remaining and reset, in either form",
+    property((tc) => {
+      const n = tc.draw(gs.integers({ minValue: 0, maxValue: 1_000_000 }));
+      const header = tc.draw(gs.sampledFrom([`limit=100, remaining=${n}`, `limit=100, reset=${n}`, `"default";r=${n}`, `"default";t=${n}`]));
+      expect(parseRateLimit(header)).toBeNull();
+    })
+  );
 });
 
 /** A path template of literal and `{name}` segments, and values for its names. */

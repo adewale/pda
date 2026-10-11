@@ -140,18 +140,28 @@ const duplicated = gs.composite((tc) => {
 
 describe("both JSON parsers agree with JSON.parse", () => {
   it(
-    "parse every valid document, in any layout, to what JSON.parse gives",
+    "the client's parses every valid document, in any layout, to what JSON.parse gives",
+    property((tc) => {
+      const text = tc.draw(gs.sampledFrom(layouts))(tc.draw(jsonValues()));
+      expect(parseStrictJson(text)).toStrictEqual(JSON.parse(text));
+    })
+  );
+
+  it(
+    "the validator's parses every valid document, in any layout, to what JSON.parse gives, with no duplicates or BOM",
+    property((tc) => {
+      const text = tc.draw(gs.sampledFrom(layouts))(tc.draw(jsonValues()));
+      expect(parseJson(text)).toMatchObject({ ok: true, value: JSON.parse(text), duplicates: [], bom: false });
+    })
+  );
+
+  it(
+    "the validator's records a position for every value, and nothing else, each at the value's first character",
     property((tc) => {
       const text = tc.draw(gs.sampledFrom(layouts))(tc.draw(jsonValues()));
       const expected = JSON.parse(text) as Json;
-      expect(parseStrictJson(text)).toStrictEqual(expected);
       const parsed = parseJson(text);
-      expect(parsed.ok).toBe(true);
-      if (!parsed.ok) return;
-      expect(parsed.value).toStrictEqual(expected);
-      expect(parsed.duplicates).toEqual([]);
-      expect(parsed.bom).toBe(false);
-      // A position for every value, and nothing else, each at the value's first character.
+      if (!parsed.ok) throw new Error(`refused a valid document: ${parsed.error}`);
       expect([...parsed.positions.keys()].sort()).toEqual(pointers(expected).sort());
       const lines = text.split("\n");
       for (const [at, { line, column }] of parsed.positions) {
@@ -161,25 +171,27 @@ describe("both JSON parsers agree with JSON.parse", () => {
   );
 
   it(
-    "accept an edited document or a run of tokens exactly when JSON.parse does, unless it repeats a name",
+    "the client's accepts an edited document or a run of tokens exactly when JSON.parse does and no name repeats",
+    property((tc) => {
+      const text = tc.draw(gs.oneOf(edited, tokens));
+      const expected = oracle(text);
+      const validator = parseJson(text);
+      // Whether a name repeats is the validator's to say; its own property, below, checks it.
+      const repeats = validator.ok && validator.duplicates.length > 0;
+      expect(strict(text)).toStrictEqual(expected === undefined || repeats ? undefined : expected);
+    })
+  );
+
+  it(
+    "the validator's accepts an edited document or a run of tokens exactly when JSON.parse does, to the same value",
     property((tc) => {
       const text = tc.draw(gs.oneOf(edited, tokens));
       // A BOM is the one prefix the validator accepts and JSON.parse doesn't; it has its own test.
       tc.assume(!text.startsWith("\uFEFF"));
       const expected = oracle(text);
-      const client = strict(text);
       const validator = parseJson(text);
-      if (expected === undefined) {
-        expect(client).toBeUndefined();
-        expect(validator.ok).toBe(false);
-        return;
-      }
-      expect(validator.ok).toBe(true);
-      if (!validator.ok) return;
       // JSON.parse keeps the last of two equal names, and so does the validator, which records it.
-      expect(validator.value).toStrictEqual(expected.value);
-      if (validator.duplicates.length > 0) expect(client).toBeUndefined();
-      else expect(client).toStrictEqual(expected);
+      expect(validator.ok ? { value: validator.value } : undefined).toStrictEqual(expected);
     })
   );
 
@@ -200,15 +212,19 @@ describe("both JSON parsers agree with JSON.parse", () => {
 
 describe("duplicate member names", () => {
   it(
-    "are refused by the client parser and recorded, with pointer and position, by the validator's",
+    "are refused by the client parser, which names the duplicate",
+    property((tc) => {
+      const { text, name } = tc.draw(duplicated);
+      expect(() => parseStrictJson(text)).toThrow(new RegExp(`^Duplicate member name ${JSON.stringify(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} at position \\d+$`));
+      expect(() => parseStrictJson(text)).toThrow(JsonError);
+    })
+  );
+
+  it(
+    "are recorded, with pointer and position, by the validator's",
     property((tc) => {
       const { text, name, pointer, offset } = tc.draw(duplicated);
-      expect(() => parseStrictJson(text)).toThrow(JsonError);
-      expect(() => parseStrictJson(text)).toThrow(/Duplicate member name/);
-      const parsed = parseJson(text);
-      expect(parsed.ok).toBe(true);
-      if (!parsed.ok) return;
-      expect(parsed.duplicates).toEqual([{ pointer, name, position: lineColumn(text, offset) }]);
+      expect(parseJson(text)).toMatchObject({ ok: true, duplicates: [{ pointer, name, position: lineColumn(text, offset) }] });
     })
   );
 
@@ -233,20 +249,34 @@ describe("duplicate member names", () => {
 
 describe("malformed input", () => {
   it(
-    "only ever makes the client parser throw a JsonError, and the validator's return ok: false",
+    "makes the client parser throw only a JsonError, exactly when JSON.parse refuses or a name repeats",
     property((tc) => {
       const text = tc.draw(garbage);
       const expected = oracle(text);
-      const client = strict(text); // rethrows anything but a JsonError
-      const parsed = parseJson(text); // must not throw at all
-      if (parsed.ok) {
-        // Only a BOM separates what the validator accepts from JSON.parse.
-        expect(oracle(parsed.bom ? text.slice(1) : text)).toBeDefined();
-        return;
-      }
-      expect(expected).toBeUndefined();
-      expect(client).toBeUndefined();
-      // Positions count from after a BOM.
+      const validator = parseJson(text);
+      const repeats = validator.ok && validator.duplicates.length > 0;
+      // strict() rethrows anything but a JsonError.
+      expect(strict(text)).toStrictEqual(expected === undefined || repeats ? undefined : expected);
+    })
+  );
+
+  it(
+    "makes the validator's return ok: false, never throw, exactly when JSON.parse refuses it (after any BOM)",
+    property((tc) => {
+      const text = tc.draw(garbage);
+      const parsed = parseJson(text);
+      const unmarked = parsed.ok && parsed.bom ? text.slice(1) : text;
+      expect(parsed.ok).toBe(oracle(unmarked) !== undefined);
+    })
+  );
+
+  it(
+    "puts the validator's refusal at a line and column inside the text, counted after any BOM",
+    property((tc) => {
+      const text = tc.draw(garbage);
+      const parsed = parseJson(text);
+      tc.assume(!parsed.ok);
+      if (parsed.ok) return;
       const lines = text.replace(/^\uFEFF/, "").split("\n");
       expect(parsed.position.line).toBeGreaterThanOrEqual(1);
       expect(parsed.position.line).toBeLessThanOrEqual(lines.length);

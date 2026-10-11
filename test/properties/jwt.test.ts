@@ -105,7 +105,7 @@ describe("our client's JWTs pass the mock Company's checks", () => {
   );
 
   it(
-    "a Session assertion, for a User ID made as our client makes them",
+    "a Session assertion, for any User ID our client makes",
     propertyAsync(async (tc) => {
       const company = await companyWith(tc.draw(readings));
       // PoppyClient.userId's generator; its randomness is the client's, not drawn.
