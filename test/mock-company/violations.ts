@@ -177,6 +177,7 @@ export const VIOLATIONS = {
   "context.user-available": "context.user_available isn't a boolean",
   "direct.agent-words": "Direct Conversation opened with words not marked as the User's",
   "direct.agent-words-later": "The agent's own words sent into an open Direct Conversation (7.10; S12)",
+  "conversation.cross-user": "A conversation of one User reached by another User of the same agent (7.13; S17)",
   "handoff.body": "Handoff body isn't {}",
   "close.body": "Close body isn't {}",
 

@@ -2662,6 +2662,23 @@
       "description": "Close body isn't {}"
     },
     {
+      "id": "dpa.mock.conversation.cross-user",
+      "kind": "agent-request",
+      "role": "company",
+      "requirements": [
+        "7"
+      ],
+      "check": "conversation.cross-user",
+      "input": {
+        "mutation": "another User of the same agent reading a conversation"
+      },
+      "expect": {
+        "refused_or_recorded": "conversation.cross-user",
+        "detail_pattern": "^\\[conversation\\.cross-user\\] User usr_Hd8pW2zQ5nVb7LtK3xRc9F reached conversation cnv_[\\w-]+ of User usr_Q7c1vKx9TzLw3NdR5mHa2B$"
+      },
+      "description": "A conversation of one User reached by another User of the same agent (7.13; S17)"
+    },
+    {
       "id": "dpa.mock.confirm.approved-by",
       "kind": "agent-request",
       "role": "company",

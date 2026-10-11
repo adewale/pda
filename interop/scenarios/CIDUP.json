@@ -1,0 +1,16 @@
+{
+  "id": "CIDUP",
+  "title": "Duplicated message-id retry (network fault)",
+  "requirements": ["7.3"],
+  "adversary": "network",
+  "faults": [{ "match": { "path": "/poppy/conversations", "method": "POST", "direction": "to-company", "nth": 1 }, "action": "duplicate" }],
+  "needs": { "agent": ["discover", "send"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}", "message_id": "interop-retry-1" }, "save": "a" },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}", "message_id": "interop-retry-1" }, "save": "b" },
+    { "expect": { "${b.conversation}": "${a.conversation}", "${b.message_id}": "${a.message_id}" } },
+    { "runner": "wait", "params": { "ms": 500 } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "injected": true, "path": "/poppy/conversations" } }
+  ]
+}

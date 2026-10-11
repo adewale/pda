@@ -1,0 +1,14 @@
+{
+  "id": "BX",
+  "title": "Refused agent: the Company admits no client_id",
+  "requirements": ["4.1"],
+  "adversary": "company",
+  "needs": { "agent": ["discover", "session"], "company": ["arm"] },
+  "steps": [
+    { "company": "arm", "params": { "attack": "BX" } },
+    { "agent": "discover" },
+    { "agent": "session", "save": "r" },
+    { "expect": { "step": "r", "poppy_error": { "$exists": true } } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "/oauth/token", "method": "POST" } }
+  ]
+}

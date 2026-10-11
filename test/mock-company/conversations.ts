@@ -119,15 +119,21 @@ export class Conversations {
     const conversation = this.#conversations.get(id);
     const notFound = () =>
       new HttpError(json({ error: "conversation_not_found" }, 404));
+    // A different User of the same agent reaching for this conversation is a cross-User breach
+    // (7.13, S17): record it, then answer conversation_not_found so nothing of User A leaks.
+    const crossUser = () => {
+      this.company.violation("conversation.cross-user", `User ${context.session.userId} reached conversation ${id} of User ${conversation!.owner.userId}`);
+      return notFound();
+    };
     if (!conversation || conversation.owner.clientId !== context.session.clientId) throw notFound();
     if (conversation.owner.account) {
       if (context.signedIn && context.account === conversation.owner.account) return conversation;
       if (conversation.owner.userId === context.session.userId) {
         throw resourceError("DPoP", 403, "sign_in_required");
       }
-      throw notFound();
+      throw crossUser();
     }
-    if (conversation.owner.userId !== context.session.userId) throw notFound();
+    if (conversation.owner.userId !== context.session.userId) throw crossUser();
     return conversation;
   }
 
@@ -322,7 +328,10 @@ export class Conversations {
     const message = this.#validate(body.message as IncomingMessage | undefined);
     const parentId = typeof body.parent_conversation_id === "string" ? body.parent_conversation_id : null;
     const existing = this.#idempotent(context, message, parentId);
-    if (existing) return this.#answer(inbound, existing, 201);
+    // Ownership before idempotency (7.11, S8): a signed-out retry of the first message id
+    // mustn't hand back the original conversation and its events; #owned re-applies the
+    // account/sign-in gate, so a retry after sign-out gets `sign_in_required`, not the reply.
+    if (existing) return this.#answer(inbound, this.#owned(context, existing.id), 201);
     let parent: Conversation | null = null;
     if (parentId) {
       parent = this.#owned(context, parentId);

@@ -62,7 +62,7 @@ const MANIFEST = {
     : [
         "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL",
         // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
-        "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "XK"
+        "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX"
       ],
   // S1 "endpoint": every client assertion's aud is the endpoint it is sent to (src/poppy/client.ts oauthRequest).
   readings: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
@@ -552,7 +552,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
    * so the cell is `unsupported` (spec §5).
    */
   async arm(_domain, params) {
-    if (!ADVERSARY) throw new StepError(403, "not_adversarial", "This adapter isn't the adversarial agent");
+    if (!ADVERSARY) throw new StepError(501, "unsupported", "This adapter isn't the adversarial agent");
     const attack = text(params.attack, "attack");
     if (!ATTACKS.includes(attack as (typeof ATTACKS)[number])) throw new StepError(501, "unsupported", `Unknown attack ${attack}`);
     armed = { attack, params };
@@ -560,7 +560,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
   },
 
   async attack(domain, params) {
-    if (!ADVERSARY) throw new StepError(403, "not_adversarial", "This adapter isn't the adversarial agent");
+    if (!ADVERSARY) throw new StepError(501, "unsupported", "This adapter isn't the adversarial agent");
     if (!armed) throw new StepError(409, "not_armed", "No attack armed; call arm first");
     const c = await company(domain);
     const ctx: AttackContext = { clientId: `${ORIGIN}/poppy/client.json`, signingJwks: agent.env.POPPY_SIGNING_JWKS as unknown as string, fetcher: (request) => fetch(request) };
