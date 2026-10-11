@@ -373,7 +373,10 @@ async function runOne(
     }
   }
   cell.checks = checks;
-  const errors = checks.filter((check) => check.severity === "error");
+  // In an adversarial cell the attacking side's own violations are expected (rule 0): don't fail
+  // the cell for them, whether the runner's trace checks or the Company's /violations recorded them.
+  const adversarialSide = agent.entry.adversarial ? "agent" : company.entry.adversarial ? "company" : null;
+  const errors = checks.filter((check) => check.severity === "error" && check.side !== adversarialSide);
   if (cell.outcome === "pass" && errors.length > 0) {
     cell.outcome = "fail";
     cell.reason = `checks: ${errors.map((check) => `${check.id} (${check.side})`).join(", ")}`;
