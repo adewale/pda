@@ -1,0 +1,16 @@
+[project]
+name = "poppy-hypothesis"
+version = "0.0.0"
+description = "A second, independent Poppy client in Python, and a Hypothesis stateful test of our mock Company over HTTP"
+requires-python = ">=3.12"
+dependencies = [
+  "hypothesis==6.169.0",
+  "pytest==9.1.1",
+  "httpx==0.28.1",
+  "pyjwt==2.15.1",
+  "cryptography==50.0.2",
+  "tzdata==2026.5",
+]
+
+[tool.uv]
+package = false

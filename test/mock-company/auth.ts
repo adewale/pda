@@ -182,7 +182,7 @@ export class AuthServer {
       if (co.config.reuseDetection) {
         // Reuse means the token leaked: revoke every token descended from the sign-in (RFC 9700 4.14.2).
         for (const other of co.accountTokens.values()) {
-          if (other.clientId === token.clientId && other.userId === token.userId && other.account === token.account) {
+          if (other.clientId === token.clientId && other.userId === token.userId && other.grant === token.grant) {
             this.revokeToken(other.value);
           }
         }
@@ -214,7 +214,7 @@ export class AuthServer {
     const session =
       this.#session(client, form.get("session_id"), token.userId) ??
       co.newSession(client.clientId, token.userId);
-    co.signIn(session, token.account, token.scope);
+    co.signIn(session, token.account, token.scope, token.grant);
     let rotated;
     if (co.config.rotateRefreshTokens) {
       token.rotated = true;
@@ -335,7 +335,11 @@ export class AuthServer {
     return new Response(null, { status: 200, headers: { "Cache-Control": "no-store" } });
   }
 
-  /** Revoke an Account Token and sign out every Session signed in with it. */
+  /**
+   * Revoke an Account Token and sign out every Session signed in with it
+   * (4.9): with it or a token it was rotated from, not every Session signed
+   * in to the same account by another sign-in (spec-issues N4).
+   */
   revokeToken(value: string): void {
     const co = this.company;
     const token = co.accountTokens.get(value);
@@ -345,9 +349,11 @@ export class AuthServer {
       if (
         session.clientId === token.clientId &&
         session.userId === token.userId &&
-        session.account === token.account
+        session.account === token.account &&
+        session.grant === token.grant
       ) {
         session.account = null;
+        session.grant = null;
         session.scope = [];
         if (co.config.endSessionsOnSignOut) session.ended = true;
       }

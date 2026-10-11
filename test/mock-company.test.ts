@@ -2020,6 +2020,86 @@ describe("the mock Company", () => {
   });
 });
 
+// Found by the Hypothesis stateful test (test/hypothesis), each a reading the mock got wrong.
+describe("the mock Company, as the Hypothesis model found it", () => {
+  it("takes a retry with the message's members in another order as the same message (7.3)", async () => {
+    const c = company();
+    const s = await signedOut(c);
+    const first = message({ data: { size: "M", colour: "blue" } });
+    const created = await converse(c, s, first);
+    expect(created.status).toBe(201);
+    const { conversation_id } = (await created.json()) as { conversation_id: string };
+    const retry = await converse(c, s, { data: { colour: "blue", size: "M" }, text: first.text, sender: first.sender, id: first.id });
+    expect(retry.status).toBe(201);
+    expect(((await retry.json()) as { conversation_id: string }).conversation_id).toBe(conversation_id);
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
+  it("answers a retried first message with sign_in_required once the conversation used an account the Session left (7.11, S8)", async () => {
+    const c = company();
+    const s = await signedIn(c);
+    const first = message({ text: "I'd like to exchange the jacket on my order" });
+    expect((await converse(c, s, first)).status).toBe(201);
+    const revoke = await form(c, c.hosts.revocationEndpoint, { token: s.refreshToken, token_type_hint: "refresh_token" }, null);
+    expect(revoke.status).toBe(200);
+    const retry = await call(c, s, "POST", `${c.hosts.conversationsEndpoint}?wait=1`, { body: { message: first } });
+    expect(retry.status).toBe(403);
+    expect(retry.headers.get("WWW-Authenticate")).toContain("sign_in_required");
+    expect(JSON.stringify(await retry.json())).not.toContain("ord_7Hk2");
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
+  it("accepts every well-formed RFC 5646 locale and IANA time zone name in context (7.4)", async () => {
+    const c = company();
+    const s = await signedOut(c);
+    const locales = ["en-US", "i-ami", "en-US-u-ca-gregory", "x-private", "de-CH-1901", "zh-Hant-TW", "sgn-BE-FR", "abcde"];
+    const zones = ["CET", "EST5EDT", "Etc/GMT+5", "America/Argentina/Buenos_Aires", "UTC", "Factory", "W-SU"];
+    for (const context of [...locales.map((locale) => ({ locale })), ...zones.map((time_zone) => ({ time_zone }))]) {
+      expect((await converse(c, s, message({ context }))).status).toBe(201);
+    }
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
+  it("signs out only the Sessions signed in with the revoked Account Token or one it rotated from (4.9)", async () => {
+    const c = company();
+    await c.stub.configure({ rotateRefreshTokens: true });
+    const first = await signedIn(c, "poppy:read");
+    const second = await signedIn(c, "poppy:read");
+    // `first` renews, so its Account Token rotates; revoking the new one signs it out.
+    const renewed = await form(
+      c,
+      c.hosts.tokenEndpoint,
+      { grant_type: "refresh_token", refresh_token: first.refreshToken, session_id: first.sessionId },
+      first.key
+    );
+    const { access_token, refresh_token } = (await renewed.json()) as { access_token: string; refresh_token: string };
+    const revoke = await form(c, c.hosts.revocationEndpoint, { token: refresh_token, token_type_hint: "refresh_token" }, null);
+    expect(revoke.status).toBe(200);
+    const orders = (s: { key: Key; token: string; sessionId: string }) => call(c, s, "GET", `${c.hosts.api}/orders`);
+    expect((await orders({ ...first, token: access_token })).headers.get("WWW-Authenticate")).toContain("sign_in_required");
+    // `second` signed in on its own, with its own Account Token, so it stays signed in.
+    expect((await orders(second)).status).toBe(200);
+    const state = await c.stub.state();
+    expect(state.sessions.map((session) => session.signedIn)).toEqual([false, true]);
+    expect(state.violations).toEqual([]);
+  });
+
+  it("revokes only the reused token's own sign-in when it detects reuse (RFC 9700 4.14.2)", async () => {
+    const c = company();
+    await c.stub.configure({ rotateRefreshTokens: true, reuseDetection: true });
+    const first = await signedIn(c, "poppy:read");
+    const second = await signedIn(c, "poppy:read");
+    const refresh = () =>
+      form(c, c.hosts.tokenEndpoint, { grant_type: "refresh_token", refresh_token: first.refreshToken, session_id: first.sessionId }, first.key);
+    expect((await refresh()).status).toBe(200);
+    expect((await refresh()).status).toBe(400);
+    expect((await call(c, second, "GET", `${c.hosts.api}/orders`)).status).toBe(200);
+    const state = await c.stub.state();
+    expect(state.accountTokens).toBe(1);
+    expect(state.violations.map(violationId)).toEqual(["account-token.rotated-reused"]);
+  });
+});
+
 describe("the mock Company's other surfaces", () => {
   it("signs in with Device Sign-In, then gets an MCP Bearer token", async () => {
     const c = company();
