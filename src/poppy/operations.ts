@@ -124,6 +124,7 @@ async function showOperation(client: PoppyClient, company: Company, row: Operati
     id: `op-${row.issuer}-${operation.operation_id}`,
     kind: "operation",
     company: company.name,
+    domain: company.domain,
     open,
     issuer: row.issuer,
     operationId: operation.operation_id,
@@ -147,6 +148,41 @@ async function showOperation(client: PoppyClient, company: Company, row: Operati
  * result, or a Company message. A new revision of a proposal needs a new
  * approval, unless a standing permission covers it (Ops 5.1).
  */
+/**
+ * Before an API write that once proposed an operation: if we've tried to
+ * confirm that operation and it isn't final, we read or confirm it again
+ * instead, and MUST NOT ask for a new proposal of the same action (Ops 6).
+ * `request` identifies the write: method, URL and body, or MCP tool and args.
+ */
+export function refuseWhileConfirming(client: PoppyClient, issuer: string, request: string): void {
+  const found = one<{ operation_id: string }>(
+    client.sql,
+    "SELECT operation_id FROM poppy_proposals WHERE issuer = ? AND request = ?",
+    issuer,
+    request
+  );
+  const row = found ? stored(client, issuer, found.operation_id) : undefined;
+  if (!row || row.approved_revision === null) return;
+  const operation = JSON.parse(row.operation) as Operation;
+  if (FINAL.has(operation.state)) return;
+  throw new PoppyError(
+    "operation_open",
+    `This request already proposed operation ${operation.operation_id}, which has been confirmed and is ${operation.state}. Read it with poppy_operation; don't ask again until it is final.`,
+    0
+  );
+}
+
+/** Remember which API write proposed an operation, for `refuseWhileConfirming`. */
+export function rememberProposal(client: PoppyClient, issuer: string, request: string, operationId: string): void {
+  client.sql.exec(
+    `INSERT INTO poppy_proposals (issuer, request, operation_id) VALUES (?, ?, ?)
+     ON CONFLICT (issuer, request) DO UPDATE SET operation_id = excluded.operation_id`,
+    issuer,
+    request,
+    operationId
+  );
+}
+
 export async function handleProposal(
   client: PoppyClient,
   company: Company,
@@ -547,7 +583,7 @@ export async function proposeLocal(
     JSON.stringify({ kind, request }),
     Date.now()
   );
-  await client.host.showCard({ id: `approval-${id}`, kind: "approval", company: company.name, open: true, approvalId: id, summary, status: "pending" });
+  await client.host.showCard({ id: `approval-${id}`, kind: "approval", company: company.name, domain: company.domain, open: true, approvalId: id, summary, status: "pending" });
   return id;
 }
 
@@ -562,6 +598,7 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
       id: `approval-${id}`,
       kind: "approval",
       company: company.name,
+      domain: company.domain,
       open: false,
       approvalId: id,
       summary: row.summary,

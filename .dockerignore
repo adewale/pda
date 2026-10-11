@@ -1,0 +1,7 @@
+# Interop images built with the repository root as context (interop/registry.json "context": ".")
+# need only src/, test/mock-company/ and interop/impls/.
+**
+!src/**
+!test/mock-company/**
+!interop/impls/**
+interop/impls/**/node_modules

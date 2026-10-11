@@ -32,7 +32,7 @@ class FakeContext implements BrowserContextHandle {
     }
   }
 
-  async #navigate(url: string, init: { method: string; body?: URLSearchParams }): Promise<{ url: string; status: number; html: string }> {
+  async #navigate(url: string, init: { method: string; body?: URLSearchParams }): Promise<{ url: string; status: number; html: string; retryAfter?: string }> {
     let current = new URL(url);
     let method = init.method;
     let body = init.body;
@@ -53,12 +53,13 @@ class FakeContext implements BrowserContextHandle {
       }
       const html = await response.text();
       this.#page = { url: current.href, html };
-      return { url: current.href, status: response.status, html };
+      const retryAfter = response.headers.get("Retry-After");
+      return { url: current.href, status: response.status, html, ...(retryAfter ? { retryAfter } : {}) };
     }
     throw new Error("Too many redirects");
   }
 
-  #snapshot(page: { url: string; status: number; html: string }): PageSnapshot {
+  #snapshot(page: { url: string; status: number; html: string; retryAfter?: string }): PageSnapshot {
     const strip = (html: string) => html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     return {
       url: page.url,
@@ -66,13 +67,14 @@ class FakeContext implements BrowserContextHandle {
       title: /<title>([^<]*)<\/title>/i.exec(page.html)?.[1] ?? "",
       text: strip(page.html),
       links: [...page.html.matchAll(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)].map((match) => ({ href: new URL(match[1]!, page.url).href, text: strip(match[2]!) })),
-      forms: []
+      forms: [],
+      ...(page.retryAfter ? { retryAfter: page.retryAfter } : {})
     };
   }
 
   async postForm(action: string, fields: Readonly<Record<string, string>>) {
     const result = await this.#navigate(action, { method: "POST", body: new URLSearchParams(fields) });
-    return { url: result.url, status: result.status };
+    return { url: result.url, status: result.status, ...(result.retryAfter ? { retryAfter: result.retryAfter } : {}) };
   }
 
   async goto(url: string) {

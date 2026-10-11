@@ -176,13 +176,14 @@ The app has four places:
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
-npm test                         # three suites: Workers, durability, page
+npm test                         # four suites: Workers, durability, page, interop harness
 npm run typecheck
 npm run check:docs               # every test the spec's Appendix A names exists
+npm run interop                  # the interop grid in Docker (interop/README.md)
 npm run deploy
 ```
 
-CI runs typecheck, the tests and the docs check on every push (`.github/workflows/ci.yml`).
+CI runs typecheck, the tests and the docs check on every push, and the interop grid for our agent against our mock Company (`.github/workflows/ci.yml`).
 
 **What the tests cover:**
 
@@ -196,8 +197,11 @@ CI runs typecheck, the tests and the docs check on every push (`.github/workflow
 - **Validator:** fixtures declared as data, with a test that every message has one. They include the spec's own examples and poppy-demo's live documents.
 - **JSON parsers:** property tests against `JSON.parse`.
 - **Page:** the four places, the needs-you tray, cards, the Activity log (no secrets ever reach it), the sign-in page and the Browser Rendering adapter, in happy-dom.
+- **Interop harness:** its scenario interpreter, trace checks, attribution and report, in Node. The validator fixtures and the mock's tamper rows are also exported as language-neutral vectors (`interop/vectors/`), and a test fails while those files are stale.
 
 The model, Google, GitHub and Companies are faked; nothing calls the network.
+
+**Interop.** `npm run interop` runs every agent against every Company in containers, over HTTPS through a recording proxy, and writes a grid with each failure blamed on a side by a named rule ([`interop/README.md`](interop/README.md), [`docs/interop-spec.md`](docs/interop-spec.md)). Our agent there is `src/poppy` driven directly, with no model; our Company is the strict mock. Docker is needed.
 
 ## Cloudflare services
 
@@ -227,7 +231,7 @@ Poppy implementations we know of, as of 11 Oct 2026. All were days old.
 | [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org) ([poppy.ilmer.org](https://poppy.ilmer.org/.well-known/poppy.json)) | Signed-out Company on Workers | TypeScript |
 | [dirnbauer/webconsulting-typo3-lab](https://github.com/dirnbauer/webconsulting-typo3-lab) | Minimal signed-out Company (the extension itself is private) | PHP |
 
-[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 56 problems in the specification itself, with suggested fixes, and [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company.
+[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 56 problems in the specification itself, with suggested fixes, [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, and [`interop/`](interop/README.md) runs it.
 
 ## Limitations
 
@@ -250,7 +254,8 @@ src/poppy/          The Poppy client, its tools, its UI messages and the Activit
 src/validator/      The validator: parser, primitives, profiles, fetch, HTTP, HTML
 scripts/            The validator CLI and the secrets generator
 test/               Tests and the mock Company
-docs/               Setup guide; spec problems; issues in other implementations; interop test design
+interop/            The interop runner, recording proxy, scenarios, adapters and vectors
+docs/               Setup guide; spec problems; issues in other implementations; interop design and harness spec
 ```
 
 ## Support, contributing and license

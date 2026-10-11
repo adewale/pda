@@ -39,7 +39,9 @@ export class Apis {
 
   openapiDocument() {
     const api = this.company.hosts.api;
-    const secured = { security: [{ session: [] }] };
+    const { read, write } = this.company.orderScopes;
+    // Each operation declares the scopes it needs in its security requirement.
+    const secured = (...scopes: string[]) => ({ security: [{ session: scopes }] });
     return {
       openapi: "3.1.0",
       info: {
@@ -48,7 +50,7 @@ export class Apis {
         description:
           "Orders and exchanges. POST /orders/{order_id}/exchanges returns an operation (Operations extension) to Personal Agents that support it."
       },
-      servers: [{ url: api }],
+      servers: [{ url: this.company.config.openapiServerOverride ?? api }],
       components: {
         securitySchemes: {
           session: { type: "http", scheme: "DPoP", description: "Personal Agent Protocol Session Token" }
@@ -59,7 +61,7 @@ export class Apis {
           get: {
             operationId: "searchProducts",
             summary: "Search products. Works signed out.",
-            ...secured,
+            ...secured(),
             parameters: [{ name: "q", in: "query", required: false, schema: { type: "string" } }],
             responses: { "200": { description: "Matching products" } }
           }
@@ -67,16 +69,24 @@ export class Apis {
         "/orders": {
           get: {
             operationId: "listOrders",
-            summary: "List the account's orders. Needs poppy:read.",
-            ...secured,
+            summary: `List the account's orders. Needs ${read}.`,
+            ...secured(read),
             responses: { "200": { description: "Orders" } }
+          }
+        },
+        "/addresses": {
+          get: {
+            operationId: "listAddresses",
+            summary: "The account's saved shipping addresses. Needs addresses.",
+            ...secured("addresses"),
+            responses: { "200": { description: "Addresses" } }
           }
         },
         "/orders/{order_id}": {
           get: {
             operationId: "getOrder",
-            summary: "One order. Needs poppy:read.",
-            ...secured,
+            summary: `One order. Needs ${read}.`,
+            ...secured(read),
             parameters: [{ name: "order_id", in: "path", required: true, schema: { type: "string" } }],
             responses: { "200": { description: "The order" }, "404": { description: "No such order" } }
           }
@@ -85,8 +95,8 @@ export class Apis {
           post: {
             operationId: "exchangeItem",
             summary:
-              "Exchange an item. Needs poppy:write. Returns 202 with an operation to confirm (Operations extension), or 201 with the exchange. Accepts Idempotency-Key.",
-            ...secured,
+              `Exchange an item. Needs ${write}. Returns 202 with an operation to confirm (Operations extension), or 201 with the exchange. Accepts Idempotency-Key.`,
+            ...secured(write),
             parameters: [
               { name: "order_id", in: "path", required: true, schema: { type: "string" } },
               { name: "Idempotency-Key", in: "header", required: false, schema: { type: "string" } }
@@ -116,6 +126,9 @@ export class Apis {
   /** The exchange, as an operation or done at once. */
   #exchange(context: ResourceContext): { status: number; body: unknown } {
     const co = this.company;
+    if (co.config.requiredExtension) {
+      throw new HttpError(json({ error: "extension_required", extension: co.config.requiredExtension }, 403));
+    }
     if (co.config.operations && context.client.listsOperations) {
       return { status: 202, body: { operation: this.operations.proposeExchange(context) } };
     }
@@ -134,23 +147,32 @@ export class Apis {
     const co = this.company;
     const { pathname } = inbound.url;
     const method = inbound.request.method;
+    const { read, write } = co.orderScopes;
+    // An API that names a `resource` takes only tokens issued for it (RFC 8707).
+    if (co.config.apiResource && context.token.resource !== co.hosts.api) {
+      throw resourceError("DPoP", 401, "invalid_token");
+    }
     if (method === "GET" && pathname === "/products") {
       const query = (inbound.url.searchParams.get("q") ?? "").toLowerCase();
       return json({ products: PRODUCTS.filter((product) => product.name.toLowerCase().includes(query)) });
     }
     if (method === "GET" && pathname === "/orders") {
-      co.requireScopes(context, ["poppy:read"]);
+      co.requireScopes(context, [read]);
       return json({ orders: [orderFor(context.account!)] });
+    }
+    if (method === "GET" && pathname === "/addresses") {
+      co.requireScopes(context, ["addresses"]);
+      return json({ addresses: [{ address_id: "adr_1", city: "Portland" }] });
     }
     const order = /^\/orders\/([^/]+)$/.exec(pathname);
     if (method === "GET" && order) {
-      co.requireScopes(context, ["poppy:read"]);
+      co.requireScopes(context, [read]);
       if (order[1] !== "ord_7Hk2") return json({ error: "not_found" }, 404);
       return json(orderFor(context.account!));
     }
     const exchange = /^\/orders\/([^/]+)\/exchanges$/.exec(pathname);
     if (method === "POST" && exchange) {
-      co.requireScopes(context, ["poppy:write"]);
+      co.requireScopes(context, [write]);
       const key = inbound.request.headers.get("Idempotency-Key");
       if (key) {
         const scoped = `${context.session.id}|${key}`;
@@ -180,7 +202,7 @@ export class Apis {
       resource: co.hosts.mcpUrl,
       authorization_servers: co.config.mcpPrmOmitIssuer ? [] : [co.hosts.issuer],
       bearer_methods_supported: ["header"],
-      scopes_supported: ["poppy:read", "poppy:write"]
+      scopes_supported: [co.orderScopes.read, co.orderScopes.write]
     };
   }
 
@@ -265,7 +287,7 @@ export class Apis {
         });
       }
       if (name === "exchange_item") {
-        co.requireScopes(context, ["poppy:write"], true);
+        co.requireScopes(context, [co.orderScopes.write], true);
         const result = this.#exchange(context);
         const body = result.body as { operation?: { summary: string } };
         if (body.operation) {

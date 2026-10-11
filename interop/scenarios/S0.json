@@ -1,0 +1,15 @@
+{
+  "id": "S0",
+  "title": "Signed-out Session",
+  "requirements": ["4.1", "4.2", "4.3"],
+  "readings": ["S1", "S2", "S4"],
+  "live": true,
+  "needs": { "agent": ["discover", "session"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session", "save": "s" },
+    { "expect": { "${s.signed_in}": false, "${s.session_id}": { "$exists": true } } },
+    { "agent": "session", "save": "again" },
+    { "expect": { "${again.session_id}": "${s.session_id}" } }
+  ]
+}

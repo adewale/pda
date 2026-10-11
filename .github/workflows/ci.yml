@@ -41,3 +41,28 @@ jobs:
 
       # Appendix A's test names and the docs' test counts match the suite.
       - run: npm run check:docs
+
+  # The interop grid for our own pair: our agent against our strict mock
+  # Company, each in a container behind the recording proxy (interop/).
+  interop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm run interop -- --agents dpa --companies dpa-mock
+
+      - name: Upload the grid, HAR files and container logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interop-results
+          path: interop/results/
+          if-no-files-found: ignore

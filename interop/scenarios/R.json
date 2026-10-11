@@ -1,0 +1,20 @@
+{
+  "id": "R",
+  "title": "Renew a Session Token, following Account Token rotation",
+  "requirements": ["4.8", "6"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue", "api"], "company": ["approve_authorization", "expire_tokens"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
+    { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" } },
+    { "agent": "api", "params": { "api": "${fixture.openapi.api}", "operation": "${fixture.openapi.operation}", "args": "${fixture.openapi.args}" }, "save": "first" },
+    { "company": "expire_tokens" },
+    { "agent": "api", "params": { "api": "${fixture.openapi.api}", "operation": "${fixture.openapi.operation}", "args": "${fixture.openapi.args}" }, "save": "second" },
+    { "company": "expire_tokens" },
+    { "agent": "api", "params": { "api": "${fixture.openapi.api}", "operation": "${fixture.openapi.operation}", "args": "${fixture.openapi.args}" }, "save": "third" },
+    { "expect": { "${third.status}": 200 } },
+    { "runner": "assert_trace", "params": { "check": "refresh_rotated" } }
+  ]
+}

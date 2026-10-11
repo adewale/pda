@@ -1,11 +1,14 @@
 import { createLocalJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from "jose";
 import { Company, HttpError, json, randomId, type Inbound } from "./core";
+import type { Operations } from "./operations";
 import type { ViolationId } from "./violations";
 
 /** Discovery documents, the website, and the browser-session endpoint (sections 3 and 5). */
 export class Web {
   /** Browser cookie value → Session id. */
   readonly #cookies = new Map<string, string>();
+
+  operations: Operations | undefined;
 
   constructor(readonly company: Company) {}
 
@@ -15,19 +18,25 @@ export class Web {
     const config = co.config;
     const hosts = co.hosts;
     const auth: Record<string, unknown> = { issuer: hosts.issuer };
-    if (config.signIn.direct) auth.direct = { scopes: config.signIn.direct };
-    if (config.signIn.device) auth.device = { scopes: config.signIn.device };
-    if (config.signIn.mediated) {
+    const direct = co.offeredScopes("direct");
+    const device = co.offeredScopes("device");
+    const mediated = co.offeredScopes("mediated");
+    if (direct) auth.direct = { scopes: direct };
+    if (device) auth.device = { scopes: device };
+    if (mediated) {
       auth.mediated = {
         endpoint: hosts.mediatedEndpoint,
         fields: [
           { name: "email", label: "Email", secret: false },
           { name: "password", label: "Password", secret: true }
         ],
-        scopes: config.signIn.mediated
+        scopes: mediated
       };
     }
-    if (Object.keys(config.customScopes).length > 0) auth.custom_scopes = config.customScopes;
+    const customScopes: Record<string, string> = config.customScopesOnly
+      ? { "orders:read": "View your orders", "orders:write": "Change your orders", ...config.customScopes }
+      : config.customScopes;
+    if (Object.keys(customScopes).length > 0) auth.custom_scopes = customScopes;
     const document: Record<string, unknown> = {
       protocol_version: config.protocolVersion,
       organization: {
@@ -57,7 +66,8 @@ export class Web {
       apis.push({
         type: "openapi",
         url: config.openapiUrlOverride ?? `${hosts.api}/openapi.json`,
-        description: "Orders and exchanges"
+        description: "Orders and exchanges",
+        ...(config.apiResource ? { resource: hosts.api } : {})
       });
     }
     if (config.mcp) {
@@ -152,6 +162,17 @@ export class Web {
       if (error instanceof HttpError) return page("browser-assertion.unknown-agent", "unknown Personal Agent");
       throw error;
     }
+    // Signed like the assertion that starts a Session (5, 4.2), so checked like one (Guides).
+    if (!header.alg || !["ES256", "RS256"].includes(header.alg)) {
+      return page("browser-assertion.alg", `alg ${String(header.alg)} is not allowed`);
+    }
+    // Guides: ignore jku, x5u and any embedded key; verify only with the jwks_uri keys.
+    if (header.jku || header.x5u || header.x5c || header.jwk) {
+      co.violation("browser-assertion.embedded-key", "browser session: assertion embeds or points to a key (jku/x5u/x5c/jwk)");
+    }
+    if (co.config.strictAssertions && (!header.kid || !client.jwks.keys.some((key) => key.kid === header.kid))) {
+      return page("browser-assertion.kid", `strict Company: kid ${JSON.stringify(header.kid)} names no published key`);
+    }
     try {
       await jwtVerify(assertion, createLocalJWKSet(client.jwks), {
         algorithms: ["ES256", "RS256"],
@@ -164,7 +185,14 @@ export class Web {
     if (Array.isArray(claims.aud) || claims.aud !== co.hosts.browserSessionEndpoint) {
       return page("browser-assertion.aud", `aud ${JSON.stringify(claims.aud)}`);
     }
-    if (typeof claims.iat !== "number" || typeof claims.exp !== "number" || claims.exp - claims.iat > 60) {
+    if (typeof claims.iat !== "number" || typeof claims.exp !== "number") {
+      return page("browser-assertion.iat-exp-missing", "iat and exp are required");
+    }
+    // Guides: check iat, allowing a small clock skew. Assertions carry the agent's real time.
+    if (claims.iat > Math.floor(Date.now() / 1000) + 30) {
+      return page("browser-assertion.iat-future", `iat ${claims.iat} is in the future`);
+    }
+    if (claims.exp - claims.iat > 60) {
       return page("browser-assertion.lifetime", "exp must be no more than 60 seconds after iat");
     }
     // freshJti records the violation.
@@ -208,11 +236,18 @@ export class Web {
     if (inbound.url.pathname === "/") {
       return html(`<h1>Mock Shop ${co.id}</h1><a href="/orders">Your orders</a>`);
     }
+    const cookie = /(?:^|;\s*)mock_sid=([^;]+)/.exec(inbound.request.headers.get("Cookie") ?? "")?.[1];
+    const session = cookie ? co.sessions.get(this.#cookies.get(cookie) ?? "") : undefined;
+    // An operation's `url`: the same operation, shown in the same Session (Ops 4.4).
+    const exchange = /^\/orders\/[^/]+\/exchanges\/([A-Za-z0-9_-]+)$/.exec(inbound.url.pathname);
+    if (exchange) {
+      const operation = session && !session.ended ? this.operations?.forWebsite(session, exchange[1]!) : null;
+      if (!operation) return html("<p>Not found</p>", 404);
+      return html(`<h1>Your exchange</h1><p>${operation.summary}</p><p>Status: ${operation.state}</p>`);
+    }
     if (inbound.url.pathname === "/orders" || inbound.url.pathname.startsWith("/orders/")) {
-      const cookie = /(?:^|;\s*)mock_sid=([^;]+)/.exec(inbound.request.headers.get("Cookie") ?? "")?.[1];
-      const session = cookie ? co.sessions.get(this.#cookies.get(cookie) ?? "") : undefined;
       // The cookie follows the Session's current state (5).
-      if (session && !session.ended && session.account && session.scope.includes("poppy:read")) {
+      if (session && !session.ended && session.account && session.scope.includes(co.orderScopes.read)) {
         return html(`<p>Signed in as ${session.account}</p><ul><li>Order ord_7Hk2: Stormline Jacket (M)</li></ul>`);
       }
       return html("<p>Signed out</p><p>Sign in to see your orders.</p>");

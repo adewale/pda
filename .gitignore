@@ -8,3 +8,4 @@ dist/
 
 # Agent worktrees
 .claude/worktrees/
+interop/results/

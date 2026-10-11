@@ -1,0 +1,14 @@
+{
+  "id": "CS",
+  "title": "Conversation: server-sent events and resuming",
+  "requirements": ["7.5", "7.6"],
+  "needs": { "agent": ["discover", "send", "sse"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}" }, "save": "m" },
+    { "agent": "sse", "params": { "conversation": "${m.conversation}", "max_events": 20, "wait": 1 }, "save": "first" },
+    { "expect": { "${first.events}": { "$some": { "type": "message" } }, "${first.last_id}": { "$exists": true } } },
+    { "agent": "sse", "params": { "conversation": "${m.conversation}", "cursor": "${first.last_id}", "max_events": 20, "wait": 1 }, "save": "resumed" },
+    { "expect": { "${resumed.events}": { "$length": 0 } } }
+  ]
+}

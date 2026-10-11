@@ -1,0 +1,16 @@
+{
+  "id": "SX",
+  "title": "Direct Sign-In denied",
+  "requirements": ["4.5"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue", "state"], "company": ["deny_authorization"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "company": "deny_authorization", "params": { "url": "${pending.pending.url}" }, "save": "denied" },
+    { "agent": "signin_continue", "params": { "callback_url": "${denied.redirect}" }, "save": "outcome" },
+    { "expect": { "step": "outcome", "poppy_error": "access_denied" } },
+    { "agent": "state", "save": "st" },
+    { "expect": { "${st.accounts}": { "$length": 0 } } }
+  ]
+}

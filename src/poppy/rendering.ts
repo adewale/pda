@@ -5,7 +5,7 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 }
 
-async function snapshot(page: Page, status: number): Promise<PageSnapshot> {
+async function snapshot(page: Page, status: number, retryAfter?: string): Promise<PageSnapshot> {
   const details = await page.evaluate(() => {
     const forms = [...document.forms].map((form, index) => ({
       selector: form.id ? `#${form.id}` : `form:nth-of-type(${index + 1})`,
@@ -23,7 +23,7 @@ async function snapshot(page: Page, status: number): Promise<PageSnapshot> {
       forms
     };
   });
-  return { url: page.url(), status, ...details };
+  return { url: page.url(), status, ...details, ...(retryAfter ? { retryAfter } : {}) };
 }
 
 /** One isolated Browser Rendering context: separate cookies and storage (spec 5; Guides). */
@@ -54,13 +54,15 @@ class RenderingContext implements BrowserContextHandle {
       page.waitForNavigation({ waitUntil: "domcontentloaded" }),
       page.evaluate(() => document.forms[0]!.submit())
     ]);
-    return { url: page.url(), status: response?.status() ?? 0 };
+    const retryAfter = response?.headers()["retry-after"];
+    return { url: page.url(), status: response?.status() ?? 0, ...(retryAfter ? { retryAfter } : {}) };
   }
 
   async goto(url: string) {
     const page = await this.#currentPage();
     const response = await page.goto(url, { waitUntil: "domcontentloaded" });
-    return snapshot(page, response?.status() ?? 0);
+    // Puppeteer lowercases header names.
+    return snapshot(page, response?.status() ?? 0, response?.headers()["retry-after"]);
   }
 
   async click(selector: string) {

@@ -19,6 +19,8 @@ export type Company = {
   readonly name: string;
   /** `organization.domain` of the document this came from. */
   readonly domain: string;
+  /** The issuer metadata's `poppy_domains`, lowercased (3.2). Absent from documents cached before it was kept. */
+  readonly poppyDomains?: readonly string[];
   readonly protocolVersion: string;
   readonly endpoints: {
     readonly token: string;
@@ -191,6 +193,7 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
       issuer,
       name,
       domain: orgDomain,
+      poppyDomains: strings(metadata.poppy_domains).map((entry) => entry.toLowerCase()),
       protocolVersion: doc.protocol_version as string,
       endpoints,
       signIn,
@@ -202,6 +205,27 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
     },
     cacheSeconds
   };
+}
+
+/**
+ * Whether a host may receive this Company's Session Tokens and DPoP proofs.
+ * The draft doesn't say (docs/spec-issues.md, N10), and an OpenAPI
+ * description can name any server, so only these do: a host `poppy.json`
+ * lists for a service that takes a Session Token, or a host equal to or
+ * under `organization.domain` or a `poppy_domains` entry.
+ */
+export function tokenHostAllowed(company: Company, url: URL): boolean {
+  const host = url.hostname.toLowerCase();
+  const listed = [
+    company.conversations?.endpoint,
+    company.extensions.operations?.endpoint,
+    company.signIn.mediated?.endpoint,
+    ...company.apis.map((api) => api.url)
+  ].flatMap((value) => (value && URL.canParse(value) ? [new URL(value).hostname.toLowerCase()] : []));
+  if (listed.includes(host)) return true;
+  return [company.domain, ...(company.poppyDomains ?? [])].some(
+    (domain) => host === domain || host.endsWith(`.${domain}`)
+  );
 }
 
 export function isCompany(value: Company | WebsiteOnly): value is Company {

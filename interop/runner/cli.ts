@@ -1,0 +1,575 @@
+#!/usr/bin/env node
+/**
+ * The Poppy interop runner (docs/interop-spec.md):
+ *
+ *   npm run interop -- [--agents a,b] [--companies x,y] [--scenarios D,SD]
+ *                      [--lane local|live] [--no-build] [--keep]
+ *                      [--set name:KEY=VALUE]... [--out dir]
+ *
+ * Local lane: builds every selected implementation's image, makes a CA and
+ * certificate for the run, starts a Docker network with the recording
+ * proxy and each implementation, waits on /healthz, reads /manifest, then
+ * runs each scenario × agent × Company cell, resetting both adapters first.
+ * Writes interop/results/<run>/results.json, a HAR per cell and index.html.
+ * Exits 1 when a cell fails or errors and isn't in known-failures.json.
+ */
+import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { parseArgs } from "node:util";
+import { attributeAll, unexpected } from "./attribution.ts";
+import { runCell, toReply, type Driver, type Reply, type RunnerReply } from "./cell.ts";
+import { makeCertificates } from "./certs.ts";
+import { traceChecks } from "./checks.ts";
+import { docker, dockerAsync, proxyAliases } from "./docker.ts";
+import { documentChecks } from "./documents.ts";
+import { exchanges, PROBE_HEADER, type Har } from "./har.ts";
+import { readingChecks } from "./readings.ts";
+import { cellId, renderReport } from "./report.ts";
+import { lintScenario } from "./scenario.ts";
+import { assertTrace } from "./traces.ts";
+import type { Cell, Check, KnownFailure, Manifest, Registry, RegistryEntry, Role, Scenario } from "./types.ts";
+
+const ROOT = path.resolve(import.meta.dirname, "../..");
+const INTEROP = path.join(ROOT, "interop");
+const SPEC = "Personal Agent Protocol Draft 0.1";
+
+/** The order scenarios run and are shown in; others follow by id. */
+export const SCENARIO_ORDER = ["D", "S0", "N", "SD", "SV", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "SE", "R", "AO", "AM", "AS", "O", "OX", "RL"];
+
+export type Options = {
+  readonly agents: readonly string[] | null;
+  readonly companies: readonly string[] | null;
+  readonly scenarios: readonly string[] | null;
+  readonly lane: "local" | "live";
+  readonly build: boolean;
+  readonly keep: boolean;
+  /** Extra container environment, by implementation name. */
+  readonly set: ReadonlyMap<string, Readonly<Record<string, string>>>;
+  readonly out: string | null;
+};
+
+const list = (value: string | undefined) => (value ? value.split(",").map((item) => item.trim()).filter(Boolean) : null);
+
+export function parseOptions(argv: readonly string[]): Options {
+  const { values } = parseArgs({
+    args: [...argv],
+    options: {
+      agents: { type: "string" },
+      companies: { type: "string" },
+      scenarios: { type: "string" },
+      lane: { type: "string", default: "local" },
+      build: { type: "boolean", default: true },
+      "no-build": { type: "boolean", default: false },
+      keep: { type: "boolean", default: false },
+      set: { type: "string", multiple: true },
+      out: { type: "string" }
+    },
+    strict: true
+  });
+  if (values.lane !== "local" && values.lane !== "live") throw new Error(`--lane must be local or live, not ${values.lane}`);
+  const set = new Map<string, Record<string, string>>();
+  for (const entry of values.set ?? []) {
+    const match = /^([a-z0-9-]+):([A-Z][A-Z0-9_]*)=(.*)$/.exec(entry);
+    if (!match) throw new Error(`--set takes name:KEY=VALUE, not ${entry}`);
+    set.set(match[1]!, { ...(set.get(match[1]!) ?? {}), [match[2]!]: match[3]! });
+  }
+  return {
+    agents: list(values.agents),
+    companies: list(values.companies),
+    scenarios: list(values.scenarios),
+    lane: values.lane,
+    build: values.build && !values["no-build"],
+    keep: values.keep,
+    set,
+    out: values.out ?? null
+  };
+}
+
+export function loadRegistry(file = path.join(INTEROP, "registry.json")): Registry {
+  const registry = JSON.parse(readFileSync(file, "utf8")) as Registry;
+  if (registry.version !== 1 || !Array.isArray(registry.implementations)) throw new Error(`${file}: not a version 1 registry`);
+  const seen = new Set<string>();
+  for (const entry of registry.implementations) {
+    if (!/^[a-z0-9-]{1,32}$/.test(entry.name)) throw new Error(`${file}: bad name ${JSON.stringify(entry.name)}`);
+    if (entry.role !== "agent" && entry.role !== "company") throw new Error(`${file}: ${entry.name} has role ${String(entry.role)}`);
+    const key = `${entry.role}:${entry.name}`;
+    if (seen.has(key)) throw new Error(`${file}: ${entry.name} is listed twice as ${entry.role}`);
+    seen.add(key);
+    if (!entry.commit) throw new Error(`${file}: ${entry.name} pins no commit`);
+    if (!entry.build && !entry.url) throw new Error(`${file}: ${entry.name} has neither build nor url`);
+  }
+  return registry;
+}
+
+export function loadScenarios(dir = path.join(INTEROP, "scenarios")): Scenario[] {
+  const scenarios = readdirSync(dir)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => {
+      const value = JSON.parse(readFileSync(path.join(dir, file), "utf8")) as Scenario;
+      const problems = lintScenario(value, file);
+      if (problems.length) throw new Error(problems.join("\n"));
+      if (`${value.id}.json` !== file) throw new Error(`${file}: id ${value.id} doesn't match the file name`);
+      return value;
+    });
+  const rank = (id: string) => (SCENARIO_ORDER.includes(id) ? SCENARIO_ORDER.indexOf(id) : SCENARIO_ORDER.length);
+  return [...scenarios].sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id));
+}
+
+export function loadKnownFailures(file = path.join(INTEROP, "known-failures.json")): KnownFailure[] {
+  if (!existsSync(file)) return [];
+  const value = JSON.parse(readFileSync(file, "utf8")) as { failures?: KnownFailure[] };
+  return value.failures ?? [];
+}
+
+function sourceCommit(): string {
+  try {
+    const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT, encoding: "utf8" }).trim();
+    const dirty = execFileSync("git", ["status", "--porcelain"], { cwd: ROOT, encoding: "utf8" }).trim() !== "";
+    return dirty ? `${head}-dirty` : head;
+  } catch {
+    return "unknown";
+  }
+}
+
+/** "HEAD" pins an implementation built from this repository to the commit being run. */
+const commitOf = (entry: RegistryEntry) => (entry.commit === "HEAD" ? sourceCommit() : entry.commit);
+
+// ---------------------------------------------------------------- Talking to adapters
+
+type Answer = { status: number; body: unknown };
+
+/** Control calls, through the proxy's control port (local) or straight to a published port (live). */
+type Control = (target: string, method: string, pathname: string, body?: unknown) => Promise<Answer>;
+
+function parse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+class Proxy {
+  readonly base: string;
+  constructor(port: number) {
+    this.base = `http://127.0.0.1:${port}`;
+  }
+  async post(pathname: string, body: unknown): Promise<unknown> {
+    const response = await fetch(`${this.base}${pathname}`, { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+    return response.json();
+  }
+  control(secret: string): Control {
+    return async (target, method, pathname, body) => {
+      const answer = (await this.post("/control", {
+        target,
+        method,
+        path: pathname,
+        headers: { authorization: `Bearer ${secret}` },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {})
+      })) as { status: number; body: string; error?: string };
+      return { status: answer.status, body: parse(answer.body) };
+    };
+  }
+  async cell(id: string): Promise<void> {
+    await this.post("/cell", { id });
+  }
+  async har(): Promise<Har> {
+    return (await (await fetch(`${this.base}/har`)).json()) as Har;
+  }
+  async fetch(request: Record<string, unknown>): Promise<unknown> {
+    return this.post("/fetch", request);
+  }
+}
+
+async function waitFor(check: () => Promise<boolean>, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    try {
+      if (await check()) return true;
+    } catch {
+      // Not up yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------- One run
+
+type Implementation = {
+  readonly entry: RegistryEntry;
+  readonly target: string;
+  readonly domain: string;
+  manifest: Manifest | null;
+  hooks: string[];
+  /** Why it can't take part, if it can't. */
+  broken: string | null;
+};
+
+const domainOf = (entry: RegistryEntry, lane: "local" | "live") =>
+  lane === "live" && entry.url ? entry.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "") : `${entry.name}.${entry.role}.interop.test`;
+
+async function runCells(options: {
+  scenarios: readonly Scenario[];
+  agents: readonly Implementation[];
+  companies: readonly Implementation[];
+  control: Control;
+  proxy: Proxy | null;
+  resultsDir: string;
+  log: (line: string) => void;
+}): Promise<Cell[]> {
+  const cells: Cell[] = [];
+  for (const scenario of options.scenarios) {
+    for (const agent of options.agents) {
+      for (const company of options.companies) {
+        const cell: Cell = { agent: agent.entry.name, company: company.entry.name, scenario: scenario.id, outcome: "unsupported", blame: null, rule: null, steps: [], checks: [], har: null };
+        cells.push(cell);
+        const broken = agent.broken ?? company.broken;
+        if (broken) {
+          cell.outcome = "error";
+          cell.reason = broken;
+          continue;
+        }
+        const missing = [agent, company].filter((impl) => !impl.manifest!.scenarios.includes(scenario.id)).map((impl) => impl.entry.name);
+        const hooks = (scenario.needs?.company ?? []).filter((hook) => !company.hooks.includes(hook));
+        if (missing.length || hooks.length) {
+          cell.reason = missing.length ? `${missing.join(" and ")} don't list ${scenario.id}` : `${company.entry.name} has no hook ${hooks.join(", ")}`;
+          options.log(`${scenario.id.padEnd(4)} ${cell.agent} × ${cell.company}: unsupported (${cell.reason})`);
+          continue;
+        }
+        await runOne(cell, scenario, agent, company, options);
+        options.log(`${scenario.id.padEnd(4)} ${cell.agent} × ${cell.company}: ${cell.outcome}${cell.reason && cell.outcome !== "pass" ? ` — ${cell.reason}` : ""}`);
+      }
+    }
+  }
+  return cells;
+}
+
+async function runOne(
+  cell: Cell,
+  scenario: Scenario,
+  agent: Implementation,
+  company: Implementation,
+  options: { control: Control; proxy: Proxy | null; resultsDir: string }
+): Promise<void> {
+  const { control, proxy } = options;
+  for (const impl of [agent, company]) {
+    const reset = await control(impl.target, "POST", "/reset").catch((error: unknown) => ({ status: 0, body: String(error) }));
+    if (reset.status !== 200) {
+      cell.outcome = "error";
+      cell.reason = `${impl.entry.name} didn't reset (HTTP ${reset.status})`;
+      return;
+    }
+  }
+  await proxy?.cell(cellId(cell));
+
+  let fixture: unknown = {};
+  if (company.hooks.includes("fixture")) {
+    const answer = await control(company.target, "POST", "/hooks/fixture", {});
+    if (answer.status === 200) fixture = answer.body;
+  }
+
+  const callbacks: string[] = [];
+  const reply = (answer: Answer, agentStep: boolean): Reply => toReply(answer.status, answer.body, agentStep);
+  const driver: Driver = {
+    agent: async (op, params) => reply(await control(agent.target, "POST", "/step", { op, company: company.domain, params }), true),
+    company: async (hook, params) => {
+      const answer = await control(company.target, "POST", `/hooks/${hook}`, params);
+      const redirect = (answer.body as { redirect?: unknown } | null)?.redirect;
+      if (answer.status === 200 && typeof redirect === "string") callbacks.push(redirect);
+      return reply(answer, false);
+    },
+    runner: async (op, params): Promise<RunnerReply> => {
+      const input = (params ?? {}) as Record<string, unknown>;
+      if (op === "wait") {
+        await new Promise((resolve) => setTimeout(resolve, Number(input.ms ?? 0)));
+        return { kind: "ok" };
+      }
+      if (op === "fetch") {
+        if (!proxy) return { kind: "inapplicable", detail: "no proxy in this lane" };
+        const headers = { ...((input.headers as Record<string, string>) ?? {}), [PROBE_HEADER]: "1" };
+        const answer = (await proxy.fetch({ ...input, headers })) as { status: number; headers: Record<string, string>; body: string };
+        return { kind: "ok", result: { status: answer.status, headers: answer.headers, body: parse(answer.body) ?? answer.body } };
+      }
+      if (op === "assert_trace") {
+        if (!proxy) return { kind: "inapplicable", detail: "no recording in this lane" };
+        return assertTrace(exchanges(await proxy.har()), params);
+      }
+      return { kind: "failed", detail: `unknown runner op ${op}` };
+    }
+  };
+
+  const run = await runCell(scenario, fixture, driver);
+  cell.steps = run.steps;
+  cell.outcome = run.outcome;
+  if (run.reason) cell.reason = run.reason;
+
+  const checks: Check[] = [];
+  if (proxy) {
+    const har = await proxy.har();
+    const file = path.join(scenario.id, `${cell.agent}__${cell.company}.har`);
+    mkdirSync(path.join(options.resultsDir, scenario.id), { recursive: true });
+    writeFileSync(path.join(options.resultsDir, file), `${JSON.stringify(har, null, 1)}\n`);
+    cell.har = file;
+    const recorded = exchanges(har);
+    checks.push(...traceChecks(recorded, callbacks));
+    checks.push(...(await documentChecks(recorded)));
+    checks.push(...readingChecks(recorded, agent.manifest?.readings ?? {}));
+  }
+  const violations = await control(company.target, "GET", "/violations").catch(() => ({ status: 0, body: null }));
+  const recordedViolations = (violations.body as { violations?: { id: string; detail: string }[] } | null)?.violations;
+  if (violations.status === 200 && Array.isArray(recordedViolations)) {
+    for (const violation of recordedViolations) {
+      checks.push({ id: violation.id, side: "agent", severity: "error", exchange: null, detail: violation.detail, source: `company:${company.entry.name}` });
+    }
+  }
+  cell.checks = checks;
+  const errors = checks.filter((check) => check.severity === "error");
+  if (cell.outcome === "pass" && errors.length > 0) {
+    cell.outcome = "fail";
+    cell.reason = `checks: ${errors.map((check) => `${check.id} (${check.side})`).join(", ")}`;
+  }
+}
+
+function selected(registry: Registry, role: Role, names: readonly string[] | null, lane: "local" | "live"): RegistryEntry[] {
+  const all = registry.implementations.filter((entry) => entry.role === role && (lane === "live" ? (role === "agent" ? !!entry.build : !!entry.url) : !!entry.build));
+  if (!names) return all;
+  for (const name of names) {
+    if (!all.some((entry) => entry.name === name)) throw new Error(`No ${role} ${name} in the registry for the ${lane} lane`);
+  }
+  return all.filter((entry) => names.includes(entry.name));
+}
+
+const imageOf = (entry: RegistryEntry) => `poppy-interop/${entry.role}-${entry.name}:latest`;
+
+async function buildImages(entries: readonly RegistryEntry[], logs: string, log: (line: string) => void): Promise<Map<string, string>> {
+  const failures = new Map<string, string>();
+  const builds = [
+    { key: "proxy", args: ["build", "-t", "poppy-interop/proxy:latest", path.join(INTEROP, "proxy")] },
+    ...entries.map((entry) => {
+      const dir = path.join(ROOT, entry.build!);
+      const context = entry.context ? path.join(ROOT, entry.context) : dir;
+      return { key: `${entry.role}-${entry.name}`, args: ["build", "-t", imageOf(entry), "-f", path.join(dir, "Dockerfile"), context] };
+    })
+  ];
+  log(`building ${builds.map((b) => b.key).join(", ")}`);
+  const results = await Promise.all(builds.map(async (b) => ({ ...b, ...(await dockerAsync(b.args)) })));
+  for (const result of results) {
+    writeFileSync(path.join(logs, `build-${result.key}.log`), result.output);
+    if (result.code !== 0) failures.set(result.key, `image build failed (logs/build-${result.key}.log)`);
+  }
+  return failures;
+}
+
+export async function main(argv: readonly string[]): Promise<number> {
+  const options = parseOptions(argv);
+  const log = (line: string) => console.log(line);
+  const registry = loadRegistry();
+  const known = loadKnownFailures();
+  let scenarios = loadScenarios();
+  if (options.scenarios) {
+    for (const id of options.scenarios) if (!scenarios.some((scenario) => scenario.id === id)) throw new Error(`No scenario ${id}`);
+    scenarios = scenarios.filter((scenario) => options.scenarios!.includes(scenario.id));
+  }
+  if (options.lane === "live") scenarios = scenarios.filter((scenario) => scenario.live && !(scenario.needs?.company?.length));
+  const agents = selected(registry, "agent", options.agents, options.lane);
+  const companies = selected(registry, "company", options.companies, options.lane);
+  if (!agents.length || !companies.length) throw new Error("Nothing to run: no agents or no Companies selected");
+
+  const run = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  const runDir = options.out ? path.resolve(options.out) : path.join(INTEROP, "results", run.replace(/:/g, "-"));
+  const logs = path.join(runDir, "logs");
+  mkdirSync(logs, { recursive: true });
+  const tag = randomBytes(3).toString("hex");
+  const secret = randomBytes(24).toString("hex");
+  const network = `poppy-interop-${tag}`;
+  const containers: string[] = [];
+  log(`run ${run} (${options.lane} lane) → ${path.relative(process.cwd(), runDir) || "."}`);
+
+  const implementations: Implementation[] = [...agents, ...companies].map((entry) => ({
+    entry,
+    target: `${entry.role}-${entry.name}`,
+    domain: domainOf(entry, options.lane),
+    manifest: null,
+    hooks: [],
+    broken: null
+  }));
+  const liveAgents = options.lane === "live";
+  let cells: Cell[] = [];
+  const certs = mkdtempSync(path.join(tmpdir(), "poppy-interop-"));
+  try {
+    const buildFailures = options.build ? await buildImages(liveAgents ? agents : [...agents, ...companies], logs, log) : new Map<string, string>();
+    if (buildFailures.has("proxy") && !liveAgents) throw new Error(`The proxy didn't build: ${buildFailures.get("proxy")}`);
+    for (const impl of implementations) impl.broken = buildFailures.get(impl.target) ?? null;
+
+    let control: Control;
+    let proxy: Proxy | null = null;
+    if (!liveAgents) {
+      const { ca } = makeCertificates(certs, run, companies.map((entry) => entry.name));
+      const trust = path.join(certs, "trust");
+      mkdirSync(trust);
+      writeFileSync(path.join(trust, "ca.pem"), readFileSync(ca));
+      const proxyCerts = path.join(certs, "proxy");
+      mkdirSync(proxyCerts);
+      for (const file of ["ca.pem", "proxy.pem", "proxy.key"]) writeFileSync(path.join(proxyCerts, file), readFileSync(path.join(certs, file)));
+      docker(["network", "create", network], { quiet: true });
+
+      const proxyName = `${network}-proxy`;
+      const aliases = proxyAliases(
+        agents.map((entry) => entry.name),
+        companies.map((entry) => ({ name: entry.name, ...(entry.subdomains ? { subdomains: entry.subdomains } : {}) }))
+      );
+      docker(["create", "--name", proxyName, "--network", network, ...aliases.flatMap((alias) => ["--network-alias", alias]), "-p", "127.0.0.1::8082", "poppy-interop/proxy:latest"], { quiet: true });
+      containers.push(proxyName);
+      docker(["cp", proxyCerts, `${proxyName}:/interop`], { quiet: true });
+      docker(["start", proxyName], { quiet: true });
+      const port = Number(docker(["port", proxyName, "8082/tcp"], { quiet: true }).split("\n")[0]!.split(":").at(-1));
+      proxy = new Proxy(port);
+      const up = await waitFor(async () => (await fetch(`${proxy!.base}/healthz`)).ok, 30_000);
+      if (!up) throw new Error(`The proxy didn't come up on port ${port}`);
+      control = proxy.control(secret);
+
+      for (const impl of implementations) {
+        if (impl.broken) continue;
+        const name = `${network}-${impl.target}`;
+        const env = {
+          INTEROP_SECRET: secret,
+          INTEROP_NAME: impl.entry.name,
+          INTEROP_ROLE: impl.entry.role,
+          INTEROP_DOMAIN: impl.domain,
+          INTEROP_ORIGIN: `https://${impl.domain}`,
+          INTEROP_COMMIT: commitOf(impl.entry),
+          NODE_EXTRA_CA_CERTS: "/interop/ca.pem",
+          SSL_CERT_FILE: "/interop/ca.pem",
+          REQUESTS_CA_BUNDLE: "/interop/ca.pem",
+          ...(impl.entry.env ?? {}),
+          ...(options.set.get(impl.entry.name) ?? {})
+        };
+        docker(["create", "--name", name, "--network", network, "--network-alias", impl.target, ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry)], { quiet: true });
+        containers.push(name);
+        docker(["cp", trust, `${name}:/interop`], { quiet: true });
+        docker(["start", name], { quiet: true });
+      }
+    } else {
+      // Live lane: our agent container with its control port published; Companies are public deployments.
+      const ports = new Map<string, number>();
+      for (const impl of implementations.filter((item) => item.entry.role === "agent" && !item.broken)) {
+        const name = `${network}-${impl.target}`;
+        const env = { INTEROP_SECRET: secret, INTEROP_NAME: impl.entry.name, INTEROP_COMMIT: commitOf(impl.entry), INTEROP_PACE_MS: "1000", ...(options.set.get(impl.entry.name) ?? {}) };
+        docker(["run", "-d", "--name", name, "-p", "127.0.0.1::8081", ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry)], { quiet: true });
+        containers.push(name);
+        ports.set(impl.target, Number(docker(["port", name, "8081/tcp"], { quiet: true }).split("\n")[0]!.split(":").at(-1)));
+      }
+      control = async (target, method, pathname, body) => {
+        const port = ports.get(target);
+        if (!port) return { status: 404, body: { error: "no_adapter", detail: `${target} has no control API in the live lane` } };
+        const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
+          method,
+          headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {})
+        });
+        return { status: response.status, body: parse(await response.text()) };
+      };
+      for (const impl of implementations.filter((item) => item.entry.role === "company")) {
+        impl.manifest = { interop: 1, name: impl.entry.name, role: "company", commit: impl.entry.commit, poppy: ["0.1"], scenarios: scenarios.map((s) => s.id) };
+      }
+    }
+
+    // Health, manifests and hooks.
+    for (const impl of implementations) {
+      if (impl.broken || impl.manifest) continue;
+      const healthy = await waitFor(async () => (await control(impl.target, "GET", "/healthz")).status === 200, 60_000);
+      if (!healthy) {
+        impl.broken = `${impl.entry.name} never answered /healthz`;
+        continue;
+      }
+      const manifest = await control(impl.target, "GET", "/manifest");
+      const body = manifest.body as Manifest | null;
+      if (manifest.status !== 200 || !body || body.interop !== 1 || !Array.isArray(body.scenarios)) {
+        impl.broken = `${impl.entry.name} served no version 1 manifest`;
+        continue;
+      }
+      impl.manifest = body;
+      if (impl.entry.role === "company") {
+        const hooks = await control(impl.target, "GET", "/hooks");
+        impl.hooks = Array.isArray((hooks.body as { hooks?: unknown } | null)?.hooks) ? (hooks.body as { hooks: string[] }).hooks : [];
+      }
+    }
+    for (const impl of implementations) if (impl.broken) log(`! ${impl.broken}`);
+
+    cells = await runCells({
+      scenarios,
+      agents: implementations.filter((impl) => impl.entry.role === "agent"),
+      companies: implementations.filter((impl) => impl.entry.role === "company"),
+      control,
+      proxy,
+      resultsDir: runDir,
+      log
+    });
+  } finally {
+    for (const name of containers) {
+      try {
+        writeFileSync(path.join(logs, `${name.replace(`${network}-`, "")}.log`), docker(["logs", name], { quiet: true }));
+      } catch {
+        // No logs.
+      }
+    }
+    if (!options.keep) {
+      for (const name of containers) {
+        try {
+          docker(["rm", "-f", name], { quiet: true });
+        } catch {
+          // Already gone.
+        }
+      }
+      try {
+        if (!liveAgents) docker(["network", "rm", network], { quiet: true });
+      } catch {
+        // Never made.
+      }
+    }
+    rmSync(certs, { recursive: true, force: true });
+  }
+
+  const readings = Object.fromEntries(implementations.map((impl) => [impl.entry.name, { ...(impl.manifest?.readings ?? {}) }]));
+  attributeAll(cells, { readings, scenarios: new Map(scenarios.map((scenario) => [scenario.id, scenario])), known });
+  const summary = {
+    interop: 1,
+    run,
+    spec: SPEC,
+    lane: options.lane,
+    implementations: implementations.map((impl) => ({
+      name: impl.entry.name,
+      role: impl.entry.role,
+      commit: commitOf(impl.entry),
+      readings: { ...(impl.manifest?.readings ?? {}) },
+      relaxations: [...(impl.manifest?.relaxations ?? [])],
+      ...(impl.broken ? { broken: impl.broken } : {})
+    })),
+    cells
+  };
+  writeFileSync(path.join(runDir, "results.json"), `${JSON.stringify(summary, null, 2)}\n`);
+  writeFileSync(path.join(runDir, "index.html"), renderReport({ ...summary, scenarios }));
+
+  const bad = unexpected(cells);
+  const counts = ["pass", "fail", "unsupported", "error"].map((outcome) => `${cells.filter((cell) => cell.outcome === outcome).length} ${outcome}`);
+  log(`\n${counts.join(", ")}; ${cells.filter((cell) => cell.known).length} known failure(s).`);
+  for (const cell of cells.filter((c) => c.outcome === "fail" || c.outcome === "error")) {
+    log(`  ${cell.scenario} ${cell.agent} × ${cell.company}: ${cell.outcome}, blame ${cell.blame ?? "none"} (${cell.rule ?? "no rule"})${cell.known ? `, known: ${cell.known.issue}` : ""}`);
+  }
+  log(`Results: ${path.join(runDir, "index.html")}`);
+  return bad.length > 0 ? 1 : 0;
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === import.meta.filename) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (error: unknown) => {
+      console.error(error instanceof Error ? error.message : error);
+      process.exit(2);
+    }
+  );
+}

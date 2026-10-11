@@ -4,7 +4,8 @@ import {
   json,
   randomId,
   type Inbound,
-  type ResourceContext
+  type ResourceContext,
+  type Session
 } from "./core";
 
 export type Operation = {
@@ -85,6 +86,14 @@ export class Operations {
         ? record.account === context.account
         : record.sessionId === context.session.id;
       if (same && owner && JSON.stringify(record.operation.terms) === JSON.stringify(terms)) {
+        // A confirm reached us, so the agent knows this operation: it retries
+        // or reads it, and MUST NOT ask for a new proposal until it is final (Ops 6).
+        if (record.confirms > 0) {
+          this.company.violation(
+            "proposal.while-open",
+            `new proposal asked for while ${record.operation.operation_id} is ${record.operation.state} after a confirm`
+          );
+        }
         return record.operation;
       }
     }
@@ -162,8 +171,13 @@ export class Operations {
     const record = this.#owned(context, id);
     const body = JSON.parse(inbound.bodyText || "{}") as { revision?: unknown; approved_by?: unknown };
     record.confirms += 1;
-    co.requireScopes(context, ["poppy:write"]);
+    co.requireScopes(context, [co.orderScopes.write]);
     const operation = record.operation;
+    // The approval covers one revision, and the confirm names it (Ops 5.1, 5.2).
+    if (typeof body.revision !== "number" || !Number.isInteger(body.revision)) {
+      co.violation("confirm.revision", `confirm with revision ${JSON.stringify(body.revision)}`);
+      return json({ error: "invalid_request", error_description: "revision is required" }, 400);
+    }
     if (operation.state !== "proposed") return this.#respond(record);
     if (body.revision !== operation.revision) {
       return json({ error: "terms_changed", operation }, 409);
@@ -206,6 +220,31 @@ export class Operations {
       operation.result = { summary: "Stopped before any changes were made." };
     }
     return this.#respond(record);
+  }
+
+  /** The operation its `url` shows on the website, to a Session that may see it (Ops 4.4). */
+  forWebsite(session: Session, id: string): Operation | null {
+    const record = this.#records.get(id);
+    if (!record || record.clientId !== session.clientId || record.userId !== session.userId) return null;
+    if (record.account ? session.account !== record.account : record.sessionId !== session.id) return null;
+    this.#expire(record);
+    return record.operation;
+  }
+
+  /**
+   * Test control: the User confirms on the website, in the same Session (Ops
+   * 4.4). It's the same operation, so it's performed once, whichever way it
+   * is confirmed.
+   */
+  confirmOnWebsite(id: string): void {
+    const record = this.#records.get(id);
+    if (!record || record.operation.state !== "proposed") throw new Error(`can't confirm ${id} on the website`);
+    record.operation.confirmation = {
+      revision: record.operation.revision,
+      approved_by: "user",
+      confirmed_at: new Date().toISOString()
+    };
+    this.#perform(record);
   }
 
   /** Test control: the Company issues a new revision with new terms (Ops 3.1). */
