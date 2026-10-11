@@ -6,7 +6,7 @@ This file lists what we found by reading other implementations of the [Personal 
 - **Method.** We read the code and compared it with the text of the specification, the Guides and the Operations extension. Later the same day we ran seven of the projects against each other in our [interop grid](interop-spec.md) ([summary of the results](interop-results/README.md)); rows marked "Grid:" come from those runs. Live documents were fetched from public URLs. File and line references are to each repository's default branch on that date.
 - **Severity** is how much an issue matters to interoperability or security, not a judgement of the project. Many of these are demos, and several were built in a day.
 
-The implementations themselves are listed in the [README](../README.md#other-implementations).
+The implementations themselves are surveyed in [implementations.md](implementations.md).
 
 ## Contents
 

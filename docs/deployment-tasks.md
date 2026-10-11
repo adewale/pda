@@ -1,0 +1,57 @@
+# Deployment tasks
+
+Everything left to deploy the agent and verify it, in order. Each item is marked **Owner** (done in a dashboard, a terminal or a document, with no code change) or **Code** (needs a change in this repository). The how-to for each configuration step is in [setup.md](setup.md); this file is the checklist and the record of what's done. The spec's [Status](../durable-personal-agent-spec.md#status) table holds the current state.
+
+Back to the [README](../README.md) · Why it's built this way: [decisions.md](decisions.md)
+
+## 1. Configuration and accounts
+
+- [ ] **Owner. Create `deployment.local.json`** from `deployment.example.json` ([setup §1](setup.md#1-say-who-the-deployment-is-for)). It is untracked; `npm run deploy` stops without it. What each field decides:
+  - `OWNERS`: the operators. Always let in, always on the demo, whatever the other lists say. It must name someone, or every route but the validator refuses.
+  - `SIGNIN_ALLOWLIST`: who else may sign in while `SIGNUP` is `allowlist` (the committed value). With `SIGNUP=open` anyone with a Google or GitHub account may.
+  - `DEMO_ALLOWLIST`: who else the operator pays model calls for, up to the daily caps. Everyone not on it, and not an owner, needs their own key.
+  - `PUBLIC_ORIGIN`: where the agent's Poppy identity lives. It becomes the `client_id` every Company knows the agent by, forever (item "The final domain" below).
+  - `POPPY_LOGO_URI`: the logo Companies show on their consent pages, normally `<origin>/logo.svg`.
+  - Optionally any other declared var, such as `DEMO_GATEWAY_ID` (next item).
+- [ ] **Owner. `DEMO_GATEWAY_ID`.** The template says `demo`. Until that gateway exists, set `"DEMO_GATEWAY_ID": "default"` in `deployment.local.json`, and remove it once `demo` is set up ([setup §3](setup.md#3-the-demo-optional-claude-on-your-bill-capped)).
+- [ ] **Owner. The Cloudflare dashboard** ([setup §3](setup.md#3-the-demo-optional-claude-on-your-bill-capped)):
+  - [ ] a gateway named `demo`, with Authentication on and Unified Billing;
+  - [ ] credits loaded, with auto top-up off;
+  - [ ] spend rules as a backstop to the agent's own caps: one split by `metadata.u`, one by `metadata.d`, and a pooled daily cap;
+  - [ ] the account's credit limit;
+  - [ ] no provider keys (BYOK) stored on any gateway;
+  - [ ] no API tokens with "AI Gateway Run".
+- [ ] **Owner. OAuth apps** ([setup §4 and §5](setup.md#4-a-github-oauth-app)).
+  - [x] GitHub: configured for the live deployment; the live redirect to GitHub checks out (spec, Status).
+  - [ ] Google: not registered yet. `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` aren't set, so Google sign-in answers a 500 naming the missing setting. That is all the docs record; nothing has been tried with Google live.
+- [ ] **Owner. Secrets**, set in the owner's own terminal with `wrangler secret put`, so no value passes through anyone else ([setup §2](setup.md#2-secrets)). `SESSION_SECRET`, `POPPY_SIGNING_JWKS` and `TOKEN_ENC_KEY` are set on the live deployment; `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set (the redirect to GitHub reads both); Google's two are the ones missing.
+- [ ] **Owner. The final domain for `client_id`**, before registering at any Company. Changing `PUBLIC_ORIGIN` later makes the agent a new Personal Agent to every Company (spec, "Our agent's identity"). Open question: will Companies accept a `workers.dev` host? For a custom domain: attach it in the dashboard (a `routes` entry in the committed `wrangler.jsonc` would name the deployer's host, which `test/template.test.ts` refuses), set `PUBLIC_ORIGIN` and `POPPY_LOGO_URI` to it, and change both OAuth apps' callback URLs.
+- [ ] **Owner. `npm run deploy`.** It builds, checks the build names an owner and an origin, then deploys.
+
+## 2. Live checks
+
+From the spec's Model access, "Check live", and the parts tested only in fakes or happy-dom. Each is **Owner** to run; any that fails becomes **Code**.
+
+- [ ] Own keys: pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key of each.
+- [ ] The key checks: a pasted key is checked with the vendor's free list-models call (`GET /v1/models`) before it is sealed, and a bad key is refused.
+- [ ] The demo: Claude Opus 5.5 through the AI binding on Unified Billing (today a live call fails with `x-api-key header is required` until the gateway has credits).
+- [ ] The gateway metadata (`u`, `d`) reaches the spend rules; the 429 they return; how far a burst overshoots.
+- [ ] Settings in a real browser: the key panel (paste, remove), the demo meter, and the needs-key banner.
+- [ ] The Content-Security-Policy doesn't break the deployed page: the theme script, the WebSocket, images, the validator's pages.
+- [ ] Sign-in end to end: GitHub now; Google once registered; someone not on a list is refused.
+- [ ] If a "Deploy to Cloudflare" button is added: how it handles the deployer's vars.
+
+## 3. Then
+
+- [ ] **Owner. Try the agent against the first real Company Agent** that publishes `poppy.json`: discovery, a Session, sign-in, a conversation, and the website through the fetch-based browser. Anything it finds is **Code**.
+- [ ] **Owner. Update and submit the OpenClaw and Hermes proposals**, after that check ([proposals/README.md](proposals/README.md) lists what to fold in first). Nothing is posted without the owner.
+- [ ] **Owner. Run the live lane**: `npm run interop -- --lane live` (our agent against `ilmer-live` and `poppyseed-live`, signed-out scenarios only, one request a second).
+- [ ] **Code. The adapters not yet run:** build `everruns-agent` and `everruns-company` (they need more Docker disk; see Environment cleanup), then add them to `interop/registry.json`; `typo3-dirnbauer-company` needs the private extension first.
+
+## 4. Environment cleanup
+
+On the machine that ran the interop grid. **Owner**; check `docker images` before removing anything.
+
+- [ ] Remove the Docker images that are ours to remove: those named `ib-*`, and the `:adv` and `:audit` tags of `poppy-interop/*`. For example `docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^ib-|:(adv|audit)$' | xargs docker rmi`. The runner never removes images itself.
+- [ ] Grow colima's disk, which filled during the grid and kept everruns out: `colima stop`, then `colima start --disk <GiB>` with a larger size (colima grows a disk, it doesn't shrink one).
+- [ ] Remove the swap file added to the colima VM for everruns' build: `colima ssh -- sudo sh -c 'swapoff /swapfile-interop && rm /swapfile-interop'`.

