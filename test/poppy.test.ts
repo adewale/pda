@@ -1142,9 +1142,13 @@ describe("7 conversations", () => {
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
     await c.stub.say(first.conversationId, "The sale ends on Friday.");
     await a.stub.poppyWaitForNotice("The sale ends on Friday.");
-    const [row] = JSON.parse(await a.stub.poppySql("SELECT cursor FROM poppy_conversations WHERE id = ?", first.conversationId)) as { cursor: string }[];
-    const [last] = JSON.parse(await a.stub.poppySql("SELECT event_id FROM poppy_events WHERE conversation_id = ? ORDER BY rowid DESC LIMIT 1", first.conversationId)) as { event_id: string }[];
-    expect(row!.cursor).toBe(last!.event_id);
+    // The cursor is saved once the event is handled, which ends after the model is told (it checks the model lane first).
+    const saved = async () => {
+      const [row] = JSON.parse(await a.stub.poppySql("SELECT cursor FROM poppy_conversations WHERE id = ?", first.conversationId)) as { cursor: string }[];
+      const [last] = JSON.parse(await a.stub.poppySql("SELECT event_id FROM poppy_events WHERE conversation_id = ? ORDER BY rowid DESC LIMIT 1", first.conversationId)) as { event_id: string }[];
+      return row!.cursor === last!.event_id ? row!.cursor : undefined;
+    };
+    expect(await until(saved, 5_000)).toBeTruthy();
   });
 });
 
