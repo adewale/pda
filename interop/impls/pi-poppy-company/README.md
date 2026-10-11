@@ -15,7 +15,7 @@
 | 8080 | `CompanyServer`'s request dispatcher on plain HTTP, with `baseUrl` set to `INTEROP_ORIGIN`, so the issuer, every endpoint and the DPoP `htu` check use the public name. |
 | 8081 | `GET /manifest`, `GET /healthz`, `POST /reset` (a new `CompanyServer`), `GET /hooks`, `POST /hooks/<name>`. |
 
-Environment: `INTEROP_SECRET`, `INTEROP_NAME` (default `pi-poppy`), `INTEROP_ORIGIN` (default `https://<name>.company.interop.test`), `PI_POPPY_REQUIRE_NONCE` (default `1`: every DPoP proof needs the Company's nonce), `PI_POPPY_DEFER_PERFORM` (default off: a confirmed operation is performed at once).
+Environment: `INTEROP_SECRET`, `INTEROP_NAME` (default `pi-poppy`), `INTEROP_DOMAIN`, `INTEROP_ORIGIN` (default `https://<name>.company.interop.test`) and `INTEROP_COMMIT`, set by the runner; `PI_POPPY_REQUIRE_NONCE=1` (default off, as in `CompanyServer`; the `require_nonce` hook turns it on for scenario N), `PI_POPPY_DEFER_PERFORM=1` (default off: a confirmed operation is performed at once).
 
 Fixture users are pi-poppy's own test users: `ada@example.com` / `correct-horse` (`acct_ada`) and `bea@example.com` / `battery-staple` (`acct_bea`), whose Mediated Sign-In asks for the one-time code `445566`. Scopes are `poppy:read` and `poppy:write`; Mediated Sign-In offers only `poppy:read`.
 
@@ -29,9 +29,13 @@ Fixture users are pi-poppy's own test users: `ada@example.com` / `correct-horse`
 | `last_one_time_code` | The code of the latest Mediated attempt that asked for one. |
 | `end_sessions` | Marks every Session ended. |
 | `staff_join`, `staff_reply` | `joinHuman` and a company message with `sender: "human"`. |
-| `propose_operation` | The exchange proposal the Company's own auto-reply makes, posted into the conversation. |
+| `propose_operation` | The open proposal the Company's agent already made in that conversation (it proposes when asked for an exchange, `fixture.prompts.operation`); otherwise the same proposal, posted into the conversation. |
 | `settle_operation` | `finishOperation` (`succeeded`, `failed` or `unknown`); only useful with `PI_POPPY_DEFER_PERFORM=1`. |
-| `fixture` | Accounts, scopes, an OpenAPI operation (`createExchange`) and an MCP tool (`search_products`), with sample `args`. |
+| `require_nonce` | Sets `CompanyServer`'s own `requireNonce` option: from then on every DPoP proof, at the token endpoint and every resource, needs its nonce. |
+| `rate_limit`, `expire_tokens` | 501. `CompanyServer` can't expire the Session Tokens it has issued (each is sealed with its own `exp`), and its rate limiter (`rateLimit`) is a sliding window over every request, not "the next n requests". The adapter doesn't fake either. |
+| `fixture` | `accounts` (emails), `scopes`, `openapi_write` (`createExchange`, which needs `poppy:write`), `mcp` (`search_products`, which works signed out), `prompts` (`hello`, `sign_in`: "Where is my order?", `operation`: an exchange) and `otp_account` (`bea@example.com`). |
+
+Hook responses are the result object itself (spec 5.3). `CompanyServer`'s OpenAPI document has one operation, `createExchange`, so there is no `openapi` (read with `poppy:read`) or `openapi_public` (signed out): scenarios AO, N, R and RL are not claimed. The manifest claims D, S0, SD, SV, SM, SMC, SX, SXV, SO, SE, C, CI, CS, CA, AM, AS, O and OX.
 
 The Company also offers unprompted: conversations answer "order", "account" or "return" with `sign_in_required` when signed out, and "exchange" with a proposal when signed in with `poppy:write` and the agent lists the `operations` extension.
 
@@ -50,14 +54,14 @@ Other relaxations, with no upstream change:
 
 `S1: token-endpoint` (each assertion's `aud` must be exactly the endpoint it is posted to), `S2: any` (no `typ` required; lifetimes up to 120 s), `S3: either` (the issuer has no path), `S4: either` (`scope` on a signed-out Session request is ignored), `S23: per-company` (one nonce for every endpoint).
 
-## Checked by hand
+## Results
 
-Through a stand-in for the runner (one TLS proxy with a per-run CA, as in spec section 3):
+Runner, 11 October 2026 (`npm run interop`), with nonces off by default:
 
-- **pi-poppy agent:** every hook above, with discovery, Session, Direct (approved and denied), Device and Mediated (with one-time code) Sign-In, conversations, retries, staff replies, SSE, OpenAPI and MCP, proposals, confirm, web join and sign-out.
-- **Datalayer TypeScript and Python agents:** discover, Session, send, Direct Sign-In through `approve_authorization`, signed-in send; the TypeScript agent also confirmed a proposal (`succeeded`).
+- **dpa, Datalayer TypeScript and Datalayer Python agents:** every claimed scenario passes. (AM is not claimed by the Datalayer TypeScript agent.)
+- **pi-poppy agent:** every claimed scenario passes except `SE`, which is the agent's: it doesn't recover from `invalid_session`.
 
 ## Known issues
 
-- **Key rotation:** a client assertion whose `kid` isn't in the cached JWKS is refused at once with 401 `invalid_client` ("unknown signing key"). `keyFor` throws before `verifyClientJwt` reaches its refetch path, which only runs when a known `kid` fails to verify. The client cache lasts 60 s, so an agent that rotates its keys (as `POST /reset` does) is refused for up to a minute unless the Company is reset too.
+- **Key rotation:** a client assertion whose `kid` isn't in the cached JWKS is refused at once with 401 `invalid_client` ("unknown signing key"). `keyFor` throws before `verifyClientJwt` reaches its refetch path, which only runs when a known `kid` fails to verify. The client cache lasts 60 s, so an agent that rotates its keys is refused for up to a minute. The runner resets both sides for every cell, which makes a new `CompanyServer`, so this hasn't affected a run.
 - **SSE with nothing new:** a stream opened at the latest cursor sends no bytes, not even headers, until the 15 s keep-alive (`writeHead` without a write). A client with a short timeout (pi-poppy's own: 2 s) sees a timeout.

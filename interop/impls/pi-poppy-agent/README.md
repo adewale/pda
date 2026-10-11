@@ -15,25 +15,25 @@
 | 8080 | pi-poppy's `IdentityServer` request handler on plain HTTP, reached through the proxy as `https://pi-poppy.agent.interop.test`: `/agent.json` (the `client_id`), `/jwks.json`, `/logo.png`, `/oauth/callback`. |
 | 8081 | Control API: `GET /manifest`, `GET /healthz`, `POST /reset`, `POST /step`, and `GET /log` (method, URL and status of every request pi-poppy made). |
 
-Environment: `INTEROP_SECRET`, `INTEROP_NAME` (default `pi-poppy`), `INTEROP_ORIGIN` (default `https://<name>.agent.interop.test`). The interop CA is trusted through `NODE_EXTRA_CA_CERTS`.
+Environment (set by the runner): `INTEROP_SECRET`, `INTEROP_NAME` (default `pi-poppy`), `INTEROP_DOMAIN`, `INTEROP_ORIGIN` (default `https://<name>.agent.interop.test`), `INTEROP_COMMIT`. The interop CA is trusted through `NODE_EXTRA_CA_CERTS`.
 
 ## Ops
 
 | op | Support |
 | --- | --- |
-| `discover` | Yes. `apis` are the API URLs. |
-| `session` | Yes. `label` keys separate Sessions. |
-| `signin` / `signin_continue` | `direct`, `device` (polls up to 60 s, as the extension does) and `mediated` (a second `signin_continue` with `fields.code` answers a one-time code). A stored Account Token that covers the scope is used first, as the extension does. A denied consent returns `{"ok": false, "poppy_error": "access_denied", "status": 302}`. |
-| `send` | Yes; `wait` defaults to 2 and no cursor is sent, as the extension does. `messages` are every message event the Company returned. |
-| `read` | Yes. No `cursor` reads from the start. |
-| `sse` | Partial: pi-poppy reads one burst, stopping at the first complete frame or after 300 ms. |
-| `api` | OpenAPI: `operation` may be an `operationId` or `"METHOD /path"`; the adapter reads the OpenAPI document (the model's job in pi). `callApi` sends only GET and POST. MCP: pi-poppy mints the Bearer token (`mcpBearer`); the adapter stands in for pi's built-in MCP client with `initialize`, `notifications/initialized` and `tools/call`. |
+| `discover` | Yes. `apis` are the API types (`api_urls` has their URLs). A document pi-poppy won't use is `poppy_error: discovery_failed`, status 0. |
+| `session` | Yes; one Session per Company and `label`, started on first use (by any op) and reused after. |
+| `signin` / `signin_continue` | `direct`; `device` (polls up to 60 s, as the extension does); `mediated`, where a `code_required` answer is `{"pending": {"code_required": true}}` and the next `signin_continue` takes `code`. A stored Account Token that covers the scope is used first, as the extension does. A denied consent is `poppy_error: access_denied`, status 0. |
+| `send` | Yes; `wait` defaults to 2 and no cursor is sent, as the extension does. `message_id` is used as the message id, so a repeat is a retry. `messages` are every message event the Company returned. |
+| `read` | Yes, with `wait`. No `cursor` reads from the start. |
+| `sse` | Partial: pi-poppy's `readEventStream` reads one burst, stopping at the first chunk that holds a complete frame, or after 300 ms; `wait` is ignored; `last_id` is the last event's id. The extension has no SSE tool, so `CS` is not claimed. |
+| `api` | `api` is a type (`openapi`, `mcp`; the first API of that type) or a URL. OpenAPI: `operation` is an `operationId` or `"METHOD /path"`; `args.params` fill the path template and the rest go in the query; `args.body` is the JSON body. The adapter reads the OpenAPI document (the model's job in pi); `callApi` sends only GET and POST. MCP: pi-poppy mints the Bearer token (`mcpBearer`); the adapter stands in for pi's built-in MCP client with `initialize`, `notifications/initialized` and `tools/call`, passing `args` as the tool's arguments. An HTTP error is the Company's `error` with its status. |
 | `web_join` | Yes (`joinBrowser`). |
 | `approve_op` | `approve` confirms with a user approval built from the Company's name and summary; `decline` cancels (the extension's `poppy_operation_cancel`). |
 | `signout` | Yes (`revoke`). |
 | `state` | Yes, without tokens. |
 
-Errors: a Poppy or OAuth error from the Company is `{"ok": false, "poppy_error", "status"}`, with the status of pi-poppy's last request. A check pi-poppy itself refused (for example a document that doesn't parse) is HTTP 422 `agent_refused` with the message and the last request.
+Errors (spec 5.2): a Poppy or OAuth error from the Company is `{"ok": false, "poppy_error", "status"}` with the HTTP status of pi-poppy's last request. pi-poppy's own refusal (a document or response its parser rejects, a check it fails, a timeout) is `{"ok": false, "poppy_error", "status": 0, "detail"}`, with pi-poppy's message and its last request in `detail`.
 
 ## Patches and relaxations
 
@@ -48,17 +48,20 @@ Other relaxations, with no upstream change:
 
 ## Readings
 
-`S1: token-endpoint` (every assertion's `aud` is the endpoint it is sent to), `S3: append` (`{issuer}/.well-known/oauth-authorization-server`), `S4: omit` (no `scope` on a signed-out Session request), `S23: per-origin` (one nonce per origin). S2 is not declared: client assertions carry `typ: "JWT"`, but Session assertions carry no `typ`; both live 60 s.
+`S1: token-endpoint` (every assertion's `aud` is the endpoint it is sent to), `S2: any` (client assertions carry `typ: "JWT"`, but Session assertions carry no `typ`; both live 60 s), `S3: append` (`{issuer}/.well-known/oauth-authorization-server`), `S4: omit` (no `scope` on a signed-out Session request), `S23: per-origin` (one nonce per origin).
 
-## Checked by hand
+## Results
 
-Through a stand-in for the runner (one TLS proxy with a per-run CA, as in spec section 3):
+Runner, 11 October 2026 (`npm run interop`):
 
-- **pi-poppy agent → pi-poppy Company (nonces required):** discover, Session, send, Direct Sign-In through `approve_authorization`, denied sign-in, Device Sign-In, Mediated Sign-In with a one-time code, signed-in send, retry with the same message id, staff reply, OpenAPI and MCP calls, proposal from a conversation and through `propose_operation`, confirm, web join and sign-out all pass.
-- **pi-poppy agent → Datalayer TypeScript and Python Companies:** discover, Session, send, Direct Sign-In, signed-in send, OpenAPI call (and MCP on Python) pass. Confirming an operation fails: the Company's confirm answers 200 with `"expires_at": null`, and pi-poppy's `parseOperation` throws `expires_at must be a non-empty string` (it accepts the member absent, not null), so the agent reports a failure for an operation the Company performed.
+- **pi-poppy Company:** every claimed scenario passes except `SE`.
+- **Datalayer TypeScript Company:** passes D, S0, SD, SV, SMC, SX, SXV, C, CI, CA, SO, R, AO and AS. `O` and `OX` fail on `null` members (below), and `SE` as above.
+- **Datalayer Python Company:** every cell fails at discovery: its `custom_scopes` defines `poppy:read` and `poppy:write`, which pi-poppy refuses ("custom scope names must not start with poppy:") and our validator flags (`validator.scope-reserved`).
+- **dpa-mock:** every cell fails at the first Session, `invalid_grant`. The strict mock requires `typ: "JWT"` on the Session assertion, which pi-poppy doesn't send (`session-assertion.typ`).
 
 ## Known failures
 
-- After a Company ends the Session, pi-poppy answers 401 `invalid_token` by renewing, and the renewal's 400 `invalid_session` is thrown rather than recovered with a new Session (`SE` is not claimed).
-- Operations whose confirm response has `expires_at: null` (Datalayer) are reported as failed.
-- `sse` is a single short burst; `CS` is not claimed. There are no ops for handoff or Direct Conversations in spec 5.2, so `H` and `DC` are not claimed.
+- **Session ended (`SE`):** after a Company ends the Session, pi-poppy answers 401 `invalid_token` by renewing. The renewal's 400 `invalid_session` is thrown rather than recovered with a new Session (spec 4.2).
+- **Session assertion without `typ`:** strict Companies (dpa-mock) refuse it with `invalid_grant`.
+- **`null` for absent members:** pi-poppy's `parseOperation` accepts an optional member absent but not `null`. Datalayer answers a confirm with `"expires_at": null` ("expires_at must be a non-empty string") and a cancel with `"result": {"data": null}` ("result.data must be an object"). The Company performed or cancelled the operation; the agent reports a failure.
+- **SSE:** a stream opened at the latest cursor, at a Company that sends nothing until there is an event (pi-poppy's own), times out after pi-poppy's 2 s.

@@ -13,9 +13,10 @@ import https from "node:https";
 import { syncBuiltinESMExports } from "node:module";
 
 const NAME = process.env.INTEROP_NAME || "pi-poppy";
-const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${NAME}.agent.interop.test`).replace(/\/+$/, "");
+const DOMAIN = process.env.INTEROP_DOMAIN || `${NAME}.agent.interop.test`;
+const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${DOMAIN}`).replace(/\/+$/, "");
 const SECRET = process.env.INTEROP_SECRET || "";
-const COMMIT = process.env.PI_POPPY_COMMIT || "unknown";
+const COMMIT = process.env.PI_POPPY_COMMIT || process.env.INTEROP_COMMIT || "unknown";
 const DIR = process.env.PI_POPPY_DIR || "/opt/pi-poppy";
 
 // ---------------------------------------------------------------------------
@@ -133,13 +134,27 @@ class StepError extends Error {
 }
 const unsupported = (detail: string) => new StepError(501, "unsupported", detail);
 
-/** An OAuth or Poppy error the Company returned outside an HTTP error response (e.g. in a redirect). */
+/**
+ * `{"ok": false, "poppy_error", "status"}` (spec 5.2): an error the Company returned
+ * (with its HTTP status), or pi-poppy's own refusal of something the Company did
+ * (status 0).
+ */
 class PoppyError extends Error {
 	status: number;
-	constructor(code: string, status: number) {
-		super(code);
+	code: string;
+	constructor(code: string, status: number, detail?: string) {
+		super(detail ?? code);
+		this.code = code;
 		this.status = status;
 	}
+}
+const refusal = (code: string, detail: string) => new PoppyError(code, 0, detail);
+
+/** An HTTP error response from the Company, as its Poppy or OAuth error code. */
+function companyError(status: number, body: unknown): PoppyError {
+	const object = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+	const code = typeof object.error === "string" ? object.error : `http_${status}`;
+	return new PoppyError(code, status, typeof object.error_description === "string" ? object.error_description : undefined);
 }
 
 function key(company: string, label?: string): string {
@@ -154,9 +169,14 @@ async function discovery(company: string): Promise<any> {
 	return found;
 }
 
-function needSession(company: string, label?: string): any {
-	const live = world.sessions.get(key(company, label));
-	if (!live) throw new StepError(409, "no_session", `no Session for ${company} (label ${label ?? "default"}); run the session op first`);
+/** The Session for this Company and label, started (as poppy_session_start does) if there is none. */
+async function ensureSession(company: string, label?: string): Promise<any> {
+	const k = key(company, label);
+	const existing = world.sessions.get(k);
+	if (existing) return existing;
+	const found = await discovery(company);
+	const live = await world.agent.startSession(found);
+	world.sessions.set(k, live);
 	return live;
 }
 
@@ -197,28 +217,32 @@ type Params = Record<string, any>;
 const steps: Record<string, (company: string, params: Params) => Promise<unknown>> = {
 	async discover(company) {
 		world.discoveries.delete(company);
-		const found = await discovery(company);
+		let found: any;
+		try {
+			found = await discovery(company);
+		} catch (error: any) {
+			throw new PoppyError("discovery_failed", 0, String(error?.message ?? error));
+		}
 		const doc = found.document;
 		return {
 			issuer: doc.auth?.issuer ?? null,
 			poppy_version: doc.protocol_version,
 			conversations: Boolean(world.agent.conversationEndpoint(doc)),
-			apis: (doc.apis ?? []).map((api: any) => api.url),
+			apis: (doc.apis ?? []).map((api: any) => api.type),
+			api_urls: (doc.apis ?? []).map((api: any) => api.url),
 			organization: doc.organization,
 		};
 	},
 
 	async session(company, params) {
-		const found = await discovery(company);
-		const live = await world.agent.startSession(found);
-		world.sessions.set(key(company, params.label), live);
+		const live = await ensureSession(company, params.label);
 		return { session_id: live.sessionId, signed_in: Boolean(live.signedIn), scope: live.scope };
 	},
 
 	async signin(company, params) {
-		const live = needSession(company, params.label);
+		const live = await ensureSession(company, params.label);
 		const auth = live.discovery.document.auth;
-		if (!auth) throw new StepError(422, "agent_refused", "company has no sign-in");
+		if (!auth) throw refusal("agent_refused", "company has no sign-in");
 		const scope = (Array.isArray(params.scopes) && params.scopes.length ? params.scopes : ["poppy:read"]).join(" ");
 		const k = key(company, params.label);
 		// As pi-poppy's extension does: a stored Account Token that covers the scope is used first.
@@ -229,19 +253,19 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 		}
 		const method = params.method;
 		if (method === "direct") {
-			if (!auth.direct) throw new StepError(422, "agent_refused", "company does not offer direct sign-in");
+			if (!auth.direct) throw refusal("agent_refused", "company does not offer direct sign-in");
 			const started = await world.agent.beginDirectSignIn(live, scope);
 			world.pending.set(k, { method, scope, account: params.account });
 			return { pending: { url: started.url } };
 		}
 		if (method === "device") {
-			if (!auth.device) throw new StepError(422, "agent_refused", "company does not offer device sign-in");
+			if (!auth.device) throw refusal("agent_refused", "company does not offer device sign-in");
 			const login = await world.agent.beginDeviceSignIn(live, scope);
 			world.pending.set(k, { method, scope, account: params.account, login });
 			return { pending: { url: login.verificationUriComplete ?? login.verificationUri, user_code: login.userCode } };
 		}
 		if (method === "mediated") {
-			if (!auth.mediated) throw new StepError(422, "agent_refused", "company does not offer mediated sign-in");
+			if (!auth.mediated) throw refusal("agent_refused", "company does not offer mediated sign-in");
 			world.pending.set(k, { method, scope, account: params.account });
 			return { pending: { fields: auth.mediated.fields ?? [] } };
 		}
@@ -250,7 +274,7 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 
 	async signin_continue(company, params) {
 		const k = key(company, params.label);
-		const live = needSession(company, params.label);
+		const live = await ensureSession(company, params.label);
 		const pending = world.pending.get(k);
 		if (!pending) throw new StepError(409, "no_pending_signin", "no sign-in is pending for this Session");
 		const issuer = live.discovery.document.auth?.issuer;
@@ -270,7 +294,7 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 					await world.agent.completeDirectSignIn(params.callback_url);
 				} catch {
 					world.pending.delete(k);
-					throw new PoppyError(error, 302);
+					throw new PoppyError(error, 0, `the authorization response carried error=${error}`);
 				}
 			}
 			return done(await world.agent.completeDirectSignIn(params.callback_url));
@@ -289,20 +313,23 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 			throw new StepError(504, "timeout", "device sign-in still pending after 60 s");
 		}
 		const fields = (params.fields ?? {}) as Record<string, string>;
+		const code = typeof params.code === "string" ? params.code : fields.code;
+		if (pending.signInId && typeof code !== "string") throw new StepError(400, "bad_request", "code is required: the Company asked for a one-time code");
 		const result = pending.signInId
-			? await world.agent.submitMediatedCode(live, pending.signInId, String(fields.code ?? ""))
+			? await world.agent.submitMediatedCode(live, pending.signInId, String(code))
 			: await world.agent.mediatedSignIn(live, fields, pending.scope);
 		if (result.status === "code_required" && (result.signInId || pending.signInId)) {
 			pending.signInId = result.signInId ?? pending.signInId;
-			return { pending: { fields: [{ name: "code", label: result.sentTo ?? "One-time code", secret: true }] } };
+			return { pending: { code_required: true, sent_to: result.sentTo ?? null } };
 		}
 		if (result.session) return done(result.session);
 		world.pending.delete(k);
-		return { signed_in: false, status: result.status };
+		// Mediated Sign-In answers 200 with status failed or expired (pi-poppy's reading).
+		throw new PoppyError(result.status === "expired" ? "expired_token" : "access_denied", 0, `Mediated Sign-In ended with status ${result.status}`);
 	},
 
 	async send(company, params) {
-		const live = needSession(company, params.label);
+		const live = await ensureSession(company, params.label);
 		useConversation(live, params.conversation);
 		const messageId = params.message_id ?? `msg_${randomId(8)}`;
 		const message: Record<string, unknown> = { id: messageId, sender: params.sender ?? "agent" };
@@ -322,7 +349,7 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 	},
 
 	async read(company, params) {
-		const live = needSession(company, params.label);
+		const live = await ensureSession(company, params.label);
 		if (typeof params.conversation !== "string") throw new StepError(400, "bad_request", "conversation is required");
 		useConversation(live, params.conversation);
 		// No cursor reads from the start (pi-poppy would otherwise resume from its last cursor).
@@ -338,7 +365,7 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 	},
 
 	async sse(company, params) {
-		const live = needSession(company, params.label);
+		const live = await ensureSession(company, params.label);
 		if (typeof params.conversation !== "string") throw new StepError(400, "bad_request", "conversation is required");
 		useConversation(live, params.conversation);
 		// pi-poppy reads one short burst: it stops at the first complete SSE frame or after
@@ -346,25 +373,24 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 		// No cursor streams from the start, as `read` does.
 		const burst = await world.agent.readEventStream(live, { cursor: params.cursor ?? "" });
 		const max = typeof params.max_events === "number" ? params.max_events : Infinity;
-		return {
-			events: burst.events.slice(0, max).map((event: any) => ({ id: event.id, type: event.type, data: event })),
-			deltas: burst.deltas,
-		};
+		const events = burst.events.slice(0, max).map((event: any) => ({ id: event.id, type: event.type, data: event }));
+		return { events, last_id: events.at(-1)?.id ?? null, deltas: burst.deltas };
 	},
 
 	async api(company, params) {
-		const live = needSession(company, params.label);
+		const live = await ensureSession(company, params.label);
 		const apis: any[] = live.discovery.document.apis ?? [];
+		// `api` is a URL the Company listed, or a type ("openapi", "mcp"): the first API of that type.
 		const api = apis.find((item) => item.url === params.api) ?? apis.find((item) => item.type === params.api);
-		if (!api) throw new StepError(422, "agent_refused", `company lists no API ${String(params.api)}`);
-		const args = (params.args ?? {}) as Record<string, any>;
+		if (!api) throw refusal("unknown_api", `company lists no API ${String(params.api)}`);
+		const args = (params.args ?? {}) as { params?: Record<string, unknown>; body?: unknown };
 		if (api.type === "openapi") {
 			if (typeof params.operation !== "string") throw new StepError(400, "bad_request", "operation is required for an OpenAPI API");
 			// pi-poppy's poppy_api_call takes a path and an optional body; the model reads the
 			// OpenAPI document to choose them. The adapter does that reading instead.
 			const doc = await world.agent.callApi(live, api.url);
-			if (doc.status >= 400) return { status: doc.status, body: doc.body };
-			// `operation` is an operationId, or "METHOD /path" (Datalayer's fixtures use that form).
+			if (doc.status >= 400) throw companyError(doc.status, doc.body);
+			// `operation` is an operationId, or "METHOD /path".
 			const literal = /^(GET|POST|PUT|PATCH|DELETE)\s+(\/\S*)$/i.exec(params.operation);
 			let found: { path: string; method: string; absolute?: boolean } | undefined;
 			for (const [path, item] of Object.entries((doc.body as any)?.paths ?? {})) {
@@ -375,19 +401,28 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 				}
 			}
 			if (!found && literal) found = { path: literal[2]!, method: literal[1]!.toUpperCase(), absolute: true };
-			if (!found) throw new StepError(422, "agent_refused", `no operationId ${params.operation} in ${api.url}`);
+			if (!found) throw refusal("unknown_operation", `no operation ${params.operation} in ${api.url}`);
 			if (found.method !== "GET" && found.method !== "POST") throw unsupported(`pi-poppy's callApi sends only GET and POST, not ${found.method}`);
-			const path = found.path.replace(/\{([^}]+)\}/g, (_m, name) => encodeURIComponent(String(args[name] ?? "")));
+			// args.params fill the path template; the rest go in the query.
+			const values = { ...(args.params ?? {}) };
+			const path = found.path.replace(/\{([^}]+)\}/g, (_m, name) => {
+				const value = values[name];
+				delete values[name];
+				return encodeURIComponent(String(value ?? ""));
+			});
 			// OpenAPI's default server is "/", resolved against the document's URL.
 			const server = found.absolute ? "/" : ((doc.body as any)?.servers?.[0]?.url ?? "/");
 			const base = new URL(server, api.url);
 			const target = new URL(base.pathname.replace(/\/$/, "") + path, base.origin);
-			const body = found.method === "POST" ? (args.body ?? Object.fromEntries(Object.entries(args).filter(([k2]) => !found!.path.includes(`{${k2}}`)))) : undefined;
+			for (const [name, value] of Object.entries(values)) target.searchParams.set(name, String(value));
+			const body = found.method === "POST" ? (args.body ?? {}) : undefined;
 			const result = await world.agent.callApi(live, target.toString(), body);
+			if (result.status >= 400) throw companyError(result.status, result.body);
 			return { status: result.status, body: result.body, operation: result.operation?.operation_id ?? null };
 		}
 		if (api.type === "mcp") {
 			if (typeof params.tool !== "string") throw new StepError(400, "bad_request", "tool is required for an MCP API");
+			const toolArgs = (params.args ?? {}) as Record<string, unknown>;
 			// pi-poppy mints the Bearer token (mcpBearer) and hands it to pi's built-in MCP
 			// client. The adapter stands in for that client with three JSON-RPC calls.
 			const bearer = await world.agent.mcpBearer(live, api.url);
@@ -401,24 +436,25 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 				return httpRequest(api.url, { method: "POST", headers, body: JSON.stringify(body), timeoutMs: 15_000, maxBytes: 1_000_000 });
 			};
 			const init = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "pi-poppy-interop", version: "0.1.0" } } });
-			if (init.status >= 400) return { status: init.status, body: parseMaybe(init.body.toString("utf8")) };
+			if (init.status >= 400) throw companyError(init.status, parseMaybe(init.body.toString("utf8")));
 			const sid = headerOne(init.headers, "mcp-session-id");
 			await rpc({ jsonrpc: "2.0", method: "notifications/initialized" }, sid);
-			const call = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: params.tool, arguments: args } }, sid);
-			return { status: call.status, body: parseMaybe(call.body.toString("utf8")) };
+			const call = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: params.tool, arguments: toolArgs } }, sid);
+			const parsed = parseMaybe(call.body.toString("utf8"));
+			if (call.status >= 400) throw companyError(call.status, parsed);
+			return { status: call.status, body: parsed };
 		}
 		throw unsupported(`pi-poppy does not implement API type ${api.type}`);
 	},
-
 	async web_join(company, params) {
-		const live = needSession(company, params.label);
+		const live = await ensureSession(company, params.label);
 		if (!live.discovery.document.web?.browser_session_endpoint) return { joined: false };
 		await world.agent.joinBrowser(live, params.url);
 		return { joined: Boolean(live.browserJoined) };
 	},
 
 	async approve_op(company, params) {
-		const live = needSession(company, params.label);
+		const live = await ensureSession(company, params.label);
 		const operation = await world.agent.readOperation(live, params.operation);
 		if (params.decision === "decline") {
 			// The extension does nothing on a "no"; its poppy_operation_cancel tool tells the Company.
@@ -432,7 +468,7 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 	},
 
 	async signout(company, params) {
-		const live = needSession(company, params.label);
+		const live = await ensureSession(company, params.label);
 		const issuer = live.discovery.document.auth?.issuer;
 		const had = issuer ? await hasAccount(issuer) : false;
 		await world.agent.revoke(live);
@@ -469,8 +505,8 @@ const manifest = {
 	commit: COMMIT,
 	poppy: ["0.1"],
 	extensions: ["operations"],
-	scenarios: ["D", "S0", "N", "SD", "SV", "SM", "SX", "SO", "C", "CI", "CA", "AO", "AM", "AS", "W", "O", "O2", "OX"],
-	readings: { S1: "token-endpoint", S3: "append", S4: "omit", S23: "per-origin" },
+	scenarios: ["D", "S0", "N", "SD", "SV", "SM", "SMC", "SX", "SXV", "SO", "SE", "R", "C", "CI", "CA", "AO", "AM", "AS", "RL", "O", "OX"],
+	readings: { S1: "token-endpoint", S2: "any", S3: "append", S4: "omit", S23: "per-origin" },
 	relaxations: [
 		"PI_POPPY_INTEROP_PRIVATE_SUFFIX=.interop.test (patches/0001): host names under .interop.test may resolve to private addresses; unset by default, loopback still refused",
 		"Client metadata and JWKS are served by pi-poppy's IdentityServer handler on plain HTTP at the interop origin behind the proxy, instead of its own loopback HTTPS listener",
@@ -479,7 +515,7 @@ const manifest = {
 	notes: [
 		"Session assertions carry no typ header (client assertions carry typ JWT); both live 60 s.",
 		"api: the adapter resolves an OpenAPI operationId to a path and stands in for pi's MCP client.",
-		"sse: pi-poppy reads one short burst (first frame or 300 ms).",
+		"sse: pi-poppy reads one short burst (it stops at the first chunk holding a complete frame, or after 300 ms), and its extension has no SSE tool, so CS is not claimed.",
 	],
 };
 
@@ -523,20 +559,23 @@ async function runStep(body: any): Promise<{ status: number; body: unknown }> {
 		return { status: 200, body: { ok: true, result } };
 	} catch (error: any) {
 		if (error instanceof StepError) return { status: error.status, body: { error: error.code, detail: error.message } };
-		if (error instanceof PoppyError) return { status: 200, body: { ok: false, poppy_error: error.message, status: error.status } };
+		if (error instanceof PoppyError) {
+			return { status: 200, body: { ok: false, poppy_error: error.code, status: error.status, detail: error.message } };
+		}
 		const message = String(error?.message ?? error);
 		const httpStatus = lastExchange?.status;
 		// pi-poppy throws the Company's `error` member as the message for refused requests.
 		if (httpStatus && httpStatus >= 400 && /^[a-z][a-z0-9_]*$/.test(message)) {
-			return { status: 200, body: { ok: false, poppy_error: message, status: httpStatus } };
+			return { status: 200, body: { ok: false, poppy_error: message, status: httpStatus, detail: `${lastExchange?.method} ${lastExchange?.url}` } };
 		}
 		if (error instanceof TypeError || error instanceof ReferenceError) {
 			return { status: 500, body: { error: "adapter_error", detail: error.stack ?? message } };
 		}
-		return {
-			status: 422,
-			body: { error: error?.code ? `agent_refused:${error.code}` : "agent_refused", detail: message, last_exchange: lastExchange ?? null },
-		};
+		// pi-poppy's own refusal (a document it won't parse, a check that failed, a network
+		// error such as a timeout): status 0, with pi-poppy's message (spec 5.2).
+		const code = typeof error?.code === "string" && /^[a-z][a-z0-9_]*$/.test(error.code) ? error.code : /^[a-z][a-z0-9_]*$/.test(message) ? message : "agent_refused";
+		const last = lastExchange ? ` (last request: ${lastExchange.method} ${lastExchange.url} -> ${lastExchange.status ?? lastExchange.error ?? "no answer"})` : "";
+		return { status: 200, body: { ok: false, poppy_error: code, status: 0, detail: `${message}${last}` } };
 	}
 }
 

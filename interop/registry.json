@@ -65,7 +65,7 @@
       "source": "https://github.com/richardanaya/pi-poppy",
       "commit": "11ea10630180740f16ccd507b8f90f69870c7e32",
       "build": "interop/impls/pi-poppy-company",
-      "notes": "CompanyServer (src/company.ts), the Company pi-poppy's tests use; nonces required. Patch: private addresses under .interop.test. MIT."
+      "notes": "CompanyServer (src/company.ts), the Company pi-poppy's tests use; nonces off until the require_nonce hook. Patch: private addresses under .interop.test. MIT."
     }
   ]
 }

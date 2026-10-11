@@ -18,12 +18,10 @@ FROM node:22.23.3-bookworm-slim
 ARG PI_POPPY_COMMIT=11ea10630180740f16ccd507b8f90f69870c7e32
 COPY --from=source /opt/pi-poppy /opt/pi-poppy
 COPY adapter.ts /opt/adapter/adapter.ts
-RUN mkdir -p /interop
 ENV PI_POPPY_DIR=/opt/pi-poppy \
     PI_POPPY_COMMIT=$PI_POPPY_COMMIT \
     PI_POPPY_INTEROP_PRIVATE_SUFFIX=.interop.test \
-    INTEROP_NAME=pi-poppy \
-    PI_POPPY_REQUIRE_NONCE=1
+    INTEROP_NAME=pi-poppy
 EXPOSE 8080 8081
 USER node
 CMD ["node", "--experimental-strip-types", "--no-warnings", "/opt/adapter/adapter.ts"]

@@ -14,11 +14,14 @@
 import http from "node:http";
 
 const NAME = process.env.INTEROP_NAME || "pi-poppy";
-const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${NAME}.company.interop.test`).replace(/\/+$/, "");
+const DOMAIN = process.env.INTEROP_DOMAIN || `${NAME}.company.interop.test`;
+const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${DOMAIN}`).replace(/\/+$/, "");
 const SECRET = process.env.INTEROP_SECRET || "";
-const COMMIT = process.env.PI_POPPY_COMMIT || "unknown";
+const COMMIT = process.env.PI_POPPY_COMMIT || process.env.INTEROP_COMMIT || "unknown";
 const DIR = process.env.PI_POPPY_DIR || "/opt/pi-poppy";
-const REQUIRE_NONCE = process.env.PI_POPPY_REQUIRE_NONCE !== "0";
+// Off by default, as CompanyServer's own default; the require_nonce hook (scenario N) or
+// PI_POPPY_REQUIRE_NONCE=1 turns on CompanyServer's `requireNonce` option.
+const REQUIRE_NONCE = process.env.PI_POPPY_REQUIRE_NONCE === "1";
 const DEFER_PERFORM = process.env.PI_POPPY_DEFER_PERFORM === "1";
 
 const { CompanyServer } = await import(`${DIR}/src/company.ts`);
@@ -188,6 +191,13 @@ const hooks: Record<string, (params: Params) => Promise<unknown>> = {
 
 	async propose_operation(params) {
 		const conv = conversation(params.conversation);
+		// The Company's agent proposes an exchange when asked for one (fixture.prompts.operation);
+		// return that proposal if it is still open.
+		const already = [...conv.events]
+			.reverse()
+			.map((event: any) => event.message?.operation)
+			.find((operation: any) => operation && company.operations.get(operation.operation_id)?.operation.state === "proposed");
+		if (already) return { operation: already.operation_id };
 		// The proposal the Company's own auto-reply makes for "exchange", in that conversation.
 		const sessions = [...company.sessions.values()].filter((s: any) => !s.ended && s.clientId === conv.clientId && s.userId === conv.userId);
 		const session = sessions.reverse().find((s: any) => conv.accountId ? s.accountId === conv.accountId : true) ?? sessions[0];
@@ -210,13 +220,32 @@ const hooks: Record<string, (params: Params) => Promise<unknown>> = {
 		return { state: operation.state };
 	},
 
+	async require_nonce() {
+		// CompanyServer's own option: every DPoP proof (token endpoint and resources) must
+		// carry its current nonce, or it answers use_dpop_nonce with a DPoP-Nonce header.
+		company.options.requireNonce = true;
+		return {};
+	},
+
+	// CompanyServer has no way to expire Session Tokens it has issued (they are sealed
+	// with their own `exp`), and its rate limiter is a sliding window over every request,
+	// not "the next n requests". Rather than fake either in the adapter, both answer 501.
+
 	async fixture() {
+		// CompanyServer's OpenAPI document has one operation, createExchange, which needs a
+		// signed-in Session with poppy:write. There is no read-only or signed-out operation,
+		// so `openapi` and `openapi_public` are absent and AO, N, R and RL aren't claimed.
 		return {
 			accounts: USERS.map((item) => item.email),
 			scopes: ["poppy:read", "poppy:write"],
-			openapi: { api: `${ORIGIN}/openapi.json`, operation: "createExchange", args: { order_id: "ord_7Hk2", body: { item: "insulated" } } },
-			mcp: { api: `${ORIGIN}/mcp`, tool: "search_products", args: { query: "jacket" } },
-			mediated_second_factor: "bea@example.com",
+			openapi_write: { api: "openapi", operation: "createExchange", args: { params: { order_id: "ord_7Hk2" }, body: { item: "insulated" } } },
+			mcp: { api: "mcp", tool: "search_products", args: { query: "jacket" } },
+			prompts: {
+				hello: "Hello",
+				sign_in: "Where is my order?",
+				operation: "I'd like to exchange the jacket on my order",
+			},
+			otp_account: "bea@example.com",
 		};
 	},
 };
@@ -228,7 +257,7 @@ const manifest = {
 	commit: COMMIT,
 	poppy: ["0.1"],
 	extensions: ["operations"],
-	scenarios: ["D", "S0", "N", "SD", "SV", "SM", "SX", "SO", "SE", "C", "CI", "CS", "CA", "H", "DC", "AO", "AM", "AS", "W", "O", "O2", "OX"],
+	scenarios: ["D", "S0", "SD", "SV", "SM", "SMC", "SX", "SXV", "SO", "SE", "C", "CI", "CS", "CA", "AM", "AS", "O", "OX"],
 	readings: { S1: "token-endpoint", S2: "any", S3: "either", S4: "either", S23: "per-company" },
 	relaxations: [
 		"PI_POPPY_INTEROP_PRIVATE_SUFFIX=.interop.test (patches/0001): client_id and jwks_uri under .interop.test may resolve to private addresses; unset by default, loopback still refused",
@@ -236,6 +265,11 @@ const manifest = {
 		"The interop CA is trusted through NODE_EXTRA_CA_CERTS (CompanyServer's `ca` option is left unset)",
 	],
 	settings: { requireNonce: REQUIRE_NONCE, deferPerform: DEFER_PERFORM },
+	notes: [
+		"No read-only or signed-out OpenAPI operation exists in CompanyServer, so the fixture has no openapi or openapi_public, and AO, N, R and RL are not claimed.",
+		"expire_tokens and rate_limit answer 501: CompanyServer can't expire issued tokens, and its limiter is a sliding window, not 'the next n requests'.",
+		"Nonces are off until require_nonce (or PI_POPPY_REQUIRE_NONCE=1).",
+	],
 };
 
 // ---------------------------------------------------------------------------
@@ -263,7 +297,7 @@ const control = http.createServer(async (req, res) => {
 			company = newCompany();
 			return json(res, 200, { ok: true });
 		}
-		if (req.method === "GET" && path === "/hooks") return json(res, 200, { interop: 1, hooks: Object.keys(hooks) });
+		if (req.method === "GET" && path === "/hooks") return json(res, 200, { hooks: Object.keys(hooks) });
 		const match = /^\/hooks\/([a-z_]+)$/.exec(path);
 		if (req.method === "POST" && match) {
 			const hook = hooks[match[1]!];
@@ -271,7 +305,8 @@ const control = http.createServer(async (req, res) => {
 			const body = await readBody(req);
 			const params = body && typeof body.params === "object" && body.params !== null ? body.params : body;
 			try {
-				return json(res, 200, { ok: true, result: await hook(params) });
+				// A hook answers its result object as is (spec 5.3; the runner saves the body).
+				return json(res, 200, await hook(params));
 			} catch (error: any) {
 				if (error instanceof HookError) return json(res, error.status, { error: error.code, detail: error.message });
 				return json(res, 500, { error: "adapter_error", detail: String(error?.stack ?? error) });
