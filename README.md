@@ -157,6 +157,15 @@ The Poppy client in `src/poppy/` implements every part of Draft 0.1 that a Perso
 
 **Your secrets stay away from the model.** It never sees tokens, keys or passwords. It also can't approve an action by itself: approval comes from a button on the page, or a standing permission you set.
 
+### The app
+
+The app has four places:
+
+- **Chat** opens with a pinned **Needs you** tray: approvals, sign-ins, invitations to talk to a company yourself. The tray's count also shows in the tab title. Each company action in the conversation reads as one line, such as "Read your orders at Manzanita · API · view access".
+- **Activity** shows what's in progress, each item with a way to stop it, and a log of everything the agent did at companies: where, how, with what access, who decided, and the result.
+- **Companies** lists your connected accounts, the access each has, and the standing permissions you've given.
+- **Settings** has your account, the theme, the model and the agent's public identity.
+
 ## Develop
 
 **Prerequisites:**
@@ -186,7 +195,7 @@ CI runs typecheck, the tests and the docs check on every push (`.github/workflow
   - A frozen clock makes Retry-After, device polling and slow operations instant.
 - **Validator:** fixtures declared as data, with a test that every message has one. They include the spec's own examples and poppy-demo's live documents.
 - **JSON parsers:** property tests against `JSON.parse`.
-- **Page:** cards, panels, the sign-in page and the Browser Rendering adapter, in happy-dom.
+- **Page:** the four places, the needs-you tray, cards, the Activity log (no secrets ever reach it), the sign-in page and the Browser Rendering adapter, in happy-dom.
 
 The model, Google, GitHub and Companies are faked; nothing calls the network.
 
@@ -236,7 +245,8 @@ Poppy implementations we know of, as of 11 Oct 2026. All were days old.
 ```text
 src/index.ts        Worker routes (chat, sign-in, Poppy identity, validator)
 src/agent.ts        The per-person Durable Object
-src/poppy/          The Poppy client, its tools and its UI messages
+src/ui/             The page: Chat, Activity, Companies, Settings
+src/poppy/          The Poppy client, its tools, its UI messages and the Activity log
 src/validator/      The validator: parser, primitives, profiles, fetch, HTTP, HTML
 scripts/            The validator CLI and the secrets generator
 test/               Tests and the mock Company

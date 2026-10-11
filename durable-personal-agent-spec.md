@@ -36,7 +36,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Poppy client: every part in this spec | Built; passes the conformance tests against a strict mock Company, under six readings of the draft's open questions. Not yet tried against a real Company, because none has published `poppy.json` |
 | Poppy identity (`/poppy/client.json`, `/poppy/jwks.json`) | Live, with production signing keys |
 | Web browsing | Built on Browser Rendering; tested only with a fetch-based fake browser |
-| Chat page with Poppy cards and the Companies panel | Built; not yet checked in a browser, because sign-in isn't live |
+| Chat, Activity, Companies and Settings pages | Built; tested in happy-dom and checked in headless Chrome (light, dark, phone width). Not yet used with a real Company |
 | Sign-in allowlist (emails, Google Workspace domains, GitHub accounts) | Built and tested; set in `wrangler.jsonc`, changed by redeploying |
 | Discovery document validator (library, CLI, JSON API, form) | Built and tested; live at `/validator`; the client's discovery uses it as its ingestion gate |
 | Memory, skills, daily cap (milestone 2) | Not started |
@@ -193,19 +193,36 @@ The wire protocol and chat UI come from Cloudflare's Pi harness example (`cloudf
 | page → agent | `poppy.operation` | Approve, decline or cancel one operation revision |
 | page → agent | `poppy.approval` | Approve or decline a local approval |
 | page → agent | `poppy.direct.start`, `.say`, `.decline`, `.close` | The User's part in a Direct Conversation |
-| page → agent | `poppy.signout`, `poppy.permission.add`, `.remove`, `poppy.card.dismiss` | Companies panel actions |
+| page → agent | `poppy.signout`, `poppy.permission.add`, `.remove`, `poppy.card.dismiss` | Companies page actions |
+| page → agent | `poppy.activity` | A presence ping on pointer or key activity, at most every 2 minutes, so `user_available` is accurate |
 | agent → page | `poppy.cards` | Open cards, and closed ones from the last hour |
 | agent → page | `poppy.settings` | Connected accounts and standing permissions |
 | agent → page | `poppy.direct` | A Direct Conversation's messages, state, and `text-delta` pieces for display |
+| agent → page | `poppy.activity` | What the agent is doing and has done at Companies: tasks in progress (each with the frame that stops it) and a log, newest first, up to 200 entries. Built in `src/poppy/activity.ts` from the operations, approvals, sign-ins, conversations, messages and inbox tables, naming only the columns it shows, so it never holds a secret, token, state hash or stored request; kept beyond the cards' hour |
 
 **What the page shows**
 
-- **Cards** under the transcript:
-  - **Sign-in:** a link to the Company's page, a QR code with its user code, a credentials form, or a one-time-code form.
-  - **Operations:** the Company's summary verbatim, with costs, dates and conditions pulled from `terms`, and what changed since the last revision.
+The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line mapping, Activity, Companies, Settings) and `src/poppy-ui.tsx` (cards, the tray, receipts, the Direct Conversation sheet). It follows a spartan house style: neutral surfaces, color only for state, no decorative motion, and every action labelled with where, how, what access and who decided.
+
+- **Four places** in a rail that becomes a top bar and sheet on phones. Each has its own path (`/`, `/activity`, `/companies`, `/settings`), and the back button works.
+- **Chat.**
+  - **"Needs you" tray**, pinned above the transcript: approvals, sign-ins, Direct Conversation invitations and failures to decide on. Its count shows on the rail and in the tab title.
+  - **Receipts.** A resolved card becomes a one-line receipt.
+  - **Readable tool lines.** Poppy tool calls read as one line ("Read your orders at Manzanita · API · view access"), with the raw arguments behind Details.
+  - **One status line** while the agent works.
+  - **An empty state** that says what the agent does.
+- **Cards** in the tray:
+  - **Sign-in:** a link to the Company's page, a QR code with its user code, a credentials form, or a one-time-code form. Links are shown only when HTTPS.
+  - **Operations:** the Company's summary verbatim ("Manzanita says: …"), with costs, dates and conditions from `terms`, and what changed since the last revision.
   - **Local approvals**, **Direct Conversation invitations** and **notices**.
-- **A Direct Conversation panel**, where the User talks with the Company. It shows whether a person or the Company's agent is answering.
-- **A Companies panel**, opened from the header, listing connected accounts (with sign-out) and standing permissions (with a form to add one).
+- **A Direct Conversation sheet**, a right-hand column at 1024px and wider, full screen on phones. Each message is labelled "You", "A person at Acme" or "Acme's agent".
+- **Activity.**
+  - **In progress:** device sign-ins with a countdown, open conversations and operations, each with its stop button.
+  - **A log:** time, Company, what, how and access, who decided, result.
+- **Companies.**
+  - **A table:** each Company's account, access in words with the raw scope, until when, and its standing permissions.
+  - **A page per Company:** sign out, standing permissions with uses left and an add form, and its open conversations.
+- **Settings:** the signed-in account, the theme, the model, and the agent's public identity.
 
 ## Poppy client
 
