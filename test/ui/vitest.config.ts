@@ -5,7 +5,7 @@ import { defineConfig } from "vitest/config";
 const uiDir = import.meta.dirname;
 
 /**
- * The page and the Browser Rendering adapter, in happy-dom rather than the
+ * The page, in happy-dom rather than the
  * Workers runtime. Files here end in `.test.tsx`, so the Workers suite
  * (`test/**` `*.test.ts`) never picks them up.
  */

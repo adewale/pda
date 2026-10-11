@@ -19,8 +19,6 @@
     { "tag": "v1", "new_sqlite_classes": ["PersonalAgent"] },
     { "tag": "v2", "new_sqlite_classes": ["CompanyLimiter"] }
   ],
-  // Poppy web browsing (Browser Rendering).
-  "browser": { "binding": "BROWSER" },
   // Product choices. Secrets are per deployment, set with `wrangler secret
   // put`, never in this file: SESSION_SECRET, GOOGLE_CLIENT_ID,
   // GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,

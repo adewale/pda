@@ -504,7 +504,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
   },
 
   async web_join() {
-    throw new StepError(501, "unsupported", "Browser Sessions need Browser Rendering, which the adapter doesn't run");
+    throw new StepError(501, "unsupported", "Browser Sessions aren't wired into this adapter: the agent's browser reads pages with workerd's HTMLRewriter, which Node lacks");
   },
 
   async approve_op(domain, params) {

@@ -10,12 +10,10 @@ import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { PersonalAgent as ProductionAgent, type ModelSource } from "../src/agent";
 import { readModelConfig } from "../src/config";
 import worker from "../src/index";
-import type { PoppyBrowser } from "../src/poppy/browser";
 import type { Fetcher } from "../src/poppy/fetch";
 import { readConversation } from "../src/poppy/conversations";
 import { Sealer } from "../src/poppy/store";
 import { poppyExtension } from "../src/poppy/tools";
-import { FakeBrowser } from "./fake-browser";
 import { CLOCK_HEADER, companyIdFromHost, type MockCompany } from "./mock-company";
 
 type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
@@ -114,10 +112,6 @@ export class PersonalAgent extends ProductionAgent {
 
   protected override poppyFetcher(): Fetcher {
     return testFetcher(this.env, () => clockOf(this).now);
-  }
-
-  protected override poppyBrowser(): PoppyBrowser {
-    return new FakeBrowser(testFetcher(this.env, () => clockOf(this).now));
   }
 
   protected override poppySettings() {

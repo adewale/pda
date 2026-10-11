@@ -100,7 +100,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 
 | ID | Severity | Problem | Suggested fix | What we do |
 | --- | --- | --- | --- | --- |
-| <a id="n13"></a>N13 | Security | **The browser cookie is a bearer credential.** It isn't bound to a key, lives as long as the Session, and may be `SameSite=None`, so other pages in the agent's browser send it cross-site. `Lax` is enough for the POST, 303 and GET. | Require `Lax`; recommend short lifetimes. | One browser context per Session, closed with it. |
+| <a id="n13"></a>N13 | Security | **The browser cookie is a bearer credential.** It isn't bound to a key, lives as long as the Session, and may be `SameSite=None`, so other pages in the agent's browser send it cross-site. `Lax` is enough for the POST, 303 and GET. | Require `Lax`; recommend short lifetimes. | One browser context per Session of each User, replaced with the Session; cookies host-only and sent only to that host, and no other site's pages load in it. |
 
 ## APIs (6)
 
