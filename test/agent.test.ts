@@ -12,6 +12,7 @@ import {
   type Identity
 } from "../src/session";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../src/view";
+import { grantCode, type Grant } from "./fake-providers";
 import worker from "./worker";
 
 const ORIGIN = "https://agent.example.com";
@@ -85,10 +86,9 @@ function follow(socket: WebSocket) {
   return { view: () => view, frames, until, texts };
 }
 
-async function connect(identity: Identity, query = "") {
-  const response = await fetchWorker(
-    wsRequest({ cookie: await sessionCookie(identity), query })
-  );
+async function connect(identity: Identity | string, query = "") {
+  const cookie = typeof identity === "string" ? identity : await sessionCookie(identity);
+  const response = await fetchWorker(wsRequest({ cookie, query }));
   expect(response.status).toBe(101);
   const socket = response.webSocket!;
   socket.accept();
@@ -101,31 +101,92 @@ async function chat(
   socket: WebSocket,
   client: ReturnType<typeof follow>,
   text: string,
-  expected: string
+  expected?: string
 ) {
   socket.send(JSON.stringify({ type: "submit", id: crypto.randomUUID(), input: text }));
-  await client.until(() => client.texts().includes(`assistant: ${expected}`));
+  // Without an expected answer, any turn number will do: the agent may have history.
+  await client.until(() =>
+    expected === undefined
+      ? client.texts().some((t) => t.startsWith(`assistant: echo: ${text} (turn `))
+      : client.texts().includes(`assistant: ${expected}`)
+  );
   await client.until(() => !client.view().running);
+}
+
+/** Who agrees on the provider's consent page, and how the provider answers for them. */
+type Consent = Omit<Grant, "clientId" | "redirectUri" | "challenge" | "challengeMethod">;
+
+type Flow = { readonly authorize: URL; readonly state: string; readonly cookie: string };
+
+/** `GET /auth/<provider>`, as the browser does: where it is sent, and the flow cookie. */
+async function startFlow(provider: Provider): Promise<Flow> {
+  const start = await fetchWorker(new Request(`${ORIGIN}/auth/${provider}`));
+  expect(start.status).toBe(303);
+  const authorize = new URL(start.headers.get("Location")!);
+  return {
+    authorize,
+    state: authorize.searchParams.get("state")!,
+    cookie: cookiePair(start.headers.get("Set-Cookie")!)
+  };
+}
+
+/**
+ * The provider's consent page: the code it sends back when this person
+ * agrees, bound to the authorize URL's client, redirect URI and PKCE challenge.
+ */
+function consent(authorize: URL, who: Consent): string {
+  const params = authorize.searchParams;
+  return grantCode({
+    clientId: params.get("client_id")!,
+    redirectUri: params.get("redirect_uri")!,
+    challenge: params.get("code_challenge")!,
+    challengeMethod: params.get("code_challenge_method")!,
+    ...who
+  });
+}
+
+/** The browser arriving back at the callback with the flow cookie. */
+function callback(provider: Provider, cookie: string, params: Record<string, string>) {
+  return fetchWorker(
+    new Request(`${ORIGIN}/auth/${provider}/callback?${new URLSearchParams(params)}`, {
+      headers: { Cookie: cookie }
+    })
+  );
 }
 
 /** Runs a whole OAuth round trip; returns the callback's response. */
 async function signIn(
   provider: Provider,
-  code: string | ((state: string) => URLSearchParams)
+  who: Consent | ((flow: Flow) => Record<string, string>)
 ) {
-  const start = await fetchWorker(new Request(`${ORIGIN}/auth/${provider}`));
-  expect(start.status).toBe(303);
-  const authorize = new URL(start.headers.get("Location")!);
-  const state = authorize.searchParams.get("state")!;
-  const flowCookie = cookiePair(start.headers.get("Set-Cookie")!);
+  const flow = await startFlow(provider);
   const params =
-    typeof code === "string" ? new URLSearchParams({ code, state }) : code(state);
-  return fetchWorker(
-    new Request(`${ORIGIN}/auth/${provider}/callback?${params}`, {
-      headers: { Cookie: flowCookie }
-    })
-  );
+    typeof who === "function"
+      ? who(flow)
+      : { code: consent(flow.authorize, who), state: flow.state };
+  return callback(provider, flow.cookie, params);
 }
+
+/** The signed-in person's `/api/me`. */
+async function me(response: Response) {
+  const session = sessionFrom(response);
+  expect(session, "no session cookie").toBeDefined();
+  const answer = await fetchWorker(
+    new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookiePair(session!) } })
+  );
+  expect(answer.status).toBe(200);
+  return answer.json();
+}
+
+async function s256(verifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** A verified Google account whose email is on the allowlist in test/wrangler.jsonc. */
+const GOOGLE_ALLOWED: Consent = { sub: "google-sub-1", email: "g@example.com" };
+const GITHUB_ALLOWED: Consent = { sub: OCTO, email: "octo@example.com" };
 
 function sessionFrom(response: Response): string | undefined {
   return response.headers
@@ -234,10 +295,19 @@ describe("the conversation", () => {
     b.socket.close();
   });
 
-  it("gives the same id on Google and GitHub separate agents", async () => {
-    const google = person(HUBOT, "google");
-    const github = person(HUBOT, "github");
-    expect(await agentNameFor(google)).not.toBe(await agentNameFor(github));
+  it("gives a Google and a GitHub account with the same id separate agents", async () => {
+    const google = await connect(person(HUBOT, "google"));
+    const github = await connect(person(HUBOT, "github"));
+    const name = (client: ReturnType<typeof follow>) =>
+      (client.frames.find((f) => f.type === "cf_agent_identity") as { name?: string }).name;
+    expect(name(google.client)).toBe(await agentNameFor({ provider: "google", sub: HUBOT }));
+    expect(name(github.client)).toBe(await agentNameFor({ provider: "github", sub: HUBOT }));
+    expect(name(google.client)).not.toBe(name(github.client));
+    const marker = `only on Google ${crypto.randomUUID()}`;
+    await chat(google.socket, google.client, marker);
+    expect(github.client.texts().join("\n")).not.toContain(marker);
+    google.socket.close();
+    github.socket.close();
   });
 
   it("brings the whole history back after a reconnect and a crash", async () => {
@@ -276,59 +346,73 @@ describe("sign-in", () => {
     expect(location.searchParams.get("client_id")).toBe(env.GITHUB_CLIENT_ID);
     expect(location.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/auth/github/callback`);
     expect(location.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(location.searchParams.get("code_challenge")).toMatch(/^[\w-]{43}$/);
     expect(location.searchParams.get("state")).toMatch(/^[\w-]{43}$/);
     const flow = response.headers.get("Set-Cookie")!;
     expect(flow).toMatch(/^__Host-oauth=.+; Path=\/; Max-Age=600; HttpOnly; Secure; SameSite=Lax$/);
   });
 
+  it("signs the flow cookie to expire ten minutes after the sign-in starts", async () => {
+    const before = Math.floor(Date.now() / 1000);
+    const { cookie } = await startFlow("google");
+    const after = Math.floor(Date.now() / 1000);
+    const body = cookie.slice(cookie.indexOf("=") + 1).split(".")[0]!;
+    const flow = JSON.parse(atob(body.replace(/-/g, "+").replace(/_/g, "/"))) as { exp: number };
+    expect(flow.exp).toBeGreaterThanOrEqual(before + 600);
+    expect(flow.exp).toBeLessThanOrEqual(after + 600);
+  });
+
   it("signs in with GitHub and opens the same agent on every sign-in", async () => {
-    const id = OCTO;
-    const response = await signIn("github", `ok:${id}:octo@example.com`);
+    const response = await signIn("github", GITHUB_ALLOWED);
     expect(response.status).toBe(303);
     expect(response.headers.get("Location")).toBe("/");
     const session = sessionFrom(response)!;
     expect(session).toContain("HttpOnly; Secure; SameSite=Lax");
+    expect(await me(response)).toEqual({ email: "octo@example.com", provider: "github" });
 
-    const me = await fetchWorker(
-      new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookiePair(session) } })
-    );
-    expect(await me.json()).toEqual({ email: "octo@example.com", provider: "github" });
-
-    const again = sessionFrom(await signIn("github", `ok:${id}:octo@example.com`))!;
-    const first = await connect(person(id, "github"));
-    const socket = await fetchWorker(wsRequest({ cookie: cookiePair(again) }));
-    expect(socket.status).toBe(101);
+    const again = sessionFrom(await signIn("github", GITHUB_ALLOWED))!;
+    const first = await connect(cookiePair(session));
+    const marker = `said before signing in again ${crypto.randomUUID()}`;
+    await chat(first.socket, first.client, marker);
     first.socket.close();
+
+    const second = await connect(cookiePair(again));
+    const identity = (client: ReturnType<typeof follow>) =>
+      client.frames.find((f) => f.type === "cf_agent_identity");
+    expect(identity(second.client)).toMatchObject({
+      name: await agentNameFor({ provider: "github", sub: OCTO })
+    });
+    expect(identity(second.client)).toEqual(identity(first.client));
+    expect(second.client.texts()).toContain(`user: ${marker}`);
+    second.socket.close();
   });
 
   it("signs in with Google", async () => {
-    const response = await signIn("google", "ok:google-sub-1:g@example.com");
+    const response = await signIn("google", GOOGLE_ALLOWED);
     expect(response.status).toBe(303);
-    const session = sessionFrom(response)!;
-    const me = await fetchWorker(
-      new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookiePair(session) } })
-    );
-    expect(await me.json()).toEqual({ email: "g@example.com", provider: "google" });
+    expect(response.headers.get("Location")).toBe("/");
+    expect(await me(response)).toEqual({ email: "g@example.com", provider: "google" });
   });
 
   it("lets in a Google Workspace account at an allowlisted domain", async () => {
-    const response = await signIn("google", "ok:ws-sub:anyone@workspace.example:workspace.example");
+    const response = await signIn("google", {
+      sub: "ws-sub",
+      email: "anyone@workspace.example",
+      hd: "workspace.example"
+    });
     expect(response.headers.get("Location")).toBe("/");
-    const me = await fetchWorker(
-      new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookiePair(sessionFrom(response)!) } })
-    );
-    expect(me.status).toBe(200);
+    expect(await me(response)).toEqual({ email: "anyone@workspace.example", provider: "google" });
   });
 
   it("refuses accounts that are not on the allowlist", async () => {
-    for (const [provider, code] of [
-      ["google", "ok:stranger:stranger@example.com"],
+    for (const [provider, who] of [
+      ["google", { sub: "stranger", email: "stranger@example.com" }],
       // A personal Google account using a work address is not the Workspace account.
-      ["google", "ok:personal:someone@workspace.example"],
-      ["google", "ok:other-ws:someone@other.example:other.example"],
-      ["github", "ok:999:octo@example.com"]
+      ["google", { sub: "personal", email: "someone@workspace.example" }],
+      ["google", { sub: "other-ws", email: "someone@other.example", hd: "other.example" }],
+      ["github", { sub: "999", email: "octo@example.com" }]
     ] as const) {
-      const response = await signIn(provider, code);
+      const response = await signIn(provider, who);
       expect(response.headers.get("Location")).toBe("/?signin_error=not_allowed");
       expect(sessionFrom(response)).toBeUndefined();
     }
@@ -355,47 +439,44 @@ describe("sign-in", () => {
   });
 
   it("rejects a callback whose state does not match", async () => {
-    const response = await signIn(
-      "github",
-      () => new URLSearchParams({ code: "ok:1:a@example.com", state: "forged" })
-    );
+    const response = await signIn("github", (flow) => ({
+      code: consent(flow.authorize, GITHUB_ALLOWED),
+      state: "forged"
+    }));
     expect(response.headers.get("Location")).toBe("/?signin_error=state");
     expect(sessionFrom(response)).toBeUndefined();
   });
 
   it("rejects a callback without the flow cookie", async () => {
-    const response = await fetchWorker(
-      new Request(`${ORIGIN}/auth/github/callback?code=ok:1:a@example.com&state=x`)
-    );
+    const flow = await startFlow("github");
+    const response = await callback("github", "", {
+      code: consent(flow.authorize, GITHUB_ALLOWED),
+      state: flow.state
+    });
     expect(response.headers.get("Location")).toBe("/?signin_error=state");
     expect(sessionFrom(response)).toBeUndefined();
   });
 
   it("reports a cancelled consent", async () => {
-    const response = await signIn(
-      "google",
-      (state) => new URLSearchParams({ error: "access_denied", state })
-    );
+    const response = await signIn("google", (flow) => ({ error: "access_denied", state: flow.state }));
     expect(response.headers.get("Location")).toBe("/?signin_error=denied");
     expect(sessionFrom(response)).toBeUndefined();
   });
 
   it("reports a code the provider rejects", async () => {
     for (const provider of ["google", "github"] as const) {
-      const response = await signIn(provider, "not-a-valid-code");
+      const response = await signIn(provider, (flow) => ({ code: "not-a-valid-code", state: flow.state }));
       expect(response.headers.get("Location")).toBe("/?signin_error=token");
       expect(sessionFrom(response)).toBeUndefined();
     }
   });
 
   it("does not accept one provider's flow at another's callback", async () => {
-    const start = await fetchWorker(new Request(`${ORIGIN}/auth/google`));
-    const state = new URL(start.headers.get("Location")!).searchParams.get("state")!;
-    const response = await fetchWorker(
-      new Request(`${ORIGIN}/auth/github/callback?code=ok:1:a@example.com&state=${state}`, {
-        headers: { Cookie: cookiePair(start.headers.get("Set-Cookie")!) }
-      })
-    );
+    const flow = await startFlow("google");
+    const response = await callback("github", flow.cookie, {
+      code: consent(flow.authorize, GITHUB_ALLOWED),
+      state: flow.state
+    });
     expect(response.headers.get("Location")).toBe("/?signin_error=state");
   });
 
@@ -413,6 +494,146 @@ describe("sign-in", () => {
     expect((await fetchWorker(new Request(`${ORIGIN}/logout`))).status).toBe(405);
   });
 });
+
+/**
+ * The fakes in test/fake-providers.ts answer as a real provider would, so
+ * each check the Worker makes on that answer has a test that fails without it.
+ */
+describe("sign-in: PKCE and the flow cookie", () => {
+  it.each(["google", "github"] as const)(
+    "sends %s the verifier for the challenge in its own authorize URL",
+    async (provider) => {
+      // The fake provider redeems a code only for the verifier that hashes to its challenge.
+      const response = await signIn(provider, provider === "google" ? GOOGLE_ALLOWED : GITHUB_ALLOWED);
+      expect(response.headers.get("Location")).toBe("/");
+      expect(sessionFrom(response)).toBeDefined();
+    }
+  );
+
+  it.each(["google", "github"] as const)(
+    "refuses a %s code issued for another sign-in's PKCE challenge",
+    async (provider) => {
+      // An attacker's code, from a flow they started, injected into this browser's callback.
+      const attacker = await startFlow(provider);
+      const victim = await startFlow(provider);
+      const response = await callback(provider, victim.cookie, {
+        code: consent(attacker.authorize, provider === "google" ? GOOGLE_ALLOWED : GITHUB_ALLOWED),
+        state: victim.state
+      });
+      expect(response.headers.get("Location")).toBe("/?signin_error=token");
+      expect(sessionFrom(response)).toBeUndefined();
+    }
+  );
+
+  /** A flow cookie as the Worker signs it, with a chosen expiry. */
+  async function forgedFlow(exp: number) {
+    const verifier = `verifier-${crypto.randomUUID()}`;
+    const state = `state-${crypto.randomUUID()}`;
+    const cookie = `__Host-oauth=${await sign({ provider: "google", state, verifier, exp }, env.SESSION_SECRET)}`;
+    const code = grantCode({
+      clientId: env.GOOGLE_CLIENT_ID,
+      redirectUri: `${ORIGIN}/auth/google/callback`,
+      challenge: await s256(verifier),
+      challengeMethod: "S256",
+      ...GOOGLE_ALLOWED
+    });
+    return callback("google", cookie, { code, state });
+  }
+
+  // Tables are run with plain loops, so each title is plain text (`it.each`'s
+  // `$name` quotes and truncates it).
+  for (const { name, offset, location } of [
+    { name: "a flow that expired a second ago", offset: -1, location: "/?signin_error=state" },
+    { name: "a flow that expired a day ago", offset: -86_400, location: "/?signin_error=state" },
+    { name: "a flow with a minute left", offset: 60, location: "/" }
+  ]) {
+    it(`checks the flow cookie's expiry: ${name}`, async () => {
+      const response = await forgedFlow(Math.floor(Date.now() / 1000) + offset);
+      expect(response.headers.get("Location")).toBe(location);
+      expect(sessionFrom(response) !== undefined).toBe(location === "/");
+    });
+  }
+});
+
+describe("sign-in: Google's ID token", () => {
+  const now = () => Math.floor(Date.now() / 1000);
+
+  for (const { name, who } of [
+    { name: "aud names another client", who: () => ({ ...GOOGLE_ALLOWED, claims: { aud: "someone-elses-client" } }) },
+    { name: "aud is a list without this client", who: () => ({ ...GOOGLE_ALLOWED, claims: { aud: ["someone-elses-client"] } }) },
+    { name: "aud is missing", who: () => ({ ...GOOGLE_ALLOWED, omit: ["aud"] }) },
+    { name: "iss is not Google", who: () => ({ ...GOOGLE_ALLOWED, claims: { iss: "https://accounts.evil.example" } }) },
+    { name: "iss is missing", who: () => ({ ...GOOGLE_ALLOWED, omit: ["iss"] }) },
+    { name: "exp has passed", who: () => ({ ...GOOGLE_ALLOWED, claims: { exp: now() - 60 } }) },
+    { name: "exp is missing", who: () => ({ ...GOOGLE_ALLOWED, omit: ["exp"] }) },
+    { name: "exp is not a number", who: () => ({ ...GOOGLE_ALLOWED, claims: { exp: String(now() + 3600) } }) },
+    { name: "sub is missing", who: () => ({ ...GOOGLE_ALLOWED, omit: ["sub"] }) },
+    { name: "sub is empty", who: () => ({ ...GOOGLE_ALLOWED, claims: { sub: "" } }) }
+  ] satisfies Array<{ name: string; who: () => Consent }>) {
+    it(`refuses an ID token whose ${name}`, async () => {
+      const response = await signIn("google", who());
+      expect(response.headers.get("Location")).toBe("/?signin_error=token");
+      expect(sessionFrom(response)).toBeUndefined();
+    });
+  }
+
+  for (const { name, who } of [
+    { name: "aud is a list that includes this client", who: { ...GOOGLE_ALLOWED, claims: { aud: ["other", "google-test-client"] } } },
+    { name: "iss has no scheme, as Google sometimes sends", who: { ...GOOGLE_ALLOWED, claims: { iss: "accounts.google.com" } } }
+  ] satisfies Array<{ name: string; who: Consent }>) {
+    it(`accepts an ID token whose ${name}`, async () => {
+      const response = await signIn("google", who);
+      expect(response.headers.get("Location")).toBe("/");
+      expect(await me(response)).toEqual({ email: "g@example.com", provider: "google" });
+    });
+  }
+
+  for (const { name, who } of [
+    // g@example.com is on the allowlist, but only a verified address counts.
+    { name: "email_verified is false", who: { ...GOOGLE_ALLOWED, claims: { email_verified: false } } },
+    { name: "email_verified is the string \"true\"", who: { ...GOOGLE_ALLOWED, claims: { email_verified: "true" } } },
+    { name: "email_verified is missing", who: { ...GOOGLE_ALLOWED, omit: ["email_verified"] } },
+    // A workspace.example address without `hd` is a personal account; an empty `hd` is not a domain.
+    { name: "hd is empty", who: { sub: "empty-hd", email: "someone@workspace.example", hd: "" } },
+    { name: "hd names another domain", who: { sub: "other-hd", email: "someone@workspace.example", claims: { hd: "other.example" } } }
+  ] satisfies Array<{ name: string; who: Consent }>) {
+    it(`does not let an account in when ${name}`, async () => {
+      const response = await signIn("google", who);
+      expect(response.headers.get("Location")).toBe("/?signin_error=not_allowed");
+      expect(sessionFrom(response)).toBeUndefined();
+    });
+  }
+});
+
+describe("sign-in: GitHub's API", () => {
+  type GitHubMode = NonNullable<Grant["github"]>;
+
+  for (const { name, user } of [
+    { name: "a user without an id", user: "no-id" },
+    { name: "a user whose id is not a number", user: "string-id" },
+    { name: "an error for the user", user: "fails" }
+  ] satisfies Array<{ name: string; user: GitHubMode["user"] }>) {
+    it(`refuses sign-in when GitHub returns ${name}`, async () => {
+      const response = await signIn("github", { ...GITHUB_ALLOWED, github: { user } });
+      expect(response.headers.get("Location")).toBe("/?signin_error=profile");
+      expect(sessionFrom(response)).toBeUndefined();
+    });
+  }
+
+  for (const { name, emails } of [
+    { name: "the email list fails", emails: "fails" },
+    { name: "the primary email is unverified", emails: "primary-unverified" },
+    { name: "no email is primary", emails: "no-primary" }
+  ] satisfies Array<{ name: string; emails: GitHubMode["emails"] }>) {
+    it(`signs in by id, with no email, when ${name}`, async () => {
+      // GitHub accounts are allowed by id, so only the email shown is affected.
+      const response = await signIn("github", { ...GITHUB_ALLOWED, github: { emails } });
+      expect(response.headers.get("Location")).toBe("/");
+      expect(await me(response)).toEqual({ email: null, provider: "github" });
+    });
+  }
+});
+
 
 describe("configuration", () => {
   it("fails with an error naming a missing model var", async () => {

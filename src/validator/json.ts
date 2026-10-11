@@ -29,6 +29,8 @@ class SyntaxProblem extends Error {}
 
 const MAX_DEPTH = 64;
 
+const NUMBER = /-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/y;
+
 export function parseJson(input: string): Parsed {
   const bom = input.startsWith("﻿");
   const text = bom ? input.slice(1) : input;
@@ -156,7 +158,10 @@ export function parseJson(input: string): Parsed {
   };
 
   const number = (): number => {
-    const match = /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/.exec(text.slice(i, i + 400));
+    // Sticky, so it matches at `i` without copying the rest of the text, and
+    // a number of any length is read whole.
+    NUMBER.lastIndex = i;
+    const match = NUMBER.exec(text);
     if (!match) fail("Unexpected character");
     i += match![0].length;
     return Number(match![0]);
