@@ -141,11 +141,11 @@ Certification needs a stable spec. Grids suit drafts. WPT's move from per-browse
 | Testing the tests | `TAMPERS` and the catalog test; `INTEROP_FAULT=assertion-typ` to check attribution |
 | Six readings of open questions | The `PROFILES` in `test/poppy.test.ts` |
 | Ledger | Appendix A of the spec and `npm run check:docs`, kept by hand |
-| Known failures linked to issues | [`known-failures.json`](../interop/known-failures.json), 20 entries with wildcards; the runner lists entries that matched no failed cell |
+| Known failures linked to issues | [`known-failures.json`](../interop/known-failures.json), 28 entries with wildcards; an entry that matched no failed cell in a run that could judge it is stale and fails the run |
 
 ### What to add, in priority order
 
-1. **Make known failures expire.** Follow MCP: a cell in `known-failures.json` that now passes should fail the run. Today the runner only prints entries that matched no failed cell, so a fix can go unnoticed. Cheap, and it stops the file rotting.
+1. **Make known failures expire.** Done: following MCP, an entry in `known-failures.json` that matched no failed cell, in a run that covered its cells, now fails the run ([interop-spec §9](interop-spec.md#9-results-and-attribution)), so a fix can't go unnoticed and the file doesn't rot.
 2. **One fault per check, for attribution.** Grow `INTEROP_FAULT` from one fault (`assertion-typ`) to one per trace check id, in both our adapters. A CI job then asserts each fault makes the right check fire and blames the right side by the right rule. This is mutation testing of the checker and of `attribution.ts`, as `TAMPERS` is for the mock.
 3. **A shared vectors repository.** Do step 1 of our [plan](interop-testing.md#plan): propose `poppy-test-vectors` in Datalayer's schema, seeded with our validator fixtures and tamper rows, Datalayer's 124 cases and poppyseed's 124 mutants. Give each entry the spec sentence it tests, and include the keywordless sentences Datalayer's ledger misses.
 4. **A machine-readable ledger shown on the grid.** Turn Appendix A into data: every keyword sentence (107), every keywordless requirement (about 70), the 20 in Operations, each with the scenario, check, vector and test ids that cover it. Show coverage per section on `index.html`, and grade failures by keyword level as A2A does. `check:docs` already checks the references exist.
