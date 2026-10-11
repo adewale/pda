@@ -34,9 +34,22 @@ export function assertPublicHost(url: URL): void {
 
 /** Read a body up to `maxBytes`, failing beyond it. */
 export async function readLimited(response: Response, maxBytes: number): Promise<string> {
+  const bytes = await readLimitedBytes(response, maxBytes);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new PoppyFetchError("Response isn't UTF-8");
+  }
+}
+
+/** `readLimited`'s bytes, for a body that may not be UTF-8 (a web page). */
+export async function readLimitedBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
   const declared = Number(response.headers.get("Content-Length") ?? "0");
-  if (declared > maxBytes) throw new PoppyFetchError(`Response larger than ${maxBytes} bytes`);
-  if (!response.body) return "";
+  if (declared > maxBytes) {
+    await response.body?.cancel();
+    throw new PoppyFetchError(`Response larger than ${maxBytes} bytes`);
+  }
+  if (!response.body) return new Uint8Array(0);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -56,11 +69,7 @@ export async function readLimited(response: Response, maxBytes: number): Promise
     all.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(all);
-  } catch {
-    throw new PoppyFetchError("Response isn't UTF-8");
-  }
+  return all;
 }
 
 export type FetchedJson = {

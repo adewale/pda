@@ -35,7 +35,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Claude through AI Gateway | Built; a live call fails with `x-api-key header is required` until the `default` gateway has Unified Billing credits or an Anthropic key |
 | Poppy client: every part in this spec | Built; passes the conformance tests against a strict mock Company, under six readings of the draft's open questions. In the [interop grid](docs/interop-results/) it passes every scenario it shares with the Companies of six other projects. Not yet tried against a production Company, because none has published `poppy.json` |
 | Poppy identity (`/poppy/client.json`, `/poppy/jwks.json`) | Live, with production signing keys |
-| Web browsing | Built on Browser Rendering; tested only with a fetch-based fake browser |
+| Web browsing | Built on a fetch-based browser in the Durable Object, with no JavaScript; the production browser is tested against the mock Company's website. Not yet tried on a real Company's site |
 | Chat, Activity, Companies and Settings pages | Built; tested in happy-dom and checked in headless Chrome (light, dark, phone width). Not yet used with a real Company |
 | Sign-in allowlist (emails, Google Workspace domains, GitHub accounts) | Built and tested; set in `wrangler.jsonc`, changed by redeploying |
 | Discovery document validator (library, CLI, JSON API, form) | Built and tested; live at `/validator`; the client's discovery uses it as its ingestion gate |
@@ -53,12 +53,13 @@ flowchart TB
     pi["PiHarness<br/>root session = the chat"]
     sql["SQLite<br/>pi_* transcript; poppy_* state"]
     poppy["PoppyCapability<br/>client, durable jobs, cards"]
+    web["FetchBrowser<br/>a cookie jar per Session, no JavaScript"]
   end
   pi -- "model calls" --> gw["AI Gateway<br/>Claude Opus 5.5"]
   poppy -- "rate-limit state" --> limiter["CompanyLimiter DO<br/>one per Company issuer"]
   poppy -- "HTTPS + DPoP" --> company["Company<br/>poppy.json, OAuth server,<br/>APIs, MCP, Company Agent"]
-  poppy -- "browser assertion" --> rendering["Browser Rendering<br/>one context per Session"]
-  rendering --> company
+  poppy --> web
+  web -- "browser assertion, then HTTPS pages" --> company
   company -- "fetch client_id, jwks_uri" --> worker
 ```
 
@@ -74,7 +75,6 @@ The Worker turns a verified app session into the person's Durable Object and for
 | Durable Objects (SQLite) | `PersonalAgent` per person; `CompanyLimiter` per Company issuer | migrations `v1` and `v2` |
 | Agents SDK | `PiHarness`, `Lifecycle` (capabilities and durable jobs), `WebSockets`, Pi AI provider, `useAgent` | `agents` |
 | AI binding → AI Gateway | Claude Opus 5.5 | `ai` binding `AI`; `AI_GATEWAY_ID` |
-| Browser Rendering | Poppy web browsing | `browser` binding `BROWSER` |
 | Workers Logs | Logs, with secrets redacted | `observability` |
 
 **Settings.** No setting has a default. A missing one stops the request with a 500 that names it.
@@ -98,7 +98,6 @@ The Worker turns a verified app session into the person's Durable Object and for
 | `agents` | 0.28.0 | Harness, Lifecycle, WebSockets, Pi AI provider, `useAgent` |
 | `@earendil-works/pi-durable`, `pi-ai`, `chord`, `pi-telemetry` | ^1.1.0 | Pi |
 | `jose` | ^6 | Session cookie claims, ID tokens, every Poppy JWT and JWK |
-| `@cloudflare/puppeteer` | ^1.4.0 | Browser Rendering |
 | `qrcode-generator` | 1.4.4 | QR code on the Device Sign-In card |
 | `react`, `react-dom`, `@cloudflare/kumo`, `streamdown`, `@streamdown/code`, `@phosphor-icons/react` | as in the example | Chat page |
 | `vite`, `@cloudflare/vite-plugin`, `@vitejs/plugin-react`, `tailwindcss`, `@tailwindcss/vite`, `wrangler`, `typescript`, `vitest`, `@cloudflare/vitest-plugin` (dev) | as installed | Build and test |
@@ -366,7 +365,7 @@ A document without `auth` can only be browsed as an ordinary website (§3.1), an
 3. Request the fewest scopes the task needs, always as a space-separated `scope`.
 4. After any sign-in, check the granted `scope`, because the User may approve fewer.
 
-**The trust rule (§4.4).** Direct and Device Sign-In happen only in the User's own browser, with the User signing in themselves. The agent never automates these pages, never types the User's password or one-time code into them, and never clicks a Company's approval controls. Browser Rendering is never pointed at a sign-in page.
+**The trust rule (§4.4).** Direct and Device Sign-In happen only in the User's own browser, with the User signing in themselves. The agent never automates these pages, never types the User's password or one-time code into them, and never clicks a Company's approval controls. The agent's own browser never loads a sign-in page, not even by redirect.
 
 **Direct Sign-In (§4.5)**
 
@@ -423,22 +422,29 @@ A document without `auth` can only be browsed as an ordinary website (§3.1), an
 
 ### Web browsing (§5)
 
-Browsing uses Cloudflare Browser Rendering, never the User's browser.
+Browsing uses our own fetch-based browser, `FetchBrowser` (`src/poppy/fetch-browser.ts`), never the User's browser. It makes plain HTTPS requests from the Durable Object and reads pages with workerd's `HTMLRewriter`. **It runs no JavaScript, so a site that needs JavaScript to show its pages or send its forms can't be browsed.** Such a page comes back saying it shows nothing without JavaScript. Cloudflare Browser Rendering was removed: it is a paid service, no Company needs JavaScript browsing yet, and our adapter for it let `click` send a form without the approval `submit` requires (our bug, not Browser Rendering's or the draft's).
 
-- **One context per Session.** Each Poppy Session that browses gets its own browser context, with its own cookies and storage, never shared across Users. `closeBrowserSession` closes it.
+- **One context per Session.** Each Poppy Session that browses gets its own context, with its own cookie jar, held by that User's agent and never shared across Users. A new Session, after the old one ends, gets a new context.
+- **Cookies.**
+  - Every cookie is host-only: `Domain` never widens it to other hosts.
+  - `Path`, `Secure`, `Max-Age` and `Expires` are honoured, and so are the `__Secure-` and `__Host-` prefixes.
+  - Cookies are sent only over HTTPS. Nothing else of ours goes with a page request: no token, no proof, no extra header.
+- **Where it goes.** Every request and every redirect must be HTTPS, on a public host, and on the Company's domain. It must not be the issuer's host or the authorization and device endpoints' hosts. The browser-session endpoint is the one exception, so the join can reach it. The browser follows at most 5 redirects; a 303, or a 301 or 302 after a POST, continues as a GET.
+- **Limits.** A page may be at most 1 MB, and each navigation, redirects included, gets 15 seconds.
 - **Joining the Session.** If `web.browser_session_endpoint` is present, the browser joins the Session before loading any Company page.
   1. **Sign a browser assertion** with header `typ: poppy-browser+jwt`, signed with a `jwks_uri` key. Claims: `iss` (the `client_id`), `sub` (the User ID), `aud` (the endpoint), `session_id`, `return_to`, `iat`, `exp` = `iat` + 60 s, and a fresh `jti`.
   2. **Check `return_to`:** HTTPS on `organization.domain` or a subdomain.
-  3. **Post it from our browser.** The context loads a page holding a form that submits itself, so the POST is a top-level navigation with `assertion` in the body, never in a URL.
+  3. **Post it from our browser** as a top-level form POST, with `assertion` in the body, never in a URL. The cookie the endpoint sets lands in the Session's jar.
   4. **Expect a `303`** to `return_to`; a 4xx means the join failed.
 - **Without the endpoint,** the browser is an ordinary signed-out visitor.
 - **Keeping the Session.** When a page answers 401 or 403, a new assertion is posted and the page loaded again.
 - **Rate limits.** A page that answers 429 or 503 is loaded again after its `Retry-After`, through the same `CompanyLimiter` as the APIs (4.3).
+- **Pages.** A page comes back as its title, its visible text (never scripts, styles or templates), its links and its forms, never cookies. Each link and form has a selector for `click` and `submit`. Each form also lists its action, its method and the names of its fields. Other text types come back as text; other files are named, not shown.
 - **Limits on what the model can do.**
-  - It can open pages only on the Company's domains, and never the issuer's or the authorization and device endpoints' hosts.
-  - It can never fill a field whose selector looks like a password, PIN, one-time code or card number.
-  - Form submits wait for the User's approval, like other writes.
-  - Pages come back as text, links and form names, never cookies.
+  - It can open pages only where the browser may go (above).
+  - `click` follows links only. A selector naming a button, a field or a form is refused, with a pointer to `submit`.
+  - `fill` records a value for the next submit. It refuses hidden fields, buttons, and credential fields. A credential field is a password input, a field whose `autocomplete` asks for a password, one-time code or card details, or one whose selector, name or id looks like a password, PIN, one-time code or card number.
+  - `submit` works out exactly what the form would send: filled values, defaults and hidden fields. That goes on an approval card, which shows where the form goes and every value the User can see. Only the User's approval sends it, exactly as approved, in the same Session.
 - **Interface preference.** Browsing is the last resort: APIs, then the Company Agent, then the website.
 
 ### APIs (§6)
@@ -588,7 +594,7 @@ Tools take a `domain`, resolved to its issuer, and optionally a `session` label 
 | `poppy_api_describe(domain, api?, operation?)` | Lists OpenAPI operations, or describes one | safe |
 | `poppy_api_call(domain, operation, params?, body?)` | Calls an OpenAPI operation | safe: reads, stored `Idempotency-Key`s, and writes that wait for approval |
 | `poppy_mcp_list(domain)` / `poppy_mcp_call(domain, tool, args?)` | MCP tools | list safe; call unsafe |
-| `poppy_browse(domain, action, url?, selector?, value?)` | Open, click, fill or submit in the Session's browser context | unsafe |
+| `poppy_browse(domain, action, url?, selector?, value?)` | Open a page, follow a link, fill a field, or submit a form (after the User's approval) in the Session's browser context | unsafe |
 | `poppy_operation(domain, operation)` | Reads an operation | safe |
 
 Confirming, cancelling, standing permissions, credentials and sign-out are actions on the page, never tools.
@@ -618,7 +624,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | --- | --- | --- |
 | Workers | `test/vitest.config.ts` | Everything below except the two other suites, in one workerd runtime |
 | Durability | `test/durability/vitest.config.ts` | Crashing every Durable Object and reloading the conversation; a runtime of its own, because a global abort would reset the objects other files are using |
-| Page | `test/ui/vitest.config.ts` | The chat page's cards and panels, the sign-in page, and the Browser Rendering adapter, in happy-dom |
+| Page | `test/ui/vitest.config.ts` | The chat page's cards and panels and the sign-in page, in happy-dom |
 | Interop | `interop/vitest.config.ts` | The interop runner's scenario interpreter, trace checks, readings, attribution and known failures, in Node |
 | Properties | `test/properties/vitest.config.ts` | Property-based tests with Hegel (`@hegeldev/hegel`, the Hypothesis team's library), in Node, because its engine loads by FFI: 100 cases a property by default; `HEGEL_CASES=5000 npm run test:properties` for a deep local run |
 
@@ -637,7 +643,8 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | `test/poppy.test.ts` | The Poppy client against the mock Company, grouped by spec section, with the sign-in, Session and sign-out sections run under six profiles |
 | `test/prompt-injection.test.ts` | Prompt injection, model lane: a Company's message, operation summary or MCP tool description tells the model to approve an operation or send a secret, and the faux model obeys; nothing is confirmed, nothing is sent as the User, no credential leaves |
 | `test/durability/crash.test.ts` | The conversation after a crash |
-| `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, the Browser Rendering adapter against a stub of Puppeteer |
+| `test/fetch-browser.test.ts` | The production browser's own rules, with stub fetchers: the cookie jar, HTTPS and public hosts only, every redirect checked, timeouts, the size limit, no headers of ours, pages that need JavaScript |
+| `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page |
 
 - **Fakes.**
   - The model is Pi AI's faux provider. It echoes the latest user message, and obeys any `@@obey <tool> <arguments>` line it has just read, standing in for a model that follows instructions injected into Company text.
@@ -660,7 +667,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
   - The test agent's clock is frozen: `sleep` returns at once and records how long was asked for, and `poppyAdvance(ms)` runs the jobs that are due.
   - The mock uses the same clock for rate limits, device polling and token age.
   - So Retry-After, device polling and slow confirms are checked without waiting.
-- **Routing.** The test agent sends Poppy requests for Company hosts to the mock and for `agent.test` to our own Worker. A fetch-based fake browser with a cookie jar per context stands in for Browser Rendering. The real adapter is tested separately, against a stub of Puppeteer.
+- **Routing.** The test agent sends Poppy requests for Company hosts to the mock and for `agent.test` to our own Worker. Browsing runs the production `FetchBrowser` on the same routing. The mock's website has a sign-in-aware orders page and a form with a hidden field, a script and a style. It also has a redirect to anywhere and a page of any size.
 - **Checks that tests catch bugs.** Faults put into the code on purpose, each of which fails at least one named test:
   - sign-in: every Google ID-token check, the PKCE verifier, flow-cookie expiry, the `iss` check in Direct Sign-In, the session cookie's signature, the allowlist check on each request;
   - Poppy: single-use `state`, sealing bound to its context, private-host refusal, standing permissions' use limit and currency, our client assertion's `typ` (fails most Poppy tests);
@@ -669,7 +676,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
   - Properties: each client bug the property suite found (`Retry-After` junk read as a past date, `localhost.` passing the private-host check, a non-UTF-8 body thrown as a TypeError, a path value of `..` reaching another resource) fails its property, and its example in "what these properties found, as examples", with the fix taken out.
 - **Interop.** `npm run interop` runs every registered agent against every registered Company in containers, through a recording TLS proxy, and blames each failure on a side by a named rule ([`docs/interop-spec.md`](docs/interop-spec.md)). Our mock runs twice there: `dpa-mock`, lenient where the draft is silent, is the reference Company, and `dpa-mock-strict` keeps the strict assertion checks, so a failure caused only by an open question is blamed on the spec. CI runs our agent against both on every push; the latest full grid is in [`docs/interop-results/`](docs/interop-results/).
 - **A second client.** `test/hypothesis/` is an independent Poppy client in Python, written from the draft, that drives a Hypothesis stateful, model-based test of the mock Company over HTTP on localhost, so a misreading our client and mock share can show; it runs locally only (`npm run test:hypothesis`), never in CI.
-- **What isn't tested.** Production Companies, real Browser Rendering (the adapter is tested against a stub), and the chat page in a real browser (its parts are tested in happy-dom). Appendix A marks each requirement as checked by a test, by the mock's verifier, by design, or not yet.
+- **What isn't tested.** Production Companies, the browser against real websites (it is tested only against the mock's), and the chat page in a real browser (its parts are tested in happy-dom). Appendix A marks each requirement as checked by a test, by the mock's verifier, by design, or not yet.
 
 ## Build plan
 
@@ -677,7 +684,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 2. **Personal.** The sign-in allowlist is built. Not started: `memory`, skills, rate limit and daily cap. Done when "remember I'm vegetarian" survives a week and a redeploy.
 3. **Poppy core.** Built and passing against the mock: identity routes, discovery, User IDs, Sessions and DPoP, all three sign-in types, Account Tokens and sign-out, conversations with handoff and Direct Conversations, `CompanyLimiter`.
 4. **APIs and operations.** Built and passing against the mock: OpenAPI and MCP clients, the Operations extension, standing permissions, the local approval gate.
-5. **Mediated Sign-In and browsing.** Built; browsing is tested only with the fake browser. Next: a check against Browser Rendering on a preview deploy.
+5. **Mediated Sign-In and browsing.** Built; browsing runs on the fetch-based browser, tested against the mock Company. Next: try it on the first real Company's website.
 6. **Reference release.** Next:
    - close the "not yet" rows in Appendix A;
    - choose the final domain and move `PUBLIC_ORIGIN` to it;
@@ -689,7 +696,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 
 - [ ] **Claude billing:** Unified Billing credits, or an Anthropic key on the `default` gateway?
 - [ ] **Final domain** for `client_id`, before registering anywhere. Will Companies accept a `workers.dev` host?
-- [ ] **Browser Rendering:** cost and limits for one context per Session.
+- [x] **Browser Rendering:** cost and limits for one context per Session. Resolved by removing it: browsing runs on a fetch-based browser in the Durable Object, at no extra cost. Revisit if a Company's site needs JavaScript.
 - [ ] **Standing permissions and actions.** Ops 5.1 requires a permission to cover "the action", but operations have no standard action field and `terms` keys are the Company's own. We match a word in the summary, and amounts in `{ amount, currency }` objects. The draft should define something checkable.
 - [ ] **DPoP nonces per server.** The Guides say to keep a nonce "for that server". We key nonces by origin, so a Company's token endpoint and API can each require their own. Is that the intended reading?
 - [ ] **Writes at Companies with the Operations extension.** We let them through, expecting a proposal. A Company may use operations for some actions and not others, so a write there could act at once. Should the draft let a description mark which endpoints propose?
@@ -768,8 +775,12 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 5 | MUST join the browser to a Session before browsing when the endpoint exists | `browser.ts` | Test: "joins the browser to the Session before browsing…" |
 | 5 | Browser assertion: `typ`, `alg`, a published `kid` and no embedded key (Guides), `aud`, `session_id`, `iat` and `exp` present, `iat` not in the future, `exp` ≤ `iat` + 60 s, fresh `jti` | `jwt.ts` | Mock |
 | 5 | `return_to` MUST be HTTPS on the Company's domain | `browser.ts` | Mock |
-| 5 | Assertion MUST go in the POST body as a top-level navigation | `rendering.ts` | Test (adapter, against a stub of Puppeteer): "joins with a page whose form POSTs the assertion…", "escapes every field…"; Mock (with the fake browser). Not yet on real Browser Rendering |
-| 5 | MUST post assertions only from a browser we control | `browser.ts` | Design |
+| 5 | Assertion MUST go in the POST body as a top-level navigation | `fetch-browser.ts` `postForm` | Test (the production browser): "joins the browser to the Session before browsing…"; Mock |
+| 5 | MUST post assertions only from a browser we control | `browser.ts`, `fetch-browser.ts` | Design: the agent's own `FetchBrowser` |
+| 5 | A browser context per Session, never shared across Users or Sessions; cookies host-only, HTTPS only (Guides) | `browser.ts`, `fetch-browser.ts` | Test: "keeps each User's and each Session's browser cookies apart", "keeps cookies host-only…", "sends cookies only over HTTPS…", "honours Max-Age over Expires…" |
+| 5 | Browse only the Company's own domains over HTTPS, every redirect included, never its sign-in pages; bounded size and time | `browser.ts`, `fetch-browser.ts` | Test: "follows redirects only to the Company's own domain…", "checks every redirect against the Company's rules", "refuses plain HTTP and private hosts…", "refuses a page larger than its limit", "gives up on a page that takes too long" |
+| 5 | Pages reach the model as text, links and forms, never scripts or cookies; nothing of ours goes with a page request | `fetch-browser.ts` | Test: "reads a page's title, text, links and forms…", "sends nothing of ours with a page request…", "joins the browser to the Session before browsing…" |
+| 5 | A form is sent only after the User approves exactly what it sends; `click` never sends one | `browser.ts`, `fetch-browser.ts`, `operations.ts` | Test: "sends a form only after the User approves exactly what it sends…", "clicks links, and never a form's button…", "never types into a credential or hidden field…" |
 | 6 | Skip unknown API types; DPoP for OpenAPI, Bearer for MCP | `discovery.ts`, `apis.ts` | Test: "discovers a Company…"; Mock |
 | 6 | Handle `invalid_token`, `sign_in_required`, `insufficient_scope` | `client.ts` | Test: "asks for sign-in when an API needs the account" |
 | 6 | Fill OpenAPI path templates from the call's arguments, declared as parameters or not; refuse one left unfilled before any request | `apis.ts` | Test: "fills a path template the description doesn't declare as a parameter, by name", "refuses a path it can't fill before any request, not sending the template"; property: "fills every template with its value as one segment…", "refuses, before any request, a value that would fill a whole segment with nothing, . or ..", "refuses a path value of nothing, . or .., which would reach another resource" |
@@ -821,7 +832,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 - **DPoP.** Non-extractable keys per User per Company, in memory only; proofs made where the final URL is known; redirects never followed with a proof; a nonce kept per server with one retry.
 - **Tokens.** Account Tokens sealed and only referenced by tools; Session Tokens in memory and only for the Company's hosts; Bearer only for MCP; read-only lookups narrowed to the scopes they declare; rotated tokens replace old ones at once; old tokens revoked after step-up; tokens deleted on `invalid_grant`.
 - **Sign-in.** Direct, then Device, then Mediated; fewest scopes; `state` single-use and bound to its Company and Session; S256; device links shown with their code; credentials from a form that skips the model, discarded after use.
-- **Browsing.** A separate context per Session; never a credential typed into a site; a new assertion when the site loses the Session.
+- **Browsing.** A separate context, with its own host-only cookie jar, per Session of each User; never a credential typed into a site; a new assertion when the site loses the Session; HTTPS on the Company's domain only, redirects included; at most 1 MB, 15 s and 5 redirects a page; forms sent only as the User approved them.
 - **Conversations.** Long `wait` or streaming; a summary before handoff; writing for a person when one is present; closing when done.
 - **Interfaces.** APIs and the Company Agent before the website.
 - **Operations.** The summary shown verbatim with the Company and account; costs, dates and conditions pointed out; changes between revisions shown; standing permissions checked term by term with uses reserved before confirming.
@@ -839,6 +850,6 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 - [Cloudflare Agents docs: Pi harness](https://developers.cloudflare.com/agents/harnesses/pi/), [Pi AI model provider](https://developers.cloudflare.com/agents/models/pi-ai/)
 - [Cloudflare AI Gateway: Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/)
 - [Cloudflare Workers: Cloudflare Access (WebSocket limitation)](https://developers.cloudflare.com/workers/configuration/cloudflare-access/)
-- [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/)
-- RFCs: 6749, 6750, 7009, 7519, 7523, 7636, 8414, 8628, 8707, 9207, 9449, 9728; OAuth Client ID Metadata Document draft; OpenAPI 3.1; MCP 2025-06-18.
+- [Cloudflare Workers: HTMLRewriter](https://developers.cloudflare.com/workers/runtime-apis/html-rewriter/), which the browser reads pages with; the [HTML Standard's form submission](https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#form-submission-algorithm), which it follows in part
+- RFCs: 6265 (cookies), 6749, 6750, 7009, 7519, 7523, 7636, 8414, 8628, 8707, 9207, 9449, 9728; OAuth Client ID Metadata Document draft; OpenAPI 3.1; MCP 2025-06-18.
 

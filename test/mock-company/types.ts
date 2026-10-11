@@ -283,6 +283,8 @@ export type MockState = {
   }[];
   /** Browser cookies issued by the browser-session endpoint. */
   readonly browserJoins: number;
+  /** Forms the website received: the signed-in account and every field, in order. */
+  readonly formPosts: { readonly account: string | null; readonly fields: [string, string][] }[];
 };
 
 export type Hosts = {

@@ -686,6 +686,159 @@ describe("5 web browsing", () => {
       "GET /orders 200",
       "GET /orders 200"
     ]);
+    // The Session's cookie goes to its website; no token or proof of ours does.
+    expect(browsed.slice(1).map((request) => request.headers.cookie)).toEqual(["<present>", "<present>"]);
+    for (const request of browsed) {
+      expect(request.headers).not.toHaveProperty("authorization");
+      expect(request.headers).not.toHaveProperty("dpop");
+    }
+  });
+
+  it("keeps each User's and each Session's browser cookies apart", async () => {
+    const c = await company();
+    const ada = await agent();
+    await signInDirect(ada, c);
+    const orders = (a: Agent, session?: string) =>
+      tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders", ...(session ? { session } : {}) });
+    expect((await orders(ada)).text).toContain("Signed in as acct_ada");
+    // Another User's agent, which may share the isolate, gets a context of its own.
+    const other = await agent();
+    const theirs = await orders(other);
+    expect(theirs.text).toContain("Signed out");
+    expect(theirs.text).not.toContain("acct_ada");
+    // So does another Session of the same User.
+    expect((await orders(ada, "work")).text).toContain("Signed out");
+    expect((await orders(ada)).text).toContain("Signed in as acct_ada");
+    // One join per context: contexts shared between agents would keep replacing each other and join again.
+    expect((await c.stub.state()).browserJoins).toBe(3);
+  });
+
+  it("follows redirects only to the Company's own domain, over HTTPS, and never to its sign-in pages", async () => {
+    const c = await company();
+    const a = await agent();
+    const via = (to: string) => tool(a, "poppy_browse", { domain: c.domain, action: "open", url: `/go?to=${encodeURIComponent(to)}` });
+    const offDomain = await via("https://elsewhere.test/");
+    expect(offDomain.isError).toBe(true);
+    expect(offDomain.text).toContain(`limited to ${c.domain}`);
+    const plain = await via(`http://${c.domain}/orders`);
+    expect(plain.isError).toBe(true);
+    expect(plain.text).toContain("only loads HTTPS pages");
+    const signIn = await via(`${c.hosts.issuer}/oauth/authorize`);
+    expect(signIn.isError).toBe(true);
+    expect(signIn.text).toContain("sign-in pages");
+    let chain = "/orders";
+    for (let hop = 0; hop < 6; hop++) chain = `/go?to=${encodeURIComponent(chain)}`;
+    const long = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: chain });
+    expect(long.isError).toBe(true);
+    expect(long.text).toContain("Too many redirects");
+    const requested = (await requests(c)).map((request) => request.url);
+    expect(requested.some((url) => url.startsWith("http:") || url.includes("/oauth/authorize"))).toBe(false);
+    expect(requested.some((url) => url.endsWith("/orders"))).toBe(false);
+  });
+
+  it("refuses a page larger than its limit", async () => {
+    const c = await company({ browserSession: false });
+    const a = await agent();
+    const small = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/big?kb=900" });
+    expect(small.isError).toBe(false);
+    const big = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/big?kb=1100" });
+    expect(big.isError).toBe(true);
+    expect(big.text).toContain("larger than 1000000 bytes [too_large]");
+  });
+
+  it("reads a page's title, text, links and forms, and never its scripts or styles", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    const page = JSON.parse((await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/account/address" })).text);
+    expect(page.title).toBe("Your address & details");
+    expect(page.text).toContain("Signed in as acct_ada");
+    expect(page.text).toContain("Use as my default");
+    for (const hidden of ["script-only-text", "written by script", "color: red", "csrf-"]) expect(page.text).not.toContain(hidden);
+    expect(page.forms).toEqual([
+      { selector: "#address", action: `https://${c.domain}/account/address`, method: "POST", fields: ["line1", "city", "country", "confirm", "default"] },
+      { selector: "form:nth-of-type(2)", action: `https://${c.domain}/search`, method: "GET", fields: ["q"] }
+    ]);
+    expect(page.links).toEqual([{ text: "Help & advice", href: `https://${c.domain}/help?topic=address&lang=en`, selector: "#help" }]);
+  });
+
+  it("clicks links, and never a form's button, which would send the form without approval", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    const browse = (args: Record<string, unknown>) => tool(a, "poppy_browse", { domain: c.domain, ...args });
+    await browse({ action: "open", url: "/" });
+    const clicked = await browse({ action: "click", selector: "#orders" });
+    expect(clicked.isError).toBe(false);
+    expect(clicked.text).toContain("Signed in as acct_ada");
+    await browse({ action: "open", url: "/account/address" });
+    for (const selector of ["#save", 'button[type="submit"]', "#address", "intent"]) {
+      const result = await browse({ action: "click", selector });
+      expect(result.isError, selector).toBe(true);
+      expect(result.text, selector).toContain("[refused]");
+      expect(result.text, selector).toContain("submit, which waits for the User's approval");
+    }
+    expect((await browse({ action: "click", selector: "#nowhere" })).text).toContain("No link #nowhere");
+    expect((await c.stub.state()).formPosts).toEqual([]);
+    expect((await requests(c)).filter((request) => request.method === "POST" && request.url.endsWith("/account/address"))).toEqual([]);
+  });
+
+  it("never types into a credential or hidden field, whatever its selector", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/account/address" });
+    const fill = (selector: string) => tool(a, "poppy_browse", { domain: c.domain, action: "fill", selector, value: "123456" });
+    // A password input named and labelled innocently.
+    expect((await fill("#f7")).text).toContain("never types credentials");
+    expect((await fill("confirm")).text).toContain("never types credentials");
+    expect((await fill("csrf")).text).toContain("which the website sets itself");
+    expect((await fill("#save")).text).toContain("is a button");
+  });
+
+  it("sends a form only after the User approves exactly what it sends, hidden fields included", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    const browse = (args: Record<string, unknown>) => tool(a, "poppy_browse", { domain: c.domain, ...args });
+    await browse({ action: "open", url: "/account/address" });
+    expect((await browse({ action: "fill", selector: "#line1", value: "1 High St" })).isError).toBe(false);
+    expect((await browse({ action: "fill", selector: '[name="city"]', value: "Leeds" })).isError).toBe(false);
+    expect((await browse({ action: "fill", selector: "country", value: "France" })).isError).toBe(false);
+    const proposed = await browse({ action: "submit", selector: "#address" });
+    expect(proposed.isError).toBe(false);
+    expect(proposed.text).toContain("Waiting for the User's approval");
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(card.summary).toBe(
+      `Mock Shop ${c.id}: submit the form #address on the website (POST ${c.domain}/account/address), sending line1: "1 High St", city: "Leeds", country: "FR", default: "yes"`
+    );
+    // Nothing is sent before the approval, and a later fill doesn't change what was approved.
+    await browse({ action: "fill", selector: "#line1", value: "Somewhere else" });
+    expect((await c.stub.state()).formPosts).toEqual([]);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    const state = await c.stub.state();
+    const session = state.sessions.find((item) => item.signedIn)!;
+    expect(state.formPosts).toEqual([
+      {
+        account: "acct_ada",
+        fields: [
+          ["csrf", `csrf-${session.id}`],
+          ["line1", "1 High St"],
+          ["city", "Leeds"],
+          ["country", "FR"],
+          ["confirm", ""],
+          ["default", "yes"]
+        ]
+      }
+    ]);
+    const done = (await cards(a)).find((item) => item.approvalId === card.approvalId)!;
+    expect(done).toMatchObject({ status: "done", result: `Now at https://${c.domain}/account/address?saved=1 (HTTP 200): Address saved` });
+    // Sent with its button, the form carries the button's name and value too.
+    await browse({ action: "open", url: "/account/address" });
+    await browse({ action: "submit", selector: "#save" });
+    const second = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: second.approvalId, decision: "approve" });
+    expect((await c.stub.state()).formPosts[1]!.fields.at(-1)).toEqual(["intent", "save"]);
   });
 
   it("browses only the Company's own domain", async () => {

@@ -216,6 +216,8 @@ export class Company {
   lastOneTimeCode: string | null = null;
   performs = 0;
   browserJoins = 0;
+  /** Forms the website received: the signed-in account and every field, in order. */
+  readonly formPosts: { account: string | null; fields: [string, string][] }[] = [];
   tokenRequestCount = 0;
   otherRequestCount = 0;
   pageRequestCount = 0;

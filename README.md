@@ -198,7 +198,8 @@ CI runs typecheck, the tests and the docs check on every push, and the interop g
   - A frozen clock makes Retry-After, device polling and slow operations instant.
 - **Validator:** fixtures declared as data, with a test that every message has one. They include the spec's own examples and poppy-demo's live documents.
 - **JSON parsers:** property tests against `JSON.parse`.
-- **Page:** the four places, the needs-you tray, cards, the Activity log (no secrets ever reach it), the sign-in page and the Browser Rendering adapter, in happy-dom.
+- **Page:** the four places, the needs-you tray, cards, the Activity log (no secrets ever reach it), and the sign-in page, in happy-dom.
+- **Browsing:** the production fetch-based browser, against the mock Company's website and stub fetchers: the Session join, a cookie jar per User and Session, redirects, size and time limits, forms, and the approval a form needs.
 - **Interop harness:** its scenario interpreter, trace checks, attribution and report, in Node. The validator fixtures and the mock's tamper rows are also exported as language-neutral vectors (`interop/vectors/`), and a test fails while those files are stale.
 
 The model, Google, GitHub and Companies are faked; nothing calls the network.
@@ -212,7 +213,6 @@ The model, Google, GitHub and Companies are faked; nothing calls the network.
 | Workers and Static Assets | Routes, sign-in, the chat page, the validator |
 | Durable Objects (SQLite) | One agent per person; per-company rate limits |
 | AI Gateway (`AI` binding) | Claude Opus 5.5 |
-| Browser Rendering | Browsing a company's website in the agent's Session |
 | Rate Limiting | The validator's URL checks |
 
 **Cost:** Claude calls are paid through AI Gateway, with Unified Billing or your own Anthropic key. We haven't checked whether the rest fits the Workers free plan.
@@ -241,7 +241,7 @@ Poppy implementations we know of, as of 11 Oct 2026. All were days old. [`docs/i
 
 - **Chat sign-in isn't live** until the Google and GitHub OAuth apps are registered and AI Gateway billing is set up; see [`docs/setup.md`](docs/setup.md). The validator works without either.
 - **No production Company tested yet.** The Poppy client has run against our mock and, in the [interop grid](docs/interop-results/), against the Companies of six other projects, which are SDKs, demos or signed-out. No business has published `poppy.json`.
-- **Fake browser only.** Website browsing has been tested with a fake browser, not Browser Rendering.
+- **No JavaScript in browsing.** The agent browses a company's website with its own fetch-based browser: plain HTTPS requests, pages read as text, links and forms. A site that needs JavaScript to show its pages or send its forms can't be browsed. The browser has been tested against the mock Company's website, not a real one.
 - **Validator limits:**
   - It checks documents, not behaviour: it can't tell whether a token endpoint works.
   - It checks the host name, not the IP address a name resolves to, so it can't refuse a name that points at a private address. The Guides ask for that check.

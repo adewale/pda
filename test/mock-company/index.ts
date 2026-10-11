@@ -133,6 +133,10 @@ export class MockCompany extends DurableObject<Env> {
         return web.wellKnown(inbound);
       }
       if (path === "/poppy/browser-session") return web.browserSession(inbound);
+      if (path === "/account/address" && method === "POST") {
+        company.rateLimit("page", inbound);
+        return web.saveAddress(inbound);
+      }
       if (method === "GET") {
       company.rateLimit("page", inbound);
       return web.page(inbound);
@@ -229,7 +233,8 @@ export class MockCompany extends DurableObject<Env> {
       performs: company.performs,
       conversations: conversations.summary(),
       operations: operations.summary(),
-      browserJoins: company.browserJoins
+      browserJoins: company.browserJoins,
+      formPosts: company.formPosts.map((post) => ({ account: post.account, fields: post.fields.map(([name, value]) => [name, value]) }))
     };
   }
 
