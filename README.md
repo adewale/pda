@@ -53,9 +53,6 @@ npm run typecheck
 npm run deploy
 ```
 
-## Differences from the spec
+## Spec
 
-- Sign-in is Option B (in-Worker Google and GitHub OAuth) from the start, not Cloudflare Access. Access was dropped because Worker-level Access rejects WebSocket upgrades, and a hostname-based Access app needs a custom domain. Agent names are `sha256("<provider>:<id>")` (Google `sub`, GitHub numeric user id) instead of `sha256("access:<sub>")`.
-- `AI_GATEWAY_ID` is `default` rather than `personal-agent`, because the `default` gateway is created on first use and a named one has to be created by hand.
-- The `agents/vite` plugin is left out of `vite.config.ts`: it only transforms decorators, which this app does not use, and it needs `@babel/core`.
-- There is no rate limit or daily cap yet (milestone 2), so any Google or GitHub user who signs in spends the account's Claude credits.
+[`durable-personal-agent-spec.md`](durable-personal-agent-spec.md) is the design, rewritten on 11 Oct 2026 against Personal Agent Protocol Draft 0.1. Its Status section says what is built; its Build plan says what is next. Decisions that differ from earlier drafts (app sign-in without Cloudflare Access, the `default` gateway, no `agents/vite` plugin) are recorded there.
