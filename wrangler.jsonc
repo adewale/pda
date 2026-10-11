@@ -46,44 +46,5 @@
       "github": { "adewale": 43644, "ToddKerpelman": 4397978 }
     }
   },
-  "observability": { "enabled": true },
-  // Staging: a separate Worker, so its own Durable Objects (every agent and
-  // limiter is new and empty), its own secrets and its own OAuth apps.
-  // Build and deploy with `npm run deploy:staging` (CLOUDFLARE_ENV=staging).
-  // Bindings and vars aren't inherited, so each is repeated here; keep them
-  // in step with production. Secrets: the same names as production, set
-  // with `npx wrangler secret put <NAME> --env staging`.
-  "env": {
-    "staging": {
-      "name": "personal-agent-staging",
-      "ai": { "binding": "AI", "remote": true },
-      "browser": { "binding": "BROWSER" },
-      "durable_objects": {
-        "bindings": [
-          { "name": "PersonalAgent", "class_name": "PersonalAgent" },
-          { "name": "CompanyLimiter", "class_name": "CompanyLimiter" }
-        ]
-      },
-      "migrations": [
-        { "tag": "v1", "new_sqlite_classes": ["PersonalAgent"] },
-        { "tag": "v2", "new_sqlite_classes": ["CompanyLimiter"] }
-      ],
-      // Its own namespace, so staging's checks don't use production's budget.
-      "ratelimits": [
-        { "name": "VALIDATOR_LIMITER", "namespace_id": "1002", "simple": { "limit": 20, "period": 60 } }
-      ],
-      "vars": {
-        "MODEL_ID": "anthropic/claude-opus-5-5",
-        "THINKING_LEVEL": "medium",
-        "AI_GATEWAY_ID": "default",
-        // Placeholder: the workers.dev URL staging should get. Confirm it
-        // after the first deploy (`npm run smoke` checks client.json names it).
-        "PUBLIC_ORIGIN": "https://personal-agent-staging.adewale-883.workers.dev",
-        "POPPY_CLIENT_NAME": "Durable Personal Agent (staging)",
-        "POPPY_LOGO_URI": "https://personal-agent-staging.adewale-883.workers.dev/logo.svg",
-        // Placeholder: nobody can sign in until you add yourself.
-        "ALLOWLIST": { "emails": [], "domains": [], "github": {} }
-      }
-    }
-  }
+  "observability": { "enabled": true }
 }

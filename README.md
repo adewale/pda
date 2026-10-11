@@ -181,13 +181,9 @@ npm run typecheck
 npm run check:docs               # every test the spec's Appendix A names exists
 npm run interop                  # the interop grid in Docker (interop/README.md)
 npm run deploy
-npm run deploy:staging           # the staging Worker (docs/setup.md#staging)
-npm run smoke -- <base-url>      # read-only checks of a deployed Worker
 ```
 
 **Before a push.** `.githooks/pre-push` runs `npm run typecheck` and `npm run check:docs`, and stops the push if either fails. Turn it on once per clone with `git config core.hooksPath .githooks`; `git push --no-verify` skips it.
-
-**Deploying.** Try a change on staging first: `npm run deploy:staging`, then `npm run smoke` against it. [`docs/setup.md`](docs/setup.md) covers staging's one-time setup (you create its OAuth apps and secrets), the smoke test, and rolling back or deploying gradually with Wrangler versions.
 
 CI runs typecheck, the tests and the docs check on every push, and the interop grid for our agent against our mock Company (`.github/workflows/ci.yml`).
 
@@ -202,7 +198,6 @@ CI runs typecheck, the tests and the docs check on every push, and the interop g
   - A frozen clock makes Retry-After, device polling and slow operations instant.
 - **Validator:** fixtures declared as data, with a test that every message has one. They include the spec's own examples and poppy-demo's live documents.
 - **JSON parsers:** property tests against `JSON.parse`.
-- **Smoke test:** `scripts/smoke.mjs`'s checks pass against the Worker and fail against broken answers, and it only ever sends credential-free GETs.
 - **Page:** the four places, the needs-you tray, cards, the Activity log (no secrets ever reach it), the sign-in page and the Browser Rendering adapter, in happy-dom.
 - **Interop harness:** its scenario interpreter, trace checks, attribution and report, in Node. The validator fixtures and the mock's tamper rows are also exported as language-neutral vectors (`interop/vectors/`), and a test fails while those files are stale.
 
