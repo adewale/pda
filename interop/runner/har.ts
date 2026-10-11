@@ -90,6 +90,17 @@ export function exchanges(har: Har): Exchange[] {
   });
 }
 
+/**
+ * An OAuth server metadata path (RFC 8414) for any issuer, where either reading of S3 puts
+ * it: inserted before the issuer's path (`/.well-known/oauth-authorization-server/poppy`) or
+ * appended after it (`/poppy/.well-known/oauth-authorization-server`).
+ */
+export const SERVER_METADATA_PATH = /^(?:\/.*)?\/\.well-known\/oauth-authorization-server(?:\/.*)?$/;
+
+export function isServerMetadata(exchange: Pick<Exchange, "url">): boolean {
+  return SERVER_METADATA_PATH.test(exchange.url.pathname);
+}
+
 /** A form body's fields, when the request is a form POST. */
 export function form(exchange: Exchange): URLSearchParams | null {
   const type = exchange.requestHeaders.get("content-type") ?? "";

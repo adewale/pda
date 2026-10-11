@@ -31,7 +31,7 @@ import ssl
 import time
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import quote, urlencode, urljoin, urlsplit
 
 import httpx
 import jwt
@@ -823,19 +823,31 @@ async def resolve_operation(
     description: str, operation: str, args: dict[str, Any]
 ) -> tuple[str, str, Any]:
     """`operation` is "METHOD /path" or an OpenAPI operationId. `args.params` fill the
-    path template; the other params go in the query; `args.body` is the body. URLs are
-    relative to the description's origin (the SDK has no OpenAPI loader)."""
+    path template; the other params go in the query; `args.body` is the body. Paths are
+    relative to the description's first `servers` URL (OpenAPI 3), resolved against the
+    description's own URL, or to its origin when it lists none (the SDK has no OpenAPI
+    loader)."""
 
     parts = urlsplit(description)
-    origin = f"{parts.scheme}://{parts.netloc}"
+    base = f"{parts.scheme}://{parts.netloc}"
     values = dict((args or {}).get("params") or {})
     verb, _, path = operation.partition(" ")
-    if verb.upper() not in HTTP_METHODS or not path:
-        response = await agent.http.get(description, headers={"Accept": "application/json"})
-        if response.status_code != 200:
+    literal = verb.upper() in HTTP_METHODS and path.startswith("/")
+    response = await agent.http.get(description, headers={"Accept": "application/json"})
+    try:
+        document = response.json() if response.status_code == 200 else None
+    except ValueError:
+        document = None
+    if not isinstance(document, dict):
+        if not literal:
             raise PoppyRefusal("openapi_unavailable", response.status_code, description)
+        document = {}
+    servers = document.get("servers") or []
+    if servers and isinstance(servers[0], dict) and isinstance(servers[0].get("url"), str):
+        base = urljoin(description, servers[0]["url"]).rstrip("/")
+    if not literal:
         found = None
-        for candidate, item in (response.json().get("paths") or {}).items():
+        for candidate, item in (document.get("paths") or {}).items():
             for name, spec in item.items():
                 if isinstance(spec, dict) and spec.get("operationId") == operation:
                     found = (name, candidate)
@@ -846,7 +858,7 @@ async def resolve_operation(
     for name in list(values):
         if "{" + name + "}" in path:
             path = path.replace("{" + name + "}", quote(str(values.pop(name)), safe=""))
-    url = path if path.startswith("https://") else f"{origin}{path}"
+    url = path if path.startswith("https://") else f"{base}{path}"
     if values:
         url += ("&" if "?" in url else "?") + urlencode({k: str(v) for k, v in values.items()})
     body = (args or {}).get("body")

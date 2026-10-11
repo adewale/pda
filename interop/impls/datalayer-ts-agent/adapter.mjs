@@ -629,13 +629,16 @@ const ops = {
   async send(c, params) {
     await ensureSession(c);
     const endpoint = conversationEndpoint(c);
-    // `message_id` is a retry key (spec 5.2): the same key sends the same message, same id.
+    // `message_id` is a retry key (spec 5.2): the same key sends the same message, same id,
+    // as the same request. A retried first message starts the conversation again (Poppy 7.3
+    // answers it with the original response); it doesn't go to the conversation it started,
+    // which Companies disagree about (spec issue S9).
     const key = params.message_id;
     const retried = key === undefined ? undefined : c.retryKeys?.get(key);
     const message = retried?.message ?? { id: world.conversations.generateMessageId(), sender: "human", text: params.text };
     const conversation = params.conversation ?? retried?.conversation;
     const result = await withSession(c, (token) => sendOnce(c, endpoint, token, message, conversation, params));
-    if (key !== undefined) (c.retryKeys ??= new Map()).set(key, { message, conversation: result.conversation });
+    if (key !== undefined && !retried) (c.retryKeys ??= new Map()).set(key, { message, conversation });
     return result;
   },
 

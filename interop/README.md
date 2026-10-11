@@ -41,7 +41,7 @@ The latest grid, for readers who don't run it, is in [`docs/interop-results/`](.
 2. The Company's `fixture` hook says what the scenario may use: accounts, the scopes to sign in with (`scopes.read`, `scopes.write`; Poppy's when absent), API operations, prompts for its agent.
 3. The scenario's steps run in order: agent steps through `POST /step`, Company steps through `POST /hooks/<name>`, runner steps (`wait`, `fetch`, `assert_trace`) in the runner. Each `save`d result can be referred to later as `${name.path}`, and `expect` steps compare them.
 4. The checker reads the recording: trace checks (assertions, DPoP proofs, tokens in URLs, token hosts, redirects, Retry-After, Company error shapes), `src/validator` over every discovery document and client metadata served, the agent's declared readings, and any violations the Company adapter recorded (`GET /violations`).
-5. Attribution blames a failed cell by the first rule that decides it: violation, grid, reading, or unattributed. A violation a Company recorded that is exactly a declared reading difference (a strict Company refusing a typ-less assertion from an agent that declared S2 `any`) is a reading, not a violation.
+5. Attribution blames a failed cell by the first rule that decides it: violation, grid, reading, or unattributed. A violation a Company recorded that is exactly a declared reading difference (a strict Company refusing a typ-less assertion from an agent that declared S2 `any`) is a reading, not a violation. So is a refusal the trace shows and the Company's declared reading explains (`reading.<id>.refused`: `invalid_client` for an `aud` its S1 reading doesn't accept, `invalid_grant` for an assertion its S2 `jwt-60s` refuses), when the agent declared an incompatible reading.
 
 ## Layout
 

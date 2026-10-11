@@ -312,11 +312,18 @@ const ops = {
         await conn.close().catch(() => {});
       }
     }
-    const doc = await loadOpenApi(c, entry);
+    // `operation` is an operationId or, for an operation without one, "METHOD /path" with the
+    // path as the description writes it (spec 5.2); callOpenApi resolves it against `servers`.
     let method;
     let path;
-    for (const [p, item] of Object.entries(doc.paths ?? {})) {
-      for (const [m, op] of Object.entries(item ?? {})) if (op?.operationId === params.operation) [method, path] = [m, p];
+    const literal = /^([A-Z]+)\s+(\/\S*)$/.exec(String(params.operation ?? ''));
+    if (literal) {
+      [, method, path] = literal;
+    } else {
+      const doc = await loadOpenApi(c, entry);
+      for (const [p, item] of Object.entries(doc.paths ?? {})) {
+        for (const [m, op] of Object.entries(item ?? {})) if (op?.operationId === params.operation) [method, path] = [m, p];
+      }
     }
     if (!method) throw new AdapterError(400, 'unknown_operation', `no operationId ${params.operation}`);
     // args.params fill path templates; what's left goes in the query string.
@@ -330,6 +337,11 @@ const ops = {
     if (Object.keys(rest).length) path += `?${new URLSearchParams(rest)}`;
     const index = listApis(c).filter((a) => a.type === 'openapi').indexOf(entry);
     const r = await callOpenApi(c, { method, path, body: args.body, apiIndex: index < 0 ? undefined : index });
+    // callOpenApi throws a Poppy error only from WWW-Authenticate on 401 or 403; one carried in
+    // the body alone (a 403 insufficient_scope without a challenge) is a Poppy error too (5.2).
+    if (r.status >= 400 && typeof r.body?.error === 'string') {
+      throw new PoppyError(r.body.error, `${r.status} ${r.body.error}`, { status: r.status });
+    }
     return { status: r.status, body: r.body };
   },
 

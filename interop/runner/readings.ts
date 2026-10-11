@@ -4,7 +4,7 @@
  * sent, and attribution rule 3 asks whether two declared readings can work
  * together. Pure functions.
  */
-import { decodeJwt, form, jsonBody, type Exchange } from "./har.ts";
+import { decodeJwt, form, isServerMetadata, jsonBody, type DecodedJwt, type Exchange } from "./har.ts";
 import type { Check } from "./types.ts";
 
 export const QUESTIONS = {
@@ -63,6 +63,44 @@ function warning(id: QuestionId, x: Exchange, detail: string): Check {
 /** The OAuth endpoints a client assertion goes to, in a Company's server metadata (RFC 8414). */
 const ASSERTION_ENDPOINTS = ["token_endpoint", "device_authorization_endpoint", "revocation_endpoint", "pushed_authorization_request_endpoint"] as const;
 
+type AssertionEndpoint = { readonly issuer: string; readonly token: string };
+
+/** Each endpoint a Company's server metadata names that a client assertion goes to, with its issuer and token endpoint. */
+function assertionEndpoints(all: readonly Exchange[]): Map<string, AssertionEndpoint> {
+  const endpoints = new Map<string, AssertionEndpoint>();
+  for (const x of all) {
+    if (x.direction !== "to-company" || !isServerMetadata(x)) continue;
+    const metadata = jsonBody(x.responseBody) as Record<string, unknown> | undefined;
+    if (typeof metadata?.issuer !== "string" || typeof metadata.token_endpoint !== "string") continue;
+    for (const name of ASSERTION_ENDPOINTS) {
+      const value = metadata[name];
+      if (typeof value === "string") endpoints.set(value, { issuer: metadata.issuer, token: metadata.token_endpoint });
+    }
+  }
+  return endpoints;
+}
+
+/** The client assertion `aud` an S1 reading wants at the endpoint called; null for `either`. */
+function wantedAud(reading: string, endpoint: AssertionEndpoint, called: string): string | null {
+  if (reading === "issuer") return endpoint.issuer;
+  if (reading === "endpoint") return called;
+  if (reading === "token-endpoint") return endpoint.token;
+  return null;
+}
+
+/** What S2 `jwt-60s` refuses in an assertion (no `typ: "JWT"`, or a lifetime over 60 s); null when it is accepted. */
+function strictAssertionFault(jwt: DecodedJwt): string | null {
+  const lifetime = Number(jwt.payload.exp) - Number(jwt.payload.iat);
+  return jwt.header.typ !== "JWT" || !(lifetime <= 60) ? `typ ${JSON.stringify(jwt.header.typ)} and a ${lifetime} s lifetime` : null;
+}
+
+/** The assertions an OAuth request carries: the client assertion and, on the jwt-bearer grant, the Session assertion. */
+function assertionsOf(fields: URLSearchParams): DecodedJwt[] {
+  return [fields.get("client_assertion"), fields.get("assertion")]
+    .map((jwt) => decodeJwt(jwt ?? ""))
+    .filter((jwt): jwt is DecodedJwt => jwt !== null);
+}
+
 /**
  * The agent's declared readings against its OAuth requests (S1, S2, S4).
  * S1 is checked wherever a client assertion goes: `issuer` wants the
@@ -71,17 +109,7 @@ const ASSERTION_ENDPOINTS = ["token_endpoint", "device_authorization_endpoint", 
  */
 export function readingChecks(all: readonly Exchange[], readings: Readonly<Record<string, string>>): Check[] {
   const found: Check[] = [];
-  /** Each endpoint a Company's metadata names, with its issuer and token endpoint. */
-  const endpoints = new Map<string, { issuer: string; token: string }>();
-  for (const x of all) {
-    if (x.direction !== "to-company" || !x.url.pathname.startsWith("/.well-known/oauth-authorization-server")) continue;
-    const metadata = jsonBody(x.responseBody) as Record<string, unknown> | undefined;
-    if (typeof metadata?.issuer !== "string" || typeof metadata.token_endpoint !== "string") continue;
-    for (const name of ASSERTION_ENDPOINTS) {
-      const value = metadata[name];
-      if (typeof value === "string") endpoints.set(value, { issuer: metadata.issuer, token: metadata.token_endpoint });
-    }
-  }
+  const endpoints = assertionEndpoints(all);
   for (const x of all) {
     if (x.direction !== "to-company" || x.probe) continue;
     const fields = form(x);
@@ -89,25 +117,71 @@ export function readingChecks(all: readonly Exchange[], readings: Readonly<Recor
     const called = `${x.url.origin}${x.url.pathname}`;
     const endpoint = endpoints.get(called);
     const client = decodeJwt(fields.get("client_assertion") ?? "");
-    if (client && endpoint && readings.S1 && readings.S1 !== "either") {
-      const want = readings.S1 === "issuer" ? endpoint.issuer : readings.S1 === "endpoint" ? called : endpoint.token;
-      if (client.payload.aud !== want) found.push(warning("S1", x, `declared ${readings.S1}, sent aud ${JSON.stringify(client.payload.aud)} to ${called}`));
+    const want = client && endpoint && readings.S1 ? wantedAud(readings.S1, endpoint, called) : null;
+    if (client && want !== null && client.payload.aud !== want) {
+      found.push(warning("S1", x, `declared ${readings.S1}, sent aud ${JSON.stringify(client.payload.aud)} to ${called}`));
     }
     if (!fields.has("grant_type")) continue;
     if (readings.S2 === "jwt-60s") {
-      for (const jwt of [fields.get("client_assertion"), fields.get("assertion")]) {
-        const decoded = decodeJwt(jwt ?? "");
-        if (!decoded) continue;
-        const lifetime = Number(decoded.payload.exp) - Number(decoded.payload.iat);
-        if (decoded.header.typ !== "JWT" || !(lifetime <= 60)) {
-          found.push(warning("S2", x, `declared jwt-60s, sent typ ${JSON.stringify(decoded.header.typ)} and a ${lifetime} s lifetime`));
-        }
+      for (const decoded of assertionsOf(fields)) {
+        const fault = strictAssertionFault(decoded);
+        if (fault) found.push(warning("S2", x, `declared jwt-60s, sent ${fault}`));
       }
     }
     if (fields.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer" && readings.S4 && readings.S4 !== "either") {
       const scope = fields.get("scope");
       const ok = readings.S4 === "omit" ? scope === null : scope === "poppy:read";
       if (!ok) found.push(warning("S4", x, `declared ${readings.S4}, sent scope ${JSON.stringify(scope)}`));
+    }
+  }
+  return found;
+}
+
+/** The OAuth errors a Company refuses an assertion with. */
+const ASSERTION_REFUSALS = new Set(["invalid_client", "invalid_grant"]);
+
+/** The id of a refusal check: `reading.<question>.refused`. */
+export const REFUSED_READING = /^reading\.(S\d+)\.refused$/;
+
+/**
+ * Refusals a Company's own declared readings explain (S1, S2): an OAuth
+ * request answered `invalid_client` or `invalid_grant` that carried an
+ * assertion the Company's reading doesn't accept: a client assertion `aud`
+ * other than the one its S1 reading wants at that endpoint, or, for S2
+ * `jwt-60s`, an assertion without `typ: "JWT"` or living over 60 s.
+ * Attribution reads them as evidence that the cell failed on that question
+ * (rule 3). They are warnings and judge neither side.
+ */
+export function refusedReadingChecks(all: readonly Exchange[], companyReadings: Readonly<Record<string, string>>): Check[] {
+  const found: Check[] = [];
+  const endpoints = assertionEndpoints(all);
+  const refused = (id: QuestionId, x: Exchange, detail: string): Check => ({
+    id: `reading.${id}.refused`,
+    side: "agent",
+    severity: "warning",
+    exchange: x.index,
+    detail,
+    source: "trace"
+  });
+  for (const x of all) {
+    if (x.direction !== "to-company" || x.probe || (x.status !== 400 && x.status !== 401)) continue;
+    const error = (jsonBody(x.responseBody) as { error?: unknown } | undefined)?.error;
+    if (typeof error !== "string" || !ASSERTION_REFUSALS.has(error)) continue;
+    const fields = form(x);
+    if (!fields) continue;
+    const called = `${x.url.origin}${x.url.pathname}`;
+    const endpoint = endpoints.get(called);
+    const client = decodeJwt(fields.get("client_assertion") ?? "");
+    const s1 = companyReadings.S1;
+    const want = client && endpoint && s1 ? wantedAud(s1, endpoint, called) : null;
+    if (client && want !== null && client.payload.aud !== want) {
+      found.push(refused("S1", x, `${error} at ${called}: aud ${JSON.stringify(client.payload.aud)}; the Company's S1 reading (${s1}) wants ${JSON.stringify(want)}`));
+    }
+    if (companyReadings.S2 === "jwt-60s") {
+      const faults = assertionsOf(fields)
+        .map(strictAssertionFault)
+        .filter((fault): fault is string => fault !== null);
+      if (faults.length > 0) found.push(refused("S2", x, `${error} at ${called}: an assertion with ${faults[0]}, which the Company's S2 reading (jwt-60s) refuses`));
     }
   }
   return found;

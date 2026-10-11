@@ -26,7 +26,7 @@ One Python process (`adapter.py`, Python 3.12):
 | `send` | `ConversationClient.start` / `send`, then `read_events` if the Company answered with a receipt | `message_id` is the runner's retry key, mapped to one SDK-generated message ID. `wait` defaults to 5. |
 | `read` | `ConversationClient.read_events` | `cursor` and `wait` as given. |
 | `sse` | `ConversationClient.stream` | One stream: events until the Company ends it, `max_events` or `wait` seconds. `cursor` goes as `Last-Event-ID` (the SDK has no `?cursor`). The SDK's reconnect isn't used; a stream that ends with no event (the SDK's `stream_unavailable`) is zero events. Returns `last_id`. |
-| `api` | `ApiClient.call`; `McpClient.call_tool` with a Bearer token from `SessionClient.bearer_for_mcp` or `AccountTokenClient.bearer_for_mcp` | `api` is a type or a URL. `operation` is `"METHOD /path"` or an OpenAPI `operationId`; `args.params` fill the path template and the rest go in the query; `args.body` is the body. |
+| `api` | `ApiClient.call`; `McpClient.call_tool` with a Bearer token from `SessionClient.bearer_for_mcp` or `AccountTokenClient.bearer_for_mcp` | `api` is a type or a URL. `operation` is `"METHOD /path"` or an OpenAPI `operationId`, and paths are relative to the description's first `servers` URL (its origin when it lists none); `args.params` fill the path template and the rest go in the query; `args.body` is the body. |
 | `approve_op` | `OperationsClient.read`, then `confirm` with `approve(operation)`, or `cancel` | `status` is the operation's state afterwards. |
 | `signout` | `AccountTokenClient.revoke` | |
 | `web_join` | `BrowserSessionClient.join` | `joined` is a 302 or 303 with `Set-Cookie` from the browser-session endpoint. |

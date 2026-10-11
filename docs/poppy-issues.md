@@ -48,6 +48,7 @@ A two-Worker demo: a Company ("Northstar") and a Personal Agent, wired to each o
 | Grid: the agent requires the issuer to equal the Company's origin, so it fails every scenario at a Company whose issuer is on another host or has a path (our mock, adonis-agora). See spec [N36](spec-issues.md#n36). | caller | 3.2 | High |
 | Grid: the agent parses the revocation response as JSON. RFC 7009 allows an empty 200, so sign-out throws at poppyseed. | caller | 4.9, RFC 7009 | Medium |
 | Grid: the agent throws (`new URL(undefined)`) at a signed-out Company with no `authorization_endpoint`, such as Ilmer. | caller | 3.1 | Medium |
+| Grid: the agent always asks for the hard-coded `poppy:read poppy:write`, whatever `auth.direct.scopes` offers, so it can't sign in at a Company with its own scopes (Datalayer's Manzanita offers `orders:read` and `orders:write` and answers `invalid_scope`). | `shared/protocol.ts:5`; `workers/caller/src/session.ts:190` | 4.4, 4.5 | Medium |
 | Grid: Northstar answers 500 instead of `invalid_client` for client metadata that isn't JSON, and instead of `invalid_token` for a well-formed token naming no Session. | receiver | 4.1, 6 | Low |
 | Grid: agent keys keep `kid: agent-key-1` when rotated, so a Company that caches by `kid` uses a stale key ([N38](spec-issues.md#n38)). | caller | Guides | Low |
 
@@ -60,7 +61,7 @@ The most complete SDK: Python and TypeScript, both sides, reference Companies, a
 | Issue | Where | Section | Severity |
 | --- | --- | --- | --- |
 | The TypeScript Company keeps a Session signed in when it's renewed with an assertion. (The Python Company is correct.) | `src/company/service.ts:517-521` | 4.2 | High |
-| An Account Token request without `session_id` is refused with `invalid_session`; the draft says it starts a new signed-in Session. | `service.ts:542-549`; `service.py:504-509` | 4.8 | Medium |
+| An Account Token request without `session_id` is refused with `invalid_session`; the draft says it starts a new signed-in Session. Grid: adonis-agora's agent recovers from an ended Session exactly this way, so its `SE` fails at both Datalayer Companies (and passes at the others). | `service.ts:542-549`; `service.py:504-509` | 4.8 | Medium |
 | Mediated Sign-In silently drops unknown or missing scopes instead of returning `invalid_scope`. | `service.ts:983`; `service.py:900` | 4.4 | Medium |
 | The client strips a trailing `/` from the issuer before comparing, and uses that value for the `iss` check. | `models.ts:393,506`; `discovery.ts:154` | 3.2, 4.5 | Medium |
 | DPoP `jti` replay gap: `iat` up to +60 s is accepted, but `jti` is remembered only until now + 60 s. | `crypto.ts:229-254` | 4.3 | Medium |
@@ -74,6 +75,7 @@ The most complete SDK: Python and TypeScript, both sides, reference Companies, a
 | Grid: both Companies close an SSE stream after sending the backlog, and answer an ended Session with `invalid_token`, never `invalid_session` ([N39](spec-issues.md#n39)). | Company | 7.6, 4.2 | Low |
 | Grid: optional Operation members are sent as `null` (`expires_at`, `result.data`) rather than omitted ([N41](spec-issues.md#n41)). | Company | Ops | Low |
 | Grid: Manzanita's OpenAPI paths use templates with no declared `parameters`. | reference Company | OpenAPI 3 | Low |
+| Grid: an API's 403 `insufficient_scope` (and `sign_in_required`) from `ApiResults` carries the error in the body only, with no `WWW-Authenticate` challenge, though the Company's own `jsonError` adds one (RFC 6750 §3, RFC 9449). A client that reads the challenge, such as adonis-agora's `callOpenApi`, sees a plain 403. | `src/company/points.ts:183-188`; `company/points.py:230-231` | 6 | Low |
 
 **Worth copying:** `protocol/requirements.yaml` maps 160 requirements to code and tests, with a test that the references exist. Its blind spot: it only holds sentences with RFC 2119 keywords, and three of the bugs above sit in sentences without one.
 
@@ -104,7 +106,7 @@ A Company OAuth server (`@adonis-agora/authkit-server`), and Company conversatio
 | Handoff without hooks never reaches `queued`. | agent `conversations.ts:755` | 7.9 | Low |
 | The client restarts silently on `cursor_expired`; the draft says the agent SHOULD tell the User. | agent `collect()` | 7.5 | Low |
 | Grid: the agent's assertions carry no `typ`, so strict Companies refuse every request ([S2](spec-issues.md#s2)). | agent `poppy-client` | 4.2 | Medium |
-| Grid: the agent's assertion `aud` is the token endpoint at the device and revocation endpoints too, which poppyseed refuses ([S1](spec-issues.md#s1)). | agent `poppy-client` | 4.6, 4.9 | Medium |
+| Grid: the agent's assertion `aud` is the token endpoint at the device and revocation endpoints too, which poppyseed, pi-poppy's Company and both Datalayer Companies refuse ([S1](spec-issues.md#s1)). | agent `poppy-client` | 4.6, 4.9 | Medium |
 | Grid: the Company sends no headers on an idle resumed SSE stream until an event arrives ([N30](spec-issues.md#n30)). | agent (Company conversations) | 7.6 | Low |
 | Grid: `allowInsecureClientIds`, needed to test against private addresses, also accepts `http` `client_id`s ([N42](spec-issues.md#n42)). | authkit | 4.1 | Low |
 

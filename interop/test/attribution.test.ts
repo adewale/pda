@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { attribute, attributeAll, knownFailure, unexpected, unmatchedKnown } from "../runner/attribution.ts";
-import { compatible, readingChecks } from "../runner/readings.ts";
+import { compatible, readingChecks, refusedReadingChecks } from "../runner/readings.ts";
 import { jwt, NOW, recording } from "./helpers.ts";
 import type { Cell, Check, Outcome, Scenario } from "../runner/types.ts";
 
@@ -147,6 +147,54 @@ describe("reading compatibility", () => {
     expect(s1("token-endpoint")).toEqual([2]);
     expect(s1("issuer")).toEqual([1, 2, 3]);
     expect(s1("either")).toEqual([]);
+  });
+
+  it("finds refusals a Company's declared S1 or S2 reading explains", () => {
+    const metadata = {
+      issuer: "https://x.company.interop.test/poppy",
+      token_endpoint: "https://x.company.interop.test/poppy/token",
+      device_authorization_endpoint: "https://x.company.interop.test/poppy/device",
+      revocation_endpoint: "https://x.company.interop.test/poppy/revoke"
+    };
+    const assertion = (aud: string, typ?: string) =>
+      jwt({ alg: "ES256", kid: "k", ...(typ ? { typ } : {}) }, { iss: "c", sub: "c", aud, iat: NOW, exp: NOW + 60, jti: "j" });
+    const refused = { status: 401, response: { error: "invalid_client" } };
+    const trace = recording(
+      // Appended to the issuer's path (S3 append).
+      { url: "https://x.company.interop.test/poppy/.well-known/oauth-authorization-server", response: metadata },
+      // Accepted at the token endpoint without typ: no refusal to explain.
+      { url: metadata.token_endpoint, form: { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", client_assertion: assertion(metadata.token_endpoint) } },
+      // The device endpoint refuses an aud naming the token endpoint.
+      { url: metadata.device_authorization_endpoint, form: { scope: "poppy:read", client_assertion: assertion(metadata.token_endpoint, "JWT") }, ...refused },
+      // The token endpoint refuses a Session assertion without typ.
+      {
+        url: metadata.token_endpoint,
+        form: { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: assertion(metadata.token_endpoint), client_assertion: assertion(metadata.token_endpoint, "JWT") },
+        status: 400,
+        response: { error: "invalid_grant" }
+      },
+      // Another error isn't an assertion refusal.
+      { url: metadata.revocation_endpoint, form: { token: "t", client_assertion: assertion(metadata.token_endpoint) }, status: 400, response: { error: "invalid_request" } }
+    );
+    const ids = (readings: Record<string, string>) => refusedReadingChecks(trace, readings).map((check) => `${check.id}@${check.exchange}`);
+    expect(ids({ S1: "endpoint", S2: "jwt-60s" })).toEqual(["reading.S1.refused@2", "reading.S2.refused@3"]);
+    expect(ids({ S1: "token-endpoint", S2: "any" })).toEqual([]);
+    expect(ids({ S1: "either" })).toEqual([]);
+    expect(refusedReadingChecks(trace, { S1: "endpoint" }).every((check) => check.severity === "warning")).toBe(true);
+  });
+
+  it("rule 3, before rule 2: a refusal the Company's declared reading explains, between incompatible readings", () => {
+    const s1: Check = { id: "reading.S1.refused", side: "agent", severity: "warning", exchange: 2, detail: "", source: "trace" };
+    const readings = { "adonis-agora": { S1: "token-endpoint" }, poppyseed: { S1: "endpoint" }, "dpa-mock": { S1: "either" }, dpa: { S1: "endpoint" } };
+    const target = cell("adonis-agora", "poppyseed", "fail", [s1], "SV");
+    // The grid would blame the agent: it fails SV everywhere, and poppyseed passes it with dpa.
+    const grid = [target, cell("adonis-agora", "dpa-mock", "fail", [], "SV"), cell("dpa", "poppyseed", "pass", [], "SV")];
+    expect(attribute(target, grid, { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S1: adonis-agora reads token-endpoint, poppyseed reads endpoint" });
+    // Compatible readings (the agent broke its own word): the refusal decides nothing.
+    expect(attribute(target, grid, { readings: { ...readings, "adonis-agora": { S1: "endpoint" } }, scenarios })).toMatchObject({ blame: "agent", rule: "grid" });
+    // A one-sided error still decides by rule 1.
+    const both = cell("adonis-agora", "poppyseed", "fail", [s1, error("agent")], "SV");
+    expect(attribute(both, [both], { readings, scenarios })).toEqual({ blame: "agent", rule: "violation" });
   });
 
   it("knows which way S2 and S23 break", () => {

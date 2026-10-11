@@ -26,7 +26,7 @@ import { traceChecks } from "./checks.ts";
 import { docker, dockerAsync, proxyAliases } from "./docker.ts";
 import { documentChecks } from "./documents.ts";
 import { exchanges, PROBE_HEADER, type Har } from "./har.ts";
-import { readingChecks } from "./readings.ts";
+import { readingChecks, refusedReadingChecks } from "./readings.ts";
 import { cellId, renderReport } from "./report.ts";
 import { lintScenario } from "./scenario.ts";
 import { assertTrace } from "./traces.ts";
@@ -318,6 +318,7 @@ async function runOne(
     checks.push(...traceChecks(recorded, callbacks));
     checks.push(...(await documentChecks(recorded)));
     checks.push(...readingChecks(recorded, agent.manifest?.readings ?? {}));
+    checks.push(...refusedReadingChecks(recorded, company.manifest?.readings ?? {}));
   }
   const violations = await control(company.target, "GET", "/violations").catch(() => ({ status: 0, body: null }));
   const recordedViolations = (violations.body as { violations?: { id: string; detail: string }[] } | null)?.violations;

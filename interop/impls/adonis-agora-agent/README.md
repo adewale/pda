@@ -40,7 +40,7 @@ docker run --network <net> -e INTEROP_SECRET=<secret> -e INTEROP_ORIGIN=https://
 | `signin_continue` | Direct takes `callback_url`, or the last callback the identity server received. Device polls at the Company's `interval` for up to 90 s. Mediated takes `fields`; if the Company wants a one-time code it answers `{pending: {code_required: true}}`, and a second call with `{code}` completes it. `account` is always `null`: the client doesn't learn it. |
 | `send`, `read` | Yes. `message_id` is a retry key: the same key sends the same message with the same id. A `send`'s `wait` defaults to 10 s; after the POST answers, the adapter keeps reading until the Company is no longer `working`. `read` passes `wait` through. |
 | `sse` | Yes, through `CompanyClient.fetch` and the library's `parseSse`. It stops after `wait` seconds of quiet (default 1), or after 10 s. It returns `{events, last_id}`, where `data` is parsed JSON. |
-| `api` | `api` is the type. OpenAPI by `operationId`, through `callOpenApi`: `args.params` fill path templates, then the query string, and `args.body` is the body. MCP by `tool`, through `connectMcp`. |
+| `api` | `api` is the type. OpenAPI by `operationId`, or by `"METHOD /path"` for an operation without one (spec 5.2), through `callOpenApi`, which resolves the path against the description's `servers`: `args.params` fill path templates, then the query string, and `args.body` is the body. MCP by `tool`, through `connectMcp`. |
 | `web_join` | Yes. The adapter POSTs the library's browser assertion as a form, as its one-shot page makes a browser do. Joined means 3xx with a cookie. |
 | `signout`, `state` | Yes. `state` carries no token values. |
 | `approve_op` | 501: the client doesn't implement the Operations extension. |

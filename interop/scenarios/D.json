@@ -9,6 +9,6 @@
     { "agent": "discover", "save": "d" },
     { "expect": { "${d.issuer}": { "$match": "^https://" }, "${d.poppy_version}": { "$match": "^0\\." } } },
     { "runner": "assert_trace", "params": { "check": "request_seen", "method": "GET", "path": "^/\\.well-known/poppy\\.json$", "status": 200 } },
-    { "runner": "assert_trace", "params": { "check": "request_seen", "method": "GET", "path": "^/\\.well-known/oauth-authorization-server", "status": 200 } }
+    { "runner": "assert_trace", "params": { "check": "request_seen", "method": "GET", "path": "/\\.well-known/oauth-authorization-server(/|$)", "status": 200 } }
   ]
 }

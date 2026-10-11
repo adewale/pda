@@ -5,7 +5,7 @@
  * nonce can't show the agent retrying with one), which makes the cell
  * unsupported rather than failed. Pure functions.
  */
-import { decodeJwt, form, jsonBody, type Exchange } from "./har.ts";
+import { decodeJwt, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
 import { retryAfterChecks } from "./checks.ts";
 import type { RunnerReply } from "./cell.ts";
 
@@ -38,7 +38,7 @@ export function nonceRetry(all: readonly Exchange[]): RunnerReply {
 export function revoked(all: readonly Exchange[]): RunnerReply {
   const endpoints = new Set<string>();
   for (const x of all) {
-    if (x.direction !== "to-company" || !x.url.pathname.startsWith("/.well-known/oauth-authorization-server")) continue;
+    if (x.direction !== "to-company" || !isServerMetadata(x)) continue;
     const metadata = jsonBody(x.responseBody) as { revocation_endpoint?: unknown } | undefined;
     if (typeof metadata?.revocation_endpoint === "string") endpoints.add(metadata.revocation_endpoint);
   }

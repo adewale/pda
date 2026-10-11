@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { readingChecks } from "../runner/readings.ts";
 import { assertTrace, nonceRetry, refreshRotated, retryAfterRespected, revoked } from "../runner/traces.ts";
@@ -35,6 +36,25 @@ describe("assert_trace predicates", () => {
     expect(revoked(recording(metadata)).kind).toBe("failed");
   });
 
+  it("revoked: reads metadata where either S3 reading puts it for an issuer with a path", () => {
+    const revoke = "https://acme.company.interop.test/poppy/oauth/revoke";
+    for (const path of ["/poppy/.well-known/oauth-authorization-server", "/.well-known/oauth-authorization-server/poppy"]) {
+      const metadata = { url: `https://acme.company.interop.test${path}`, response: { revocation_endpoint: revoke } };
+      expect(revoked(recording(metadata, { url: revoke, form: { token: "x" } })).kind).toBe("ok");
+    }
+  });
+
+  it("D sees server metadata at either S3 location, and nothing else", () => {
+    const d = JSON.parse(readFileSync(new URL("../scenarios/D.json", import.meta.url), "utf8")) as { steps: { runner?: string; params?: Record<string, unknown> }[] };
+    const params = d.steps.filter((step) => step.runner === "assert_trace").at(-1)!.params!;
+    const seen = (path: string) => assertTrace(recording({ url: `https://acme.company.interop.test${path}` }), params).kind;
+    expect(seen("/.well-known/oauth-authorization-server")).toBe("ok");
+    expect(seen("/.well-known/oauth-authorization-server/poppy")).toBe("ok");
+    expect(seen("/poppy/.well-known/oauth-authorization-server")).toBe("ok");
+    expect(seen("/.well-known/oauth-authorization-server-x")).toBe("failed");
+    expect(seen("/.well-known/poppy.json")).toBe("failed");
+  });
+
   it("request_seen and unknown checks", () => {
     const all = recording({ url: "https://acme.company.interop.test/.well-known/poppy.json" });
     expect(assertTrace(all, { check: "request_seen", path: "poppy\\.json$", status: 200 }).kind).toBe("ok");
@@ -58,5 +78,12 @@ describe("readings against the trace", () => {
     const checks = readingChecks(recording(metadata, scoped), { S1: "token-endpoint", S2: "jwt-60s", S4: "omit" });
     expect(checks.map((check) => check.id)).toEqual(["reading.S1", "reading.S2", "reading.S4"]);
     expect(checks.every((check) => check.severity === "warning")).toBe(true);
+  });
+
+  it("finds the endpoints in metadata appended to an issuer's path (S3 append)", () => {
+    const appended = { url: "https://acme.company.interop.test/poppy/.well-known/oauth-authorization-server", response: { issuer: "https://acme.company.interop.test/poppy", token_endpoint: TOKEN } };
+    const issuerAud = clientAssertion({ payload: { aud: "https://acme.company.interop.test/poppy" } });
+    const checks = readingChecks(recording(appended, sessionStart(0, { client: issuerAud })), { S1: "token-endpoint" });
+    expect(checks.map((check) => check.id)).toEqual(["reading.S1"]);
   });
 });

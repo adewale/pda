@@ -135,11 +135,67 @@
       "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; ilmer requires it (S2 reading; Ilmer answers invalid_client)."
     },
     {
-      "agent": "adonis-agora",
-      "company": "poppyseed",
+      "agent": "pi-poppy",
+      "company": "poppy-demo",
       "scenario": "*",
-      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
-      "reason": "Reading S1, blamed on the spec: adonis-agora's client assertions name the token endpoint as aud everywhere (S1 token-endpoint), including at the device authorization and revocation endpoints; poppyseed requires the endpoint the assertion is sent to (S1 endpoint) and answers invalid_client. Device Sign-In (SV, SXV) and sign-out (SO) fail."
+      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s2",
+      "reason": "Reading S2, blamed on the spec: pi-poppy's Session assertion (signSessionAssertion in src/dpop.ts) has no typ \"JWT\", and it declares S2 any; Northstar declares jwt-60s and answers the first Session request invalid_grant, so every scenario stops at its first step."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "ilmer",
+      "scenario": "*",
+      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s2",
+      "reason": "Reading S2, blamed on the spec: pi-poppy's Session assertion has no typ \"JWT\" (S2 any); Ilmer declares jwt-60s and answers the first Session request invalid_grant. (Both sides send and want the token endpoint as aud there, so S1 is not the cause.)"
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "datalayer-ts",
+      "scenario": "*",
+      "issue": "https://github.com/irvinebroque/poppy-demo/blob/02a9b304e92fdfee465c57f2822742eecac8bdc8/shared/protocol.ts#L5",
+      "reason": "poppy-demo's caller asks for the hard-coded SCOPES (poppy:read poppy:write, shared/protocol.ts:5, used at workers/caller/src/session.ts:190) whatever the Company offers; Manzanita offers only orders:read and orders:write (auth.direct.scopes), so it refuses the authorization with invalid_scope and every signed-in scenario (SD, SX, CA, SO, AO) fails."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "datalayer-py",
+      "scenario": "*",
+      "issue": "https://github.com/irvinebroque/poppy-demo/blob/02a9b304e92fdfee465c57f2822742eecac8bdc8/shared/protocol.ts#L5",
+      "reason": "As at datalayer-ts: the caller always asks for poppy:read poppy:write; Manzanita offers only orders:read and orders:write and answers invalid_scope."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "datalayer-ts",
+      "scenario": "SE",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/src/company/service.ts#L675-L681",
+      "reason": "After invalid_session, adonis-agora recovers by renewing with its Account Token and no session_id, which Poppy 4.8 says starts a new signed-in Session; Datalayer's TypeScript CompanyService requires a session_id on every refresh_token grant and answers invalid_session again. (dpa-mock, pi-poppy, poppyseed and adonis-agora's Company accept it.)"
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "datalayer-py",
+      "scenario": "SE",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/personal_agent_protocol/company/service.py#L616-L621",
+      "reason": "As at datalayer-ts: Datalayer's Python CompanyService answers a refresh_token grant without session_id with invalid_session, where Poppy 4.8 says it starts a new signed-in Session, so adonis-agora's recovery fails."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "*",
+      "scenario": "SV",
+      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
+      "reason": "Reading S1, blamed on the spec: adonis-agora's client assertions name the token endpoint as aud everywhere (S1 token-endpoint), including at the device authorization endpoint; poppyseed, pi-poppy and both Datalayer Companies require the endpoint the assertion is sent to (S1 endpoint) and answer invalid_client."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "*",
+      "scenario": "SXV",
+      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
+      "reason": "Reading S1, as in SV: the device authorization request's client assertion names the token endpoint, and Companies reading S1 endpoint answer invalid_client before the User can deny."
+    },
+    {
+      "agent": "adonis-agora",
+      "company": "*",
+      "scenario": "SO",
+      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
+      "reason": "Reading S1, as in SV: the revocation request's client assertion names the token endpoint, and Companies reading S1 endpoint answer invalid_client, so sign-out fails."
     }
   ]
 }

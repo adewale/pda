@@ -9,7 +9,7 @@
  * lifetime) is a warning, so a lenient pair isn't failed for it.
  */
 import { createHash } from "node:crypto";
-import { authorization, decodeJwt, form, jsonBody, type Exchange } from "./har.ts";
+import { authorization, decodeJwt, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
 import type { Check, Severity, Side } from "./types.ts";
 
 export type CheckSpec = {
@@ -207,7 +207,7 @@ export function listedHosts(all: readonly Exchange[]): Map<string, Set<string>> 
   };
   for (const x of all) {
     if (x.direction !== "to-company" || !x.peer || x.status !== 200) continue;
-    if (x.url.pathname.endsWith("/.well-known/poppy.json") || x.url.pathname.startsWith("/.well-known/oauth-authorization-server") || x.url.pathname === "/poppy.json") {
+    if (x.url.pathname.endsWith("/.well-known/poppy.json") || isServerMetadata(x) || x.url.pathname === "/poppy.json") {
       add(x.peer, jsonBody(x.responseBody));
     }
   }

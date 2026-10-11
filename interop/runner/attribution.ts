@@ -6,7 +6,10 @@
  *    declared reading difference (a check of a section 7 question, such as
  *    a strict Company's `session-assertion.typ`, between sides whose
  *    readings of it are incompatible) is not a violation: when every error
- *    is one, the cell goes to rule 3 at once.
+ *    is one, the cell goes to rule 3 at once. So does a cell with no
+ *    one-sided errors whose trace shows a refusal the Company's declared
+ *    reading explains (`reading.<id>.refused`: an assertion `aud` or `typ`
+ *    its S1 or S2 reading doesn't accept), when the readings are incompatible.
  * 2. grid: the agent passes the scenario against the reference Company but
  *    this Company fails it with every agent that ran it (blame the Company);
  *    or this agent fails it with every Company it ran against while this
@@ -15,7 +18,7 @@
  *    scenario depends on, or that an error check belongs to (blame the spec).
  * 4. unattributed.
  */
-import { compatible, questionOf } from "./readings.ts";
+import { compatible, questionOf, REFUSED_READING } from "./readings.ts";
 import type { Blame, Cell, Check, KnownFailure, Rule, Scenario } from "./types.ts";
 
 export const REFERENCE_COMPANY = "dpa-mock";
@@ -58,6 +61,17 @@ export function attribute(
   if (sides.size === 1) {
     const [side] = sides;
     return { blame: side!, rule: "violation" };
+  }
+
+  // A refusal the Company's declared reading explains (an assertion its S1 or S2 reading
+  // doesn't accept, refused with invalid_client or invalid_grant) between sides whose
+  // readings of that question are incompatible: the spec's open question, at once.
+  const refused = cell.checks
+    .map((check) => REFUSED_READING.exec(check.id)?.[1])
+    .filter((question): question is string => question !== undefined);
+  for (const question of refused) {
+    const { agent, company } = readingOf(question);
+    if (!compatible(question, agent, company)) return reading(question);
   }
 
   // 2. grid

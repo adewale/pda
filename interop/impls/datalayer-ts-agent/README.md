@@ -16,7 +16,7 @@ The SDK leaves some decisions to its host, so the adapter makes them, as a host 
 
 - **Renewal.** A `401 invalid_token` renews once and retries: with the Account Token (`AccountTokenClient.refresh`) when signed in, otherwise `SessionClient.renew`. `invalid_session` starts a new Session and signs it in again with the Account Token.
 - **Sign-in reuse.** `signin` with scopes the stored Account Token already covers signs the Session in without asking the user.
-- **Retry keys.** `send`'s `message_id` is a key: the same key resends the same message, with the same wire id (128 random bits) and conversation.
+- **Retry keys.** `send`'s `message_id` is a key: the same key resends the same request, with the same message and wire id (128 random bits). A retried first message starts the conversation again, as the Python adapter does; it isn't sent to the conversation it started, which poppy-demo, poppyseed, Ilmer and adonis-agora refuse with `message_id_conflict` (spec issue S9).
 
 | op | Supported | Notes |
 | --- | --- | --- |
