@@ -12,6 +12,7 @@ import {
   type Identity
 } from "../src/session";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../src/view";
+import { s256 } from "./encoding";
 import { grantCode, type Grant } from "./fake-providers";
 import {
   chat,
@@ -92,12 +93,6 @@ async function me(response: Response) {
   );
   expect(answer.status).toBe(200);
   return answer.json();
-}
-
-async function s256(verifier: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /** A verified Google account whose email is on the allowlist in test/wrangler.jsonc. */
@@ -398,6 +393,20 @@ describe("sign-in", () => {
  * each check the Worker makes on that answer has a test that fails without it.
  */
 describe("sign-in: PKCE and the flow cookie", () => {
+  it.each(["google", "github"] as const)(
+    "gets no second session from a replayed %s callback: a code works once",
+    async (provider) => {
+      const flow = await startFlow(provider);
+      const params = { code: consent(flow.authorize, provider === "google" ? GOOGLE_ALLOWED : GITHUB_ALLOWED), state: flow.state };
+      const first = await callback(provider, flow.cookie, params);
+      expect(sessionFrom(first)).toBeDefined();
+      // The browser history replayed: same code, same state, same flow cookie.
+      const replay = await callback(provider, flow.cookie, params);
+      expect(sessionFrom(replay)).toBeUndefined();
+      expect(replay.headers.get("Location")).toMatch(/^\/\?signin_error=/);
+    }
+  );
+
   it.each(["google", "github"] as const)(
     "sends %s the verifier for the challenge in its own authorize URL",
     async (provider) => {

@@ -4,11 +4,12 @@
  *
  * Which keys work is in the key itself, so the fakes need no shared state:
  *
- * - Anthropic `sk-ant-test-…` and OpenAI `sk-test-…` keys work, unless they
- *   contain `bad` (refused everywhere, so they can't be saved) or `revoked`
- *   (they pass the key check, then every model call is refused with a 401,
- *   as a key revoked after it was saved would be).
- * - OpenRouter keys are the ones its fake PKCE exchange issues.
+ * - Anthropic `sk-ant-test-…` and OpenAI `sk-test-…` keys work, unless one
+ *   of their `-`-separated segments is `bad` (refused everywhere, so they
+ *   can't be saved) or `revoked` (they pass the key check, then every model
+ *   call is refused with a 401, as a key revoked after it was saved would
+ *   be). Whole segments, so a random suffix can't spell either by chance.
+ * - OpenRouter accepts only keys its fake PKCE exchange has issued.
  *
  * Model calls stream a real answer in the vendor's own wire format, saying
  * who answered and echoing the last user message. A request carrying AI
@@ -19,22 +20,10 @@
  * code it would send back, bound to the challenge in the authorize URL.
  */
 
+import { decodeGrant, encodeGrant, s256 } from "./encoding.ts";
+
 const OPENROUTER_PREFIX = "orcode.";
-
-function base64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function fromBase64url(text: string): Uint8Array {
-  const padded = text.replace(/-/g, "+").replace(/_/g, "/");
-  return Uint8Array.from(atob(padded + "=".repeat((4 - (padded.length % 4)) % 4)), (char) => char.charCodeAt(0));
-}
-
-async function s256(verifier: string): Promise<string> {
-  return base64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
-}
+const OPENROUTER_KEY_PREFIX = "sk-or-v1-fake-";
 
 /** What OpenRouter's consent page sends back: a code bound to the authorize URL's challenge. */
 export type OpenRouterGrant = {
@@ -46,29 +35,29 @@ export type OpenRouterGrant = {
 };
 
 export function openRouterCode(grant: OpenRouterGrant): string {
-  return OPENROUTER_PREFIX + base64url(new TextEncoder().encode(JSON.stringify(grant)));
+  return encodeGrant(OPENROUTER_PREFIX, grant);
 }
 
 /** The key the fake exchange issues for a grant; tests compute it to look for leaks. */
 export function openRouterKeyFor(grant: Pick<OpenRouterGrant, "challenge">): string {
   // Digits only, so the key can never spell `bad` or `revoked` by chance.
-  return `sk-or-v1-fake-${[...grant.challenge.slice(0, 32)].map((char) => char.charCodeAt(0) % 10).join("")}`;
+  return `${OPENROUTER_KEY_PREFIX}${[...grant.challenge.slice(0, 32)].map((char) => char.charCodeAt(0) % 10).join("")}`;
 }
 
-function readGrant(code: unknown): OpenRouterGrant | null {
-  if (typeof code !== "string" || !code.startsWith(OPENROUTER_PREFIX)) return null;
-  try {
-    return JSON.parse(new TextDecoder().decode(fromBase64url(code.slice(OPENROUTER_PREFIX.length)))) as OpenRouterGrant;
-  } catch {
-    return null;
-  }
-}
+const readGrant = (code: unknown): OpenRouterGrant | null => decodeGrant<OpenRouterGrant>(OPENROUTER_PREFIX, code);
+
+/** Keys the fake OpenRouter exchange has issued: the only ones it accepts. */
+const issuedOpenRouterKeys = new Set<string>();
 
 type KeyState = "ok" | "revoked" | "refused";
 
-function keyState(key: string | null, prefix: string): KeyState {
-  if (!key || !key.startsWith(prefix) || key.includes("bad")) return "refused";
-  return key.includes("revoked") ? "revoked" : "ok";
+/** A key's state from its `-`-separated segments: `bad` is refused, `revoked` passes the key check only. */
+export function keyState(key: string | null, prefix: string): KeyState {
+  if (!key || !key.startsWith(prefix)) return "refused";
+  if (prefix === OPENROUTER_KEY_PREFIX && !issuedOpenRouterKeys.has(key)) return "refused";
+  const segments = key.split("-");
+  if (segments.includes("bad")) return "refused";
+  return segments.includes("revoked") ? "revoked" : "ok";
 }
 
 function bearer(request: Request): string | null {
@@ -112,7 +101,7 @@ function anthropicStream(model: string, text: string): Response {
 
 async function anthropic(request: Request, url: URL, vendor: "anthropic" | "openrouter"): Promise<Response> {
   const key = vendor === "anthropic" ? request.headers.get("x-api-key") : (request.headers.get("x-api-key") ?? bearer(request));
-  const state = keyState(key, vendor === "anthropic" ? "sk-ant-test-" : "sk-or-v1-fake-");
+  const state = keyState(key, vendor === "anthropic" ? "sk-ant-test-" : OPENROUTER_KEY_PREFIX);
   if (state !== "ok") return UNAUTHORIZED_ANTHROPIC();
   const body = (await request.json().catch(() => ({}))) as { model?: string; messages?: unknown };
   const name = vendor === "anthropic" ? "fake Anthropic" : "fake OpenRouter";
@@ -158,10 +147,12 @@ async function openrouter(request: Request, url: URL): Promise<Response> {
     ) {
       return Response.json({ error: { message: "Invalid code" } }, { status: 403 });
     }
-    return Response.json({ key: openRouterKeyFor(grant), user_id: "user_fake" });
+    const key = openRouterKeyFor(grant);
+    issuedOpenRouterKeys.add(key);
+    return Response.json({ key, user_id: "user_fake" });
   }
   if (url.pathname === "/api/v1/key" && request.method === "GET") {
-    return keyState(bearer(request), "sk-or-v1-fake-") === "refused"
+    return keyState(bearer(request), OPENROUTER_KEY_PREFIX) === "refused"
       ? Response.json({ error: { message: "No auth credentials found", code: 401 } }, { status: 401 })
       : Response.json({ data: { label: "fake", limit: 5, usage: 0 } });
   }

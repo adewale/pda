@@ -1,5 +1,5 @@
 import { ConfigError } from "../config";
-import { base64url } from "./jwt";
+import { base64url, fromBase64url } from "../base64url";
 
 /**
  * Poppy state in the person's SQLite, beside Pi's `pi_*` tables. Session
@@ -216,11 +216,7 @@ export class Sealer {
   async openChecked(sealed: string, context: string): Promise<{ plaintext: string; current: boolean }> {
     const versioned = sealed.startsWith(SEALED_PREFIX);
     const body = versioned ? sealed.slice(SEALED_PREFIX.length) : sealed;
-    const padded = body.replace(/-/g, "+").replace(/_/g, "/");
-    const bytes: Uint8Array<ArrayBuffer> = Uint8Array.from(
-      atob(padded + "=".repeat((4 - (padded.length % 4)) % 4)),
-      (char) => char.charCodeAt(0)
-    );
+    const bytes = fromBase64url(body);
     const decrypt = async (key: Promise<CryptoKey>) =>
       new TextDecoder().decode(
         await crypto.subtle.decrypt(

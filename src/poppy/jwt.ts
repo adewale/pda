@@ -1,13 +1,10 @@
 import { calculateJwkThumbprint, exportJWK, SignJWT, type JWK } from "jose";
+import { base64url } from "../base64url";
 import type { SigningKey } from "./keys";
 
-const encoder = new TextEncoder();
+export { base64url };
 
-export function base64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
+const encoder = new TextEncoder();
 
 /** A random id: `prefix` + base64url of `bytes` random bytes (128 bits by default). */
 export function randomId(prefix = "", bytes = 16): string {

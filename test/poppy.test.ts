@@ -1,119 +1,21 @@
 import { env } from "cloudflare:workers";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { tokenHostAllowed } from "../src/poppy/discovery";
 import { assertPublicHost, fetchJson, PoppyFetchError, type Fetcher } from "../src/poppy/fetch";
-import { agentNameFor, createSession } from "../src/session";
-import { hostsFor, type MockCompany, type MockConfig, type MockRequest } from "./mock-company";
+import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
+import type { MockConfig } from "./mock-company";
 import worker from "./worker";
-import type { PersonalAgent } from "./worker";
 
 /**
  * Conformance tests: the Personal Agent against a strict mock Company. Each
  * `describe` is a section of Personal Agent Protocol Draft 0.1 or the
  * Operations extension. After every test, every mock it created must have
- * recorded no violations, unless the test said which it expects.
+ * recorded no violations, unless the test said which it expects
+ * (`company()` and the check are in agent-helpers.ts).
  */
 
-type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
-const testEnv = env as TestEnv;
 const ORIGIN = "https://agent.test";
 
-type Company = {
-  readonly id: string;
-  readonly stub: DurableObjectStub<MockCompany>;
-  readonly domain: string;
-  readonly hosts: ReturnType<typeof hostsFor>;
-  /** This test breaks the protocol on purpose: exactly these violations, and no others. */
-  expectViolations(...patterns: RegExp[]): void;
-};
-
-/** Every mock Company the current test created, with the violations it expects. */
-const created: { company: Company; expected: RegExp[] }[] = [];
-
-/** Violations no pattern expects, and patterns no violation matched. */
-function compareViolations(violations: readonly string[], expected: readonly RegExp[]) {
-  return {
-    unexpected: violations.filter((violation) => !expected.some((pattern) => pattern.test(violation))),
-    missing: expected.filter((pattern) => !violations.some((violation) => pattern.test(violation))).map(String)
-  };
-}
-
-afterEach(async () => {
-  const mocks = created.splice(0);
-  for (const { company: c, expected } of mocks) {
-    const violations = (await c.stub.state()).violations;
-    expect(compareViolations(violations, expected), `violations at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
-  }
-});
-
-async function company(config: Partial<MockConfig> = {}): Promise<Company> {
-  const id = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-  const stub = testEnv.MOCK_COMPANY.getByName(id);
-  await stub.configure({ deviceInterval: 1, ...config });
-  const entry = { company: undefined as unknown as Company, expected: [] as RegExp[] };
-  entry.company = {
-    id,
-    stub,
-    domain: `${id}.shop.test`,
-    hosts: hostsFor(id, { issuerTrailingSlash: config.issuerTrailingSlash ?? false }),
-    expectViolations: (...patterns) => entry.expected.push(...patterns)
-  };
-  created.push(entry);
-  return entry.company;
-}
-
-async function agent() {
-  const identity = { provider: "google" as const, sub: `u${crypto.randomUUID()}`, email: "person@workspace.example", domain: "workspace.example" };
-  const stub = testEnv.PersonalAgent.getByName(await agentNameFor(identity)) as unknown as DurableObjectStub<PersonalAgent>;
-  // Who the agent belongs to, as the Worker records on every request: on the demo, so notices reach the model.
-  await stub.recordIdentity(identity);
-  const cookie = (await createSession(identity, env.SESSION_SECRET)).split(";")[0]!;
-  return { stub, cookie };
-}
-
-type Agent = Awaited<ReturnType<typeof agent>>;
-
-/** Poll for a card (or anything else a test reads back); notices have `poppyWaitForNotice`. */
-async function until<T>(check: () => Promise<T | undefined | false>, timeoutMs = 15_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const value = await check();
-    if (value) return value;
-    if (Date.now() > deadline) throw new Error("Condition never held");
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-
-async function tool(a: Agent, name: string, args: Record<string, unknown>, callId?: string) {
-  return a.stub.poppyTool(name, args, callId);
-}
-
-async function cards(a: Agent): Promise<Array<Record<string, any>>> {
-  return JSON.parse(await a.stub.poppyCards());
-}
-
-async function requests(c: Company): Promise<MockRequest[]> {
-  return (await c.stub.state()).requests;
-}
-
-/** Direct Sign-In end to end: the test plays the User on the Company's page. */
-async function signInDirect(
-  a: Agent,
-  c: Company,
-  scopes = ["poppy:read", "poppy:write"],
-  decision: { approve?: boolean; scopes?: string[]; account?: string } = {},
-  /** More `poppy_sign_in` arguments: `session`, `account`. */
-  args: Record<string, unknown> = {}
-) {
-  const started = await tool(a, "poppy_sign_in", { domain: c.domain, scopes, reason: "To look at your orders", ...args });
-  expect(started.isError).toBe(false);
-  if (started.text.includes("signed in with access")) return null;
-  const card = (await cards(a)).find((item) => item.kind === "signin_link" && item.open);
-  expect(card).toBeDefined();
-  const location = await c.stub.approveAuthorization(card!.url, { approve: decision.approve ?? true, account: decision.account ?? "acct_ada", ...(decision.scopes ? { scopes: decision.scopes } : {}) });
-  const callback = await worker.fetch(new Request(location, { headers: { Cookie: a.cookie } }), env);
-  return { callback, location, text: await callback.text() };
-}
 
 /**
  * Readings of questions the draft leaves open (docs/spec-issues.md). Sign-in,

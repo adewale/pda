@@ -1,61 +1,24 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { ActivityEntry, ActivityTask, PoppyServerFrame } from "../src/poppy/wire";
-import { agentNameFor, createSession } from "../src/session";
-import { hostsFor, type MockCompany, type MockConfig } from "./mock-company";
+import { agent, cards, company, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
 import worker from "./worker";
-import type { PersonalAgent } from "./worker";
 
 /**
  * The page's Activity view (`poppy.activity`): what the agent is doing and
  * has done at Companies, built from its own records. It reaches the page on
  * connect and whenever it changes, it outlives the cards' hour, and it never
- * carries a token, code, credential or sign-in secret. Every test against
- * the mock Company also asserts the mock saw no violations.
+ * carries a token, code, credential or sign-in secret. Every mock Company a
+ * test creates must record no violations (checked after each test, in
+ * agent-helpers.ts).
  */
 
-type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
-const testEnv = env as TestEnv;
 const ORIGIN = "https://agent.test";
 type Activity = Extract<PoppyServerFrame, { type: "poppy.activity" }>;
 
-async function company(config: Partial<MockConfig> = {}) {
-  const id = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-  const stub = testEnv.MOCK_COMPANY.getByName(id);
-  await stub.configure({ deviceInterval: 1, ...config });
-  return { id, stub, domain: `${id}.shop.test`, hosts: hostsFor(id) };
-}
-
-async function agent() {
-  const identity = { provider: "google" as const, sub: `u${crypto.randomUUID()}`, email: "person@workspace.example", domain: "workspace.example" };
-  const stub = testEnv.PersonalAgent.getByName(await agentNameFor(identity)) as unknown as DurableObjectStub<PersonalAgent>;
-  // Who the agent belongs to, as the Worker records on every request: on the demo, so notices reach the model.
-  await stub.recordIdentity(identity);
-  const cookie = (await createSession(identity, env.SESSION_SECRET)).split(";")[0]!;
-  return { stub, cookie };
-}
-
-type Agent = Awaited<ReturnType<typeof agent>>;
-type Company = Awaited<ReturnType<typeof company>>;
-
-async function until<T>(check: () => Promise<T | undefined | false> | T | undefined | false, timeoutMs = 15_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const value = await check();
-    if (value) return value;
-    if (Date.now() > deadline) throw new Error("Condition never held");
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-}
-
-const tool = (a: Agent, name: string, args: Record<string, unknown>) => a.stub.poppyTool(name, args);
-
-async function cards(a: Agent): Promise<Array<Record<string, any>>> {
-  return JSON.parse(await a.stub.poppyCards());
-}
-
-async function noViolations(c: Company) {
-  expect((await c.stub.state()).violations).toEqual([]);
+/** Direct Sign-In, the test playing the User on the Company's page. */
+async function signIn(a: Agent, c: Company) {
+  expect((await signInDirect(a, c))?.callback.status).toBe(200);
 }
 
 /** The chat page: one WebSocket that says hello with `poppy.context` and keeps every `poppy.activity`. */
@@ -84,16 +47,6 @@ async function page(a: Agent) {
     /** Waits for an activity frame, sent after `after` frames, that passes `check`. */
     next: (check: (frame: Activity) => boolean, after = 0) => until(() => frames.slice(after).find(check))
   };
-}
-
-/** Direct Sign-In end to end: the test plays the User on the Company's page. */
-async function signInDirect(a: Agent, c: Company, scopes = ["poppy:read", "poppy:write"]) {
-  const started = await tool(a, "poppy_sign_in", { domain: c.domain, scopes, reason: "To look at your orders" });
-  expect(started.isError).toBe(false);
-  const card = (await cards(a)).find((item) => item.kind === "signin_link" && item.open)!;
-  const location = await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_ada" });
-  const callback = await worker.fetch(new Request(location, { headers: { Cookie: a.cookie } }), env);
-  expect(callback.status).toBe(200);
 }
 
 const exchange = {
@@ -129,7 +82,7 @@ describe("poppy.activity", () => {
   it("logs a sign-in, a conversation and a message, and never a token, secret or Session id", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c);
+    await signIn(a, c);
     const sent = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "Where is my order?" })).text);
     const p = await page(a);
     const { log, inProgress } = p.latest();
@@ -155,7 +108,6 @@ describe("poppy.activity", () => {
     for (const secret of await secrets(a)) expect(text).not.toContain(secret);
     expect(text).not.toMatch(/"(token|secret|state_hash|session_id|device_code|code_verifier|password)"/);
     p.socket.close();
-    await noViolations(c);
   });
 
   it("shows a device sign-in in progress, with its expiry and a cancel frame, but never its codes", async () => {
@@ -179,13 +131,12 @@ describe("poppy.activity", () => {
     const after = await p.next((frame) => !frame.inProgress.some((item) => item.kind === "device_sign_in"), before);
     expect(find(after.log, "sign_in")).toMatchObject({ result: "failed" });
     p.socket.close();
-    await noViolations(c);
   });
 
   it("records who approved an operation, in the Company's words, after its card is gone", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c);
+    await signIn(a, c);
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
     const card = (await cards(a)).find((item) => item.kind === "operation")!;
     const p = await page(a);
@@ -213,25 +164,23 @@ describe("poppy.activity", () => {
     const later = await p.next(() => true, count);
     expect(find(later.log, "operation")).toMatchObject({ result: "done", decidedBy: "you", quote: card.summary });
     p.socket.close();
-    await noViolations(c);
   });
 
   it("says when a standing permission decided", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c);
+    await signIn(a, c);
     await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD", maxUses: 1 });
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
     const p = await page(a);
     expect(find(p.latest().log, "operation")).toMatchObject({ decidedBy: "standing_permission", result: "done" });
     p.socket.close();
-    await noViolations(c);
   });
 
   it("logs a local approval with how it would act, and leaves an approved API call's response out", async () => {
     const c = await company({ operations: false });
     const a = await agent();
-    await signInDirect(a, c);
+    await signIn(a, c);
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
     const card = (await cards(a)).find((item) => item.kind === "approval")!;
     const p = await page(a);
@@ -242,6 +191,5 @@ describe("poppy.activity", () => {
     expect(find(done.log, "approval")!.decidedBy).toBe("you");
     expect(find(done.log, "approval")!.outcome).toBeUndefined();
     p.socket.close();
-    await noViolations(c);
   });
 });

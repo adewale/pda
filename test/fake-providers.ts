@@ -7,12 +7,15 @@
  * the browser and the provider's consent page: it reads `client_id`,
  * `redirect_uri` and `code_challenge` from the Worker's redirect and turns
  * them, with the person who consents, into a code with `grantCode()`. The
- * code carries the whole grant, so the fake needs no shared state, and the
- * token endpoint checks what a real one does: the client secret, the
- * redirect URI, and that the PKCE verifier hashes to the code's challenge.
+ * code carries the whole grant, and the token endpoint checks what a real
+ * one does: the client secret, the redirect URI, that the PKCE verifier
+ * hashes to the code's challenge, and that the code hasn't been redeemed
+ * before. GitHub's answers JSON only when asked to (`Accept`), as GitHub's
+ * does; otherwise it answers form-encoded.
  */
 
 import { SignJWT } from "jose";
+import { decodeGrant, encodeGrant, s256 } from "./encoding.ts";
 import { fakeModels } from "./fake-models.ts";
 
 /** Must match test/wrangler.jsonc. */
@@ -46,40 +49,20 @@ export type Grant = {
 
 const PREFIX = "grant.";
 
-function base64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function fromBase64url(text: string): Uint8Array {
-  const padded = text.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
-
 /** The authorization code the provider would send back for this grant. */
 export function grantCode(grant: Grant): string {
-  return PREFIX + base64url(new TextEncoder().encode(JSON.stringify(grant)));
+  return encodeGrant(PREFIX, grant);
 }
 
-function readGrant(code: string | null): Grant | null {
-  if (!code?.startsWith(PREFIX)) return null;
-  try {
-    return JSON.parse(new TextDecoder().decode(fromBase64url(code.slice(PREFIX.length)))) as Grant;
-  } catch {
-    return null;
-  }
-}
+const readGrant = (code: string | null): Grant | null => decodeGrant<Grant>(PREFIX, code);
 
-async function s256(verifier: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-  return base64url(new Uint8Array(digest));
-}
+/** Codes already exchanged for tokens: a code works once, at Google and GitHub alike. */
+const redeemed = new Set<string>();
 
 /** The grant behind a token request, if the request proves everything a real provider checks. */
 async function redeem(form: URLSearchParams, client: { id: string; secret: string }): Promise<Grant | null> {
-  const grant = readGrant(form.get("code"));
+  const code = form.get("code");
+  const grant = readGrant(code);
   const verifier = form.get("code_verifier");
   if (
     !grant ||
@@ -89,11 +72,19 @@ async function redeem(form: URLSearchParams, client: { id: string; secret: strin
     form.get("redirect_uri") !== grant.redirectUri ||
     grant.challengeMethod !== "S256" ||
     !verifier ||
-    (await s256(verifier)) !== grant.challenge
+    (await s256(verifier)) !== grant.challenge ||
+    redeemed.has(code!)
   ) {
     return null;
   }
+  redeemed.add(code!);
   return grant;
+}
+
+/** GitHub's token endpoint answers form-encoded unless the request Accepts JSON. */
+function githubTokenResponse(request: Request, body: Record<string, string>): Response {
+  if (/\bapplication\/json\b/i.test(request.headers.get("Accept") ?? "")) return Response.json(body);
+  return new Response(new URLSearchParams(body).toString(), { headers: { "Content-Type": "application/x-www-form-urlencoded; charset=utf-8" } });
 }
 
 /** Signs the fake Google ID tokens; the Worker does not check this signature. */
@@ -155,8 +146,8 @@ export async function fakeProviders(request: Request): Promise<Response> {
   if (request.method === "POST" && url.href === "https://github.com/login/oauth/access_token") {
     const grant = await redeem(new URLSearchParams(await request.text()), GITHUB_CLIENT);
     // GitHub reports a bad code as a 200 with an `error` field.
-    if (!grant) return Response.json({ error: "bad_verification_code" });
-    return Response.json({ access_token: `tok.${grantCode(grant)}` });
+    if (!grant) return githubTokenResponse(request, { error: "bad_verification_code" });
+    return githubTokenResponse(request, { access_token: `tok.${grantCode(grant)}`, token_type: "bearer", scope: "user:email" });
   }
   if (url.origin === "https://api.github.com") {
     const token = (request.headers.get("Authorization") ?? "").replace(/^Bearer tok\./, "");

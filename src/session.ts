@@ -1,3 +1,4 @@
+import { base64url, fromBase64url } from "./base64url";
 import type { Provider } from "./config";
 
 /** A request without a valid session. */
@@ -24,18 +25,6 @@ export const SESSION_COOKIE = "__Host-session";
 export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const encoder = new TextEncoder();
-
-function base64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function fromBase64url(text: string): Uint8Array<ArrayBuffer> {
-  const padded = text.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
 
 async function hmacKey(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey(

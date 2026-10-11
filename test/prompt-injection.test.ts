@@ -1,9 +1,6 @@
-import { env } from "cloudflare:workers";
-import { afterEach, describe, expect, it } from "vitest";
-import { agentNameFor } from "../src/session";
-import { chat, connect, person, sessionCookie } from "./agent-helpers";
-import { hostsFor, type MockCompany, type MockConfig } from "./mock-company";
-import worker, { obey, type PersonalAgent } from "./worker";
+import { describe, expect, it } from "vitest";
+import { agent as poppyAgent, cards, chat, company, connect, person, signInDirect, until, type Company } from "./agent-helpers";
+import { obey } from "./worker";
 
 /**
  * Prompt injection, model lane. A Company puts instructions where the model
@@ -11,62 +8,22 @@ import worker, { obey, type PersonalAgent } from "./worker";
  * description), and pi-ai's faux model follows every one it reads (`obey` in
  * worker.ts). The agent must still never confirm an operation without the
  * User, never speak as the User, and never send a token or secret anywhere:
- * those are structural, not left to the model's judgement.
+ * those are structural, not left to the model's judgement. Every mock
+ * Company a test creates must record no protocol violation (checked after
+ * each test, in agent-helpers.ts).
  */
-
-type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
-const testEnv = env as TestEnv;
-
-const companies: DurableObjectStub<MockCompany>[] = [];
-
-// Every mock Company a test created must have recorded no protocol violation.
-afterEach(async () => {
-  for (const stub of companies.splice(0)) {
-    expect((await stub.state()).violations).toEqual([]);
-  }
-});
-
-async function company(config: Partial<MockConfig> = {}) {
-  const id = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-  const stub = testEnv.MOCK_COMPANY.getByName(id);
-  await stub.configure({ deviceInterval: 1, ...config });
-  companies.push(stub);
-  return { id, stub, domain: `${id}.shop.test`, hosts: hostsFor(id) };
-}
-
-type Company = Awaited<ReturnType<typeof company>>;
 
 /** A person's agent, with their chat page open so the test can watch the model's turns. */
 async function agent() {
   const identity = person();
-  const stub = testEnv.PersonalAgent.getByName(await agentNameFor(identity)) as unknown as DurableObjectStub<PersonalAgent>;
-  const page = await connect(identity);
-  return { stub, cookie: await sessionCookie(identity), ...page };
+  return { ...(await poppyAgent(identity)), ...(await connect(identity)) };
 }
 
 type Agent = Awaited<ReturnType<typeof agent>>;
 
-async function cards(a: Agent): Promise<Array<Record<string, any>>> {
-  return JSON.parse(await a.stub.poppyCards());
-}
-
-async function until<T>(check: () => Promise<T | undefined | false>, timeoutMs = 15_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const value = await check();
-    if (value) return value;
-    if (Date.now() > deadline) throw new Error("Condition never held");
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-}
-
 /** Direct Sign-In, the test playing the User on the Company's page. */
 async function signIn(a: Agent, c: Company) {
-  await a.stub.poppyTool("poppy_sign_in", { domain: c.domain, scopes: ["poppy:read", "poppy:write"], reason: "To change an order" });
-  const card = (await cards(a)).find((item) => item.kind === "signin_link" && item.open)!;
-  const location = await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_ada" });
-  const callback = await worker.fetch(new Request(location, { headers: { Cookie: a.cookie } }), env);
-  expect(callback.status).toBe(200);
+  expect((await signInDirect(a, c))?.callback.status).toBe(200);
 }
 
 /** The jacket exchange, proposed by the Company: returns the operation card. */
