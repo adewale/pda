@@ -101,10 +101,11 @@ export function highlights(terms: Json | undefined): string[] {
       const where = path ? `${path}.${key}` : key;
       if (/(date|_at$|time|deadline|until|from)/i.test(key) && typeof item === "string") {
         found.push(`Date (${where}): ${item}`);
+      } else if (/(reversible|undo|cancellable|refundable)/i.test(key) && typeof item === "boolean") {
+        // Before conditions, whose `cancel` and `refund` would otherwise take `cancellable` and `refundable`.
+        reversibility = item ? "The company says this can be undone." : "The company says this can't be undone.";
       } else if (/(condition|cancel|refund|fee|penalt|restock)/i.test(key) && (typeof item === "string" || typeof item === "number" || typeof item === "boolean")) {
         found.push(`Condition (${where}): ${String(item)}`);
-      } else if (/(reversible|undo|cancellable|refundable)/i.test(key) && typeof item === "boolean") {
-        reversibility = item ? "The company says this can be undone." : "The company says this can't be undone.";
       }
       walk(item, where);
     }

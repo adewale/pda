@@ -465,24 +465,98 @@ describe("Poppy endpoints never reached through an API tool (Ops 5.1, 7.8)", () 
   );
 });
 
+/** The words that make a boolean term the Company's word on undoing the action, as `highlights` documents them. */
+const REVERSIBILITY = /(reversible|undo|cancellable|refundable)/i;
+const reversibilityKeys = gs.sampledFrom(["reversible", "undo", "cancellable", "refundable", "Reversible", "UNDO", "is_reversible", "can_undo", "cancellable_until", "refundable_items"]);
+
+/** Keys an operation's terms use, and any other text. */
+const termKeys = gs.oneOf(
+  gs.sampledFrom(["amount", "currency", "price", "total", "items", "delivery", "date", "expires_at", "condition", "restocking_fee", "reversible", "refundable", "cancellable", "undo"]),
+  gs.text({ maxSize: 12 })
+);
+/** Keys that never name a reversibility flag. */
+const silentKeys = termKeys.filter((key) => !REVERSIBILITY.test(key));
+
+/** Money as terms carry it: an amount (any number or string), maybe a currency (or something that isn't one), maybe more. */
+const money = gs.composite((tc) => {
+  const value: Record<string, Json> = {
+    amount: tc.draw(gs.oneOf<Json>(gs.floats({ allowNan: false, allowInfinity: false }), gs.integers({ minValue: Number.MIN_SAFE_INTEGER, maxValue: Number.MAX_SAFE_INTEGER }), gs.text()))
+  };
+  if (tc.draw(gs.booleans())) value.currency = tc.draw(gs.oneOf<Json>(gs.sampledFrom(["GBP", "EUR", "USD"]), gs.text(), jsonValues(0)));
+  for (const [key, item] of tc.draw(gs.maps(termKeys, jsonValues(1), { maxSize: 2 }))) if (key !== "amount" && key !== "currency") value[key] = item;
+  return value as Json;
+});
+
+/** Terms in the shapes Companies send, money included, with member names from `keys`; `depth` bounds the value where it is built. */
+function termsOf(keys: gs.Generator<string>, depth = 4): gs.Generator<Json> {
+  const leaf = gs.oneOf<Json>(jsonValues(0), money);
+  if (depth === 0) return leaf;
+  const inner = termsOf(keys, depth - 1);
+  return gs.oneOf<Json>(leaf, gs.arrays(inner, { maxSize: 4 }), gs.maps(keys, inner, { maxSize: 4 }).map((map) => Object.fromEntries(map)));
+}
+
+/** Where in terms something sits: member names (none an amount or a reversibility flag) and array indices. */
+const termPaths = gs.arrays(gs.oneOf<string | number>(silentKeys.filter((key) => key !== "amount"), gs.integers({ minValue: 0, maxValue: 3 })), { maxSize: 4 });
+
+/** `value` at `path`: inside objects with that member, and arrays with it at that index (earlier items null). */
+function placed(path: readonly (string | number)[], value: Json): Json {
+  return path.reduceRight<Json>((inner, segment) => (typeof segment === "number" ? [...Array<Json>(segment).fill(null), inner] : { [segment]: inner }), value);
+}
+
+/** How a card names a place in terms: `a.b[0].c`, or `amount` for the terms themselves. */
+function where(path: readonly (string | number)[]): string {
+  return path.reduce<string>((at, segment) => (typeof segment === "number" ? `${at}[${segment}]` : at ? `${at}.${segment}` : segment), "") || "amount";
+}
+
+function costLine(path: readonly (string | number)[], value: { readonly amount?: Json; readonly currency?: Json }): string {
+  return `Cost (${where(path)}): ${String(value.amount)}${typeof value.currency === "string" ? ` ${value.currency}` : ""}`;
+}
+
+const UNDONE = { true: "The company says this can be undone.", false: "The company says this can't be undone." } as const;
+const UNSAID = "The company hasn't said whether this can be undone.";
+
 describe("operation highlights (Guides, Operations)", () => {
   it(
-    "names every cost in terms, and ends by saying whether the action can be undone, for any terms",
+    "names an amount, wherever it sits, as `Cost (<where>): <amount> <currency>`",
     property((tc) => {
-      const terms = tc.draw(jsonValues(4));
-      const found = highlights(terms);
-      expect(found.at(-1)).toMatch(/undone/);
-      const amounts: string[] = [];
-      const walk = (value: unknown) => {
-        if (Array.isArray(value)) value.forEach(walk);
-        else if (typeof value === "object" && value !== null) {
-          const record = value as Record<string, unknown>;
-          if (typeof record.amount === "string" || typeof record.amount === "number") amounts.push(String(record.amount));
-          else Object.values(record).forEach(walk);
-        }
+      const path = tc.draw(termPaths);
+      const value = tc.draw(money) as Record<string, Json>;
+      expect(highlights(placed(path, value)).filter((line) => line.startsWith("Cost ("))).toEqual([costLine(path, value)]);
+    })
+  );
+
+  it(
+    "names every amount in any terms, in order, and nothing inside an amount's own object",
+    property((tc) => {
+      const value = tc.draw(termsOf(termKeys));
+      const costs = (at: Json, path: (string | number)[]): string[] => {
+        if (Array.isArray(at)) return at.flatMap((item, index) => costs(item, [...path, index]));
+        if (at === null || typeof at !== "object") return [];
+        if (typeof at.amount === "number" || typeof at.amount === "string") return [costLine(path, at)];
+        return Object.entries(at).flatMap(([key, item]) => costs(item, [...path, key]));
       };
-      walk(terms);
-      expect(found.filter((line) => line.startsWith("Cost (")).length).toBe(amounts.length);
+      expect(highlights(value).filter((line) => line.startsWith("Cost ("))).toEqual(costs(value, []));
+    })
+  );
+
+  it(
+    "ends by saying, in those words, that the action can or can't be undone, when a flag anywhere in terms says which",
+    property((tc) => {
+      const around = tc.draw(termsOf(silentKeys));
+      const key = tc.draw(reversibilityKeys);
+      const reversible = tc.draw(gs.booleans());
+      // The flag sits among other terms (not in money's own object, which says only what it costs), anywhere in them.
+      const others = around !== null && typeof around === "object" && !Array.isArray(around) ? Object.fromEntries(Object.entries(around).filter(([name]) => name !== "amount")) : { other: around };
+      const value = placed(tc.draw(termPaths), { ...others, [key]: reversible });
+      expect(highlights(value).at(-1)).toBe(UNDONE[`${reversible}`]);
+    })
+  );
+
+  it(
+    "ends by saying the company hasn't said whether the action can be undone, when terms carry no such flag",
+    property((tc) => {
+      const value = tc.draw(gs.optional(termsOf(silentKeys)));
+      expect(highlights(value ?? undefined).at(-1)).toBe(UNSAID);
     })
   );
 });
