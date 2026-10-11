@@ -141,7 +141,13 @@ export type Cell = {
   known?: { readonly issue: string; readonly reason?: string };
   /** An adversarial cell (an adversarial side, or a proxy `faults` list): shown in the security grid, never in interop pass rates (spec §9). */
   security?: boolean;
+  /** Failed or errored, then passed when run again: recorded as a pass, never a known failure. */
+  flaky?: boolean;
+  /** Each run of a cell that was run again, in order; the cell itself is the last. */
+  attempts?: Attempt[];
 };
+
+export type Attempt = { readonly outcome: Outcome; readonly reason?: string; readonly har: string | null };
 
 export type KnownFailure = {
   readonly agent: string;

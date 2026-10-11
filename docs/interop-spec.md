@@ -55,6 +55,8 @@ Every cell runs on a private network with one recording proxy.
 - **Environment.** The runner sets `INTEROP_SECRET`, `INTEROP_NAME`, `INTEROP_ROLE`, `INTEROP_DOMAIN` (`x.company.interop.test` or `y.agent.interop.test`), `INTEROP_ORIGIN` (`https://` and the domain) and `INTEROP_COMMIT`, then the registry's `env` and any `--set name:KEY=VALUE` given to the runner.
 - **Recording.** The proxy writes every exchange, request and response in full, to a HAR file per cell. Nothing is redacted: every key and token is generated for the run.
 - **Fault injection.** A scenario's `faults` list (section 6) makes the proxy the network adversary. Each fault is `{match, action}`, where `match` is `{host?, path?, method?, direction?, nth?}` and `action` is one of `replay` (resend an honest request verbatim, later), `duplicate` (forward the request twice), `drop_response` (forward it, then drop the answer to the client), `delay` (`{ms}`, hold the request), `truncate` (`{bytes}`, cut the answer), `reset` (reset the client connection) and `status` (`{status}`, answer another status). An exchange the proxy created or altered is marked `_interop.injected`/`_interop.fault` in the HAR; the checks skip injected exchanges, so an injected request is never blamed on an honest side.
+- **Labels and cleanup.** Every container, network and volume the runner creates carries the label `interop.run=<tag>`, the run's random tag. On exit, on error and on SIGINT or SIGTERM it removes exactly those (containers with their anonymous volumes), unless `--keep`. It never removes images, which runs reuse, never touches the build cache, and never removes anything without its own run's label.
+- **Disk.** Before it starts, the runner runs `df -Pk /` in a short-lived container of the proxy image (its root is the overlay on Docker's data disk) and refuses to start with less free than `--min-free-gb` (2 GB by default). A first run, before the proxy image exists, skips the check.
 - **Interop-only settings.** An implementation MAY need to allow `*.interop.test` names, a private CA or a peer it doesn't know. Each such relaxation MUST be a setting that is off by default, and the adapter MUST name it in its manifest (`relaxations`).
 
 ## 4. Manifest
@@ -176,7 +178,7 @@ A scenario is a JSON file in `interop/scenarios/`:
 - **Adversarial fields:** `"adversary": "company" | "agent" | "network"` marks the side that misbehaves (`network` is the fault-injection proxy). `"faults"` is the proxy's fault list (section 3). `"permitted_by": "N10"` names a draft requirement that permits the attack, so a failure is the spec's, not the honest side's (section 9, rule 0). An `arm` step (an agent or Company op) arms the attack before it is sprung.
 - A step whose operation the adapter answers 501 ends the cell as `unsupported`, unless the step is `"optional": true`.
 - `"when": "${name.path}"` runs a step only when the reference names something other than null or false; otherwise the step is recorded as skipped. It is for steps one side's design needs and another's doesn't (approving a held write, section 5.2).
-- `readings` lists the section 7 questions the scenario depends on, for attribution rule 3; `live: true` marks scenarios the live lane may run.
+- `readings` lists the section 7 questions the scenario depends on, which attribution rule 3 considers when the trace shows one of them mattered; `live: true` marks scenarios the live lane may run.
 
 ## 7. Readings
 
@@ -190,6 +192,8 @@ The open questions whose answers change the wire format. An adapter declares its
 | S4 | `scope` on a signed-out Session request | `omit`, `poppy-read`, `either` |
 | S23 | DPoP nonce scope | `per-origin`, `per-company` |
 
+Our own adapters' readings, and why we chose them, are in [readings.md](readings.md).
+
 ## 8. Checks
 
 After each cell the runner checks the recording, independently of either side's opinion.
@@ -199,7 +203,7 @@ After each cell the runner checks the recording, independently of either side's 
 - Company-side checks, prefixed `company.`: `WWW-Authenticate` on 401, `Retry-After` on 429, OAuth error bodies, `iss` on authorization responses, cursor and SSE shapes.
 
 - An agent's declared readings of S1, S2 and S4, checked against what it sent, as `reading.<id>` warnings. S1 is checked at every endpoint a client assertion goes to (token, device authorization, revocation). The runner finds server metadata wherever either S3 reading puts it (inserted before an issuer's path or appended after it).
-- Refusals a Company's declared readings explain, as `reading.<id>.refused` warnings: an OAuth request answered `invalid_client` or `invalid_grant` that carried a client assertion `aud` other than the one the Company's S1 reading wants at that endpoint, or, when the Company reads S2 `jwt-60s`, an assertion without `typ: "JWT"` or living over 60 s. They judge neither side; attribution reads them (section 9).
+- Refusals a Company's declared readings explain, as `reading.<id>.refused` warnings: an OAuth request answered `invalid_client` or `invalid_grant` that carried a client assertion `aud` other than the one the Company's S1 reading wants at that endpoint, or, when the Company reads S2 `jwt-60s`, an assertion without `typ: "JWT"` or living over 60 s. They judge neither side; attribution reads them as the evidence rule 3 needs (section 9).
 
 Each check reports `{id, side, severity: "error" | "warning", exchange, detail, source}`. A MUST broken is an error; what the draft leaves open but strict Companies enforce (assertion `typ` and a 60-second lifetime, S2) is a warning, so a lenient pair isn't failed for it.
 
@@ -221,15 +225,20 @@ A run writes `interop/results/<run>/results.json`:
       "rule": "violation" | "grid" | "reading" | "unattributed" | null,
       "steps": [{ "actor", "op", "ms", "ok", "error"? }],
       "checks": [...],
-      "har": "SD/dpa__dpa-mock.har"
+      "har": "SD/dpa__dpa-mock.har",
+      "flaky": true,
+      "attempts": [{ "outcome", "reason"?, "har" }]
     }
-  ]
+  ],
+  "flaky": [{ "agent", "company", "scenario" }],
+  "staleKnown": [{ "agent", "company", "scenario", "issue", "reason" }]
 }
 ```
 
 - `pass`: every step and expectation held and no check reported an error. Warnings don't fail a cell.
 - `error`: the harness failed (a container didn't start, an adapter crashed); blame `harness`.
 - A cell also carries `reason` (why it didn't pass, and what decided its blame) and `known` (a known failure's issue). The run carries `lane`, and each implementation its manifest's `relaxations`.
+- **Retries.** A cell that fails or errors runs once more, after both adapters are reset again as for any cell (`--no-retry` turns this off; a cell whose implementation never started isn't retried). The cell records both runs in `attempts`, and the first run's HAR stays beside the second's (`SD/dpa__x.attempt2.har`). A cell that passes the second time is a pass with `flaky: true`: it is listed apart, in the console and the report, doesn't fail the run and never matches a known failure. One that fails again is recorded as its second run.
 
 A cell is a **security cell** when a side is an adversarial implementation, or its scenario names an `adversary` or a `faults` list. Security cells go in a separate security grid in the report, never count toward the interop pass rates, and never stand in as grid references (rule 2).
 
@@ -238,10 +247,10 @@ Attribution, applied in order, labels each failed cell with the rule that decide
 0. **adversarial (applied first, for a cell with an adversarial side):** the adversarial side's violations are expected, so they don't count against it. The cell **passes** when the honest side refuses (the expected `poppy_error`, or status 0 for the agent's own refusal) and no harm oracle fires. A failed cell is blamed on the honest side with rule `adversarial`, or on the `spec` (still rule `adversarial`) when the scenario names a `permitted_by` the draft hasn't closed. A Company's recorded violation of an injected or adversarial request is a warning, not an error. (A network-fault cell has no adversarial side and falls through to the rules below; it is still a security cell.)
 1. **violation:** checks found errors on one side only. A violation the Company recorded that is exactly a declared reading difference is not counted: a check that belongs to a section 7 question (S2: `client-assertion.typ`, `.kid`, `.lifetime` and the same for `session-assertion`; S1: `client-assertion.aud`) where the two sides' declared readings of that question are incompatible. A cell whose every error is such a check goes to rule 3 at once: a strict Company refusing a typ-less assertion from an agent that declared S2 `any` is the spec's open question, not the agent's mistake. An agent that declared `jwt-60s` and sent no `typ` broke its own reading, and rule 1 blames it. A cell with no one-sided errors whose trace has a `reading.<id>.refused` check (section 8) also goes to rule 3 at once when the two sides' readings of that question are incompatible: Companies don't record violations, but a device endpoint answering `invalid_client` to an `aud` its S1 reading doesn't accept, from an agent that declared another reading, is the same open question.
 2. **grid:** the same agent passes this scenario against the reference Company (`dpa-mock`, the mock with its S2-lenient settings; `dpa-mock-strict` is the same mock with strict assertions) but this Company fails it with every agent that ran it: blame the Company. Or this agent fails it with every Company it ran against, while this Company passes it with another agent: blame the agent. Unsupported and errored cells don't count.
-3. **reading:** the two sides declare incompatible readings of a question the scenario lists in `readings`, or that one of the cell's error checks belongs to (rule 1). Blame `spec`. Compatible means equal, or `either` on one side; for S2 a Company reading `jwt-60s` is incompatible only with an agent reading `any`, and for S23 a Company reading `per-origin` only with an agent reading `per-company`.
+3. **reading:** the two sides declare incompatible readings of a question the scenario lists in `readings`, or that one of the cell's error checks belongs to (rule 1), and the trace shows that question mattered: a `reading.<id>.refused` check (the Company refused what its reading doesn't accept) or a Company-recorded error of that question. Blame `spec`. Declarations that merely differ are not evidence: poppy-demo × dpa-mock fails D on poppy-demo's issuer-origin rule, though the two read S3 differently, and without evidence the cell goes on to rule 4. (A `reading.<id>` warning isn't evidence either: it says the agent sent something other than its own declared reading, so the declared difference wasn't what went over the wire.) Compatible means equal, or `either` on one side; for S2 a Company reading `jwt-60s` is incompatible only with an agent reading `any`, and for S23 a Company reading `per-origin` only with an agent reading `per-company`.
 4. **unattributed:** none of the above.
 
-A failed or errored cell listed in `interop/known-failures.json` (`{"version": 1, "failures": [{agent, company, scenario, issue, reason}]}`) is shown with its issue link and reason. Any of `agent`, `company` and `scenario` may be `"*"`, for any: one root cause is one entry (`{"agent": "pi-poppy", "company": "*", "scenario": "SE"}`). When several entries match a cell, the one with the fewest wildcards wins, then the first in the file. The runner exits 1 when any failed or errored cell isn't a known failure, and lists entries that matched no failed cell in what it ran, which are fixed or stale.
+A failed or errored cell listed in `interop/known-failures.json` (`{"version": 1, "failures": [{agent, company, scenario, issue, reason}]}`) is shown with its issue link and reason. Any of `agent`, `company` and `scenario` may be `"*"`, for any: one root cause is one entry (`{"agent": "pi-poppy", "company": "*", "scenario": "SE"}`). When several entries match a cell, the one with the fewest wildcards wins, then the first in the file. The runner exits 1 when any failed or errored cell isn't a known failure, or when a known failure is **stale**: it matched no failed or errored cell, though the run could judge it. A run judges an entry when each field it names matched a cell that ran and each `*` spans a dimension the run covered whole (every agent, every Company or every scenario of the lane), so a partial run (`--agents dpa --companies dpa-mock`, or `--scenarios D`) never flags an entry for cells it didn't run. A wildcard entry is stale only when no failed cell it covers is left, even where a more specific entry is the one attached to those cells. Stale entries are listed in the console, in `staleKnown` and in the report.
 
 The runner also writes `index.html`: the grid, one table per scenario with agents as rows and Companies as columns, each cell linking to its steps, checks and HAR.
 

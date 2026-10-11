@@ -116,7 +116,7 @@ Our harness assumes both sides are trying. To test refusals, add implementations
    - A failure is blamed on the honest side, with rule `adversarial`. If the scenario names `permitted_by` and the draft has no MUST against the attack, blame `spec` (N10 and N14 today).
 2. **Rule 2, grid,** ignores adversarial implementations, which are never reference cells. `dpa-mock` stays the honest reference.
 3. **Reporting.** Adversarial cells get their own page, the security grid, and never count toward interop pass rates.
-4. **Disclosure.** A failure there may be a vulnerability in someone's project. Tell its maintainers privately before the results are committed. A known failure can then link a private advisory or our spec issue.
+4. **Disclosure.** A failure there may be a vulnerability in someone's project. Tell its maintainers privately before the results are committed. A known failure can then link a private advisory or our spec issue. The full process, including the 90-day window, is in [`SECURITY.md`](../SECURITY.md#disclosing-what-interop-testing-finds-in-other-projects).
 
 #### Malicious Company scenarios
 
