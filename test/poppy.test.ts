@@ -106,7 +106,7 @@ async function signInDirect(a: Agent, c: Company, scopes = ["poppy:read", "poppy
 }
 
 /**
- * Readings of questions the draft leaves open (docs/poppy-issues.md). Sign-in,
+ * Readings of questions the draft leaves open (docs/spec-issues.md). Sign-in,
  * Sessions and DPoP, and signing out run under each, so a misreading our
  * client and our mock share can't pass by agreement.
  */

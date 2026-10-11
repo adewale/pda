@@ -10,7 +10,7 @@ The implementations themselves are listed in the [README](../README.md#other-imp
 
 ## Contents
 
-- [The specification](#the-specification)
+- [The specification](spec-issues.md)
 - [poppy-demo](#poppy-demo-irvinebroquepoppy-demo)
 - [Datalayer SDK](#datalayer-sdk-datalayerpersonal-agent-protocol)
 - [poppyseed](#poppyseed-akshay5995poppyseed)
@@ -22,33 +22,7 @@ The implementations themselves are listed in the [README](../README.md#other-imp
 
 ## The specification
 
-Each item says where the text is silent or ambiguous, how the implementations differ as a result, and what we do. Section numbers are the draft's.
-
-| # | Section | Issue | How implementations differ | What we do |
-| --- | --- | --- | --- | --- |
-| S1 | 4.1, 4.2 | **Client assertion `aud`** at the token, revocation and device endpoints is never stated. | Every implementation guesses "the exact endpoint called"; some also accept the issuer. | Exact endpoint. Tested under both readings. |
-| S2 | 4.2, Guides | **Assertion `typ` header and maximum lifetime** are unspecified. Only browser assertions get "no more than 60 seconds"; the Guides say "reject assertions that claim a long lifetime" without a number. | poppy-demo and Ilmer require `typ: "JWT"`, a `kid` and a lifetime of 60 s or less; others accept 300 s. | `typ: "JWT"`, `kid`, 60 s. |
-| S3 | 3.2, RFC 8414 §3.1 | **Metadata location for an issuer with a path.** RFC 8414 inserts the well-known segment before the path; the draft only shows a path-less issuer. | everruns appends (`{issuer}/.well-known/oauth-authorization-server`); others insert. The TYPO3 lab and authkit use path issuers and serve the inserted form. | Insert, per RFC 8414. Our own spec text said "append" until this review; fixed. |
-| S4 | 4.2 | **Signed-out `scope`.** "A signed-out token has none" conflicts with Companies that gate conversations on `poppy:read`. What `scope` means on the jwt-bearer grant is undefined. | Ilmer grants signed-out tokens `poppy:read poppy:write`; authkit, everruns and TYPO3 reject `scope` there with `invalid_scope`. | Never send `scope` on the jwt-bearer grant. Note 4.3 says "any token request MAY include scope", so rejecting it conflicts with 4.3. |
-| S5 | 4.2, 4.8 | **Renewing a signed-in Session with an assertion** has no defined error. | Datalayer's TypeScript Company keeps the Session signed in; authkit silently returns `signed_in: false`; poppy-demo returns `invalid_grant`. | Renew signed-in Sessions with the Account Token only. |
-| S6 | 4.1 | **"Same domain"** for `jwks_uri` and `redirect_uris` isn't defined (host? registrable domain? port?). Redirects on the `client_id` fetch aren't addressed. | Most read it as the exact host; authkit as host and port. Everyone refuses redirects on `client_id`. | Our validator accepts the same host or a parent/child host, and calls a redirect an error. |
-| S7 | 3.2 | **Issuer exactness vs. trailing slashes.** The draft says "exactly", but `https://a.example` and `https://a.example/` are different strings. | Datalayer's client strips a trailing slash before comparing, and uses the stripped value for the 4.5 `iss` check. | Exact string comparison. Tested under both readings. |
-| S8 | 7.3, 7.11 | **Retried messages after sign-out.** 7.3 says a retry returns "the original response"; 7.11 says an account conversation needs sign-in. They conflict when the retry comes after sign-out. | poppy-demo returns the original response, which can include account data. | n/a (Company side). We suggest 7.11 wins. |
-| S9 | 7.3 | **Message-id idempotency** doesn't say whether ids are per conversation, what happens to a retry while the first is in flight, or what "the original response" includes. | All different. | 128-bit ids, reused on retry. |
-| S10 | 7.5 | **Cursor on an empty read** with no cursor given isn't defined. | `null`, `""` and `start_<id>` all appear. | Cursors are opaque; we store only strings. |
-| S11 | 7.11 | **A `sign_in_required` event has no `scope`**, so the agent can't tell which scopes to request. | poppy-demo omits it. | Request the scopes the task needs. |
-| S12 | 7.10 | **Direct Conversations:** may the agent send `sender: "agent"` messages, such as context-only ones? Unsupported Direct Conversations come back as 400 `invalid_request`, 400 `direct_conversations_not_supported`, or `conversation_not_found`. | Three error shapes. | We report the Company's error to the model; nothing special yet. |
-| S13 | 6, 7.13 | **API errors for an ended Session.** Section 6 lists only `invalid_token`, `sign_in_required` and `insufficient_scope`. | poppy-demo returns 400 `invalid_session` with no `WWW-Authenticate`. | We now start a new Session on either signal (see below). |
-| S14 | 4.3 | **DPoP error status at resource servers** isn't stated (400 or 401?). | Mixed; some send no `WWW-Authenticate`. | We read `WWW-Authenticate` on 401 and 403, then the body's `error`. |
-| S15 | 7.9 | **The `queued` transition on handoff** is mandatory but impractical without a human queue. | No Company emits it reliably. | We treat `queued` as still in progress and keep reading in the background; nothing depends on it. |
-| S16 | 4.4 | **Approving zero scopes:** signed in with `scope: ""`, or `access_denied`? | Undefined. | Nothing special yet: we show the granted scopes. |
-| S17 | 7.2 | **"Belongs to that account":** can a different User ID signed in to the same account continue a conversation? | poppy-demo scopes everything by User ID. | n/a. |
-| S18 | 3.1 | **`web` has no URL**, and `web: {}` and `apis: []` have no stated meaning. `organization.name` is described ("display name and domain") but not said to be required. | Ilmer invents `web.url` and `organization.url`. | Our validator warns when `name` is missing and accepts `web: {}`. |
-| S19 | Guides | **Algorithms:** is ES256 required, or only preferred? | withpoppyseed.dev advertises RS256; others are ES256-only. | Sign with ES256. |
-| S20 | Ops 5.1 | **Standing permissions have no checkable action.** Operations have no standard action field, money has no direction, and an approval can't be proved to the Company. | SmokeSol and gmackie/attest raise the same points. | Match a summary word and `{ amount, currency }` objects. |
-| S21 | 4.1 | **Local agents.** An HTTPS `client_id` on the same domain as the redirect URIs rules out an agent on someone's laptop unless it has a hosted identity. | pi-poppy, poppyseed (dev flag) and Ilmer's tests use loopback `client_id`s. | Hosted identity. |
-| S22 | Ops 4 | **Which writes propose.** A Company may use operations for some actions and not others. | poppyseed marks proposing OpenAPI operations with `x-poppy-operation: true`. | We expect a proposal from any write at a Company with operations. |
-| S23 | Guides | **DPoP nonces "for that server":** per origin, or per Company? | Mixed. | Per origin. Tested under both readings. |
+The spec problems, including those the differences below expose, are in [spec-issues.md](spec-issues.md), by area, with suggested fixes. The S-numbers cited below refer to it.
 
 ## poppy-demo (irvinebroque/poppy-demo)
 
@@ -173,5 +147,7 @@ What the comparison found in our own client, and what we did.
 | Our mock flagged random User IDs containing "ada" as personal information (about 1 ID in 1,600), and a crash test reset every Durable Object in the shared test runtime, including other files' mock Companies. Both made tests flaky. | Fixed: the mock's check matches whole values; the crash test runs in its own runtime. |
 | Our mock required `token_type_hint` at revocation, which RFC 7009 makes optional. | Fixed: recorded, not required. We send `refresh_token`. |
 | No interop test against another implementation (Datalayer's `CompanyService`, pi-poppy's mock). | Open. The conformance tests now run under six readings of the draft's open questions, which covers part of the risk. |
-| Appendix A is maintained by hand, unlike Datalayer's checked ledger. | Open. |
+| Appendix A is maintained by hand, unlike Datalayer's checked ledger. | Partly fixed: `npm run check:docs` checks every test it names exists. |
+| The site crawl found requirements we don't meet or don't check: Retry-After isn't honoured on website pages (4.3); a read-only GET narrows to `poppy:read` even when it needs a custom scope; operations confirmed on a website (Ops 4.4) aren't tested; `resource` on non-MCP entries is never exercised; `extension_required` and `account_mismatch` have code but no test; Session Tokens go to any HTTPS host an OpenAPI description names (spec N10). | Open. |
+| The mock doesn't check: browser assertions' `alg`, embedded keys, `kid` and `iat`/`exp`; one DPoP key used for two User IDs; a one-time code from another Session; asking for a new proposal while one is open; a confirm without `revision`; later messages in a Direct Conversation. It never plays: token responses without `scope`, rotation with reuse detection, Companies with only custom scopes, SSE keep-alives. | Open. |
 | No test against a Company that ignores `wait` or never sends `queued`. | Open. |

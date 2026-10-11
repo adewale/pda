@@ -69,13 +69,13 @@ export type MockConfig = {
    * Check client and Session assertions the way the strictest live Companies
    * do (poppy-demo, Ilmer): header `typ` "JWT", a `kid` naming a published
    * key, and a lifetime of at most 60 seconds. The draft doesn't require
-   * these (docs/poppy-issues.md, S2), but agents that skip them can't sign in
+   * these (docs/spec-issues.md, S2), but agents that skip them can't sign in
    * at those Companies, so breaches are recorded as violations.
    */
   readonly strictAssertions: boolean;
   /**
    * What a client assertion's `aud` may be, which the draft never says
-   * (docs/poppy-issues.md, S1). "lenient" accepts the endpoint called, the
+   * (docs/spec-issues.md, S1). "lenient" accepts the endpoint called, the
    * token endpoint or the issuer; "exact" only the endpoint called.
    */
   readonly clientAssertionAud: "lenient" | "exact";
