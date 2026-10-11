@@ -1,0 +1,16 @@
+{
+  "id": "CDUP",
+  "title": "Duplicated conversation message (network fault)",
+  "requirements": ["7.3"],
+  "adversary": "network",
+  "faults": [{ "match": { "path": "/poppy/conversations$", "method": "POST", "direction": "to-company" }, "action": "duplicate" }],
+  "needs": { "agent": ["discover", "send", "read"] },
+  "steps": [
+    { "agent": "discover", "save": "d" },
+    { "expect": { "${d.conversations}": true } },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}" }, "save": "m" },
+    { "expect": { "${m.conversation}": { "$exists": true } } },
+    { "runner": "wait", "params": { "ms": 500 } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "injected": true, "path": "/poppy/conversations" } }
+  ]
+}

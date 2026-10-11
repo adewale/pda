@@ -1665,6 +1665,20 @@ const TAMPERS: readonly Tamper[] = [
       return call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${id}/close`, { body: { done: true } });
     }
   },
+  {
+    id: "conversation.cross-user",
+    what: "another User of the same agent reading a conversation",
+    detail: /^\[conversation\.cross-user\] User usr_Hd8pW2zQ5nVb7LtK3xRc9F reached conversation cnv_[\w-]+ of User usr_Q7c1vKx9TzLw3NdR5mHa2B$/,
+    run: async (c) => {
+      const a = await signedOut(c);
+      const id = await conversation(c, a);
+      // A second signed-out Session of the same agent, for a different User.
+      const bKey = await dpopKey();
+      const bResponse = await startSession(c, bKey, { assertion: await sessionAssertion(c, { claims: { sub: "usr_Hd8pW2zQ5nVb7LtK3xRc9F" } }) });
+      const b = { key: bKey, token: ((await bResponse.json()) as { access_token: string }).access_token, sessionId: "" };
+      return call(c, b, "GET", `${c.hosts.conversationsEndpoint}/${id}/events`);
+    }
+  },
 
   // ---- Operations extension ----
   {
@@ -1805,6 +1819,26 @@ describe("interop vectors", () => {
 });
 
 describe("the mock Company", () => {
+  it("checks conversation ownership before message-id idempotency on a signed-out retry (S8)", async () => {
+    // A signed-in User opens a conversation (owned by the account). A signed-out Session of the
+    // same User then retries the first message id. The idempotency cache would hand back the
+    // original conversation and its events; the ownership gate must come first, so the retry
+    // gets sign_in_required, not the reply.
+    const c = company();
+    const signedInSession = await signedIn(c);
+    // An order-related message makes the conversation belong to the User's account (7.2).
+    const first = message({ id: "msg_retry_after_signout", text: "Where is my order?" });
+    const opened = (await (await converse(c, signedInSession, first)).json()) as { conversation_id: string };
+    expect(opened.conversation_id).toMatch(/^cnv_/);
+    // A signed-out Session of the same User (same User ID) retries the same message id.
+    const signedOutSession = await signedOut(c);
+    const retry = await converse(c, signedOutSession, first);
+    expect(retry.status).toBe(403);
+    expect(await retry.json()).toMatchObject({ error: "sign_in_required" });
+    // The same User retried their own message: no cross-user violation.
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
   it("publishes poppy.json and OAuth server metadata that check out", async () => {
     const c = company();
     const document = (await (await c.call(`https://${c.hosts.domain}/.well-known/poppy.json`)).json()) as {
@@ -1983,6 +2017,86 @@ describe("the mock Company", () => {
     const state = await c.stub.state();
     expect(state.performs).toBe(1);
     expect(state.violations).toEqual([]);
+  });
+});
+
+// Found by the Hypothesis stateful test (test/hypothesis), each a reading the mock got wrong.
+describe("the mock Company, as the Hypothesis model found it", () => {
+  it("takes a retry with the message's members in another order as the same message (7.3)", async () => {
+    const c = company();
+    const s = await signedOut(c);
+    const first = message({ data: { size: "M", colour: "blue" } });
+    const created = await converse(c, s, first);
+    expect(created.status).toBe(201);
+    const { conversation_id } = (await created.json()) as { conversation_id: string };
+    const retry = await converse(c, s, { data: { colour: "blue", size: "M" }, text: first.text, sender: first.sender, id: first.id });
+    expect(retry.status).toBe(201);
+    expect(((await retry.json()) as { conversation_id: string }).conversation_id).toBe(conversation_id);
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
+  it("answers a retried first message with sign_in_required once the conversation used an account the Session left (7.11, S8)", async () => {
+    const c = company();
+    const s = await signedIn(c);
+    const first = message({ text: "I'd like to exchange the jacket on my order" });
+    expect((await converse(c, s, first)).status).toBe(201);
+    const revoke = await form(c, c.hosts.revocationEndpoint, { token: s.refreshToken, token_type_hint: "refresh_token" }, null);
+    expect(revoke.status).toBe(200);
+    const retry = await call(c, s, "POST", `${c.hosts.conversationsEndpoint}?wait=1`, { body: { message: first } });
+    expect(retry.status).toBe(403);
+    expect(retry.headers.get("WWW-Authenticate")).toContain("sign_in_required");
+    expect(JSON.stringify(await retry.json())).not.toContain("ord_7Hk2");
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
+  it("accepts every well-formed RFC 5646 locale and IANA time zone name in context (7.4)", async () => {
+    const c = company();
+    const s = await signedOut(c);
+    const locales = ["en-US", "i-ami", "en-US-u-ca-gregory", "x-private", "de-CH-1901", "zh-Hant-TW", "sgn-BE-FR", "abcde"];
+    const zones = ["CET", "EST5EDT", "Etc/GMT+5", "America/Argentina/Buenos_Aires", "UTC", "Factory", "W-SU"];
+    for (const context of [...locales.map((locale) => ({ locale })), ...zones.map((time_zone) => ({ time_zone }))]) {
+      expect((await converse(c, s, message({ context }))).status).toBe(201);
+    }
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
+  it("signs out only the Sessions signed in with the revoked Account Token or one it rotated from (4.9)", async () => {
+    const c = company();
+    await c.stub.configure({ rotateRefreshTokens: true });
+    const first = await signedIn(c, "poppy:read");
+    const second = await signedIn(c, "poppy:read");
+    // `first` renews, so its Account Token rotates; revoking the new one signs it out.
+    const renewed = await form(
+      c,
+      c.hosts.tokenEndpoint,
+      { grant_type: "refresh_token", refresh_token: first.refreshToken, session_id: first.sessionId },
+      first.key
+    );
+    const { access_token, refresh_token } = (await renewed.json()) as { access_token: string; refresh_token: string };
+    const revoke = await form(c, c.hosts.revocationEndpoint, { token: refresh_token, token_type_hint: "refresh_token" }, null);
+    expect(revoke.status).toBe(200);
+    const orders = (s: { key: Key; token: string; sessionId: string }) => call(c, s, "GET", `${c.hosts.api}/orders`);
+    expect((await orders({ ...first, token: access_token })).headers.get("WWW-Authenticate")).toContain("sign_in_required");
+    // `second` signed in on its own, with its own Account Token, so it stays signed in.
+    expect((await orders(second)).status).toBe(200);
+    const state = await c.stub.state();
+    expect(state.sessions.map((session) => session.signedIn)).toEqual([false, true]);
+    expect(state.violations).toEqual([]);
+  });
+
+  it("revokes only the reused token's own sign-in when it detects reuse (RFC 9700 4.14.2)", async () => {
+    const c = company();
+    await c.stub.configure({ rotateRefreshTokens: true, reuseDetection: true });
+    const first = await signedIn(c, "poppy:read");
+    const second = await signedIn(c, "poppy:read");
+    const refresh = () =>
+      form(c, c.hosts.tokenEndpoint, { grant_type: "refresh_token", refresh_token: first.refreshToken, session_id: first.sessionId }, first.key);
+    expect((await refresh()).status).toBe(200);
+    expect((await refresh()).status).toBe(400);
+    expect((await call(c, second, "GET", `${c.hosts.api}/orders`)).status).toBe(200);
+    const state = await c.stub.state();
+    expect(state.accountTokens).toBe(1);
+    expect(state.violations.map(violationId)).toEqual(["account-token.rotated-reused"]);
   });
 });
 

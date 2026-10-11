@@ -225,19 +225,75 @@ export class Web {
     });
   }
 
-  /** Website pages: `/` and `/orders`, signed in or out by the Session cookie. */
+  /** The Session the browser's cookie names, if any. */
+  #session(inbound: Inbound) {
+    const cookie = /(?:^|;\s*)mock_sid=([^;]+)/.exec(inbound.request.headers.get("Cookie") ?? "")?.[1];
+    return cookie ? this.company.sessions.get(this.#cookies.get(cookie) ?? "") : undefined;
+  }
+
+  /** `POST /account/address`: the address form, sent with the Session's cookie and its hidden field. */
+  saveAddress(inbound: Inbound): Response {
+    const session = this.#session(inbound);
+    const fields = [...new URLSearchParams(inbound.bodyText)];
+    const signedIn = session && !session.ended && session.account;
+    const csrf = fields.find(([name]) => name === "csrf")?.[1];
+    if (!signedIn || csrf !== `csrf-${session.id}`) {
+      return new Response("<!doctype html><title>Mock Shop</title><p>Refused</p>", { status: 403, headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }
+    this.company.formPosts.push({ account: session.account, fields });
+    return new Response(null, { status: 303, headers: { Location: "/account/address?saved=1" } });
+  }
+
+  /**
+   * Website pages, signed in or out by the Session cookie: `/`, `/orders`,
+   * `/account/address` (a form, with a script and a style the browser must
+   * skip), `/go?to=` (redirects anywhere, to test where the browser follows),
+   * and `/big?kb=` (a page of that size).
+   */
   page(inbound: Inbound): Response {
     const co = this.company;
-    const html = (body: string, status = 200) =>
-      new Response(`<!doctype html><title>Mock Shop</title>${body}`, {
+    const html = (body: string, status = 200, title = "Mock Shop") =>
+      new Response(`<!doctype html><title>${title}</title>${body}`, {
         status,
         headers: { "Content-Type": "text/html; charset=utf-8" }
       });
     if (inbound.url.pathname === "/") {
-      return html(`<h1>Mock Shop ${co.id}</h1><a href="/orders">Your orders</a>`);
+      return html(`<h1>Mock Shop ${co.id}</h1><a id="orders" href="/orders">Your orders</a> <a href="/account/address">Your address</a>`);
     }
-    const cookie = /(?:^|;\s*)mock_sid=([^;]+)/.exec(inbound.request.headers.get("Cookie") ?? "")?.[1];
-    const session = cookie ? co.sessions.get(this.#cookies.get(cookie) ?? "") : undefined;
+    if (inbound.url.pathname === "/go") {
+      return new Response(null, { status: 302, headers: { Location: inbound.url.searchParams.get("to") ?? "/" } });
+    }
+    if (inbound.url.pathname === "/big") {
+      const kb = Number(inbound.url.searchParams.get("kb") ?? "1");
+      return html(`<p>${"x".repeat(kb * 1024)}</p>`);
+    }
+    const session = this.#session(inbound);
+    if (inbound.url.pathname === "/account/address") {
+      if (!session || session.ended || !session.account) return html("<p>Signed out</p><p>Sign in to change your address.</p>");
+      if (inbound.url.searchParams.has("saved")) {
+        const saved = co.formPosts.filter((post) => post.account === session.account).at(-1);
+        const value = (name: string) => saved?.fields.find(([field]) => field === name)?.[1] ?? "";
+        return html(`<p>Saved: ${value("line1")}, ${value("city")}</p>`, 200, "Address saved");
+      }
+      return html(
+        `<style>.note { color: red }</style>
+<script>window.tracking = { id: "script-only-text" }; document.write("<p>written by script</p>");</script>
+<h1>Your address</h1><p>Signed in as ${session.account}</p>
+<form id="address" method="post" action="/account/address">
+<input type="hidden" name="csrf" value="csrf-${session.id}">
+<label>Address line 1 <input id="line1" name="line1" value=""></label>
+<label>City <input id="city" name="city" value="London"></label>
+<label>Country <select name="country"><option value="GB" selected>United Kingdom<option value="FR">France</select></label>
+<label>Confirm with your account code <input type="password" id="f7" name="confirm"></label>
+<label><input type="checkbox" name="default" value="yes" checked> Use as my default</label>
+<button id="save" type="submit" name="intent" value="save">Save</button>
+</form>
+<form method="get" action="/search"><input name="q"><button>Search</button></form>
+<a id="help" href="/help?topic=address&amp;lang=en">Help &amp; advice</a>`,
+        200,
+        "Your address &amp; details"
+      );
+    }
     // An operation's `url`: the same operation, shown in the same Session (Ops 4.4).
     const exchange = /^\/orders\/[^/]+\/exchanges\/([A-Za-z0-9_-]+)$/.exec(inbound.url.pathname);
     if (exchange) {

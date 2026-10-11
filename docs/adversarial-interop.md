@@ -116,41 +116,42 @@ Our harness assumes both sides are trying. To test refusals, add implementations
    - A failure is blamed on the honest side, with rule `adversarial`. If the scenario names `permitted_by` and the draft has no MUST against the attack, blame `spec` (N10 and N14 today).
 2. **Rule 2, grid,** ignores adversarial implementations, which are never reference cells. `dpa-mock` stays the honest reference.
 3. **Reporting.** Adversarial cells get their own page, the security grid, and never count toward interop pass rates.
-4. **Disclosure.** A failure there may be a vulnerability in someone's project. Tell its maintainers privately before the results are committed. A known failure can then link a private advisory or our spec issue.
+4. **Disclosure.** A failure there may be a vulnerability in someone's project. Tell its maintainers privately before the results are committed. A known failure can then link a private advisory or our spec issue. The full process, including the 90-day window, is in [`SECURITY.md`](../SECURITY.md#disclosing-what-interop-testing-finds-in-other-projects).
 
 #### Malicious Company scenarios
 
-| Id | Attack | Spec | How it's expressed | Honest agent passes when |
-| --- | --- | --- | --- | --- |
-| `XM` | **Mix-up, two issuers.** The User signs in at evil and at honest; evil's callback carries honest's code, or `iss` names honest's issuer. | 4.5, RFC 9207, N32 | `arm mixup {victim}`; agent signs in at both | `signin_continue` refuses (`iss` mismatch); `token_not_sent_to` evil for honest's code |
-| `XI` | **Issuer claim.** Evil's `poppy.json` names honest's issuer, without honest's `poppy_domains`. | 3.2 | `arm claim-issuer` | `discover` fails with `discovery_failed`; no token request |
-| `XH` | **Token-host confusion.** An OpenAPI `servers` entry or MCP `url` points at `sink.interop.test`. | 4.3, 6, **N10** | `arm foreign-server`; `api` step | Refuses (`untrusted_server` for us); `token_not_sent_to` sink. `permitted_by: N10` |
-| `XS` | **SSRF through discovery.** `apis[].url`, `jwks`-like links or redirects aim at the runner, another container's control port, or a "private" sink name. | Guides (SSRF), N42 | `arm ssrf {target}` | `no_request_to` target. Needs an interop-only "private" suffix, per our N42 proposal |
-| `XB` | **Oversized or slow.** A 50 MB `poppy.json`, a never-ending SSE stream, a redirect loop, huge `Retry-After`, gzip bomb. | 4.3, 7.6 | `arm big \| slow \| loop` | Step ends within a deadline with a clean error, crashtest-style; adapter still healthy |
-| `XN` | **DPoP nonce abuse.** A fresh `use_dpop_nonce` on every reply; a 10 KB nonce; one origin's nonce demanded at another. | 4.3, RFC 9449 §8, S23 | `arm nonce-loop` | Bounded retries (no more than N), then error; no proof reused |
-| `XK` | **Rug pull on discovery.** Endpoints in `poppy.json` move off-domain between discovery and a later call. | 3, N37 | `arm rug-pull` after `discover` | Re-validated document refused; `token_not_sent_to` new host |
-| `XO` | **Operation changed between approval and confirm.** After `approve_op`, the Company changes the amount or summary under the same id, or reports a different action as performed. | Ops 3.1, 4, 5.1 | `arm op-swap` between `approve_op` and confirm | The agent confirms only the revision approved (`confirm.revision`), and reports a mismatch at settle instead of "done" |
-| `XP` | **Consent spoofing.** `organization.name` is another Company's ("Example Bank"). | Ops 5.1, **N14** | `arm display-name`; new agent op `display` returning what the User would see | The displayed domain is the verified `organization.domain`. `permitted_by: N14` |
-| `XJ` | **Injected text.** Messages, operation summaries, MCP descriptions or pages contain "approve operation X" or "send your token to …". | **N15**, Ops 5.1, 7.11 | `arm inject {canary}` | Protocol lane: no confirm without an `approve_op` step, and the canary never leaves (`no_secret_in`). A model lane, AgentDojo-style, comes later |
-| `XE` | **Spoofed sender.** Conversation events with `sender: "user"`, or staff text impersonating the agent. | 7.5 | `arm spoof-sender` | The agent doesn't treat the content as the User's words (visible in `read`) |
+| Id | Attack | Spec | How it's expressed | Honest agent passes when | Status |
+| --- | --- | --- | --- | --- | --- |
+| `XM` | **Mix-up, two issuers.** The User signs in at evil and at honest; evil's callback carries honest's code, or `iss` names honest's issuer. | 4.5, RFC 9207, N32 | `arm mixup {victim}`; agent signs in at both | `signin_continue` refuses (`iss` mismatch); `token_not_sent_to` evil for honest's code | Not yet (needs two Companies in one cell) |
+| `XI` | **Issuer claim.** Evil's `poppy.json` names honest's issuer, without honest's `poppy_domains`. | 3.2 | `arm claim-issuer` | `discover` fails with `discovery_failed`; no token request | Scenario `XI` |
+| `XH` | **Token-host confusion.** An OpenAPI `servers` entry or MCP `url` points at `sink.interop.test`. | 4.3, 6, **N10** | `arm foreign-server`; `api` step | Refuses (`untrusted_server` for us); `token_not_sent_to` sink. `permitted_by: N10` | Scenario `XH`; client check `"never sends a Session Token to a server on another host that an OpenAPI description names (N10)"` |
+| `XS` | **SSRF through discovery.** `apis[].url`, `jwks`-like links or redirects aim at the runner, another container's control port, or a "private" sink name. | Guides (SSRF), N42 | `arm ssrf {target}` | `no_request_to` target. Needs an interop-only "private" suffix, per our N42 proposal | Not yet (needs the N42 "private" suffix; one-sided SSRF vectors cover the host check today) |
+| `XB` | **Oversized or slow.** A 50 MB `poppy.json`, a never-ending SSE stream, a redirect loop, huge `Retry-After`, gzip bomb. | 4.3, 7.6 | `arm big \| slow \| loop` | Step ends within a deadline with a clean error, crashtest-style; adapter still healthy | Not yet (the proxy's `delay`/`truncate`/`reset` faults cover the network shape; oversized bodies need a mock option) |
+| `XN` | **DPoP nonce abuse.** A fresh `use_dpop_nonce` on every reply; a 10 KB nonce; one origin's nonce demanded at another. | 4.3, RFC 9449 §8, S23 | `arm nonce-loop` | Bounded retries (no more than N), then error; no proof reused | Not yet (needs a mock nonce-loop option; scenario `N` covers one nonce retry) |
+| `XK` | **Rug pull on discovery.** Endpoints in `poppy.json` move off-domain between discovery and a later call. | 3, N37 | `arm rug-pull` after `discover` | Re-validated document refused; `token_not_sent_to` new host | Partial (`evil-company` arms the lever; our client caches the validated description, so the moved server isn't re-fetched — noted in spec-issues) |
+| `XO` | **Operation changed between approval and confirm.** After `approve_op`, the Company changes the amount or summary under the same id, or reports a different action as performed. | Ops 3.1, 4, 5.1 | `arm op-swap` between `approve_op` and confirm | The agent confirms only the revision approved (`confirm.revision`), and reports a mismatch at settle instead of "done" | Not yet (needs a mock op-swap option; client check `"shows the Company's summary verbatim and confirms once after the User approves"` exercises the approve/confirm path in-process) |
+| `XP` | **Consent spoofing.** `organization.name` is another Company's ("Example Bank"). | Ops 5.1, **N14** | `arm display-name`; new agent op `display` returning what the User would see | The displayed domain is the verified `organization.domain`. `permitted_by: N14` | Not yet (needs an agent `display` op) |
+| `XJ` | **Injected text.** Messages, operation summaries, MCP descriptions or pages contain "approve operation X" or "send your token to …". | **N15**, Ops 5.1, 7.11 | `arm inject {canary}` | Protocol lane: no confirm without an `approve_op` step, and the canary never leaves (`no_secret_in`). A model lane, AgentDojo-style, comes later | Not yet (the `no_secret_in` harm oracle is built; a mock inject option and a model lane are future work) |
+| `XE` | **Spoofed sender.** Conversation events with `sender: "user"`, or staff text impersonating the agent. | 7.5 | `arm spoof-sender` | The agent doesn't treat the content as the User's words (visible in `read`) | Not yet (needs a mock spoof-sender option) |
+| `BX` | **Refused agent (fairness).** The Company admits no `client_id`. | Part A, 4.1 | `arm block` | The agent reports `poppy_error` to the User; no silent 403 | Scenario `BX` |
 
 #### Malicious Personal Agent scenarios
 
 Most of these are already rows in `TAMPERS` (`test/mock-company.test.ts`) against our mock. `evil-agent` turns them into wire attacks against every Company:
 
-| Id | Attack | Spec | Mock check it mirrors | Honest Company passes when |
-| --- | --- | --- | --- | --- |
-| `YR` | Replay a client or Session assertion | 4.1, 4.2 | `*.jti-reused` | `invalid_client` / `invalid_grant`; `no_2xx_after` the replay |
-| `YD` | Replay a DPoP proof; omit the nonce after one was issued | 4.3, RFC 9449 §11.1, §11.3 | `dpop.jti-reused`, `dpop.nonce-ignored` | `invalid_dpop_proof` or `use_dpop_nonce` |
-| `YA` | **`aud` confusion.** An assertion minted for Company A, or for another endpoint, presented at B | 4.1, S1 | `client-assertion.aud`, `session-assertion.aud` | Refused at B. Under S1 a lenient reading may accept another endpoint: `permitted_by: S1` |
-| `YT` | **Stolen token, another key.** A Session Token presented with a proof from a different key | 4.3 | `dpop.key-mismatch` | `invalid_token` |
-| `YF` | **Sign-in fixation.** A code from User 1's sign-in redeemed into User 2's Session of the same agent | 4.5, **N2** | `code.no-session-id` (partial) | Refused, or the Account Token records the right User. Likely `permitted_by: N2` today |
-| `YS` | **Scope escalation.** A write with a read token; Bearer requested with a non-MCP `resource` (downgrade) | 4.4, 6, N17 | `token.mcp-dpop`, `resource.bearer-scheme` | `insufficient_scope`; no Bearer issued for non-MCP `resource` |
-| `YO` | **Retry after sign-out.** The same message id resent after sign-out | 7.3, 7.11, **S8** | `idempotency.key-reused` (related) | `sign_in_required`, never the original response (poppy-demo returned it) |
-| `YU` | **Cross-User conversation.** User B of the same agent reads or continues User A's conversation id | 7.13, **S17** | none yet | `conversation_not_found` |
-| `YK` | **Rotation abuse.** A rotated Account Token reused; another client's Account Token; key rotation that keeps the `kid` | 4.8, N5, N38 | `account-token.rotated-reused`, `account-token.other-client` | Refused; under rotation with reuse detection, the family revoked |
-| `YC` | **Consent phishing.** Client metadata `client_name` and logo copy another agent's | 4.5, **N14** | none | Consent page shows the `client_id` host. Checked by the consent hook or Playwright reading the page |
-| `YM` | **Mediated credential stuffing**; operations confirmed twice or without approval | 4.7, Ops | `exchange.performed-twice`, `confirm.approved-by` | 429 with `Retry-After`; performed once |
+| Id | Attack | Spec | Mock check it mirrors | Honest Company passes when | Status |
+| --- | --- | --- | --- | --- | --- |
+| `YR` | Replay a client or Session assertion | 4.1, 4.2 | `*.jti-reused` | `invalid_client` / `invalid_grant`; `no_2xx_after` the replay | Scenario `YR` |
+| `YD` | Replay a DPoP proof; omit the nonce after one was issued | 4.3, RFC 9449 §11.1, §11.3 | `dpop.jti-reused`, `dpop.nonce-ignored` | `invalid_dpop_proof` or `use_dpop_nonce` | Scenario `YD` |
+| `YA` | **`aud` confusion.** An assertion minted for Company A, or for another endpoint, presented at B | 4.1, S1 | `client-assertion.aud`, `session-assertion.aud` | Refused at B. Under S1 a lenient reading may accept another endpoint: `permitted_by: S1` | Scenario `YA` |
+| `YT` | **Stolen token, another key.** A Session Token presented with a proof from a different key | 4.3 | `dpop.key-mismatch` | `invalid_token` | Scenario `YT` |
+| `YF` | **Sign-in fixation.** A code from User 1's sign-in redeemed into User 2's Session of the same agent | 4.5, **N2** | `code.no-session-id` (partial) | Refused, or the Account Token records the right User. Likely `permitted_by: N2` today | Not yet (needs a two-User Direct Sign-In flow in the attack adapter) |
+| `YS` | **Scope escalation.** A write with a read token; Bearer requested with a non-MCP `resource` (downgrade) | 4.4, 6, N17 | `token.mcp-dpop`, `resource.bearer-scheme` | `insufficient_scope`; no Bearer issued for non-MCP `resource` | Scenario `YS` |
+| `YO` | **Retry after sign-out.** The same message id resent after sign-out | 7.3, 7.11, **S8** | `idempotency.key-reused` (related) | `sign_in_required`, never the original response (poppy-demo returned it) | Workers test `"checks conversation ownership before message-id idempotency on a signed-out retry (S8)"` (mock `start()` fixed) |
+| `YU` | **Cross-User conversation.** User B of the same agent reads or continues User A's conversation id | 7.13, **S17** | `conversation.cross-user` (added) | `conversation_not_found` | Scenario `YU`; TAMPERS `"…another User of the same agent reading a conversation"` |
+| `YK` | **Rotation abuse.** A rotated Account Token reused; another client's Account Token; key rotation that keeps the `kid` | 4.8, N5, N38 | `account-token.rotated-reused`, `account-token.other-client` | Refused; under rotation with reuse detection, the family revoked | Scenario `YK` (rotated-reuse; other-client and `kid` reuse not yet) |
+| `YC` | **Consent phishing.** Client metadata `client_name` and logo copy another agent's | 4.5, **N14** | none | Consent page shows the `client_id` host. Checked by the consent hook or Playwright reading the page | Not yet (needs a consent-page reader) |
+| `YM` | **Mediated credential stuffing**; operations confirmed twice or without approval | 4.7, Ops | `exchange.performed-twice`, `confirm.approved-by` | 429 with `Retry-After`; performed once | Not yet (needs an attack for repeated confirms over the wire) |
 
 #### The fault-injection proxy
 
@@ -165,14 +166,26 @@ Injected exchanges are marked in the HAR (`_interop.injected`), and checks skip 
 
 ## Prioritised plan
 
-1. **Proxy `replay` and `duplicate`** against the existing grid (scenarios `N`, `C`, `CI`, `O`). No new adapter. It tests every Company's replay and idempotency handling, and tells us whether the fault mechanism and the HAR marking work.
-2. **The contract and attribution changes:** the `adversarial` registry flag, `arm`, `faults`, `permitted_by`, harm oracles, the attack-observed precondition, rule 0, the security grid page, and live-lane exclusion. Unit-test them in `interop/test/attribution.test.ts` the way rules 1–4 are tested.
-3. **`evil-agent` from `TAMPERS`:** YR, YD, YA, YT, YS and YK first, since our mock already defines each. Then YO (S8), YU (S17) and YF (N2), the Company-side holes the draft leaves open.
-4. **`evil-company` core:** XM, XI, XH (N10), XB and XN. These protect Users' tokens and agents' availability. XS needs the "private" test suffix (N42).
-5. **Operations and consent:** XO, XP and YC (N14), adding a `display` op for agents and a consent-page reader for Companies.
-6. **Injected text:** XJ in the protocol lane (no approval without the page, the canary never leaves), then a separate model lane with AgentDojo-style state checks for N15.
-7. **Fairness:** the `block_agent` hook and the `BX` refused-agent scenario. Propose spec text for refusal reasons, honest fallback browsing (identified, as in PSD2 and Web Bot Auth), and no silent agent discrimination.
-8. **Disclosure process** before any adversarial result is committed. Results go to maintainers first, and spec-permitted attacks go to the authors as N-numbered issues.
+Restricted to our own project: the adversarial sides (`evil-agent`, `evil-company`) and the fault proxy run only against our `owner: "self"` implementations, on the local lane, never live. No flag lifts this; see [`SECURITY.md`](../SECURITY.md) and [`interop-spec.md`](interop-spec.md) §13.
+
+1. **Proxy `replay` and `duplicate`** against the existing grid (scenarios `N`, `C`, `CI`, `O`). No new adapter. — **Done:** scenarios `NREP` (replay), `CDUP`/`CIDUP`/`ODUP` (duplicate), `adversary: "network"`, injected exchanges marked and skipped.
+2. **The contract and attribution changes:** the `adversarial` registry flag, `arm`, `faults`, `permitted_by`, harm oracles, the attack-observed precondition, rule 0, the security grid page, and live-lane exclusion. — **Done:** registry `owner`/`adversarial`, manifest `attacks`, `arm`/`attack` ops and the `arm` hook, harm-oracle `assert_trace` predicates, rule 0, the security grid, the own-project refusal and `--image-tag`; unit-tested in `interop/test/adversarial.test.ts`.
+3. **`evil-agent` from `TAMPERS`:** YR, YD, YA, YT, YS and YK first; then YO (S8), YU (S17) and YF (N2). — **Done:** `YR`, `YD`, `YA`, `YT`, `YS`, `YK`, `YU` (with a new `conversation.cross-user` mock check and TAMPERS row); YO handled by fixing the mock's `start()` ownership gate (Workers test). **Not yet:** YF (two-User Direct Sign-In), YM (repeated confirms over the wire).
+4. **`evil-company` core:** XM, XI, XH (N10), XB and XN. — **Done:** `XH` (N10) and `XI`; `XK` partial (our client caches the validated description). **Not yet:** XM (two Companies in one cell), XB/XN (mock oversized/nonce-loop options). XS needs the N42 "private" suffix.
+5. **Operations and consent:** XO, XP and YC (N14), adding a `display` op for agents and a consent-page reader for Companies. — **Not yet.**
+6. **Injected text:** XJ, then a model lane for N15. — **Not yet** (the `no_secret_in` harm oracle is built; the mock inject option and model lane remain).
+7. **Fairness:** the `block_agent` hook and the `BX` refused-agent scenario. — **Done:** the `arm block` hook and scenario `BX`. Spec text for refusal reasons and honest fallback browsing still needs the draft's authors.
+8. **Disclosure process** before any adversarial result is committed. — **Done:** [`SECURITY.md`](../SECURITY.md); spec-permitted attacks go to the authors as N-numbered issues in [`spec-issues.md`](spec-issues.md).
+
+## What our own project can and can't test
+
+Adversarial testing restricted to our own project covers a lot and misses some by design:
+
+- **Can test, over the wire:** our client's refusals of a malicious Company (`evil-company`: XH/N10, XI), our mock's refusals of a malicious agent (`evil-agent`: YR, YD, YA, YT, YS, YK, YU), both sides' resilience to a network adversary (the fault proxy: replay, duplicate, and the timing faults), and fairness (BX). The harm oracles (`token_not_sent_to`, `no_request_to`, `no_2xx_after`, `no_secret_in`, `performed_at_most_once`) judge the trace, not either side's opinion.
+- **Can't test here:**
+  - **Other projects' defences.** Running `evil-agent`/`evil-company` against a third-party implementation is forbidden (the own-project rule): a real refusal there may be a vulnerability, which goes through disclosure first. So our grid says nothing about whether *their* client refuses *our* malicious Company, only about ours.
+  - **The model lane for prompt injection.** XJ's protocol lane (no confirm without an `approve_op` step, the canary never leaves) is in reach, but whether the *model* obeys injected "approve operation X" text (the lethal trifecta, AgentDojo) needs a model in the loop, which the no-model interop harness doesn't run.
+  - **Live deployments.** The live lane never runs adversarial cells. We never attack a public deployment, so these results come only from containers on the private network.
 
 ## Sources
 

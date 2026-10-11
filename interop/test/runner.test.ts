@@ -21,6 +21,12 @@ describe("options", () => {
     expect(() => parseOptions(["--lane", "moon"])).toThrow("--lane must be local or live");
     expect(() => parseOptions(["--set", "dpa=1"])).toThrow("--set takes name:KEY=VALUE");
   });
+
+  it("retries failed cells and wants 2 GB free unless told otherwise", () => {
+    expect(parseOptions([])).toMatchObject({ retry: true, minFreeGb: 2 });
+    expect(parseOptions(["--no-retry", "--min-free-gb", "0.5"])).toMatchObject({ retry: false, minFreeGb: 0.5 });
+    expect(() => parseOptions(["--min-free-gb", "lots"])).toThrow("--min-free-gb takes a number");
+  });
 });
 
 describe("the registry and known failures", () => {
@@ -129,5 +135,41 @@ describe("the report", () => {
     expect(html).toContain("&lt;script&gt;");
     expect(html).not.toContain("<script>");
     expect(html).toContain("Accepts *.interop.test");
+    expect(html).not.toContain("Flaky cells");
+    expect(html).not.toContain("Stale known failures");
+  });
+
+  it("lists flaky cells and stale known failures", () => {
+    const flaky: Cell = {
+      agent: "dpa",
+      company: "x",
+      scenario: "SD",
+      outcome: "pass",
+      blame: null,
+      rule: null,
+      steps: [],
+      checks: [],
+      har: "SD/dpa__x.attempt2.har",
+      flaky: true,
+      attempts: [
+        { outcome: "error", reason: "x didn't reset", har: "SD/dpa__x.har" },
+        { outcome: "pass", har: "SD/dpa__x.attempt2.har" }
+      ]
+    };
+    const html = renderReport({
+      run: "r",
+      lane: "local",
+      spec: "Draft 0.1",
+      implementations: [],
+      scenarios: [{ id: "SD", title: "Direct Sign-In", steps: [] }],
+      cells: [flaky],
+      staleKnown: [{ agent: "pi-poppy", company: "*", scenario: "SE", issue: "https://example.com/1" }]
+    });
+    expect(html).toContain("<h2>Flaky cells</h2>");
+    expect(html).toContain("pass · flaky");
+    expect(html).toContain("first error");
+    expect(html).toContain('href="SD/dpa__x.har"');
+    expect(html).toContain("<h2>Stale known failures</h2>");
+    expect(html).toContain("pi-poppy × * SE");
   });
 });

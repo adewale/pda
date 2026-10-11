@@ -7,7 +7,7 @@
 
 ARG EVERRUNS_COMMIT=b09c922cc305e88be93b6f10768ef3855531571f
 
-FROM rust:1.96-slim-bookworm AS build
+FROM rust:1.96-slim-bookworm@sha256:e18a79fc84dfcfc3ab5ba72290398a644c135c97eaa881447fddc354ee4701a3 AS build
 ARG EVERRUNS_COMMIT
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates pkg-config clang lld cmake make perl \
@@ -34,7 +34,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=everruns-cargo-regist
  && cp "$(find target/debug/deps -maxdepth 1 -type f -perm -u+x -name 'interop_adapter-*' -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2)" /out/adapter \
  && strip /out/adapter
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 ARG EVERRUNS_COMMIT
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* && mkdir -p /opt/pg-cache

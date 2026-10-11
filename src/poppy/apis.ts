@@ -1,5 +1,5 @@
 import { PoppyClient, PoppyError, scopeSet } from "./client";
-import { tokenHostAllowed, type Company } from "./discovery";
+import { protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson, readLimited } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
 import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
@@ -15,7 +15,7 @@ export function findApi(company: Company, type: Api["type"], url?: string): Api 
 
 // ---------------------------------------------------------------- OpenAPI
 
-type OpenApiOperation = {
+export type OpenApiOperation = {
   readonly operationId: string;
   readonly method: string;
   readonly path: string;
@@ -142,7 +142,7 @@ type OpenApiCall = {
  * declares none, if the signed-in Session holds them all and more besides.
  * A lookup that needs a custom scope keeps it.
  */
-function readOnlyScope(sessionScope: string | undefined, op: OpenApiOperation): string | null {
+export function readOnlyScope(sessionScope: string | undefined, op: OpenApiOperation): string | null {
   const held = scopeSet(sessionScope);
   const wanted = new Set(op.scopes.length ? op.scopes : ["poppy:read"]);
   if (![...wanted].every((scope) => held.has(scope)) || wanted.size >= held.size) return null;
@@ -154,9 +154,10 @@ function readOnlyScope(sessionScope: string | undefined, op: OpenApiOperation): 
  * after checking the required parameters are there. A template the
  * description doesn't declare as a parameter (some declare none) is filled
  * by name too. One left unfilled is refused: `/orders/%7Border_id%7D` would
- * only reach the wrong resource.
+ * only reach the wrong resource. So is a value that fills a whole segment
+ * with nothing, `.` or `..`.
  */
-function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
+export function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
   for (const parameter of op.parameters) {
     if (parameter.required && params[parameter.name] === undefined) {
       throw new PoppyError("invalid_request", `Missing parameter ${parameter.name}`, 0);
@@ -174,7 +175,35 @@ function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
       0
     );
   }
+  // A value must stay the one segment its template names: an empty segment,
+  // or `.` or `..`, which a URL resolves away, would reach another resource.
+  const templated = op.path.split("/");
+  filled.split("/").forEach((segment, index) => {
+    if (/\{[^{}/]+\}/.test(templated[index] ?? "") && (segment === "" || segment === "." || segment === "..")) {
+      throw new PoppyError(
+        "invalid_request",
+        `${op.method} ${op.path}: ${JSON.stringify(segment)} can't fill the path segment ${templated[index]}; it would reach another resource`,
+        0
+      );
+    }
+  });
   return filled;
+}
+
+/**
+ * An API call never reaches a Poppy endpoint, whatever the description lists:
+ * the model could otherwise confirm an operation itself (Ops 5.1) or send a
+ * message as the User (7.8).
+ */
+function refuseProtocolEndpoint(company: Company, url: URL): void {
+  const endpoint = protocolEndpoint(company, url);
+  if (endpoint) {
+    throw new PoppyError(
+      "protocol_endpoint",
+      `${url.origin}${url.pathname} is ${company.name}'s Poppy endpoint ${endpoint}, which only the agent's own code calls: operations are confirmed or cancelled by the User on their card, messages go through poppy_message, and sign-in through poppy_sign_in`,
+      0
+    );
+  }
 }
 
 async function performOpenApi(client: PoppyClient, company: Company, label: string, call: OpenApiCall): Promise<Json> {
@@ -196,6 +225,7 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
     if (parameter.in === "query" && value !== undefined) url.searchParams.set(parameter.name, String(value));
   }
   url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
+  refuseProtocolEndpoint(company, url);
   // Read-only lookups ask for a read-only token when the account allows (Guides).
   const write = op.method === "GET" ? null : `${op.method} ${url.href} ${JSON.stringify(call.body ?? null)}`;
   if (write) refuseWhileConfirming(client, company.issuer, write);
@@ -254,9 +284,11 @@ export async function callOpenApi(
   request: { apiUrl?: string; operation: string; params?: Record<string, string | number | boolean>; body?: Json; callKey: string }
 ): Promise<Json> {
   const api = findApi(company, "openapi", request.apiUrl);
-  const op = findOperation(await openApi(client, api), request.operation);
-  // A call that can't fill the path is refused now, before a token request or a proposal.
-  pathFor(op, request.params ?? {});
+  const document = await openApi(client, api);
+  const op = findOperation(document, request.operation);
+  // A call that can't fill the path, or that would reach a Poppy endpoint, is
+  // refused now, before a token request or an approval card.
+  refuseProtocolEndpoint(company, new URL(`${document.base}${pathFor(op, request.params ?? {})}`));
   const call: OpenApiCall = {
     apiUrl: api.url,
     operation: op.operationId,

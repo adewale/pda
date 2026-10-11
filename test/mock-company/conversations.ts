@@ -45,12 +45,48 @@ type IncomingMessage = {
 };
 
 const ID = /^[A-Za-z0-9_-]{1,256}$/;
-const LOCALE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
-const TIME_ZONE = /^(UTC|[A-Za-z_]+(\/[A-Za-z0-9_+-]+)+)$/;
+/**
+ * A well-formed RFC 5646 language tag (2.1, case-insensitive): a `langtag`
+ * with any extensions (`en-US-u-ca-gregory`) and private use, a private-use
+ * tag (`x-...`), or a grandfathered one (`i-klingon`).
+ */
+const LOCALE = new RegExp(
+  "^(?:" +
+    "(?:[a-z]{2,3}(?:-[a-z]{3}){0,3}|[a-z]{4}|[a-z]{5,8})" + // language, with extlang
+    "(?:-[a-z]{4})?" + // script
+    "(?:-(?:[a-z]{2}|[0-9]{3}))?" + // region
+    "(?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*" + // variants
+    "(?:-[0-9a-wy-z](?:-[a-z0-9]{2,8})+)*" + // extensions
+    "(?:-x(?:-[a-z0-9]{1,8})+)?" + // private use
+    "|x(?:-[a-z0-9]{1,8})+" +
+    "|en-gb-oed|i-(?:ami|bnn|default|enochian|hak|klingon|lux|mingo|navajo|pwn|tao|tay|tsu)|sgn-(?:be-fr|be-nl|ch-de)" +
+    "|art-lojban|cel-gaulish|no-bok|no-nyn|zh-(?:guoyu|hakka|min|min-nan|xiang)" +
+    ")$",
+  "i"
+);
+/**
+ * An IANA time zone name by the tz database's rules for names (its
+ * theory.html): components of ASCII letters, digits, `.`, `-`, `_` and `+`,
+ * separated by `/`, none starting with `-` or being `.` or `..`. So
+ * "America/Argentina/Buenos_Aires", "Etc/GMT+5", "CET" and "EST5EDT" alike.
+ */
+const TIME_ZONE = /^(?!-|\.\.?(?:\/|$))[A-Za-z0-9._+-]+(?:\/(?!-|\.\.?(?:\/|$))[A-Za-z0-9._+-]+)*$/;
 const PAGE = 20;
 
 function now(): string {
   return new Date().toISOString();
+}
+
+/** A JSON value as text with every object's members sorted, so member order doesn't change it. */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (typeof value === "object" && value !== null) {
+    const members = Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`);
+    return `{${members.join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 
@@ -119,15 +155,21 @@ export class Conversations {
     const conversation = this.#conversations.get(id);
     const notFound = () =>
       new HttpError(json({ error: "conversation_not_found" }, 404));
+    // A different User of the same agent reaching for this conversation is a cross-User breach
+    // (7.13, S17): record it, then answer conversation_not_found so nothing of User A leaks.
+    const crossUser = () => {
+      this.company.violation("conversation.cross-user", `User ${context.session.userId} reached conversation ${id} of User ${conversation!.owner.userId}`);
+      return notFound();
+    };
     if (!conversation || conversation.owner.clientId !== context.session.clientId) throw notFound();
     if (conversation.owner.account) {
       if (context.signedIn && context.account === conversation.owner.account) return conversation;
       if (conversation.owner.userId === context.session.userId) {
         throw resourceError("DPoP", 403, "sign_in_required");
       }
-      throw notFound();
+      throw crossUser();
     }
-    if (conversation.owner.userId !== context.session.userId) throw notFound();
+    if (conversation.owner.userId !== context.session.userId) throw crossUser();
     return conversation;
   }
 
@@ -176,10 +218,14 @@ export class Conversations {
     return message;
   }
 
-  /** Same id and content: the original response. Different content: conflict (7.3). */
+  /**
+   * Same id and content: the original response. Different content: conflict
+   * (7.3). The same content is the same JSON value, whatever its members'
+   * order (RFC 8259 4: an object is an unordered collection).
+   */
   #idempotent(context: ResourceContext, message: IncomingMessage, parent: string | null): Conversation | null {
     const key = `${context.session.clientId}|${context.session.userId}|${message.id as string}`;
-    const hash = JSON.stringify({ message, parent });
+    const hash = canonicalJson({ message, parent });
     const seen = this.#messageIds.get(key);
     if (!seen) return null;
     if (seen.hash !== hash) {
@@ -191,7 +237,7 @@ export class Conversations {
 
   #remember(context: ResourceContext, message: IncomingMessage, parent: string | null, conversation: Conversation): void {
     const key = `${context.session.clientId}|${context.session.userId}|${message.id as string}`;
-    this.#messageIds.set(key, { hash: JSON.stringify({ message, parent }), conversationId: conversation.id });
+    this.#messageIds.set(key, { hash: canonicalJson({ message, parent }), conversationId: conversation.id });
   }
 
   #accept(context: ResourceContext, conversation: Conversation, message: IncomingMessage): void {
@@ -322,7 +368,9 @@ export class Conversations {
     const message = this.#validate(body.message as IncomingMessage | undefined);
     const parentId = typeof body.parent_conversation_id === "string" ? body.parent_conversation_id : null;
     const existing = this.#idempotent(context, message, parentId);
-    if (existing) return this.#answer(inbound, existing, 201);
+    // A retry gets the original response only if it may still read the
+    // conversation: once it used the account, 7.11 wins (S8), as in message().
+    if (existing) return this.#answer(inbound, this.#owned(context, existing.id), 201);
     let parent: Conversation | null = null;
     if (parentId) {
       parent = this.#owned(context, parentId);

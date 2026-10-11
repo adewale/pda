@@ -15,7 +15,10 @@
  *    or this agent fails it with every Company it ran against while this
  *    Company passes it with another agent (blame the agent).
  * 3. reading: the two sides declare incompatible readings of a question the
- *    scenario depends on, or that an error check belongs to (blame the spec).
+ *    scenario depends on, or that an error check belongs to, and the trace
+ *    shows that question mattered: a `reading.<id>.refused` check, or a
+ *    Company-recorded error of that question (blame the spec). Declared
+ *    readings that differ, with no such evidence, decide nothing.
  * 4. unattributed.
  */
 import { compatible, questionOf, REFUSED_READING } from "./readings.ts";
@@ -34,14 +37,46 @@ export type Verdict = { readonly blame: Blame; readonly rule: Rule; readonly det
 
 const ran = (cell: Cell) => cell.outcome === "pass" || cell.outcome === "fail";
 
-export function attribute(
-  cell: Cell,
-  grid: readonly Cell[],
-  context: { readonly readings: Readings; readonly scenarios: ReadonlyMap<string, Scenario>; readonly reference?: string }
-): Verdict {
+export type AttributionContext = {
+  readonly readings: Readings;
+  readonly scenarios: ReadonlyMap<string, Scenario>;
+  readonly reference?: string;
+  /** Implementation names that misbehave on purpose (evil-agent, evil-company). */
+  readonly adversarial?: ReadonlySet<string>;
+};
+
+/**
+ * A cell is a security (adversarial) cell when a side is an adversarial
+ * implementation, or its scenario names an `adversary` or a `faults` list.
+ * Such cells go in the security grid, never in the interop pass rates, and
+ * never stand in as grid references (spec §9, rule 2).
+ */
+export function isSecurityCell(cell: Pick<Cell, "agent" | "company" | "scenario">, context: AttributionContext): boolean {
+  const adv = context.adversarial ?? new Set<string>();
+  if (adv.has(cell.agent) || adv.has(cell.company)) return true;
+  const scenario = context.scenarios.get(cell.scenario);
+  return !!scenario?.adversary || !!scenario?.faults?.length;
+}
+
+export function attribute(cell: Cell, grid: readonly Cell[], context: AttributionContext): Verdict {
   if (cell.outcome === "error") return { blame: "harness", rule: null };
   if (cell.outcome !== "fail") return { blame: null, rule: null };
   const reference = context.reference ?? REFERENCE_COMPANY;
+
+  // Rule 0, adversarial (applied first). In a cell with an adversarial side, that side's
+  // violations are expected; the cell passes when the honest side refuses. A failure is the
+  // honest side's, or the spec's when `permitted_by` names a draft gap.
+  const adv = context.adversarial ?? new Set<string>();
+  const agentAdversarial = adv.has(cell.agent);
+  const companyAdversarial = adv.has(cell.company);
+  if (agentAdversarial || companyAdversarial) {
+    const scenario = context.scenarios.get(cell.scenario);
+    if (scenario?.permitted_by) {
+      return { blame: "spec", rule: "adversarial", detail: `permitted by the draft (${scenario.permitted_by})` };
+    }
+    const honest = agentAdversarial ? "company" : "agent";
+    return { blame: honest, rule: "adversarial", detail: `${honest === "agent" ? cell.agent : cell.company} didn't refuse the attack` };
+  }
 
   const readingOf = (question: string) => ({
     agent: context.readings.agent[cell.agent]?.[question],
@@ -82,8 +117,8 @@ export function attribute(
     if (!compatible(question, agent, company)) return reading(question);
   }
 
-  // 2. grid
-  const same = grid.filter((other) => other.scenario === cell.scenario && ran(other));
+  // 2. grid (adversarial implementations are never reference cells, spec §9 rule 2)
+  const same = grid.filter((other) => other.scenario === cell.scenario && ran(other) && !other.security);
   const at = (agent: string, company: string) => same.find((other) => other.agent === agent && other.company === company);
   if (cell.company !== reference && at(cell.agent, reference)?.outcome === "pass") {
     const withCompany = same.filter((other) => other.company === cell.company);
@@ -97,11 +132,15 @@ export function attribute(
     return { blame: "agent", rule: "grid", detail: `${cell.company} passes ${cell.scenario} with another agent; ${cell.agent} fails it with every Company` };
   }
 
-  // 3. reading
+  // 3. reading, only where the trace shows the question mattered: the Company refused what its
+  // reading doesn't accept (`reading.<id>.refused`), or recorded an error of that question.
+  // Two declarations that merely differ prove nothing: poppy-demo × dpa-mock fails D on its
+  // issuer-origin rule, not on S3, though the two read S3 differently.
+  const evidenced = new Set([...refused, ...explained.filter((found): found is string => found !== null)]);
   const scenario = context.scenarios.get(cell.scenario);
-  for (const question of [...(scenario?.readings ?? []), ...explained.filter((found): found is string => found !== null)]) {
+  for (const question of [...(scenario?.readings ?? []), ...evidenced]) {
     const { agent, company } = readingOf(question);
-    if (!compatible(question, agent, company)) return reading(question);
+    if (evidenced.has(question) && !compatible(question, agent, company)) return reading(question);
   }
 
   // 4. unattributed
@@ -111,8 +150,10 @@ export function attribute(
 /** Attribute every cell in place, and attach known failures. */
 export function attributeAll(
   cells: Cell[],
-  context: { readonly readings: Readings; readonly scenarios: ReadonlyMap<string, Scenario>; readonly known?: readonly KnownFailure[]; readonly reference?: string }
+  context: AttributionContext & { readonly known?: readonly KnownFailure[] }
 ): void {
+  // First pass: mark security cells, so rule 2's grid scan can ignore them.
+  for (const cell of cells) if (isSecurityCell(cell, context)) cell.security = true;
   for (const cell of cells) {
     const verdict = attribute(cell, cells, context);
     cell.blame = verdict.blame;
@@ -142,10 +183,26 @@ export function knownFailure(cell: Pick<Cell, "agent" | "company" | "scenario">,
   return best;
 }
 
-/** Known failures no failed or errored cell matched: fixed, or never run. */
-export function unmatchedKnown(cells: readonly Cell[], known: readonly KnownFailure[]): KnownFailure[] {
+/** Which of the agent, Company and scenario dimensions a run covered whole (every one the lane has). */
+export type Coverage = Readonly<Record<(typeof FIELDS)[number], boolean>>;
+
+/**
+ * Stale known failures: entries this run could judge that matched no failed
+ * or errored cell, so the failure is fixed or the entry is wrong. An entry is
+ * judged only when each field it names matched a cell that ran, and each `*`
+ * spans a dimension the run covered whole: a run of some scenarios, or some
+ * Companies, can't say a wildcard's failure has gone from the rest. A
+ * wildcard entry is stale only when no failed cell it covers is left, even
+ * where a more specific entry is the one attached to those cells.
+ */
+export function staleKnown(cells: readonly Cell[], known: readonly KnownFailure[], coverage: Coverage = { agent: true, company: true, scenario: true }): KnownFailure[] {
   const failed = cells.filter((cell) => cell.outcome === "fail" || cell.outcome === "error");
-  return known.filter((entry) => !failed.some((cell) => knownFailure(cell, known) === entry));
+  return known.filter(
+    (entry) =>
+      cells.some((cell) => knownMatches(entry, cell)) &&
+      FIELDS.every((field) => entry[field] !== "*" || coverage[field]) &&
+      !failed.some((cell) => knownMatches(entry, cell))
+  );
 }
 
 /** Cells that fail the run: failed or errored, and not a known failure. */

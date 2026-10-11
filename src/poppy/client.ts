@@ -170,17 +170,31 @@ export function parseWwwAuthenticate(header: string | null): { error?: string; s
   };
 }
 
-function retryAfterMs(response: Response, now: number): number | null {
-  const header = response.headers.get("Retry-After");
+/** RFC 9110 §5.6.7 HTTP-date: IMF-fixdate, and the obsolete RFC 850 and asctime forms recipients must also read. */
+const HTTP_DATE = [
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/,
+  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2} \d{2}:\d{2}:\d{2} GMT$/,
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) [ \d]\d \d{2}:\d{2}:\d{2} \d{4}$/
+];
+
+/**
+ * `Retry-After` (RFC 9110 §10.2.3) in ms from `now`: delay-seconds, or an
+ * HTTP-date (zero once it has passed). Anything else is no `Retry-After` at
+ * all; `Date.parse` alone would read junk such as `:0` as a date long past,
+ * and so retry at once.
+ */
+export function retryAfterMs(response: Response, now: number): number | null {
+  const header = response.headers.get("Retry-After")?.trim();
   if (!header) return null;
-  const seconds = Number(header);
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-  const at = Date.parse(header);
+  if (/^\d+$/.test(header)) return Number(header) * 1000;
+  if (!HTTP_DATE.some((form) => form.test(header))) return null;
+  // asctime has no zone; it is GMT.
+  const at = Date.parse(HTTP_DATE[2]!.test(header) ? `${header} GMT` : header);
   return Number.isNaN(at) ? null : Math.max(0, at - now);
 }
 
 /** `RateLimit` (IETF draft): both `remaining=, reset=` and `r=;t=` forms. */
-function parseRateLimit(header: string | null): { remaining: number; reset: number } | null {
+export function parseRateLimit(header: string | null): { remaining: number; reset: number } | null {
   if (!header) return null;
   const remaining = /(?:remaining=|\br=)(\d+)/.exec(header);
   const reset = /(?:reset=|\bt=)(\d+)/.exec(header);

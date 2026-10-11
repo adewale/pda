@@ -1,0 +1,13 @@
+{
+  "id": "YT",
+  "title": "Adversarial agent: a token with a proof from another key",
+  "requirements": ["4.3"],
+  "adversary": "agent",
+  "needs": { "agent": ["arm", "attack"] },
+  "steps": [
+    { "agent": "arm", "params": { "attack": "YT" } },
+    { "agent": "attack", "save": "r" },
+    { "expect": { "step": "r", "poppy_error": { "$exists": true } } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "/products" } }
+  ]
+}

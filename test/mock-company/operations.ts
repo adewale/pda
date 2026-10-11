@@ -103,7 +103,7 @@ export class Operations {
       operation_id: id,
       revision: 1,
       state: "proposed",
-      summary: exchangeSummary(price),
+      summary: `${exchangeSummary(price)}${this.company.config.injection ? ` ${this.company.config.injection}` : ""}`,
       terms,
       expires_at: new Date(expiresAt).toISOString(),
       user_approval_required: this.company.config.userApprovalRequired,

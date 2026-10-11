@@ -27,7 +27,7 @@ import type { Card } from "./poppy/wire";
 import type { PoppyBrowser } from "./poppy/browser";
 import { PoppyCapability } from "./poppy/capability";
 import type { Fetcher } from "./poppy/fetch";
-import { RenderingBrowser } from "./poppy/rendering";
+import { FetchBrowser } from "./poppy/fetch-browser";
 import { poppyExtension } from "./poppy/tools";
 import { PiSessionSockets } from "./sockets";
 
@@ -157,9 +157,9 @@ export class PersonalAgent extends DurableObject<Env> {
     return (request) => fetch(request);
   }
 
-  /** The browser for Poppy web browsing: Cloudflare Browser Rendering. */
+  /** The browser for Poppy web browsing: plain HTTPS through the Poppy fetcher, no JavaScript. */
   protected poppyBrowser(): PoppyBrowser {
-    return new RenderingBrowser(this.env.BROWSER);
+    return new FetchBrowser(this.poppyFetcher());
   }
 
   /**

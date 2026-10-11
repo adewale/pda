@@ -190,12 +190,14 @@ The app has four places:
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
-npm test                         # four suites: Workers, durability, page, interop harness
+npm test                         # five suites: Workers, durability, page, interop harness, properties
 npm run typecheck
 npm run check:docs               # every test the spec's Appendix A names exists
 npm run interop                  # the interop grid in Docker (interop/README.md)
 npm run deploy
 ```
+
+**Before a push.** `.githooks/pre-push` runs `npm run typecheck` and `npm run check:docs`, and stops the push if either fails. Turn it on once per clone with `git config core.hooksPath .githooks`; `git push --no-verify` skips it.
 
 CI runs typecheck, the tests and the docs check on every push, and the interop grid for our agent against our mock Company (`.github/workflows/ci.yml`).
 
@@ -211,7 +213,8 @@ CI runs typecheck, the tests and the docs check on every push, and the interop g
   - A frozen clock makes Retry-After, device polling and slow operations instant.
 - **Validator:** fixtures declared as data, with a test that every message has one. They include the spec's own examples and poppy-demo's live documents.
 - **JSON parsers:** property tests against `JSON.parse`.
-- **Page:** the four places, the needs-you tray, cards, the Activity log (no secrets ever reach it), the sign-in page and the Browser Rendering adapter, in happy-dom.
+- **Page:** the four places, the needs-you tray, cards, the Activity log (no secrets ever reach it), and the sign-in page, in happy-dom.
+- **Browsing:** the production fetch-based browser, against the mock Company's website and stub fetchers: the Session join, a cookie jar per User and Session, redirects, size and time limits, forms, and the approval a form needs.
 - **Interop harness:** its scenario interpreter, trace checks, attribution and report, in Node. The validator fixtures and the mock's tamper rows are also exported as language-neutral vectors (`interop/vectors/`), and a test fails while those files are stale.
 
 The model vendors, Google, GitHub and Companies are faked; nothing calls the network.
@@ -225,7 +228,6 @@ The model vendors, Google, GitHub and Companies are faked; nothing calls the net
 | Workers and Static Assets | Routes, sign-in, the chat page, the validator |
 | Durable Objects (SQLite) | One agent per person; per-company rate limits |
 | AI Gateway (`AI` binding) | The demo: Claude Opus 5.5, paid by the operator |
-| Browser Rendering | Browsing a company's website in the agent's Session |
 | Rate Limiting | The validator's URL checks |
 
 **Cost:** the operator pays for demo calls through AI Gateway's Unified Billing, capped per person and per domain each day; everyone else pays their vendor with their own key. Every agent created also costs the operator storage, more so with `SIGNUP=open`. We haven't checked whether the rest fits the Workers free plan.
@@ -248,13 +250,13 @@ Poppy implementations we know of, as of 11 Oct 2026. All were days old. [`docs/i
 | [introspection-js-sdk `examples/pap-travel`](https://github.com/introspection-org/introspection-js-sdk/pull/441) | Demo of both sides (pull request open) | TypeScript |
 | [dirnbauer/webconsulting-typo3-lab](https://github.com/dirnbauer/webconsulting-typo3-lab) | Minimal signed-out Company (the extension itself is private) | PHP |
 
-[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 65 problems in the specification itself, with suggested fixes, [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, [`interop/`](interop/README.md) runs it, and [`docs/interop-results/`](docs/interop-results/) has the latest grid. [`docs/conformance-testing-history.md`](docs/conformance-testing-history.md) traces where pirate testing and interop runners came from, [`docs/adversarial-interop.md`](docs/adversarial-interop.md) designs deliberately misbehaving peers, and [`docs/proposals/`](docs/proposals/) holds unposted drafts proposing Poppy support in OpenClaw and Hermes Agent.
+[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 65 problems in the specification itself, with suggested fixes ([`docs/readings.md`](docs/readings.md) records which reading we chose for each open question, and why), [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, [`interop/`](interop/README.md) runs it, and [`docs/interop-results/`](docs/interop-results/) has the latest grid. [`docs/conformance-testing-history.md`](docs/conformance-testing-history.md) traces where pirate testing and interop runners came from, [`docs/adversarial-interop.md`](docs/adversarial-interop.md) designs deliberately misbehaving peers, and [`docs/proposals/`](docs/proposals/) holds unposted drafts proposing Poppy support in OpenClaw and Hermes Agent.
 
 ## Limitations
 
 - **Chat sign-in isn't live** until the Google and GitHub OAuth apps are registered and AI Gateway billing is set up; see [`docs/setup.md`](docs/setup.md). The validator works without either.
 - **No production Company tested yet.** The Poppy client has run against our mock and, in the [interop grid](docs/interop-results/), against the Companies of six other projects, which are SDKs, demos or signed-out. No business has published `poppy.json`.
-- **Fake browser only.** Website browsing has been tested with a fake browser, not Browser Rendering.
+- **No JavaScript in browsing.** The agent browses a company's website with its own fetch-based browser: plain HTTPS requests, pages read as text, links and forms. A site that needs JavaScript to show its pages or send its forms can't be browsed. The browser has been tested against the mock Company's website, not a real one.
 - **Validator limits:**
   - It checks documents, not behaviour: it can't tell whether a token endpoint works.
   - It checks the host name, not the IP address a name resolves to, so it can't refuse a name that points at a private address. The Guides ask for that check.
@@ -281,5 +283,6 @@ docs/               Setup guide; spec problems; issues in other implementations;
 ## Support, contributing and license
 
 - **Support:** this is a private repository for its collaborators. Report problems with [GitHub issues](https://github.com/adewale/dpa/issues).
+- **Security:** report a vulnerability privately, as [`SECURITY.md`](SECURITY.md) describes. It also sets out how we disclose what interop and adversarial testing finds in other projects: to their maintainers, privately, first.
 - **Contributing:** pull requests should keep `npm test` and `npm run typecheck` passing. A new Poppy feature needs a test, and a check in the mock Company where the spec has a MUST.
 - **License:** no license has been chosen yet. Files copied from Cloudflare's `agents` examples keep their MIT license; see [`NOTICE.md`](NOTICE.md).

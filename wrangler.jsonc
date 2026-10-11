@@ -21,8 +21,6 @@
     { "tag": "v2", "new_sqlite_classes": ["CompanyLimiter"] },
     { "tag": "v3", "new_sqlite_classes": ["DomainBudget"] }
   ],
-  // Poppy web browsing (Browser Rendering).
-  "browser": { "binding": "BROWSER" },
   // Product choices. Secrets are per deployment, set with `wrangler secret
   // put`, never in this file: SESSION_SECRET, GOOGLE_CLIENT_ID,
   // GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
