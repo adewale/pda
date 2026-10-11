@@ -239,13 +239,18 @@ async function report(client: PoppyClient, row: SignInRow, text: string): Promis
   await client.host.notifyModel(`[system] ${text}`, `poppy-signin-${row.id}`);
 }
 
+/**
+ * Ending a sign-in: with its tokens, or without, `expired` when it ran out
+ * of time (the Company's `expired` or `expired_token`, or our own deadline),
+ * so the Activity log can say so.
+ */
 async function finish(
   client: PoppyClient,
   row: SignInRow,
-  outcome: { ok: true; response: Json } | { ok: false; message: string }
+  outcome: { ok: true; response: Json } | { ok: false; message: string; expired?: boolean }
 ): Promise<void> {
   const company = client.companyByIssuer(row.issuer);
-  setStatus(client, row.id, outcome.ok ? "done" : "failed");
+  setStatus(client, row.id, outcome.ok ? "done" : outcome.expired ? "expired" : "failed");
   let text: string;
   if (outcome.ok) {
     const raw = outcome.response as TokenResponse;
@@ -257,6 +262,35 @@ async function finish(
     text = `Sign-in to ${company.name} didn't complete: ${outcome.message}`;
   }
   await report(client, row, text);
+}
+
+/** Refusals that mean the Session can't be signed in, and why, in the User's words. */
+const NEW_SESSION: Readonly<Record<string, string>> = {
+  // One account per Session (4.4): it is bound to another account.
+  account_mismatch: "the Session belongs to another account",
+  // It ended meanwhile (4.2).
+  invalid_session: "the Session has ended"
+};
+
+/**
+ * The Company refused the step that signs the Session in: a code exchange,
+ * a device poll, or Mediated Sign-In. `account_mismatch` and
+ * `invalid_session` mean that Session can never be signed in, so it is left
+ * for a new one (spec 4.4) and the User's next sign-in starts there. Anything
+ * else leaves the Session as it was. Nothing is retried: a code is single
+ * use, and credentials are gone.
+ */
+async function refused(client: PoppyClient, row: SignInRow, code: string, message: string): Promise<void> {
+  const reason = NEW_SESSION[code];
+  if (!reason) {
+    await finish(client, row, { ok: false, message });
+    return;
+  }
+  client.abandonSession(row.issuer, row.label);
+  await finish(client, row, {
+    ok: false,
+    message: `${reason} (${code}), so the agent continues in a new Session. Ask the User to sign in again.`
+  });
 }
 
 // ---------------------------------------------------------------- Direct Sign-In's code exchange
@@ -377,7 +411,7 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
     verifier: string;
   };
   if (secret.state !== state || row.expires_at <= Date.now()) {
-    await finish(client, row, { ok: false, message: "the sign-in link expired" });
+    await finish(client, row, { ok: false, message: "the sign-in link expired", expired: true });
     return { ok: false, message: "This sign-in has expired. Start it again from the chat." };
   }
   // The response must come from the Company we sent the User to (RFC 9207, spec 4.5).
@@ -415,9 +449,12 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
       });
     } catch (error) {
       if (error instanceof PoppyError && error.status >= 400 && error.status < 500) {
-        // The Company refused the code: nothing changed there.
-        await finish(client, row, { ok: false, message: error.code });
-        return { ok: false, message: `Sign-in to ${company.name} failed (${error.code}).` };
+        // The Company refused the code: it didn't sign the Session in.
+        await refused(client, row, error.code, error.code);
+        return {
+          ok: false,
+          message: `Sign-in to ${company.name} failed (${error.code}).${NEW_SESSION[error.code] ? " Go back to the chat and sign in again." : ""}`
+        };
       }
       // No answer, or one we can't read: the Company may have signed the Session in.
       await abandonExchange(client, row);
@@ -451,7 +488,7 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
   const row = signIn(client, id);
   if (!row || row.status !== "pending") return null;
   if (row.expires_at <= client.host.now()) {
-    await finish(client, row, { ok: false, message: "the code expired before the User approved" });
+    await finish(client, row, { ok: false, message: "the code expired before the User approved", expired: true });
     return null;
   }
   const company = client.companyByIssuer(row.issuer);
@@ -476,13 +513,9 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
       return client.host.now() + (interval + 5) * 1000;
     }
     if (error.code === "rate_limited") return client.host.now() + (error.detail.retryAfter ?? interval) * 1000;
-    const message =
-      error.code === "access_denied"
-        ? "the User declined"
-        : error.code === "expired_token"
-          ? "the code expired"
-          : `the company returned ${error.code}`;
-    await finish(client, row, { ok: false, message });
+    if (error.code === "access_denied") await finish(client, row, { ok: false, message: "the User declined" });
+    else if (error.code === "expired_token") await finish(client, row, { ok: false, message: "the code expired", expired: true });
+    else await refused(client, row, error.code, `the company returned ${error.code}`);
     return null;
   }
 }
@@ -527,7 +560,7 @@ async function mediatedResponse(
       return "code";
     }
     case "expired":
-      await finish(client, row, { ok: false, message: "the sign-in took too long" });
+      await finish(client, row, { ok: false, message: "the sign-in took too long", expired: true });
       return "failed";
     default:
       await finish(client, row, { ok: false, message: "the company didn't accept the sign-in" });
@@ -567,7 +600,7 @@ export async function submitCredentials(
     return mediatedResponse(client, row, body);
   } catch (error) {
     if (!(error instanceof PoppyError)) throw error;
-    await finish(client, row, { ok: false, message: error.code });
+    await refused(client, row, error.code, error.code);
     return "failed";
   }
 }
@@ -597,7 +630,7 @@ export async function submitSignInCode(
     return mediatedResponse(client, row, body);
   } catch (error) {
     if (!(error instanceof PoppyError)) throw error;
-    await finish(client, row, { ok: false, message: error.code });
+    await refused(client, row, error.code, error.code);
     return "failed";
   }
 }

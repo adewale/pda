@@ -304,6 +304,11 @@ export class PoppyClient {
     return found;
   }
 
+  /**
+   * A Company by domain: the documents discovery kept, until their HTTP cache
+   * lifetime (bounded to between a minute and a day) is up, then discovery
+   * again (spec 3, step 4). Timed by the host's clock, like the client's waits.
+   */
   async lookup(domain: string): Promise<Company | WebsiteOnly> {
     const key = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
     const cached = one<{ company: string; expires_at: number }>(
@@ -311,7 +316,7 @@ export class PoppyClient {
       "SELECT company, expires_at FROM poppy_domains WHERE domain = ?",
       key
     );
-    if (cached && cached.expires_at > Date.now()) {
+    if (cached && cached.expires_at > this.host.now()) {
       return JSON.parse(cached.company) as Company | WebsiteOnly;
     }
     const { result, cacheSeconds } = await discover(this.host.fetcher, domain);
@@ -320,7 +325,7 @@ export class PoppyClient {
       key,
       isCompany(result) ? result.issuer : null,
       JSON.stringify(result),
-      Date.now() + cacheSeconds * 1000
+      this.host.now() + cacheSeconds * 1000
     );
     return result;
   }

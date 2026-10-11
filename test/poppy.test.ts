@@ -161,6 +161,48 @@ describe("3 discovery", () => {
   });
 });
 
+describe("3 discovery: reusing poppy.json for its cache lifetime", () => {
+  /** How many times the Company served poppy.json and its issuer's metadata. */
+  const fetched = async (c: Company) => {
+    const seen = await requests(c);
+    return {
+      poppy: seen.filter((request) => request.url === `https://${c.domain}/.well-known/poppy.json`).length,
+      metadata: seen.filter((request) => request.url === `${new URL(c.hosts.issuer).origin}${c.hosts.metadataPath}`).length
+    };
+  };
+  /** An HTTP-date `seconds` from now, made when the test runs. */
+  const expiresIn = (seconds: number) => ({ Expires: new Date(Date.now() + seconds * 1000).toUTCString() });
+  const DAY = 24 * 60 * 60;
+
+  it.each([
+    { what: "no caching headers: a minute", poppy: () => ({}), metadata: () => ({}), fresh: 59, stale: 61 },
+    { what: "no-store: a minute, the least", poppy: () => ({ "Cache-Control": "no-store" }), metadata: () => ({ "Cache-Control": "no-store" }), fresh: 59, stale: 61 },
+    { what: "no-cache: a minute, the least", poppy: () => ({ "Cache-Control": "no-cache" }), metadata: () => ({ "Cache-Control": "no-cache" }), fresh: 59, stale: 61 },
+    { what: "max-age=600", poppy: () => ({ "Cache-Control": "max-age=600" }), metadata: () => ({ "Cache-Control": "max-age=600" }), fresh: 599, stale: 601 },
+    { what: "max-age=5, raised to a minute", poppy: () => ({ "Cache-Control": "max-age=5" }), metadata: () => ({ "Cache-Control": "max-age=5" }), fresh: 59, stale: 61 },
+    { what: "max-age of two days, cut to one", poppy: () => ({ "Cache-Control": `max-age=${2 * DAY}` }), metadata: () => ({ "Cache-Control": `max-age=${2 * DAY}` }), fresh: DAY - 1, stale: DAY + 1 },
+    { what: "Expires in ten minutes", poppy: () => expiresIn(600), metadata: () => expiresIn(600), fresh: 580, stale: 601 },
+    { what: "an Expires already past: a minute", poppy: () => expiresIn(-3600), metadata: () => expiresIn(-3600), fresh: 59, stale: 61 },
+    { what: "the shorter: the metadata's 2 minutes", poppy: () => ({ "Cache-Control": "max-age=600" }), metadata: () => ({ "Cache-Control": "max-age=120" }), fresh: 119, stale: 121 }
+  ])("keeps poppy.json and its issuer's metadata for their cache lifetime, then fetches both again: $what", async ({ poppy, metadata, fresh, stale }) => {
+    const c = await company({ poppyJsonCacheHeaders: poppy(), metadataCacheHeaders: metadata() });
+    const a = await agent();
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
+    expect(await fetched(c)).toEqual({ poppy: 1, metadata: 1 });
+    // Within the lifetime, on the agent's clock: every use takes the kept documents.
+    await a.stub.poppyAdvance(fresh * 1000);
+    expect((await tool(a, "poppy_status", { domain: c.domain })).isError).toBe(false);
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
+    expect(await fetched(c)).toEqual({ poppy: 1, metadata: 1 });
+    // Once it is over, the next use fetches both again, and keeps them afresh.
+    await a.stub.poppyAdvance((stale - fresh) * 1000);
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
+    expect(await fetched(c)).toEqual({ poppy: 2, metadata: 2 });
+    expect((await tool(a, "poppy_status", { domain: c.domain })).isError).toBe(false);
+    expect(await fetched(c)).toEqual({ poppy: 2, metadata: 2 });
+  });
+});
+
 describe("Guides: fetching metadata safely", () => {
   const PRIVATE_HOSTS = ["127.0.0.1", "[::1]", "intranet", "x.localhost", "10.0.0.1"];
 
@@ -531,6 +573,55 @@ describe.each(PROFILES)("4.7 Mediated Sign-In ($name)", ({ config: profile }) =>
     expect((await a.stub.poppyNotices()).some((n) => n.includes("didn't complete"))).toBe(true);
     expect((await requests(c)).filter((request) => request.url === c.hosts.mediatedEndpoint)).toHaveLength(1);
   });
+
+  it("ends a sign-in the Company says has expired, never tries it again, and lets the User start again", async () => {
+    const c = await company(mediatedOnly);
+    const a = await agent();
+    const sent = async () =>
+      (await requests(c))
+        .filter((request) => request.url.startsWith(c.hosts.mediatedEndpoint))
+        .map((request) => `${request.url === c.hosts.mediatedEndpoint ? "credentials" : "code"} ${request.status}`);
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    const credentials = (await cards(a)).find((item) => item.kind === "signin_credentials")!;
+    const grace = { email: "grace@example.com", password: "battery staple" };
+    await a.stub.poppyFrame({ type: "poppy.credentials", signInId: credentials.signInId, values: grace });
+    expect((await cards(a)).find((item) => item.id === `signin-${credentials.signInId}`)).toMatchObject({ kind: "signin_code", open: true });
+    const code = (await c.stub.lastOneTimeCode())!;
+    // The User takes longer than the Company's five minutes (on the agent's clock, which the Company keeps).
+    await a.stub.poppyAdvance(5 * 60_000 + 1_000);
+    await a.stub.poppyFrame({ type: "poppy.code", signInId: credentials.signInId, code });
+    expect(await sent()).toEqual(["credentials 200", "code 200"]);
+
+    // The code card becomes a closed notice, and the model is told once, saying why.
+    const ended = `Sign-in to Mock Shop ${c.id} didn't complete: the sign-in took too long`;
+    expect((await cards(a)).find((item) => item.id === `signin-${credentials.signInId}`)).toEqual(
+      expect.objectContaining({ kind: "notice", open: false, text: ended })
+    );
+    expect((await a.stub.poppyNotices()).filter((notice) => notice.includes("took too long"))).toEqual([`[system] ${ended}`]);
+    // That flow is over: its code and its credentials go nowhere, and nothing is signed in.
+    await a.stub.poppyFrame({ type: "poppy.code", signInId: credentials.signInId, code });
+    await a.stub.poppyFrame({ type: "poppy.credentials", signInId: credentials.signInId, values: grace });
+    expect(await sent()).toEqual(["credentials 200", "code 200"]);
+    expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).sessions[0].signedIn).toBe(false);
+    // The Activity log keeps it, as expired.
+    const logged = async () => JSON.parse(await a.stub.poppyActivity()).log as Array<Record<string, unknown>>;
+    expect((await logged()).find((entry) => entry.id === `signin-${credentials.signInId}`)).toMatchObject({
+      kind: "sign_in",
+      what: `Sign-in at Mock Shop ${c.id} through this page`,
+      result: "expired",
+      decidedBy: null
+    });
+
+    // The User starts again, with a new card, and signs in.
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    const again = (await cards(a)).find((item) => item.kind === "signin_credentials" && item.open)!;
+    expect(again.signInId).not.toBe(credentials.signInId);
+    await a.stub.poppyFrame({ type: "poppy.credentials", signInId: again.signInId, values: grace });
+    await a.stub.poppyFrame({ type: "poppy.code", signInId: again.signInId, code: (await c.stub.lastOneTimeCode())! });
+    expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).sessions[0]).toMatchObject({ signedIn: true, scope: "poppy:read" });
+    expect(await sent()).toEqual(["credentials 200", "code 200", "credentials 200", "code 200"]);
+    expect((await logged()).find((entry) => entry.id === `signin-${again.signInId}`)).toMatchObject({ result: "done", decidedBy: "you" });
+  });
 });
 
 describe.each(PROFILES)("4.8–4.9 Account Tokens and signing out ($name)", ({ config: profile }) => {
@@ -644,6 +735,77 @@ describe("4.4 one account per Session", () => {
     const [after] = JSON.parse(await a.stub.poppySql("SELECT session_id, account FROM poppy_sessions WHERE label = 'main'")) as { session_id: string; account: string }[];
     expect(after!.session_id).not.toBe(main!.session_id);
     expect(after!.account).toBe("grace");
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).text).toContain("acct_grace");
+  });
+
+  /** Signs `account` in on the main Session with one sign-in type, the test playing the User; returns the sign-in's id. */
+  const SIGN_INS = {
+    async direct(a: Agent, c: Company, account: string, label: string) {
+      await signInDirect(a, c, ["poppy:read"], { account }, label === "default" ? {} : { account: label });
+      return (JSON.parse(await a.stub.poppySql("SELECT id FROM poppy_signins ORDER BY created_at DESC, rowid DESC LIMIT 1")) as { id: string }[])[0]!.id;
+    },
+    async device(a: Agent, c: Company, account: string, label: string) {
+      await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test", ...(label === "default" ? {} : { account: label }) });
+      const card = (await cards(a)).find((item) => item.kind === "signin_device" && item.open)!;
+      await c.stub.approveDevice(card.userCode, { account });
+      await a.stub.poppyAdvance(1_000);
+      await until(async () => (await cards(a)).find((item) => item.id === card.id && item.kind === "notice"));
+      return card.signInId as string;
+    },
+    async mediated(a: Agent, c: Company, account: string, label: string) {
+      await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test", ...(label === "default" ? {} : { account: label }) });
+      const card = (await cards(a)).find((item) => item.kind === "signin_credentials" && item.open)!;
+      const values = account === "acct_ada" ? { email: "ada@example.com", password: "correct horse" } : { email: "grace@example.com", password: "battery staple" };
+      await a.stub.poppyFrame({ type: "poppy.credentials", signInId: card.signInId, values });
+      // Grace's account asks for a one-time code.
+      if ((await cards(a)).some((item) => item.id === card.id && item.kind === "signin_code")) {
+        await a.stub.poppyFrame({ type: "poppy.code", signInId: card.signInId, code: (await c.stub.lastOneTimeCode())! });
+      }
+      return card.signInId as string;
+    }
+  } as const;
+
+  it.each([
+    { type: "direct", step: "code exchange" },
+    { type: "device", step: "device poll" },
+    { type: "mediated", step: "one-time code" }
+  ] as const)("starts a new Session when the Company refuses the $step for another account (account_mismatch), and the User can sign in", async ({ type }) => {
+    const only = { direct: null, device: null, mediated: null, [type]: ["poppy:read"] };
+    const c = await company({ signIn: only });
+    const a = await agent();
+    const signIn = SIGN_INS[type];
+    const mainSession = async () =>
+      (JSON.parse(await a.stub.poppySql("SELECT session_id, account, signed_in FROM poppy_sessions WHERE label = 'main'")) as { session_id: string; account: string | null; signed_in: number }[])[0];
+    // Ada signs in, then out: the Session continues signed out, but the Company keeps it bound to her.
+    await signIn(a, c, "acct_ada", "default");
+    expect(await mainSession()).toMatchObject({ signed_in: 1, account: "default" });
+    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } })).isError).toBe(false);
+    const bound = (await mainSession())!;
+    expect(bound.signed_in).toBe(0);
+
+    // Grace signs in on that Session: the Company refuses to switch its account.
+    const refused = await signIn(a, c, "acct_grace", "grace");
+    const mismatches = (await requests(c)).filter((request) => request.error === "account_mismatch");
+    expect(mismatches).toHaveLength(1);
+    const text = `Sign-in to Mock Shop ${c.id} didn't complete: the Session belongs to another account (account_mismatch), so the agent continues in a new Session. Ask the User to sign in again.`;
+    expect((await cards(a)).find((item) => item.id === `signin-${refused}`)).toEqual(expect.objectContaining({ kind: "notice", open: false, text }));
+    expect((await a.stub.poppyNotices()).filter((notice) => notice.includes("account_mismatch"))).toEqual([`[system] ${text}`]);
+    // Nothing is retried, and the bound Session is left: no Session at all until the next use.
+    expect(await mainSession()).toBeUndefined();
+    await a.stub.poppyAdvance(60_000);
+    expect((await requests(c)).filter((request) => request.error === "account_mismatch")).toHaveLength(1);
+
+    // Grace signs in again, on a new Session, and it completes.
+    const completed = await signIn(a, c, "acct_grace", "grace");
+    expect(completed).not.toBe(refused);
+    const after = (await mainSession())!;
+    expect(after).toMatchObject({ signed_in: 1, account: "grace" });
+    expect(after.session_id).not.toBe(bound.session_id);
+    expect((await cards(a)).find((item) => item.id === `signin-${completed}`)).toEqual(
+      expect.objectContaining({ kind: "notice", open: false, text: `Signed in to Mock Shop ${c.id} with "poppy:read".` })
+    );
+    expect((await requests(c)).filter((request) => request.error === "account_mismatch")).toHaveLength(1);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).text).toContain("acct_grace");
   });
 });
@@ -1648,6 +1810,291 @@ describe("7.5 an event whose handling fails", () => {
     expect(JSON.parse(await a.stub.poppySql("SELECT operation_id FROM poppy_operations"))).toHaveLength(1);
     expect((await cards(a)).filter((item) => item.kind === "operation")).toEqual([expect.objectContaining({ operationId: card.operationId, open: true })]);
     expect((await c.stub.state()).operations).toHaveLength(1);
+  });
+});
+
+/**
+ * Keeps an agent's background reader out of a test's way: its next read of
+ * events is held (the Company answers it; the answer never arrives) until
+ * `release`, when it fails and is tried again a minute later. Then the test's
+ * own reads (`poppyReadNow`, `wait=0`) are the only ones.
+ */
+async function holdBackgroundReads(a: Agent) {
+  await a.stub.poppyFault({ method: "GET", url: "/events", mode: "hold" });
+  return {
+    /** Resolves once the background reader is held. */
+    held: () => until(async () => (await a.stub.poppyFaultsLeft()) === 0),
+    release: () => a.stub.poppyReleaseHeld()
+  };
+}
+
+/** The conversation's row, as the agent keeps it. */
+const conversationRow = async (a: Agent, id: string) =>
+  (JSON.parse(await a.stub.poppySql("SELECT status, cursor FROM poppy_conversations WHERE id = ?", id)) as { status: string; cursor: string | null }[])[0]!;
+
+/** Company messages the agent kept from a conversation, in order: event id and text. */
+const inbox = async (a: Agent, id: string) =>
+  JSON.parse(
+    await a.stub.poppySql(
+      "SELECT json_extract(event, '$.id') AS id, json_extract(event, '$.message.text') AS text FROM poppy_inbox WHERE conversation_id = ? AND json_extract(event, '$.message.role') = 'company' ORDER BY seq",
+      id
+    )
+  ) as { id: string; text: string }[];
+
+/** The test's own reads of a conversation's events (`wait=0`), as the cursor each started from; null for none. */
+const ownReads = async (c: Company, id: string) =>
+  (await requests(c))
+    .filter((request) => request.method === "GET" && request.url.startsWith(`${c.hosts.conversationsEndpoint}/${id}/events`))
+    .map((request) => new URL(request.url))
+    .filter((url) => url.searchParams.get("wait") === "0")
+    .map((url) => url.searchParams.get("cursor"));
+
+describe("7.5 reading again while has_more", () => {
+  it("reads page after page at once while has_more is true, handling each event once and in order, saving the cursor only after", async () => {
+    const c = await company({ streaming: false, eventPageSize: 2 });
+    const a = await agent();
+    const reads = await holdBackgroundReads(a);
+    try {
+      const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+      const id = first.conversationId as string;
+      await reads.held();
+      const start = (await conversationRow(a, id)).cursor;
+      expect(start).toEqual(expect.any(String));
+      // Seven messages wait: four pages of two.
+      const texts = Array.from({ length: 7 }, (_, i) => `Update ${i + 1} of 7.`);
+      for (const text of texts) await c.stub.say(id, text);
+      // The sixth can't be handled the first time: the read stops there, in its third page.
+      await a.stub.poppyFailNoticeOnce("Update 6 of 7.");
+      const failed = await a.stub.poppyReadNow(id).then(
+        () => null,
+        (error: unknown) => error
+      );
+      expect(String(failed)).toContain("The model couldn't be told");
+      const handled = await inbox(a, id);
+      const idOf = (text: string) => handled.find((entry) => entry.text === text)?.id;
+      expect(handled.map((entry) => entry.text)).toEqual(["Hi! How can I help?", ...texts.slice(0, 6)]);
+      // Three pages read at once, each from the one before; the cursor is the end of the last page handled in full.
+      expect(await ownReads(c, id)).toEqual([start, idOf("Update 2 of 7."), idOf("Update 4 of 7.")]);
+      expect((await conversationRow(a, id)).cursor).toBe(idOf("Update 4 of 7."));
+
+      // The next read goes on from there: the fifth is skipped, the sixth handled, then the last page.
+      expect(await a.stub.poppyReadNow(id)).toEqual(expect.any(Number));
+      const all = await inbox(a, id);
+      expect(all.map((entry) => entry.text)).toEqual(["Hi! How can I help?", ...texts]);
+      expect(await ownReads(c, id)).toEqual([start, idOf("Update 2 of 7."), idOf("Update 4 of 7."), idOf("Update 4 of 7."), idOf("Update 6 of 7.")]);
+      expect((await conversationRow(a, id)).cursor).toBe(all.at(-1)!.id);
+      expect(await a.stub.poppyFaultsLeft()).toBe(0);
+      // The model was told each one once, in order.
+      const told = (await a.stub.poppyNotices()).filter((notice) => notice.includes("Update "));
+      expect(told.map((notice) => /Update \d of 7\./.exec(notice)![0])).toEqual(texts);
+      // Without has_more, a read ends at its page: nothing more is asked for.
+      expect(await a.stub.poppyReadNow(id)).toEqual(expect.any(Number));
+      expect((await ownReads(c, id)).slice(5)).toEqual([all.at(-1)!.id]);
+    } finally {
+      await reads.release();
+    }
+  });
+});
+
+describe("7.13 conversation errors", () => {
+  /** A conversation the agent started, with its background reader held (`holdBackgroundReads`). */
+  async function started(config: Partial<MockConfig> = {}) {
+    const c = await company({ streaming: false, ...config });
+    const a = await agent();
+    const reads = await holdBackgroundReads(a);
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await reads.held();
+    return { c, a, id: first.conversationId as string, release: reads.release };
+  }
+
+  /** The messages the agent POSTed to a conversation, and the conversations it started. */
+  const posts = async (c: Company, id: string) => {
+    const seen = (await requests(c)).filter((request) => request.method === "POST");
+    return {
+      messages: seen.filter((request) => request.url.startsWith(`${c.hosts.conversationsEndpoint}/${id}/messages`)).map((request) => request.status),
+      started: seen.filter((request) => request.url.split("?")[0] === c.hosts.conversationsEndpoint).length
+    };
+  };
+
+  it.each([
+    { code: "conversation_closed", status: 409, refuse: (c: Company, id: string) => c.stub.closeConversation(id), says: "has closed" },
+    { code: "conversation_not_found", status: 404, refuse: (c: Company, id: string) => c.stub.forgetConversation(id), says: "no longer has" }
+  ])("stops using a conversation the Company says is $code, tells the model to start a new one, and retries nothing", async ({ code, status, refuse, says }) => {
+    const { c, a, id, release } = await started();
+    try {
+      await refuse(c, id);
+      const result = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "One more question." });
+      expect(result.isError).toBe(true);
+      expect(result.text).toBe(
+        `Mock Shop ${c.id} ${says} conversation ${id}, so the message wasn't sent. Start a new conversation (poppy_message without conversation) if the task still needs one. [${code}]`
+      );
+      expect(JSON.parse(result.details)).toEqual({ error: code });
+      // Sent once, not again, and no new conversation started for the model.
+      expect(await posts(c, id)).toEqual({ messages: [status], started: 1 });
+      // Closed here too: no more reads.
+      expect((await conversationRow(a, id)).status).toBe("closed");
+      expect(await a.stub.poppyReadNow(id)).toBeNull();
+      expect(await ownReads(c, id)).toEqual([]);
+      expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).conversations).toEqual([]);
+      // A new conversation is the model's to start.
+      const next = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "One more question." })).text);
+      expect(next.conversationId).not.toBe(id);
+      expect((await posts(c, id)).started).toBe(2);
+    } finally {
+      await release();
+    }
+  });
+
+  it("stops reading a conversation the Company no longer has, and tells the model, once (conversation_not_found)", async () => {
+    const { c, a, id, release } = await started();
+    try {
+      await c.stub.forgetConversation(id);
+      const cursor = (await conversationRow(a, id)).cursor;
+      expect(await a.stub.poppyReadNow(id)).toBeNull();
+      expect(await ownReads(c, id)).toEqual([cursor]);
+      expect(await conversationRow(a, id)).toEqual({ status: "closed", cursor });
+      expect((await a.stub.poppyNotices()).filter((notice) => notice.includes("conversation_not_found"))).toEqual([
+        `[system] Mock Shop ${c.id} no longer has conversation ${id} (conversation_not_found), so no more replies will come there. Start a new conversation if the task still needs one.`
+      ]);
+      // Never read again.
+      expect(await a.stub.poppyReadNow(id)).toBeNull();
+      expect(await ownReads(c, id)).toEqual([cursor]);
+    } finally {
+      await release();
+    }
+  });
+
+  it("keeps the parent open while the User's Direct Conversation is, sending nothing more until it ends (direct_conversation_open)", async () => {
+    const { c, a, id, release } = await started();
+    try {
+      await tool(a, "poppy_invite_user", { conversation: id, reason: "You may want to explain the fit yourself." });
+      await a.stub.poppyFrame({ type: "poppy.direct.start", conversationId: id, text: "Hi, it's me." });
+      const direct = (await c.stub.state()).conversations.find((conv) => conv.direct)!;
+      const result = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Anything else?" });
+      expect(result.isError).toBe(true);
+      expect(result.text).toBe(
+        `The User is talking with Mock Shop ${c.id} directly, so conversation ${id} takes no messages until that Direct Conversation ends; you'll be told when it does. [direct_conversation_open]`
+      );
+      expect(await posts(c, id)).toEqual({ messages: [409], started: 2 });
+      expect((await conversationRow(a, id)).status).not.toBe("closed");
+      // Once it ends, the model is told, and the parent takes messages again.
+      await a.stub.poppyFrame({ type: "poppy.direct.close", conversationId: direct.id });
+      await a.stub.poppyReadNow(id);
+      await a.stub.poppyWaitForNotice(`conversation ${id} takes messages again`);
+      expect((await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Anything else?" })).isError).toBe(false);
+      expect((await posts(c, id)).messages).toEqual([409, 202]);
+    } finally {
+      await release();
+    }
+  });
+
+  it("reports a message id the Company already has with other content as the agent's bug, and never sends it under a new id (message_id_conflict)", async () => {
+    const { c, a, id, release } = await started();
+    // Our bug, simulated: the replayed call's stored message changed after it was sent.
+    c.expectViolations(/^\[message\.id-reused\] message id msg_\S+ reused with different content$/);
+    try {
+      expect((await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "First version." }, "call-2")).isError).toBe(false);
+      await a.stub.poppySql("UPDATE poppy_intents SET value = replace(value, 'First version.', 'Second version.') WHERE call_key LIKE '%|call-2'");
+      const [{ message }] = JSON.parse(await a.stub.poppySql("SELECT json_extract(value, '$.message.id') AS message FROM poppy_intents WHERE call_key LIKE '%|call-2'")) as { message: string }[];
+      const logMark = await a.stub.poppyLogMark();
+      const replayed = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "First version." }, "call-2");
+      expect(replayed.isError).toBe(true);
+      expect(replayed.text).toBe(
+        `Mock Shop ${c.id} already has message ${message} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived. [message_id_conflict]`
+      );
+      expect((await a.stub.poppyLogsSince(logMark)).some((line) => line.includes("poppy message_id_conflict"))).toBe(true);
+      // Two sends of that id, the second refused; nothing under another id, and the Company kept the first.
+      expect(await posts(c, id)).toEqual({ messages: [202, 409], started: 1 });
+      expect((await c.stub.state()).conversations[0]!.sent).toEqual(["agent:hello", "agent:First version."]);
+      expect((await conversationRow(a, id)).status).not.toBe("closed");
+    } finally {
+      await release();
+    }
+  });
+
+  it("reads from the start after invalid_cursor, skipping what it handled, without telling the User anything is missing", async () => {
+    const { c, a, id, release } = await started();
+    try {
+      await c.stub.say(id, "Are you still there?");
+      await a.stub.poppySql("UPDATE poppy_conversations SET cursor = 'evt_nothing_like_it' WHERE id = ?", id);
+      expect(await a.stub.poppyReadNow(id)).toEqual(expect.any(Number));
+      // Refused once, then read from the beginning: no retry with the same cursor.
+      expect(await ownReads(c, id)).toEqual(["evt_nothing_like_it", null]);
+      const kept = await inbox(a, id);
+      expect(kept.map((entry) => entry.text)).toEqual(["Hi! How can I help?", "Are you still there?"]);
+      expect((await conversationRow(a, id)).cursor).toBe(kept.at(-1)!.id);
+      // The reply the send already returned isn't news to the model; the new message is, once.
+      const told = await a.stub.poppyNotices();
+      expect(told.filter((notice) => notice.includes("Hi! How can I help?"))).toEqual([]);
+      expect(told.filter((notice) => notice.includes("Are you still there?"))).toHaveLength(1);
+      // An unknown cursor isn't a gap: no notice to the User.
+      expect((await cards(a)).filter((card) => card.id === `cursor-expired-${id}`)).toEqual([]);
+    } finally {
+      await release();
+    }
+  });
+
+  it.each([
+    { code: "cursor_expired", status: 410, notice: true },
+    { code: "invalid_cursor", status: 400, notice: false }
+  ])("sends a message whose reply can't start at the saved cursor once, reading from the start ($code)", async ({ code, status, notice }) => {
+    const { c, a, id, release } = await started();
+    try {
+      if (code === "cursor_expired") {
+        // The agent last read up to an event the Company then stops keeping.
+        const [oldest] = JSON.parse(await a.stub.poppySql("SELECT event_id FROM poppy_events WHERE conversation_id = ? ORDER BY rowid LIMIT 1", id)) as { event_id: string }[];
+        await c.stub.expireEvents(id);
+        await a.stub.poppySql("UPDATE poppy_conversations SET cursor = ? WHERE id = ?", oldest!.event_id, id);
+      } else {
+        await a.stub.poppySql("UPDATE poppy_conversations SET cursor = 'evt_nothing_like_it' WHERE id = ?", id);
+      }
+      const result = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Do you have it in blue?" });
+      expect(result.isError, result.text).toBe(false);
+      expect(JSON.parse(result.text).replies).toEqual([{ sender: "agent", text: "Hi! How can I help?" }]);
+      // The same message twice, so the Company took it once: refused at the cursor, then answered from the start.
+      const sent = (await requests(c)).filter((request) => request.method === "POST" && request.url.startsWith(`${c.hosts.conversationsEndpoint}/${id}/messages`));
+      expect(sent.map((request) => [request.status, new URL(request.url).searchParams.has("cursor")])).toEqual([[status, true], [202, false]]);
+      expect(sent.map((request) => request.error)).toEqual([code, null]);
+      expect((await c.stub.state()).conversations[0]!.sent).toEqual(["agent:hello", "agent:Do you have it in blue?"]);
+      const kept = await inbox(a, id);
+      expect((await conversationRow(a, id)).cursor).toBe(kept.at(-1)!.id);
+      // Only an expired cursor means part of the conversation may be missing.
+      expect((await cards(a)).filter((card) => card.id === `cursor-expired-${id}`)).toHaveLength(notice ? 1 : 0);
+    } finally {
+      await release();
+    }
+  });
+
+  it("tells the model the User must sign in again when a conversation that used the account is read or continued signed out (sign_in_required)", async () => {
+    const c = await company({ streaming: false });
+    const a = await agent();
+    const reads = await holdBackgroundReads(a);
+    try {
+      await signInDirect(a, c);
+      const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "I'd like to return order ord_7Hk2" })).text);
+      const id = first.conversationId as string;
+      await reads.held();
+      // The conversation used Ada's account; she signs out.
+      await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+      const before = Date.now();
+      const next = (await a.stub.poppyReadNow(id))!;
+      // Read again in five minutes, not at once, and nothing closed.
+      expect(next - before).toBeGreaterThanOrEqual(5 * 60_000 - 1_000);
+      expect(next - Date.now()).toBeLessThanOrEqual(5 * 60_000);
+      expect(await a.stub.poppyWaitForNotice(`Conversation ${id} with Mock Shop ${c.id} needs the User signed in again (sign_in_required).`)).toBeTruthy();
+      expect((await conversationRow(a, id)).status).not.toBe("closed");
+      const said = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Are you there?" });
+      expect(said.isError).toBe(true);
+      expect(said.text).toBe(`Mock Shop ${c.id}: sign_in_required [sign_in_required]`);
+      expect((await conversationRow(a, id)).status).not.toBe("closed");
+      expect((await posts(c, id)).started).toBe(1);
+      // Signed in again, the same conversation goes on.
+      await signInDirect(a, c);
+      expect(await a.stub.poppyReadNow(id)).toEqual(expect.any(Number));
+      expect((await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Are you there?" })).isError).toBe(false);
+    } finally {
+      await reads.release();
+    }
   });
 });
 

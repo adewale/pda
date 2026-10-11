@@ -256,8 +256,8 @@ function authorizeUrl(c: C, params: Record<string, string | undefined>) {
   return url.href;
 }
 
-/** Direct Sign-In up to the code: the test plays the User approving. */
-async function authorizationCode(c: C) {
+/** Direct Sign-In up to the code: the test plays the User approving, as `account` if given. */
+async function authorizationCode(c: C, account?: string) {
   const s = await signedOut(c);
   const { verifier, challenge } = await pkce();
   const back = new URL(
@@ -271,7 +271,7 @@ async function authorizationCode(c: C) {
         code_challenge: challenge,
         code_challenge_method: "S256"
       }),
-      { approve: true }
+      { approve: true, ...(account ? { account } : {}) }
     )
   );
   return { s, verifier, code: back.searchParams.get("code")! };
@@ -1173,6 +1173,19 @@ const TAMPERS: readonly Tamper[] = [
         form(c, c.hosts.tokenEndpoint, { grant_type: "refresh_token", refresh_token: s.refreshToken, session_id: s.sessionId }, s.key);
       expect((await refresh()).status).toBe(200);
       return refresh();
+    }
+  },
+
+  {
+    id: "session.account-mismatch-reused",
+    what: "a Session refused with account_mismatch asked again to sign in to another account",
+    detail: /^\[session\.account-mismatch-reused\] Session ses_[\w-]+ asked again to sign in to another account after account_mismatch \(4\.4: start a new Session\)$/,
+    run: async (c) => {
+      // Ada's Session; Grace's codes exchanged into it.
+      const ada = await signedIn(c);
+      const grace = async () => exchangeCode(c, { ...(await authorizationCode(c, "acct_grace")), s: ada });
+      expect(await (await grace()).json()).toMatchObject({ error: "account_mismatch" });
+      return grace();
     }
   },
 

@@ -118,6 +118,7 @@ export const VIOLATIONS = {
   "token.signed-in-renewed-with-assertion": "A signed-in Session renewed with the Session assertion, not the Account Token",
   "account-token.other-client": "Account Token used by a different client_id",
   "account-token.rotated-reused": "Account Token used after the Company rotated it (4.8)",
+  "session.account-mismatch-reused": "A Session the Company refused with account_mismatch asked again to sign in to another account, instead of a new Session (4.4)",
 
   // ---- Sign-in (4.4–4.7) ----
   "signin.no-scope": "Sign-in request without scope (4.4)",

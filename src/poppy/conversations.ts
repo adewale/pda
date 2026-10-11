@@ -153,16 +153,34 @@ export async function sendMessage(
     Date.now()
   );
 
-  const url = new URL(existing ? `${endpoint}/${encodeURIComponent(existing.id)}/messages` : endpoint);
-  if (request.wait) {
-    url.searchParams.set("wait", String(request.wait));
-    if (existing?.cursor) url.searchParams.set("cursor", existing.cursor);
+  /** The POST, with the saved cursor when it waits for a reply (7.3): a read of the events after it. */
+  const post = () => {
+    const url = new URL(existing ? `${endpoint}/${encodeURIComponent(existing.id)}/messages` : endpoint);
+    const cursor = existing ? conversation(client, existing.id)?.cursor : null;
+    if (request.wait) {
+      url.searchParams.set("wait", String(request.wait));
+      if (cursor) url.searchParams.set("cursor", cursor);
+    }
+    return client.resourceJson(company, { method: "POST", url: url.href, body: body as unknown as Json }, tokenOptions(company, request.label));
+  };
+  let response: Json;
+  try {
+    try {
+      ({ body: response } = await post());
+    } catch (error) {
+      const code = existing && error instanceof PoppyError ? error.code : null;
+      if (code !== "cursor_expired" && code !== "invalid_cursor") throw error;
+      // The read that answers the send can't start at our cursor (7.5). Read from
+      // the start instead, sending the same message again with the same id and
+      // content: if the Company took it the first time, it answers as it did
+      // then, and doesn't take it twice (7.3).
+      await restartFromBeginning(client, company, existing!.id, code);
+      ({ body: response } = await post());
+    }
+  } catch (error) {
+    if (existing && error instanceof PoppyError) throw await sendRefused(client, company, existing, body.message.id, error);
+    throw error;
   }
-  const { body: response } = await client.resourceJson(
-    company,
-    { method: "POST", url: url.href, body: body as unknown as Json },
-    tokenOptions(company, request.label)
-  );
   if (!isObject(response) || typeof response.conversation_id !== "string" || !ID.test(response.conversation_id)) {
     throw new PoppyError("invalid_response", `${company.name} returned no conversation_id`, 0);
   }
@@ -215,6 +233,70 @@ function updateState(client: PoppyClient, id: string, response: { [key: string]:
 
 function saveCursor(client: PoppyClient, id: string, cursor: string): void {
   client.sql.exec("UPDATE poppy_conversations SET cursor = ? WHERE id = ?", cursor, id);
+}
+
+/**
+ * `cursor_expired` or `invalid_cursor` (7.5, 7.13): forget the cursor, so the
+ * next read starts at the beginning, where events already handled are
+ * skipped. An expired one means the Company dropped events we may not have
+ * seen, so the User is told part of the conversation may be missing.
+ */
+async function restartFromBeginning(client: PoppyClient, company: Company, id: string, code: string): Promise<void> {
+  client.sql.exec("UPDATE poppy_conversations SET cursor = NULL WHERE id = ?", id);
+  if (code !== "cursor_expired") return;
+  await client.host.showCard({
+    id: `cursor-expired-${id}`,
+    kind: "notice",
+    company: company.name,
+    domain: company.domain,
+    open: false,
+    text: `${company.name} no longer has part of an earlier conversation, so some messages may be missing.`
+  });
+}
+
+/**
+ * A message the Company refused (7.13), as the error the model is given: what
+ * happened and what to do next. None is retried. A conversation the Company
+ * has closed or doesn't have is closed here too, so it isn't read any more;
+ * the model starts a new one if the task needs it.
+ */
+async function sendRefused(
+  client: PoppyClient,
+  company: Company,
+  row: ConversationRow,
+  messageId: string,
+  error: PoppyError
+): Promise<PoppyError> {
+  const restart = "Start a new conversation (poppy_message without conversation) if the task still needs one.";
+  switch (error.code) {
+    case "conversation_closed":
+    case "conversation_not_found": {
+      client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", row.id);
+      if (row.direct) pushDirect(client, company, row.id);
+      const what = error.code === "conversation_closed" ? "has closed" : "no longer has";
+      return new PoppyError(
+        error.code,
+        `${company.name} ${what} conversation ${row.id}, so the message wasn't sent. ${restart}`,
+        error.status
+      );
+    }
+    case "direct_conversation_open":
+      return new PoppyError(
+        error.code,
+        `The User is talking with ${company.name} directly, so conversation ${row.id} takes no messages until that Direct Conversation ends; you'll be told when it does.`,
+        error.status
+      );
+    case "message_id_conflict":
+      // Our ids are fixed per call with their content (7.3), so this is our bug: never "fixed" with a new id.
+      console.error("poppy message_id_conflict", row.id);
+      return new PoppyError(
+        error.code,
+        `${company.name} already has message ${messageId} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived.`,
+        error.status
+      );
+    default:
+      return error;
+  }
 }
 
 /** When to read a conversation next: soon while the Company is busy, rarely when idle. */
@@ -456,22 +538,20 @@ export async function readConversation(
       const body = await client.readJson(response).catch(() => null) as { error?: string } | null;
       if (body?.error === "cursor_expired" || body?.error === "invalid_cursor") {
         // Read from the beginning; handled ids are skipped. Tell the User (7.5).
-        client.sql.exec("UPDATE poppy_conversations SET cursor = NULL WHERE id = ?", id);
-        if (body.error === "cursor_expired") {
-          await client.host.showCard({
-            id: `cursor-expired-${id}`,
-            kind: "notice",
-            company: company.name,
-            domain: company.domain,
-            open: false,
-            text: `${company.name} no longer has part of an earlier conversation, so some messages may be missing.`
-          });
-        }
+        await restartFromBeginning(client, company, id, body.error);
         continue;
       }
       throw new PoppyError(body?.error ?? `http_${response.status}`, `${company.name} refused the read`, response.status);
     }
     if (response.status === 404) {
+      // `conversation_not_found` (7.13): nothing more will come. The model is
+      // told before the conversation is closed here, so a failed notice is
+      // given again on the next read.
+      await response.body?.cancel();
+      await client.host.notifyModel(
+        `[system] ${company.name} no longer has conversation ${id} (conversation_not_found), so no more replies will come there. Start a new conversation if the task still needs one.`,
+        `poppy-read-gone-${id}`
+      );
       client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", id);
       return null;
     }

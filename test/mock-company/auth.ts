@@ -587,7 +587,8 @@ export class AuthServer {
         account: account.account,
         scope,
         code,
-        expiresAt: Date.now() + 5 * 60_000,
+        // Timed by the test agent's fake clock, so a test can let the code expire.
+        expiresAt: co.now() + 5 * 60_000,
         attempts: 0,
         finished: false
       };
@@ -640,7 +641,7 @@ export class AuthServer {
     if ("credentials" in body || "password" in body || "email" in body) {
       co.violation("mediated.credentials-with-code", "credentials resent with the one-time code (4.7: submit only the code)");
     }
-    if (signIn.expiresAt <= Date.now()) {
+    if (signIn.expiresAt <= co.now()) {
       signIn.finished = true;
       return json({ status: "expired" });
     }

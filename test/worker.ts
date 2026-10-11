@@ -15,6 +15,7 @@ import { PersonalAgent as ProductionAgent } from "../src/agent";
 import worker from "../src/index";
 import { gatewayDemoLane, type DemoRoute, type LaneModel } from "../src/model-router";
 import { POPPY_TIMEOUTS, type Fetcher, type PoppyTimeouts } from "../src/poppy/fetch";
+import { buildActivity } from "../src/poppy/activity";
 import { readConversation } from "../src/poppy/conversations";
 import { Sealer } from "../src/poppy/store";
 import { poppyExtension } from "../src/poppy/tools";
@@ -401,9 +402,14 @@ export class PersonalAgent extends ProductionAgent {
     return this.poppy.onWebSocketMessage(socket, JSON.stringify(frame));
   }
 
-  /** One conversation read, now, instead of waiting for the background job. */
-  async poppyReadNow(conversationId: string): Promise<void> {
-    await readConversation(this.poppy.client, conversationId, 0, 60_000);
+  /** One conversation read, now, instead of waiting for the background job; returns when it would read next (null: never). */
+  async poppyReadNow(conversationId: string): Promise<number | null> {
+    return readConversation(this.poppy.client, conversationId, 0, 60_000);
+  }
+
+  /** The page's Activity frame, as the agent would send it now. */
+  async poppyActivity(): Promise<string> {
+    return JSON.stringify(buildActivity(this.poppy.client));
   }
 
   /** SQL against the agent's storage, for assertions and test setup. */

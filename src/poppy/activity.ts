@@ -75,7 +75,9 @@ const SIGN_IN_RESULT: Record<string, ActivityResult> = {
   exchanged: "in_progress",
   stored: "in_progress",
   done: "done",
-  failed: "failed"
+  failed: "failed",
+  // Ran out of time: the Company said so (`expired`, `expired_token`), or our own deadline passed.
+  expired: "expired"
 };
 
 const SIGN_IN_WAY: Record<string, string> = {

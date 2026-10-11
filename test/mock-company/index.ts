@@ -298,6 +298,16 @@ export class MockCompany extends DurableObject<Env> {
     this.#named().conversations.expireEvents(conversationId);
   }
 
+  /** The Company closes a conversation on its side. */
+  async closeConversation(conversationId: string): Promise<void> {
+    this.#named().conversations.closeByCompany(conversationId);
+  }
+
+  /** The Company forgets a conversation, so every request for it is `conversation_not_found`. */
+  async forgetConversation(conversationId: string): Promise<void> {
+    this.#named().conversations.forget(conversationId);
+  }
+
   /** The Company issues a new revision of an operation; returns the new revision. */
   async reviseOperation(
     operationId: string,

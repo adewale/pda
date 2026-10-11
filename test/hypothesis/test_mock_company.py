@@ -62,6 +62,7 @@ class MSession:
     grant: MGrant | None = None  # the Account Token it is signed in with
     token_scope: frozenset[str] = frozenset()  # what its newest Session Token grants
     ended: bool = False
+    mismatched: bool = False  # refused with account_mismatch: never asked again for another account (4.4)
 
 
 @dataclass(eq=False)
@@ -329,6 +330,8 @@ class MockCompanyMachine(RuleBasedStateMachine):
         # Every subset can be drawn; "all of them" and "what was asked" are also drawn directly, as the common case.
         requested = data.draw(st.just(offered) | st.lists(st.sampled_from(offered), min_size=1, unique=True))
         account = data.draw(st.sampled_from(self.fixture["accounts"]))
+        # 4.4: after account_mismatch an agent starts a new Session; it never asks that one again for another account.
+        assume(not (ms.mismatched and ms.bound != account))
         granted = requested
         if kind == "direct":
             granted = data.draw(st.just(requested) | st.lists(st.sampled_from(requested), unique=True))
@@ -356,6 +359,7 @@ class MockCompanyMachine(RuleBasedStateMachine):
             key = ms.session.key
         if ms.bound is not None and ms.bound != account:
             expect(reply, 400, "account_mismatch")  # 4.4: a Session can't switch accounts
+            ms.mismatched = True
             return
         body = self.token_body(reply, session_id=ms.session.session_id, signed_in=True, scope=frozenset(granted))
         if kind == "mediated":
@@ -374,9 +378,12 @@ class MockCompanyMachine(RuleBasedStateMachine):
         mu = grant.user
         targets = self.live(mu)
         ms = data.draw(st.none() | st.sampled_from(targets)) if targets else None
+        # 4.4: after account_mismatch an agent starts a new Session; it never asks that one again for another account.
+        assume(ms is None or not (ms.mismatched and ms.bound != grant.account))
         reply = self.poppy.refresh(self.co, mu.user.dpop_key, grant.current, ms.session.session_id if ms else None)
         if ms is not None and ms.bound is not None and ms.bound != grant.account:
             expect(reply, 400, "account_mismatch")
+            ms.mismatched = True
             return
         body = self.token_body(reply, session_id=ms.session.session_id if ms else None, signed_in=True, scope=grant.scope)
         self.rotate(grant, body)

@@ -57,6 +57,8 @@ export type Session = {
   account: string | null;
   /** The account it was ever signed in to; it can't switch (4.4). */
   boundAccount: string | null;
+  /** The Company answered `account_mismatch` for it: the agent must start a new Session (4.4), not ask this one again. */
+  mismatched: boolean;
   /** The sign-in whose Account Token it is signed in with, if any: revoking that token signs it out (4.9). */
   grant: string | null;
   scope: string[];
@@ -796,6 +798,7 @@ export class Company {
       userId,
       account: null,
       boundAccount: null,
+      mismatched: false,
       grant: null,
       scope: [],
       ended: false
@@ -889,6 +892,13 @@ export class Company {
    */
   signIn(session: Session, account: string, scope: readonly string[], grant: string = randomId("grt_", 8)): void {
     if (session.boundAccount && session.boundAccount !== account) {
+      if (session.mismatched) {
+        this.violation(
+          "session.account-mismatch-reused",
+          `Session ${session.id} asked again to sign in to another account after account_mismatch (4.4: start a new Session)`
+        );
+      }
+      session.mismatched = true;
       throw oauthError(400, "account_mismatch", "Session is signed in to a different account");
     }
     session.account = account;

@@ -3,6 +3,9 @@ import { Company, HttpError, json, randomId, type Inbound } from "./core";
 import type { Operations } from "./operations";
 import type { ViolationId } from "./violations";
 
+/** How long discovery documents may be cached unless a test says otherwise. */
+const DEFAULT_CACHING: Readonly<Record<string, string>> = { "Cache-Control": "max-age=300" };
+
 /** Discovery documents, the website, and the browser-session endpoint (sections 3 and 5). */
 export class Web {
   /** Browser cookie value → Session id. */
@@ -11,6 +14,11 @@ export class Web {
   operations: Operations | undefined;
 
   constructor(readonly company: Company) {}
+
+  /** poppy.json's caching headers: the configured ones (`{}` for none), or the default. */
+  #poppyJsonCaching(): Record<string, string> {
+    return { ...(this.company.config.poppyJsonCacheHeaders ?? DEFAULT_CACHING) };
+  }
 
   /** `poppy.json` for the domain the agent asked about. */
   poppyJson(requestedDomain: string): Record<string, unknown> {
@@ -92,7 +100,7 @@ export class Web {
     const host = inbound.url.hostname.replace(/^www\./, "");
     if (host.startsWith("cdn.")) {
       const domain = inbound.url.searchParams.get("for") ?? co.hosts.domain;
-      return json(this.poppyJson(domain), 200, { "Cache-Control": "max-age=300" });
+      return json(this.poppyJson(domain), 200, this.#poppyJsonCaching());
     }
     if (co.config.wellKnownRedirect === "https") {
       return Response.redirect(`https://cdn.${co.hosts.domain}/poppy.json?for=${host}`, 302);
@@ -100,7 +108,7 @@ export class Web {
     if (co.config.wellKnownRedirect === "http") {
       return Response.redirect(`http://cdn.${co.hosts.domain}/poppy.json?for=${host}`, 302);
     }
-    return json(this.poppyJson(host), 200, { "Cache-Control": "max-age=300" });
+    return json(this.poppyJson(host), 200, this.#poppyJsonCaching());
   }
 
   /** OAuth Authorization Server Metadata (RFC 8414) with `poppy_domains` (3.2). */
@@ -125,7 +133,7 @@ export class Web {
     };
     if (co.config.signIn.direct) metadata.authorization_endpoint = hosts.authorizationEndpoint;
     if (co.config.signIn.device) metadata.device_authorization_endpoint = hosts.deviceEndpoint;
-    return json(metadata, 200, { "Cache-Control": "max-age=300" });
+    return json(metadata, 200, { ...(co.config.metadataCacheHeaders ?? DEFAULT_CACHING) });
   }
 
   /** `POST {browser_session_endpoint}` (section 5). */

@@ -71,7 +71,6 @@ const LOCALE = new RegExp(
  * "America/Argentina/Buenos_Aires", "Etc/GMT+5", "CET" and "EST5EDT" alike.
  */
 const TIME_ZONE = /^(?!-|\.\.?(?:\/|$))[A-Za-z0-9._+-]+(?:\/(?!-|\.\.?(?:\/|$))[A-Za-z0-9._+-]+)*$/;
-const PAGE = 20;
 
 function now(): string {
   return new Date().toISOString();
@@ -327,7 +326,7 @@ export class Conversations {
       clearTimeout(timer);
       start = this.#from(conversation, cursor);
     }
-    const events = conversation.events.slice(start, start + PAGE);
+    const events = conversation.events.slice(start, start + this.company.config.eventPageSize);
     return {
       conversation_id: conversation.id,
       events,
@@ -537,6 +536,18 @@ export class Conversations {
     const kept = conversation.events.slice(-1);
     for (const event of conversation.events.slice(0, -1)) conversation.expired.add(event.id);
     conversation.events = kept;
+  }
+
+  /** The Company closes a conversation itself, as when it is done or has timed out (7.12). */
+  closeByCompany(id: string): void {
+    const conversation = this.#conversations.get(id);
+    if (!conversation) throw new Error(`no conversation ${id}`);
+    this.#closeConversation(conversation);
+  }
+
+  /** The Company no longer has a conversation, so it is `conversation_not_found` (7.13). */
+  forget(id: string): void {
+    if (!this.#conversations.delete(id)) throw new Error(`no conversation ${id}`);
   }
 
   /** Say something as the Company Agent (for message-driven operations and tests). */

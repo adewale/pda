@@ -157,6 +157,15 @@ export type MockConfig = {
    * call those, never its model through an API tool.
    */
   readonly openapiListsPoppyEndpoints: boolean;
+  /**
+   * The caching headers poppy.json is served with (3), in place of
+   * `Cache-Control: max-age=300`; `{}` sends none. Null: the default.
+   */
+  readonly poppyJsonCacheHeaders: Readonly<Record<string, string>> | null;
+  /** The same for the issuer's OAuth server metadata (3.2). */
+  readonly metadataCacheHeaders: Readonly<Record<string, string>> | null;
+  /** Events per page of a conversation read; more waiting means `has_more: true` (7.5). */
+  readonly eventPageSize: number;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -230,7 +239,10 @@ export const DEFAULT_CONFIG: MockConfig = {
   reuseDetection: false,
   sseKeepAlive: false,
   injection: null,
-  openapiListsPoppyEndpoints: false
+  openapiListsPoppyEndpoints: false,
+  poppyJsonCacheHeaders: null,
+  metadataCacheHeaders: null,
+  eventPageSize: 20
 };
 
 /** One request the mock received, with secrets redacted. */
