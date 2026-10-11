@@ -4,5 +4,5 @@
     "strict": true,
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types", "vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "env.d.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx", "env.d.ts"]
 }

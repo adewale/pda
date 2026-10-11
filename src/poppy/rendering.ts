@@ -92,18 +92,23 @@ class RenderingContext implements BrowserContextHandle {
   }
 }
 
+/** Starts a browser on the binding: Puppeteer's `launch`, or a stand-in in the adapter's tests. */
+export type Launch = (binding: BrowserWorker) => Promise<Browser>;
+
 /** Cloudflare Browser Rendering, one context per Session. */
 export class RenderingBrowser implements PoppyBrowser {
   readonly #binding: BrowserWorker;
+  readonly #launch: Launch;
   #browser: Promise<Browser> | undefined;
 
-  constructor(binding: unknown) {
+  constructor(binding: unknown, launch: Launch = (worker) => puppeteer.launch(worker)) {
     // The Workers types name the binding `BrowserRun`; Puppeteer calls it `BrowserWorker`.
     this.#binding = binding as BrowserWorker;
+    this.#launch = launch;
   }
 
   async newContext(): Promise<BrowserContextHandle> {
-    this.#browser ??= puppeteer.launch(this.#binding);
+    this.#browser ??= this.#launch(this.#binding);
     const browser = await this.#browser;
     return new RenderingContext(await browser.createBrowserContext());
   }
