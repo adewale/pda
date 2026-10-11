@@ -359,8 +359,13 @@ it("renders nothing without cards, and sends nothing on render", () => {
   const send = vi.fn();
   const { container } = render(<PoppyCards view={EMPTY} send={send} />);
   expect(container.innerHTML).toBe("");
-  renderCards(linkCard("https://a.example/"), deviceCard("https://a.example/d"), credentialsCard, codeCard, operationCard(), approvalCard, inviteCard, noticeCard);
   expect(send).not.toHaveBeenCalled();
+  // Every kind of card, rendered: still nothing sent until the User acts.
+  const all = renderCards(linkCard("https://a.example/"), deviceCard("https://a.example/d"), credentialsCard, codeCard, operationCard(), approvalCard, inviteCard, noticeCard);
+  // The seven open cards; the closed notice is not one of them.
+  expect(all.container.querySelectorAll("article")).toHaveLength(7);
+  expect(all.send).not.toHaveBeenCalled();
+  expect(all.sent).toEqual([]);
 });
 
 describe("DirectConversations", () => {

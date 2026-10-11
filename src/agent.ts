@@ -81,7 +81,8 @@ export class PersonalAgent extends DurableObject<Env> {
       demoLane: (route) => this.demoLane(route),
       ownKeyProviders: () => this.ownKeyProviders(),
       onRefused: (entitlement) => this.#modelNotice(entitlement),
-      onKeyRefused: (provider) => this.#keyRefusedNotice(provider)
+      onKeyRefused: (provider) => this.#keyRefusedNotice(provider),
+      now: () => this.modelNow()
     });
     const router = routerProvider(this.access, demoCatalogModel(env));
     let browser: PoppyBrowser | undefined;
@@ -135,6 +136,11 @@ export class PersonalAgent extends DurableObject<Env> {
       .use(this.poppy)
       .use(this.webSockets)
       .use(this.harness);
+  }
+
+  /** Now, for the demo lane's daily caps. Tests run it on a fixed day, so no test straddles midnight. */
+  protected modelNow(): number {
+    return Date.now();
   }
 
   /** The demo lane: AI Gateway on the AI binding. Tests override this with pi-ai's faux provider. */

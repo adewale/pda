@@ -13,7 +13,7 @@ import {
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { PersonalAgent as ProductionAgent } from "../src/agent";
 import worker from "../src/index";
-import type { LaneModel, DemoRoute } from "../src/model-router";
+import { gatewayDemoLane, type DemoRoute, type LaneModel } from "../src/model-router";
 import { POPPY_TIMEOUTS, type Fetcher, type PoppyTimeouts } from "../src/poppy/fetch";
 import { readConversation } from "../src/poppy/conversations";
 import { Sealer } from "../src/poppy/store";
@@ -474,31 +474,52 @@ export class PersonalAgent extends ProductionAgent {
    * own cost is always 0). Own-key lanes keep pi-ai's real providers, which
    * the outbound service sends to the fake vendors.
    */
-  protected override demoLane(_route: DemoRoute): LaneModel {
+  protected override demoLane(route: DemoRoute): LaneModel {
+    const id = this.ctx.id.toString();
+    const counted = (stream: AssistantMessageEventStream, price: (message: AssistantMessage) => AssistantMessage): AssistantMessageEventStream => {
+      demoCalls.set(id, (demoCalls.get(id) ?? 0) + 1);
+      const out = createAssistantMessageEventStream();
+      void (async () => {
+        for await (const event of stream) out.push(event.type === "done" ? { ...event, message: price(event.message) } : event);
+        out.end(price(await stream.result()));
+      })();
+      return out;
+    };
+    const countedProvider = (inner: Provider, price: (message: AssistantMessage) => AssistantMessage): Provider => ({
+      id: inner.id,
+      name: inner.name,
+      auth: inner.auth,
+      getModels: () => inner.getModels(),
+      stream: (model, context, options) => counted(inner.stream(model, context, options), price),
+      streamSimple: (model, context, options) => counted(inner.streamSimple(model, context, options), price)
+    });
+    const usage = gatewayUsage.get(id);
+    if (usage) {
+      // Production's lane, priced by pi-ai from the usage the fake gateway reports.
+      const lane = gatewayDemoLane({ ...this.env, AI: fakeGateway(usage) }, route);
+      return { provider: countedProvider(lane.provider, (message) => message), model: lane.model };
+    }
     if (!this.#faux) {
       this.#faux = fauxProvider({ tokensPerSecond: 400, tokenSize: { min: 2, max: 4 } });
       this.#faux.setResponses(Array.from({ length: 200 }, () => script));
     }
+    return { provider: countedProvider(this.#faux.provider, priced), model: this.#faux.getModel() };
+  }
+
+  /** From now on, this agent's demo lane is production's, through a fake AI Gateway that reports `usage` for every call. */
+  async useGatewayDemo(usage: GatewayUsage): Promise<void> {
+    gatewayUsage.set(this.ctx.id.toString(), usage);
+  }
+
+  /** The demo lane's clock: a fixed day (noon UTC), moved only by `demoAdvance`. */
+  protected override modelNow(): number {
+    return DEMO_NOON + (demoOffsets.get(this.ctx.id.toString()) ?? 0);
+  }
+
+  /** Move this agent's demo clock on by `ms`. */
+  async demoAdvance(ms: number): Promise<void> {
     const id = this.ctx.id.toString();
-    const faux = this.#faux;
-    const counted = (stream: AssistantMessageEventStream): AssistantMessageEventStream => {
-      demoCalls.set(id, (demoCalls.get(id) ?? 0) + 1);
-      const out = createAssistantMessageEventStream();
-      void (async () => {
-        for await (const event of stream) out.push(event.type === "done" ? { ...event, message: priced(event.message) } : event);
-        out.end(priced(await stream.result()));
-      })();
-      return out;
-    };
-    const provider: Provider = {
-      id: faux.provider.id,
-      name: faux.provider.name,
-      auth: faux.provider.auth,
-      getModels: () => faux.provider.getModels(),
-      stream: (model, context, options) => counted(faux.provider.stream(model, context, options)),
-      streamSimple: (model, context, options) => counted(faux.provider.streamSimple(model, context, options))
-    };
-    return { provider, model: faux.getModel() };
+    demoOffsets.set(id, (demoOffsets.get(id) ?? 0) + ms);
   }
 
   /** How many calls this agent has made on the demo lane. */
@@ -521,6 +542,37 @@ export class PersonalAgent extends ProductionAgent {
 
 /** Demo-lane calls per agent, by Durable Object id. */
 const demoCalls = new Map<string, number>();
+
+/** The demo lane's day in tests: noon UTC, so a test never straddles midnight. */
+const DEMO_NOON = Date.UTC(2026, 9, 11, 12);
+/** How far each agent's demo clock has been moved on, by Durable Object id. */
+const demoOffsets = new Map<string, number>();
+
+/** Tokens the fake AI Gateway reports for each call, as Anthropic's Messages stream does. */
+export type GatewayUsage = { readonly input_tokens: number; readonly output_tokens: number };
+/** Agents on production's demo lane through the fake gateway, by Durable Object id. */
+const gatewayUsage = new Map<string, GatewayUsage>();
+
+/**
+ * An AI binding whose gateway answers every Anthropic Messages request with
+ * a short streamed reply and `usage`, as AI Gateway relays Anthropic's.
+ */
+function fakeGateway(usage: GatewayUsage): Ai {
+  const events: Array<[string, unknown]> = [
+    ["message_start", { type: "message_start", message: { id: "msg_gw", type: "message", role: "assistant", content: [], model: "claude-opus-5-5", stop_reason: null, stop_sequence: null, usage: { input_tokens: usage.input_tokens, output_tokens: 1 } } }],
+    ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
+    ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "metered answer" } }],
+    ["content_block_stop", { type: "content_block_stop", index: 0 }],
+    ["message_delta", { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: usage.output_tokens } }],
+    ["message_stop", { type: "message_stop" }]
+  ];
+  const body = events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+  return {
+    gateway: () => ({
+      run: async () => new Response(body, { headers: { "Content-Type": "text/event-stream" } })
+    })
+  } as unknown as Ai;
+}
 
 /** A faux answer priced by the `[cost N]` marker its echo carries. */
 function priced(message: AssistantMessage): AssistantMessage {

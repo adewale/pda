@@ -53,8 +53,34 @@ describe("deviceLink", () => {
     for (const value of [undefined, null, 42, {}, ["https://acme.example/"]]) expect(deviceLink(company, value)).toBeNull();
   });
 
+  /** The Company's hosts: its domain and subdomains, its issuer's and its device endpoint's. */
+  const onCompany = (hostname: string) =>
+    hostname === "acme.example" || hostname.endsWith(".acme.example") || ["login.acme-id.example", "device.acme-auth.example"].includes(hostname);
+
   it(
-    "returns only HTTPS links on the Company's hosts",
+    "returns exactly the HTTPS links on the Company's hosts, unchanged",
+    property((tc) => {
+      // Hosts the Company owns (so many links are accepted) and lookalikes it doesn't.
+      const label = gs.fromRegex("[a-z0-9]([a-z0-9-]{0,6}[a-z0-9])?", { fullmatch: true });
+      const host = tc.draw(
+        gs.oneOf(
+          gs.sampledFrom(["acme.example", "www.acme.example", "ACME.Example", "login.acme-id.example", "device.acme-auth.example"]),
+          label.map((sub) => `${sub}.acme.example`),
+          gs.sampledFrom(["evil.example", "acme.example.evil.example", "evilacme.example", "acme-id.example", "acme-auth.example"]),
+          label.map((name) => `${name}.example`)
+        )
+      );
+      const scheme = tc.draw(gs.sampledFrom(["https", "HTTPS", "http", "javascript", "data", "ftp"]));
+      const userinfo = tc.draw(gs.sampledFrom(["", "", "", "user:pass@", "user@"]));
+      const path = tc.draw(gs.fromRegex("(/[A-Za-z0-9_~-]{0,8}){0,3}(\\?user_code=[A-Z0-9-]{1,9})?", { fullmatch: true }));
+      const value = `${scheme}://${userinfo}${host}${path}`;
+      const accepted = scheme.toLowerCase() === "https" && userinfo === "" && onCompany(host.toLowerCase());
+      expect(deviceLink(company, value), value).toBe(accepted ? new URL(value).href : null);
+    })
+  );
+
+  it(
+    "returns only HTTPS links on the Company's hosts, whatever the text",
     property((tc) => {
       const drawn = tc.draw(gs.urls());
       const value = tc.draw(
@@ -64,11 +90,7 @@ describe("deviceLink", () => {
       if (link === null) return;
       const url = new URL(link);
       expect(url.protocol).toBe("https:");
-      expect(
-        url.hostname === "acme.example" ||
-          url.hostname.endsWith(".acme.example") ||
-          ["login.acme-id.example", "device.acme-auth.example"].includes(url.hostname)
-      ).toBe(true);
+      expect(onCompany(url.hostname)).toBe(true);
     })
   );
 });

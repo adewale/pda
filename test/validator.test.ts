@@ -393,6 +393,14 @@ const POPPY_JSON: readonly Fixture[] = [
     ids: ["resource-invalid", "protocol-type-unknown", "no-poppy-protocol"]
   },
   {
+    name: "checks the conversation endpoint: http",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.agent.protocols = [{ type: "poppy", endpoint: "http://api.example.com/poppy/conversations" }];
+      })),
+    ids: ["not-https-url"]
+  },
+  {
     name: "checks the APIs",
     run: () =>
       text("poppy", withPoppy((d) => {

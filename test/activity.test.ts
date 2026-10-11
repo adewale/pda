@@ -155,7 +155,10 @@ describe("poppy.activity", () => {
     const done = await p.next((frame) => find(frame.log, "operation")?.result === "done", before);
     const entry = find(done.log, "operation")!;
     expect(entry).toMatchObject({ decidedBy: "you", outcomeBy: "company" });
-    expect(entry.outcome).toBeTruthy();
+    // The Company's own words: the operation's result summary, as the mock sent it.
+    expect(entry.outcome).toBe(
+      "Exchange placed. The insulated jacket ships today, and a return label for the original jacket was emailed. $70.00 was charged to the card ending in 4242."
+    );
 
     // Past the cards' hour the card is gone; the activity log still has it.
     await a.stub.poppySql("UPDATE poppy_cards SET updated_at = 0, open = 0");

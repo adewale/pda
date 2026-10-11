@@ -7,7 +7,8 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { Entitlement } from "../src/model-router";
-import { gatewayDemoLane, nativeProviders } from "../src/model-router";
+import { demoCatalogModel, gatewayDemoLane, nativeProviders } from "../src/model-router";
+import { calculateCost } from "@earendil-works/pi-ai";
 import { keyContext } from "../src/model-keys";
 import { Sealer } from "../src/poppy/store";
 import { agentNameFor, type Identity } from "../src/session";
@@ -184,25 +185,74 @@ describe("precedence and who pays", () => {
     expect(nativeProviders().map((provider) => provider.id)).toEqual(["anthropic", "openai", "openrouter"]);
   });
 
-  it("tags demo calls with the agent and its budget domain, on the demo gateway", async () => {
+  it("tags demo calls with the agent and its budget domain, on the demo gateway, and prices them by pi-ai's catalog", async () => {
     const calls: Array<{ id: string; options: unknown }> = [];
+    // The demo model speaks Anthropic Messages through the gateway; its stream reports usage.
+    const usage = { input_tokens: 1_234, output_tokens: 567 };
+    const sse = [
+      ["message_start", { type: "message_start", message: { id: "m", type: "message", role: "assistant", content: [], model: "claude-opus-5-5", stop_reason: null, stop_sequence: null, usage: { input_tokens: usage.input_tokens, output_tokens: 1 } } }],
+      ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
+      ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hello" } }],
+      ["content_block_stop", { type: "content_block_stop", index: 0 }],
+      ["message_delta", { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: usage.output_tokens } }],
+      ["message_stop", { type: "message_stop" }]
+    ].map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
     const binding = {
       gateway: (id: string) => ({
         run: async (_request: unknown, options: unknown) => {
           calls.push({ id, options });
-          throw new Error("not a real gateway");
+          return new Response(sse, { headers: { "Content-Type": "text/event-stream" } });
         }
       })
     } as unknown as Ai;
     const { provider, model } = gatewayDemoLane({ ...env, AI: binding }, { u: "agent-hash", d: "corp.example" });
     const stream = provider.streamSimple(model, { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] } as never);
-    await stream.result();
+    const message = await stream.result();
     expect(calls[0]?.id).toBe("demo");
     expect(JSON.stringify(calls[0]?.options)).toContain('"metadata":{"u":"agent-hash","d":"corp.example"}');
+    expect(message.stopReason).toBe("stop");
+    expect(message.usage).toMatchObject({ input: usage.input_tokens, output: usage.output_tokens });
+    // What the ledger will be charged: the catalog's price for that usage, never zero.
+    const priced = calculateCost(demoCatalogModel(env), { ...message.usage, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
+    expect(message.usage.cost.total).toBe(priced.total);
+    expect(priced.total).toBeGreaterThan(0);
   });
 });
 
 describe("demo caps", () => {
+  it("charges production's demo lane pi-ai's price for the usage it reports, and trips the cap on that, until the next UTC day", async () => {
+    const identity = someone("metered.example");
+    const stub = await stubFor(identity);
+    // 100k tokens in and 20k out: under the $1 cap once, over it twice, at the catalog's prices.
+    const usage = { input_tokens: 100_000, output_tokens: 20_000 };
+    await stub.useGatewayDemo(usage);
+    const perCall = calculateCost(demoCatalogModel(testEnv), {
+      input: usage.input_tokens,
+      output: usage.output_tokens,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: usage.input_tokens + usage.output_tokens,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    }).total;
+    expect(perCall).toBeGreaterThan(0.5);
+    expect(perCall).toBeLessThan(1);
+
+    const connection = await connect(identity);
+    await send(connection, "first");
+    expect((await stub.lastAssistant()).text).toBe("metered answer");
+    expect(await entitlement(identity)).toMatchObject({ lane: "demo", demo: { spentUsd: perCall, capUsd: 1 } });
+    await send(connection, "second");
+    expect(await entitlement(identity)).toMatchObject({ lane: "none", reason: "user_cap", demo: { spentUsd: 2 * perCall } });
+    await send(connection, "third");
+    expect(await stub.demoCallCount()).toBe(2);
+    expect((await stub.lastAssistant()).error).toContain("you've used today's demo allowance");
+
+    // The next UTC day starts afresh.
+    await stub.demoAdvance(24 * 60 * 60 * 1000);
+    expect(await entitlement(identity)).toMatchObject({ lane: "demo", demo: { spentUsd: 0 } });
+    connection.socket.close();
+  });
+
   it("refuses a call once the person has spent today's cap, before calling", async () => {
     const identity = someone("capped-user.example");
     const stub = await stubFor(identity);

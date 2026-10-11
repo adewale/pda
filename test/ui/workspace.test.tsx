@@ -98,6 +98,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   window.history.replaceState(null, "", "/");
+  vi.useRealTimers();
 });
 
 describe("rail", () => {
@@ -288,7 +289,9 @@ describe("chat", () => {
     const { container } = open("/", session({ running: true, tools: [{ callId: "c", name: "poppy_discover", output: "" }] }));
     expect(screen.getAllByRole("status").filter((node) => node.textContent?.includes("Working"))).toHaveLength(1);
     expect(container.querySelector(".streaming-cursor")).toBeNull();
-    expect(container.querySelectorAll(".animate-spin, [class*='animate-pulse']").length).toBeLessThanOrEqual(1);
+    // One spinner (Kumo's Loader, an SVG), in that status; no other animation.
+    expect(container.querySelectorAll('svg[aria-label="Loading"]')).toHaveLength(1);
+    expect(container.querySelectorAll(".animate-spin, [class*='animate-pulse']")).toHaveLength(0);
   });
 
   it("offers to send a message again when the model fails", () => {
@@ -324,6 +327,9 @@ describe("activity page", () => {
   });
 
   it("lists work in progress with a way to stop it, and the log with how and who decided", () => {
+    // A fixed clock, so the countdown reads exactly.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.UTC(2026, 9, 11, 9, 0, 0));
     const now = Date.now();
     const inProgress: ActivityTask[] = [
       {
@@ -367,7 +373,7 @@ describe("activity page", () => {
     ];
     const { sent } = open("/activity", session({}, { activity: { inProgress, log } }));
     const running = screen.getByRole("list", { name: "In progress" });
-    expect(within(running).getByText(/Expires in 4:(29|30)/)).toBeTruthy();
+    expect(within(running).getByText(/Expires in 4:30\b/)).toBeTruthy();
     fireEvent.click(within(running).getByRole("button", { name: "Cancel sign-in" }));
     fireEvent.click(within(running).getByRole("button", { name: "End conversation" }));
     expect(sent).toEqual([

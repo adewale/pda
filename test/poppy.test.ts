@@ -249,6 +249,33 @@ describe.each(PROFILES)("4.2–4.3 sessions, tokens and DPoP ($name)", ({ config
     expect(state.userIds[0]).toMatch(/^usr_[A-Za-z0-9_-]{22}$/);
     expect(state.userIds[0]).not.toContain("person");
     expect(state.sessions[0]?.signedIn).toBe(false);
+    const first = state.userIds[0]!;
+    /** Start a new Session at the Company: the stored one and the client's memory forgotten. */
+    const newSession = async (who: Agent) => {
+      await who.stub.poppySql("DELETE FROM poppy_sessions");
+      await who.stub.poppyForgetMemory();
+      expect((await tool(who, "poppy_message", { domain: c.domain, text: "hello again" })).isError).toBe(false);
+    };
+    const sessionUsers = async () => (await c.stub.state()).sessions.map((session) => session.userId);
+
+    // Stable: a second Session of the same agent uses the same User ID.
+    await newSession(a);
+    expect(await sessionUsers()).toEqual([first, first]);
+
+    // Per User: another agent at the same Company gets its own.
+    const b = await agent();
+    expect((await tool(b, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
+    const other = (await sessionUsers())[2]!;
+    expect(other).toMatch(/^usr_[A-Za-z0-9_-]{22}$/);
+    expect(other).not.toBe(first);
+
+    // Random, not derived: forget the stored one and the next is new.
+    await a.stub.poppySql("DELETE FROM poppy_user_ids");
+    await newSession(a);
+    const fresh = (await sessionUsers())[3]!;
+    expect(fresh).toMatch(/^usr_[A-Za-z0-9_-]{22}$/);
+    expect(new Set([first, other, fresh]).size).toBe(3);
+    expect(JSON.parse(await a.stub.poppySql("SELECT user_id FROM poppy_user_ids"))).toEqual([{ user_id: fresh }]);
   });
 
   it("supports DPoP nonces", async () => {
@@ -1006,6 +1033,24 @@ describe("6 APIs", () => {
     expect(result.text).toContain("[untrusted_server]");
     expect(await requests(elsewhere)).toEqual([]);
     expect((await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
+  });
+
+  it("never calls an OpenAPI server over plain HTTP, even on the Company's own host, before any request (4.3)", async () => {
+    const c = await company();
+    const server = c.hosts.api.replace(/^https:/, "http:");
+    await c.stub.configure({ openapiServerOverride: server });
+    const a = await agent();
+    await signInDirect(a, c);
+    const before = (await requests(c)).length;
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("[invalid_request]");
+    expect(JSON.parse(result.details)).toEqual({ error: "invalid_request" });
+    // Only the description was fetched: no token request, and nothing to the http server.
+    const after = (await requests(c)).slice(before);
+    expect(after.filter((request) => request.url.startsWith("http:"))).toEqual([]);
+    expect(after.filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
+    expect(after.every((request) => request.url.endsWith("/openapi.json"))).toBe(true);
   });
 
   it("calls a server on a domain the issuer lists in poppy_domains", async () => {

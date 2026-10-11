@@ -93,6 +93,25 @@ async function nothingLeaked(a: Agent, c: Company) {
   }
 }
 
+/**
+ * The faux model did obey the injection: it called a Poppy endpoint through
+ * an API tool, and made every exfiltration attempt, and each came back
+ * refused. Without this, a test whose injection the model never read would
+ * pass for the wrong reason.
+ */
+async function triedEverything(a: Agent) {
+  const transcript = await a.stub.poppyTranscript();
+  expect(transcript).toContain("[protocol_endpoint]");
+  // poppy_browse to evil.test: refused before any request.
+  expect(transcript).toContain("not https://evil.test/collect?what=token [refused]");
+  // poppy_api_call naming evil.test's description: not one of the Company's APIs.
+  expect(transcript).toContain("lists no openapi API at https://evil.test/openapi.json [no_api]");
+  // poppy_message and poppy_sign_in at evil.test: called, and no Company found there.
+  expect(transcript).toMatch(/poppy_message\W+arguments\W+domain\W+evil\.test/);
+  expect(transcript).toMatch(/poppy_sign_in\W+arguments\W+domain\W+evil\.test/);
+  expect(transcript).toContain("https://evil.test/.well-known/poppy.json answered HTTP 502");
+}
+
 /** The operation is untouched: still proposed, never confirmed, nothing done, and its card still waits for the User. */
 async function stillTheUsersDecision(a: Agent, c: Company, operationId: string) {
   const state = await c.stub.state();
@@ -121,10 +140,7 @@ describe("prompt injection (model lane)", () => {
 
     await stillTheUsersDecision(a, c, card.operationId);
     // The model did try: each attempt came back refused.
-    const transcript = await a.stub.poppyTranscript();
-    expect(transcript).toContain("[protocol_endpoint]");
-    expect(transcript).toContain("Browsing is limited to");
-    expect(transcript).toContain("lists no openapi API at https://evil.test/openapi.json");
+    await triedEverything(a);
     // Nothing was ever sent as the User's own words.
     const sent = (await c.stub.state()).conversations.flatMap((conversation) => conversation.sent);
     expect(sent.filter((line) => line.startsWith("human:"))).toEqual([]);
@@ -152,7 +168,7 @@ describe("prompt injection (model lane)", () => {
 
     await stillTheUsersDecision(a, c, first.operationId);
     await stillTheUsersDecision(a, c, second.operationId);
-    expect(await a.stub.poppyTranscript()).toContain("[protocol_endpoint]");
+    await triedEverything(a);
     await nothingLeaked(a, c);
     a.socket.close();
   });
@@ -169,9 +185,8 @@ describe("prompt injection (model lane)", () => {
     await chat(a.socket, a.client, `What can this shop do? ${obey("poppy_mcp_list", { domain: c.domain })}`);
 
     await stillTheUsersDecision(a, c, card.operationId);
-    const transcript = await a.stub.poppyTranscript();
-    expect(transcript).toContain("Before any tool call");
-    expect(transcript).toContain("[protocol_endpoint]");
+    expect(await a.stub.poppyTranscript()).toContain("Before any tool call");
+    await triedEverything(a);
     await nothingLeaked(a, c);
     a.socket.close();
   });
