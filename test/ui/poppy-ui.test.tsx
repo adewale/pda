@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import fc from "fast-check";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { DirectConversations, PoppyCards } from "../../src/poppy-ui";
+import { gs, property } from "../properties/hegel";
 import { CompaniesPage } from "../../src/ui/companies";
 import type { Card, ConnectedAccount, DirectUpdate, Permission, PoppyClientFrame } from "../../src/poppy/wire";
 import type { PoppyView } from "../../src/use-pi-session";
@@ -159,19 +159,19 @@ describe("sign-in cards", () => {
     }
   });
 
-  it("only ever renders HTTPS hrefs, whatever text a Company sends", () => {
-    fc.assert(
-      fc.property(fc.oneof(fc.webUrl(), fc.string(), fc.constantFrom("javascript:x", "data:,x", "JAVASCRIPT:x", "\tjavascript:x", "java\nscript:x")), fc.string(), (uri, complete) => {
-        const { container, unmount } = renderCards(deviceCard(uri, complete), linkCard(complete));
-        try {
-          for (const href of links(container)) expect(new URL(href).protocol).toBe("https:");
-        } finally {
-          unmount();
-        }
-      }),
-      { numRuns: 200 }
-    );
-  });
+  it(
+    "only ever renders HTTPS hrefs, whatever text a Company sends",
+    property((tc) => {
+      const uri = tc.draw(gs.oneOf(gs.urls(), gs.text(), gs.sampledFrom(["javascript:x", "data:,x", "JAVASCRIPT:x", "\tjavascript:x", "java\nscript:x"])));
+      const complete = tc.draw(gs.oneOf(gs.urls(), gs.text()));
+      const { container, unmount } = renderCards(deviceCard(uri, complete), linkCard(complete));
+      try {
+        for (const href of links(container)) expect(new URL(href).protocol).toBe("https:");
+      } finally {
+        unmount();
+      }
+    })
+  );
 });
 
 describe("credentials card (Mediated Sign-In)", () => {
@@ -208,32 +208,27 @@ describe("credentials card (Mediated Sign-In)", () => {
     expect(JSON.stringify(sent)).not.toContain("hunter2");
   });
 
-  it("starts every field empty, whatever the Company names it", () => {
-    fc.assert(
-      fc.property(
-        fc.uniqueArray(fc.oneof(fc.string({ minLength: 1 }), fc.constantFrom("constructor", "toString", "__proto__", "hasOwnProperty", "valueOf")), {
-          minLength: 1,
-          maxLength: 4
-        }),
-        (names) => {
-          const card: Card = {
-            ...credentialsCard,
-            fields: names.map((name, index) => ({ name, label: `Field ${index}`, secret: index % 2 === 1 }))
-          };
-          const { unmount, sent } = renderCards(card);
-          try {
-            for (let index = 0; index < names.length; index++) {
-              expect((screen.getByLabelText(`Field ${index}`) as HTMLInputElement).value).toBe("");
-            }
-            expect(sent).toEqual([]);
-          } finally {
-            unmount();
-          }
+  it(
+    "starts every field empty, whatever the Company names it",
+    property((tc) => {
+      const names = [
+        ...tc.draw(gs.sets(gs.oneOf(gs.text({ minSize: 1 }), gs.sampledFrom(["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"])), { minSize: 1, maxSize: 4 }))
+      ];
+      const card: Card = {
+        ...credentialsCard,
+        fields: names.map((name, index) => ({ name, label: `Field ${index}`, secret: index % 2 === 1 }))
+      };
+      const { unmount, sent } = renderCards(card);
+      try {
+        for (let index = 0; index < names.length; index++) {
+          expect((screen.getByLabelText(`Field ${index}`) as HTMLInputElement).value).toBe("");
         }
-      ),
-      { numRuns: 50 }
-    );
-  });
+        expect(sent).toEqual([]);
+      } finally {
+        unmount();
+      }
+    })
+  );
 });
 
 describe("one-time code card", () => {

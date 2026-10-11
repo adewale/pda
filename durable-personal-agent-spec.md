@@ -630,6 +630,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | `test/properties/discovery.test.ts` | Discovery and the validator: every generated valid Company is discovered as its documents say; each broken MUST refuses it; no document, however broken, makes either throw anything but a DiscoveryError |
 | `test/properties/poppy.test.ts` | The client's pure parts against their contracts, both ways: scopes, `WWW-Authenticate`, `Retry-After`, `RateLimit`, path templates, private hosts, body limits, cache lifetimes, `htu`, device links, Poppy endpoints, operation highlights |
 | `test/properties/jwt.test.ts` | Our client's assertions and DPoP proofs pass the mock Company under every reading; each one-thing-wrong mutation is refused with the violation that names it |
+| `test/properties/model.test.ts` | Model-based: any sequence of honest steps (sign in, talk, renew, propose, approve or decline, sign out) runs the client against the mock Company in process, under drawn readings; after each step no violation, and both agree with a small model |
 | `test/properties/interop.test.ts` | Scenario `${…}` references and comparisons, and reading the HAR recording |
 | `test/validator.test.ts` | The discovery document validator: fixtures declared as data, a catalog test that every message has one, the spec's examples, live documents, fetching, the HTTP endpoint |
 | `test/mock-company.test.ts` | The mock Company itself: one `TAMPERS` row per check, proving it fires, and a catalog test that every check has a row |

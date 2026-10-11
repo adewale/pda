@@ -59,13 +59,20 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
   );
 
   it(
-    "lets every host poppy.json lists for a service that takes a Session Token have one, and protects each Poppy endpoint (N10)",
+    "lets every host poppy.json lists for a service that takes a Session Token have one (N10)",
     propertyAsync(async (tc) => {
       const found = await discovered(tc.draw(companies));
       const services = [found.conversations?.endpoint, found.extensions.operations?.endpoint, found.signIn.mediated?.endpoint, ...found.apis.map((api) => api.url)];
       for (const service of services.filter((value): value is string => !!value)) {
         expect(tokenHostAllowed(found, new URL(service)), service).toBe(true);
       }
+    })
+  );
+
+  it(
+    "keeps a model's API call from every Poppy endpoint a discovered Company has, and anything under one",
+    propertyAsync(async (tc) => {
+      const found = await discovered(tc.draw(companies));
       const poppyEndpoints = [found.conversations?.endpoint, found.extensions.operations?.endpoint, found.endpoints.token, found.endpoints.revocation];
       for (const endpoint of poppyEndpoints.filter((value): value is string => !!value)) {
         const suffix = tc.draw(gs.fromRegex("(/[A-Za-z0-9_-]{1,8}){0,3}", { fullmatch: true }));

@@ -145,12 +145,13 @@ describe("Retry-After (RFC 9110 §10.2.3; spec 4.3)", () => {
       const header = tc.draw(
         gs.oneOf(
           gs.text({ maxSize: 30 }),
+          gs.text({ minCodepoint: 0x20, maxCodepoint: 0xff, maxSize: 30 }),
           gs.sampledFrom(["-1", "1.5", "0x10", "1e3", " 5", "5 ", "+5", "Infinity", "5 seconds", "soon", "2", "1/1/2030", "2030-01-01"]),
           gs.integers().map((n) => `${n} `)
         )
       );
-      // Headers can't carry control characters, and trim surrounding spaces.
-      tc.assume(/^[\x20-\x7e]*$/.test(header) && header.trim() !== "" && !DELAY_SECONDS.test(header.trim()) && !HTTP_DATE.some((form) => form.test(header.trim())));
+      // A header value is visible ASCII, spaces and obs-text (RFC 9110 §5.5), and loses surrounding spaces.
+      tc.assume(/^[\x20-\x7e\x80-\xff]*$/.test(header) && header.trim() !== "" && !DELAY_SECONDS.test(header.trim()) && !HTTP_DATE.some((form) => form.test(header.trim())));
       expect(retryAfterMs(new Response(null, { status: 429, headers: { "Retry-After": header } }), Date.now())).toBeNull();
     })
   );
@@ -238,12 +239,19 @@ describe("OpenAPI path templates (spec 6)", () => {
   );
 });
 
-const hostnames = gs.oneOf(
-  hosts,
-  gs.ipAddresses().map((address) => (address.includes(":") ? `[${address}]` : address)),
-  gs.sampledFrom(["localhost", "LOCALHOST", "foo.localhost", "intranet", "printer", "a.b"]),
-  gs.fromRegex("[a-z0-9-]{1,20}", { fullmatch: true })
-);
+/**
+ * Hosts a URL can hold: names, IP literals, localhost and single labels. Both
+ * checks take a parsed URL, so a label a URL refuses (such as `08`, an
+ * invalid IPv4 number) is no input to them.
+ */
+const hostnames = gs
+  .oneOf(
+    hosts,
+    gs.ipAddresses().map((address) => (address.includes(":") ? `[${address}]` : address)),
+    gs.sampledFrom(["localhost", "LOCALHOST", "foo.localhost", "intranet", "printer", "a.b"]),
+    gs.fromRegex("[a-z0-9-]{1,20}", { fullmatch: true })
+  )
+  .filter((host) => URL.canParse(`https://${host}/`) && (host.startsWith("[") || URL.canParse(`https://${host}./`)));
 
 /** A host as a URL may spell it: its own case, and maybe the root's trailing dot. */
 const spelled = gs.composite((tc) => {

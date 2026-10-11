@@ -1,7 +1,7 @@
 import type { Browser, BrowserWorker } from "@cloudflare/puppeteer";
-import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { RenderingBrowser, type Launch } from "../../src/poppy/rendering";
+import { gs, propertyAsync } from "../properties/hegel";
 
 /**
  * The Browser Rendering adapter (`src/poppy/rendering.ts`) against a stub of
@@ -162,42 +162,38 @@ describe("Browser Rendering adapter", () => {
     expect(await context.postForm(ENDPOINT, { assertion: ASSERTION })).toEqual({ url: "https://shop.example/orders", status: 403 });
   });
 
-  it("escapes every field so the browser submits exactly what was given", async () => {
-    // Text a parser treats specially. CR and NUL are left out: an HTML parser
-    // normalises them in any attribute, and a JWT never contains them.
-    const tricky = fc.string({
-      unit: fc.constantFrom('"', "'", "<", ">", "&", "=", " ", "/", "\n", "\t", "#", ";", "a", "Z", "0", "é", "😀", "&amp;", "&#34;", "-->", "</form>", "<script>")
-    });
-    const text = fc.oneof(tricky, fc.string({ unit: "grapheme" }).filter((value) => !/[\r\0]/.test(value)));
-    await fc.assert(
-      fc.asyncProperty(
-        fc.uniqueArray(fc.tuple(text.filter((name) => name.length > 0 && name.trim() === name && name !== "isindex"), text), {
-          minLength: 1,
-          maxLength: 4,
-          selector: ([name]) => name
-        }),
-        fc.webUrl({ withQueryParameters: true, withFragments: true }),
-        async (fields, action) => {
-          const { rendering, contexts } = stubBrowser();
-          const context = await rendering.newContext();
-          const record = Object.fromEntries(fields);
-          await context.postForm(action, record);
-          const stub = contexts[0]!.pages[0]!;
-          expect(stub.submitted).toHaveLength(1);
-          const [sent] = stub.submitted;
-          expect(sent!.method).toBe("post");
-          expect(sent!.action).toBe(action);
-          expect(sent!.fields).toEqual(Object.entries(record));
-          // Nothing escaped the form: one form, hidden inputs only.
-          const document = new DOMParser().parseFromString(stub.html, "text/html");
-          expect(document.forms).toHaveLength(1);
-          expect(document.querySelectorAll("script")).toHaveLength(0);
-          expect([...document.querySelectorAll("input")].every((input) => input.type === "hidden")).toBe(true);
-        }
-      ),
-      { numRuns: 300 }
-    );
-  });
+  // Text a parser treats specially. CR and NUL are left out: an HTML parser
+  // normalises them in any attribute, and a JWT never contains them.
+  const tricky = gs
+    .arrays(gs.sampledFrom(['"', "'", "<", ">", "&", "=", " ", "/", "\n", "\t", "#", ";", "a", "Z", "0", "é", "😀", "&amp;", "&#34;", "-->", "</form>", "<script>"]), { maxSize: 12 })
+    .map((parts) => parts.join(""));
+  const text = gs.oneOf(tricky, gs.text({ excludeCharacters: "\r\0" }));
+  it(
+    "escapes every field so the browser submits exactly what was given",
+    propertyAsync(async (tc) => {
+      const names = gs.oneOf(tricky, gs.text({ excludeCharacters: "\r\0" })).filter((name) => name.length > 0 && name.trim() === name && name !== "isindex");
+      const fields = [...tc.draw(gs.maps(names, text, { minSize: 1, maxSize: 4 }))];
+      const url = new URL(tc.draw(gs.urls()));
+      url.search = tc.draw(gs.text({ maxSize: 12 }));
+      url.hash = tc.draw(gs.text({ maxSize: 8 }));
+      const action = url.href;
+      const { rendering, contexts } = stubBrowser();
+      const context = await rendering.newContext();
+      const record = Object.fromEntries(fields);
+      await context.postForm(action, record);
+      const stub = contexts[0]!.pages[0]!;
+      expect(stub.submitted).toHaveLength(1);
+      const [sent] = stub.submitted;
+      expect(sent!.method).toBe("post");
+      expect(sent!.action).toBe(action);
+      expect(sent!.fields).toEqual(Object.entries(record));
+      // Nothing escaped the form: one form, hidden inputs only.
+      const document = new DOMParser().parseFromString(stub.html, "text/html");
+      expect(document.forms).toHaveLength(1);
+      expect(document.querySelectorAll("script")).toHaveLength(0);
+      expect([...document.querySelectorAll("input")].every((input) => input.type === "hidden")).toBe(true);
+    })
+  );
 
   it("gives each Session its own browser context on one browser, and closes it", async () => {
     const { rendering, contexts, launches, binding } = stubBrowser();

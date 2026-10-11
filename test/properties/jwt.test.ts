@@ -231,11 +231,44 @@ function proofMutations(method: string, url: string, token: string | undefined) 
   );
 }
 
+describe("the mock Company refuses each thing wrong with a Session assertion, naming it", () => {
+  it(
+    "a Session assertion with one thing wrong",
+    propertyAsync(async (tc) => {
+      const company = await companyWith(tc.draw(readings));
+      const client = await company.authenticateClient(form(await clientAssertion(signing, identity.clientId, company.hosts.tokenEndpoint)), company.hosts.tokenEndpoint);
+      const { name, claims, header, violation } = tc.draw(
+        gs.oneOf<{ name: string; claims?: Claims; header?: Header; violation: string }>(
+          gs.just({ name: "aud array", claims: { aud: [company.hosts.tokenEndpoint] }, violation: "session-assertion.aud" }),
+          gs.oneOf(gs.just(company.hosts.issuer), gs.just(company.hosts.revocationEndpoint), gs.urls()).map((aud) => ({ name: "aud", claims: { aud }, violation: "session-assertion.aud" })),
+          gs.urls().map((iss) => ({ name: "iss", claims: { iss }, violation: "session-assertion.iss" })),
+          gs.oneOf(gs.just(undefined), gs.just("")).map((sub) => ({ name: "no sub", claims: { sub }, violation: "session-assertion.sub" })),
+          gs.just({ name: "browser typ", header: { typ: "poppy-browser+jwt" }, violation: "session-assertion.browser-typ" }),
+          gs.just({ name: "no jti", claims: { jti: undefined }, violation: "session-assertion.jti-missing" }),
+          gs.just({ name: "personal User ID", claims: { sub: "ada@example.com" }, violation: "user-id.personal" })
+        )
+      );
+      tc.note(name);
+      const now = seconds();
+      const assertion = await sign(
+        { alg: "ES256", typ: "JWT", kid: signing.kid, ...header },
+        { iss: identity.clientId, sub: `usr_${jtis()}`, aud: company.hosts.tokenEndpoint, iat: now, exp: now + 60, jti: jtis(), ...claims },
+        signing.privateKey
+      );
+      const result = await attempt(() => company.verifySessionAssertion(client, assertion));
+      // A personal User ID is recorded but not refused: the Company has nothing to refuse it with.
+      if (violation !== "user-id.personal") expect(result.ok).toBe(false);
+      expect(company.violations.map(violationId)).toEqual([violation]);
+    })
+  );
+});
+
 describe("the mock Company refuses each thing wrong with a DPoP proof, naming it", () => {
   it(
     "a proof with one thing wrong",
     propertyAsync(async (tc) => {
-      const company = await companyWith({});
+      // Any reading but required nonces, which refuse a nonce-less proof before anything else is checked.
+      const company = await companyWith({ ...tc.draw(readings), requireNonce: false });
       const key: DpopKey = await newDpopKey();
       const privateJwk = await exportJWK((await generateKeyPair("ES256", { extractable: true })).privateKey);
       const atTokenEndpoint = tc.draw(gs.booleans());
@@ -263,24 +296,40 @@ describe("the mock Company refuses each thing wrong with a DPoP proof, naming it
   );
 
   it(
-    "a proof used twice is refused, and a nonce the key has used must be kept",
+    "a proof used twice",
     propertyAsync(async (tc) => {
-      const company = await companyWith({ requireNonce: true, nonceScope: tc.draw(gs.sampledFrom(["company", "origin"] as const)) });
+      const company = await companyWith(tc.draw(readings));
       const key = await newDpopKey();
       const method = tc.draw(methods);
       const url = tc.draw(resourceUrl(company));
       const token = tc.draw(gs.fromRegex("[A-Za-z0-9]{8,40}", { fullmatch: true }));
-      const nonce = company.nonceFor(new URL(url).origin);
-      const proof = await dpopProof(key, { method, url, accessToken: token, nonce });
+      const nonce = company.config.requireNonce ? company.nonceFor(new URL(url).origin) : undefined;
+      const proof = await dpopProof(key, { method, url, accessToken: token, ...(nonce ? { nonce } : {}) });
       expect((await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: proof }), token))).ok).toBe(true);
-      // The same proof again: refused as a replay.
       expect(await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: proof }), token))).toEqual({ ok: false, error: "invalid_dpop_proof" });
       expect(company.violations.map(violationId)).toEqual(["dpop.jti-reused"]);
-      // A later proof from the same key that drops the nonce breaks the rule.
-      await new Promise((resolve) => setTimeout(resolve, 1000 - (Date.now() % 1000) + 5));
-      const dropped = await dpopProof(key, { method, url, accessToken: token });
-      expect(await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: dropped }), token))).toEqual({ ok: false, error: "use_dpop_nonce" });
-      expect(company.violations.map(violationId)).toEqual(["dpop.jti-reused", "dpop.nonce-ignored"]);
-    }, { testCases: 3 })
+    })
+  );
+
+  it(
+    "a later proof that drops the nonce its key already used at that server",
+    propertyAsync(
+      async (tc) => {
+        const company = await companyWith({ requireNonce: true, nonceScope: tc.draw(gs.sampledFrom(["company", "origin"] as const)) });
+        const key = await newDpopKey();
+        const method = tc.draw(methods);
+        const url = tc.draw(resourceUrl(company));
+        const token = tc.draw(gs.fromRegex("[A-Za-z0-9]{8,40}", { fullmatch: true }));
+        const proof = await dpopProof(key, { method, url, accessToken: token, nonce: company.nonceFor(new URL(url).origin) });
+        expect((await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: proof }), token))).ok).toBe(true);
+        // Proofs in the same second may have raced the nonce; the mock counts only a later one.
+        await new Promise((resolve) => setTimeout(resolve, 1000 - (Date.now() % 1000) + 5));
+        const dropped = await dpopProof(key, { method, url, accessToken: token });
+        expect(await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: dropped }), token))).toEqual({ ok: false, error: "use_dpop_nonce" });
+        expect(company.violations.map(violationId)).toEqual(["dpop.nonce-ignored"]);
+      },
+      // Each case waits for the clock's next second, so a few cases, not a hundred.
+      { testCases: 3 }
+    )
   );
 });

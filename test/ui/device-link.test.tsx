@@ -1,7 +1,7 @@
-import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { Company } from "../../src/poppy/discovery";
 import { deviceLink } from "../../src/poppy/signin";
+import { gs, property } from "../properties/hegel";
 
 /**
  * Which device sign-in links reach a card at all (spec 4.6). The page checks
@@ -53,20 +53,22 @@ describe("deviceLink", () => {
     for (const value of [undefined, null, 42, {}, ["https://acme.example/"]]) expect(deviceLink(company, value)).toBeNull();
   });
 
-  it("returns only HTTPS links on the Company's hosts", () => {
-    fc.assert(
-      fc.property(fc.oneof(fc.webUrl({ validSchemes: ["https", "http", "javascript", "data", "ftp"] }), fc.string()), (value) => {
-        const link = deviceLink(company, value);
-        if (link === null) return;
-        const url = new URL(link);
-        expect(url.protocol).toBe("https:");
-        expect(
-          url.hostname === "acme.example" ||
-            url.hostname.endsWith(".acme.example") ||
-            ["login.acme-id.example", "device.acme-auth.example"].includes(url.hostname)
-        ).toBe(true);
-      }),
-      { numRuns: 500 }
-    );
-  });
+  it(
+    "returns only HTTPS links on the Company's hosts",
+    property((tc) => {
+      const drawn = tc.draw(gs.urls());
+      const value = tc.draw(
+        gs.oneOf(gs.sampledFrom(["https", "http", "javascript", "data", "ftp"]).map((scheme) => drawn.replace(/^[a-z]+:/, `${scheme}:`)), gs.text())
+      );
+      const link = deviceLink(company, value);
+      if (link === null) return;
+      const url = new URL(link);
+      expect(url.protocol).toBe("https:");
+      expect(
+        url.hostname === "acme.example" ||
+          url.hostname.endsWith(".acme.example") ||
+          ["login.acme-id.example", "device.acme-auth.example"].includes(url.hostname)
+      ).toBe(true);
+    })
+  );
 });
