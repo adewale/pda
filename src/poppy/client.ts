@@ -173,7 +173,8 @@ function withScope<T extends TokenResponse>(response: T, requested: string): T {
 export function parseWwwAuthenticate(header: string | null): { error?: string; scope?: string } {
   if (!header) return {};
   const params: Record<string, string> = {};
-  for (const match of header.matchAll(/(\w+)="([^"]*)"/g)) params[match[1]!] = match[2]!;
+  // A quoted-string may hold quoted-pairs (RFC 9110 §5.6.4), such as `\"` in a description.
+  for (const match of header.matchAll(/(\w+)="((?:[^"\\]|\\.)*)"/g)) params[match[1]!] = match[2]!.replace(/\\(.)/g, "$1");
   return {
     ...(params.error ? { error: params.error } : {}),
     ...(params.scope ? { scope: params.scope } : {})

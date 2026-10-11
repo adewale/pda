@@ -73,7 +73,16 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
     "keeps a model's API call from every Poppy endpoint a discovered Company has, and anything under one",
     propertyAsync(async (tc) => {
       const found = await discovered(tc.draw(companies));
-      const poppyEndpoints = [found.conversations?.endpoint, found.extensions.operations?.endpoint, found.endpoints.token, found.endpoints.revocation];
+      const poppyEndpoints = [
+        found.endpoints.token,
+        found.endpoints.revocation,
+        found.endpoints.authorization,
+        found.endpoints.deviceAuthorization,
+        found.signIn.mediated?.endpoint,
+        found.conversations?.endpoint,
+        found.extensions.operations?.endpoint,
+        found.web?.browserSessionEndpoint
+      ];
       for (const endpoint of poppyEndpoints.filter((value): value is string => !!value)) {
         const suffix = tc.draw(gs.fromRegex("(/[A-Za-z0-9_-]{1,8}){0,3}", { fullmatch: true }));
         expect(protocolEndpoint(found, new URL(`${endpoint}${suffix}`)), `${endpoint}${suffix}`).toBe(endpoint);
@@ -82,30 +91,42 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
   );
 });
 
+type Documents = { readonly requested: string; readonly domain: string; readonly poppy: unknown; readonly metadata: unknown };
+
+/** The validator's errors for a Company's documents, by id: why discovery refuses it. */
+async function errors(company: Documents): Promise<string[]> {
+  const report = await validateCompany(serving(company).fetcher, company.requested);
+  return report.messages.filter((message) => message.severity === "error").map((message) => message.id);
+}
+
 describe("discovery refuses a Company whose documents break a MUST (3.1, 3.2)", () => {
   it(
-    "refuses a protocol_version whose major isn't 0",
+    "refuses a protocol_version whose major isn't 0, for that reason alone",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
-      const major = tc.draw(gs.integers({ minValue: 1, maxValue: 10_000 }));
-      const result = await outcome({ ...company, poppy: { ...company.poppy, protocol_version: `${major}.${tc.draw(gs.integers({ minValue: 0, maxValue: 99 }))}` } });
-      expect(result.ok).toBe(false);
+      const major = tc.draw(gs.integers({ minValue: 1, maxValue: Number.MAX_SAFE_INTEGER }));
+      const minor = tc.draw(gs.integers({ minValue: 0, maxValue: Number.MAX_SAFE_INTEGER }));
+      const changed = { ...company, poppy: { ...company.poppy, protocol_version: `${major}.${minor}` } };
+      expect((await outcome(changed)).ok).toBe(false);
+      expect(await errors(changed)).toEqual(["version-unsupported-major"]);
     })
   );
 
   it(
-    "refuses an organization.domain that isn't the requested host",
+    "refuses an organization.domain that isn't the requested host, saying so",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
       const other = tc.draw(hosts);
       tc.assume(other.toLowerCase().replace(/^www\./, "") !== company.domain.toLowerCase().replace(/^www\./, ""));
-      const result = await outcome({ ...company, poppy: { ...company.poppy, organization: { ...company.poppy.organization, domain: other } } });
-      expect(result.ok).toBe(false);
+      const changed = { ...company, poppy: { ...company.poppy, organization: { ...company.poppy.organization, domain: other } } };
+      expect((await outcome(changed)).ok).toBe(false);
+      // poppy_domains may now leave the new domain out too.
+      expect(await errors(changed)).toContain("organization-domain-mismatch");
     })
   );
 
   it(
-    "refuses metadata whose issuer isn't exactly auth.issuer",
+    "refuses metadata whose issuer isn't exactly auth.issuer, for that reason alone",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
       const issuer: string = company.metadata.issuer;
@@ -113,23 +134,27 @@ describe("discovery refuses a Company whose documents break a MUST (3.1, 3.2)", 
         gs.oneOf(
           gs.just(issuer.endsWith("/") ? issuer.slice(0, -1) : `${issuer}/`),
           gs.just(issuer.replace("https://", "http://")),
+          gs.just(issuer.toUpperCase()),
           gs.just(`${issuer}x`),
-          gs.urls()
+          gs.urls(),
+          gs.text()
         )
       );
       tc.assume(variant !== issuer);
-      const result = await outcome({ ...company, metadata: { ...company.metadata, issuer: variant } });
-      expect(result.ok).toBe(false);
+      const changed = { ...company, metadata: { ...company.metadata, issuer: variant } };
+      expect((await outcome(changed)).ok).toBe(false);
+      expect(await errors(changed)).toEqual(["metadata-issuer-mismatch"]);
     })
   );
 
   it(
-    "refuses metadata whose poppy_domains leaves out organization.domain",
+    "refuses metadata whose poppy_domains leaves out organization.domain, for that reason alone",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);
       const others = tc.draw(gs.arrays(hosts, { maxSize: 3 })).filter((domain) => domain.toLowerCase() !== company.domain.toLowerCase());
-      const result = await outcome({ ...company, metadata: { ...company.metadata, poppy_domains: others } });
-      expect(result.ok).toBe(false);
+      const changed = { ...company, metadata: { ...company.metadata, poppy_domains: others } };
+      expect((await outcome(changed)).ok).toBe(false);
+      expect(await errors(changed)).toEqual(["metadata-domain-missing"]);
     })
   );
 

@@ -66,10 +66,9 @@ describe("scopes (4.4, 4.8)", () => {
   it(
     "chooses Direct, then Device, then Mediated: the first offered type that can grant every scope (Guides)",
     property((tc) => {
-      const offered = (type: string) => tc.draw(gs.optional(gs.arrays(gs.sampledFrom(["poppy:read", "poppy:write", "addresses"]), { maxSize: 3 }))) ?? (type ? null : null);
       const signIn = Object.fromEntries(
         (["direct", "device", "mediated"] as const).flatMap((type) => {
-          const scopes = offered(type);
+          const scopes = tc.draw(gs.optional(gs.arrays(gs.sampledFrom(["poppy:read", "poppy:write", "addresses"]), { maxSize: 3 })));
           return scopes ? [[type, type === "mediated" ? { endpoint: "https://a.example/m", fields: [], scopes } : { scopes }]] : [];
         })
       ) as Company["signIn"];
@@ -80,6 +79,13 @@ describe("scopes (4.4, 4.8)", () => {
   );
 });
 
+const NQSCHAR = String.fromCharCode(
+  0x20,
+  0x21,
+  ...Array.from({ length: 0x5b - 0x23 + 1 }, (_, i) => 0x23 + i),
+  ...Array.from({ length: 0x7e - 0x5d + 1 }, (_, i) => 0x5d + i)
+);
+
 /** An RFC 9110 quoted-string. */
 function quoted(text: string): string {
   return `"${text.replace(/[\\"]/g, (char) => `\\${char}`)}"`;
@@ -89,10 +95,13 @@ describe("WWW-Authenticate (RFC 6750, RFC 9449)", () => {
   it(
     "reads error and scope from a challenge, whatever order its parameters come in and whatever the description says",
     property((tc) => {
-      const error = tc.draw(gs.fromRegex("[a-z_]{1,20}", { fullmatch: true }));
-      const scope = tc.draw(gs.arrays(scopeTokens.filter((token) => !token.includes('"') && !token.includes("\\")), { minSize: 1, maxSize: 3 })).join(" ");
+      // RFC 6750 §3: error is 1*NQSCHAR (%x20-21 / %x23-5B / %x5D-7E); scope is scope-tokens joined by spaces.
+      const error = tc.draw(gs.text({ alphabet: NQSCHAR, minSize: 1, maxSize: 20 }));
+      const scope = tc.draw(gs.arrays(scopeTokens, { minSize: 1, maxSize: 3 })).join(" ");
       const params = [`error=${quoted(error)}`, `scope=${quoted(scope)}`];
-      if (tc.draw(gs.booleans())) params.push(`error_description=${quoted(tc.draw(gs.text({ maxSize: 40 })))}`);
+      // Any description, and hostile ones: quotes, backslashes and text that looks like the other parameters.
+      const descriptions = gs.oneOf(gs.text({ maxSize: 40 }), gs.arrays(gs.sampledFrom(['"', "\\", "=", ",", " ", "error", "scope", "x"]), { maxSize: 10 }).map((parts) => parts.join("")));
+      if (tc.draw(gs.booleans())) params.push(`error_description=${quoted(tc.draw(descriptions))}`);
       if (tc.draw(gs.booleans())) params.push(`algs=${quoted("ES256 RS256")}`);
       const order = tc.draw(gs.arrays(gs.integers({ minValue: 0, maxValue: 1000 }), { minSize: params.length, maxSize: params.length }));
       const shuffled = params.map((param, index) => [order[index]!, param] as const).sort((a, b) => a[0] - b[0]).map(([, param]) => param);
@@ -171,7 +180,12 @@ describe("Retry-After (RFC 9110 §10.2.3; spec 4.3)", () => {
 
 /** A path template of literal and `{name}` segments, and values for its names. */
 const templates = gs.composite((tc) => {
-  const names = [...tc.draw(gs.sets(gs.fromRegex("[a-z_][a-z0-9_]{0,10}", { fullmatch: true }), { maxSize: 3 }))];
+  // A template names anything but braces and slashes, the names every object inherits included.
+  const name = gs.oneOf(
+    gs.text({ minSize: 1, maxSize: 10 }).filter((text) => !/[{}/]/.test(text)),
+    gs.sampledFrom(["order_id", "constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"])
+  );
+  const names = [...tc.draw(gs.sets(name, { maxSize: 3 }))];
   const literals = tc.draw(gs.arrays(gs.fromRegex("[a-z0-9_-]{1,10}", { fullmatch: true }), { maxSize: 3 }));
   const segments = tc.draw(gs.arrays(gs.integers({ minValue: 0, maxValue: 1000 }), { minSize: names.length + literals.length, maxSize: names.length + literals.length }))
     .map((rank, index) => [rank, index < names.length ? `{${names[index]}}` : literals[index - names.length]!] as const)
@@ -209,7 +223,7 @@ describe("OpenAPI path templates (spec 6)", () => {
       const resolved = new URL(filled, "https://api.example.com").pathname.split("/").slice(1).filter((segment, index, all) => all.length > 1 || segment !== "");
       expect(resolved).toHaveLength(segments.length);
       segments.forEach((segment, index) => {
-        const name = /^\{(.+)\}$/.exec(segment)?.[1];
+        const name = /^\{([^]+)\}$/.exec(segment)?.[1];
         expect(decodeURIComponent(resolved[index]!)).toBe(name === undefined ? segment : String(values[name]));
       });
     })
@@ -278,27 +292,27 @@ describe("fetching what Companies control (Guides, 'Fetching metadata safely')",
     })
   );
 
-  it(
-    "a host and its fully qualified form, with the root's trailing dot, are refused alike",
-    property((tc) => {
-      const host = tc.draw(hostnames);
-      tc.assume(!host.startsWith("["));
-      const plain = new URL(`https://${host}/`);
-      const rooted = new URL(`https://${host}./`);
-      expect(clientRefuses(rooted)).toBe(clientRefuses(plain));
-      expect(isPublicHost(rooted)).toBe(isPublicHost(plain));
-    })
-  );
+  for (const [checker, refuses] of [
+    ["the client", clientRefuses],
+    ["the validator", (url: URL) => !isPublicHost(url)]
+  ] as const) {
+    it(
+      `${checker} refuses a host and its fully qualified form, with the root's trailing dot, alike`,
+      property((tc) => {
+        const host = tc.draw(hostnames);
+        tc.assume(!host.startsWith("["));
+        expect(refuses(new URL(`https://${host}./`))).toBe(refuses(new URL(`https://${host}/`)));
+      })
+    );
 
-  it(
-    "refuses every IP literal",
-    property((tc) => {
-      const address = tc.draw(gs.ipAddresses());
-      const url = new URL(`https://${address.includes(":") ? `[${address}]` : address}/`);
-      expect(clientRefuses(url)).toBe(true);
-      expect(isPublicHost(url)).toBe(false);
-    })
-  );
+    it(
+      `${checker} refuses every IP literal`,
+      property((tc) => {
+        const address = tc.draw(gs.ipAddresses());
+        expect(refuses(new URL(`https://${address.includes(":") ? `[${address}]` : address}/`))).toBe(true);
+      })
+    );
+  }
 
   it(
     "reads a body of at most maxBytes as UTF-8, and refuses anything longer or not UTF-8 with a PoppyFetchError",
@@ -388,6 +402,7 @@ function companyAt(domain: string): Company {
     endpoints: {
       token: `https://auth.${domain}/oauth/token`,
       revocation: `https://auth.${domain}/oauth/revoke`,
+      authorization: `https://auth.${domain}/oauth/authorize`,
       deviceAuthorization: `https://login.${domain}/device`
     },
     signIn: { mediated: { endpoint: `https://auth.${domain}/poppy/sign-in`, fields: [], scopes: [] } },
@@ -439,7 +454,16 @@ describe("Poppy endpoints never reached through an API tool (Ops 5.1, 7.8)", () 
       const domain = tc.draw(hosts).toLowerCase();
       const company = companyAt(domain);
       const endpoint = tc.draw(
-        gs.sampledFrom([company.endpoints.token, company.endpoints.revocation, company.conversations!.endpoint, company.extensions.operations!.endpoint, company.signIn.mediated!.endpoint])
+        gs.sampledFrom([
+          company.endpoints.token,
+          company.endpoints.revocation,
+          company.endpoints.authorization!,
+          company.endpoints.deviceAuthorization!,
+          company.signIn.mediated!.endpoint,
+          company.conversations!.endpoint,
+          company.extensions.operations!.endpoint,
+          company.web!.browserSessionEndpoint!
+        ])
       );
       const url = new URL(endpoint);
       const spelledPath = [...url.pathname]
@@ -565,6 +589,17 @@ describe("what these properties found, as examples", () => {
   it("reads a Retry-After that is neither delay-seconds nor an HTTP-date as none, not as a date long past", () => {
     for (const junk of [":0", "1/1/2000", "soon 5", "-1", "1.5"]) {
       expect(retryAfterMs(new Response(null, { status: 503, headers: { "Retry-After": junk } }), Date.now()), junk).toBeNull();
+    }
+  });
+
+  it("reads error and scope after a description holding an escaped quote and something like a parameter", () => {
+    expect(parseWwwAuthenticate('DPoP error="invalid_token", error_description="\\"error=", scope="poppy:read"')).toEqual({ error: "invalid_token", scope: "poppy:read" });
+  });
+
+  it("refuses a call that leaves out a parameter named like a member every object inherits", () => {
+    for (const name of ["constructor", "toString", "__proto__"]) {
+      expect(() => pathFor(operation(`/things/{${name}}`, [name]), {}), name).toThrow(PoppyError);
+      expect(() => pathFor(operation(`/things/{${name}}`), {}), name).toThrow(PoppyError);
     }
   });
 
