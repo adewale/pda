@@ -167,19 +167,28 @@ The Poppy client in `src/poppy/` implements every part of Draft 0.1 that a Perso
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
-npm test                         # all tests, in the Workers runtime
+npm test                         # three suites: Workers, durability, page
 npm run typecheck
+npm run check:docs               # every test the spec's Appendix A names exists
 npm run deploy
 ```
 
-**What the tests cover** (Vitest in the Workers runtime):
+CI runs typecheck, the tests and the docs check on every push (`.github/workflows/ci.yml`).
 
-- **Sign-in:** app sign-in and the allowlist.
-- **Agents:** the durable conversation.
-- **Validator:** every message is produced by at least one fixture; the fixtures include the spec's own examples and poppy-demo's live documents.
-- **Poppy:** conformance tests against a strict mock Company. The mock records every protocol violation it sees, and each test asserts there were none.
+**What the tests cover:**
 
-The model, Google and GitHub are faked; nothing calls the network.
+- **Sign-in:** app sign-in against fake Google and GitHub that check PKCE and can refuse: a wrong audience, issuer or expiry, an unverified email, a broken GitHub profile. Also the allowlist on every route.
+- **The agent:** the durable conversation, including after a crash. That test has its own runtime, so it can't reset objects other tests are using.
+- **Poppy:** conformance tests against a strict mock Company.
+  - Each of the mock's checks has an id and a test that proves it fires.
+  - An after-each hook fails any test that triggers a check it didn't declare.
+  - Sign-in, Sessions and sign-out also run under six readings of the draft's open questions.
+  - A frozen clock makes Retry-After, device polling and slow operations instant.
+- **Validator:** fixtures declared as data, with a test that every message has one. They include the spec's own examples and poppy-demo's live documents.
+- **JSON parsers:** property tests against `JSON.parse`.
+- **Page:** cards, panels, the sign-in page and the Browser Rendering adapter, in happy-dom.
+
+The model, Google, GitHub and Companies are faked; nothing calls the network.
 
 ## Cloudflare services
 

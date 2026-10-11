@@ -4,12 +4,13 @@ The design is `durable-personal-agent-spec.md`; read it before changing anything
 
 - `src/protocol.ts`, `src/sockets.ts`, `src/view.ts` and `src/transcript.ts` are copied unchanged from Cloudflare's Pi example (`cloudflare/agents`, `examples/next/harnesses/pi`, commit `48d9c36`). Do not edit them; re-sync them from upstream instead.
 - Our code: `src/index.ts` (Worker routes), `src/oauth.ts` (Google and GitHub sign-in), `src/session.ts` (signed session cookie, agent naming), `src/allowlist.ts` (who may sign in, from the `ALLOWLIST` var), `src/config.ts` (vars and secrets, no defaults), `src/agent.ts` (the Durable Object), `src/poppy/` (the Poppy client, its Lifecycle capability and tools), `src/poppy-ui.tsx` (Poppy cards and panels), `src/validator/` (the discovery document validator: no Worker APIs, so it also runs as the CLI in `scripts/poppy-validate.ts`; a new message needs a fixture in `test/validator.test.ts`, whose last test checks every message has one).
-- Poppy tests run against the strict mock Company in `test/mock-company/`; every Poppy test asserts it recorded no violations. Keep it that way: a new Poppy feature needs a test and, where the protocol has a MUST, a mock check. The UI is the example's, adapted in `src/client.tsx` and `src/use-pi-session.ts`.
+- Poppy tests run against the strict mock Company in `test/mock-company/`; every Poppy test asserts it recorded no violations. An `afterEach` enforces that; a test that breaks the protocol on purpose declares `expectViolations`. A new Poppy feature needs a test and, where the protocol has a MUST, a mock check with an id in `test/mock-company/violations.ts` and a `TAMPERS` row in `test/mock-company.test.ts` (a catalog test enforces both). The UI is the example's, adapted in `src/client.tsx` and `src/use-pi-session.ts`.
 - No auth bypass anywhere, including tests and local dev.
 
 Commands:
 
 - Validator CLI: `npm run validate -- <domain | url | file>`
-- Tests: `npm test` (Vitest in the Workers runtime; the model is pi-ai's faux provider, Google and GitHub are faked in `test/vitest.config.ts`, Companies by `test/mock-company/`)
+- Docs check: `npm run check:docs` (every test Appendix A names exists; CI runs it with typecheck and tests)
+- Tests: `npm test` runs three suites: Workers (`test/vitest.config.ts`), durability (`test/durability/`, its own runtime, the only place a test may reset every Durable Object) and page (`test/ui/`, happy-dom). (Vitest in the Workers runtime; the model is pi-ai's faux provider, Google and GitHub are faked in `test/fake-providers.ts` (they check PKCE and can refuse), Companies by `test/mock-company/`)
 - Types: `npm run typecheck`; regenerate `env.d.ts` with `npm run types` after changing `wrangler.jsonc`
 - Deploy: `npm run deploy`
