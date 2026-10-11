@@ -687,7 +687,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | `test/agent.test.ts` | App sign-in (PKCE, every ID-token and GitHub profile check, flow expiry), the allowlist, `/ws`, durability, configuration |
 | `test/allowlist.test.ts` | Reading and matching the allowlists and `OWNERS`; `SIGNUP` |
 | `test/model-access.test.ts` | Own keys (Anthropic and OpenAI only), sealing, the demo's caps, background turns, refused keys, `SIGNUP`, against fake vendors |
-| `test/template.test.ts` | The committed template names no author host or identity, and fails closed |
+| `test/template.test.ts` | No committed file but docs names the deployer's identities or hosts (read from the untracked `deployment.local.json`), and the template fails closed |
 | `test/properties/json.test.ts` | Both JSON parsers against `JSON.parse`, property-based: duplicates, depth, garbage |
 | `test/properties/discovery.test.ts` | Discovery and the validator: every generated valid Company is discovered as its documents say; each broken MUST refuses it; no document, however broken, makes either throw anything but a DiscoveryError |
 | `test/properties/poppy.test.ts` | The client's pure parts against their contracts, both ways: scopes, `WWW-Authenticate`, `Retry-After`, `RateLimit`, path templates, private hosts, body limits, cache lifetimes, `htu`, device links, Poppy endpoints, operation highlights |
@@ -894,7 +894,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | A 401 marks the key invalid, stops calls, and never falls back to the demo | `model-router.ts` | Test: "marks the key invalid on a 401, stops model calls, and never falls back to the demo" |
 | Own keys are Anthropic or OpenAI only: no OpenRouter sign-in, and a stored OpenRouter key from before is deleted unopened, never a crash | `index.ts`, `agent.ts`, `model-keys.ts` | Test: "has no OpenRouter sign-in, and refuses a pasted key for any other provider", "deletes an OpenRouter key stored before that lane was removed, unopened, and falls back as if there were none" |
 | `SIGNUP=allowlist` behaves as before; `open` lets anyone in without the demo | `allowlist.ts` | Test: "allowlist: lets in owners and the sign-in allowlist only, as before", "open: lets anyone in, who then needs a key unless they are on the demo" |
-| The template names no author host or identity, and fails closed | `wrangler.jsonc`, `deployment.ts` | Test: "holds no author hosts or identities", "fails closed: every signed-in route refuses until OWNERS and PUBLIC_ORIGIN are set" |
+| The template names no author host or identity, and fails closed | `wrangler.jsonc`, `deployment.ts` | Test: "holds none of the deployer's identities or origins (from deployment.local.json, when this checkout has one)", "gives an email address only at a name reserved for examples", "commits empty identity placeholders, and example identities only at reserved names", "fails closed: every signed-in route refuses until OWNERS and PUBLIC_ORIGIN are set" |
 
 **Guides we follow**
 

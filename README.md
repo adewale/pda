@@ -204,7 +204,7 @@ CI runs typecheck, the tests and the docs check on pushes to `main` and on pull 
 **What the tests cover:**
 
 - **Sign-in:** app sign-in against fake Google and GitHub that check PKCE and can refuse: a wrong audience, issuer or expiry, an unverified email, a broken GitHub profile. Also the allowlist on every route.
-- **Model access:** against fake Anthropic and OpenAI. A key never appears in a response, frame, transcript, Activity row, log or storage in the clear; a sealed key opens only in its own agent; an own key beats the demo; the demo's caps are enforced before the call, per person and per domain, background turns included; a 401 stops calls with no fallback; only Anthropic and OpenAI keys are taken, and an OpenRouter key stored before that lane was removed is deleted unopened. Another test fails if an author host or identity enters the template.
+- **Model access:** against fake Anthropic and OpenAI. A key never appears in a response, frame, transcript, Activity row, log or storage in the clear; a sealed key opens only in its own agent; an own key beats the demo; the demo's caps are enforced before the call, per person and per domain, background turns included; a 401 stops calls with no fallback; only Anthropic and OpenAI keys are taken, and an OpenRouter key stored before that lane was removed is deleted unopened. Another test fails if the deployer's identities or host (from their untracked `deployment.local.json`) enter any committed file but the docs.
 - **The agent:** the durable conversation, including after a crash. That test has its own runtime, so it can't reset objects other tests are using.
 - **Poppy:** conformance tests against a strict mock Company.
   - Each of the mock's checks has an id and a test that proves it fires.
