@@ -2,17 +2,21 @@
  * Who a failed cell is blamed on (spec section 9), by the first rule that
  * decides it, and known failures. Pure functions over the whole grid.
  *
- * 1. violation: error checks on one side only.
+ * 1. violation: error checks on one side only. An error that is exactly a
+ *    declared reading difference (a check of a section 7 question, such as
+ *    a strict Company's `session-assertion.typ`, between sides whose
+ *    readings of it are incompatible) is not a violation: when every error
+ *    is one, the cell goes to rule 3 at once.
  * 2. grid: the agent passes the scenario against the reference Company but
  *    this Company fails it with every agent that ran it (blame the Company);
  *    or this agent fails it with every Company it ran against while this
  *    Company passes it with another agent (blame the agent).
  * 3. reading: the two sides declare incompatible readings of a question the
- *    scenario depends on (blame the spec).
+ *    scenario depends on, or that an error check belongs to (blame the spec).
  * 4. unattributed.
  */
-import { compatible } from "./readings.ts";
-import type { Blame, Cell, KnownFailure, Rule, Scenario } from "./types.ts";
+import { compatible, questionOf } from "./readings.ts";
+import type { Blame, Cell, Check, KnownFailure, Rule, Scenario } from "./types.ts";
 
 export const REFERENCE_COMPANY = "dpa-mock";
 
@@ -31,8 +35,26 @@ export function attribute(
   if (cell.outcome !== "fail") return { blame: null, rule: null };
   const reference = context.reference ?? REFERENCE_COMPANY;
 
+  const readingOf = (question: string) => ({ agent: context.readings[cell.agent]?.[question], company: context.readings[cell.company]?.[question] });
+  const reading = (question: string): Verdict => {
+    const { agent, company } = readingOf(question);
+    return { blame: "spec", rule: "reading", detail: `${question}: ${cell.agent} reads ${agent}, ${cell.company} reads ${company}` };
+  };
+  const errors = cell.checks.filter((check) => check.severity === "error");
+  // A Company-recorded error the two sides' declared readings explain: a difference of reading,
+  // not a violation. (The runner's own trace checks of a reading are warnings, or errors only
+  // beyond what any reading allows, such as a lifetime over 300 s.)
+  const explainedBy = (check: Check): string | null => {
+    const question = check.source.startsWith("company:") ? questionOf(check.id) : undefined;
+    if (!question) return null;
+    const { agent, company } = readingOf(question);
+    return agent && company && !compatible(question, agent, company) ? question : null;
+  };
+  const explained = errors.map(explainedBy);
+  if (errors.length > 0 && explained.every((question) => question !== null)) return reading(explained[0]!);
+
   // 1. violation
-  const sides = new Set(cell.checks.filter((check) => check.severity === "error").map((check) => check.side));
+  const sides = new Set(errors.filter((_, index) => explained[index] === null).map((check) => check.side));
   if (sides.size === 1) {
     const [side] = sides;
     return { blame: side!, rule: "violation" };
@@ -55,12 +77,9 @@ export function attribute(
 
   // 3. reading
   const scenario = context.scenarios.get(cell.scenario);
-  for (const question of scenario?.readings ?? []) {
-    const agent = context.readings[cell.agent]?.[question];
-    const company = context.readings[cell.company]?.[question];
-    if (!compatible(question, agent, company)) {
-      return { blame: "spec", rule: "reading", detail: `${question}: ${cell.agent} reads ${agent}, ${cell.company} reads ${company}` };
-    }
+  for (const question of [...(scenario?.readings ?? []), ...explained.filter((found): found is string => found !== null)]) {
+    const { agent, company } = readingOf(question);
+    if (!compatible(question, agent, company)) return reading(question);
   }
 
   // 4. unattributed
@@ -77,11 +96,34 @@ export function attributeAll(
     cell.blame = verdict.blame;
     cell.rule = verdict.rule;
     if (verdict.detail) cell.reason = cell.reason ? `${cell.reason} [${verdict.detail}]` : verdict.detail;
-    const known = (context.known ?? []).find((entry) => entry.agent === cell.agent && entry.company === cell.company && entry.scenario === cell.scenario);
+    const known = knownFailure(cell, context.known ?? []);
     if (known && (cell.outcome === "fail" || cell.outcome === "error")) {
       cell.known = { issue: known.issue, ...(known.reason ? { reason: known.reason } : {}) };
     }
   }
+}
+
+const FIELDS = ["agent", "company", "scenario"] as const;
+
+/** A known failure's `agent`, `company` or `scenario` names one, or `"*"` for any. */
+export function knownMatches(entry: KnownFailure, cell: Pick<Cell, "agent" | "company" | "scenario">): boolean {
+  return FIELDS.every((field) => entry[field] === "*" || entry[field] === cell[field]);
+}
+
+/** The known failure that covers a cell: the most specific match (fewest wildcards), first in the file on a tie. */
+export function knownFailure(cell: Pick<Cell, "agent" | "company" | "scenario">, known: readonly KnownFailure[]): KnownFailure | undefined {
+  const wildcards = (entry: KnownFailure) => FIELDS.filter((field) => entry[field] === "*").length;
+  let best: KnownFailure | undefined;
+  for (const entry of known) {
+    if (knownMatches(entry, cell) && (!best || wildcards(entry) < wildcards(best))) best = entry;
+  }
+  return best;
+}
+
+/** Known failures no failed or errored cell matched: fixed, or never run. */
+export function unmatchedKnown(cells: readonly Cell[], known: readonly KnownFailure[]): KnownFailure[] {
+  const failed = cells.filter((cell) => cell.outcome === "fail" || cell.outcome === "error");
+  return known.filter((entry) => !failed.some((cell) => knownFailure(cell, known) === entry));
 }
 
 /** Cells that fail the run: failed or errored, and not a known failure. */

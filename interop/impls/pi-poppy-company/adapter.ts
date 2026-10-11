@@ -257,8 +257,8 @@ const manifest = {
 	commit: COMMIT,
 	poppy: ["0.1"],
 	extensions: ["operations"],
-	scenarios: ["D", "S0", "SD", "SV", "SM", "SMC", "SX", "SXV", "SO", "SE", "C", "CI", "CS", "CA", "AM", "AS", "O", "OX"],
-	readings: { S1: "token-endpoint", S2: "any", S3: "either", S4: "either", S23: "per-company" },
+	scenarios: ["D", "S0", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "SO", "SE", "C", "CI", "CS", "CA", "AM", "AS", "O", "OX"],
+	readings: { S1: "endpoint", S2: "any", S3: "either", S4: "either", S23: "per-company" },
 	relaxations: [
 		"PI_POPPY_INTEROP_PRIVATE_SUFFIX=.interop.test (patches/0001): client_id and jwks_uri under .interop.test may resolve to private addresses; unset by default, loopback still refused",
 		"CompanyServer's request handler is served on plain HTTP behind the proxy with baseUrl set to the interop origin, instead of its own 127.0.0.1 HTTPS listener",

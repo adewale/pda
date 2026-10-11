@@ -6,10 +6,11 @@
   "steps": [
     { "agent": "discover" },
     { "agent": "session" },
-    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "pending" },
     { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
     { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" } },
     { "agent": "api", "params": { "api": "${fixture.openapi_write.api}", "operation": "${fixture.openapi_write.operation}", "args": "${fixture.openapi_write.args}" }, "save": "w" },
+    { "agent": "approve_op", "when": "${w.held}", "params": { "operation": "${w.held}", "decision": "approve" }, "save": "w", "note": "An agent that holds a write for the User's approval at a Company without the Operations extension says so with held; the User approves it, and the write is sent." },
     { "expect": { "step": "w", "poppy_error": "insufficient_scope" } }
   ]
 }

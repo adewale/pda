@@ -24,7 +24,7 @@ Other implementations' adapters go in `interop/impls/<name>-agent` and `interop/
 
 Pirate testing is 1 suite × N implementations: it tests conformance, not pairs. M×N interop needs two more things, both borrowed from established interop runners: a pairing harness, and a way to tell which side failed.
 
-Datalayer already applies it to Poppy: 125 shared JSON cases in `protocol/fixtures/conformance/` (`id`, `kind`, `role`, `requirements`, `check`, `input`, `expect`) and one scenario run across its four Python and TypeScript pairings.
+Datalayer already applies it to Poppy: 124 shared JSON cases in `protocol/fixtures/conformance/` (`id`, `kind`, `role`, `requirements`, `check`, `input`, `expect`) and one scenario run across its four Python and TypeScript pairings.
 
 ## What we borrow from
 
@@ -101,7 +101,7 @@ Hardening (SSRF, duplicate JSON members, redirects on `client_id`) stays as one-
 
 1. **Pirate vectors, no network.**
    - Export our validator fixtures and the mock's tamper rows as language-neutral JSON.
-   - Run Datalayer's 125 cases against `src/poppy` and `src/validator`.
+   - Run Datalayer's 124 cases against `src/poppy` and `src/validator`.
    - Propose a shared `poppy-test-vectors` repository using Datalayer's schema, and merge in poppyseed's 124 mutants.
 2. **3×3.**
    - Clients: ours, Datalayer TypeScript, poppy-demo's caller.

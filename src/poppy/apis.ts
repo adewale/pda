@@ -149,11 +149,38 @@ function readOnlyScope(sessionScope: string | undefined, op: OpenApiOperation): 
   return [...wanted].join(" ");
 }
 
+/**
+ * The operation's path with its templates filled from the call's arguments,
+ * after checking the required parameters are there. A template the
+ * description doesn't declare as a parameter (some declare none) is filled
+ * by name too. One left unfilled is refused: `/orders/%7Border_id%7D` would
+ * only reach the wrong resource.
+ */
+function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
+  for (const parameter of op.parameters) {
+    if (parameter.required && params[parameter.name] === undefined) {
+      throw new PoppyError("invalid_request", `Missing parameter ${parameter.name}`, 0);
+    }
+  }
+  const filled = op.path.replace(/\{([^{}/]+)\}/g, (template, name: string) => {
+    const value = params[name];
+    return value === undefined ? template : encodeURIComponent(String(value));
+  });
+  const unfilled = [...filled.matchAll(/\{([^{}/]*)\}/g)].map((match) => match[1]);
+  if (unfilled.length) {
+    throw new PoppyError(
+      "invalid_request",
+      `${op.method} ${op.path} needs the path parameter${unfilled.length > 1 ? "s" : ""} ${unfilled.join(", ")}, which the call doesn't give`,
+      0
+    );
+  }
+  return filled;
+}
+
 async function performOpenApi(client: PoppyClient, company: Company, label: string, call: OpenApiCall): Promise<Json> {
   const api = findApi(company, "openapi", call.apiUrl);
   const document = await openApi(client, api);
   const op = findOperation(document, call.operation);
-  let path = op.path;
   const url = new URL(document.base);
   // The description's `servers` can name any host; Session Tokens go only to the Company's (N10).
   if (!tokenHostAllowed(company, url)) {
@@ -163,14 +190,10 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
       0
     );
   }
+  const path = pathFor(op, call.params);
   for (const parameter of op.parameters) {
     const value = call.params[parameter.name];
-    if (value === undefined) {
-      if (parameter.required) throw new PoppyError("invalid_request", `Missing parameter ${parameter.name}`, 0);
-      continue;
-    }
-    if (parameter.in === "path") path = path.replace(`{${parameter.name}}`, encodeURIComponent(String(value)));
-    else if (parameter.in === "query") url.searchParams.set(parameter.name, String(value));
+    if (parameter.in === "query" && value !== undefined) url.searchParams.set(parameter.name, String(value));
   }
   url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
   // Read-only lookups ask for a read-only token when the account allows (Guides).
@@ -199,7 +222,13 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
     body = text.slice(0, 4_000);
   }
   if (response.status === 403 && isObject(body) && body.error === "extension_required") {
-    throw new PoppyError("extension_required", `${company.name} requires the extension ${String(body.extension)}, which this agent doesn't support`, 403);
+    const extension = typeof body.extension === "string" ? body.extension : undefined;
+    throw new PoppyError(
+      "extension_required",
+      `${company.name} requires the extension ${extension ?? "(unnamed)"}, which this agent doesn't support`,
+      403,
+      { body, ...(extension ? { extension } : {}) }
+    );
   }
   // An endpoint that would perform an action proposes an operation instead (Ops 4.1).
   if (response.status === 202 && isObject(body) && isObject(body.operation)) {
@@ -226,6 +255,8 @@ export async function callOpenApi(
 ): Promise<Json> {
   const api = findApi(company, "openapi", request.apiUrl);
   const op = findOperation(await openApi(client, api), request.operation);
+  // A call that can't fill the path is refused now, before a token request or a proposal.
+  pathFor(op, request.params ?? {});
   const call: OpenApiCall = {
     apiUrl: api.url,
     operation: op.operationId,

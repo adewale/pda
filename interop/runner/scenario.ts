@@ -104,7 +104,8 @@ export function compare(actual: unknown, expected: unknown): string | null {
         ok = typeof actual === "string" ? actual.includes(String(operand)) : Array.isArray(actual) && actual.some((item) => deepEqual(item, operand));
         break;
       case "$includes_scope":
-        ok = typeof actual === "string" && actual.split(" ").includes(String(operand));
+        // One scope, or every scope of a list (a fixture's `scopes.read`).
+        ok = typeof actual === "string" && (Array.isArray(operand) ? operand : [operand]).every((scope) => actual.split(" ").includes(String(scope)));
         break;
       case "$gte":
         ok = typeof actual === "number" && actual >= Number(operand);
@@ -197,7 +198,10 @@ export function lintScenario(value: unknown, file: string): string[] {
   scenario.steps.forEach((step, index) => {
     const actors = ["agent", "company", "runner", "expect"].filter((key) => key in (step as object));
     if (actors.length !== 1) problems.push(`${file}: step ${index} must name exactly one of agent, company, runner or expect`);
-    const references = JSON.stringify(step.params ?? null).match(/\$\{([^}.]+)/g) ?? [];
+    if (step.when !== undefined && (typeof step.when !== "string" || !/^\$\{[^}]+\}$/.test(step.when))) {
+      problems.push(`${file}: step ${index} when must be one \${...} reference`);
+    }
+    const references = JSON.stringify([step.params ?? null, step.when ?? null]).match(/\$\{([^}.]+)/g) ?? [];
     for (const reference of references) {
       const name = reference.slice(2);
       if (!saved.has(name)) problems.push(`${file}: step ${index} refers to \${${name}} before it is saved`);

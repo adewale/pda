@@ -17,7 +17,17 @@
       "commit": "HEAD",
       "build": "interop/impls/dpa-mock",
       "context": ".",
-      "notes": "The strict mock Company from test/mock-company, the reference Company for attribution rule 2. Serves its recorded violations at GET /violations."
+      "notes": "The mock Company from test/mock-company with its S2-lenient settings (strictAssertions off), the reference Company for attribution rule 2. Serves its recorded violations at GET /violations."
+    },
+    {
+      "name": "dpa-mock-strict",
+      "role": "company",
+      "source": "https://github.com/adewale/dpa",
+      "commit": "HEAD",
+      "build": "interop/impls/dpa-mock",
+      "context": ".",
+      "env": { "INTEROP_MOCK_PROFILE": "strict" },
+      "notes": "The same image as dpa-mock with the mock's strict profile: assertion typ \"JWT\", a kid naming a published key and a 60-second lifetime (S2 jwt-60s), as the strictest live Companies require."
     },
     {
       "name": "datalayer-ts",

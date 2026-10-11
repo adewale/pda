@@ -106,10 +106,10 @@ MANIFEST = {
     "poppy": ["0.1"],
     "extensions": ["operations"],
     "scenarios": [
-        "D", "S0", "N", "SD", "SV", "SM", "SMC", "SX", "SXV", "R", "SE", "SO",
+        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "R", "SE", "SO",
         "C", "CI", "CS", "CA", "AO", "AM", "AS", "RL", "W", "O", "O2", "OX",
     ],
-    "readings": {"S1": "token-endpoint", "S2": "jwt-60s", "S3": "insertion", "S4": "omit"},
+    "readings": {"S1": "endpoint", "S2": "jwt-60s", "S3": "insertion", "S4": "omit"},
     "relaxations": [
         "INTEROP_ALLOW_TEST_HOSTS=1: a Reactor URL-safety contribution (adapter, not a patch) "
         "lets discovery and metadata fetches reach *.interop.test hosts on private addresses; "

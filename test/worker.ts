@@ -220,14 +220,18 @@ export class PersonalAgent extends ProductionAgent {
   }
 
   /** Run one model-facing Poppy tool as the model would; returns its text. */
-  async poppyTool(name: string, args: Record<string, unknown>, callId: string = crypto.randomUUID()): Promise<{ text: string; isError: boolean }> {
+  async poppyTool(
+    name: string,
+    args: Record<string, unknown>,
+    callId: string = crypto.randomUUID()
+  ): Promise<{ text: string; isError: boolean; /** The result's `details`, as JSON text. */ details: string }> {
     const extension = poppyExtension(() => this.poppy.client, () => this.poppy.browser);
     const tool = extension.tools?.find((candidate) => candidate.name === name);
     if (!tool) throw new Error(`No tool ${name}`);
     const api = { conversationId: "test", callId } as unknown as ToolExecutionApi;
     const result = await tool.execute(args as never, api, {} as never);
     const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
-    return { text, isError: result.isError === true };
+    return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }
 
   /** A frame from the chat page, as if sent over the WebSocket. */

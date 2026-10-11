@@ -27,7 +27,7 @@ import type { Json } from "../../../src/poppy/json.ts";
 import { randomId } from "../../../src/poppy/jwt.ts";
 import { currentKey } from "../../../src/poppy/keys.ts";
 import { CompanyLimiter } from "../../../src/poppy/limiter.ts";
-import { approveAndConfirm, cancelOperation, operation as operationOf, trackOperation } from "../../../src/poppy/operations.ts";
+import { approveAndConfirm, cancelOperation, decideLocal, operation as operationOf, trackOperation } from "../../../src/poppy/operations.ts";
 import { handleIdentityRoute } from "../../../src/poppy/routes.ts";
 import {
   completeDirectSignIn,
@@ -54,8 +54,9 @@ const MANIFEST = {
   commit: COMMIT,
   poppy: ["0.1"],
   extensions: ["operations"],
-  scenarios: ["D", "S0", "N", "SD", "SV", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL"],
-  readings: { S1: "token-endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
+  scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL"],
+  // S1 "endpoint": every client assertion's aud is the endpoint it is sent to (src/poppy/client.ts oauthRequest).
+  readings: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
   relaxations: [] as string[],
   ...(FAULT ? { faults: [FAULT] } : {}),
   notes: "Drives src/poppy directly (PoppyClient, signin, conversations, apis, operations); no model."
@@ -189,6 +190,9 @@ const text = (value: unknown, name: string): string => {
 const optional = (value: unknown): string | undefined => (typeof value === "string" && value !== "" ? value : undefined);
 const label = (params: Params) => `${optional(params.label) ?? "main"}@${agent.generation}`;
 const plainLabel = (value: string) => value.replace(/@[^@]*$/, "");
+
+/** How long the `sse` op waits for a stream's response headers. */
+const SSE_HEADER_DEADLINE_MS = 10_000;
 
 async function company(domain: string): Promise<Company> {
   return agent.client.company(domain);
@@ -383,7 +387,11 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     if (!conversationRow(agent.client, id)) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
     await readConversation(agent.client, id, typeof params.wait === "number" ? params.wait : 0);
     const row = conversationRow(agent.client, id)!;
-    const events = rows<{ event: string }>(agent.client.sql, "SELECT event FROM poppy_inbox WHERE conversation_id = ? ORDER BY seq", id);
+    let events = rows<{ event: string }>(agent.client.sql, "SELECT event FROM poppy_inbox WHERE conversation_id = ? ORDER BY seq", id);
+    // With a cursor, only what came after that event (the agent's inbox, in the order it arrived).
+    const after = optional(params.cursor);
+    const at = after ? events.findIndex((entry) => (JSON.parse(entry.event) as { id?: string }).id === after) : -1;
+    if (at !== -1) events = events.slice(at + 1);
     return {
       messages: events.map((entry) => {
         const event = JSON.parse(entry.event) as { id: string; message: { role?: string; sender?: string; text?: string; data?: Json; operation?: { operation_id?: string } } };
@@ -411,11 +419,17 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     const cursor = optional(params.cursor);
     if (cursor) url.searchParams.set("cursor", cursor);
     url.searchParams.set("wait", String(typeof params.wait === "number" ? params.wait : 1));
-    const response = await agent.client.resource(
+    const opened = agent.client.resource(
       c,
       { method: "GET", url: url.href, accept: "text/event-stream", ...(cursor ? { headers: { "Last-Event-ID": cursor } } : {}) },
       { label: label(params), ...(c.conversations?.resource ? { resource: c.conversations.resource } : {}) }
     );
+    // A Company may hold an idle stream's headers until its first event: that is a stream with nothing new yet.
+    const response = await Promise.race([opened, new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), SSE_HEADER_DEADLINE_MS))]);
+    if (response === "timeout") {
+      opened.then((late) => late.body?.cancel(), () => undefined);
+      return { events: [], last_id: null, note: `no response headers within ${SSE_HEADER_DEADLINE_MS / 1000} s` };
+    }
     const max = typeof params.max_events === "number" ? params.max_events : 50;
     const type = response.headers.get("content-type") ?? "";
     if (!type.includes("text/event-stream")) {
@@ -483,7 +497,10 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
       ...(args.body !== undefined ? { body: args.body as Json } : {}),
       callKey: randomId("call_")
     });
-    return { status: 200, body: result };
+    // At a Company without the Operations extension a write waits for the User's approval
+    // (src/poppy/apis.ts): `held` is the approval `approve_op` decides.
+    if (isRecord(result) && typeof result.proposed === "string") return { held: result.proposed };
+    return apiResult(result);
   },
 
   async web_join() {
@@ -493,6 +510,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
   async approve_op(domain, params) {
     const c = await company(domain);
     const id = text(params.operation, "operation");
+    if (id.startsWith("apr_")) return decideHeld(id, params.decision === "decline" ? "decline" : "approve");
     const operation = operationOf(agent.client, c.issuer, id);
     if (!operation) throw new StepError(404, "unknown_operation", `The agent has no operation ${id} from ${c.issuer}`);
     if (params.decision === "decline") {
@@ -528,6 +546,43 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
   }
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * An OpenAPI call's outcome as section 5.2 has it: a Poppy error from the
+ * Company (`{"error": code}` with a 4xx or 5xx) is a refusal; any other
+ * answer, an HTTP error included, is `{status, body}` with its real status.
+ */
+function apiResult(result: Json): unknown {
+  if (isRecord(result) && typeof result.status === "number" && result.status >= 400) {
+    const body = result.body;
+    if (isRecord(body) && typeof body.error === "string") {
+      throw new PoppyStepError(body.error, result.status, typeof body.error_description === "string" ? body.error_description : `HTTP ${result.status}`);
+    }
+  }
+  return result;
+}
+
+/** The User's decision on a held write, through the same path the approval card takes. */
+async function decideHeld(id: string, decision: "approve" | "decline") {
+  await decideLocal(agent.client, id, decision);
+  const row = rows<{ status: string; result: string | null }>(agent.client.sql, "SELECT status, result FROM poppy_approvals WHERE id = ?", id)[0];
+  if (!row) throw new StepError(404, "unknown_operation", `The agent has no held write ${id}`);
+  if (row.status === "failed") {
+    const code = /\[([a-z_0-9]+)\]$/.exec(row.result ?? "")?.[1] ?? "approved_write_failed";
+    throw new PoppyStepError(code, 0, row.result ?? "");
+  }
+  if (row.status !== "done") return { status: row.status };
+  let outcome: Json = null;
+  try {
+    outcome = JSON.parse(row.result ?? "null") as Json;
+  } catch {
+    // The executor's summary was cut short; keep the text.
+    outcome = row.result;
+  }
+  return { status: "done", result: apiResult(outcome) as Json };
+}
+
 async function step(request: Request): Promise<Response> {
   const input = await body(request);
   const op = typeof input.op === "string" ? input.op : "";
@@ -540,7 +595,9 @@ async function step(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof StepError) return failure(error.status, error.code, error.message);
     if (error instanceof PoppyStepError) return json({ ok: false, poppy_error: error.code, status: error.status, detail: error.message });
-    if (error instanceof PoppyError) return json({ ok: false, poppy_error: error.code, status: error.status, detail: error.message });
+    if (error instanceof PoppyError) {
+      return json({ ok: false, poppy_error: error.code, status: error.status, detail: error.message, ...(error.detail.extension ? { extension: error.detail.extension } : {}) });
+    }
     if (error instanceof DiscoveryError) return json({ ok: false, poppy_error: "discovery_failed", status: 0, detail: error.message });
     console.error(`step ${op} failed`, error);
     return failure(500, "step_failed", error instanceof Error ? `${error.name}: ${error.message}` : String(error));

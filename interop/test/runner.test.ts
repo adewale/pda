@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { upstreamFor } from "../proxy/routing.mjs";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
-import { loadKnownFailures, loadRegistry, parseOptions } from "../runner/cli.ts";
+import { imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions } from "../runner/cli.ts";
 import { proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
 import { cellId, renderReport } from "../runner/report.ts";
@@ -33,8 +33,26 @@ describe("the registry and known failures", () => {
     }
   });
 
-  it("reads known failures, each with an issue", () => {
-    for (const failure of loadKnownFailures()) expect(failure.issue).toMatch(/^https:\/\//);
+  it("reads known failures, each with an issue and a reason, naming registry entries or *", () => {
+    const registry = loadRegistry();
+    const names = (role: string) => new Set(registry.implementations.filter((entry) => entry.role === role).map((entry) => entry.name));
+    const scenarios = new Set(loadScenarios().map((scenario) => scenario.id));
+    for (const failure of loadKnownFailures()) {
+      expect(failure.issue).toMatch(/^https:\/\//);
+      expect(failure.reason, JSON.stringify(failure)).toBeTruthy();
+      expect(failure.agent === "*" || names("agent").has(failure.agent), failure.agent).toBe(true);
+      expect(failure.company === "*" || names("company").has(failure.company), failure.company).toBe(true);
+      expect(failure.scenario === "*" || scenarios.has(failure.scenario), failure.scenario).toBe(true);
+    }
+  });
+
+  it("builds one image for entries that differ only in env: the strict mock is the reference mock's image", () => {
+    const registry = loadRegistry();
+    const entry = (name: string) => registry.implementations.find((item) => item.role === "company" && item.name === name)!;
+    expect(imageOf(entry("dpa-mock"), registry)).toBe("poppy-interop/company-dpa-mock:latest");
+    expect(imageOf(entry("dpa-mock-strict"), registry)).toBe("poppy-interop/company-dpa-mock:latest");
+    expect(entry("dpa-mock-strict").env).toEqual({ INTEROP_MOCK_PROFILE: "strict" });
+    expect(imageOf(entry("datalayer-ts"), registry)).toBe("poppy-interop/company-datalayer-ts:latest");
   });
 });
 

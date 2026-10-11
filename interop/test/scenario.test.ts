@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { runCell, toReply, type Driver, type Reply } from "../runner/cell.ts";
+import { runCell, toReply, withScopes, type Driver, type Reply } from "../runner/cell.ts";
 import { loadScenarios } from "../runner/cli.ts";
 import { compare, evaluate, expectedRefusals, interpolate, lintScenario, lookup } from "../runner/scenario.ts";
 import type { Scenario } from "../runner/types.ts";
@@ -152,6 +152,46 @@ describe("a cell", () => {
     expect(pass.outcome).toBe("pass");
     const inapplicable = await runCell(scenario, {}, driver({ api: { kind: "refused", poppyError: "insufficient_scope" } }, { assert_trace: { kind: "inapplicable", detail: "no nonce" } }));
     expect(inapplicable.outcome).toBe("unsupported");
+  });
+
+  it("signs in with the Company's own scopes from its fixture, and Poppy's when it names none", async () => {
+    expect(withScopes({ accounts: ["a"] }).scopes).toEqual({ read: ["poppy:read"], write: ["poppy:read", "poppy:write"] });
+    expect(withScopes({ scopes: { read: ["orders:read"], write: ["orders:read", "orders:write"] } }).scopes).toEqual({ read: ["orders:read"], write: ["orders:read", "orders:write"] });
+    // Version 1's list of everything offered is kept, and the defaults still apply.
+    expect(withScopes({ scopes: ["poppy:read", "addresses"] }).scopes).toEqual({ all: ["poppy:read", "addresses"], read: ["poppy:read"], write: ["poppy:read", "poppy:write"] });
+    expect(withScopes(null)).toEqual({ scopes: { read: ["poppy:read"], write: ["poppy:read", "poppy:write"] } });
+    const scenario: Scenario = {
+      id: "SD",
+      title: "sd",
+      steps: [{ agent: "signin", params: { scopes: "${fixture.scopes.write}" }, save: "done" }, { expect: { "${done.scope}": { $includes_scope: "${fixture.scopes.write}" } } }]
+    };
+    const d = driver({ signin: { kind: "ok", result: { scope: "orders:write orders:read" } } });
+    expect((await runCell(scenario, { scopes: { read: ["orders:read"], write: ["orders:read", "orders:write"] } }, d)).outcome).toBe("pass");
+    expect(d.calls).toEqual(['agent signin {"scopes":["orders:read","orders:write"]}']);
+    const narrower = driver({ signin: { kind: "ok", result: { scope: "orders:read" } } });
+    expect((await runCell(scenario, { scopes: { read: ["orders:read"], write: ["orders:read", "orders:write"] } }, narrower)).outcome).toBe("fail");
+  });
+
+  it("runs a step with when only if its reference names something", async () => {
+    const scenario: Scenario = {
+      id: "AS",
+      title: "as",
+      steps: [
+        { agent: "api", save: "w" },
+        { agent: "approve_op", when: "${w.held}", params: { operation: "${w.held}" }, save: "w" },
+        { expect: { step: "w", poppy_error: "insufficient_scope" } }
+      ]
+    };
+    const held = driver({ api: { kind: "ok", result: { held: "apr_1" } }, approve_op: { kind: "refused", poppyError: "insufficient_scope", status: 0 } });
+    expect((await runCell(scenario, {}, held)).outcome).toBe("pass");
+    expect(held.calls).toEqual(["agent api {}", 'agent approve_op {"operation":"apr_1"}']);
+    const direct = driver({ api: { kind: "refused", poppyError: "insufficient_scope", status: 403 } });
+    const run = await runCell(scenario, {}, direct);
+    expect(run.outcome).toBe("pass");
+    expect(direct.calls).toEqual(["agent api {}"]);
+    expect(run.steps[1]).toMatchObject({ op: "approve_op", ok: true, result: { skipped: "${w.held} is null" } });
+    expect(lintScenario({ id: "X", title: "x", steps: [{ agent: "a", when: "w.held" }] }, "X.json")).toEqual(["X.json: step 0 when must be one ${...} reference"]);
+    expect(lintScenario({ id: "X", title: "x", steps: [{ agent: "a", when: "${w.held}" }] }, "X.json")).toEqual(["X.json: step 0 refers to ${w} before it is saved"]);
   });
 
   it("reads adapter answers as the spec words them", () => {

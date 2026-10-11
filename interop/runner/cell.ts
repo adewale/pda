@@ -37,8 +37,34 @@ export type CellRun = {
   readonly reason?: string;
 };
 
+/** The scopes scenarios sign in with when a Company's fixture names none (spec section 5.3). */
+export const DEFAULT_SCOPES = { read: ["poppy:read"], write: ["poppy:read", "poppy:write"] } as const;
+
+/**
+ * The `fixture` hook's result with `scopes.read` and `scopes.write` filled
+ * in: a Company that names its own scopes (`orders:read`) is signed in with
+ * those, and one that doesn't with Poppy's. The version 1 form, `scopes` as
+ * a list of everything offered, is kept as `scopes.all`.
+ */
+export function withScopes(fixture: unknown): Record<string, unknown> {
+  const base = fixture !== null && typeof fixture === "object" && !Array.isArray(fixture) ? (fixture as Record<string, unknown>) : {};
+  const given = base.scopes;
+  const named = given !== null && typeof given === "object" && !Array.isArray(given) ? (given as Record<string, unknown>) : {};
+  const list = (value: unknown, fallback: readonly string[]) =>
+    Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string") ? value : [...fallback];
+  return {
+    ...base,
+    scopes: {
+      ...named,
+      ...(Array.isArray(given) ? { all: given } : {}),
+      read: list(named.read, DEFAULT_SCOPES.read),
+      write: list(named.write, DEFAULT_SCOPES.write)
+    }
+  };
+}
+
 export async function runCell(scenario: Scenario, fixture: unknown, driver: Driver): Promise<CellRun> {
-  const saved: Saved = { fixture };
+  const saved: Saved = { fixture: withScopes(fixture) };
   const steps: StepRecord[] = [];
   const mayRefuse = expectedRefusals(scenario);
   const end = (outcome: Outcome, reason?: string): CellRun => ({ outcome, steps, saved, ...(reason ? { reason } : {}) });
@@ -54,6 +80,15 @@ export async function runCell(scenario: Scenario, fixture: unknown, driver: Driv
       record(failures.length === 0, failures.length ? { error: failures.join("; ") } : {});
       if (failures.length) return end("fail", `step ${index} (expect): ${failures.join("; ")}`);
       continue;
+    }
+
+    // `when`: run the step only if the reference names something (a value other than null or false).
+    if (step.when !== undefined) {
+      const condition = interpolate(step.when, saved, false);
+      if (condition === undefined || condition === null || condition === false) {
+        record(true, { result: { skipped: `${step.when} is ${JSON.stringify(condition ?? null)}` } });
+        continue;
+      }
     }
 
     let params: unknown;

@@ -10,7 +10,7 @@ node interop/vectors/datalayer/run.mjs --json out.json
 node interop/vectors/datalayer/run.mjs --cases <clone>/protocol/fixtures/conformance
 ```
 
-- **Pinned:** commit `12d71877d477b93f3ee68ebdc542560ba85997b9` (11 October 2026). The cases are fetched from raw.githubusercontent.com into `node_modules/.cache/datalayer-conformance/<commit>/`, not vendored. That commit has 124 cases, not the 125 our docs mention.
+- **Pinned:** commit `12d71877d477b93f3ee68ebdc542560ba85997b9` (11 October 2026). The cases are fetched from raw.githubusercontent.com into `node_modules/.cache/datalayer-conformance/<commit>/`, not vendored. That commit has 124 cases.
 - **Outcomes:** `pass`; `fail` with a category: `our-bug` (exit status 1), `reading` (we and Datalayer read the draft differently) or `harness`; `n/a` with the reason.
 - **Loading our code:** `src/` is written for workerd and Vite, so the script transpiles it with the repo's own TypeScript, resolves extensionless imports, stubs `cloudflare:workers`, and gives `PoppyClient` an in-memory host: `node:sqlite` for its SQL, an in-memory `CompanyLimiter`, a generated ES256 key, and a fake Company at `shop.example` whose token endpoint issues tokens without checking them.
 
@@ -43,7 +43,4 @@ Datalayer's TypeScript runner (`src/__tests__/conformance-fixtures.test.mjs`) de
 | `protocol.third-party-extension-name` | fail, reading | Datalayer calls `Gift Wrap!` an invalid name; our validator calls it a plain name the protocol doesn't define, a warning. The draft (3.3) says "anyone else MUST start an extension's name with a domain they control" but defines no syntax for plain names. `localhost/x` is invalid for both. |
 | `security.metadata-not-json` | fail, reading | Datalayer refuses `text/html` for its Content-Type. We refuse this case too, but because the body isn't JSON: a wrong Content-Type is only a warning for us (`http-content-type`), and the Guides' "Fetching metadata safely" asks for size, redirect and time limits, not a content type. |
 
-Passing with a note:
-
-- `security.slow-metadata`: refused, but by a `TimeoutError` that escapes `validateCompany()`. `fetchDocument()` in `src/validator/fetch.ts` catches failures of the `fetch` call, not of reading the body, so a body that stalls past the limit throws instead of becoming an `http-failed` message. `discover()` still refuses the Company; the validator's CLI and web page would report an exception rather than a result.
-- `protocol.extension-required-error`: our `PoppyError` names the extension only in its message; there's no structured field.
+Fixed since the first run: `security.slow-metadata` used to be refused by a `TimeoutError` escaping `validateCompany()` (a body that stalled past the limit threw instead of becoming `http-failed`); `fetchDocument()` now holds one deadline over the response and its body. `protocol.extension-required-error`: the `PoppyError` now carries the extension as `detail.extension`, not only in its message.

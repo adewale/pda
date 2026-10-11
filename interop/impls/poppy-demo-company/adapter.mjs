@@ -20,7 +20,7 @@ const MANIFEST = {
   poppy: ['0.1'],
   extensions: [],
   scenarios: ['D', 'S0', 'SD', 'SX', 'SO', 'C', 'CI', 'CA', 'AO', 'AS'],
-  readings: { S1: 'token-endpoint', S2: 'jwt-60s', S4: 'omit' },
+  readings: { S1: 'endpoint', S2: 'jwt-60s', S4: 'omit' },
   relaxations: [
     'INTEROP_PEER_SUFFIX=.agent.interop.test (patch 0001): admits any HTTPS client_id under *.agent.interop.test besides the sibling agent, fetched over the network rather than the CALLER service binding; its jwks_uri must share the client_id origin. Off (unset) by default.',
     'With INTEROP_PEER_SUFFIX set, API and conversation requests identify the client by the token owner record instead of comparing with the sibling client_id (patch 0001).',

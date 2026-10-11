@@ -713,7 +713,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 3.2 | MUST check the metadata's `issuer` equals `auth.issuer` and `poppy_domains` includes the domain | `validator/profiles/draft-0.ts`, `discovery.ts` | Test: "refuses an issuer whose metadata doesn't match", "…poppy_domains leaves the domain out"; validator tests "requires the issuer to match exactly…" |
 | 3.2 | Domains naming one issuer are one Company | `client.ts` | Test: "treats two domains naming one issuer as one Company…" |
 | 3.3 | MUST ignore unsupported extensions and unknown fields; list supported extensions in client metadata | `discovery.ts`, `routes.ts` | Test: "discovers a Company…", "serves the client metadata document…" |
-| 3.3 | Handle `extension_required` | `apis.ts` | Test: "tells the model which extension a Company requires…" |
+| 3.3 | Handle `extension_required`, naming the extension as data (`PoppyError.detail.extension`, the tool result's `details`) | `apis.ts`, `tools.ts` | Test: "tells the model which extension a Company requires…" |
 | 4.1 | `client_id` MUST be an HTTPS URL returning the metadata document, and equal it | `routes.ts` | Test: "serves the client metadata document…"; Mock |
 | 4.1 | `jwks_uri` and `redirect_uris` MUST be HTTPS on the `client_id` domain; the JWKS holds public keys only | `routes.ts`, `keys.ts` | Test: "publishes only public keys, each with a kid"; Mock |
 | 4.1 | Authenticate at the token endpoint with `private_key_jwt`; DPoP keys are separate and unpublished | `jwt.ts`, `client.ts` | Mock |
@@ -761,6 +761,8 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 5 | MUST post assertions only from a browser we control | `browser.ts` | Design |
 | 6 | Skip unknown API types; DPoP for OpenAPI, Bearer for MCP | `discovery.ts`, `apis.ts` | Test: "discovers a Company…"; Mock |
 | 6 | Handle `invalid_token`, `sign_in_required`, `insufficient_scope` | `client.ts` | Test: "asks for sign-in when an API needs the account" |
+| 6 | Fill OpenAPI path templates from the call's arguments, declared as parameters or not; refuse one left unfilled before any request | `apis.ts` | Test: "fills a path template the description doesn't declare as a parameter, by name", "refuses a path it can't fill before any request, not sending the template" |
+| 6 | An approved write the Company refuses keeps the error's code | `operations.ts` | Test: "says which error refused an approved write" |
 | 7.1 | Skip unfamiliar conversation protocols | `discovery.ts` | Test: "discovers a Company…" |
 | 7.2 | Treat the Company's ids as opaque | `conversations.ts` | Design |
 | 7.3 | Message `id` MUST be unique for the User; a retry resends the same id and content | `conversations.ts`, `store.ts` | Test: "resends the same message id when a tool call is replayed"; Mock |

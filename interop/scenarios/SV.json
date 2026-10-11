@@ -7,10 +7,10 @@
   "steps": [
     { "agent": "discover" },
     { "agent": "session" },
-    { "agent": "signin", "params": { "method": "device", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "agent": "signin", "params": { "method": "device", "scopes": "${fixture.scopes.read}" }, "save": "pending" },
     { "expect": { "${pending.pending.user_code}": { "$exists": true } } },
     { "company": "approve_device", "params": { "user_code": "${pending.pending.user_code}", "account": "${fixture.accounts.0}" } },
     { "agent": "signin_continue", "save": "done" },
-    { "expect": { "${done.signed_in}": true, "${done.scope}": { "$includes_scope": "poppy:read" } } }
+    { "expect": { "${done.signed_in}": true, "${done.scope}": { "$includes_scope": "${fixture.scopes.read}" } } }
   ]
 }

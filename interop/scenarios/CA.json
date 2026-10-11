@@ -6,13 +6,15 @@
   "steps": [
     { "agent": "discover" },
     { "agent": "send", "params": { "text": "${fixture.prompts.sign_in}", "wait": 2 }, "save": "m" },
-    { "agent": "read", "params": { "conversation": "${m.conversation}" }, "save": "r" },
+    { "agent": "read", "params": { "conversation": "${m.conversation}", "wait": 2 }, "save": "r" },
     { "expect": { "${r.messages}": { "$some": { "role": "company" } } } },
-    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read", "poppy:write"] }, "save": "pending" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.write}" }, "save": "pending" },
     { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
     { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" }, "save": "done" },
     { "expect": { "${done.signed_in}": true } },
     { "agent": "send", "params": { "conversation": "${m.conversation}", "text": "${fixture.prompts.sign_in}", "wait": 2 }, "save": "m2" },
-    { "expect": { "${m2.conversation}": "${m.conversation}", "${m2.messages}": { "$some": { "role": "company" } } } }
+    { "expect": { "${m2.conversation}": "${m.conversation}" } },
+    { "agent": "read", "params": { "conversation": "${m.conversation}", "cursor": "${r.cursor}", "wait": 2 }, "save": "r2", "note": "wait is a hint (Poppy 7.3): the reply is read after the cursor, not expected in the send result." },
+    { "expect": { "${r2.messages}": { "$some": { "role": "company" } } } }
   ]
 }

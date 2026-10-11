@@ -23,7 +23,7 @@ import { DatabaseSync } from "node:sqlite";
 
 export const COMMIT = "12d71877d477b93f3ee68ebdc542560ba85997b9";
 const SUITES = ["protocol", "security", "lifecycle", "conversations", "operations"];
-// Our docs (and Datalayer's README at one point) say 125; this commit has 124.
+// The number of cases at COMMIT.
 const EXPECTED_CASES = 124;
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -385,8 +385,9 @@ const CHECKS = {
       await callOpenApi(client, company, "main", { operation: "listOrders", callKey: "k1" });
     } catch (error) {
       check(error.code === "extension_required", ourBug(`threw ${error.code}: ${error.message}`));
+      check(error.detail?.extension === expect.extension, ourBug(`error.detail.extension is ${error.detail?.extension}, not ${expect.extension}`));
       check(error.message.includes(expect.extension), ourBug(`error doesn't name ${expect.extension}: ${error.message}`));
-      return `PoppyError extension_required: "${error.message}" (extension named only in the message; no structured field)`;
+      return `PoppyError extension_required, detail.extension ${JSON.stringify(error.detail.extension)}`;
     }
     throw ourBug("the API call succeeded");
   },
@@ -466,11 +467,7 @@ const CHECKS = {
     try {
       report = await validateCompany(fixedNetwork(responses), input.domain);
     } catch (error) {
-      if ("error" in expect && expect.error === "metadata_timeout" && error?.name === "TimeoutError") {
-        // Refused, but by an exception escaping the validator rather than an http-failed message.
-        return `refused by a TimeoutError thrown while reading the body${note}`;
-      }
-      throw harness(`validateCompany threw ${error?.name}: ${error?.message}`);
+      throw ourBug(`validateCompany threw ${error?.name}: ${error?.message}`);
     }
     let discovered;
     let refusal;

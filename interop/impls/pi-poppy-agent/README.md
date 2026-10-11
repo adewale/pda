@@ -48,7 +48,7 @@ Other relaxations, with no upstream change:
 
 ## Readings
 
-`S1: token-endpoint` (every assertion's `aud` is the endpoint it is sent to), `S2: any` (client assertions carry `typ: "JWT"`, but Session assertions carry no `typ`; both live 60 s), `S3: append` (`{issuer}/.well-known/oauth-authorization-server`), `S4: omit` (no `scope` on a signed-out Session request), `S23: per-origin` (one nonce per origin).
+`S1: endpoint` (every assertion's `aud` is the endpoint it is sent to), `S2: any` (client assertions carry `typ: "JWT"`, but Session assertions carry no `typ`; both live 60 s), `S3: append` (`{issuer}/.well-known/oauth-authorization-server`), `S4: omit` (no `scope` on a signed-out Session request), `S23: per-origin` (one nonce per origin).
 
 ## Results
 

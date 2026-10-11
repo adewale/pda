@@ -50,4 +50,4 @@ All in the adapter, none in upstream code (`patches/` is empty):
 
 ## Readings
 
-`S1: token-endpoint` (Session and code-exchange assertions; device and revocation assertions use those endpoints), `S2: jwt-60s` (`typ: JWT`, `kid`, 60-second lifetime), `S3: insertion`, `S4: omit`. The SDK retries a nonce once per request and keeps none, so S23 is not declared.
+`S1: endpoint` (each client assertion's `aud` is the endpoint it is sent to: token, device authorization or revocation), `S2: jwt-60s` (`typ: JWT`, `kid`, 60-second lifetime), `S3: insertion`, `S4: omit`. The SDK retries a nonce once per request and keeps none, so S23 is not declared.

@@ -746,6 +746,7 @@ describe("6 APIs", () => {
       "GET /orders",
       "GET /addresses",
       "GET /orders/{order_id}",
+      "GET /orders/{order_id}/items/{item_id}",
       "POST /orders/{order_id}/exchanges"
     ]);
     const products = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "insulated" } });
@@ -756,6 +757,37 @@ describe("6 APIs", () => {
     expect(call.url).toBe(`${c.hosts.api}/products?q=insulated`);
     expect(call.headers.authorization).toBe("DPoP <redacted>");
     expect(call.headers.dpop).toBe("<present>");
+  });
+
+  it("fills a path template the description doesn't declare as a parameter, by name", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "getOrderItem", params: { order_id: "ord_7Hk2", item_id: "itm_4Qa" } });
+    expect(result.isError, result.text).toBe(false);
+    expect(JSON.parse(result.text)).toMatchObject({ status: 200, body: { item_id: "itm_4Qa" } });
+    const sent = (await requests(c)).filter((request) => request.url.startsWith(`${c.hosts.api}/orders/`)).map((request) => request.url);
+    expect(sent).toEqual([`${c.hosts.api}/orders/ord_7Hk2/items/itm_4Qa`]);
+  });
+
+  it("refuses a path it can't fill before any request, not sending the template", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    const before = (await requests(c)).length;
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders/{order_id}/items/{item_id}", params: { order_id: "ord_7Hk2" } });
+    expect(result.isError).toBe(true);
+    expect(result.text).toBe("GET /orders/{order_id}/items/{item_id} needs the path parameter item_id, which the call doesn't give [invalid_request]");
+    // Only the description was fetched: no token request, and nothing sent to the operation's path.
+    const after = (await requests(c)).slice(before);
+    expect(after.filter((request) => request.grant !== null || request.url.startsWith(`${c.hosts.api}/orders`))).toEqual([]);
+    expect(after.some((request) => request.url.includes("%7B"))).toBe(false);
+    // A write at a Company without operations isn't proposed to the User either.
+    const plain = await company({ operations: false });
+    await signInDirect(a, plain);
+    const write = await tool(a, "poppy_api_call", { domain: plain.domain, operation: "exchangeItem", body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+    expect(write.text).toContain("Missing parameter order_id [invalid_request]");
+    expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
   });
 
   it("starts a new Session when the Company says the old one ended", async () => {
@@ -808,6 +840,20 @@ describe("6 APIs", () => {
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
     expect((await c.stub.state()).performs).toBe(1);
+  });
+
+  it("says which error refused an approved write", async () => {
+    const c = await company({ operations: false });
+    const a = await agent();
+    await signInDirect(a, c, ["poppy:read"]);
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+    expect(result.text).toContain("Waiting for the User's approval");
+    const card = (await cards(a)).find((item) => item.kind === "approval")!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    const after = (await cards(a)).find((item) => item.kind === "approval")!;
+    expect(after).toMatchObject({ status: "failed" });
+    expect(after.result).toMatch(/insufficient_scope \[insufficient_scope\]$/);
+    expect((await c.stub.state()).performs).toBe(0);
   });
 
   it("calls MCP tools with a Bearer token issued for that server only", async () => {
@@ -931,6 +977,8 @@ describe("6 APIs", () => {
     });
     expect(result.isError).toBe(true);
     expect(result.text).toContain("requires the extension mock.test/gift-wrap, which this agent doesn't support [extension_required]");
+    // The extension is a field of its own, not only words in the message.
+    expect(JSON.parse(result.details)).toEqual({ error: "extension_required", extension: "mock.test/gift-wrap" });
     expect((await c.stub.state()).performs).toBe(0);
   });
 });

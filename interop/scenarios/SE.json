@@ -6,7 +6,7 @@
   "steps": [
     { "agent": "discover" },
     { "agent": "session", "save": "s" },
-    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "pending" },
     { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
     { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" }, "save": "done" },
     { "agent": "send", "params": { "text": "${fixture.prompts.hello}" }, "save": "m1" },
@@ -14,7 +14,7 @@
     { "expect": { "${ended.ended}": { "$gte": 1 } } },
     { "agent": "send", "params": { "text": "${fixture.prompts.hello}" }, "save": "m2" },
     { "expect": { "${m2.conversation}": { "$exists": true } } },
-    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read"] }, "save": "again" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "again" },
     { "expect": { "${again.signed_in}": true, "${again.pending}": { "$exists": false } } }
   ]
 }

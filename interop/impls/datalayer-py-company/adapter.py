@@ -9,15 +9,14 @@ One process, two ports:
   the upstream tests play the user at the Company (`approve_authorization`,
   `approve_device`, ...). A hook answers its result object itself.
 
-Interop-only settings, each off unless set (the image sets both):
+Interop-only setting, off unless set (the image sets it):
 
 - INTEROP_ALLOW_TEST_HOSTS=1: a URL-safety policy contributed through Reactor
   that lets the Company fetch client metadata and JWKS from *.interop.test
   hosts on private addresses. Every other host keeps the SDK's default policy.
-- INTEROP_POPPY_SCOPES=1: the scenarios ask for `poppy:read`/`poppy:write`;
-  Manzanita knows `orders:read`/`orders:write`. The Company also offers the
-  poppy scopes, and its agent, API and MCP server (wrapped here) read them as
-  the orders scopes they stand for.
+
+Scenarios sign in with Manzanita's own `orders:read`/`orders:write`, which the
+`fixture` hook names (interop spec 5.3).
 """
 
 from __future__ import annotations
@@ -69,11 +68,7 @@ DOMAIN = urlsplit(ORIGIN).hostname or ""
 SECRET = os.environ.get("INTEROP_SECRET", "")
 COMMIT = os.environ.get("INTEROP_COMMIT") or os.environ.get("UPSTREAM_COMMIT", "unknown")
 ALLOW_TEST_HOSTS = os.environ.get("INTEROP_ALLOW_TEST_HOSTS") == "1"
-POPPY_SCOPES = os.environ.get("INTEROP_POPPY_SCOPES") == "1"
 CA_FILE = os.environ.get("SSL_CERT_FILE") or "/interop/ca.pem"
-
-#: What each generic scope stands for at Manzanita (INTEROP_POPPY_SCOPES).
-SYNONYMS = {"poppy:read": "orders:read", "poppy:write": "orders:write"}
 
 HOOKS = [
     "approve_authorization",
@@ -97,12 +92,6 @@ RELAXATIONS = [
     "httpx client the SDK is given)",
     "Organization domain and issuer come from INTEROP_ORIGIN instead of manzanita.example",
 ]
-if POPPY_SCOPES:
-    RELAXATIONS.append(
-        "INTEROP_POPPY_SCOPES=1: the Company also offers poppy:read and poppy:write, and "
-        "Manzanita's agent, API and MCP server (wrapped in the adapter) read them as "
-        "orders:read and orders:write"
-    )
 
 MANIFEST = {
     "interop": 1,
@@ -118,7 +107,7 @@ MANIFEST = {
         "D", "S0", "SD", "SV", "SMC", "SX", "SXV", "R", "SE", "SO",
         "C", "CI", "CS", "CA", "DC", "AO", "AS", "W", "O", "O2", "OX",
     ],
-    "readings": {"S1": "token-endpoint", "S2": "any", "S4": "either"},
+    "readings": {"S1": "endpoint", "S2": "any", "S4": "either"},
     "relaxations": RELAXATIONS,
 }
 
@@ -144,53 +133,12 @@ class InteropPolicyPlugin:
         )
 
 
-def widen(scopes: tuple[str, ...]) -> tuple[str, ...]:
-    extra = tuple(SYNONYMS[s] for s in scopes if s in SYNONYMS and SYNONYMS[s] not in scopes)
-    return (*scopes, *extra)
-
-
-class SynonymAgent:
-    """Manzanita's agent, seeing poppy:* scopes as the orders:* ones they stand for."""
-
-    def __init__(self, inner: Any) -> None:
-        self.inner = inner
-
-    async def respond(self, turn: Any) -> Any:
-        return await self.inner.respond(replace(turn, scopes=widen(tuple(turn.scopes))))
-
-
-class SynonymApi:
-    def __init__(self, inner: Any) -> None:
-        self.inner = inner
-        self.description = inner.description
-
-    def openapi(self) -> dict[str, object]:
-        return self.inner.openapi()
-
-    async def handle(self, call: Any) -> Any:
-        return await self.inner.handle(replace(call, scopes=widen(tuple(call.scopes))))
-
-
-class SynonymMcp:
-    def __init__(self, inner: Any) -> None:
-        self.inner = inner
-        self.description = inner.description
-
-    def tools(self) -> list[dict[str, object]]:
-        return self.inner.tools()
-
-    async def call(self, name: str, arguments: dict[str, object], call: Any) -> Any:
-        return await self.inner.call(name, arguments, replace(call, scopes=widen(tuple(call.scopes))))
-
-
 class InteropManzanita(mz.ManzanitaPlugin):
-    """Manzanita's own contributions (as `ManzanitaPlugin`), its agent and APIs optionally wrapped."""
+    """Manzanita's own contributions, as `ManzanitaPlugin` makes them."""
 
     def provide_contributions(self, contributions: object) -> None:
         contribute = contributions.contribute  # type: ignore[attr-defined]
         agent, api, mcp = mz.ManzanitaAgent(), mz.ManzanitaApi(), mz.ManzanitaMcp()
-        if POPPY_SCOPES:
-            agent, api, mcp = SynonymAgent(agent), SynonymApi(api), SynonymMcp(mcp)  # type: ignore[assignment]
         contribute(COMPANY_ACCOUNTS, mz.ManzanitaAccounts(), contribution_id="accounts")
         contribute(COMPANY_AGENTS, agent, contribution_id="agent")
         contribute(OPERATION_EXECUTORS, self.executor, contribution_id="exchange")
@@ -202,17 +150,7 @@ class InteropManzanita(mz.ManzanitaPlugin):
 
 
 def config():  # type: ignore[no-untyped-def]
-    base = replace(mz.CONFIG, domain=DOMAIN)
-    if not POPPY_SCOPES:
-        return base
-    # poppy:* names are reserved, so they get no custom_scopes description (§4.4).
-    # `write_scopes` gates operation confirms and the service requires every one of
-    # them, so in this mode the write scope is poppy:write alone.
-    return replace(
-        base,
-        scopes=(*base.scopes, "poppy:read", "poppy:write"),
-        write_scopes=("poppy:write",),
-    )
+    return replace(mz.CONFIG, domain=DOMAIN)
 
 
 def http_client() -> httpx.AsyncClient:
@@ -316,10 +254,10 @@ def scopes_of(params: dict[str, Any]) -> list[str] | None:
 async def hook(name: str, params: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
     service = world.service
     if name == "fixture":
-        read, write = ("poppy:read", "poppy:write") if POPPY_SCOPES else ("orders:read", "orders:write")
+        # Manzanita's own scopes: scenarios sign in with these (interop spec 5.3).
         return {
             "accounts": ["acct_ada"],
-            "scopes": list(config().scopes),
+            "scopes": {"read": ["orders:read"], "write": ["orders:read", "orders:write"]},
             "openapi": {"api": "openapi", "operation": "GET /api/orders", "args": {}},
             # Manzanita's API has no signed-out operation; its description, served at the
             # API's own path, is the one GET that works signed out.
@@ -336,8 +274,6 @@ async def hook(name: str, params: dict[str, Any]) -> dict[str, Any]:  # noqa: C9
                 "operation": "Exchange it for something warmer",
             },
             "otp_account": "acct_ada",
-            "read_scope": read,
-            "write_scope": write,
         }
     if name in ("approve_authorization", "deny_authorization"):
         try:

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   MESSAGES,
   validateClient,
@@ -11,6 +11,7 @@ import {
   type MessageId,
   type Report
 } from "../src/validator/index.ts";
+import { LIMITS } from "../src/validator/fetch.ts";
 import { handleValidator } from "../src/validator/http.ts";
 import type { MockCompany } from "./mock-company";
 import worker, { testFetcher } from "./worker";
@@ -644,7 +645,36 @@ describe("valid documents", () => testEach(VALID));
 describe("poppy.json", () => testEach(POPPY_JSON));
 describe("OAuth server metadata, checked against poppy.json", () => testEach(METADATA));
 describe("client metadata and keys", () => testEach(CLIENT));
-describe("fetching", () => testEach(FETCHING));
+describe("fetching", () => {
+  testEach(FETCHING);
+
+  it("reports a body that stalls past the time limit as http-failed, not an exception", async () => {
+    vi.useFakeTimers();
+    try {
+      // Headers at once, then one byte and silence: a fetcher that ignores the request's signal.
+      let cancelled = false;
+      const stalling: Fetcher = async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start: (controller) => controller.enqueue(new TextEncoder().encode("{")),
+            cancel: () => {
+              cancelled = true;
+            }
+          }),
+          { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=300" } }
+        );
+      const pending = validateCompany(stalling, "example.com");
+      await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
+      const report = await pending;
+      expect(ids(report)).toEqual(["http-failed"]);
+      expect(report.outcome).toBe("indeterminate");
+      expect(report.messages[0]!.text).toContain(`Fetching ${wellKnown} timed out after 5 seconds.`);
+      expect(cancelled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("over HTTP", () => {
   const call = (path: string, init?: RequestInit) => worker.fetch(new Request(`https://agent.test${path}`, init), env);

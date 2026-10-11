@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { attributeAll, unexpected } from "./attribution.ts";
+import { attributeAll, unexpected, unmatchedKnown } from "./attribution.ts";
 import { runCell, toReply, type Driver, type Reply, type RunnerReply } from "./cell.ts";
 import { makeCertificates } from "./certs.ts";
 import { traceChecks } from "./checks.ts";
@@ -37,7 +37,7 @@ const INTEROP = path.join(ROOT, "interop");
 const SPEC = "Personal Agent Protocol Draft 0.1";
 
 /** The order scenarios run and are shown in; others follow by id. */
-export const SCENARIO_ORDER = ["D", "S0", "N", "SD", "SV", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "SE", "R", "AO", "AM", "AS", "O", "OX", "RL"];
+export const SCENARIO_ORDER = ["D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "SE", "R", "AO", "AM", "AS", "O", "OX", "RL"];
 
 export type Options = {
   readonly agents: readonly string[] | null;
@@ -343,23 +343,39 @@ function selected(registry: Registry, role: Role, names: readonly string[] | nul
   return all.filter((entry) => names.includes(entry.name));
 }
 
-const imageOf = (entry: RegistryEntry) => `poppy-interop/${entry.role}-${entry.name}:latest`;
+/**
+ * An implementation's image. Entries of one role that build the same
+ * directory in the same context (`dpa-mock` and `dpa-mock-strict`, told
+ * apart by `env`) share one image, named after the first in the registry.
+ */
+export function imageOf(entry: RegistryEntry, registry: Registry): string {
+  const same = (other: RegistryEntry) => other.role === entry.role && other.build === entry.build && (other.context ?? other.build) === (entry.context ?? entry.build);
+  const first = entry.build ? (registry.implementations.find(same) ?? entry) : entry;
+  return `poppy-interop/${first.role}-${first.name}:latest`;
+}
 
-async function buildImages(entries: readonly RegistryEntry[], logs: string, log: (line: string) => void): Promise<Map<string, string>> {
+async function buildImages(entries: readonly RegistryEntry[], registry: Registry, logs: string, log: (line: string) => void): Promise<Map<string, string>> {
   const failures = new Map<string, string>();
+  const byImage = new Map<string, RegistryEntry[]>();
+  for (const entry of entries) byImage.set(imageOf(entry, registry), [...(byImage.get(imageOf(entry, registry)) ?? []), entry]);
   const builds = [
-    { key: "proxy", args: ["build", "-t", "poppy-interop/proxy:latest", path.join(INTEROP, "proxy")] },
-    ...entries.map((entry) => {
+    { key: "proxy", targets: ["proxy"], args: ["build", "-t", "poppy-interop/proxy:latest", path.join(INTEROP, "proxy")] },
+    ...[...byImage].map(([image, sharing]) => {
+      const entry = sharing[0]!;
       const dir = path.join(ROOT, entry.build!);
       const context = entry.context ? path.join(ROOT, entry.context) : dir;
-      return { key: `${entry.role}-${entry.name}`, args: ["build", "-t", imageOf(entry), "-f", path.join(dir, "Dockerfile"), context] };
+      return {
+        key: image.replace(/^poppy-interop\//, "").replace(/:latest$/, ""),
+        targets: sharing.map((item) => `${item.role}-${item.name}`),
+        args: ["build", "-t", image, "-f", path.join(dir, "Dockerfile"), context]
+      };
     })
   ];
   log(`building ${builds.map((b) => b.key).join(", ")}`);
   const results = await Promise.all(builds.map(async (b) => ({ ...b, ...(await dockerAsync(b.args)) })));
   for (const result of results) {
     writeFileSync(path.join(logs, `build-${result.key}.log`), result.output);
-    if (result.code !== 0) failures.set(result.key, `image build failed (logs/build-${result.key}.log)`);
+    if (result.code !== 0) for (const target of result.targets) failures.set(target, `image build failed (logs/build-${result.key}.log)`);
   }
   return failures;
 }
@@ -401,7 +417,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   let cells: Cell[] = [];
   const certs = mkdtempSync(path.join(tmpdir(), "poppy-interop-"));
   try {
-    const buildFailures = options.build ? await buildImages(liveAgents ? agents : [...agents, ...companies], logs, log) : new Map<string, string>();
+    const buildFailures = options.build ? await buildImages(liveAgents ? agents : [...agents, ...companies], registry, logs, log) : new Map<string, string>();
     if (buildFailures.has("proxy") && !liveAgents) throw new Error(`The proxy didn't build: ${buildFailures.get("proxy")}`);
     for (const impl of implementations) impl.broken = buildFailures.get(impl.target) ?? null;
 
@@ -448,7 +464,7 @@ export async function main(argv: readonly string[]): Promise<number> {
           ...(impl.entry.env ?? {}),
           ...(options.set.get(impl.entry.name) ?? {})
         };
-        docker(["create", "--name", name, "--network", network, "--network-alias", impl.target, ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry)], { quiet: true });
+        docker(["create", "--name", name, "--network", network, "--network-alias", impl.target, ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry, registry)], { quiet: true });
         containers.push(name);
         docker(["cp", trust, `${name}:/interop`], { quiet: true });
         docker(["start", name], { quiet: true });
@@ -459,7 +475,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       for (const impl of implementations.filter((item) => item.entry.role === "agent" && !item.broken)) {
         const name = `${network}-${impl.target}`;
         const env = { INTEROP_SECRET: secret, INTEROP_NAME: impl.entry.name, INTEROP_COMMIT: commitOf(impl.entry), INTEROP_PACE_MS: "1000", ...(options.set.get(impl.entry.name) ?? {}) };
-        docker(["run", "-d", "--name", name, "-p", "127.0.0.1::8081", ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry)], { quiet: true });
+        docker(["run", "-d", "--name", name, "-p", "127.0.0.1::8081", ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry, registry)], { quiet: true });
         containers.push(name);
         ports.set(impl.target, Number(docker(["port", name, "8081/tcp"], { quiet: true }).split("\n")[0]!.split(":").at(-1)));
       }
@@ -559,6 +575,11 @@ export async function main(argv: readonly string[]): Promise<number> {
   log(`\n${counts.join(", ")}; ${cells.filter((cell) => cell.known).length} known failure(s).`);
   for (const cell of cells.filter((c) => c.outcome === "fail" || c.outcome === "error")) {
     log(`  ${cell.scenario} ${cell.agent} × ${cell.company}: ${cell.outcome}, blame ${cell.blame ?? "none"} (${cell.rule ?? "no rule"})${cell.known ? `, known: ${cell.known.issue}` : ""}`);
+  }
+  const ran = (entry: { agent: string; company: string; scenario: string }) =>
+    cells.some((cell) => (entry.agent === "*" || entry.agent === cell.agent) && (entry.company === "*" || entry.company === cell.company) && (entry.scenario === "*" || entry.scenario === cell.scenario));
+  for (const entry of unmatchedKnown(cells, known).filter(ran)) {
+    log(`  known failure matched no failed cell (fixed?): ${entry.agent} × ${entry.company} ${entry.scenario}`);
   }
   log(`Results: ${path.join(runDir, "index.html")}`);
   return bad.length > 0 ? 1 : 0;

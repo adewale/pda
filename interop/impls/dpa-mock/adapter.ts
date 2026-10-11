@@ -29,13 +29,27 @@ placeCompanies({
 });
 
 /**
- * The reference Company's settings: the defaults the conformance suite
- * checks agents against, rotating Account Tokens (scenario R), and a
- * one-second device interval so Device Sign-In cells don't wait five.
+ * Two profiles, chosen by `INTEROP_MOCK_PROFILE` (registry `env`), one image:
+ *
+ * - `lenient` (default; `dpa-mock`, the reference Company for attribution
+ *   rule 2): the conformance suite's S2-lenient settings
+ *   (`strictAssertions: false`: no `typ` or `kid` needed, assertions up to
+ *   300 s). Section 8 of the interop spec treats S2 as a warning, so the
+ *   reference Company doesn't refuse an agent for it.
+ * - `strict` (`dpa-mock-strict`): `strictAssertions` on, as the strictest
+ *   live Companies are; it declares S2 `jwt-60s`.
+ *
+ * Both rotate Account Tokens (scenario R) and poll devices every second so
+ * Device Sign-In cells don't wait five.
  */
+const PROFILE = process.env.INTEROP_MOCK_PROFILE === "strict" ? "strict" : "lenient";
+if (process.env.INTEROP_MOCK_PROFILE && process.env.INTEROP_MOCK_PROFILE !== PROFILE) {
+  throw new Error(`INTEROP_MOCK_PROFILE must be lenient or strict, not ${process.env.INTEROP_MOCK_PROFILE}`);
+}
 const BASE: Partial<MockConfig> = {
   rotateRefreshTokens: true,
-  deviceInterval: 1
+  deviceInterval: 1,
+  strictAssertions: PROFILE === "strict"
 };
 
 // `PUBLIC_ORIGIN` is where the mock would reach our Worker directly in tests;
@@ -57,10 +71,11 @@ const MANIFEST = {
   commit: COMMIT,
   poppy: ["0.1"],
   extensions: ["operations"],
-  scenarios: ["D", "S0", "N", "SD", "SV", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL"],
-  readings: { S1: "either", S2: "jwt-60s", S3: "insertion", S4: "either", S23: "per-company" },
+  scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL"],
+  readings: { S1: "either", S2: PROFILE === "strict" ? "jwt-60s" : "any", S3: "insertion", S4: "either", S23: "per-company" },
   relaxations: [] as string[],
-  notes: "test/mock-company: strict checks recorded as named violations (GET /violations)."
+  profile: PROFILE,
+  notes: `test/mock-company, ${PROFILE} profile: checks recorded as named violations (GET /violations).`
 };
 
 type Params = Record<string, unknown>;
@@ -92,7 +107,7 @@ const HOOKS: Record<string, (params: Params) => Promise<unknown>> = {
   async fixture() {
     return {
       accounts: DEFAULT_CONFIG.accounts.map((item) => item.account),
-      scopes: ["poppy:read", "poppy:write", "addresses"],
+      scopes: { read: ["poppy:read"], write: ["poppy:read", "poppy:write"] },
       openapi_public: { api: "openapi", operation: "searchProducts", args: { params: { q: "jacket" } } },
       openapi: { api: "openapi", operation: "listOrders", args: {} },
       openapi_write: {
@@ -214,4 +229,4 @@ async function control(request: Request): Promise<Response> {
 
 serve(8080, (request) => mock.fetch(request));
 serve(8081, control);
-console.log(`dpa-mock: ${NAME}.${SUFFIX} on 8080, control on 8081`);
+console.log(`dpa-mock (${PROFILE}): ${NAME}.${SUFFIX} on 8080, control on 8081`);
