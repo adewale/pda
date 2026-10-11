@@ -42,7 +42,7 @@ type Me =
   | { readonly state: "signed-out"; readonly message: string | null };
 
 /** Set by the Worker's OAuth callback when a sign-in did not complete. */
-const SIGN_IN_ERRORS: Record<string, string> = {
+export const SIGN_IN_ERRORS: Record<string, string> = {
   denied: "Sign-in was cancelled.",
   state: "That sign-in link expired. Please try again.",
   code: "The provider did not complete sign-in. Please try again.",

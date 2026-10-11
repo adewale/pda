@@ -37,6 +37,22 @@ export function describeScopes(company: Company, scopes: readonly string[]): Sco
   }));
 }
 
+/**
+ * A device sign-in link the page may show as a link and a QR code: HTTPS, on
+ * the Company's domain or the host of its issuer or device endpoint (spec
+ * 4.6). Anything else, such as `javascript:`, `http:` or another site, is null.
+ */
+export function deviceLink(company: Company, value: unknown): string | null {
+  if (typeof value !== "string" || !URL.canParse(value)) return null;
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password) return null;
+  const host = url.hostname.toLowerCase();
+  const hosts = [company.issuer, company.endpoints.deviceAuthorization]
+    .filter((endpoint): endpoint is string => !!endpoint)
+    .map((endpoint) => new URL(endpoint).hostname.toLowerCase());
+  return host === company.domain || host.endsWith(`.${company.domain}`) || hosts.includes(host) ? url.href : null;
+}
+
 /** Which sign-in type to use: Direct, then Device, then Mediated (Guides, "Choosing how to sign in"). */
 export function chooseSignInType(company: Company, scopes: readonly string[]): SignInType | null {
   const order: SignInType[] = ["direct", "device", "mediated"];
@@ -157,6 +173,11 @@ export async function startSignIn(
       const code = isObject(body) && typeof body.error === "string" ? body.error : "server_error";
       throw new PoppyError(code, `${company.name} refused the device sign-in (${code})`, status);
     }
+    const verificationUri = deviceLink(company, body.verification_uri);
+    if (!verificationUri) {
+      throw new PoppyError("invalid_response", `${company.name}'s device sign-in link isn't an HTTPS page of theirs`, status);
+    }
+    const verificationUriComplete = deviceLink(company, body.verification_uri_complete);
     const interval = typeof body.interval === "number" && body.interval > 0 ? body.interval : 5;
     const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 600;
     const expiresAt = Date.now() + expiresIn * 1000;
@@ -173,10 +194,8 @@ export async function startSignIn(
       company: company.name,
       open: true,
       signInId: id,
-      verificationUri: body.verification_uri,
-      ...(typeof body.verification_uri_complete === "string"
-        ? { verificationUriComplete: body.verification_uri_complete }
-        : {}),
+      verificationUri,
+      ...(verificationUriComplete ? { verificationUriComplete } : {}),
       userCode: body.user_code,
       expiresAt,
       scopes: info,
