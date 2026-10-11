@@ -18,18 +18,49 @@ import worker, { testFetcher } from "./worker";
 /**
  * The discovery-document validator. As with feed validators' test suites,
  * every message id must be produced by at least one fixture here, and the
- * last test checks that.
+ * message catalog test checks that.
+ *
+ * A fixture is plain data: a name (its test's title), how to get its
+ * report, and the message ids the report must have, exactly and in order or
+ * at least. The catalog test reads the ids the fixtures declare, not reports
+ * from earlier tests, so it gives the same answer alone, in any order, or
+ * shuffled; each fixture's own test proves its declared ids are produced.
  */
+type Fixture = {
+  readonly name: string;
+  readonly run: () => Report | Promise<Report>;
+  /** The report's message ids: exactly these, in order, or at least these. */
+  readonly ids: readonly MessageId[] | { readonly contains: readonly MessageId[] };
+  readonly outcome?: Report["outcome"];
+  /** Assertions beyond ids and outcome: pointers, positions, wording, counts. */
+  readonly also?: (report: Report) => void;
+};
 
-const seen = new Set<MessageId>();
-function record(report: Report): Report {
-  for (const message of report.messages) seen.add(message.id);
-  return report;
-}
 const ids = (report: Report) => report.messages.map((m) => m.id);
 
+const declaredIds = (fixture: Fixture): readonly MessageId[] =>
+  "contains" in fixture.ids ? fixture.ids.contains : (fixture.ids as readonly MessageId[]);
+
+async function check(fixture: Fixture) {
+  const report = await fixture.run();
+  if ("contains" in fixture.ids) {
+    expect(ids(report)).toEqual(expect.arrayContaining([...fixture.ids.contains]));
+  } else {
+    expect(ids(report)).toEqual(fixture.ids);
+  }
+  if (fixture.outcome) expect(report.outcome).toBe(fixture.outcome);
+  fixture.also?.(report);
+}
+
+/** Each fixture is its own test, titled by its name. */
+function testEach(fixtures: readonly Fixture[]) {
+  it.each(fixtures.map((fixture) => [fixture.name, fixture] as const))("%s", (_name, fixture) =>
+    check(fixture)
+  );
+}
+
 function text(kind: DocumentKind, doc: unknown, options: Parameters<typeof validateText>[2] = {}): Report {
-  return record(validateText(kind, typeof doc === "string" ? doc : JSON.stringify(doc, null, 2), options));
+  return validateText(kind, typeof doc === "string" ? doc : JSON.stringify(doc, null, 2), options);
 }
 
 /** A fake network: URL → response. Anything else fails like a DNS error. */
@@ -104,227 +135,337 @@ const DEMO = {
   jwks: '{"keys":[{"kty":"EC","crv":"P-256","x":"8-v-FQSg6HqFvDLzsN9fEh7NvGi44Yqf-NKynVlZowc","y":"NgMN41ye2FK9tOqb9Ok-UknmdzyXZp5RUrGqivhZjZY","kid":"agent-key-1","use":"sig","alg":"ES256"}]}'
 };
 
+const demoNetwork = () =>
+  network({
+    "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json": jsonResponse(DEMO.poppy),
+    "https://poppy-receiver.roundtrip.workers.dev/.well-known/oauth-authorization-server": jsonResponse(DEMO.metadata),
+    "https://poppy-caller.roundtrip.workers.dev/agent.json": jsonResponse(DEMO.client),
+    "https://poppy-caller.roundtrip.workers.dev/jwks.json": jsonResponse(DEMO.jwks)
+  });
+
 const withPoppy = (change: (doc: Record<string, any>) => void) => {
   const doc = structuredClone(SPEC_POPPY) as Record<string, any>;
   change(doc);
   return doc;
 };
 
-describe("valid documents", () => {
-  it("accepts the specification's own examples with no errors or warnings", async () => {
-    const poppy = text("poppy", SPEC_POPPY, { domain: "example.com" });
-    expect(poppy.outcome).toBe("valid");
-    expect(poppy.counts).toEqual({ error: 0, warning: 0, info: 0 });
-    const client = text("client-metadata", SPEC_CLIENT, { fetchedFrom: SPEC_CLIENT.client_id });
-    expect(client.counts).toEqual({ error: 0, warning: 0, info: 0 });
-    const company = record(
-      await validateCompany(
+/** A fresh mock Company, whose documents the conformance tests rely on. */
+async function mockCompany(): Promise<string> {
+  const id = `v${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  await (env as Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> }).MOCK_COMPANY.getByName(id).configure({});
+  return `${id}.shop.test`;
+}
+
+/** example.com's poppy.json and OAuth metadata, from a fake network. */
+const company = (metadata: unknown, poppy: unknown = SPEC_POPPY) =>
+  validateCompany(
+    network({
+      "https://example.com/.well-known/poppy.json": jsonResponse(poppy),
+      "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(metadata)
+    }),
+    "example.com"
+  );
+
+const wellKnown = "https://example.com/.well-known/poppy.json";
+const fetchOne = (route: () => Response) => validateCompany(network({ [wellKnown]: route }), "example.com");
+
+const noErrorsOrWarnings = (report: Report) => expect(report.counts.error + report.counts.warning).toBe(0);
+
+const VALID: readonly Fixture[] = [
+  {
+    name: "accepts the specification's poppy.json example with no messages",
+    run: () => text("poppy", SPEC_POPPY, { domain: "example.com" }),
+    ids: [],
+    outcome: "valid"
+  },
+  {
+    name: "accepts the specification's client metadata example with no messages",
+    run: () => text("client-metadata", SPEC_CLIENT, { fetchedFrom: SPEC_CLIENT.client_id }),
+    ids: [],
+    outcome: "valid"
+  },
+  {
+    // The spec's metadata example doesn't say authorization responses carry iss.
+    name: "accepts the specification's examples as a Company, noting only the missing iss parameter",
+    run: () =>
+      validateCompany(
         network({
           "https://example.com/.well-known/poppy.json": jsonResponse(SPEC_POPPY),
           "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA)
         }),
         "example.com"
-      )
-    );
-    expect(company.outcome).toBe("valid");
-    // The spec's metadata example doesn't say authorization responses carry iss.
-    expect(ids(company)).toEqual(["metadata-iss-parameter"]);
-  });
-
-  it("accepts poppy-demo's live documents", async () => {
-    const fetcher = network({
-      "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json": jsonResponse(DEMO.poppy),
-      "https://poppy-receiver.roundtrip.workers.dev/.well-known/oauth-authorization-server": jsonResponse(DEMO.metadata),
-      "https://poppy-caller.roundtrip.workers.dev/agent.json": jsonResponse(DEMO.client),
-      "https://poppy-caller.roundtrip.workers.dev/jwks.json": jsonResponse(DEMO.jwks)
-    });
-    const company = record(await validateTarget(fetcher, "poppy-receiver.roundtrip.workers.dev"));
-    expect(company.outcome).toBe("valid");
-    expect(company.counts.error + company.counts.warning).toBe(0);
-    const client = record(await validateTarget(fetcher, "https://poppy-caller.roundtrip.workers.dev/agent.json"));
-    expect(client.outcome).toBe("valid");
-    expect(client.counts).toEqual({ error: 0, warning: 0, info: 0 });
-  });
-
-  it("accepts the mock Company's documents, which the conformance tests rely on", async () => {
-    const id = `v${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-    await (env as Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> }).MOCK_COMPANY.getByName(id).configure({});
-    const result = record(await validateCompany(testFetcher(env), `${id}.shop.test`));
-    expect(result.outcome).toBe("valid");
-    expect(result.counts.error + result.counts.warning).toBe(0);
+      ),
+    ids: ["metadata-iss-parameter"],
+    outcome: "valid"
+  },
+  {
+    name: "accepts poppy-demo's live Company documents",
+    run: () => validateTarget(demoNetwork(), "poppy-receiver.roundtrip.workers.dev"),
+    ids: ["metadata-iss-parameter"],
+    outcome: "valid",
+    also: noErrorsOrWarnings
+  },
+  {
+    name: "accepts poppy-demo's live client metadata and keys with no messages",
+    run: () => validateTarget(demoNetwork(), "https://poppy-caller.roundtrip.workers.dev/agent.json"),
+    ids: [],
+    outcome: "valid"
+  },
+  {
     // Its deliberately unknown API, protocol, extension and field are reported as info only.
-    expect(ids(result)).toEqual(expect.arrayContaining(["api-type-unknown", "protocol-type-unknown", "unknown-member"]));
-  });
+    name: "accepts the mock Company's documents, which the conformance tests rely on",
+    run: async () => validateCompany(testFetcher(env), await mockCompany()),
+    ids: { contains: ["api-type-unknown", "protocol-type-unknown", "unknown-member"] },
+    outcome: "valid",
+    also: noErrorsOrWarnings
+  },
+  {
+    name: "accepts our own client metadata and keys",
+    run: () => validateClient(testFetcher(env), "https://agent.test/poppy/client.json"),
+    ids: [],
+    outcome: "valid",
+    also: (report) => expect(report.documents.map((d) => d.kind)).toEqual(["client-metadata", "jwks"])
+  }
+];
 
-  it("accepts our own client metadata and keys", async () => {
-    const result = record(await validateClient(testFetcher(env), "https://agent.test/poppy/client.json"));
-    expect(result.outcome).toBe("valid");
-    expect(result.counts).toEqual({ error: 0, warning: 0, info: 0 });
-    expect(result.documents.map((d) => d.kind)).toEqual(["client-metadata", "jwks"]);
-  });
-});
+const POPPY_JSON: readonly Fixture[] = [
+  {
+    name: "reports a JSON syntax error with line and column",
+    run: () => text("poppy", '{\n  "protocol_version": "0.1",\n  "organization": {\n}'),
+    ids: { contains: ["json-syntax"] },
+    outcome: "invalid",
+    also: (report) => expect(report.messages[0]).toMatchObject({ id: "json-syntax", line: 4, column: 2 })
+  },
+  {
+    name: "reports a duplicate member name with line, column and pointer",
+    run: () => text("poppy", '{"protocol_version":"0.1","protocol_version":"0.1","organization":{"name":"A","domain":"a.example"},"web":{}}'),
+    ids: { contains: ["json-duplicate-member"] },
+    also: (report) =>
+      expect(report.messages.find((m) => m.id === "json-duplicate-member")).toMatchObject({ line: 1, column: 27, pointer: "/protocol_version" })
+  },
+  {
+    name: "reports a byte order mark",
+    run: () => text("poppy", `﻿${JSON.stringify(SPEC_POPPY)}`),
+    ids: { contains: ["json-bom"] }
+  },
+  {
+    name: "chooses rules by protocol_version: a version that isn't major.minor",
+    run: () => text("poppy", withPoppy((d) => (d.protocol_version = "1"))),
+    ids: { contains: ["version-format"] }
+  },
+  {
+    name: "chooses rules by protocol_version: an unsupported major version",
+    run: () => text("poppy", withPoppy((d) => (d.protocol_version = "1.0"))),
+    ids: ["version-unsupported-major"],
+    also: (report) => expect(report.messages[0]!.text).toMatch(/version 1\.0/)
+  },
+  {
+    name: "chooses rules by protocol_version: a newer minor version, whose new fields are ignored",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.protocol_version = "0.7";
+        d.loyalty = { tier: "gold" };
+      })),
+    ids: ["version-newer-minor", "unknown-member"],
+    outcome: "valid"
+  },
+  {
+    name: "chooses rules by protocol_version: none given",
+    run: () => text("poppy", withPoppy((d) => delete d.protocol_version)),
+    ids: { contains: ["missing-member"] }
+  },
+  {
+    name: "checks organization: not an object",
+    run: () => text("poppy", withPoppy((d) => (d.organization = "Example"))),
+    ids: { contains: ["wrong-type"] }
+  },
+  {
+    name: "checks organization: no name",
+    run: () => text("poppy", withPoppy((d) => delete d.organization.name)),
+    ids: ["organization-name-missing"]
+  },
+  {
+    name: "checks organization: a URL as the domain",
+    run: () => text("poppy", withPoppy((d) => (d.organization.domain = "https://example.com/"))),
+    ids: { contains: ["domain-invalid"] }
+  },
+  {
+    name: "checks organization: a domain other than the one asked for",
+    run: () => text("poppy", SPEC_POPPY, { domain: "evil.example" }),
+    ids: ["organization-domain-mismatch"]
+  },
+  {
+    name: "checks organization: a leading www. is ignored",
+    run: () => text("poppy", SPEC_POPPY, { domain: "www.example.com" }),
+    ids: [],
+    outcome: "valid"
+  },
+  {
+    name: "requires auth for Sessions",
+    run: () => text("poppy", withPoppy((d) => delete d.auth)),
+    ids: ["auth-required"],
+    also: (report) => expect(report.messages[0]!.text).toMatch(/agent, apis, web.browser_session_endpoint/)
+  },
+  {
+    name: "accepts a website-only Company, with a note",
+    run: () => text("poppy", { protocol_version: "0.1", organization: { name: "A", domain: "a.example" }, web: {} }),
+    ids: ["website-only"],
+    outcome: "valid"
+  },
+  {
+    name: "requires something to offer",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        delete d.agent;
+        delete d.apis;
+        delete d.web;
+      })),
+    ids: ["nothing-offered"]
+  },
+  {
+    name: "checks the issuer: http",
+    run: () => text("poppy", withPoppy((d) => (d.auth.issuer = "http://auth.example.com"))),
+    ids: ["not-https-url"]
+  },
+  {
+    name: "checks the issuer: a query",
+    run: () => text("poppy", withPoppy((d) => (d.auth.issuer = "https://auth.example.com?tenant=1"))),
+    ids: ["issuer-query"]
+  },
+  {
+    name: "checks the issuer: a fragment",
+    run: () => text("poppy", withPoppy((d) => (d.auth.issuer = "https://auth.example.com/#x"))),
+    ids: ["url-has-fragment"]
+  },
+  {
+    name: "checks the issuer: not a URL",
+    run: () => text("poppy", withPoppy((d) => (d.auth.issuer = "auth.example.com"))),
+    ids: ["not-a-url"]
+  },
+  {
+    name: "checks sign-in types: none offered",
+    run: () => text("poppy", withPoppy((d) => (d.auth = { issuer: "https://auth.example.com" }))),
+    ids: ["signed-out-only"]
+  },
+  {
+    name: "checks scopes",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.auth.direct.scopes = ["poppy:read", "poppy:read", "poppy:admin", "bad scope", "loyalty"];
+        d.auth.device.scopes = [];
+        d.auth.custom_scopes.gift_cards = "Use gift cards";
+        d.auth.custom_scopes["poppy:everything"] = "All of it";
+      })),
+    ids: {
+      contains: ["scope-duplicate", "scope-reserved", "scope-syntax", "scopes-empty", "scope-undescribed", "scope-unoffered"]
+    },
+    also: (report) =>
+      expect(report.messages.filter((m) => m.id === "scope-reserved").map((m) => m.pointer)).toEqual([
+        "/auth/direct/scopes/2",
+        "/auth/custom_scopes/poppy:everything"
+      ])
+  },
+  {
+    name: "checks Mediated Sign-In's fields: none",
+    run: () => text("poppy", withPoppy((d) => (d.auth.mediated.fields = []))),
+    ids: ["mediated-fields-empty"]
+  },
+  {
+    name: "checks Mediated Sign-In's fields: secret missing, looks secret, duplicate",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.auth.mediated.fields = [
+          { name: "email", label: "Email" },
+          { name: "pin", label: "PIN", secret: false },
+          { name: "email", label: "Email again", secret: false }
+        ];
+      })),
+    ids: ["mediated-secret-missing", "mediated-looks-secret", "mediated-field-duplicate"]
+  },
+  {
+    name: "checks the agent's protocols and resources",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.agent.protocols = [{ type: "example.com/chat", endpoint: "https://api.example.com/chat", resource: "not a uri" }];
+      })),
+    ids: ["resource-invalid", "protocol-type-unknown", "no-poppy-protocol"]
+  },
+  {
+    name: "checks the APIs",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.apis = [
+          { type: "graphql", url: "https://api.example.com/graphql", description: "Everything" },
+          { type: "openapi", url: "https://api.example.com/openapi.json" },
+          { type: "mcp", url: "https://mcp.example.com/mcp", description: "Search", resource: "https://mcp.example.com/" }
+        ];
+      })),
+    ids: ["api-type-unknown", "api-description-missing", "mcp-resource-mismatch"]
+  },
+  {
+    name: "checks extensions: names and versions",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.extensions = {
+          operations: { version: "1", endpoint: "https://api.example.com/poppy/operations" },
+          "example.com/gift-wrap": { version: "2", anything: true },
+          "gift-wrap": { version: "1" },
+          "notadomain/gift-wrap": { version: "1" },
+          "example.com/no-version": {}
+        };
+      })),
+    ids: ["extension-plain-unknown", "extension-name", "missing-member"]
+  },
+  {
+    name: "checks extensions: an unknown operations version",
+    run: () => text("poppy", withPoppy((d) => (d.extensions = { operations: { version: "2" } }))),
+    ids: ["extension-version-unknown"]
+  },
+  {
+    name: "checks extensions: operations without its endpoint",
+    run: () => text("poppy", withPoppy((d) => (d.extensions = { operations: { version: "1" } }))),
+    ids: ["missing-member"]
+  }
+];
 
-describe("poppy.json", () => {
-  it("reports JSON problems with line and column", () => {
-    const syntax = text("poppy", '{\n  "protocol_version": "0.1",\n  "organization": {\n}');
-    expect(syntax.messages[0]).toMatchObject({ id: "json-syntax", line: 4, column: 2 });
-    expect(syntax.outcome).toBe("invalid");
-    const duplicate = text("poppy", '{"protocol_version":"0.1","protocol_version":"0.1","organization":{"name":"A","domain":"a.example"},"web":{}}');
-    expect(duplicate.messages.find((m) => m.id === "json-duplicate-member")).toMatchObject({ line: 1, column: 27, pointer: "/protocol_version" });
-    expect(ids(text("poppy", `﻿${JSON.stringify(SPEC_POPPY)}`))).toContain("json-bom");
-  });
-
-  it("chooses rules by protocol_version", () => {
-    expect(ids(text("poppy", withPoppy((d) => (d.protocol_version = "1"))))).toContain("version-format");
-    const major = text("poppy", withPoppy((d) => (d.protocol_version = "1.0")));
-    expect(ids(major)).toEqual(["version-unsupported-major"]);
-    expect(major.messages[0]!.text).toMatch(/version 1\.0/);
-    const minor = text("poppy", withPoppy((d) => {
-      d.protocol_version = "0.7";
-      d.loyalty = { tier: "gold" };
-    }));
-    expect(minor.outcome).toBe("valid");
-    expect(ids(minor)).toEqual(["version-newer-minor", "unknown-member"]);
-    expect(ids(text("poppy", withPoppy((d) => delete d.protocol_version)))).toContain("missing-member");
-  });
-
-  it("checks organization", () => {
-    expect(ids(text("poppy", withPoppy((d) => (d.organization = "Example"))))).toContain("wrong-type");
-    expect(ids(text("poppy", withPoppy((d) => delete d.organization.name)))).toEqual(["organization-name-missing"]);
-    expect(ids(text("poppy", withPoppy((d) => (d.organization.domain = "https://example.com/"))))).toContain("domain-invalid");
-    const mismatch = text("poppy", SPEC_POPPY, { domain: "evil.example" });
-    expect(ids(mismatch)).toEqual(["organization-domain-mismatch"]);
-    // A leading www. is ignored.
-    expect(text("poppy", SPEC_POPPY, { domain: "www.example.com" }).outcome).toBe("valid");
-  });
-
-  it("requires auth for Sessions and something to offer", () => {
-    const noAuth = text("poppy", withPoppy((d) => delete d.auth));
-    expect(ids(noAuth)).toEqual(["auth-required"]);
-    expect(noAuth.messages[0]!.text).toMatch(/agent, apis, web.browser_session_endpoint/);
-    const websiteOnly = text("poppy", { protocol_version: "0.1", organization: { name: "A", domain: "a.example" }, web: {} });
-    expect(websiteOnly.outcome).toBe("valid");
-    expect(ids(websiteOnly)).toEqual(["website-only"]);
-    expect(ids(text("poppy", withPoppy((d) => {
-      delete d.agent;
-      delete d.apis;
-      delete d.web;
-    })))).toEqual(["nothing-offered"]);
-  });
-
-  it("checks the issuer and sign-in types", () => {
-    expect(ids(text("poppy", withPoppy((d) => (d.auth.issuer = "http://auth.example.com"))))).toEqual(["not-https-url"]);
-    expect(ids(text("poppy", withPoppy((d) => (d.auth.issuer = "https://auth.example.com?tenant=1"))))).toEqual(["issuer-query"]);
-    expect(ids(text("poppy", withPoppy((d) => (d.auth.issuer = "https://auth.example.com/#x"))))).toEqual(["url-has-fragment"]);
-    expect(ids(text("poppy", withPoppy((d) => (d.auth.issuer = "auth.example.com"))))).toEqual(["not-a-url"]);
-    expect(ids(text("poppy", withPoppy((d) => (d.auth = { issuer: "https://auth.example.com" }))))).toEqual(["signed-out-only"]);
-  });
-
-  it("checks scopes", () => {
-    const scoped = text("poppy", withPoppy((d) => {
-      d.auth.direct.scopes = ["poppy:read", "poppy:read", "poppy:admin", "bad scope", "loyalty"];
-      d.auth.device.scopes = [];
-      d.auth.custom_scopes.gift_cards = "Use gift cards";
-      d.auth.custom_scopes["poppy:everything"] = "All of it";
-    }));
-    expect(ids(scoped)).toEqual(expect.arrayContaining([
-      "scope-duplicate",
-      "scope-reserved",
-      "scope-syntax",
-      "scopes-empty",
-      "scope-undescribed",
-      "scope-unoffered"
-    ]));
-    expect(scoped.messages.filter((m) => m.id === "scope-reserved").map((m) => m.pointer)).toEqual([
-      "/auth/direct/scopes/2",
-      "/auth/custom_scopes/poppy:everything"
-    ]);
-  });
-
-  it("checks Mediated Sign-In's fields", () => {
-    expect(ids(text("poppy", withPoppy((d) => (d.auth.mediated.fields = []))))).toEqual(["mediated-fields-empty"]);
-    const fields = text("poppy", withPoppy((d) => {
-      d.auth.mediated.fields = [
-        { name: "email", label: "Email" },
-        { name: "pin", label: "PIN", secret: false },
-        { name: "email", label: "Email again", secret: false }
-      ];
-    }));
-    expect(ids(fields)).toEqual(["mediated-secret-missing", "mediated-looks-secret", "mediated-field-duplicate"]);
-  });
-
-  it("checks the agent, APIs and resources", () => {
-    const agent = text("poppy", withPoppy((d) => {
-      d.agent.protocols = [{ type: "example.com/chat", endpoint: "https://api.example.com/chat", resource: "not a uri" }];
-    }));
-    expect(ids(agent)).toEqual(["resource-invalid", "protocol-type-unknown", "no-poppy-protocol"]);
-    const apis = text("poppy", withPoppy((d) => {
-      d.apis = [
-        { type: "graphql", url: "https://api.example.com/graphql", description: "Everything" },
-        { type: "openapi", url: "https://api.example.com/openapi.json" },
-        { type: "mcp", url: "https://mcp.example.com/mcp", description: "Search", resource: "https://mcp.example.com/" }
-      ];
-    }));
-    expect(ids(apis)).toEqual(["api-type-unknown", "api-description-missing", "mcp-resource-mismatch"]);
-  });
-
-  it("checks extensions", () => {
-    const result = text("poppy", withPoppy((d) => {
-      d.extensions = {
-        operations: { version: "1", endpoint: "https://api.example.com/poppy/operations" },
-        "example.com/gift-wrap": { version: "2", anything: true },
-        "gift-wrap": { version: "1" },
-        "notadomain/gift-wrap": { version: "1" },
-        "example.com/no-version": {}
-      };
-    }));
-    expect(ids(result)).toEqual(["extension-plain-unknown", "extension-name", "missing-member"]);
-    expect(ids(text("poppy", withPoppy((d) => (d.extensions = { operations: { version: "2" } }))))).toEqual(["extension-version-unknown"]);
-    expect(ids(text("poppy", withPoppy((d) => (d.extensions = { operations: { version: "1" } }))))).toEqual(["missing-member"]);
-  });
-});
-
-describe("OAuth server metadata, checked against poppy.json", () => {
-  const company = (metadata: unknown, poppy: unknown = SPEC_POPPY) =>
-    validateCompany(
-      network({
-        "https://example.com/.well-known/poppy.json": jsonResponse(poppy),
-        "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(metadata)
-      }),
-      "example.com"
-    ).then(record);
-
-  it("requires the issuer to match exactly and the domain to be listed", async () => {
-    const issuer = await company({ ...SPEC_METADATA, issuer: "https://auth.example.com/" });
-    expect(ids(issuer)).toContain("metadata-issuer-mismatch");
-    expect(issuer.outcome).toBe("invalid");
+const METADATA: readonly Fixture[] = [
+  {
+    name: "requires the issuer to match exactly, so a trailing slash doesn't",
+    run: () => company({ ...SPEC_METADATA, issuer: "https://auth.example.com/" }),
+    ids: { contains: ["metadata-issuer-mismatch"] },
+    outcome: "invalid"
+  },
+  {
     // poppy_domains must include organization.domain itself, not a www. variant (3.2).
-    const domains = await company({ ...SPEC_METADATA, poppy_domains: ["www.example.com"] });
-    expect(ids(domains)).toContain("metadata-domain-missing");
-  });
-
-  it("requires the endpoints each sign-in type needs", async () => {
-    const { authorization_endpoint, device_authorization_endpoint, ...rest } = SPEC_METADATA;
-    const result = await company(rest);
-    expect(result.messages.filter((m) => m.id === "missing-member").map((m) => m.pointer)).toEqual([
-      "/authorization_endpoint",
-      "/device_authorization_endpoint"
-    ]);
-    void authorization_endpoint;
-    void device_authorization_endpoint;
-  });
-
-  it("warns when advertised capabilities leave out what agents use", async () => {
-    const result = await company({
-      ...SPEC_METADATA,
-      token_endpoint_auth_methods_supported: ["client_secret_basic"],
-      token_endpoint_auth_signing_alg_values_supported: ["HS256"],
-      grant_types_supported: ["authorization_code"],
-      dpop_signing_alg_values_supported: ["RS256"],
-      code_challenge_methods_supported: ["plain"]
-    });
-    expect(result.outcome).toBe("valid");
-    expect(ids(result)).toEqual([
+    name: "requires the domain to be listed in poppy_domains, not a www. variant",
+    run: () => company({ ...SPEC_METADATA, poppy_domains: ["www.example.com"] }),
+    ids: { contains: ["metadata-domain-missing"] }
+  },
+  {
+    name: "requires the endpoints each sign-in type needs",
+    run: () => {
+      const { authorization_endpoint: _a, device_authorization_endpoint: _d, ...rest } = SPEC_METADATA;
+      return company(rest);
+    },
+    ids: { contains: ["missing-member"] },
+    also: (report) =>
+      expect(report.messages.filter((m) => m.id === "missing-member").map((m) => m.pointer)).toEqual([
+        "/authorization_endpoint",
+        "/device_authorization_endpoint"
+      ])
+  },
+  {
+    name: "warns when advertised capabilities leave out what agents use",
+    run: () =>
+      company({
+        ...SPEC_METADATA,
+        token_endpoint_auth_methods_supported: ["client_secret_basic"],
+        token_endpoint_auth_signing_alg_values_supported: ["HS256"],
+        grant_types_supported: ["authorization_code"],
+        dpop_signing_alg_values_supported: ["RS256"],
+        code_challenge_methods_supported: ["plain"]
+      }),
+    ids: [
       "metadata-auth-method",
       "metadata-signing-alg",
       "metadata-grant-type",
@@ -333,50 +474,58 @@ describe("OAuth server metadata, checked against poppy.json", () => {
       "metadata-dpop-alg",
       "metadata-pkce",
       "metadata-iss-parameter"
-    ]);
-  });
-
-  it("finds metadata for an issuer with a path (RFC 8414 §3.1)", async () => {
-    const poppy = withPoppy((d) => (d.auth.issuer = "https://auth.example.com/tenant/"));
-    const result = record(
-      await validateCompany(
+    ],
+    outcome: "valid"
+  },
+  {
+    name: "finds metadata for an issuer with a path (RFC 8414 §3.1)",
+    run: () =>
+      validateCompany(
         network({
-          "https://example.com/.well-known/poppy.json": jsonResponse(poppy),
+          "https://example.com/.well-known/poppy.json": jsonResponse(withPoppy((d) => (d.auth.issuer = "https://auth.example.com/tenant/"))),
           "https://auth.example.com/.well-known/oauth-authorization-server/tenant": jsonResponse({ ...SPEC_METADATA, issuer: "https://auth.example.com/tenant/" })
         }),
         "example.com"
-      )
-    );
-    expect(result.counts.error).toBe(0);
-  });
-});
+      ),
+    ids: ["metadata-iss-parameter"],
+    also: (report) => expect(report.counts.error).toBe(0)
+  }
+];
 
-describe("client metadata and keys", () => {
-  it("checks client_id, domains and the auth method", () => {
-    const result = text(
-      "client-metadata",
-      { ...SPEC_CLIENT, jwks_uri: "https://keys.other.example/jwks.json", redirect_uris: ["https://other.example/cb"], token_endpoint_auth_method: "none" },
-      { fetchedFrom: "https://agent.example/client.json" }
-    );
-    expect(ids(result)).toEqual(["client-id-mismatch", "client-other-domain", "client-other-domain", "client-auth-method"]);
-    const { redirect_uris, ...noRedirects } = SPEC_CLIENT;
-    void redirect_uris;
-    expect(ids(text("client-metadata", noRedirects))).toEqual(["client-no-redirects"]);
-  });
-
-  it("checks every key", () => {
-    const result = text("jwks", {
-      keys: [
-        { ...EC_KEY, d: "private" },
-        { kty: "EC", crv: "P-384", x: "a", y: "b", kid: "k2" },
-        { kty: "RSA", n: "AQAB", e: "AQAB", kid: "k3" },
-        { kty: "oct", k: "secret", kid: "k4" },
-        { ...EC_KEY, kid: "k5", alg: "ES384", use: "enc" },
-        { ...EC_KEY, kid: undefined },
-        { ...EC_KEY, kid: "k1" }
-      ]
-    });
-    expect(ids(result)).toEqual([
+const CLIENT: readonly Fixture[] = [
+  {
+    name: "checks client_id, domains and the auth method",
+    run: () =>
+      text(
+        "client-metadata",
+        { ...SPEC_CLIENT, jwks_uri: "https://keys.other.example/jwks.json", redirect_uris: ["https://other.example/cb"], token_endpoint_auth_method: "none" },
+        { fetchedFrom: "https://agent.example/client.json" }
+      ),
+    ids: ["client-id-mismatch", "client-other-domain", "client-other-domain", "client-auth-method"]
+  },
+  {
+    name: "requires redirect_uris",
+    run: () => {
+      const { redirect_uris: _r, ...noRedirects } = SPEC_CLIENT;
+      return text("client-metadata", noRedirects);
+    },
+    ids: ["client-no-redirects"]
+  },
+  {
+    name: "checks every key",
+    run: () =>
+      text("jwks", {
+        keys: [
+          { ...EC_KEY, d: "private" },
+          { kty: "EC", crv: "P-384", x: "a", y: "b", kid: "k2" },
+          { kty: "RSA", n: "AQAB", e: "AQAB", kid: "k3" },
+          { kty: "oct", k: "secret", kid: "k4" },
+          { ...EC_KEY, kid: "k5", alg: "ES384", use: "enc" },
+          { ...EC_KEY, kid: undefined },
+          { ...EC_KEY, kid: "k1" }
+        ]
+      }),
+    ids: [
       "jwks-private-key",
       "jwks-key-type",
       "jwks-rsa-small",
@@ -386,55 +535,89 @@ describe("client metadata and keys", () => {
       "jwks-use",
       "jwks-no-kid",
       "jwks-kid-duplicate"
-    ]);
-    expect(ids(text("jwks", { keys: [] }))).toEqual(["jwks-empty"]);
-  });
-
-  it("refuses a client_id that redirects, as Companies do", async () => {
-    const result = record(
-      await validateClient(
+    ]
+  },
+  {
+    name: "requires at least one key",
+    run: () => text("jwks", { keys: [] }),
+    ids: ["jwks-empty"]
+  },
+  {
+    name: "refuses a client_id that redirects, as Companies do",
+    run: () =>
+      validateClient(
         network({ "https://agent.example/agent.json": () => new Response(null, { status: 302, headers: { Location: "https://agent.example/v2.json" } }) }),
         "https://agent.example/agent.json"
-      )
-    );
-    expect(ids(result)).toEqual(["http-redirect-not-allowed"]);
-  });
-});
+      ),
+    ids: ["http-redirect-not-allowed"]
+  }
+];
 
-describe("fetching", () => {
-  const wellKnown = "https://example.com/.well-known/poppy.json";
-  const fetchOne = (route: () => Response) => validateCompany(network({ [wellKnown]: route }), "example.com").then(record);
+const FETCHING: readonly Fixture[] = [
+  {
+    name: "follows HTTPS redirects but not to HTTP",
+    run: () => fetchOne(() => new Response(null, { status: 302, headers: { Location: "http://cdn.example.com/poppy.json" } })),
+    ids: ["http-redirect-not-https"]
+  },
+  {
+    name: "follows redirects, but not too many",
+    run: () => fetchOne(() => new Response(null, { status: 302, headers: { Location: wellKnown } })),
+    ids: ["http-too-many-redirects"]
+  },
+  {
+    name: "calls a missing document indeterminate, not invalid",
+    run: () => fetchOne(() => new Response("Not found", { status: 404 })),
+    ids: ["http-status"],
+    outcome: "indeterminate"
+  },
+  {
+    name: "calls an unreachable host indeterminate, not invalid",
+    run: () => validateCompany(network({}), "example.com"),
+    ids: ["http-failed"],
+    outcome: "indeterminate"
+  },
+  {
+    name: "checks size",
+    run: () => fetchOne(jsonResponse("x".repeat(100_001))),
+    ids: ["http-too-large"]
+  },
+  {
+    name: "checks encoding",
+    run: () => fetchOne(() => new Response(new Uint8Array([0x7b, 0xff, 0x7d]), { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=60" } })),
+    ids: ["not-utf8"]
+  },
+  {
+    name: "checks content type and caching headers",
+    run: () => fetchOne(() => new Response(JSON.stringify(withPoppy((d) => delete d.auth.issuer)), { headers: { "Content-Type": "text/plain" } })),
+    ids: ["http-content-type", "http-no-cache-headers", "missing-member"]
+  },
+  {
+    name: "checks a cache lifetime is bounded",
+    run: () => fetchOne(jsonResponse({ ...withPoppy((d) => delete d.auth) }, { "Cache-Control": "max-age=5" })),
+    ids: { contains: ["http-cache-bounded"] }
+  },
+  {
+    name: "refuses non-HTTPS",
+    run: () => validateClient(network({}), "http://agent.example/agent.json"),
+    ids: ["http-not-https"]
+  },
+  {
+    name: "refuses private hosts",
+    run: () => validateClient(network({}), "https://localhost/agent.json"),
+    ids: ["http-non-public-host"]
+  },
+  {
+    name: "refuses non-domains",
+    run: () => validateCompany(network({}), "not a domain"),
+    ids: ["domain-invalid"]
+  }
+];
 
-  it("follows HTTPS redirects but not to HTTP, and not too many", async () => {
-    const http = await fetchOne(() => new Response(null, { status: 302, headers: { Location: "http://cdn.example.com/poppy.json" } }));
-    expect(ids(http)).toEqual(["http-redirect-not-https"]);
-    const loop = await fetchOne(() => new Response(null, { status: 302, headers: { Location: wellKnown } }));
-    expect(ids(loop)).toEqual(["http-too-many-redirects"]);
-  });
-
-  it("calls an unreachable document indeterminate, not invalid", async () => {
-    const missing = await fetchOne(() => new Response("Not found", { status: 404 }));
-    expect(ids(missing)).toEqual(["http-status"]);
-    expect(missing.outcome).toBe("indeterminate");
-    const down = record(await validateCompany(network({}), "example.com"));
-    expect(ids(down)).toEqual(["http-failed"]);
-    expect(down.outcome).toBe("indeterminate");
-  });
-
-  it("checks size, encoding, type and caching", async () => {
-    expect(ids(await fetchOne(jsonResponse("x".repeat(100_001))))).toEqual(["http-too-large"]);
-    expect(ids(await fetchOne(() => new Response(new Uint8Array([0x7b, 0xff, 0x7d]), { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=60" } })))).toEqual(["not-utf8"]);
-    const loose = await fetchOne(() => new Response(JSON.stringify(withPoppy((d) => delete d.auth.issuer)), { headers: { "Content-Type": "text/plain" } }));
-    expect(ids(loose)).toEqual(["http-content-type", "http-no-cache-headers", "missing-member"]);
-    expect(ids(await fetchOne(jsonResponse({ ...withPoppy((d) => delete d.auth) }, { "Cache-Control": "max-age=5" })))).toContain("http-cache-bounded");
-  });
-
-  it("refuses non-HTTPS and private hosts, and non-domains", async () => {
-    expect(ids(record(await validateClient(network({}), "http://agent.example/agent.json")))).toEqual(["http-not-https"]);
-    expect(ids(record(await validateClient(network({}), "https://localhost/agent.json")))).toEqual(["http-non-public-host"]);
-    expect(ids(record(await validateCompany(network({}), "not a domain")))).toEqual(["domain-invalid"]);
-  });
-});
+describe("valid documents", () => testEach(VALID));
+describe("poppy.json", () => testEach(POPPY_JSON));
+describe("OAuth server metadata, checked against poppy.json", () => testEach(METADATA));
+describe("client metadata and keys", () => testEach(CLIENT));
+describe("fetching", () => testEach(FETCHING));
 
 describe("over HTTP", () => {
   const call = (path: string, init?: RequestInit) => worker.fetch(new Request(`https://agent.test${path}`, init), env);
@@ -478,9 +661,8 @@ describe("over HTTP", () => {
   });
 
   it("checks a URL, within the caller's rate limit", async () => {
-    const id = `v${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-    await (env as Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> }).MOCK_COMPANY.getByName(id).configure({});
-    const request = () => new Request(`https://agent.test/validator/api?url=${id}.shop.test`);
+    const host = await mockCompany();
+    const request = () => new Request(`https://agent.test/validator/api?url=${host}`);
     const allowed = await handleValidator(request(), { fetcher: testFetcher(env), allowFetch: async () => true });
     expect(((await allowed!.json()) as Report).outcome).toBe("valid");
     const limited = await handleValidator(request(), { fetcher: testFetcher(env), allowFetch: async () => false });
@@ -488,10 +670,17 @@ describe("over HTTP", () => {
   });
 });
 
-// Last, so every fixture above has run (tests in a file run in order).
 describe("the message catalog", () => {
-  it("has a fixture above that produces every message", () => {
-    const missing = (Object.keys(MESSAGES) as MessageId[]).filter((id) => !seen.has(id));
+  const fixtures = [...VALID, ...POPPY_JSON, ...METADATA, ...CLIENT, ...FETCHING];
+
+  it("has a fixture that produces every message", () => {
+    const declared = new Set(fixtures.flatMap(declaredIds));
+    const missing = (Object.keys(MESSAGES) as MessageId[]).filter((id) => !declared.has(id));
     expect(missing).toEqual([]);
+  });
+
+  it("has fixtures with distinct names", () => {
+    const names = fixtures.map((fixture) => fixture.name);
+    expect(names.filter((name, index) => names.indexOf(name) !== index)).toEqual([]);
   });
 });
