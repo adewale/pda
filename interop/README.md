@@ -33,19 +33,21 @@ Each run writes:
 
 The runner exits 1 when a cell fails or errors and isn't in `known-failures.json`.
 
+The latest grid, for readers who don't run it, is in [`docs/interop-results/`](../docs/interop-results/): [`results.json`](../docs/interop-results/results.json) and [`index.html`](../docs/interop-results/index.html) (open it locally or through a raw-HTML viewer; its HAR links point at files that aren't committed). Its [README](../docs/interop-results/README.md) says which implementations and commits it covers.
+
 ## How a cell runs
 
 1. Both adapters get `POST /reset`; the proxy starts a new recording.
-2. The Company's `fixture` hook says what the scenario may use: accounts, API operations, prompts for its agent.
+2. The Company's `fixture` hook says what the scenario may use: accounts, the scopes to sign in with (`scopes.read`, `scopes.write`; Poppy's when absent), API operations, prompts for its agent.
 3. The scenario's steps run in order: agent steps through `POST /step`, Company steps through `POST /hooks/<name>`, runner steps (`wait`, `fetch`, `assert_trace`) in the runner. Each `save`d result can be referred to later as `${name.path}`, and `expect` steps compare them.
 4. The checker reads the recording: trace checks (assertions, DPoP proofs, tokens in URLs, token hosts, redirects, Retry-After, Company error shapes), `src/validator` over every discovery document and client metadata served, the agent's declared readings, and any violations the Company adapter recorded (`GET /violations`).
-5. Attribution blames a failed cell by the first rule that decides it: violation, grid, reading, or unattributed.
+5. Attribution blames a failed cell by the first rule that decides it: violation, grid, reading, or unattributed. A violation a Company recorded that is exactly a declared reading difference (a strict Company refusing a typ-less assertion from an agent that declared S2 `any`) is a reading, not a violation.
 
 ## Layout
 
 ```text
 registry.json        Implementations: name, role, pinned commit, where to build
-known-failures.json  Failures with an issue link; they don't fail the run
+known-failures.json  Failures with an issue link and a reason; they don't fail the run. "*" matches any agent, Company or scenario
 scenarios/           One JSON file per scenario (spec section 6)
 runner/              The CLI, cell runner, checks, attribution and report
 proxy/               The recording TLS proxy (Node, no dependencies)
@@ -65,13 +67,13 @@ test/                Unit tests for the runner, in Node (interop/vitest.config.t
 2. Build URLs from `INTEROP_ORIGIN`, trust `/interop/ca.pem`, and authenticate control calls with `INTEROP_SECRET`. Any relaxation the implementation needs (accepting `*.interop.test`, a private CA, an unknown peer) must be a setting that is off by default, listed in the manifest's `relaxations`.
 3. Add an entry to `registry.json` with a pinned `commit`. A Company that serves subdomains beyond the defaults lists them in `subdomains`.
 4. Run `npm run interop -- --agents dpa --companies <name>` (or the converse) and look at `index.html`.
-5. A failure that is real and reported upstream can go in `known-failures.json` with its issue link and a reason.
+5. A failure that is real and reported upstream can go in `known-failures.json` with its issue link and a reason. One root cause is one entry: use `"*"` for the agent, Company or scenario it spans (`{"agent": "pi-poppy", "company": "*", "scenario": "SE"}`). The most specific matching entry wins; the run lists entries that matched no failure.
 
 ## Our adapters
 
 **dpa-agent** bundles `src/poppy` with esbuild and runs it in Node: the same `PoppyClient`, sign-in, conversation, API and operations code the Durable Object runs. Node's built-in SQLite stands in for the Durable Object's (`impls/dpa-agent/sqlite.ts` implements the part of `SqlStorage` src/poppy uses), and jobs the Durable Object would schedule run when a step waits on them. It needs no relaxation: `*.interop.test` names pass src/poppy's public-host check, and Node trusts the run's CA. `INTEROP_FAULT=assertion-typ` re-signs every client and Session assertion without `typ`, in the adapter's network seam, to prove attribution; it is off unless set and never reaches `src/`.
 
-**dpa-mock** runs the conformance suite's strict mock Company unchanged, moved to `<name>.company.interop.test` by `placeCompanies` in `test/mock-company/types.ts`. It rotates Account Tokens and polls devices every second. Its hooks map to the RPC the conformance tests use, and every violation it records becomes an agent-side error check. It is the reference Company for attribution rule 2.
+**dpa-mock** runs the conformance suite's mock Company unchanged, moved to `<name>.company.interop.test` by `placeCompanies` in `test/mock-company/types.ts`. It rotates Account Tokens and polls devices every second. Its hooks map to the RPC the conformance tests use, and every violation it records becomes an agent-side error check. `INTEROP_MOCK_PROFILE` picks its settings: `dpa-mock`, the reference Company for attribution rule 2, runs the S2-lenient profile (`strictAssertions: false`, as the conformance suite's "lenient assertions" profile: no `typ` or `kid` needed, assertions up to 300 s) and declares S2 `any`, since the spec treats S2 as a warning; **dpa-mock-strict** is the same image with `INTEROP_MOCK_PROFILE=strict` (registry `env`), refuses assertions without `typ: "JWT"`, a published `kid` and a 60-second lifetime, and declares S2 `jwt-60s`. A typ-less agent that declares S2 `any` fails there by rule 3 (reading), not rule 1.
 
 ## Vectors
 

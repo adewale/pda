@@ -622,7 +622,8 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
     await card("done", result);
     await client.host.notifyModel(`[system] Done, as the User approved: ${row.summary}. Result: ${result}`, `poppy-approval-${id}`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    // A Company's refusal keeps its code, as tool failures show it.
+    const message = error instanceof PoppyError ? `${error.message} [${error.code}]` : error instanceof Error ? error.message : String(error);
     client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = ? WHERE id = ?", message, id);
     await card("failed", message);
     await client.host.notifyModel(`[system] The approved action failed: ${row.summary}. ${message}`, `poppy-approval-${id}`);

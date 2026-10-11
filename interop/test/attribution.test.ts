@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { attribute, attributeAll, unexpected } from "../runner/attribution.ts";
-import { compatible } from "../runner/readings.ts";
+import { attribute, attributeAll, knownFailure, unexpected, unmatchedKnown } from "../runner/attribution.ts";
+import { compatible, readingChecks } from "../runner/readings.ts";
+import { jwt, NOW, recording } from "./helpers.ts";
 import type { Cell, Check, Outcome, Scenario } from "../runner/types.ts";
 
 const error = (side: "agent" | "company"): Check => ({ id: "x", side, severity: "error", exchange: null, detail: "", source: "trace" });
@@ -44,6 +45,22 @@ describe("attribution", () => {
     expect(attribute(cell("a", "c", "fail", [], "C"), [], { readings, scenarios }).rule).toBe("unattributed");
   });
 
+  it("rule 3, before rule 1: a Company-recorded error that is exactly a declared reading difference", () => {
+    // A strict Company refuses a typ-less Session assertion; the agent declared S2 any.
+    const typ: Check = { id: "session-assertion.typ", side: "agent", severity: "error", exchange: null, detail: "typ", source: "company:dpa-mock-strict" };
+    const readings = { "pi-poppy": { S2: "any" }, "dpa-mock-strict": { S2: "jwt-60s" }, "dpa-mock": { S2: "any" } };
+    const strict = cell("pi-poppy", "dpa-mock-strict", "fail", [typ], "C");
+    expect(attribute(strict, [strict], { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S2: pi-poppy reads any, dpa-mock-strict reads jwt-60s" });
+    // An agent that declared jwt-60s and sent no typ broke its own word: a violation.
+    expect(attribute(strict, [strict], { readings: { ...readings, "pi-poppy": { S2: "jwt-60s" } }, scenarios })).toEqual({ blame: "agent", rule: "violation" });
+    // Another error beside it is still a violation, by the side that made it.
+    const both = cell("pi-poppy", "dpa-mock-strict", "fail", [typ, error("agent")], "C");
+    expect(attribute(both, [both], { readings, scenarios })).toEqual({ blame: "agent", rule: "violation" });
+    // The runner's own trace check of the same id isn't a Company's refusal.
+    const traced = cell("pi-poppy", "dpa-mock-strict", "fail", [{ ...typ, source: "trace" }], "C");
+    expect(attribute(traced, [traced], { readings, scenarios })).toEqual({ blame: "agent", rule: "violation" });
+  });
+
   it("errors are the harness's, and passes and unsupported cells have no blame", () => {
     expect(attribute(cell("a", "c", "error"), [], none)).toEqual({ blame: "harness", rule: null });
     expect(attribute(cell("a", "c", "pass"), [], none)).toEqual({ blame: null, rule: null });
@@ -58,12 +75,78 @@ describe("attribution", () => {
   });
 });
 
+describe("known failures", () => {
+  const issue = "https://example.com/1";
+  it("match a field by name or by * for any", () => {
+    const known = [{ agent: "pi-poppy", company: "*", scenario: "SE", issue }];
+    expect(knownFailure({ agent: "pi-poppy", company: "datalayer-ts", scenario: "SE" }, known)).toBe(known[0]);
+    expect(knownFailure({ agent: "pi-poppy", company: "datalayer-ts", scenario: "O" }, known)).toBeUndefined();
+    expect(knownFailure({ agent: "dpa", company: "datalayer-ts", scenario: "SE" }, known)).toBeUndefined();
+    const any = [{ agent: "*", company: "*", scenario: "*", issue }];
+    expect(knownFailure({ agent: "a", company: "c", scenario: "D" }, any)).toBe(any[0]);
+  });
+
+  it("prefer the most specific entry, then the first", () => {
+    const broad = { agent: "pi-poppy", company: "*", scenario: "*", issue, reason: "broad" };
+    const exact = { agent: "pi-poppy", company: "dpa-mock-strict", scenario: "SE", issue, reason: "exact" };
+    const later = { agent: "pi-poppy", company: "*", scenario: "SE", issue, reason: "later" };
+    const known = [broad, later, exact];
+    expect(knownFailure({ agent: "pi-poppy", company: "dpa-mock-strict", scenario: "SE" }, known)).toBe(exact);
+    expect(knownFailure({ agent: "pi-poppy", company: "pi-poppy", scenario: "SE" }, known)).toBe(later);
+    expect(knownFailure({ agent: "pi-poppy", company: "pi-poppy", scenario: "O" }, known)).toBe(broad);
+    const first = { ...later, reason: "first" };
+    expect(knownFailure({ agent: "pi-poppy", company: "x", scenario: "SE" }, [first, later])).toBe(first);
+  });
+
+  it("are attached to failed cells through wildcards, and unmatched ones are found", () => {
+    const cells = [cell("pi-poppy", "a", "fail", [], "SE"), cell("pi-poppy", "b", "error", [], "SE"), cell("pi-poppy", "c", "pass", [], "SE"), cell("dpa", "a", "fail", [], "SE")];
+    const known = [
+      { agent: "pi-poppy", company: "*", scenario: "SE", issue, reason: "renewal" },
+      { agent: "*", company: "*", scenario: "O", issue, reason: "fixed" }
+    ];
+    attributeAll(cells, { ...none, known });
+    expect(cells.map((c) => c.known?.reason ?? null)).toEqual(["renewal", "renewal", null, null]);
+    expect(unexpected(cells).map((c) => `${c.agent}×${c.company}`)).toEqual(["dpa×a"]);
+    expect(unmatchedKnown(cells, known)).toEqual([known[1]]);
+  });
+});
+
 describe("reading compatibility", () => {
   it("lets an accepting side's either or any accept everything", () => {
     expect(compatible("S1", "token-endpoint", "either")).toBe(true);
     expect(compatible("S1", "token-endpoint", "issuer")).toBe(false);
     expect(compatible("S3", "either", "append")).toBe(true);
     expect(compatible("S1", undefined, "issuer")).toBe(true);
+  });
+
+  it("tells S1's token endpoint everywhere from the endpoint each assertion goes to", () => {
+    expect(compatible("S1", "endpoint", "endpoint")).toBe(true);
+    expect(compatible("S1", "token-endpoint", "endpoint")).toBe(false);
+    expect(compatible("S1", "endpoint", "token-endpoint")).toBe(false);
+    expect(compatible("S1", "endpoint", "either")).toBe(true);
+  });
+
+  it("checks a declared S1 at every endpoint a client assertion goes to", () => {
+    const metadata = {
+      issuer: "https://auth.x.company.interop.test",
+      token_endpoint: "https://auth.x.company.interop.test/token",
+      device_authorization_endpoint: "https://auth.x.company.interop.test/device",
+      revocation_endpoint: "https://auth.x.company.interop.test/revoke"
+    };
+    const assertion = (aud: string) => jwt({ alg: "ES256", typ: "JWT", kid: "k" }, { iss: "c", sub: "c", aud, iat: NOW, exp: NOW + 60, jti: "j" });
+    const trace = recording(
+      { url: "https://auth.x.company.interop.test/.well-known/oauth-authorization-server", response: metadata },
+      { url: metadata.token_endpoint, form: { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", client_assertion: assertion(metadata.token_endpoint) } },
+      { url: metadata.device_authorization_endpoint, form: { scope: "poppy:read", client_assertion: assertion(metadata.device_authorization_endpoint) } },
+      { url: metadata.revocation_endpoint, form: { token: "t", client_assertion: assertion(metadata.token_endpoint) } }
+    );
+    const s1 = (reading: string) => readingChecks(trace, { S1: reading }).filter((check) => check.id === "reading.S1").map((check) => check.exchange);
+    // "endpoint": the revocation request named the token endpoint.
+    expect(s1("endpoint")).toEqual([3]);
+    // "token-endpoint": the device request named itself.
+    expect(s1("token-endpoint")).toEqual([2]);
+    expect(s1("issuer")).toEqual([1, 2, 3]);
+    expect(s1("either")).toEqual([]);
   });
 
   it("knows which way S2 and S23 break", () => {

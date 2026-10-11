@@ -6,7 +6,7 @@
   "steps": [
     { "agent": "discover" },
     { "agent": "session" },
-    { "agent": "signin", "params": { "method": "mediated", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "agent": "signin", "params": { "method": "mediated", "scopes": "${fixture.scopes.read}" }, "save": "pending" },
     { "expect": { "${pending.pending.fields}": { "$length_gte": 1 } } },
     { "company": "mediated_answers", "params": { "account": "${fixture.accounts.0}" }, "save": "answers" },
     { "agent": "signin_continue", "params": { "fields": "${answers.fields}" }, "save": "done" },

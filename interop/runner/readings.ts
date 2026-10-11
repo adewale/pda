@@ -8,7 +8,7 @@ import { decodeJwt, form, jsonBody, type Exchange } from "./har.ts";
 import type { Check } from "./types.ts";
 
 export const QUESTIONS = {
-  S1: { question: "Client assertion aud", values: ["issuer", "token-endpoint", "either"] },
+  S1: { question: "Client assertion aud", values: ["issuer", "token-endpoint", "endpoint", "either"] },
   S2: { question: "Assertion typ and lifetime", values: ["jwt-60s", "any"] },
   S3: { question: "Metadata location for an issuer with a path", values: ["insertion", "append", "either"] },
   S4: { question: "scope on a signed-out Session request", values: ["omit", "poppy-read", "either"] },
@@ -16,6 +16,26 @@ export const QUESTIONS = {
 } as const;
 
 export type QuestionId = keyof typeof QUESTIONS;
+
+/**
+ * Checks (trace or Company-recorded, by the mock's violation ids) that test
+ * nothing but one reading: a strict Company's refusal of a typ-less or
+ * long-lived assertion is S2; of a client assertion's aud, S1.
+ */
+const CHECK_QUESTIONS: Readonly<Record<string, QuestionId>> = {
+  "client-assertion.typ": "S2",
+  "client-assertion.kid": "S2",
+  "client-assertion.lifetime": "S2",
+  "session-assertion.typ": "S2",
+  "session-assertion.kid": "S2",
+  "session-assertion.lifetime": "S2",
+  "client-assertion.aud": "S1"
+};
+
+/** The section 7 question a check's id belongs to, if any. */
+export function questionOf(checkId: string): QuestionId | undefined {
+  return CHECK_QUESTIONS[checkId];
+}
 
 /**
  * Can an agent with one reading work with a Company with another? An agent
@@ -40,27 +60,40 @@ function warning(id: QuestionId, x: Exchange, detail: string): Check {
   return { id: `reading.${id}`, side: "agent", severity: "warning", exchange: x.index, detail, source: "trace" };
 }
 
-/** The agent's declared readings against its token requests (S1, S2, S4). */
+/** The OAuth endpoints a client assertion goes to, in a Company's server metadata (RFC 8414). */
+const ASSERTION_ENDPOINTS = ["token_endpoint", "device_authorization_endpoint", "revocation_endpoint", "pushed_authorization_request_endpoint"] as const;
+
+/**
+ * The agent's declared readings against its OAuth requests (S1, S2, S4).
+ * S1 is checked wherever a client assertion goes: `issuer` wants the
+ * issuer as `aud`, `token-endpoint` the token endpoint even at the device
+ * and revocation endpoints, `endpoint` the endpoint the assertion is sent to.
+ */
 export function readingChecks(all: readonly Exchange[], readings: Readonly<Record<string, string>>): Check[] {
   const found: Check[] = [];
-  const issuers = new Map<string, { issuer: string; token: string }>();
+  /** Each endpoint a Company's metadata names, with its issuer and token endpoint. */
+  const endpoints = new Map<string, { issuer: string; token: string }>();
   for (const x of all) {
     if (x.direction !== "to-company" || !x.url.pathname.startsWith("/.well-known/oauth-authorization-server")) continue;
-    const metadata = jsonBody(x.responseBody) as { issuer?: unknown; token_endpoint?: unknown } | undefined;
-    if (typeof metadata?.issuer === "string" && typeof metadata.token_endpoint === "string") {
-      issuers.set(metadata.token_endpoint, { issuer: metadata.issuer, token: metadata.token_endpoint });
+    const metadata = jsonBody(x.responseBody) as Record<string, unknown> | undefined;
+    if (typeof metadata?.issuer !== "string" || typeof metadata.token_endpoint !== "string") continue;
+    for (const name of ASSERTION_ENDPOINTS) {
+      const value = metadata[name];
+      if (typeof value === "string") endpoints.set(value, { issuer: metadata.issuer, token: metadata.token_endpoint });
     }
   }
   for (const x of all) {
     if (x.direction !== "to-company" || x.probe) continue;
     const fields = form(x);
-    if (!fields?.has("grant_type")) continue;
-    const endpoint = issuers.get(`${x.url.origin}${x.url.pathname}`);
+    if (!fields) continue;
+    const called = `${x.url.origin}${x.url.pathname}`;
+    const endpoint = endpoints.get(called);
     const client = decodeJwt(fields.get("client_assertion") ?? "");
     if (client && endpoint && readings.S1 && readings.S1 !== "either") {
-      const want = readings.S1 === "issuer" ? endpoint.issuer : endpoint.token;
-      if (client.payload.aud !== want) found.push(warning("S1", x, `declared ${readings.S1}, sent aud ${JSON.stringify(client.payload.aud)}`));
+      const want = readings.S1 === "issuer" ? endpoint.issuer : readings.S1 === "endpoint" ? called : endpoint.token;
+      if (client.payload.aud !== want) found.push(warning("S1", x, `declared ${readings.S1}, sent aud ${JSON.stringify(client.payload.aud)} to ${called}`));
     }
+    if (!fields.has("grant_type")) continue;
     if (readings.S2 === "jwt-60s") {
       for (const jwt of [fields.get("client_assertion"), fields.get("assertion")]) {
         const decoded = decodeJwt(jwt ?? "");

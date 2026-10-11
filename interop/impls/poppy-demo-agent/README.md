@@ -44,7 +44,7 @@ Results follow 5.2: a Poppy error the Company returned is `{"ok": false, "poppy_
 
 Scenarios claimed: `D`, `S0`, `N`, `SD`, `SX`, `SO`, `C`, `CA`, `AO`. `N` because the caller retries once with a `DPoP-Nonce`. `AO` works against Northstar only.
 
-Readings: `S1` `token-endpoint` (each client assertion's `aud` is the endpoint it's sent to, including the revocation endpoint), `S2` `jwt-60s`, `S3` `append` (it fetches `${auth.issuer}/.well-known/oauth-authorization-server`; the same URL as insertion unless the issuer has a path), `S4` `omit`. `S23` doesn't apply: nonces aren't kept between requests.
+Readings: `S1` `endpoint` (each client assertion's `aud` is the endpoint it's sent to, including the revocation endpoint), `S2` `jwt-60s`, `S3` `append` (it fetches `${auth.issuer}/.well-known/oauth-authorization-server`; the same URL as insertion unless the issuer has a path), `S4` `omit`. `S23` doesn't apply: nonces aren't kept between requests.
 
 ## Relaxations
 

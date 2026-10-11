@@ -23,7 +23,7 @@ import { DatabaseSync } from "node:sqlite";
 
 export const COMMIT = "12d71877d477b93f3ee68ebdc542560ba85997b9";
 const SUITES = ["protocol", "security", "lifecycle", "conversations", "operations"];
-// Datalayer's README once said 125; this commit has 124.
+// The number of cases at COMMIT.
 const EXPECTED_CASES = 124;
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 

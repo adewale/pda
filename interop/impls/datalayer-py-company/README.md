@@ -33,12 +33,13 @@ One Python process (`adapter.py`, Python 3.12):
 
 ## Relaxations
 
-All in the adapter, none in upstream code (`patches/` is empty). Each is off unless its variable is `1`; the image sets both.
+All in the adapter, none in upstream code (`patches/` is empty). The one setting is off unless its variable is `1`; the image sets it.
 
 - `INTEROP_ALLOW_TEST_HOSTS=1`: a Reactor `pap.urlSafetyPolicy` contribution at order 0 lets the Company fetch client metadata and JWKS from `*.interop.test` hosts that resolve to private addresses. Every other host keeps the SDK's `PublicUrlSafetyPolicy`.
-- `INTEROP_POPPY_SCOPES=1`: the scenarios ask for `poppy:read` and `poppy:write`; Manzanita knows `orders:read` and `orders:write` and refuses anything else with `invalid_scope`. In this mode the Company also offers the two poppy scopes, and its agent, API and MCP server are wrapped to read them as the orders scopes they stand for. `write_scopes` becomes `poppy:write` alone, because the service requires every write scope to confirm an operation. The poppy names get no `custom_scopes` description: `poppy:` names are reserved (our validator flags it, and our agent refuses the discovery document).
 - The httpx client the SDK is given trusts `/interop/ca.pem` (or `SSL_CERT_FILE`).
 - The organization domain and issuer are `INTEROP_ORIGIN`'s host instead of `manzanita.example`.
+
+Manzanita's scopes are `orders:read` and `orders:write`; the `fixture` hook names them (`scopes.read`, `scopes.write`, interop spec 5.3) and scenarios sign in with them, so no scope relaxation is needed.
 
 ## Scenarios
 
@@ -54,9 +55,9 @@ Claimed: D, S0, SD, SV, SMC, SX, SXV, R, SE, SO, C, CI, CS, CA, DC, AO, AS, W, O
 - **Its OpenAPI description doesn't declare path parameters.** `/api/orders/{order_id}/exchanges` has no `parameters`, which OpenAPI 3.x requires for path templates, so a client that fills only declared parameters (ours) sends the template literally.
 - **SSE closes when caught up.** `_stream` sends the backlog after `Last-Event-ID` and ends, with no keep-alive and no live events. The SDK's own client reconnects and then raises `stream_unavailable`.
 - **Mediated Sign-In with no `scope` signs in with no scopes** instead of `invalid_scope` (already in [poppy-issues.md](../../../docs/poppy-issues.md)).
-- **Client assertions at the device authorization and revocation endpoints** must have `aud` equal to that endpoint (`service.py` lines 670 and 808). The S1 reading only covers the token endpoint.
+- **Client assertions at the device authorization and revocation endpoints** must have `aud` equal to that endpoint (`service.py` lines 670 and 808), as at the token endpoint: S1 `endpoint`.
 - **An ended or expired Session gets 401 `invalid_token`**, never `invalid_session`.
 
 ## Readings
 
-`S1: token-endpoint` (assertion `aud` must be the token endpoint), `S2: any` (`typ` absent or `JWT`, lifetime up to five minutes), `S4: either` (`scope` on a signed-out Session request is ignored). The issuer has no path, so S3 doesn't arise.
+`S1: endpoint` (assertion `aud` must be the endpoint it is sent to), `S2: any` (`typ` absent or `JWT`, lifetime up to five minutes), `S4: either` (`scope` on a signed-out Session request is ignored). The issuer has no path, so S3 doesn't arise.

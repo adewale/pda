@@ -25,7 +25,6 @@ COPY adapter.py /adapter/adapter.py
 ENV UPSTREAM_COMMIT=$UPSTREAM_COMMIT \
     INTEROP_NAME=datalayer-py \
     INTEROP_ALLOW_TEST_HOSTS=1 \
-    INTEROP_POPPY_SCOPES=1 \
     PYTHONUNBUFFERED=1
 EXPOSE 8080 8081
 CMD ["python", "-I", "/adapter/adapter.py"]

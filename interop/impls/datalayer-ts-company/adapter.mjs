@@ -35,11 +35,6 @@ const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${NAME}.company.interop.t
 const DOMAIN = new URL(ORIGIN).hostname;
 const SECRET = process.env.INTEROP_SECRET || "";
 const ACCOUNT = "acct_ada";
-// Interop-only, off unless set: the scenarios ask for Poppy's poppy:read and poppy:write,
-// which Manzanita doesn't define. With this on, Manzanita also offers them, as synonyms
-// for orders:read and orders:write.
-const POPPY_SCOPES = process.env.INTEROP_POPPY_SCOPES === "1";
-const SYNONYMS = { "poppy:read": "orders:read", "poppy:write": "orders:write" };
 
 const MANIFEST = {
   interop: 1,
@@ -49,12 +44,9 @@ const MANIFEST = {
   poppy: ["0.1"],
   extensions: ["operations"],
   scenarios: ["D", "S0", "SD", "SV", "SXV", "SMC", "SX", "SE", "SO", "R", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX"],
-  readings: { S1: "token-endpoint", S3: "insertion", S4: "omit" },
+  readings: { S1: "endpoint", S3: "insertion", S4: "omit" },
   relaxations: [
     `organization.domain and auth.issuer set to ${DOMAIN} (Manzanita's config.domain; upstream default manzanita.example)`,
-    ...(POPPY_SCOPES
-      ? ["INTEROP_POPPY_SCOPES=1: Manzanita also offers poppy:read and poppy:write, as synonyms for orders:read and orders:write (adapter wrappers around its agent and API; no patch)"]
-      : []),
   ],
 };
 
@@ -79,22 +71,7 @@ class TrackingStore {
 
 let company;
 
-const widen = (scopes) => [...new Set([...scopes, ...scopes.map((scope) => SYNONYMS[scope]).filter(Boolean)])];
-
-/** Manzanita's agent, seeing poppy:* scopes as the orders:* ones they stand for. */
-class SynonymAgent {
-  constructor(inner) { this.inner = inner; }
-  respond(turn) { return this.inner.respond({ ...turn, scopes: widen(turn.scopes ?? []) }); }
-}
-
-/** Manzanita's API, the same way. */
-class SynonymApi {
-  constructor(inner) { this.inner = inner; this.description = inner.description; }
-  openapi() { return this.inner.openapi(); }
-  handle(call) { return this.inner.handle({ ...call, scopes: widen(call.scopes ?? []) }); }
-}
-
-/** Manzanita, assembled as `manzanita()` does, with its store given and its scopes optionally widened. */
+/** Manzanita, assembled as `manzanita()` does, with its store given. */
 function build() {
   const store = new TrackingStore();
   const plugin = new ManzanitaPlugin();
@@ -102,21 +79,15 @@ function build() {
   const api = new ManzanitaApi();
   const contributes = [
     { point: CompanyAccounts, value: new ManzanitaAccounts(), options: { id: "accounts" } },
-    { point: CompanyAgents, value: POPPY_SCOPES ? new SynonymAgent(agent) : agent, options: { id: "agent" } },
+    { point: CompanyAgents, value: agent, options: { id: "agent" } },
     { point: OperationExecutors, value: plugin.executor, options: { id: "exchange" } },
     { point: OperationExecutors, value: plugin.giftWrap, options: { id: "gift-wrap" } },
     { point: OperationExecutors, value: plugin.returns, options: { id: "returns" } },
     { point: OperationExecutors, value: plugin.repairs, options: { id: "repairs" } },
-    { point: CompanyApis, value: POPPY_SCOPES ? new SynonymApi(api) : api, options: { id: "api" } },
+    { point: CompanyApis, value: api, options: { id: "api" } },
     { point: CompanyStores, value: store, options: { id: "given-store", order: 0 } },
   ];
   const options = { ...CONFIG_OPTIONS, domain: DOMAIN };
-  if (POPPY_SCOPES) {
-    options.scopes = [...CONFIG_OPTIONS.scopes, "poppy:read", "poppy:write"];
-    // The service confirms operations only for a Session holding every write scope, so
-    // with synonyms on, the write scope is poppy:write (orders:write alone no longer confirms).
-    options.writeScopes = ["poppy:write"];
-  }
   const service = buildCompany(new CompanyConfig(options), {
     plugins: [{ name: "manzanita-interop", version: "1", contributes }],
   });
@@ -199,10 +170,10 @@ const hooks = {
     return { state: operation.state };
   },
   async fixture() {
-    const read = POPPY_SCOPES ? "poppy:read" : "orders:read";
+    // Manzanita's own scopes: scenarios sign in with these (interop spec 5.3).
     return {
       accounts: [ACCOUNT],
-      scopes: POPPY_SCOPES ? ["poppy:read", "poppy:write", ...CONFIG_OPTIONS.scopes] : [...CONFIG_OPTIONS.scopes],
+      scopes: { read: ["orders:read"], write: ["orders:read", "orders:write"] },
       openapi: { api: "openapi", operation: "GET /api/orders", args: {} },
       openapi_write: { api: "openapi", operation: "POST /api/orders/{order_id}/exchanges", args: { params: { order_id: "ord_7Hk2" }, body: {} } },
       prompts: {
@@ -211,7 +182,6 @@ const hooks = {
         operation: "I'd like to exchange it for a warmer one",
       },
       otp_account: ACCOUNT,
-      read_scope: read,
     };
   },
   async propose_operation(params) {

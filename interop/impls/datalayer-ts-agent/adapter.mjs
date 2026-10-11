@@ -48,8 +48,8 @@ const MANIFEST = {
   commit: UPSTREAM_COMMIT,
   poppy: ["0.1"],
   extensions: ["operations"],
-  scenarios: ["D", "S0", "N", "SD", "SV", "SXV", "SM", "SMC", "SX", "SE", "SO", "R", "RL", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX"],
-  readings: { S1: "token-endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit" },
+  scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SXV", "SM", "SMC", "SX", "SE", "SO", "R", "RL", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX"],
+  readings: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit" },
   relaxations: [],
 };
 

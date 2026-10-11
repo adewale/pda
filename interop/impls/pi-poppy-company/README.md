@@ -52,7 +52,7 @@ Other relaxations, with no upstream change:
 
 ## Readings
 
-`S1: token-endpoint` (each assertion's `aud` must be exactly the endpoint it is posted to), `S2: any` (no `typ` required; lifetimes up to 120 s), `S3: either` (the issuer has no path), `S4: either` (`scope` on a signed-out Session request is ignored), `S23: per-company` (one nonce for every endpoint).
+`S1: endpoint` (each assertion's `aud` must be exactly the endpoint it is posted to), `S2: any` (no `typ` required; lifetimes up to 120 s), `S3: either` (the issuer has no path), `S4: either` (`scope` on a signed-out Session request is ignored), `S23: per-company` (one nonce for every endpoint).
 
 ## Results
 

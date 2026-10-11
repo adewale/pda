@@ -29,7 +29,7 @@ const MANIFEST = {
   // S1: client assertions name the endpoint they're sent to (token or revocation endpoint).
   // S3: OAuth metadata is fetched at `${auth.issuer}/.well-known/oauth-authorization-server`.
   // S4: signed-out Session requests carry no scope. Nonces are not cached (S23 n/a).
-  readings: { S1: 'token-endpoint', S2: 'jwt-60s', S3: 'append', S4: 'omit' },
+  readings: { S1: 'endpoint', S2: 'jwt-60s', S3: 'append', S4: 'omit' },
   relaxations: [
     'Patch 0001: with no RECEIVER service binding configured, the caller reaches the Company with fetch() over the network (redirect: manual) instead of the service binding; our wrangler.interop.jsonc omits the binding.',
     'Runs under plain wrangler dev with our wrangler.interop.jsonc instead of the upstream cf beta CLI config; no AI binding, no built UI.',

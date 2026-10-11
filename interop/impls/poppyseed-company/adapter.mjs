@@ -33,7 +33,7 @@ const MANIFEST = {
   scenarios: ['D', 'S0', 'SD', 'SV', 'SX', 'SXV', 'SM', 'SMC', 'SE', 'SO', 'C', 'CA', 'CI', 'CS', 'AO', 'AM', 'AS', 'O', 'OX'],
   readings: {
     // Each client assertion's aud is the endpoint it is sent to (token, revocation or device authorization).
-    S1: 'token-endpoint',
+    S1: 'endpoint',
     // typ is not checked (only the browser typ is refused); lifetimes up to 120 s are accepted.
     S2: 'any',
     // The issuer is the bare origin, so the insertion and append locations are the same URL.

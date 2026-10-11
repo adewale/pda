@@ -6,7 +6,7 @@
   "steps": [
     { "agent": "discover" },
     { "agent": "session" },
-    { "agent": "signin", "params": { "method": "direct", "scopes": ["poppy:read"] }, "save": "pending" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "pending" },
     { "company": "deny_authorization", "params": { "url": "${pending.pending.url}" }, "save": "denied" },
     { "agent": "signin_continue", "params": { "callback_url": "${denied.redirect}" }, "save": "outcome" },
     { "expect": { "step": "outcome", "poppy_error": "access_denied" } },

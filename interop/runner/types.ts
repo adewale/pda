@@ -44,6 +44,8 @@ export type Step = {
   readonly save?: string;
   /** A 501 from the adapter skips this step instead of ending the cell as unsupported. */
   readonly optional?: boolean;
+  /** A `${...}` reference: the step runs only when it names something other than null or false. */
+  readonly when?: string;
   readonly expect?: Expectations;
   readonly note?: string;
 };

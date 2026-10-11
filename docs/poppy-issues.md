@@ -50,7 +50,7 @@ Its live documents pass our validator with no errors or warnings, and are fixtur
 
 ## Datalayer SDK (datalayer/personal-agent-protocol)
 
-The most complete SDK: Python and TypeScript, both sides, reference Companies, a requirements ledger and 125 shared conformance cases.
+The most complete SDK: Python and TypeScript, both sides, reference Companies, a requirements ledger and 124 shared conformance cases.
 
 | Issue | Where | Section | Severity |
 | --- | --- | --- | --- |

@@ -32,7 +32,7 @@ The SDK leaves some decisions to its host, so the adapter makes them, as a host 
 | `state` | yes | No token values. |
 | `web_join` | 501 | Needs a browser. |
 
-**Manifest:** scenarios `D S0 N SD SV SXV SM SMC SX SE SO R RL C CI CS CA AO AS O OX`. Readings: `S1: token-endpoint`, `S2: jwt-60s` (`typ: JWT`, `exp = iat + 60`), `S3: insertion`, `S4: omit`. `S23` is not declared: the SDK keeps no nonce between requests; it answers each `use_dpop_nonce` challenge once, with that response's nonce.
+**Manifest:** scenarios `D S0 N SD SV SXV SM SMC SX SE SO R RL C CI CS CA AO AS O OX`. Readings: `S1: endpoint` (each client assertion's `aud` is the endpoint it is sent to), `S2: jwt-60s` (`typ: JWT`, `exp = iat + 60`), `S3: insertion`, `S4: omit`. `S23` is not declared: the SDK keeps no nonce between requests; it answers each `use_dpop_nonce` challenge once, with that response's nonce.
 
 ## Relaxations and patches
 

@@ -26,19 +26,20 @@ The Company and the adapter run in one process; hooks call the `CompanyService` 
 | `require_nonce`, `rate_limit` | 501 | The service never sends DPoP nonces and has no rate limiter; the adapter doesn't fake either. |
 | `staff_join`, `staff_reply` | 501 | Manzanita has no staff. |
 
-**Manifest:** scenarios `D S0 SD SV SXV SMC SX SE SO R C CI CS CA AO AS O OX`. Not `SM`: Manzanita's only account always asks for a one-time code (that's `SMC`). Not `N`, `RL` or `AM`. Readings: `S1: token-endpoint` (the assertion `aud` must equal the endpoint it's sent to; the device and revocation endpoints too), `S3: insertion` (its issuer has no path, so both forms coincide), `S4: omit`.
+**Manifest:** scenarios `D S0 SD SV SXV SMC SX SE SO R C CI CS CA AO AS O OX`. Not `SM`: Manzanita's only account always asks for a one-time code (that's `SMC`). Not `N`, `RL` or `AM`. Readings: `S1: endpoint` (the assertion `aud` must equal the endpoint it's sent to; the device and revocation endpoints too), `S3: insertion` (its issuer has no path, so both forms coincide), `S4: omit`.
 
 ## Relaxations and patches
 
-No patches. Two settings:
+No patches. One setting:
 
 - `organization.domain` and the issuer come from `INTEROP_ORIGIN` (Manzanita's `config.domain`, upstream default `manzanita.example`). Configuration upstream supports.
-- `INTEROP_POPPY_SCOPES=1` (set in the Dockerfile; off when unset): every scenario asks for Poppy's `poppy:read` and `poppy:write`, which Manzanita doesn't define (it has `orders:read` and `orders:write`, and refuses other scopes with `invalid_scope`). With the setting on, Manzanita also offers `poppy:read` and `poppy:write`; wrappers around its agent and API treat them as `orders:read` and `orders:write`, and its write scope (needed to confirm an operation) becomes `poppy:write`. Without it, every signed-in scenario fails on scope names, not protocol.
+
+Manzanita's scopes are `orders:read` and `orders:write`, not Poppy's `poppy:*`. The `fixture` hook names them (`scopes.read`, `scopes.write`, interop spec 5.3), and scenarios sign in with them, so no scope relaxation is needed.
 
 The default client policy allows every agent and the default URL policy checks only host strings, so `*.agent.interop.test` client metadata and JWKS need no relaxation.
 
 ## Known upstream issues seen in the grid
 
-- **The OpenAPI description** (`ManzanitaApi.openapi()`) has templated paths (`/api/orders/{order_id}/exchanges`) with no `parameters`, so a client that fills only declared parameters (ours) sends `{order_id}` literally and gets 404.
+- **The OpenAPI description** (`ManzanitaApi.openapi()`) has templated paths (`/api/orders/{order_id}/exchanges`) with no `parameters`, so a client that fills only declared parameters sends `{order_id}` literally and gets 404. Ours now fills undeclared templates from the call's arguments by name, and refuses a call that leaves one unfilled.
 - **SSE** sends the backlog after `Last-Event-ID` and closes, with no keep-alive and no live events; Datalayer's own client then gives up (`stream_unavailable`) when resuming at the latest event.
 - Ended Sessions answer `401 invalid_token`, not `invalid_session`.

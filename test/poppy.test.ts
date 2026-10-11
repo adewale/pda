@@ -842,6 +842,20 @@ describe("6 APIs", () => {
     expect((await c.stub.state()).performs).toBe(1);
   });
 
+  it("says which error refused an approved write", async () => {
+    const c = await company({ operations: false });
+    const a = await agent();
+    await signInDirect(a, c, ["poppy:read"]);
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+    expect(result.text).toContain("Waiting for the User's approval");
+    const card = (await cards(a)).find((item) => item.kind === "approval")!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    const after = (await cards(a)).find((item) => item.kind === "approval")!;
+    expect(after).toMatchObject({ status: "failed" });
+    expect(after.result).toMatch(/insufficient_scope \[insufficient_scope\]$/);
+    expect((await c.stub.state()).performs).toBe(0);
+  });
+
   it("calls MCP tools with a Bearer token issued for that server only", async () => {
     const c = await company();
     const a = await agent();

@@ -1,0 +1,18 @@
+{
+  "id": "SVN",
+  "title": "Device Sign-In, polling, with DPoP nonces required",
+  "requirements": ["4.3", "4.6"],
+  "readings": ["S1", "S2", "S23"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["approve_device"] },
+  "steps": [
+    { "company": "require_nonce", "optional": true, "note": "A Company that always asks for nonces needs no hook; one that never does makes the cell unsupported at assert_trace." },
+    { "agent": "discover" },
+    { "agent": "session" },
+    { "agent": "signin", "params": { "method": "device", "scopes": "${fixture.scopes.read}" }, "save": "pending" },
+    { "expect": { "${pending.pending.user_code}": { "$exists": true } } },
+    { "company": "approve_device", "params": { "user_code": "${pending.pending.user_code}", "account": "${fixture.accounts.0}" } },
+    { "agent": "signin_continue", "save": "done", "note": "Every device poll is a token request, so each needs the nonce." },
+    { "expect": { "${done.signed_in}": true, "${done.scope}": { "$includes_scope": "${fixture.scopes.read}" } } },
+    { "runner": "assert_trace", "params": { "check": "nonce_retry" } }
+  ]
+}

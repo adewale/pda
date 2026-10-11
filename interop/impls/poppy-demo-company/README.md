@@ -33,7 +33,7 @@ The adapter starts `wrangler dev --local-upstream $COMPANY_HOST --upstream-proto
 
 Scenarios claimed: `D`, `S0`, `SD`, `SX`, `SO`, `C`, `CI`, `CA`, `AO`, `AS`. Not `N` (Northstar never sends a DPoP nonce), `R` (the refresh grant doesn't rotate the Account Token), `CS` (no SSE), `SV`, `SM`, `O`, `W`.
 
-Readings: `S1` `token-endpoint` (assertion `aud` must equal the endpoint exactly), `S2` `jwt-60s` (`typ: JWT`, `exp - iat ≤ 60`), `S4` `omit` (a signed-out Session request carrying `scope` gets `invalid_scope`).
+Readings: `S1` `endpoint` (assertion `aud` must equal the endpoint it is sent to, exactly), `S2` `jwt-60s` (`typ: JWT`, `exp - iat ≤ 60`), `S4` `omit` (a signed-out Session request carrying `scope` gets `invalid_scope`).
 
 ## Relaxations
 

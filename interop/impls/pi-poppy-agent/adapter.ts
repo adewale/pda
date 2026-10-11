@@ -505,8 +505,8 @@ const manifest = {
 	commit: COMMIT,
 	poppy: ["0.1"],
 	extensions: ["operations"],
-	scenarios: ["D", "S0", "N", "SD", "SV", "SM", "SMC", "SX", "SXV", "SO", "SE", "R", "C", "CI", "CA", "AO", "AM", "AS", "RL", "O", "OX"],
-	readings: { S1: "token-endpoint", S2: "any", S3: "append", S4: "omit", S23: "per-origin" },
+	scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "SO", "SE", "R", "C", "CI", "CA", "AO", "AM", "AS", "RL", "O", "OX"],
+	readings: { S1: "endpoint", S2: "any", S3: "append", S4: "omit", S23: "per-origin" },
 	relaxations: [
 		"PI_POPPY_INTEROP_PRIVATE_SUFFIX=.interop.test (patches/0001): host names under .interop.test may resolve to private addresses; unset by default, loopback still refused",
 		"Client metadata and JWKS are served by pi-poppy's IdentityServer handler on plain HTTP at the interop origin behind the proxy, instead of its own loopback HTTPS listener",
