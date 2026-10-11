@@ -56,7 +56,7 @@ Datalayer already applies it to Poppy: 125 shared JSON cases in `protocol/fixtur
 - **Network.** Every host is `*.interop.test`, served by a recording reverse proxy whose CA every container trusts. Our client already takes an injectable `Fetcher`. Other implementations need an interop-only setting that allows these names; pi-poppy also needs a loopback `client_id`.
 - **Human steps.** A Company hook where one exists; otherwise a Playwright script per Company that matches the consent URL, fills it in and approves. Approvals on the agent side go through the adapter's `approve_op`, which uses the same path as the page under a test identity, never an auth bypass.
 - **Checks on the recording.**
-  - Our mock Company's 132 named checks (`test/mock-company/violations.ts`) refactored into pure functions over a recorded exchange. Most need only the trace: JWT `typ`, `kid` and lifetime, `jti` reuse, DPoP `htu` and `ath`, tokens in URLs, one key per access token.
+  - Our mock Company's 142 named checks (`test/mock-company/violations.ts`) refactored into pure functions over a recorded exchange. Most need only the trace: JWT `typ`, `kid` and lifetime, `jti` reuse, DPoP `htu` and `ath`, tokens in URLs, one key per access token.
   - Discovery documents go through `src/validator/`.
   - New checks on Company responses: `WWW-Authenticate` on 401, `Retry-After` on 429, error codes, cursor and SSE shapes.
 - **Attribution,** in order:

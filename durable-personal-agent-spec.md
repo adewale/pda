@@ -722,6 +722,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.2 | Renew with `session_id`; on `invalid_session` start a new Session | `client.ts` | Test: "gets new tokens with a new DPoP key after an eviction"; `invalid_session` not yet |
 | 4.3 | API and conversation requests MUST carry `Authorization: DPoP` and a proof | `client.ts` `resource` | Mock |
 | 4.3 | A new proof per request; `ath` except at the token endpoint; `htu` without query or fragment | `jwt.ts` | Mock |
+| 4.3 | A DPoP key pair for each User at each Company | `client.ts` `dpopKey` | Design: one person per Durable Object, one key per issuer; Mock |
 | 4.3 | MUST support DPoP nonces | `client.ts` | Test: "supports DPoP nonces" (under nonces per origin and per Company, S23); Mock |
 | 4.3 | MCP: Bearer without `DPoP`, and MUST include `resource` = the MCP `url` | `apis.ts` | Test: "calls MCP tools with a Bearer token…"; Mock |
 | 4.3 | MUST send a Session Token on every API and conversation request | `client.ts` | Mock |
@@ -748,7 +749,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.9 | Sign out by revoking at `revocation_endpoint`; Sessions continue signed out | `signin.ts` | Test: "signs out by revoking the Account Token…"; Mock |
 | 4.9 | Detect disconnection through `invalid_token`, `sign_in_required`, `invalid_grant` | `client.ts` | Test: "continues signed out when the User disconnects…" |
 | 5 | MUST join the browser to a Session before browsing when the endpoint exists | `browser.ts` | Test: "joins the browser to the Session before browsing…" |
-| 5 | Browser assertion: `typ`, `aud`, `session_id`, `exp` ≤ `iat` + 60 s, fresh `jti` | `jwt.ts` | Mock |
+| 5 | Browser assertion: `typ`, `alg`, a published `kid` and no embedded key (Guides), `aud`, `session_id`, `iat` and `exp` present, `iat` not in the future, `exp` ≤ `iat` + 60 s, fresh `jti` | `jwt.ts` | Mock |
 | 5 | `return_to` MUST be HTTPS on the Company's domain | `browser.ts` | Mock |
 | 5 | Assertion MUST go in the POST body as a top-level navigation | `rendering.ts` | Test (adapter, against a stub of Puppeteer): "joins with a page whose form POSTs the assertion…", "escapes every field…"; Mock (with the fake browser). Not yet on real Browser Rendering |
 | 5 | MUST post assertions only from a browser we control | `browser.ts` | Design |
@@ -767,6 +768,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 7.8 | MUST set `sender`: `human` only for the User's own words | `conversations.ts`, page | Test: "offers the User a Direct Conversation…"; Mock |
 | 7.9 | Handoff with `{}`, after a summary (Guides) | `conversations.ts` | Test: "hands off to a person after a summary"; Mock |
 | 7.10 | Start a Direct Conversation only with the User's agreement; handle `direct_opened`, `direct_closed`, `direct_conversation_open` | `conversations.ts`, page | Test: "offers the User a Direct Conversation…", "lets the agent offer…" |
+| 7.10 | In a Direct Conversation, send the User's messages as written, as `human`; the model's own words stay out (our reading of S12) | `conversations.ts` | Test: "keeps the model's own words out of the User's Direct Conversation (7.10)"; Mock |
 | 7.11 | Handle `authorization` events; continue the same conversation | `conversations.ts` | Test: "handles an authorization event, then continues signed in" |
 | 7.12 | Close with `{}` when done | `conversations.ts` | Test: "closes a conversation"; Mock |
 | 7.13 | Handle every conversation error code | `conversations.ts` | Test: `direct_conversation_open`, `cursor_expired`; others not yet |
@@ -782,7 +784,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 5.1 | MUST NOT treat Company text as approval | `capability.ts` | Design: only page frames and standing permissions confirm |
 | 5.1 | A standing permission MUST cover the Company, account, action and every term; never when `user_approval_required` | `operations.ts` | Test: "confirms under a standing permission…", "asks the User when… exceeded", "asks the User once a standing permission's uses are spent", "asks the User when a standing permission's currency differs", "never uses a standing permission when…"; Mock |
 | 5.2 | Confirm with `revision` and `approved_by`; handle `terms_changed`, `user_approval_required`, scope errors | `operations.ts` | Test: "needs a new approval when the terms change"; Mock |
-| 6 | Retry or read with the same id; MUST NOT ask for a new proposal until final | `operations.ts` | Test: "tracks a slow operation…", "shows the Company's summary… confirms once…"; Mock |
+| 6 | Retry or read with the same id; MUST NOT ask for a new proposal until final | `operations.ts`, `apis.ts` | Test: "tracks a slow operation…", "shows the Company's summary… confirms once…", "doesn't ask for a new proposal while a confirmed operation isn't final (Ops 6)", "doesn't ask an MCP tool for a new proposal…"; Mock |
 | 6 | Present `result.summary` as the Company's account | `operations.ts` | Test: "shows the Company's summary verbatim…" |
 | 7 | Withdrawn approval: don't confirm; cancel if confirmed | `operations.ts`, page | Test: "declines a proposal by cancelling it" |
 
