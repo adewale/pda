@@ -33,7 +33,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Chat with one durable agent per person | Built; tested with Pi's fake model |
 | App sign-in with Google and GitHub | Built and tested against fake providers that check PKCE and can refuse. GitHub's OAuth client is configured (the live redirect to GitHub checks out); Google's isn't registered yet, so Google sign-in fails with a 500 naming the missing setting |
 | Claude through AI Gateway | Built; a live call fails with `x-api-key header is required` until the `default` gateway has Unified Billing credits or an Anthropic key |
-| Poppy client: every part in this spec | Built; passes the conformance tests against a strict mock Company, under six readings of the draft's open questions. Not yet tried against a real Company, because none has published `poppy.json` |
+| Poppy client: every part in this spec | Built; passes the conformance tests against a strict mock Company, under six readings of the draft's open questions. In the [interop grid](docs/interop-results/) it passes every scenario it shares with the Companies of six other projects. Not yet tried against a production Company, because none has published `poppy.json` |
 | Poppy identity (`/poppy/client.json`, `/poppy/jwks.json`) | Live, with production signing keys |
 | Web browsing | Built on Browser Rendering; tested only with a fetch-based fake browser |
 | Chat, Activity, Companies and Settings pages | Built; tested in happy-dom and checked in headless Chrome (light, dark, phone width). Not yet used with a real Company |
@@ -612,13 +612,14 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 
 ## Testing and conformance
 
-`npm test` runs three suites, one after another. CI (`.github/workflows/ci.yml`) runs them on every push with `npm run typecheck` and `npm run check:docs`, which checks that every test named in Appendix A exists. The docs give no test counts; `npx vitest list` does.
+`npm test` runs four suites, one after another. CI (`.github/workflows/ci.yml`) runs them on every push with `npm run typecheck` and `npm run check:docs`, which checks that every test named in Appendix A exists. The docs give no test counts; `npx vitest list` does.
 
 | Suite | Config | What |
 | --- | --- | --- |
 | Workers | `test/vitest.config.ts` | Everything below except the two other suites, in one workerd runtime |
 | Durability | `test/durability/vitest.config.ts` | Crashing every Durable Object and reloading the conversation; a runtime of its own, because a global abort would reset the objects other files are using |
 | Page | `test/ui/vitest.config.ts` | The chat page's cards and panels, the sign-in page, and the Browser Rendering adapter, in happy-dom |
+| Interop | `interop/vitest.config.ts` | The interop runner's scenario interpreter, trace checks, readings, attribution and known failures, in Node |
 
 | File | What |
 | --- | --- |
@@ -658,7 +659,8 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
   - Poppy: single-use `state`, sealing bound to its context, private-host refusal, standing permissions' use limit and currency, our client assertion's `typ` (fails most Poppy tests);
   - the mock: deleting its PKCE or Retry-After check;
   - JSON: duplicate-member rejection, and every other fault tried in either parser.
-- **What isn't tested.** Real Companies, real Browser Rendering (the adapter is tested against a stub), and the chat page in a real browser (its parts are tested in happy-dom). Appendix A marks each requirement as checked by a test, by the mock's verifier, by design, or not yet.
+- **Interop.** `npm run interop` runs every registered agent against every registered Company in containers, through a recording TLS proxy, and blames each failure on a side by a named rule ([`docs/interop-spec.md`](docs/interop-spec.md)). Our mock runs twice there: `dpa-mock`, lenient where the draft is silent, is the reference Company, and `dpa-mock-strict` keeps the strict assertion checks, so a failure caused only by an open question is blamed on the spec. CI runs our agent against both on every push; the latest full grid is in [`docs/interop-results/`](docs/interop-results/).
+- **What isn't tested.** Production Companies, real Browser Rendering (the adapter is tested against a stub), and the chat page in a real browser (its parts are tested in happy-dom). Appendix A marks each requirement as checked by a test, by the mock's verifier, by design, or not yet.
 
 ## Build plan
 
@@ -671,7 +673,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
    - close the "not yet" rows in Appendix A;
    - choose the final domain and move `PUBLIC_ORIGIN` to it;
    - try the agent against the first real Company to publish `poppy.json`;
-   - publish the mock Company and the conformance tests for other Personal Agents;
+   - publish the interop harness, with the mock Company as its reference, for other implementations (built; this repository is still private);
    - send our readings of the draft (Open questions) to its maintainers.
 
 ## Open questions and risks
@@ -683,9 +685,9 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 - [ ] **DPoP nonces per server.** The Guides say to keep a nonce "for that server". We key nonces by origin, so a Company's token endpoint and API can each require their own. Is that the intended reading?
 - [ ] **Writes at Companies with the Operations extension.** We let them through, expecting a proposal. A Company may use operations for some actions and not others, so a write there could act at once. Should the draft let a description mark which endpoints propose?
 - [ ] **Local Personal Agents.** §4.1 needs an HTTPS `client_id` on the same domain as the redirect URIs, so an agent on someone's laptop needs a hosted identity or Device Sign-In. A short note in the draft would help.
-- [ ] **Spec problems.** [`docs/spec-issues.md`](docs/spec-issues.md) lists 56, from comparing implementations (S1 to S23) and a full crawl of the site (N1 to N33), each with a suggested fix and what we do. The most important: sign-in not bound to the Session until the code exchange (N2), step-up revocation signing out other Sessions (N4), non-HTTPS URLs in `poppy.json` (N9), which hosts receive Session Tokens (N10), a shared issuer merging Companies (N11), and the client assertion's `aud` (S1).
-- [ ] **Gaps the crawl found in our own client and mock**, listed in [`docs/poppy-issues.md`](docs/poppy-issues.md) under "This project". The client's are closed; checks the mock doesn't make yet remain.
-- [ ] **M×N interop testing** with the other implementations: designed in [`docs/interop-testing.md`](docs/interop-testing.md), not built.
+- [ ] **Spec problems.** [`docs/spec-issues.md`](docs/spec-issues.md) lists 65, from comparing implementations (S1 to S23), a full crawl of the site (N1 to N33), the mock's new checks (N34, N35) and the interop grid (N36 to N42), each with a suggested fix and what we do. The most important: sign-in not bound to the Session until the code exchange (N2), step-up revocation signing out other Sessions (N4), non-HTTPS URLs in `poppy.json` (N9), which hosts receive Session Tokens (N10), a shared issuer merging Companies (N11), and the client assertion's `aud` (S1).
+- [ ] **Gaps the crawl found in our own client and mock**, listed in [`docs/poppy-issues.md`](docs/poppy-issues.md) under "This project". The client's are closed, and so are the mock's.
+- [x] **M×N interop testing** with the other implementations: built ([`docs/interop-testing.md`](docs/interop-testing.md), [`docs/interop-spec.md`](docs/interop-spec.md), [`interop/`](interop/README.md)). everruns compiles but isn't in the grid yet (Docker disk); adversarial adapters are next ([`docs/adversarial-interop.md`](docs/adversarial-interop.md)).
 - [ ] **Eviction.** In tests, `evictDurableObject()` timed out after a completed Pi run. If idle agents stay resident, DPoP keys live longer than assumed (harmless); if evictions are frequent, token requests increase.
 - [ ] **Compaction** of the never-ending conversation.
 - [ ] **Push notifications** are an open topic, so the agent polls.

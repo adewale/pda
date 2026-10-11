@@ -1,17 +1,19 @@
 # M×N interoperability testing for Poppy
 
-How to test every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, using pirate testing. This is the design and its rationale; [interop-spec.md](interop-spec.md) is the contract an implementation meets to join, and [`interop/`](../interop/README.md) is the harness. The implementations are listed in the [README](../README.md#other-implementations); the spec issues the matrix would exercise are in [poppy-issues.md](poppy-issues.md).
+How to test every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, using pirate testing. This is the design and its rationale; [interop-spec.md](interop-spec.md) is the contract an implementation meets to join, and [`interop/`](../interop/README.md) is the harness. The implementations are listed in the [README](../README.md#other-implementations); the spec issues the grid exercises are in [spec-issues.md](spec-issues.md), and what it found in each project is in [poppy-issues.md](poppy-issues.md). The latest results are in [interop-results/](interop-results/). How these ideas evolved is in [conformance-testing-history.md](conformance-testing-history.md), and the next step, deliberately misbehaving peers, in [adversarial-interop.md](adversarial-interop.md).
 
 ## What's built
 
 - **The runner** ([`interop/runner/`](../interop/runner)): a Node CLI, `npm run interop`. It builds each implementation's image, makes a CA and certificate per run with `openssl`, starts a Docker network with the recording proxy and every implementation, and runs each scenario × agent × Company cell, resetting both adapters first. It writes `results.json`, a HAR file per cell and an `index.html` grid to `interop/results/<run>/`.
 - **The recording proxy** ([`interop/proxy/`](../interop/proxy)): terminates TLS for every `*.interop.test` name, forwards to each container on port 8080, and records each exchange in full.
-- **Scenarios as data** ([`interop/scenarios/`](../interop/scenarios)): D, S0, N, SD, SV, SM, SMC, SX, SXV, C, CI, CS, CA, SO, SE, R, AO, AM, AS, O, OX and RL.
+- **Scenarios as data** ([`interop/scenarios/`](../interop/scenarios)): D, S0, N, SD, SV, SVN, SM, SMC, SX, SXV, C, CI, CS, CA, SO, SE, R, AO, AM, AS, O, OX and RL. Scopes come from each Company's fixture, so a Company with only custom scopes can take part.
 - **The checker** ([`checks.ts`](../interop/runner/checks.ts), [`documents.ts`](../interop/runner/documents.ts), [`readings.ts`](../interop/runner/readings.ts)): pure functions over the recording, named with the mock Company's violation ids where one fits, plus `src/validator` over every discovery document and client metadata served.
 - **Attribution** ([`attribution.ts`](../interop/runner/attribution.ts)) by the four rules, and known failures ([`known-failures.json`](../interop/known-failures.json)).
-- **Our two adapters:** [`dpa-agent`](../interop/impls/dpa-agent) runs `src/poppy` in Node, with Node's SQLite behind the Durable Object SQL API it uses, and no model; [`dpa-mock`](../interop/impls/dpa-mock) runs the strict mock Company behind the hooks API and reports its violations. Node was chosen over `wrangler dev` because Node trusts the run's CA through `NODE_EXTRA_CA_CERTS`, starts in a second, and needs no `workerd` networking in a container; the mock and the client are plain TypeScript over `fetch`, so the bundle is our shipped code.
+- **Our two adapters:** [`dpa-agent`](../interop/impls/dpa-agent) runs `src/poppy` in Node, with Node's SQLite behind the Durable Object SQL API it uses, and no model; [`dpa-mock`](../interop/impls/dpa-mock) runs the mock Company behind the hooks API and reports its violations. It is registered twice: `dpa-mock`, the reference Company, is lenient where the draft is silent (assertion `typ`, `kid` and lifetime, reading S2), and `dpa-mock-strict` keeps the strict checks, so a failure caused only by an open question is blamed on the spec, not hidden behind it. Node was chosen over `wrangler dev` because Node trusts the run's CA through `NODE_EXTRA_CA_CERTS`, starts in a second, and needs no `workerd` networking in a container; the mock and the client are plain TypeScript over `fetch`, so the bundle is our shipped code.
 - **One-sided vectors** ([`interop/vectors/`](../interop/vectors)): the validator fixtures and the mock's tamper rows, in Datalayer's schema, generated from the tests.
-- **CI** runs our agent against our mock Company on every push and keeps the results as an artifact.
+- **Adapters for seven other projects:** Datalayer (TypeScript and Python, both sides), pi-poppy (both), poppy-demo (both), poppyseed (Company), adonis-agora (both), Ilmer (Company), and everruns (both; compiles, not yet built into images). Each fetches upstream at a pinned commit; every change an implementation needed to act as a peer is an interop-only setting or a patch, listed in its manifest's `relaxations`.
+- **Known failures** take `*` for any agent, Company or scenario, so one root cause is one entry.
+- **CI** runs our agent against both mocks on every push and keeps the results as an artifact.
 
 Other implementations' adapters go in `interop/impls/<name>-agent` and `interop/impls/<name>-company`, registered in [`interop/registry.json`](../interop/registry.json).
 
@@ -99,6 +101,9 @@ Hardening (SSRF, duplicate JSON members, redirects on `client_id`) stays as one-
 
 ## Plan
 
+Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repository, the Playwright consent scripts, nightly CI for the full grid, and scenarios H, DC, W, O2 and CM. Datalayer's 124 cases run against our code: 24 pass, 2 fail on readings the draft leaves open, and 98 don't apply.
+
+
 1. **Pirate vectors, no network.**
    - Export our validator fixtures and the mock's tamper rows as language-neutral JSON.
    - Run Datalayer's 124 cases against `src/poppy` and `src/validator`.
@@ -117,6 +122,9 @@ Hardening (SSRF, duplicate JSON members, redirects on `client_id`) stays as one-
 5. **Live lane.** Public deployments (poppy.ilmer.org, withpoppyseed.dev), signed-out only and gently rate-limited. AdonisJS authkit and everruns come later; W needs real browsers.
 
 ## Risks
+
+The ones that happened: every project except ours and Ilmer needed a relaxation to accept test host names, and two of those relaxations are broader than needed ([N42](spec-issues.md#n42)); a strict reference Company hid everything else about two agents until we split it in two; harness bugs (a TLS wildcard that matched nothing, compressed bodies recorded undecoded, scenarios that treated `wait` as a promise) were as common as implementation bugs at first; and the shared Docker disk filled, which kept everruns out.
+
 
 - **Churn.** Everything is days old, and Draft 0.1 can break compatibility. Pin commits and the spec revision.
 - **Few runnable servers.** Several implementations need patches to act as interop peers (allowlists, hard-wired peers, SSRF or loopback relaxations). Every relaxation must be an interop-only setting.

@@ -201,7 +201,7 @@ CI runs typecheck, the tests and the docs check on every push, and the interop g
 
 The model, Google, GitHub and Companies are faked; nothing calls the network.
 
-**Interop.** `npm run interop` runs every agent against every Company in containers, over HTTPS through a recording proxy, and writes a grid with each failure blamed on a side by a named rule ([`interop/README.md`](interop/README.md), [`docs/interop-spec.md`](docs/interop-spec.md)). Our agent there is `src/poppy` driven directly, with no model; our Company is the strict mock. Docker is needed.
+**Interop.** `npm run interop` runs every agent against every Company in containers, over HTTPS through a recording proxy, and writes a grid with each failure blamed on a side by a named rule ([`interop/README.md`](interop/README.md), [`docs/interop-spec.md`](docs/interop-spec.md)). Our agent there is `src/poppy` driven directly, with no model; our Company is the mock, registered twice: lenient as the reference, and strict. Adapters for seven other projects let their agents and Companies meet ours and each other's. Docker is needed.
 
 ## Cloudflare services
 
@@ -217,7 +217,7 @@ The model, Google, GitHub and Companies are faked; nothing calls the network.
 
 ## Other implementations
 
-Poppy implementations we know of, as of 11 Oct 2026. All were days old.
+Poppy implementations we know of, as of 11 Oct 2026. All were days old. [`docs/implementations.md`](docs/implementations.md) has the full survey: licences, maturity, live deployments, validators, and related projects that aren't implementations.
 
 | Project | Side | Language |
 | --- | --- | --- |
@@ -229,14 +229,16 @@ Poppy implementations we know of, as of 11 Oct 2026. All were days old.
 | [richardanaya/pi-poppy](https://github.com/richardanaya/pi-poppy) | Personal Agent extension for the pi coding agent | TypeScript |
 | [everruns/everruns](https://github.com/everruns/everruns) | Both sides, signed-out only | Rust |
 | [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org) ([poppy.ilmer.org](https://poppy.ilmer.org/.well-known/poppy.json)) | Signed-out Company on Workers | TypeScript |
+| [futurebasicsrepo-client-hub-api `spot/`](https://github.com/futurebasicsrepo/futurebasicsrepo-client-hub-api/pull/160) ([spotmeplease.com](https://spotmeplease.com/.well-known/poppy.json)) | Company: a cart-approval and payment product, MCP with Bearer tokens | JavaScript |
+| [introspection-js-sdk `examples/pap-travel`](https://github.com/introspection-org/introspection-js-sdk/pull/441) | Demo of both sides (pull request open) | TypeScript |
 | [dirnbauer/webconsulting-typo3-lab](https://github.com/dirnbauer/webconsulting-typo3-lab) | Minimal signed-out Company (the extension itself is private) | PHP |
 
-[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 65 problems in the specification itself, with suggested fixes, [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, and [`interop/`](interop/README.md) runs it.
+[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 65 problems in the specification itself, with suggested fixes, [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, [`interop/`](interop/README.md) runs it, and [`docs/interop-results/`](docs/interop-results/) has the latest grid. [`docs/conformance-testing-history.md`](docs/conformance-testing-history.md) traces where pirate testing and interop runners came from, [`docs/adversarial-interop.md`](docs/adversarial-interop.md) designs deliberately misbehaving peers, and [`docs/proposals/`](docs/proposals/) holds unposted drafts proposing Poppy support in OpenClaw and Hermes Agent.
 
 ## Limitations
 
 - **Chat sign-in isn't live** until the Google and GitHub OAuth apps are registered and AI Gateway billing is set up; see [`docs/setup.md`](docs/setup.md). The validator works without either.
-- **No real company tested yet.** The Poppy client has run only against our mock Company; the live Companies above are signed-out or demos.
+- **No production Company tested yet.** The Poppy client has run against our mock and, in the [interop grid](docs/interop-results/), against the Companies of six other projects, which are SDKs, demos or signed-out. No business has published `poppy.json`.
 - **Fake browser only.** Website browsing has been tested with a fake browser, not Browser Rendering.
 - **Validator limits:**
   - It checks documents, not behaviour: it can't tell whether a token endpoint works.
