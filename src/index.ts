@@ -1,5 +1,8 @@
-import { isAllowed, readAllowlist } from "./allowlist";
-import { ConfigError, readModelConfig, readSessionSecret } from "./config";
+import type { KeyResult, PersonalAgent } from "./agent";
+import { maySignIn } from "./allowlist";
+import { ConfigError, readSessionSecret } from "./config";
+import { checkDeployment } from "./deployment.ts";
+import { clearOpenRouterFlow, readOpenRouterCallback, startOpenRouter } from "./openrouter";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
 import { handleIdentityRoute } from "./poppy/routes";
 import { handleValidator } from "./validator/http.ts";
@@ -12,6 +15,7 @@ import {
 } from "./session";
 
 export { PersonalAgent } from "./agent";
+export { DomainBudget } from "./budget";
 export { CompanyLimiter } from "./poppy/limiter";
 
 function text(status: number, body: string): Response {
@@ -21,18 +25,28 @@ function text(status: number, body: string): Response {
   });
 }
 
+function json(status: number, body: unknown): Response {
+  return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+}
+
 function sameOrigin(request: Request): boolean {
   return request.headers.get("Origin") === new URL(request.url).origin;
 }
 
 /**
- * The signed-in person, if they are still on the allowlist: removing someone
- * and redeploying locks them out on their next request.
+ * The signed-in person, if they may still use the app: removing someone from
+ * the allowlist (or `OWNERS`) and redeploying locks them out on their next
+ * request.
  */
 async function signedIn(request: Request, env: Env): Promise<Identity> {
   const identity = await verifySession(request, readSessionSecret(env));
-  if (!isAllowed(identity, readAllowlist(env))) throw new AuthError("Not on the allowlist");
+  if (!maySignIn(identity, env)) throw new AuthError("Not allowed to sign in");
   return identity;
+}
+
+/** The person's own agent, named by a hash of who they are. */
+async function agentFor(identity: Identity, env: Env): Promise<DurableObjectStub<PersonalAgent>> {
+  return env.PersonalAgent.getByName(await agentNameFor(identity));
 }
 
 /** Verify the session, upgrade, and forward to the person's own agent. */
@@ -44,14 +58,14 @@ async function handleWs(request: Request, env: Env): Promise<Response> {
   if (!sameOrigin(request)) {
     return text(403, "Cross-origin WebSocket refused");
   }
-  // Fail here, naming the var, rather than inside the agent's constructor.
-  readModelConfig(env);
   const identity = await signedIn(request, env);
-  const name = await agentNameFor(identity);
+  const agent = await agentFor(identity, env);
+  // Who this agent belongs to, for the demo check on its model calls.
+  await agent.recordIdentity(identity);
   // Drop the query string so the client cannot pick a pi session.
   const url = new URL(request.url);
   const forwarded = new Request(`${url.origin}/ws`, request);
-  return env.PersonalAgent.getByName(name).fetch(forwarded);
+  return agent.fetch(forwarded);
 }
 
 /** Who is signed in, for the page header. */
@@ -62,6 +76,36 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
     { email: identity.email, provider: identity.provider },
     { headers: { "Cache-Control": "no-store" } }
   );
+}
+
+/** `GET /api/entitlement`: the model lane, today's demo spend, the key's provider and state. Never the key. */
+async function handleEntitlement(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") return text(405, "Method not allowed");
+  const identity = await signedIn(request, env);
+  return json(200, await (await agentFor(identity, env)).entitlement(identity));
+}
+
+/**
+ * `POST /api/model-key` `{provider, key}` saves a key once the provider
+ * accepts it; `DELETE` removes it. Same origin only. The answer is the new
+ * entitlement or an error, never the key.
+ */
+async function handleModelKey(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST" && request.method !== "DELETE") return text(405, "Method not allowed");
+  if (!sameOrigin(request)) return text(403, "Cross-origin request refused");
+  const identity = await signedIn(request, env);
+  const agent = await agentFor(identity, env);
+  if (request.method === "DELETE") return json(200, await agent.removeModelKey(identity));
+  const raw = await request.text();
+  if (raw.length > 4096) return json(413, { error: "That's too long to be a key." });
+  let body: { provider?: unknown; key?: unknown };
+  try {
+    body = JSON.parse(raw) as typeof body;
+  } catch {
+    return json(400, { error: "Send JSON with provider and key." });
+  }
+  const result: KeyResult = await agent.setModelKey(identity, body?.provider, body?.key);
+  return result.ok ? json(200, result.entitlement) : json(result.status, { error: result.error });
 }
 
 /** `POST /logout` from this origin only, so another site cannot sign you out. */
@@ -93,13 +137,34 @@ async function handlePoppy(request: Request, env: Env): Promise<Response> {
       { status: 401, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } }
     );
   }
-  const agent = env.PersonalAgent.getByName(await agentNameFor(identity));
+  const agent = await agentFor(identity, env);
+  await agent.recordIdentity(identity);
   return agent.fetch(new Request(url.toString(), { method: "GET" }));
+}
+
+/** `/auth/openrouter/start` and its callback: connect OpenRouter instead of pasting a key. */
+async function handleOpenRouter(request: Request, env: Env, step: string): Promise<Response> {
+  const identity = await signedIn(request, env);
+  const agentName = await agentNameFor(identity);
+  if (step === "start") {
+    return startOpenRouter(request, env, agentName, env.POPPY_CLIENT_NAME);
+  }
+  const done = (query: string) =>
+    new Response(null, {
+      status: 303,
+      headers: { Location: `/settings?${query}`, "Set-Cookie": clearOpenRouterFlow(), "Cache-Control": "no-store" }
+    });
+  const callback = await readOpenRouterCallback(request, env, agentName);
+  if (!callback.ok) return done(`model_key_error=${callback.error}`);
+  const result = await (await agentFor(identity, env)).connectOpenRouter(identity, callback.code, callback.verifier);
+  return done(result.ok ? "model_key=connected" : "model_key_error=exchange");
 }
 
 /** `/auth/<provider>` and `/auth/<provider>/callback`. */
 async function handleAuth(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return text(405, "Method not allowed");
+  const openRouter = /^\/auth\/openrouter\/(start|callback)$/.exec(new URL(request.url).pathname);
+  if (openRouter) return handleOpenRouter(request, env, openRouter[1]!);
   const match = /^\/auth\/([a-z]+)(\/callback)?$/.exec(new URL(request.url).pathname);
   if (!match || !isProvider(match[1]!)) return text(404, "Not found");
   return match[2]
@@ -120,8 +185,13 @@ export default {
         });
         if (response) return response;
       }
+      // Fail closed, naming the setting, until the deployer has said who
+      // this deployment is for and where it lives.
+      checkDeployment(env);
       if (pathname === "/ws") return await handleWs(request, env);
       if (pathname === "/api/me") return await handleMe(request, env);
+      if (pathname === "/api/entitlement") return await handleEntitlement(request, env);
+      if (pathname === "/api/model-key") return await handleModelKey(request, env);
       if (pathname === "/logout") return handleLogout(request);
       if (pathname.startsWith("/auth/")) return await handleAuth(request, env);
       if (pathname.startsWith("/poppy/")) {
@@ -139,7 +209,7 @@ export default {
         console.error("config error", error.message);
         return text(500, error.message);
       }
-      console.error("request failed", error);
+      console.error("request failed", error instanceof Error ? `${error.name}: ${error.message}` : "unknown");
       return text(500, "Internal error");
     }
   }

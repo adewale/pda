@@ -10,12 +10,35 @@ const THINKING_LEVELS: readonly ThinkingLevel[] = [
   "max"
 ];
 
+/** Where a person's own model key comes from. */
+export type KeyProvider = "anthropic" | "openai" | "openrouter";
+
+export const KEY_PROVIDERS: readonly KeyProvider[] = ["anthropic", "openai", "openrouter"];
+
+export function isKeyProvider(value: unknown): value is KeyProvider {
+  return typeof value === "string" && (KEY_PROVIDERS as readonly string[]).includes(value);
+}
+
 export type ModelConfig = {
-  /** A `<slug>/<id>` from pi-ai's Cloudflare AI Gateway catalog. */
-  readonly modelId: string;
   readonly thinkingLevel: ThinkingLevel;
-  readonly aiGatewayId: string;
+  /** The demo lane: the deployment's AI Gateway, paid by its operator. */
+  readonly demo: {
+    readonly gatewayId: string;
+    /** A `<slug>/<id>` from pi-ai's Cloudflare AI Gateway catalog. */
+    readonly modelId: string;
+  };
+  /** The own-key lane: the model id in each provider's pi-ai catalog. */
+  readonly ownKey: Readonly<Record<KeyProvider, string>>;
 };
+
+/** Daily spend caps for the demo lane, in US dollars, per UTC day. */
+export type DemoCaps = {
+  readonly perUserUsd: number;
+  readonly perDomainUsd: number;
+};
+
+/** `allowlist`: only people on `SIGNIN_ALLOWLIST` (and `OWNERS`) sign in. `open`: anyone with a Google or GitHub account. */
+export type Signup = "allowlist" | "open";
 
 export type Provider = "google" | "github";
 
@@ -30,15 +53,26 @@ export class ConfigError extends Error {
 }
 
 /**
- * The settings this app reads. Model choices are Wrangler vars; sign-in
- * settings are per deployment, set with `wrangler secret put`.
+ * The settings this app reads. Product choices are Wrangler vars; who the
+ * deployment is for (`OWNERS`, the allowlists, `PUBLIC_ORIGIN`) comes from
+ * the deployer's own untracked file (`deployment.local.json`); sign-in
+ * settings are secrets, set with `wrangler secret put`.
  */
-type ConfigEnv = Pick<Env, "MODEL_ID" | "THINKING_LEVEL" | "AI_GATEWAY_ID"> & {
-  readonly SESSION_SECRET?: string;
-  readonly GOOGLE_CLIENT_ID?: string;
-  readonly GOOGLE_CLIENT_SECRET?: string;
-  readonly GITHUB_CLIENT_ID?: string;
-  readonly GITHUB_CLIENT_SECRET?: string;
+export type ConfigEnv = {
+  readonly THINKING_LEVEL?: unknown;
+  readonly DEMO_GATEWAY_ID?: unknown;
+  readonly DEMO_MODEL_ID?: unknown;
+  readonly ANTHROPIC_MODEL_ID?: unknown;
+  readonly OPENAI_MODEL_ID?: unknown;
+  readonly OPENROUTER_MODEL_ID?: unknown;
+  readonly DEMO_DAILY_USD_PER_USER?: unknown;
+  readonly DEMO_DAILY_USD_PER_DOMAIN?: unknown;
+  readonly SIGNUP?: unknown;
+  readonly SESSION_SECRET?: unknown;
+  readonly GOOGLE_CLIENT_ID?: unknown;
+  readonly GOOGLE_CLIENT_SECRET?: unknown;
+  readonly GITHUB_CLIENT_ID?: unknown;
+  readonly GITHUB_CLIENT_SECRET?: unknown;
 };
 
 function required(env: ConfigEnv, name: keyof ConfigEnv): string {
@@ -47,6 +81,15 @@ function required(env: ConfigEnv, name: keyof ConfigEnv): string {
     throw new ConfigError(`Missing required setting ${name}`);
   }
   return value.trim();
+}
+
+function dollars(env: ConfigEnv, name: keyof ConfigEnv): number {
+  const raw = env[name];
+  const value = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : raw;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new ConfigError(`${name} must be a number of US dollars, 0 or more`);
+  }
+  return value;
 }
 
 function isThinkingLevel(value: string): value is ThinkingLevel {
@@ -62,10 +105,33 @@ export function readModelConfig(env: ConfigEnv): ModelConfig {
     );
   }
   return {
-    modelId: required(env, "MODEL_ID"),
     thinkingLevel,
-    aiGatewayId: required(env, "AI_GATEWAY_ID")
+    demo: {
+      gatewayId: required(env, "DEMO_GATEWAY_ID"),
+      modelId: required(env, "DEMO_MODEL_ID")
+    },
+    ownKey: {
+      anthropic: required(env, "ANTHROPIC_MODEL_ID"),
+      openai: required(env, "OPENAI_MODEL_ID"),
+      openrouter: required(env, "OPENROUTER_MODEL_ID")
+    }
   };
+}
+
+/** The demo lane's daily caps. 0 turns the demo off. */
+export function readDemoCaps(env: ConfigEnv): DemoCaps {
+  return {
+    perUserUsd: dollars(env, "DEMO_DAILY_USD_PER_USER"),
+    perDomainUsd: dollars(env, "DEMO_DAILY_USD_PER_DOMAIN")
+  };
+}
+
+export function readSignup(env: ConfigEnv): Signup {
+  const value = required(env, "SIGNUP");
+  if (value !== "allowlist" && value !== "open") {
+    throw new ConfigError(`SIGNUP must be allowlist or open; got ${JSON.stringify(value)}`);
+  }
+  return value;
 }
 
 /** The key that signs session cookies. Rotating it signs everyone out. */

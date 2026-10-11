@@ -13,6 +13,7 @@
  */
 
 import { SignJWT } from "jose";
+import { fakeModels } from "./fake-models.ts";
 
 /** Must match test/wrangler.jsonc. */
 export const GOOGLE_CLIENT = { id: "google-test-client", secret: "google-test-secret" };
@@ -138,9 +139,11 @@ function githubApi(url: URL, grant: Grant): Response {
   return Response.json({ message: "Not Found" }, { status: 404 });
 }
 
-/** The outbound service: Google and GitHub, and no other network. */
+/** The outbound service: Google and GitHub, the model vendors (`fake-models.ts`), and no other network. */
 export async function fakeProviders(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  const model = await fakeModels(request);
+  if (model) return model;
   if (request.method === "POST" && url.href === "https://oauth2.googleapis.com/token") {
     const form = new URLSearchParams(await request.text());
     const grant = await redeem(form, GOOGLE_CLIENT);

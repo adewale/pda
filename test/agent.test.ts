@@ -318,7 +318,7 @@ describe("sign-in", () => {
 
   it("locks out a signed-in person once they are off the allowlist", async () => {
     const cookie = await sessionCookie(person());
-    const removed = { ALLOWLIST: { emails: [], domains: [], github: {} } } as unknown as Partial<Env>;
+    const removed = { SIGNIN_ALLOWLIST: { emails: [], domains: [], github: {} } } as unknown as Partial<Env>;
     const me = () => new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookie } });
     expect((await fetchWorker(me())).status).toBe(200);
     expect((await fetchWorker(me(), removed)).status).toBe(401);
@@ -327,13 +327,13 @@ describe("sign-in", () => {
     expect((await fetchWorker(callback, removed)).status).toBe(401);
   });
 
-  it("fails sign-in with a config error when ALLOWLIST is missing", async () => {
+  it("fails sign-in with a config error when SIGNIN_ALLOWLIST is missing", async () => {
     const response = await fetchWorker(
       new Request(`${ORIGIN}/auth/github/callback?code=x&state=y`),
-      { ALLOWLIST: undefined } as unknown as Partial<Env>
+      { SIGNIN_ALLOWLIST: undefined } as unknown as Partial<Env>
     );
     expect(response.status).toBe(500);
-    expect(await response.text()).toMatch(/^ALLOWLIST/);
+    expect(await response.text()).toMatch(/^SIGNIN_ALLOWLIST/);
   });
 
   it("rejects a callback whose state does not match", async () => {
@@ -537,10 +537,10 @@ describe("configuration", () => {
   it("fails with an error naming a missing model var", async () => {
     const identity = person();
     const response = await fetchWorker(wsRequest({ cookie: await sessionCookie(identity) }), {
-      MODEL_ID: "" as Env["MODEL_ID"]
+      DEMO_MODEL_ID: "" as Env["DEMO_MODEL_ID"]
     });
     expect(response.status).toBe(500);
-    expect(await response.text()).toContain("MODEL_ID");
+    expect(await response.text()).toContain("DEMO_MODEL_ID");
   });
 
   it("rejects a misspelt thinking level, naming the var", async () => {
@@ -565,9 +565,9 @@ describe("configuration", () => {
     expect(await response.text()).toContain("GOOGLE_CLIENT_ID");
   });
 
-  it("resolves the configured MODEL_ID in the gateway catalog as Claude Opus 5.5", () => {
-    const ai = createAI({ binding: {} as Ai, id: env.AI_GATEWAY_ID });
-    const model = ai(env.MODEL_ID) as { name?: string; id: string };
+  it("resolves the configured DEMO_MODEL_ID in the gateway catalog as Claude Opus 5.5", () => {
+    const ai = createAI({ binding: {} as Ai, id: env.DEMO_GATEWAY_ID });
+    const model = ai(env.DEMO_MODEL_ID) as { name?: string; id: string };
     expect(model.name).toBe("Claude Opus 5.5");
   });
 });

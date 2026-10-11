@@ -1,0 +1,13 @@
+# Secrets for local development (copy to .dev.vars) and, in production,
+# `npx wrangler secret put <NAME>`. Never commit real values.
+SESSION_SECRET=
+# node scripts/poppy-secrets.mjs signing-keys
+POPPY_SIGNING_JWKS=
+# node scripts/poppy-secrets.mjs token-key
+TOKEN_ENC_KEY=
+# Set only while rotating TOKEN_ENC_KEY: the old key.
+TOKEN_ENC_KEY_PREVIOUS=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=

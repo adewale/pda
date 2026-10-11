@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
-  // The production Worker and agent, with only the model swapped (worker.ts).
+  // The production Worker and agent, with only the demo lane's model swapped (worker.ts).
   "main": "worker.ts",
   "compatibility_date": "2026-10-09",
   "compatibility_flags": ["nodejs_compat"],
@@ -8,13 +8,14 @@
     "bindings": [
       { "name": "PersonalAgent", "class_name": "PersonalAgent" },
       { "name": "CompanyLimiter", "class_name": "CompanyLimiter" },
+      { "name": "DomainBudget", "class_name": "DomainBudget" },
       { "name": "MOCK_COMPANY", "class_name": "MockCompany" }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["PersonalAgent", "CompanyLimiter", "MockCompany"]
+      "new_sqlite_classes": ["PersonalAgent", "CompanyLimiter", "DomainBudget", "MockCompany"]
     }
   ],
   // The public validator's URL checks: per client address.
@@ -22,9 +23,16 @@
     { "name": "VALIDATOR_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }
   ],
   "vars": {
-    "MODEL_ID": "anthropic/claude-opus-5-5",
     "THINKING_LEVEL": "medium",
-    "AI_GATEWAY_ID": "default",
+    "DEMO_GATEWAY_ID": "demo",
+    "DEMO_MODEL_ID": "anthropic/claude-opus-5-5",
+    // Small caps, spent only by test/model-access.test.ts, in domains of its own.
+    "DEMO_DAILY_USD_PER_USER": 1,
+    "DEMO_DAILY_USD_PER_DOMAIN": 1.5,
+    "ANTHROPIC_MODEL_ID": "claude-opus-5-5",
+    "OPENAI_MODEL_ID": "gpt-6.1-sol",
+    "OPENROUTER_MODEL_ID": "anthropic/claude-opus-5.5",
+    "SIGNUP": "allowlist",
     "SESSION_SECRET": "test-session-secret-at-least-32-characters-long",
     "GOOGLE_CLIENT_ID": "google-test-client",
     "GOOGLE_CLIENT_SECRET": "google-test-secret",
@@ -33,9 +41,16 @@
     "PUBLIC_ORIGIN": "https://agent.test",
     "POPPY_CLIENT_NAME": "Test Personal Agent",
     "POPPY_LOGO_URI": "https://agent.test/logo.svg",
-    "ALLOWLIST": {
+    "OWNERS": { "emails": ["owner@example.com"], "github": { "owner": 4141 } },
+    // nokey.example signs in but isn't on the demo, so it needs its own key.
+    "SIGNIN_ALLOWLIST": {
       "emails": ["G@Example.com"],
-      "domains": ["Workspace.Example"],
+      "domains": ["Workspace.Example", "capped-user.example", "capped-domain.example", "capped-background.example", "nokey.example"],
+      "github": { "octo": 4242, "hubot": 4343 }
+    },
+    "DEMO_ALLOWLIST": {
+      "emails": ["G@Example.com"],
+      "domains": ["Workspace.Example", "capped-user.example", "capped-domain.example", "capped-background.example"],
       "github": { "octo": 4242, "hubot": 4343 }
     }
   }
