@@ -228,6 +228,43 @@ export function tokenHostAllowed(company: Company, url: URL): boolean {
   );
 }
 
+/**
+ * The Poppy endpoint `url` is, or is under, if any: sign-in and token
+ * endpoints, the conversation and operations endpoints, the browser-session
+ * endpoint. Only the client's own code calls them: confirming an operation
+ * is the User's decision (Ops 5.1), and a message needs our message id and
+ * an honest `sender` (7.3, 7.8). A Company's OpenAPI description may list
+ * them too, so a model calling an API operation must never reach one.
+ */
+export function protocolEndpoint(company: Company, url: URL): string | null {
+  const path = (value: URL) => {
+    let pathname = value.pathname;
+    try {
+      pathname = decodeURIComponent(pathname);
+    } catch {
+      // Malformed escapes: compare as sent.
+    }
+    return `${value.origin}${pathname.replace(/\/+$/, "")}`.toLowerCase();
+  };
+  const target = path(url);
+  const endpoints = [
+    company.endpoints.token,
+    company.endpoints.revocation,
+    company.endpoints.authorization,
+    company.endpoints.deviceAuthorization,
+    company.signIn.mediated?.endpoint,
+    company.conversations?.endpoint,
+    company.extensions.operations?.endpoint,
+    company.web?.browserSessionEndpoint
+  ];
+  for (const endpoint of endpoints) {
+    if (!endpoint || !URL.canParse(endpoint)) continue;
+    const base = path(new URL(endpoint));
+    if (target === base || target.startsWith(`${base}/`)) return endpoint;
+  }
+  return null;
+}
+
 export function isCompany(value: Company | WebsiteOnly): value is Company {
   return !("websiteOnly" in value);
 }

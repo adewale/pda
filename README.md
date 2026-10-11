@@ -176,7 +176,7 @@ The app has four places:
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
-npm test                         # four suites: Workers, durability, page, interop harness
+npm test                         # five suites: Workers, durability, page, interop harness, properties
 npm run typecheck
 npm run check:docs               # every test the spec's Appendix A names exists
 npm run interop                  # the interop grid in Docker (interop/README.md)

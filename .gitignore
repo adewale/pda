@@ -9,3 +9,6 @@ dist/
 # Agent worktrees
 .claude/worktrees/
 interop/results/
+
+# Hegel's local example database (test/properties)
+.hegel/

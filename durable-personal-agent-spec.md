@@ -606,13 +606,13 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
   - Signing keys exist only as a Worker secret.
   - None of them reach the model, tool results, the transcript, logs or URLs. Mediated credentials pass through memory once, from the card to the one request.
   - Responses that carry codes are `Cache-Control: no-store`.
-- **Untrusted content.** Company text and data are presented to the model as information, never instructions, and never the User's approval.
+- **Untrusted content.** Company text and data are presented to the model as information, never instructions, and never the User's approval. That is structural, not left to the model: no tool confirms or cancels an operation, and `poppy_api_call` refuses any URL at or under a Poppy endpoint (token, sign-in, conversation, operations, browser-session), even when a Company's OpenAPI description lists it, so a model that obeys injected text can't confirm an operation or send a message as the User.
 - **Spend.** The sign-in allowlist now, and a per-person daily message cap (milestone 2).
 - **Deletion.** "Delete my agent" (milestone 2) first revokes every Account Token at its Company, then runs `ctx.storage.deleteAll()`.
 
 ## Testing and conformance
 
-`npm test` runs four suites, one after another. CI (`.github/workflows/ci.yml`) runs them on every push with `npm run typecheck` and `npm run check:docs`, which checks that every test named in Appendix A exists. The docs give no test counts; `npx vitest list` does.
+`npm test` runs five suites, one after another. CI (`.github/workflows/ci.yml`) runs them on every push with `npm run typecheck` and `npm run check:docs`, which checks that every test named in Appendix A exists. The docs give no test counts; `npx vitest list` does.
 
 | Suite | Config | What |
 | --- | --- | --- |
@@ -620,21 +620,28 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | Durability | `test/durability/vitest.config.ts` | Crashing every Durable Object and reloading the conversation; a runtime of its own, because a global abort would reset the objects other files are using |
 | Page | `test/ui/vitest.config.ts` | The chat page's cards and panels, the sign-in page, and the Browser Rendering adapter, in happy-dom |
 | Interop | `interop/vitest.config.ts` | The interop runner's scenario interpreter, trace checks, readings, attribution and known failures, in Node |
+| Properties | `test/properties/vitest.config.ts` | Property-based tests with Hegel (`@hegeldev/hegel`, the Hypothesis team's library), in Node, because its engine loads by FFI: 100 cases a property by default; `HEGEL_CASES=5000 npm run test:properties` for a deep local run |
 
 | File | What |
 | --- | --- |
 | `test/agent.test.ts` | App sign-in (PKCE, every ID-token and GitHub profile check, flow expiry), the allowlist, `/ws`, durability, configuration |
 | `test/allowlist.test.ts` | Reading and matching the allowlist |
-| `test/json.test.ts` | Both JSON parsers against `JSON.parse`, property-based (fast-check, fixed seed): duplicates, depth, garbage |
+| `test/properties/json.test.ts` | Both JSON parsers against `JSON.parse`, property-based: duplicates, depth, garbage |
+| `test/properties/discovery.test.ts` | Discovery and the validator: every generated valid Company is discovered as its documents say; each broken MUST refuses it; no document, however broken, makes either throw anything but a DiscoveryError |
+| `test/properties/poppy.test.ts` | The client's pure parts against their contracts, both ways: scopes, `WWW-Authenticate`, `Retry-After`, `RateLimit`, path templates, private hosts, body limits, cache lifetimes, `htu`, device links, Poppy endpoints, operation highlights |
+| `test/properties/jwt.test.ts` | Our client's assertions and DPoP proofs pass the mock Company under every reading; each one-thing-wrong mutation is refused with the violation that names it |
+| `test/properties/model.test.ts` | Model-based: any sequence of honest steps (sign in, talk, renew, propose, approve or decline, sign out) runs the client against the mock Company in process, under drawn readings; after each step no violation, and both agree with a small model |
+| `test/properties/interop.test.ts` | Scenario `${…}` references and comparisons, and reading the HAR recording |
 | `test/validator.test.ts` | The discovery document validator: fixtures declared as data, a catalog test that every message has one, the spec's examples, live documents, fetching, the HTTP endpoint |
 | `test/mock-company.test.ts` | The mock Company itself: one `TAMPERS` row per check, proving it fires, and a catalog test that every check has a row |
 | `test/poppy.test.ts` | The Poppy client against the mock Company, grouped by spec section, with the sign-in, Session and sign-out sections run under six profiles |
 | `test/smoke.test.ts` | `scripts/smoke.mjs`, the read-only smoke test of a deployed Worker: passes against the Worker, fails against broken answers, sends only credential-free GETs |
+| `test/prompt-injection.test.ts` | Prompt injection, model lane: a Company's message, operation summary or MCP tool description tells the model to approve an operation or send a secret, and the faux model obeys; nothing is confirmed, nothing is sent as the User, no credential leaves |
 | `test/durability/crash.test.ts` | The conversation after a crash |
 | `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, the Browser Rendering adapter against a stub of Puppeteer |
 
 - **Fakes.**
-  - The model is Pi AI's faux provider.
+  - The model is Pi AI's faux provider. It echoes the latest user message, and obeys any `@@obey <tool> <arguments>` line it has just read, standing in for a model that follows instructions injected into Company text.
   - Google and GitHub are faked in `test/fake-providers.ts`. A test plays the consent page, and the fakes check the client, the redirect URI and the PKCE verifier. Each code can make them refuse or misbehave: a wrong `aud`, `iss` or `exp`, an unverified email, a GitHub profile with no id.
   - Fresh Poppy signing keys and a token key are generated for each run.
 - **The mock Company** (`test/mock-company/`) is a strict Company in a Durable Object, one instance per company id, serving all of its hosts.
@@ -660,6 +667,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
   - Poppy: single-use `state`, sealing bound to its context, private-host refusal, standing permissions' use limit and currency, our client assertion's `typ` (fails most Poppy tests);
   - the mock: deleting its PKCE or Retry-After check;
   - JSON: duplicate-member rejection, and every other fault tried in either parser.
+  - Properties: each client bug the property suite found (`Retry-After` junk read as a past date, `localhost.` passing the private-host check, a non-UTF-8 body thrown as a TypeError, a path value of `..` reaching another resource) fails its property, and its example in "what these properties found, as examples", with the fix taken out.
 - **Interop.** `npm run interop` runs every registered agent against every registered Company in containers, through a recording TLS proxy, and blames each failure on a side by a named rule ([`docs/interop-spec.md`](docs/interop-spec.md)). Our mock runs twice there: `dpa-mock`, lenient where the draft is silent, is the reference Company, and `dpa-mock-strict` keeps the strict assertion checks, so a failure caused only by an open question is blamed on the spec. CI runs our agent against both on every push; the latest full grid is in [`docs/interop-results/`](docs/interop-results/).
 - **What isn't tested.** Production Companies, real Browser Rendering (the adapter is tested against a stub), and the chat page in a real browser (its parts are tested in happy-dom). Appendix A marks each requirement as checked by a test, by the mock's verifier, by design, or not yet.
 
@@ -711,9 +719,9 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | --- | --- | --- | --- |
 | 3 | Follow redirects for `poppy.json`; every redirect MUST be HTTPS | `discovery.ts`, `fetch.ts` | Test: "follows an HTTPS redirect…", "refuses a redirect to http" |
 | 3 | Cache `poppy.json` per HTTP caching headers (SHOULD) | `client.ts` `lookup` | Not yet |
-| 3.1 | MUST NOT use a document whose major version isn't supported; ignore unknown fields | `discovery.ts` | Test: "refuses an unsupported major version", "discovers a Company…" |
-| 3.1 | `organization.domain` must match the requested host, ignoring `www.`; a redirect's host doesn't count | `discovery.ts` | Test: "refuses a document whose organization.domain doesn't match" |
-| 3.2 | MUST check the metadata's `issuer` equals `auth.issuer` and `poppy_domains` includes the domain | `validator/profiles/draft-0.ts`, `discovery.ts` | Test: "refuses an issuer whose metadata doesn't match", "…poppy_domains leaves the domain out"; validator tests "requires the issuer to match exactly…" |
+| 3.1 | MUST NOT use a document whose major version isn't supported; ignore unknown fields | `discovery.ts` | Test: "refuses an unsupported major version", "discovers a Company…"; property: "refuses a protocol_version whose major isn't 0", "discovers it, keyed by its issuer…" |
+| 3.1 | `organization.domain` must match the requested host, ignoring `www.`; a redirect's host doesn't count | `discovery.ts` | Test: "refuses a document whose organization.domain doesn't match"; property: "refuses an organization.domain that isn't the requested host" |
+| 3.2 | MUST check the metadata's `issuer` equals `auth.issuer` and `poppy_domains` includes the domain | `validator/profiles/draft-0.ts`, `discovery.ts` | Test: "refuses an issuer whose metadata doesn't match", "…poppy_domains leaves the domain out"; validator tests "requires the issuer to match exactly…"; property: "refuses metadata whose issuer isn't exactly auth.issuer", "refuses metadata whose poppy_domains leaves out organization.domain" |
 | 3.2 | Domains naming one issuer are one Company | `client.ts` | Test: "treats two domains naming one issuer as one Company…" |
 | 3.3 | MUST ignore unsupported extensions and unknown fields; list supported extensions in client metadata | `discovery.ts`, `routes.ts` | Test: "discovers a Company…", "serves the client metadata document…" |
 | 3.3 | Handle `extension_required`, naming the extension as data (`PoppyError.detail.extension`, the tool result's `details`) | `apis.ts`, `tools.ts` | Test: "tells the model which extension a Company requires…" |
@@ -723,21 +731,21 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.1 | Handle `invalid_client` | `client.ts` | Test: "reports a Company that hasn't registered this agent" |
 | 4.2 | MUST give each User a stable User ID per Company (by issuer) | `client.ts` `userId` | Test: "starts a signed-out Session with a random User ID" |
 | 4.2 | User ID MUST NOT contain or derive from personal information, even with a keyed hash | `client.ts` | Test: same; Mock |
-| 4.2 | Session assertion: `iss`, `sub`, single-string `aud`, short `exp`, `jti` ≥ 128 bits | `jwt.ts` | Mock |
+| 4.2 | Session assertion: `iss`, `sub`, single-string `aud`, short `exp`, `jti` ≥ 128 bits | `jwt.ts` | Mock; property: "a Session assertion, for any User ID our client makes", "a client assertion with one thing wrong" |
 | 4.2 | MUST NOT depend on Session Token contents | `client.ts` | Design |
 | 4.2 | Renew with `session_id`; on `invalid_session` start a new Session | `client.ts` | Test: "gets new tokens with a new DPoP key after an eviction"; `invalid_session` not yet |
 | 4.3 | API and conversation requests MUST carry `Authorization: DPoP` and a proof | `client.ts` `resource` | Mock |
-| 4.3 | A new proof per request; `ath` except at the token endpoint; `htu` without query or fragment | `jwt.ts` | Mock |
+| 4.3 | A new proof per request; `ath` except at the token endpoint; `htu` without query or fragment | `jwt.ts` | Mock; property: "a DPoP proof, for any method and URL, with the token's ath and the server's nonce", "a proof with one thing wrong", "is the request URL without its query or fragment" |
 | 4.3 | A DPoP key pair for each User at each Company | `client.ts` `dpopKey` | Design: one person per Durable Object, one key per issuer; Mock |
 | 4.3 | MUST support DPoP nonces | `client.ts` | Test: "supports DPoP nonces" (under nonces per origin and per Company, S23); Mock |
 | 4.3 | MCP: Bearer without `DPoP`, and MUST include `resource` = the MCP `url` | `apis.ts` | Test: "calls MCP tools with a Bearer token…"; Mock |
 | 4.3 | Ask for tokens for an entry's `resource` (RFC 8707) | `apis.ts`, `client.ts` | Test: "asks for tokens for an API entry's resource…" |
 | 4.3 | Narrower tokens for read-only lookups (Guides), keeping the scopes the operation declares | `apis.ts` | Test: "keeps the custom scope a read-only lookup needs…", "narrows read-only lookups at a Company that has only custom scopes" |
-| 4.3 | Session Tokens only to the Company's hosts (our reading; N10) | `discovery.ts` `tokenHostAllowed`, `client.ts`, `apis.ts` | Test: "never sends a Session Token to a server on another host…", "calls a server on a domain the issuer lists in poppy_domains", "decides which hosts may get Session Tokens…" |
+| 4.3 | Session Tokens only to the Company's hosts (our reading; N10) | `discovery.ts` `tokenHostAllowed`, `client.ts`, `apis.ts` | Test: "never sends a Session Token to a server on another host…", "calls a server on a domain the issuer lists in poppy_domains", "decides which hosts may get Session Tokens…"; property: "lets every host poppy.json lists for a service that takes a Session Token have one…" |
 | 4.3 | MUST send a Session Token on every API and conversation request | `client.ts` | Mock |
 | 4.3 | MUST use the newest Session Token for a Session | `client.ts` | Mock |
 | 4.3 | MUST NOT send tokens in a URL | `client.ts` | Mock; the client refuses such a URL |
-| 4.3 | MUST wait at least `Retry-After` on 429 | `client.ts`, `limiter.ts`, `browser.ts` | Test: "waits out Retry-After on 429 before retrying", "waits out Retry-After on a website page…", "gives up on a website page whose Retry-After is too long…"; Mock |
+| 4.3 | MUST wait at least `Retry-After` on 429 | `client.ts`, `limiter.ts`, `browser.ts` | Test: "waits out Retry-After on 429 before retrying", "waits out Retry-After on a website page…", "gives up on a website page whose Retry-After is too long…"; property: "waits delay-seconds exactly", "waits until an HTTP-date…", "ignores a value that is neither delay-seconds nor an HTTP-date", "reads a Retry-After that is neither delay-seconds nor an HTTP-date as none…"; Mock |
 | 4.4 | MUST use Direct or Device Sign-In only when the User signs in themselves | `browser.ts`, page | Test: "never opens the Company's sign-in pages"; Design |
 | 4.4 | Each sign-in request MUST include `scope` | `signin.ts` | Mock |
 | 4.4 | Check the granted `scope`; an omitted `scope` is the scope requested (RFC 6749 §5.1; N6) | `signin.ts`, `client.ts` | Test: "notices when the User approves fewer scopes", "takes an omitted scope as the scope asked for…", "keeps a signed-out Session's empty scope…" |
@@ -764,7 +772,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 5 | MUST post assertions only from a browser we control | `browser.ts` | Design |
 | 6 | Skip unknown API types; DPoP for OpenAPI, Bearer for MCP | `discovery.ts`, `apis.ts` | Test: "discovers a Company…"; Mock |
 | 6 | Handle `invalid_token`, `sign_in_required`, `insufficient_scope` | `client.ts` | Test: "asks for sign-in when an API needs the account" |
-| 6 | Fill OpenAPI path templates from the call's arguments, declared as parameters or not; refuse one left unfilled before any request | `apis.ts` | Test: "fills a path template the description doesn't declare as a parameter, by name", "refuses a path it can't fill before any request, not sending the template" |
+| 6 | Fill OpenAPI path templates from the call's arguments, declared as parameters or not; refuse one left unfilled before any request | `apis.ts` | Test: "fills a path template the description doesn't declare as a parameter, by name", "refuses a path it can't fill before any request, not sending the template"; property: "fills every template with its value as one segment…", "refuses, before any request, a value that would fill a whole segment with nothing, . or ..", "refuses a path value of nothing, . or .., which would reach another resource" |
 | 6 | An approved write the Company refuses keeps the error's code | `operations.ts` | Test: "says which error refused an approved write" |
 | 7.1 | Skip unfamiliar conversation protocols | `discovery.ts` | Test: "discovers a Company…" |
 | 7.2 | Treat the Company's ids as opaque | `conversations.ts` | Design |
@@ -794,7 +802,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.4 | An operation's `url` shows it on the website in the same Session; confirmed there or at the endpoint, it is one operation | `browser.ts`, `operations.ts` | Test: "treats an operation confirmed on the website as the same operation…" |
 | 5.1 | MUST have the User's approval for the exact revision | `operations.ts` | Test: "needs a new approval when the terms change" |
 | 5.1 | MUST show the Company's name and `summary`, and take the answer through our own interface; we show its verified domain too (N14) | `operations.ts`, page | Test: "shows the Company's summary verbatim…", "approves exactly this operation and revision", "shows the verified domain under the name the Company chose…" |
-| 5.1 | MUST NOT treat Company text as approval | `capability.ts` | Design: only page frames and standing permissions confirm |
+| 5.1 | MUST NOT treat Company text as approval | `capability.ts`; `discovery.ts` `protocolEndpoint`, `apis.ts` | Design: only page frames and standing permissions confirm, and no API tool reaches a Poppy endpoint. Test (a faux model that obeys injected instructions): "never confirms an operation, or speaks as the User, when a Company message says the User approved", "never confirms an operation when another operation's summary tells it to", "never confirms an operation when an MCP tool's description tells it to", "refuses an OpenAPI operation that would reach a Poppy endpoint…" |
 | 5.1 | A standing permission MUST cover the Company, account, action and every term; never when `user_approval_required` | `operations.ts` | Test: "confirms under a standing permission…", "asks the User when… exceeded", "asks the User once a standing permission's uses are spent", "asks the User when a standing permission's currency differs", "never uses a standing permission when…"; Mock |
 | 5.2 | Confirm with `revision` and `approved_by`; handle `terms_changed`, `user_approval_required`, scope errors | `operations.ts` | Test: "needs a new approval when the terms change"; Mock |
 | 6 | Retry or read with the same id; MUST NOT ask for a new proposal until final | `operations.ts`, `apis.ts` | Test: "tracks a slow operation…", "shows the Company's summary… confirms once…", "doesn't ask for a new proposal while a confirmed operation isn't final (Ops 6)", "doesn't ask an MCP tool for a new proposal…"; Mock |
@@ -805,7 +813,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 
 - **Secrets.** Kept out of logs, model context, messages and URLs; responses that carry codes are `no-store`.
 - **JWTs.** ES256 with a `kid` on every key; `jti` of 128 bits; one-minute lifetimes; keys rotated by publishing first and retiring late (`scripts/poppy-secrets.mjs`).
-- **Metadata fetches.** At most 3 redirects, 100 KB (1 MB for OpenAPI), 5 s, no credentials, no IP-literal or single-label hosts, cache bounded to between a minute and a day. Tested: "never fetches from…, directly or by redirect", "never discovers…", "never fetches an OpenAPI document a Company lists on a private host".
+- **Metadata fetches.** At most 3 redirects, 100 KB (1 MB for OpenAPI), 5 s, no credentials, no IP-literal or single-label hosts, cache bounded to between a minute and a day. Tested: "never fetches from…, directly or by redirect", "never discovers…", "never fetches an OpenAPI document a Company lists on a private host"; property: "the client and the validator agree on which hosts are private", "a host and its fully qualified form, with the root's trailing dot, are refused alike", "refuses localhost and single-label hosts written with the root's trailing dot", "reads a body of at most maxBytes as UTF-8…".
 - **Retries.** A fixed `Idempotency-Key` per call; new proofs and assertions on every retry; `Retry-After` honoured on 429 and 503, website pages included.
 - **Rate limits.** Shared per Company across Users through `CompanyLimiter`; long polls or streams; idle conversations read rarely.
 - **JSON.** UTF-8, duplicate member names rejected, unknown fields ignored.

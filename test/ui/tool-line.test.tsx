@@ -1,6 +1,6 @@
-import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { companyNames, describeToolCall } from "../../src/ui/tool-line";
+import { gs, jsonValues, property } from "../properties/hegel";
 
 /**
  * The transcript's one-line summary of each Poppy tool call
@@ -105,14 +105,20 @@ describe("describeToolCall", () => {
 
   it("never throws, and always says something, whatever the arguments", () => {
     const tools = ["poppy_discover", "poppy_sign_in", "poppy_status", "poppy_message", "poppy_read", "poppy_handoff", "poppy_invite_user", "poppy_close", "poppy_api_describe", "poppy_api_call", "poppy_mcp_list", "poppy_mcp_call", "poppy_browse", "poppy_operation", "poppy_x"];
-    fc.assert(
-      fc.property(fc.constantFrom(...tools), fc.anything(), fc.option(fc.record({ error: fc.boolean(), details: fc.anything() }), { nil: undefined }), (name, args, outcome) => {
-        const line = describeToolCall(name, args, outcome);
-        expect(line).not.toBeNull();
-        expect(line!.text.length).toBeGreaterThan(0);
-      }),
-      { numRuns: 300 }
+    // Anything: any JSON, undefined, and objects whose names shadow Object.prototype's.
+    const anything = gs.oneOf<unknown>(
+      jsonValues(3),
+      gs.just(undefined),
+      gs.maps(gs.sampledFrom(["constructor", "toString", "__proto__", "valueOf", "domain", "company", "scopes"]), jsonValues(1), { maxSize: 3 }).map((map) => Object.fromEntries(map))
     );
+    property((tc) => {
+      const name = tc.draw(gs.sampledFrom(tools));
+      const args = tc.draw(anything);
+      const outcome = tc.draw(gs.optional(gs.record({ error: gs.booleans(), details: anything }))) ?? undefined;
+      const line = describeToolCall(name, args, outcome);
+      expect(line).not.toBeNull();
+      expect(line!.text.length).toBeGreaterThan(0);
+    })();
   });
 });
 
