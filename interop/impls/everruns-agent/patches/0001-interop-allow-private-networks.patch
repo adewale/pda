@@ -1,0 +1,29 @@
+Interop only, off by default: EVERRUNS_INTEROP_ALLOW_PRIVATE_NETWORKS=1 lets
+RFC 1918 IPv4 addresses (10/8, 172.16/12, 192.168/16) through the SSRF guard,
+because every *.interop.test name resolves to the recording proxy on a private
+Docker network. Loopback, link-local, metadata, CGNAT and documentation ranges
+stay blocked. Applies to the Company's client metadata / JWKS fetches and to
+the personal agent's egress (both use is_blocked_ip after DNS pinning).
+
+--- a/crates/contracts/src/url_validation.rs
++++ b/crates/contracts/src/url_validation.rs
+@@ -203,11 +203,18 @@
+ /// [`validate_safe_url`] instead.
+ pub fn is_blocked_ip(ip: IpAddr) -> bool {
+     match ip {
+-        IpAddr::V4(v4) => is_blocked_ipv4(v4),
++        IpAddr::V4(v4) => is_blocked_ipv4(v4) && !interop_private_network(v4),
+         IpAddr::V6(v6) => is_blocked_ipv6(v6),
+     }
+ }
+
++/// Poppy interop harness only: with `EVERRUNS_INTEROP_ALLOW_PRIVATE_NETWORKS=1`
++/// an RFC 1918 address is not blocked. Unset (the default), nothing changes.
++fn interop_private_network(ip: Ipv4Addr) -> bool {
++    ip.is_private()
++        && std::env::var("EVERRUNS_INTEROP_ALLOW_PRIVATE_NETWORKS").is_ok_and(|value| value == "1")
++}
++
+ fn is_blocked_ipv4(ip: Ipv4Addr) -> bool {
+     let octets = ip.octets();
+

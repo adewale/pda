@@ -1,0 +1,37 @@
+Visibility only, no behaviour change: make the Poppy client (`PoppyAgent`),
+the deployment's signing key loader and the key type public, so the adapter can
+call `PoppyAgent::discover` directly for the `discover` op. everruns'
+`poppy_discover` tool answer leaves out the issuer, which the interop `discover`
+result needs.
+
+--- a/crates/server/src/channels/a2a/mod.rs
++++ b/crates/server/src/channels/a2a/mod.rs
+@@ -56,7 +56,7 @@
+ mod pact;
+ mod pact_delegated;
+ mod pact_identity;
+-pub(crate) mod pact_keys;
++pub mod pact_keys;
+ mod pact_oauth;
+ mod push;
+ pub mod signing;
+--- a/crates/server/src/domains/poppy_agent/mod.rs
++++ b/crates/server/src/domains/poppy_agent/mod.rs
+@@ -32,7 +32,7 @@
+ use crate::storage::{EncryptionService, StorageBackend};
+
+ pub mod commands;
+-pub(crate) mod protocol;
++pub mod protocol;
+
+ /// Where the client metadata document is served, under the API base.
+ pub const AGENT_PATH: &str = "/v1/poppy/agent.json";
+@@ -76,7 +76,7 @@
+ }
+
+ /// The deployment's signing key, generated and stored on first use.
+-pub(crate) async fn signing_key(
++pub async fn signing_key(
+     db: &StorageBackend,
+     encryption: Option<&Arc<EncryptionService>>,
+ ) -> anyhow::Result<ProviderKey> {

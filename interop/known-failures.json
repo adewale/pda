@@ -1,4 +1,229 @@
 {
   "version": 1,
-  "failures": []
+  "failures": [
+    {
+      "agent": "datalayer-ts",
+      "company": "dpa-mock",
+      "scenario": "CS",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/src/conversations.ts",
+      "reason": "Datalayer's TypeScript ConversationClient.stream reconnects at once, with no delay or retry: handling, and throws stream_unavailable after five reconnects that bring nothing new; a Company that closes an idle stream fails the resume at the latest event (Poppy 7.6)."
+    },
+    {
+      "agent": "datalayer-ts",
+      "company": "datalayer-ts",
+      "scenario": "CS",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/src/conversations.ts",
+      "reason": "Datalayer's TypeScript ConversationClient.stream reconnects at once, with no delay or retry: handling, and throws stream_unavailable after five reconnects that bring nothing new; a Company that closes an idle stream fails the resume at the latest event (Poppy 7.6)."
+    },
+    {
+      "agent": "datalayer-ts",
+      "company": "datalayer-py",
+      "scenario": "CS",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/src/conversations.ts",
+      "reason": "Datalayer's TypeScript ConversationClient.stream reconnects at once, with no delay or retry: handling, and throws stream_unavailable after five reconnects that bring nothing new; a Company that closes an idle stream fails the resume at the latest event (Poppy 7.6)."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "datalayer-ts",
+      "scenario": "SE",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/agent.ts",
+      "reason": "After the Company ends the Session, pi-poppy renews on 401 invalid_token, gets invalid_session from the token endpoint and throws it instead of starting a new Session (Poppy 4.2)."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "datalayer-py",
+      "scenario": "SE",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/agent.ts",
+      "reason": "After the Company ends the Session, pi-poppy renews on 401 invalid_token, gets invalid_session from the token endpoint and throws it instead of starting a new Session (Poppy 4.2)."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "pi-poppy",
+      "scenario": "SE",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/agent.ts",
+      "reason": "After the Company ends the Session, pi-poppy renews on 401 invalid_token, gets invalid_session from the token endpoint and throws it instead of starting a new Session (Poppy 4.2)."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "datalayer-ts",
+      "scenario": "O",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
+      "reason": "Datalayer's confirm answers an Operation with \"expires_at\": null; pi-poppy's parseOperation accepts the member absent but not null, so it reports a failure for an operation the Company performed. The Operations extension doesn't say whether optional members may be null."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "datalayer-ts",
+      "scenario": "OX",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
+      "reason": "Datalayer's cancel answers \"result\": {\"summary\", \"data\": null}; pi-poppy's parseOperation rejects result.data: null. The Operations extension doesn't say whether optional members may be null."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "datalayer-py",
+      "scenario": "O",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
+      "reason": "Datalayer's confirm answers an Operation with \"expires_at\": null; pi-poppy's parseOperation accepts the member absent but not null, so it reports a failure for an operation the Company performed. The Operations extension doesn't say whether optional members may be null."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "datalayer-py",
+      "scenario": "OX",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
+      "reason": "Datalayer's cancel answers \"result\": {\"summary\", \"data\": null}; pi-poppy's parseOperation rejects result.data: null. The Operations extension doesn't say whether optional members may be null."
+    },
+    {
+      "agent": "dpa",
+      "company": "datalayer-ts",
+      "scenario": "AS",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/src/demo/manzanita.ts",
+      "reason": "Manzanita's OpenAPI description has templated paths with no parameters declared, so src/poppy sends /api/orders/{order_id}/exchanges literally and gets 404 instead of 403 insufficient_scope; the dpa adapter then reports the 404 as a 200 result."
+    },
+    {
+      "agent": "dpa",
+      "company": "datalayer-py",
+      "scenario": "AS",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/personal_agent_protocol/company/asgi.py",
+      "reason": "As with datalayer-ts (undeclared path parameters, so {order_id} is sent literally), and the Python Company checks DPoP htu against the percent-decoded path (scope['path'], not raw_path), so it answers 401 invalid_dpop_proof."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "S0",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "N",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "SD",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "SV",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "SM",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "SMC",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "SX",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "SXV",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "C",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "CI",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "CA",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "SO",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "SE",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "R",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "AO",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "AM",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "AS",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "O",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "OX",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    },
+    {
+      "agent": "pi-poppy",
+      "company": "dpa-mock",
+      "scenario": "RL",
+      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
+      "reason": "pi-poppy's Session assertion (signSessionAssertion) has no typ: \"JWT\"; the strict mock refuses it with invalid_grant at the first Session, so nothing else is tested. Section 8 of the interop spec treats a missing typ as a warning, but the reference Company refuses it."
+    }
+  ]
 }
