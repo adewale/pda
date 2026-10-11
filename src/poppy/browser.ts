@@ -14,12 +14,14 @@ export type PageSnapshot = {
   readonly text: string;
   readonly links: readonly { text: string; href: string }[];
   readonly forms: readonly { selector: string; action: string; method: string; fields: readonly string[] }[];
+  /** The response's `Retry-After`, if any, which a 429 or 503 must be waited out by (spec 4.3). */
+  readonly retryAfter?: string;
 };
 
 /** One isolated browser storage context: its own cookies and local storage. */
 export interface BrowserContextHandle {
   /** A top-level form POST, as a page that submits itself would make (spec 5). */
-  postForm(action: string, fields: Readonly<Record<string, string>>): Promise<{ url: string; status: number }>;
+  postForm(action: string, fields: Readonly<Record<string, string>>): Promise<{ url: string; status: number; retryAfter?: string }>;
   goto(url: string): Promise<PageSnapshot>;
   click(selector: string): Promise<PageSnapshot>;
   fill(selector: string, value: string): Promise<PageSnapshot>;
@@ -74,11 +76,16 @@ async function sessionContext(
       sessionId: session.session_id,
       returnTo: returnTo.href
     });
+    // The join's redirect loads `return_to` too, so it waits for the Company's limits (4.3).
+    await client.beforeRequest(company);
     const result = await context.postForm(endpoint, { assertion });
-    if (result.status >= 400) {
+    // Joined, but the page it landed on was rate-limited: `load` loads it again after the wait.
+    const landed = result.url !== endpoint && (result.status === 429 || result.status === 503);
+    if (result.status >= 400 && !landed) {
       throw new PoppyError("browser_join_failed", `${company.name} didn't accept the browser into the Session`, result.status);
     }
     entry.joined = true;
+    if (landed) await client.pageLimited(company, result.status, result.retryAfter);
   }
   return context;
 }
@@ -112,6 +119,19 @@ function snapshotForModel(snapshot: PageSnapshot): Json {
 }
 
 /**
+ * Load a page within the Company's rate limits (spec 4.3): after any shared
+ * `Retry-After`, and again after a short one on 429 or 503, at most three times.
+ */
+async function load(client: PoppyClient, company: Company, context: BrowserContextHandle, url: URL): Promise<PageSnapshot> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await client.beforeRequest(company);
+    const snapshot = await context.goto(url.href);
+    if (!(await client.pageLimited(company, snapshot.status, snapshot.retryAfter))) return snapshot;
+  }
+  throw new PoppyError("rate_limited", `${company.name}'s website kept refusing the page`, 429);
+}
+
+/**
  * Browse a Company's website in the Session (spec 5). Only the Company's own
  * domains; never sign-in pages or credential fields. Form submits wait for
  * the User's approval, like other writes.
@@ -137,11 +157,11 @@ export async function browse(
       throw new PoppyError("refused", "The agent never opens a company's sign-in pages; the User signs in themselves (use poppy_sign_in)", 0);
     }
     const context = await sessionContext(client, browser, company, label, url);
-    let snapshot = await context.goto(url.href);
+    let snapshot = await load(client, company, context, url);
     // The website stopped recognising the Session: post a new assertion (Guides).
     if ((snapshot.status === 401 || snapshot.status === 403) && company.web?.browserSessionEndpoint) {
       const rejoined = await sessionContext(client, browser, company, label, url, true);
-      snapshot = await rejoined.goto(url.href);
+      snapshot = await load(client, company, rejoined, url);
     }
     return snapshotForModel(snapshot);
   }

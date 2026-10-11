@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it } from "vitest";
+import { tokenHostAllowed } from "../src/poppy/discovery";
 import { assertPublicHost, fetchJson, PoppyFetchError, type Fetcher } from "../src/poppy/fetch";
 import { agentNameFor, createSession } from "../src/session";
 import { hostsFor, type MockCompany, type MockConfig, type MockRequest } from "./mock-company";
@@ -94,8 +95,15 @@ async function requests(c: Company): Promise<MockRequest[]> {
 }
 
 /** Direct Sign-In end to end: the test plays the User on the Company's page. */
-async function signInDirect(a: Agent, c: Company, scopes = ["poppy:read", "poppy:write"], decision: { approve?: boolean; scopes?: string[]; account?: string } = {}) {
-  const started = await tool(a, "poppy_sign_in", { domain: c.domain, scopes, reason: "To look at your orders" });
+async function signInDirect(
+  a: Agent,
+  c: Company,
+  scopes = ["poppy:read", "poppy:write"],
+  decision: { approve?: boolean; scopes?: string[]; account?: string } = {},
+  /** More `poppy_sign_in` arguments: `session`, `account`. */
+  args: Record<string, unknown> = {}
+) {
+  const started = await tool(a, "poppy_sign_in", { domain: c.domain, scopes, reason: "To look at your orders", ...args });
   expect(started.isError).toBe(false);
   if (started.text.includes("signed in with access")) return null;
   const card = (await cards(a)).find((item) => item.kind === "signin_link" && item.open);
@@ -586,6 +594,81 @@ describe.each(PROFILES)("4.8–4.9 Account Tokens and signing out ($name)", ({ c
   });
 });
 
+describe("4.4, 4.8 token responses without scope (spec issue N6)", () => {
+  const status = async (a: Agent, c: Company) => JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text);
+
+  it("takes an omitted scope as the scope asked for, at sign-in, renewal and refresh", async () => {
+    const c = await company({ omitTokenScope: true });
+    const a = await agent();
+    // Sign-in: what was asked for was granted, so nothing is reported missing.
+    await signInDirect(a, c);
+    expect(await a.stub.poppyWaitForNotice("Signed in to")).toContain('with "poppy:read poppy:write"');
+    expect(JSON.parse(await a.stub.poppySql("SELECT scope FROM poppy_accounts"))).toEqual([{ scope: "poppy:read poppy:write" }]);
+    // Renewal after an eviction: a refresh grant that asks for no scope keeps the Account Token's.
+    await a.stub.poppyForgetMemory();
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
+    expect((await status(a, c)).sessions[0]).toMatchObject({ signedIn: true, scope: "poppy:read poppy:write" });
+    // A second Session: the stored scope covers the task, so the User isn't asked again.
+    const again = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "again", session: "second" });
+    expect(again.text).toContain("signed in with access the User granted earlier");
+    // A narrowed read-only refresh gets the scope it asked for.
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders", session: "second" })).text).toContain("ord_7Hk2");
+    const refreshes = (await requests(c)).filter((request) => request.grant === "refresh_token");
+    expect(refreshes.some((request) => request.bodyKeys.includes("scope") && request.status === 200)).toBe(true);
+  });
+
+  it("keeps a signed-out Session's empty scope when the response leaves it out", async () => {
+    const c = await company({ omitTokenScope: true });
+    const a = await agent();
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } })).isError).toBe(false);
+    expect((await status(a, c)).sessions[0]).toMatchObject({ signedIn: false, scope: "" });
+  });
+});
+
+describe("4.4 one account per Session", () => {
+  it("starts a new Session when the Company says it belongs to another account (account_mismatch)", async () => {
+    const c = await company();
+    const a = await agent();
+    // Ada signs in on the main Session, Grace on another.
+    await signInDirect(a, c, ["poppy:read"], { account: "acct_ada" });
+    await signInDirect(a, c, ["poppy:read"], { account: "acct_grace" }, { session: "other", account: "grace" });
+    // Ada signs out; the main Session continues signed out, but the Company keeps it bound to Ada.
+    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } })).isError).toBe(false);
+    const [main] = JSON.parse(await a.stub.poppySql("SELECT session_id FROM poppy_sessions WHERE label = 'main'")) as { session_id: string }[];
+    // The main Session now needs Grace's account: the Company refuses to switch it, so a new one starts.
+    const signedIn = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "Grace's orders", account: "grace" });
+    expect(signedIn.text).toContain("signed in with access the User granted earlier");
+    expect((await requests(c)).filter((request) => request.error === "account_mismatch")).toHaveLength(1);
+    const [after] = JSON.parse(await a.stub.poppySql("SELECT session_id, account FROM poppy_sessions WHERE label = 'main'")) as { session_id: string; account: string }[];
+    expect(after!.session_id).not.toBe(main!.session_id);
+    expect(after!.account).toBe("grace");
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).text).toContain("acct_grace");
+  });
+});
+
+describe("4.8 rotation with reuse detection", () => {
+  it("never uses a rotated Account Token twice, even when renewals run in parallel", async () => {
+    const c = await company({ rotateRefreshTokens: true, reuseDetection: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    await a.stub.poppyForgetMemory();
+    // Three calls at once, each needing its own token from the one Account Token.
+    const results = await Promise.all([
+      tool(a, "poppy_message", { domain: c.domain, text: "hello" }),
+      tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" }),
+      tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } })
+    ]);
+    for (const result of results) expect(result.isError, result.text).toBe(false);
+    const refreshes = (await requests(c)).filter((request) => request.grant === "refresh_token");
+    expect(refreshes.length).toBeGreaterThanOrEqual(2);
+    expect(refreshes.every((request) => request.status === 200)).toBe(true);
+    // A reuse would have revoked the whole family and signed the User out.
+    expect((await c.stub.state()).accountTokens).toBe(1);
+    expect((await cards(a)).some((card) => card.kind === "notice" && card.text.includes("ended this agent's access"))).toBe(false);
+  });
+});
+
 describe("5 web browsing", () => {
   it("joins the browser to the Session before browsing, and sees the account", async () => {
     const c = await company();
@@ -627,6 +710,30 @@ describe("5 web browsing", () => {
     expect(result.isError).toBe(true);
     expect(result.text).toContain("never types credentials");
   });
+
+  it("waits out Retry-After on a website page, then loads it again (4.3)", async () => {
+    const c = await company({ rateLimit: { tokenRequests429: 0, requests429: 0, pages429: 1, retryAfterSeconds: 2 } });
+    const a = await agent();
+    const page = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/" });
+    expect(page.isError).toBe(false);
+    expect(page.text).toContain(`Mock Shop ${c.id}`);
+    expect((await a.stub.poppyClock()).sleeps).toContain(2000);
+    const loads = (await requests(c)).filter((request) => request.method === "GET" && request.url === `https://${c.domain}/`);
+    expect(loads.map((request) => request.status)).toEqual([429, 200]);
+    expect(loads[1]!.at - loads[0]!.at).toBeGreaterThanOrEqual(2000);
+  });
+
+  it("gives up on a website page whose Retry-After is too long to wait inline", async () => {
+    const c = await company({ rateLimit: { tokenRequests429: 0, requests429: 0, pages429: 1, retryAfterSeconds: 30 } });
+    const a = await agent();
+    const page = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/" });
+    expect(page.isError).toBe(true);
+    expect(page.text).toContain("[rate_limited]");
+    // Nor does the next page go before the 30 seconds are up.
+    expect((await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders" })).text).toContain("[rate_limited]");
+    const loads = (await requests(c)).filter((request) => request.method === "GET" && request.url.startsWith(`https://${c.domain}/`) && !request.url.includes("/.well-known/"));
+    expect(loads.map((request) => request.status)).toEqual([429]);
+  });
 });
 
 describe("6 APIs", () => {
@@ -637,6 +744,7 @@ describe("6 APIs", () => {
     expect(described.operations.map((operation: { method: string; path: string }) => `${operation.method} ${operation.path}`)).toEqual([
       "GET /products",
       "GET /orders",
+      "GET /addresses",
       "GET /orders/{order_id}",
       "POST /orders/{order_id}/exchanges"
     ]);
@@ -729,6 +837,101 @@ describe("6 APIs", () => {
     const result = await tool(await agent(), "poppy_mcp_list", { domain: c.domain });
     expect(result.isError).toBe(true);
     expect((await requests(c)).filter((request) => request.url === c.hosts.mcpUrl && request.headers.authorization)).toHaveLength(0);
+  });
+
+  it("never sends a Session Token to a server on another host that an OpenAPI description names (N10)", async () => {
+    const elsewhere = await company();
+    const c = await company({ openapiServerOverride: elsewhere.hosts.api });
+    const a = await agent();
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain(`names the server ${elsewhere.hosts.api}, which isn't one of Mock Shop ${c.id}'s hosts`);
+    expect(result.text).toContain("[untrusted_server]");
+    expect(await requests(elsewhere)).toEqual([]);
+    expect((await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
+  });
+
+  it("calls a server on a domain the issuer lists in poppy_domains", async () => {
+    const c = await company();
+    const server = `https://api.${c.hosts.altDomain}`;
+    await c.stub.configure({ openapiServerOverride: server });
+    const a = await agent();
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
+    expect(result.isError).toBe(false);
+    const call = (await requests(c)).find((request) => request.url.startsWith(`${server}/products`))!;
+    expect(call.headers.authorization).toBe("DPoP <redacted>");
+  });
+
+  it("decides which hosts may get Session Tokens from poppy.json alone", () => {
+    const company = {
+      domain: "shop.example",
+      poppyDomains: ["shop.example", "shop-uk.example"],
+      apis: [{ type: "openapi", url: "https://apis.partner.example/openapi.json", description: "" }],
+      signIn: {},
+      extensions: {}
+    } as unknown as Parameters<typeof tokenHostAllowed>[0];
+    const allowed = (url: string) => tokenHostAllowed(company, new URL(url));
+    expect(allowed("https://shop.example/x")).toBe(true);
+    expect(allowed("https://api.shop.example/x")).toBe(true);
+    expect(allowed("https://api.shop-uk.example/x")).toBe(true);
+    expect(allowed("https://apis.partner.example/orders")).toBe(true);
+    expect(allowed("https://partner.example/orders")).toBe(false);
+    expect(allowed("https://evilshop.example/x")).toBe(false);
+    expect(allowed("https://shop.example.evil.test/x")).toBe(false);
+  });
+
+  it("keeps the custom scope a read-only lookup needs when it narrows the token", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c, ["poppy:read", "addresses"]);
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "listAddresses" });
+    expect(result.isError, result.text).toBe(false);
+    expect(result.text).toContain("Portland");
+    const narrowed = (await requests(c)).filter((request) => request.grant === "refresh_token" && request.bodyKeys.includes("scope"));
+    expect(narrowed.map((request) => request.status)).toEqual([200]);
+    // The token was narrowed for the lookup; the Session wasn't.
+    expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).sessions[0].scope).toBe("poppy:read addresses");
+  });
+
+  it("narrows read-only lookups at a Company that has only custom scopes", async () => {
+    const c = await company({ customScopesOnly: true });
+    const a = await agent();
+    await signInDirect(a, c, ["orders:read", "orders:write"]);
+    const orders = await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" });
+    expect(orders.isError, orders.text).toBe(false);
+    expect(orders.text).toContain("ord_7Hk2");
+    const narrowed = (await requests(c)).filter((request) => request.grant === "refresh_token" && request.bodyKeys.includes("scope"));
+    expect(narrowed.map((request) => request.status)).toEqual([200]);
+    // A write still gets the whole Session's scope.
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } })).text).toContain("proposed");
+  });
+
+  it("asks for tokens for an API entry's resource, and sends them there (RFC 8707)", async () => {
+    const c = await company({ apiResource: true });
+    const a = await agent();
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } })).isError).toBe(false);
+    await signInDirect(a, c);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).text).toContain("ord_7Hk2");
+    // Conversations name no resource, so theirs is a token for the Company in general.
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
+    const forResource = (await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"));
+    expect(forResource.map((request) => request.grant)).toEqual(expect.arrayContaining(["urn:ietf:params:oauth:grant-type:jwt-bearer", "refresh_token"]));
+    for (const request of forResource) expect(request.headers.dpop).toBe("<present>");
+  });
+
+  it("tells the model which extension a Company requires (extension_required)", async () => {
+    const c = await company({ requiredExtension: "mock.test/gift-wrap" });
+    const a = await agent();
+    await signInDirect(a, c);
+    const result = await tool(a, "poppy_api_call", {
+      domain: c.domain,
+      operation: "POST /orders/{order_id}/exchanges",
+      params: { order_id: "ord_7Hk2" },
+      body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
+    });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("requires the extension mock.test/gift-wrap, which this agent doesn't support [extension_required]");
+    expect((await c.stub.state()).performs).toBe(0);
   });
 });
 
@@ -863,6 +1066,35 @@ describe("7 conversations", () => {
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
     await tool(a, "poppy_close", { conversation: first.conversationId });
     expect((await c.stub.state()).conversations[0]!.status).toBe("closed");
+  });
+
+  it("gets the reply by background read from a Company that ignores wait", async () => {
+    const c = await company({ ignoreWait: true });
+    const a = await agent();
+    const result = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    expect(result.replies).toEqual([]);
+    await a.stub.poppyWaitForNotice("Hi! How can I help?");
+  });
+
+  it("hands off to a Company that never says queued", async () => {
+    const c = await company({ neverQueued: true });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const handed = JSON.parse((await tool(a, "poppy_handoff", { conversation: first.conversationId, summary: "The jacket isn't warm enough; the user wants an exchange." })).text);
+    expect(handed.status).toBe("working");
+    await c.stub.humanJoin(first.conversationId, "Hi, I'm Sam. I can help with that.");
+    await a.stub.poppyWaitForNotice("A person at");
+  });
+
+  it("skips SSE keep-alive comments and saves the cursor after each event", async () => {
+    const c = await company({ streaming: true, textDeltas: true, sseKeepAlive: true });
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.say(first.conversationId, "The sale ends on Friday.");
+    await a.stub.poppyWaitForNotice("The sale ends on Friday.");
+    const [row] = JSON.parse(await a.stub.poppySql("SELECT cursor FROM poppy_conversations WHERE id = ?", first.conversationId)) as { cursor: string }[];
+    const [last] = JSON.parse(await a.stub.poppySql("SELECT event_id FROM poppy_events WHERE conversation_id = ? ORDER BY rowid DESC LIMIT 1", first.conversationId)) as { event_id: string }[];
+    expect(row!.cursor).toBe(last!.event_id);
   });
 });
 
@@ -1017,5 +1249,27 @@ describe("Operations extension", () => {
     await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "decline" });
     expect((await c.stub.state()).operations[0]!.state).toBe("cancelled");
     expect((await c.stub.state()).performs).toBe(0);
+  });
+
+  it("treats an operation confirmed on the website as the same operation, made once (Ops 4.4)", async () => {
+    const { c, a, card } = await proposal();
+    expect(card.url).toBe(`https://${c.domain}/orders/ord_7Hk2/exchanges/${card.operationId}`);
+    // Its url shows it on the website, in the Session's own browser.
+    const open = () => tool(a, "poppy_browse", { domain: c.domain, action: "open", url: card.url });
+    const before = await open();
+    expect(before.text).toContain(card.summary);
+    expect(before.text).toContain("Status: proposed");
+    // The User confirms it there instead.
+    await c.stub.confirmOnWebsite(card.operationId);
+    expect((await open()).text).toContain("Status: succeeded");
+    // Approving the card later confirms the same operation, which the Company doesn't make again.
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
+    const closed = (await cards(a)).find((item) => item.kind === "operation")!;
+    expect(closed).toMatchObject({ open: false, state: "succeeded" });
+    expect(closed.result).toContain("Exchange placed");
+    await a.stub.poppyWaitForNotice("is succeeded");
   });
 });

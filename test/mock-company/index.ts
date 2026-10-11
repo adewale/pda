@@ -72,6 +72,7 @@ export class MockCompany extends DurableObject<Env> {
     conversations.operations = operations;
     const apis = new Apis(company, operations);
     const web = new Web(company);
+    web.operations = operations;
     this.#parts = { company, auth, conversations, operations, apis, web };
     return this.#parts;
   }
@@ -132,7 +133,10 @@ export class MockCompany extends DurableObject<Env> {
         return web.wellKnown(inbound);
       }
       if (path === "/poppy/browser-session") return web.browserSession(inbound);
-      if (method === "GET") return web.page(inbound);
+      if (method === "GET") {
+      company.rateLimit("page", inbound);
+      return web.page(inbound);
+    }
       return json({ error: "not_found" }, 404);
     }
 
@@ -295,6 +299,11 @@ export class MockCompany extends DurableObject<Env> {
     newTerms: Record<string, unknown>
   ): Promise<number> {
     return this.#named().operations.revise(operationId, newSummary, newTerms);
+  }
+
+  /** The User confirms an operation on the Company's website, in its Session (Ops 4.4). */
+  async confirmOnWebsite(operationId: string): Promise<void> {
+    this.#named().operations.confirmOnWebsite(operationId);
   }
 
   /** The Company ends every Session, as when they expire (4.2). */

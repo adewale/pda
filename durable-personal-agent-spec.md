@@ -321,7 +321,7 @@ A document without `auth` can only be browsed as an ordinary website (§3.1), an
 - **DPoP:** it signs a fresh DPoP proof in a request hook that sees the final method and URL (`htm`, and `htu` without query or fragment). Proofs include `ath` except at the token endpoint, and `nonce` when the server has given one.
 - **Nonces:** on `use_dpop_nonce` it takes `DPoP-Nonce`, keeps it in memory per server origin, and retries once with a new proof.
 - **Retries:** each retry gets a new proof, and a retried token request gets new assertions.
-- **Rate limits:** it waits at least `Retry-After` on 429 and 503: inline for up to 5 s, otherwise the call fails with `rate_limited` and the durable job that needs it reschedules. It reads the `RateLimit` header into the `CompanyLimiter`.
+- **Rate limits:** it waits at least `Retry-After` on 429 and 503, website pages included: inline for up to 5 s, otherwise the call fails with `rate_limited` and the durable job that needs it reschedules. It reads the `RateLimit` header into the `CompanyLimiter`.
 - **Logging:** nothing logs headers, bodies or credentials; errors are logged by code and message only.
 - **Tokens in URLs:** a request whose URL contains its own token is refused before it is sent.
 - **One exchange at a time:** token-endpoint requests for one Company run one after another, and a caller that waited reuses a token another caller just got. Account Tokens can rotate on use, so two parallel renewals would otherwise use one twice (§4.8).
@@ -346,6 +346,8 @@ A document without `auth` can only be browsed as an ordinary website (§3.1), an
 - **Always sent:** a Session Token goes in the `Authorization: DPoP` header on every API and conversation request. No request is ever sent without one to appear as a person.
 - **Newest wins:** the newest token for a Session replaces the old one at once.
 - **Never in URLs:** tokens never go in a URL.
+- **Only the Company's hosts:** a Session Token and its proofs go only to a host `poppy.json` lists for a service that takes one, or a host equal to or under `organization.domain` or a `poppy_domains` entry. The draft doesn't say which hosts may receive them (`docs/spec-issues.md`, N10), and an OpenAPI description's `servers` can name any host, so one that names another host is refused with `untrusted_server` and never called.
+- **Granted scope:** a token response without `scope` granted the scope asked for (RFC 6749 §5.1); a grant that asked for none keeps the scope the Session or Account Token held (N6).
 - **Narrower tokens:** a request can carry `scope`, to ask for fewer scopes, or `resource` (RFC 8707). A `poppy.json` entry that has a `resource` gets tokens requested for that resource.
 
 **Where keys and tokens live.**
@@ -353,7 +355,7 @@ A document without `auth` can only be browsed as an ordinary website (§3.1), an
 - **DPoP keys** are generated per User per Company as non-extractable WebCrypto ES256 keys, held only in the Durable Object's memory. After an eviction the object generates a new key pair and binds the next token request to it (Guides: "To switch to a new DPoP key, request a new session token with a proof signed by the new key"). No DPoP private key is ever stored, so one can't be read from storage or backups.
 - **Session Tokens** are kept in memory and dropped on expiry. After an eviction the object renews them: signed-out Sessions with the assertion, signed-in ones with the Account Token.
 - **MCP Bearer tokens.** For each MCP server, the token request omits the `DPoP` header and includes `resource` = that server's `url`. The resulting Bearer token is used only there.
-- **Read-only lookups.** An OpenAPI `GET` in a Session signed in with more than `poppy:read` asks for a token narrowed to `poppy:read` (Guides).
+- **Read-only lookups.** An OpenAPI `GET` in a signed-in Session asks for a token narrowed to the scopes its security requirement declares, or to `poppy:read` when it declares none, if the Session holds those and more (Guides). A lookup that needs a custom scope keeps it, and the Session keeps its own scope.
 
 ### Signing in at a Company (§4.4–§4.9)
 
@@ -431,6 +433,7 @@ Browsing uses Cloudflare Browser Rendering, never the User's browser.
   4. **Expect a `303`** to `return_to`; a 4xx means the join failed.
 - **Without the endpoint,** the browser is an ordinary signed-out visitor.
 - **Keeping the Session.** When a page answers 401 or 403, a new assertion is posted and the page loaded again.
+- **Rate limits.** A page that answers 429 or 503 is loaded again after its `Retry-After`, through the same `CompanyLimiter` as the APIs (4.3).
 - **Limits on what the model can do.**
   - It can open pages only on the Company's domains, and never the issuer's or the authorization and device endpoints' hosts.
   - It can never fill a field whose selector looks like a password, PIN, one-time code or card number.
@@ -529,7 +532,7 @@ All four go to one handler. It stores the operation and its revision, and pushes
 **The approval card (Ops §5.1).**
 
 - **What it shows:**
-  - The Company's name and the account.
+  - The Company's name, its verified `organization.domain` (every request card shows it, since the name is the Company's own choice: N14), and the account.
   - The revision's `summary`, **verbatim**.
   - Any cost, date or condition from `terms`, and whether the action can be undone.
   - For a new revision, what changed since the last one.
@@ -638,7 +641,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
     - An `afterEach` fails a Poppy test if any mock it created recorded one.
     - A test that breaks the protocol on purpose declares it with `expectViolations`.
     - Every check has a `TAMPERS` row in `test/mock-company.test.ts` that proves it fires, and a catalog test fails if one doesn't.
-  - **Configuration.** Behaviours switch per test: nonces, registration, token rotation, rate limits, streaming, slow confirms, each sign-in type, wrong issuers and redirects, ended Sessions.
+  - **Configuration.** Behaviours switch per test: nonces, registration, token rotation (with reuse detection), rate limits (website pages too), streaming (with keep-alive comments), slow confirms, each sign-in type, wrong issuers and redirects, ended Sessions, token responses without `scope`, only custom scopes, an API `resource`, a required extension, an OpenAPI server on another host, a Company that ignores `wait` or never says `queued`, and operations confirmed on the website.
   - **Profiles** run the same tests under different readings of the draft's open questions (`docs/spec-issues.md`):
     - our own reading;
     - the client assertion's `aud` exactly the endpoint called (S1);
@@ -681,7 +684,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 - [ ] **Writes at Companies with the Operations extension.** We let them through, expecting a proposal. A Company may use operations for some actions and not others, so a write there could act at once. Should the draft let a description mark which endpoints propose?
 - [ ] **Local Personal Agents.** §4.1 needs an HTTPS `client_id` on the same domain as the redirect URIs, so an agent on someone's laptop needs a hosted identity or Device Sign-In. A short note in the draft would help.
 - [ ] **Spec problems.** [`docs/spec-issues.md`](docs/spec-issues.md) lists 56, from comparing implementations (S1 to S23) and a full crawl of the site (N1 to N33), each with a suggested fix and what we do. The most important: sign-in not bound to the Session until the code exchange (N2), step-up revocation signing out other Sessions (N4), non-HTTPS URLs in `poppy.json` (N9), which hosts receive Session Tokens (N10), a shared issuer merging Companies (N11), and the client assertion's `aud` (S1).
-- [ ] **Gaps the crawl found in our own client and mock**, listed in [`docs/poppy-issues.md`](docs/poppy-issues.md) under "This project": Retry-After on website pages, read-only narrowing that drops custom scopes, Session Tokens sent to any host an OpenAPI description names, and checks the mock doesn't make yet.
+- [ ] **Gaps the crawl found in our own client and mock**, listed in [`docs/poppy-issues.md`](docs/poppy-issues.md) under "This project". The client's are closed; checks the mock doesn't make yet remain.
 - [ ] **M×N interop testing** with the other implementations: designed in [`docs/interop-testing.md`](docs/interop-testing.md), not built.
 - [ ] **Eviction.** In tests, `evictDurableObject()` timed out after a completed Pi run. If idle agents stay resident, DPoP keys live longer than assumed (harmless); if evictions are frequent, token requests increase.
 - [ ] **Compaction** of the never-ending conversation.
@@ -710,7 +713,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 3.2 | MUST check the metadata's `issuer` equals `auth.issuer` and `poppy_domains` includes the domain | `validator/profiles/draft-0.ts`, `discovery.ts` | Test: "refuses an issuer whose metadata doesn't match", "…poppy_domains leaves the domain out"; validator tests "requires the issuer to match exactly…" |
 | 3.2 | Domains naming one issuer are one Company | `client.ts` | Test: "treats two domains naming one issuer as one Company…" |
 | 3.3 | MUST ignore unsupported extensions and unknown fields; list supported extensions in client metadata | `discovery.ts`, `routes.ts` | Test: "discovers a Company…", "serves the client metadata document…" |
-| 3.3 | Handle `extension_required` | `apis.ts` | Not yet |
+| 3.3 | Handle `extension_required` | `apis.ts` | Test: "tells the model which extension a Company requires…" |
 | 4.1 | `client_id` MUST be an HTTPS URL returning the metadata document, and equal it | `routes.ts` | Test: "serves the client metadata document…"; Mock |
 | 4.1 | `jwks_uri` and `redirect_uris` MUST be HTTPS on the `client_id` domain; the JWKS holds public keys only | `routes.ts`, `keys.ts` | Test: "publishes only public keys, each with a kid"; Mock |
 | 4.1 | Authenticate at the token endpoint with `private_key_jwt`; DPoP keys are separate and unpublished | `jwt.ts`, `client.ts` | Mock |
@@ -725,16 +728,19 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.3 | A DPoP key pair for each User at each Company | `client.ts` `dpopKey` | Design: one person per Durable Object, one key per issuer; Mock |
 | 4.3 | MUST support DPoP nonces | `client.ts` | Test: "supports DPoP nonces" (under nonces per origin and per Company, S23); Mock |
 | 4.3 | MCP: Bearer without `DPoP`, and MUST include `resource` = the MCP `url` | `apis.ts` | Test: "calls MCP tools with a Bearer token…"; Mock |
+| 4.3 | Ask for tokens for an entry's `resource` (RFC 8707) | `apis.ts`, `client.ts` | Test: "asks for tokens for an API entry's resource…" |
+| 4.3 | Narrower tokens for read-only lookups (Guides), keeping the scopes the operation declares | `apis.ts` | Test: "keeps the custom scope a read-only lookup needs…", "narrows read-only lookups at a Company that has only custom scopes" |
+| 4.3 | Session Tokens only to the Company's hosts (our reading; N10) | `discovery.ts` `tokenHostAllowed`, `client.ts`, `apis.ts` | Test: "never sends a Session Token to a server on another host…", "calls a server on a domain the issuer lists in poppy_domains", "decides which hosts may get Session Tokens…" |
 | 4.3 | MUST send a Session Token on every API and conversation request | `client.ts` | Mock |
 | 4.3 | MUST use the newest Session Token for a Session | `client.ts` | Mock |
 | 4.3 | MUST NOT send tokens in a URL | `client.ts` | Mock; the client refuses such a URL |
-| 4.3 | MUST wait at least `Retry-After` on 429 | `client.ts`, `limiter.ts` | Test: "waits out Retry-After on 429 before retrying"; Mock |
+| 4.3 | MUST wait at least `Retry-After` on 429 | `client.ts`, `limiter.ts`, `browser.ts` | Test: "waits out Retry-After on 429 before retrying", "waits out Retry-After on a website page…", "gives up on a website page whose Retry-After is too long…"; Mock |
 | 4.4 | MUST use Direct or Device Sign-In only when the User signs in themselves | `browser.ts`, page | Test: "never opens the Company's sign-in pages"; Design |
 | 4.4 | Each sign-in request MUST include `scope` | `signin.ts` | Mock |
-| 4.4 | Check the granted `scope` | `signin.ts` | Test: "notices when the User approves fewer scopes" |
+| 4.4 | Check the granted `scope`; an omitted `scope` is the scope requested (RFC 6749 §5.1; N6) | `signin.ts`, `client.ts` | Test: "notices when the User approves fewer scopes", "takes an omitted scope as the scope asked for…", "keeps a signed-out Session's empty scope…" |
 | 4.4 | Revoke the replaced Account Token after step-up (SHOULD) | `client.ts` | Test: "steps up…" |
 | 4.4 | Check for a covering Account Token before a new sign-in (SHOULD) | `client.ts` | Test: "reuses an Account Token that covers the task…" |
-| 4.4 | One account per Session; `account_mismatch` starts a new Session | `client.ts` | Not yet |
+| 4.4 | One account per Session; `account_mismatch` starts a new Session | `client.ts` | Test: "starts a new Session when the Company says it belongs to another account…"; not yet at the code exchange |
 | 4.5 | Random `state` and PKCE S256; MUST check `iss`; exchange with `session_id` | `signin.ts` | Test: "uses each state once", "rejects a response whose iss…"; Mock |
 | 4.5 | `redirect_uri` exactly a registered URI; handle `access_denied` | `signin.ts` | Test: "handles a declined sign-in"; Mock |
 | 4.6 | Show `user_code` and the link (HTTPS on the Company's hosts only); keep `device_code` private | `signin.ts` `deviceLink`, page | Test: "shows the code, polls at the interval…", "shows the device code beside a link and a QR code" |
@@ -743,7 +749,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.7 | MUST NOT send credentials anywhere but `auth.mediated.endpoint` | `signin.ts` | Mock |
 | 4.7 | Submit only the code, from the same Session | `signin.ts` | Test: "submits only the one-time code…"; Mock |
 | 4.7 | Handle `complete`, `code_required`, `failed`, `expired` | `signin.ts` | Test: the first three; `expired` not yet |
-| 4.8 | MUST use a rotated Account Token from then on | `client.ts` | Test: "uses a rotated Account Token from then on"; Mock |
+| 4.8 | MUST use a rotated Account Token from then on | `client.ts` | Test: "uses a rotated Account Token from then on", "never uses a rotated Account Token twice, even when renewals run in parallel" (at a Company that revokes the family on reuse); Mock |
 | 4.8 | MUST store Account Tokens as secrets, never in model context, messages, logs or URLs | `client.ts`, `store.ts` | Test: "stores Account Tokens encrypted"; Design |
 | 4.8 | `scope` may narrow, never broaden; `invalid_grant` continues signed out | `client.ts` | Test: "continues signed out when the User disconnects the agent…" |
 | 4.9 | Sign out by revoking at `revocation_endpoint`; Sessions continue signed out | `signin.ts` | Test: "signs out by revoking the Account Token…"; Mock |
@@ -763,8 +769,9 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 7.5 | MUST skip unknown event types | `conversations.ts` | Test: "skips event types it doesn't know" |
 | 7.5 | MUST NOT compare or sort cursors; handle in order, then save; skip handled ids; read again on `has_more` | `conversations.ts` | Test: "reads later events in the background…"; `has_more` not yet |
 | 7.5 | On `cursor_expired`, read from the start and tell the User | `conversations.ts` | Test: "tells the User when part of a conversation has expired" |
-| 7.6 | Streams resume with `Last-Event-ID`; MUST NOT act on `text-delta` | `conversations.ts` | Test: "reads later events in the background, streaming…" |
-| 7.7 | Track `status` and `responder`; read each message's `sender` | `conversations.ts` | Test: "hands off to a person after a summary" |
+| 7.3 | `wait` is a hint: a Company that ignores it answers at once, and the reply comes by the background read | `conversations.ts` | Test: "gets the reply by background read from a Company that ignores wait" |
+| 7.6 | Streams resume with `Last-Event-ID`; MUST NOT act on `text-delta`; skip comments | `conversations.ts` | Test: "reads later events in the background, streaming…", "skips SSE keep-alive comments…" |
+| 7.7 | Track `status` and `responder`; read each message's `sender` | `conversations.ts` | Test: "hands off to a person after a summary", "hands off to a Company that never says queued" |
 | 7.8 | MUST set `sender`: `human` only for the User's own words | `conversations.ts`, page | Test: "offers the User a Direct Conversation…"; Mock |
 | 7.9 | Handoff with `{}`, after a summary (Guides) | `conversations.ts` | Test: "hands off to a person after a summary"; Mock |
 | 7.10 | Start a Direct Conversation only with the User's agreement; handle `direct_opened`, `direct_closed`, `direct_conversation_open` | `conversations.ts`, page | Test: "offers the User a Direct Conversation…", "lets the agent offer…" |
@@ -779,8 +786,9 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | --- | --- | --- | --- |
 | 2 | List `operations` version `1` in client metadata | `routes.ts` | Test: "serves the client metadata document…" |
 | 4 | Accept proposals from OpenAPI, MCP and conversations; a message never confirms | `apis.ts`, `conversations.ts` | Test: OpenAPI ("gets a proposal…") and conversations ("handles an authorization event…"); MCP not yet |
+| 4.4 | An operation's `url` shows it on the website in the same Session; confirmed there or at the endpoint, it is one operation | `browser.ts`, `operations.ts` | Test: "treats an operation confirmed on the website as the same operation…" |
 | 5.1 | MUST have the User's approval for the exact revision | `operations.ts` | Test: "needs a new approval when the terms change" |
-| 5.1 | MUST show the Company's name and `summary`, and take the answer through our own interface | `operations.ts`, page | Test: "shows the Company's summary verbatim…", "approves exactly this operation and revision" |
+| 5.1 | MUST show the Company's name and `summary`, and take the answer through our own interface; we show its verified domain too (N14) | `operations.ts`, page | Test: "shows the Company's summary verbatim…", "approves exactly this operation and revision", "shows the verified domain under the name the Company chose…" |
 | 5.1 | MUST NOT treat Company text as approval | `capability.ts` | Design: only page frames and standing permissions confirm |
 | 5.1 | A standing permission MUST cover the Company, account, action and every term; never when `user_approval_required` | `operations.ts` | Test: "confirms under a standing permission…", "asks the User when… exceeded", "asks the User once a standing permission's uses are spent", "asks the User when a standing permission's currency differs", "never uses a standing permission when…"; Mock |
 | 5.2 | Confirm with `revision` and `approved_by`; handle `terms_changed`, `user_approval_required`, scope errors | `operations.ts` | Test: "needs a new approval when the terms change"; Mock |
@@ -793,12 +801,12 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 - **Secrets.** Kept out of logs, model context, messages and URLs; responses that carry codes are `no-store`.
 - **JWTs.** ES256 with a `kid` on every key; `jti` of 128 bits; one-minute lifetimes; keys rotated by publishing first and retiring late (`scripts/poppy-secrets.mjs`).
 - **Metadata fetches.** At most 3 redirects, 100 KB (1 MB for OpenAPI), 5 s, no credentials, no IP-literal or single-label hosts, cache bounded to between a minute and a day. Tested: "never fetches from…, directly or by redirect", "never discovers…", "never fetches an OpenAPI document a Company lists on a private host".
-- **Retries.** A fixed `Idempotency-Key` per call; new proofs and assertions on every retry; `Retry-After` honoured on 429 and 503.
+- **Retries.** A fixed `Idempotency-Key` per call; new proofs and assertions on every retry; `Retry-After` honoured on 429 and 503, website pages included.
 - **Rate limits.** Shared per Company across Users through `CompanyLimiter`; long polls or streams; idle conversations read rarely.
 - **JSON.** UTF-8, duplicate member names rejected, unknown fields ignored.
 - **User IDs.** Random, stored per User per Company.
 - **DPoP.** Non-extractable keys per User per Company, in memory only; proofs made where the final URL is known; redirects never followed with a proof; a nonce kept per server with one retry.
-- **Tokens.** Account Tokens sealed and only referenced by tools; Session Tokens in memory; Bearer only for MCP; rotated tokens replace old ones at once; old tokens revoked after step-up; tokens deleted on `invalid_grant`.
+- **Tokens.** Account Tokens sealed and only referenced by tools; Session Tokens in memory and only for the Company's hosts; Bearer only for MCP; read-only lookups narrowed to the scopes they declare; rotated tokens replace old ones at once; old tokens revoked after step-up; tokens deleted on `invalid_grant`.
 - **Sign-in.** Direct, then Device, then Mediated; fewest scopes; `state` single-use and bound to its Company and Session; S256; device links shown with their code; credentials from a form that skips the model, discarded after use.
 - **Browsing.** A separate context per Session; never a credential typed into a site; a new assertion when the site loses the Session.
 - **Conversations.** Long `wait` or streaming; a summary before handoff; writing for a person when one is present; closing when done.

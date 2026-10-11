@@ -214,6 +214,7 @@ export class Company {
   browserJoins = 0;
   tokenRequestCount = 0;
   otherRequestCount = 0;
+  pageRequestCount = 0;
   retryAfterUntil = 0;
 
   constructor(
@@ -332,10 +333,24 @@ export class Company {
     this.exchanged.add(key);
   }
 
+  /** What the Company calls reading and changing orders: `poppy:` scopes, or its own (`customScopesOnly`). */
+  get orderScopes(): { readonly read: string; readonly write: string } {
+    return this.config.customScopesOnly
+      ? { read: "orders:read", write: "orders:write" }
+      : { read: "poppy:read", write: "poppy:write" };
+  }
+
+  /** Scopes a sign-in type can grant, with `poppy:` scopes renamed when the Company has only its own. */
+  offeredScopes(type: "direct" | "device" | "mediated"): readonly string[] | null {
+    const scopes = this.config.signIn[type];
+    const { read, write } = this.orderScopes;
+    return scopes && scopes.map((scope) => (scope === "poppy:read" ? read : scope === "poppy:write" ? write : scope));
+  }
+
   // ---- Rate limits (4.3) ----
 
   /** 429 when configured; a request before an earlier Retry-After is a violation. */
-  rateLimit(kind: "token" | "other", inbound: Inbound): void {
+  rateLimit(kind: "token" | "other" | "page", inbound: Inbound): void {
     const now = this.now();
     if (now < this.retryAfterUntil) {
       this.violation(
@@ -344,11 +359,10 @@ export class Company {
       );
       throw this.tooMany(Math.ceil((this.retryAfterUntil - now) / 1000));
     }
-    const limit =
-      kind === "token"
-        ? this.config.rateLimit.tokenRequests429
-        : this.config.rateLimit.requests429;
-    const count = kind === "token" ? ++this.tokenRequestCount : ++this.otherRequestCount;
+    const limits = this.config.rateLimit;
+    const limit = kind === "token" ? limits.tokenRequests429 : kind === "page" ? (limits.pages429 ?? 0) : limits.requests429;
+    const count =
+      kind === "token" ? ++this.tokenRequestCount : kind === "page" ? ++this.pageRequestCount : ++this.otherRequestCount;
     if (count <= limit) {
       this.retryAfterUntil = now + this.config.rateLimit.retryAfterSeconds * 1000;
       throw this.tooMany(this.config.rateLimit.retryAfterSeconds);
@@ -843,7 +857,7 @@ export class Company {
       access_token: access.value,
       token_type: access.kind === "dpop" ? "DPoP" : "Bearer",
       expires_in: this.config.sessionTokenTtl,
-      scope: access.scope.join(" "),
+      ...(this.config.omitTokenScope ? {} : { scope: access.scope.join(" ") }),
       session_id: access.sessionId,
       signed_in: access.signedIn
     };

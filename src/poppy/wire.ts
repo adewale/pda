@@ -8,8 +8,14 @@
 
 type CardBase = {
   readonly id: string;
-  /** The Company's display name. */
+  /** The Company's display name, which it chooses itself. */
   readonly company: string;
+  /**
+   * The Company's verified `organization.domain`, shown beside the name so a
+   * look-alike name can't pass for another Company (docs/spec-issues.md, N14).
+   * Absent on notices that aren't about one Company.
+   */
+  readonly domain?: string;
   /** Open cards wait for the User; closed ones show an outcome. */
   readonly open: boolean;
 };

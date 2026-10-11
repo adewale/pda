@@ -1,4 +1,4 @@
-import { covers, PoppyClient, PoppyError, scopeSet } from "./client";
+import { covers, grantedScope, PoppyClient, PoppyError, scopeSet } from "./client";
 import type { Company, SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
@@ -150,6 +150,7 @@ export async function startSignIn(
       id: `signin-${id}`,
       kind: "signin_link",
       company: company.name,
+      domain: company.domain,
       open: true,
       signInId: id,
       url: url.href,
@@ -192,6 +193,7 @@ export async function startSignIn(
       id: `signin-${id}`,
       kind: "signin_device",
       company: company.name,
+      domain: company.domain,
       open: true,
       signInId: id,
       verificationUri,
@@ -208,6 +210,7 @@ export async function startSignIn(
       id: `signin-${id}`,
       kind: "signin_credentials",
       company: company.name,
+      domain: company.domain,
       open: true,
       signInId: id,
       fields: company.signIn.mediated!.fields,
@@ -227,17 +230,19 @@ async function finish(
   setStatus(client, row.id, outcome.ok ? "done" : "failed");
   let text: string;
   if (outcome.ok) {
-    const response = outcome.response as Parameters<PoppyClient["completeSignIn"]>[3];
+    const raw = outcome.response as Parameters<PoppyClient["completeSignIn"]>[3];
+    // An omitted `scope` grants what was asked for (RFC 6749 §5.1, N6).
+    const response = { ...raw, scope: grantedScope(raw, row.scopes) };
     await client.completeSignIn(company, row.label, row.account, response);
     const granted = scopeSet(response.scope);
     const missing = row.scopes.split(" ").filter((scope) => !granted.has(scope));
     text = missing.length
-      ? `Signed in to ${company.name}, but the User approved fewer scopes than requested: granted "${response.scope ?? ""}", not granted "${missing.join(" ")}".`
-      : `Signed in to ${company.name} with "${response.scope ?? ""}".`;
+      ? `Signed in to ${company.name}, but the User approved fewer scopes than requested: granted "${response.scope}", not granted "${missing.join(" ")}".`
+      : `Signed in to ${company.name} with "${response.scope}".`;
   } else {
     text = `Sign-in to ${company.name} didn't complete: ${outcome.message}`;
   }
-  await client.host.showCard({ id: `signin-${row.id}`, kind: "notice", company: company.name, open: false, text });
+  await client.host.showCard({ id: `signin-${row.id}`, kind: "notice", company: company.name, domain: company.domain, open: false, text });
   await client.host.notifyModel(`[system] ${text}`, `poppy-signin-${row.id}`);
 }
 
@@ -380,6 +385,7 @@ async function mediatedResponse(
         id: `signin-${row.id}`,
         kind: "signin_code",
         company: company.name,
+        domain: company.domain,
         open: true,
         signInId: row.id,
         sentTo,
@@ -477,6 +483,7 @@ export async function signOut(client: PoppyClient, issuer: string, account: stri
     id: `signout-${issuer}-${account}`,
     kind: "notice",
     company: company.name,
+    domain: company.domain,
     open: false,
     text: `Signed out of ${company.name}. Open tasks there continue signed out.`
   });
