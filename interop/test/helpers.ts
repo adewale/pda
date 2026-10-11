@@ -13,6 +13,8 @@ export type Spec = {
   status?: number;
   responseHeaders?: Record<string, string>;
   response?: unknown;
+  /** Mark the exchange as one the fault-injection proxy created (spec §6). */
+  injected?: boolean;
 };
 
 const T0 = Date.parse("2026-10-11T12:00:00Z");
@@ -40,7 +42,8 @@ export function entry(spec: Spec): HarEntry {
       status: spec.status ?? 200,
       headers: Object.entries(responseHeaders).map(([name, value]) => ({ name, value })),
       content: { mimeType: responseHeaders["content-type"] ?? "", text: response }
-    }
+    },
+    ...(spec.injected ? { _interop: { injected: true } } : {})
   };
 }
 
