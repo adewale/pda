@@ -1,5 +1,5 @@
 import { useAgent } from "agents/react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import type {
   ClientMessage,
@@ -8,6 +8,8 @@ import type {
   ToolInfo
 } from "./protocol";
 import type {
+  ActivityEntry,
+  ActivityTask,
   Card,
   ConnectedAccount,
   DirectUpdate,
@@ -18,12 +20,19 @@ import type {
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
 
-/** Poppy's part of the page: cards, settings, Direct Conversations. */
+/** What the agent is doing and has done at Companies; null until the agent says. */
+export type ActivityView = {
+  readonly inProgress: readonly ActivityTask[];
+  readonly log: readonly ActivityEntry[];
+};
+
+/** Poppy's part of the page: cards, settings, activity, Direct Conversations. */
 export type PoppyView = {
   readonly cards: readonly Card[];
   readonly accounts: readonly ConnectedAccount[];
   readonly permissions: readonly Permission[];
   readonly direct: Readonly<Record<string, DirectUpdate>>;
+  readonly activity: ActivityView | null;
 };
 
 type State = SessionView & {
@@ -37,7 +46,7 @@ const INITIAL_STATE: State = {
   ...EMPTY_VIEW,
   status: "connecting",
   catalog: [],
-  poppy: { cards: [], accounts: [], permissions: [], direct: {} }
+  poppy: { cards: [], accounts: [], permissions: [], direct: {}, activity: null }
 };
 
 export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView {
@@ -52,8 +61,15 @@ export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView
       return { ...view, accounts: frame.accounts, permissions: frame.permissions };
     case "poppy.direct":
       return { ...view, direct: { ...view.direct, [frame.update.conversationId]: frame.update } };
+    case "poppy.activity":
+      return { ...view, activity: { inProgress: frame.inProgress, log: frame.log } };
+    default:
+      return view;
   }
 }
+
+/** At most one "the User is here" ping per this long (spec 7.4: available while used recently). */
+const PRESENCE_EVERY_MS = 2 * 60_000;
 
 /**
  * The signed-in person's one conversation over the harness's WebSocket
@@ -149,5 +165,24 @@ export function usePiSession() {
     [send]
   );
 
+  // Using the page (not just having it open) keeps the User available to Companies.
+  useEffect(() => {
+    let last = 0;
+    const seen = () => {
+      if (Date.now() - last < PRESENCE_EVERY_MS) return;
+      last = Date.now();
+      sendPoppy({ type: "poppy.activity" });
+    };
+    window.addEventListener("pointerdown", seen, { passive: true });
+    window.addEventListener("keydown", seen, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", seen);
+      window.removeEventListener("keydown", seen);
+    };
+  }, [sendPoppy]);
+
   return { ...state, submit, abort, reset, sendPoppy };
 }
+
+/** Everything the page gets from its agent, as `usePiSession` returns it. */
+export type PiSession = ReturnType<typeof usePiSession>;

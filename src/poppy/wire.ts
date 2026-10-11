@@ -120,6 +120,66 @@ export type Permission = {
   readonly expiresAt: number | null;
 };
 
+/** How the agent reached the Company. */
+export type ActivityChannel = "api" | "company_agent" | "website" | "sign_in" | "direct";
+
+/** What an action could do with the account: read it, or read and change it. */
+export type ActivityAccess = "view" | "view_and_change";
+
+export type ActivityResult =
+  | "waiting"
+  | "in_progress"
+  | "done"
+  | "declined"
+  | "cancelled"
+  | "expired"
+  | "failed"
+  | "unknown";
+
+/**
+ * One line of the activity log, built from the agent's own records (operations,
+ * approvals, sign-ins, conversations, messages), so it outlives the cards.
+ * It never carries a token, key, code, credential or sign-in secret.
+ */
+export type ActivityEntry = {
+  readonly id: string;
+  readonly at: number;
+  readonly kind: "operation" | "approval" | "sign_in" | "conversation" | "message";
+  readonly issuer: string;
+  readonly company: string;
+  readonly account: string | null;
+  /** What happened, in plain words. */
+  readonly what: string;
+  /** Words quoted verbatim, and whose they are. */
+  readonly quote?: string;
+  readonly quoteBy?: "company" | "agent" | "you";
+  readonly how: ActivityChannel | null;
+  readonly access: ActivityAccess | null;
+  /** Who decided: the User, or a standing permission they set. Null when no decision was needed. */
+  readonly decidedBy: "you" | "standing_permission" | null;
+  readonly result: ActivityResult;
+  /** The outcome in words: the Company's account of it, or why it failed. */
+  readonly outcome?: string;
+  readonly outcomeBy?: "company" | "agent";
+};
+
+/** Work running in the background now. */
+export type ActivityTask = {
+  readonly id: string;
+  readonly kind: "conversation" | "device_sign_in" | "operation" | "approval";
+  readonly issuer: string;
+  readonly company: string;
+  readonly what: string;
+  readonly quote?: string;
+  readonly quoteBy?: "company" | "agent";
+  readonly note?: string;
+  readonly since: number;
+  /** When it ends by itself, such as a device code's expiry. */
+  readonly until?: number;
+  /** The page frame that stops it, where the protocol lets the User stop it. */
+  readonly stop?: PoppyClientFrame;
+};
+
 /** Server → page. */
 export type PoppyServerFrame =
   | { readonly type: "poppy.cards"; readonly cards: readonly Card[] }
@@ -128,11 +188,18 @@ export type PoppyServerFrame =
       readonly type: "poppy.settings";
       readonly accounts: readonly ConnectedAccount[];
       readonly permissions: readonly Permission[];
+    }
+  | {
+      readonly type: "poppy.activity";
+      readonly inProgress: readonly ActivityTask[];
+      /** Newest first. */
+      readonly log: readonly ActivityEntry[];
     };
 
 /** Page → server. */
 export type PoppyClientFrame =
   | { readonly type: "poppy.context"; readonly locale?: string; readonly time_zone?: string }
+  /** The User is using the page, so they count as available (spec 7.4). Not the server's `poppy.activity`. */
   | { readonly type: "poppy.activity" }
   | {
       readonly type: "poppy.credentials";

@@ -1,4 +1,5 @@
 import { LifecycleCapability, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle";
+import { buildActivity } from "./activity";
 import type { PoppyBrowser } from "./browser";
 import { PoppyClient, type JobName, type PoppyHost } from "./client";
 import {
@@ -72,6 +73,8 @@ export class PoppyCapability extends LifecycleCapability {
   #client: PoppyClient | undefined;
   #context: { locale?: string; time_zone?: string } = {};
   #lastActivity = 0;
+  /** The last `poppy.activity` broadcast, so an unchanged one isn't sent again. */
+  #lastActivityFrame = "";
 
   constructor(options: PoppyOptions) {
     super("poppy");
@@ -106,8 +109,13 @@ export class PoppyCapability extends LifecycleCapability {
       notifyModel: (text, operationId) => options.notifyModel(text, operationId),
       schedule: async (fn, at, payload, id) => {
         await this.lifecycle.jobs.push({ fn, time: at, payload, id, singleflight: true });
+        // Scheduled after a message, a new conversation or an operation update.
+        this.#sendActivity();
       },
-      pushDirect: (update) => this.#broadcast({ type: "poppy.direct", update: update as never }),
+      pushDirect: (update) => {
+        this.#broadcast({ type: "poppy.direct", update: update as never });
+        this.#sendActivity();
+      },
       userContext: () => ({
         ...this.#context,
         user_available:
@@ -153,6 +161,36 @@ export class PoppyCapability extends LifecycleCapability {
     );
     this.#sendCards();
     if (card.kind === "notice" || card.kind === "signin_link" || card.kind === "operation") this.#sendSettings();
+    this.#sendActivity();
+  }
+
+  /**
+   * What the agent is doing and has done at Companies, from its own tables:
+   * to one socket on connect, otherwise to every page when it changed.
+   */
+  #sendActivity(socket?: WebSocket): void {
+    if (!socket && !this.#hasPoppyState()) return;
+    let text: string;
+    try {
+      text = JSON.stringify(buildActivity(this.client));
+    } catch (error) {
+      // The log is a view; failing to build it must never stop the work it describes.
+      console.warn("poppy activity failed", error instanceof Error ? error.message : String(error));
+      return;
+    }
+    if (socket) {
+      socket.send(text);
+      return;
+    }
+    if (text === this.#lastActivityFrame) return;
+    this.#lastActivityFrame = text;
+    for (const open of this.lifecycle.sockets.get()) {
+      try {
+        open.send(text);
+      } catch {
+        // Closed between listing and sending.
+      }
+    }
   }
 
   /** Open cards, plus closed ones from the last hour so outcomes stay visible. */
@@ -215,6 +253,7 @@ export class PoppyCapability extends LifecycleCapability {
     this.#lastActivity = Date.now();
     try {
       await this.#handleFrame(socket, frame);
+      if (frame.type !== "poppy.context" && frame.type !== "poppy.activity") this.#sendActivity();
     } catch (error) {
       console.warn("poppy frame failed", frame.type, error instanceof Error ? error.message : String(error));
       this.#broadcast({
@@ -249,6 +288,7 @@ export class PoppyCapability extends LifecycleCapability {
         };
         this.#sendCards(socket);
         this.#sendSettings(socket);
+        this.#sendActivity(socket);
         if (!wasAvailable) await updateAvailability(client).catch(() => undefined);
         return;
       }
@@ -357,6 +397,7 @@ export class PoppyCapability extends LifecycleCapability {
       console.warn("poppy job failed", fn, error instanceof Error ? error.message : String(error));
       next = Date.now() + 60_000;
     }
+    this.#sendActivity();
     return next === null ? undefined : { rescheduleAt: next };
   }
 }
