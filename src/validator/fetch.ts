@@ -25,7 +25,8 @@ export type Fetched = {
 
 /** Literal IPs, localhost and single-label names: never fetched. */
 export function isPublicHost(url: URL): boolean {
-  const host = url.hostname.toLowerCase();
+  // `localhost.` is `localhost`: a fully qualified name's root dot doesn't change the host.
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
   return !(
     host === "localhost" ||
     host.endsWith(".localhost") ||

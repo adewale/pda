@@ -15,7 +15,7 @@ export function findApi(company: Company, type: Api["type"], url?: string): Api 
 
 // ---------------------------------------------------------------- OpenAPI
 
-type OpenApiOperation = {
+export type OpenApiOperation = {
   readonly operationId: string;
   readonly method: string;
   readonly path: string;
@@ -142,7 +142,7 @@ type OpenApiCall = {
  * declares none, if the signed-in Session holds them all and more besides.
  * A lookup that needs a custom scope keeps it.
  */
-function readOnlyScope(sessionScope: string | undefined, op: OpenApiOperation): string | null {
+export function readOnlyScope(sessionScope: string | undefined, op: OpenApiOperation): string | null {
   const held = scopeSet(sessionScope);
   const wanted = new Set(op.scopes.length ? op.scopes : ["poppy:read"]);
   if (![...wanted].every((scope) => held.has(scope)) || wanted.size >= held.size) return null;
@@ -154,9 +154,10 @@ function readOnlyScope(sessionScope: string | undefined, op: OpenApiOperation): 
  * after checking the required parameters are there. A template the
  * description doesn't declare as a parameter (some declare none) is filled
  * by name too. One left unfilled is refused: `/orders/%7Border_id%7D` would
- * only reach the wrong resource.
+ * only reach the wrong resource. So is a value that fills a whole segment
+ * with nothing, `.` or `..`.
  */
-function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
+export function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
   for (const parameter of op.parameters) {
     if (parameter.required && params[parameter.name] === undefined) {
       throw new PoppyError("invalid_request", `Missing parameter ${parameter.name}`, 0);
@@ -174,6 +175,18 @@ function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
       0
     );
   }
+  // A value must stay the one segment its template names: an empty segment,
+  // or `.` or `..`, which a URL resolves away, would reach another resource.
+  const templated = op.path.split("/");
+  filled.split("/").forEach((segment, index) => {
+    if (/\{[^{}/]+\}/.test(templated[index] ?? "") && (segment === "" || segment === "." || segment === "..")) {
+      throw new PoppyError(
+        "invalid_request",
+        `${op.method} ${op.path}: ${JSON.stringify(segment)} can't fill the path segment ${templated[index]}; it would reach another resource`,
+        0
+      );
+    }
+  });
   return filled;
 }
 
