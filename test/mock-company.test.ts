@@ -2001,6 +2001,20 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     expect((await c.stub.state()).violations).toEqual([]);
   });
 
+  it("answers a retried first message with sign_in_required once the conversation used an account the Session left (7.11, S8)", async () => {
+    const c = company();
+    const s = await signedIn(c);
+    const first = message({ text: "I'd like to exchange the jacket on my order" });
+    expect((await converse(c, s, first)).status).toBe(201);
+    const revoke = await form(c, c.hosts.revocationEndpoint, { token: s.refreshToken, token_type_hint: "refresh_token" }, null);
+    expect(revoke.status).toBe(200);
+    const retry = await call(c, s, "POST", `${c.hosts.conversationsEndpoint}?wait=1`, { body: { message: first } });
+    expect(retry.status).toBe(403);
+    expect(retry.headers.get("WWW-Authenticate")).toContain("sign_in_required");
+    expect(JSON.stringify(await retry.json())).not.toContain("ord_7Hk2");
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
   it("accepts every well-formed RFC 5646 locale and IANA time zone name in context (7.4)", async () => {
     const c = company();
     const s = await signedOut(c);

@@ -30,6 +30,8 @@ Invariants: `GET /violations` holds exactly the ids the reject rules expect, in 
 
 The run ends by printing how often each rule reached each outcome, so a rule that stopped firing shows.
 
+Bounds, for cost, not to dodge failures: reads never ask for `wait`, and retries don't either, since a long poll with nothing new holds each step for up to the mock's 2 s cap; a send asks for `wait` (0 or 1) only where its own message is already there to return. JSON integers stay within ±(2^53 − 1), RFC 8259's interoperable range. Not covered: the Operations extension, MCP, browsing, handoff and Direct Conversations, rate limits, and Device Sign-In's polling (the User approves before the first poll).
+
 ## What it found
 
 See the triage ledger in `docs/spec-issues.md` (N4, S8, S9) and the regression tests in `test/mock-company.test.ts` under "the mock Company, as the Hypothesis model found it".

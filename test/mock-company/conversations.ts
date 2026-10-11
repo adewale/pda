@@ -362,7 +362,9 @@ export class Conversations {
     const message = this.#validate(body.message as IncomingMessage | undefined);
     const parentId = typeof body.parent_conversation_id === "string" ? body.parent_conversation_id : null;
     const existing = this.#idempotent(context, message, parentId);
-    if (existing) return this.#answer(inbound, existing, 201);
+    // A retry gets the original response only if it may still read the
+    // conversation: once it used the account, 7.11 wins (S8), as in message().
+    if (existing) return this.#answer(inbound, this.#owned(context, existing.id), 201);
     let parent: Conversation | null = null;
     if (parentId) {
       parent = this.#owned(context, parentId);
