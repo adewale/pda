@@ -1,0 +1,59 @@
+diff --git a/workers/caller/src/session.ts b/workers/caller/src/session.ts
+index 9209198..565d39e 100644
+--- a/workers/caller/src/session.ts
++++ b/workers/caller/src/session.ts
+@@ -97,12 +97,17 @@ export class CallerSession extends Agent<CallerEnv> {
+   private serialize<T>(fn: () => Promise<T>): Promise<T> {
+     const result = this.chain.then(fn, fn); this.chain = result.then(() => {}, () => {}); return result;
+   }
++  // Interop-only: with no RECEIVER service binding configured, reach the Company over the network, never following redirects.
++  private peer(url: string, init: RequestInit = {}) {
++    const binding = (this.env as { RECEIVER?: Fetcher }).RECEIVER;
++    return binding ? binding.fetch(url, init) : fetch(url, { ...init, redirect: 'manual' });
++  }
+   private async get(s: PrivateState, url: string, note: string) {
+     // Fixed-company demo: HTTPS discovery redirects may only stay on the registered peer origin.
+     let location = url;
+     for (let i = 0; i < 5; i++) {
+       if (permittedUrl(location, this.env.LOCAL_DEMO === 'true').origin !== this.env.RECEIVER_ORIGIN) fail('invalid_metadata');
+-      const response = await this.env.RECEIVER.fetch(location, { redirect: 'manual' });
++      const response = await this.peer(location, { redirect: 'manual' });
+       if ([301,302,303,307,308].includes(response.status)) { const next = response.headers.get('Location'); if (!next) fail('invalid_metadata'); location = new URL(next, location).href; continue; }
+       const body = JSON.parse(await readText(response)); this.trace(s, 'GET', location, response.status, note, body); if (!response.ok) fail('discovery_failed'); return body;
+     } fail('too_many_redirects');
+@@ -127,7 +132,7 @@ export class CallerSession extends Agent<CallerEnv> {
+     const body = new URLSearchParams({ ...params, ...fields });
+     let nonce: string | undefined;
+     for (let i = 0; i < 2; i++) {
+-      const response = await this.env.RECEIVER.fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', DPoP: await proof(s.dpop, 'POST', endpoint, undefined, nonce) }, body: body.toString() });
++      const response = await this.peer(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', DPoP: await proof(s.dpop, 'POST', endpoint, undefined, nonce) }, body: body.toString() });
+       const result = JSON.parse(await readText(response)) as TokenResponse & { error?: string };
+       this.trace(s, 'POST', endpoint, response.status, note, result);
+       if (result.error === 'use_dpop_nonce' && response.headers.get('DPoP-Nonce')) { nonce = response.headers.get('DPoP-Nonce')!; Object.assign(fields, await this.authFields(endpoint)); for (const [k,v] of Object.entries(fields)) body.set(k,v); continue; }
+@@ -149,7 +154,7 @@ export class CallerSession extends Agent<CallerEnv> {
+     if ((s.tokenExpires ?? 0) <= now() + 10) await this.renew(s);
+     const url = this.env.RECEIVER_ORIGIN + path; let nonce: string | undefined;
+     for (let i=0; i<2; i++) {
+-      const response = await this.env.RECEIVER.fetch(url, { method, headers: { Authorization: 'DPoP ' + s.token!.access_token, DPoP: await proof(s.dpop, method, url, s.token!.access_token, nonce), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
++      const response = await this.peer(url, { method, headers: { Authorization: 'DPoP ' + s.token!.access_token, DPoP: await proof(s.dpop, method, url, s.token!.access_token, nonce), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+       const result = JSON.parse(await readText(response)); this.trace(s, method, url, response.status, 'Session Token + DPoP proof (method, URL, token hash, unique jti)', result);
+       if (result.error === 'use_dpop_nonce' && response.headers.get('DPoP-Nonce')) { nonce = response.headers.get('DPoP-Nonce')!; continue; }
+       if (!response.ok) fail(result.error ?? 'request_failed', response.status, result.scope ? { scope: result.scope } : {}); return result;
+@@ -192,7 +197,7 @@ export class CallerSession extends Agent<CallerEnv> {
+       else if (action === 'renew' || action === 'new-session') await this.renew(s,action === 'new-session');
+       else if (action === 'revoke') {
+         if (!s.accountToken || !s.metadata) fail('not_connected'); const endpoint=s.metadata.revocation_endpoint;
+-        const response=await this.env.RECEIVER.fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({token:s.accountToken,token_type_hint:'refresh_token',...await this.authFields(endpoint)})});
++        const response=await this.peer(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({token:s.accountToken,token_type_hint:'refresh_token',...await this.authFields(endpoint)})});
+         const result=JSON.parse(await readText(response));this.trace(s,'POST',endpoint,response.status,'Revoke Account Token; all linked sessions become signed out',result);if(!response.ok) fail(result.error??'revocation_failed');
+         delete s.accountToken; delete s.accountScope; delete s.orders; delete s.exchangeProposal; this.save(s); await this.renew(s);
+       } else if (action === 'message' || action === 'direct') {
+@@ -231,7 +236,7 @@ export class CallerSession extends Agent<CallerEnv> {
+       if(!params.code||!s.token)fail('invalid_oauth_response');
+       const old=s.accountToken;
+       await this.tokenRequest(s,{grant_type:'authorization_code',code:params.code,code_verifier:pending.verifier,redirect_uri:this.env.CALLER_ORIGIN+'/oauth/callback',session_id:s.token.session_id},'Direct sign-in: validate state + issuer, exchange one-time code with PKCE');
+-      if(old&&old!==s.accountToken&&s.metadata){const endpoint=s.metadata.revocation_endpoint;const r=await this.env.RECEIVER.fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({token:old,token_type_hint:'refresh_token',...await this.authFields(endpoint)})});await r.body?.cancel();}
++      if(old&&old!==s.accountToken&&s.metadata){const endpoint=s.metadata.revocation_endpoint;const r=await this.peer(endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({token:old,token_type_hint:'refresh_token',...await this.authFields(endpoint)})});await r.body?.cancel();}
+       return this.publicState(s);
+     });
+   }

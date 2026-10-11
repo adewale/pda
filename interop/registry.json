@@ -66,6 +66,70 @@
       "commit": "11ea10630180740f16ccd507b8f90f69870c7e32",
       "build": "interop/impls/pi-poppy-company",
       "notes": "CompanyServer (src/company.ts), the Company pi-poppy's tests use; nonces off until the require_nonce hook. Patch: private addresses under .interop.test. MIT."
+    },
+    {
+      "name": "poppy-demo",
+      "role": "agent",
+      "source": "https://github.com/irvinebroque/poppy-demo",
+      "commit": "02a9b304e92fdfee465c57f2822742eecac8bdc8",
+      "build": "interop/impls/poppy-demo-agent",
+      "notes": "workers/caller under wrangler dev; the adapter drives CallerSession's protocol actions through /api/action, never the model. One Company per process."
+    },
+    {
+      "name": "poppy-demo",
+      "role": "company",
+      "source": "https://github.com/irvinebroque/poppy-demo",
+      "commit": "02a9b304e92fdfee465c57f2822742eecac8bdc8",
+      "build": "interop/impls/poppy-demo-company",
+      "notes": "Northstar (workers/receiver) under wrangler dev; patched to admit *.agent.interop.test client_ids (INTEROP_PEER_SUFFIX)."
+    },
+    {
+      "name": "poppyseed",
+      "role": "company",
+      "source": "https://github.com/akshay5995/poppyseed",
+      "commit": "f479fb6bd1754b9639440515f259e01936b0a18a",
+      "build": "interop/impls/poppyseed-company",
+      "notes": "Reference Company (fixtures/next-app) with its own test hooks; consent through its real pages."
+    },
+    {
+      "name": "ilmer",
+      "role": "company",
+      "source": "https://github.com/rbirkby/Ilmer.org",
+      "commit": "4ca76e0026a1fa442f9430eddba61e82e6e4c9b4",
+      "build": "interop/impls/ilmer-company",
+      "notes": "Signed-out only; wrangler dev without Workers AI, so replies are a fixed apology."
+    },
+    {
+      "name": "adonis-agora",
+      "role": "company",
+      "source": "https://github.com/DavideCarvalho/adonis-agora-authkit",
+      "commit": "97838853c44e55c5d4c71ac5741f26fc34f720dc",
+      "build": "interop/impls/adonis-agora-company",
+      "notes": "authkit-server 0.78.0 + @adonis-agora/agent 0.79.0 (Company conversations, agent commit e66a2329d436f603dd7c57a0ca81b36e65bd486f) in a minimal AdonisJS host; scripted model; allowInsecureClientIds on for private-network peers."
+    },
+    {
+      "name": "adonis-agora",
+      "role": "agent",
+      "source": "https://github.com/DavideCarvalho/adonis-agora-agent",
+      "commit": "e66a2329d436f603dd7c57a0ca81b36e65bd486f",
+      "build": "interop/impls/adonis-agora-agent",
+      "notes": "Drives packages/adonis/src/poppy-client directly; no model."
+    },
+    {
+      "name": "ilmer-live",
+      "role": "company",
+      "source": "https://github.com/rbirkby/Ilmer.org",
+      "commit": "4ca76e0026a1fa442f9430eddba61e82e6e4c9b4",
+      "url": "https://poppy.ilmer.org",
+      "notes": "Live lane only: signed-out D, S0 and one or two C messages (a real model with a shared daily budget). Deployed commit not confirmed."
+    },
+    {
+      "name": "poppyseed-live",
+      "role": "company",
+      "source": "https://github.com/akshay5995/poppyseed",
+      "commit": "f479fb6bd1754b9639440515f259e01936b0a18a",
+      "url": "https://withpoppyseed.dev",
+      "notes": "Live lane only. On 11 October 2026 the apex 308-redirects to www., including POST /oauth/token, so S0 fails for agents that don't follow redirects with credentials. Deployed commit not confirmed."
     }
   ]
 }
