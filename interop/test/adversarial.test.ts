@@ -91,11 +91,15 @@ describe("attribution rule 0 (adversarial)", () => {
     expect(isSecurityCell(cell("evil-agent", "dpa-mock", "fail", "YR"), context)).toBe(true);
     expect(isSecurityCell(cell("dpa", "dpa-mock", "fail", "NREP"), context)).toBe(true);
     expect(isSecurityCell(cell("dpa", "dpa-mock", "fail", "SD"), context)).toBe(false);
-    // A security cell never stands in as a grid reference for an honest cell.
+    // A security cell never stands in as a grid cell for an honest one: here the
+    // evil agent passing against `other` would, if counted, say `other` doesn't
+    // fail with every agent, and leave the honest failure unattributed.
     const honest: Cell = { ...cell("dpa", "other", "fail", "SD") };
-    const grid = [honest, cell("dpa", "dpa-mock", "pass", "SD"), { ...cell("evil-agent", "other", "fail", "SD"), security: true }];
+    const grid = [honest, cell("dpa", "dpa-mock", "pass", "SD"), cell("evil-agent", "other", "pass", "SD")];
     attributeAll(grid, { ...context, scenarios: new Map([["SD", { id: "SD", title: "x", steps: [] }]]) });
+    expect(grid[2]!.security).toBe(true);
     expect(honest.security).toBeFalsy();
+    expect({ blame: honest.blame, rule: honest.rule }).toEqual({ blame: "company", rule: "grid" });
   });
 });
 
