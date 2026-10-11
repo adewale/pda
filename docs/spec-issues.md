@@ -161,6 +161,16 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | --- | --- | --- |
 | <a id="n33"></a>N33 | **Inconsistent examples.** Ops 4.3 reuses `evt_c2` and `msg_r2Kq` from 7.5 with different content. Money appears as `70`, `{amount: "70.00", currency}` and `{amount: 48}`. The order is `#1042` in 7.3 but `ord_7Hk2` elsewhere. Ops §9 cites "section 3" for `extension_required` (it's 3.3). §6 uses `invalid_token` for a missing token, where RFC 6750 sends no error code. | Align them. |
 
+## Adversarial interop coverage
+
+The adversarial harness ([adversarial-interop.md](adversarial-interop.md), Part B) now exercises several of these over the wire, against our own implementations only:
+
+- **N10** (hosts that may receive Session Tokens): scenario `XH` arms `evil-company` to name an OpenAPI server off its domain; our client refuses (`untrusted_server`) and the `token_not_sent_to` harm oracle confirms no leak. The attack is `permitted_by: N10` — the draft leaves this open, so a client that *did* send the token would be blamed on the spec, not itself.
+- **S8** (retries after sign-out): the mock's `start()` checked message-id idempotency before ownership, so a signed-out retry of the first message got the original conversation and its events. Fixed — `start()` now re-applies the ownership/sign-in gate, so the retry gets `sign_in_required` (Workers test; evil-agent `YO` is future work).
+- **S17** (another User of the same agent on a conversation): the mock now records a `conversation.cross-user` violation and answers `conversation_not_found`. Scenario `YU` drives it over the wire.
+- **N37** (rug pull on discovery): scenario `XK` arms `evil-company` to move the API server off-domain after discovery. Our client caches the validated OpenAPI description, so it keeps using the original (safe) server rather than re-fetching the moved one — the rug pull is a non-event for us, but the draft should still say whether and when a client must re-validate.
+- **S1** (`aud`) and **N2** (sign-in binding) are the `permitted_by` readings behind `YA` and `YF`: where our strict reading refuses, a lenient-but-conformant peer need not, so a failure there is the spec's.
+
 ## Open topics, with our view
 
 - **Payments.** Ops already covers approval. A payment extension could sit on Ops, with amounts in a standard `{amount: string, currency}`, which would also fix S20 and N33.
