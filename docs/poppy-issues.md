@@ -168,7 +168,7 @@ What the comparison found in our own client, and what we did.
 | An API or conversation that answers 400 `invalid_session` (poppy-demo) left our cached token failing until it expired. | Fixed: the client starts a new Session and retries once. Tested against the mock in both modes. |
 | Our spec said the OAuth metadata is at `{auth.issuer}/.well-known/oauth-authorization-server`, the append form; the code did RFC 8414 insertion. | Fixed in the spec. |
 | The jwt-bearer grant could carry `scope` in one edge case: a narrowed read-only call in a signed-in Session whose Account Token was gone. 4.3 allows it, but authkit, everruns and TYPO3 reject it with `invalid_scope`, and a signed-out token has no scopes anyway. | Fixed: that grant never carries `scope`. |
-| Our mock Company doesn't require `typ: "JWT"` or `kid` on assertions, though real Companies do, so a regression there would go unnoticed. | Open. |
+| Our mock Company didn't require `typ: "JWT"`, a `kid` or a 60-second lifetime on assertions, though the strictest live Companies do, so a regression there would have gone unnoticed. | Fixed: the mock's `strictAssertions` mode (on by default) records and rejects each. Removing `typ` from our client assertion now fails 46 Poppy tests. |
 | No interop test against another implementation (Datalayer's `CompanyService`, pi-poppy's mock). | Open. |
 | Appendix A is maintained by hand, unlike Datalayer's checked ledger. | Open. |
 | No test against a Company that ignores `wait` or never sends `queued`. | Open. |

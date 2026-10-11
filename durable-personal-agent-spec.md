@@ -26,7 +26,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 
 ## Status
 
-**Deployed** at `https://personal-agent.adewale-883.workers.dev`, with 137 tests passing in the Workers runtime (Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.0`, Pi 1.1.0, Wrangler 4.149).
+**Deployed** at `https://personal-agent.adewale-883.workers.dev`, with 139 tests passing in the Workers runtime (Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.0`, Pi 1.1.0, Wrangler 4.149).
 
 | Part | State |
 | --- | --- |
@@ -592,14 +592,14 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 
 ## Testing and conformance
 
-`npm test` runs 137 tests in the Workers runtime, in five files.
+`npm test` runs 139 tests in the Workers runtime, in five files.
 
 | File | Tests | What |
 | --- | --- | --- |
 | `test/agent.test.ts` | 34 | App sign-in and the allowlist, `/ws`, the conversation's durability, configuration |
 | `test/allowlist.test.ts` | 3 | Reading and matching the allowlist |
 | `test/validator.test.ts` | 29 | The discovery document validator: a fixture for every message, the spec's examples, live documents, fetching, the HTTP endpoint |
-| `test/mock-company.test.ts` | 9 | The mock Company itself, driven by hand-made requests |
+| `test/mock-company.test.ts` | 11 | The mock Company itself, driven by hand-made requests |
 | `test/poppy.test.ts` | 62 | The Poppy client against the mock Company, grouped by spec section |
 
 - **The model** is Pi AI's faux provider. Google and GitHub are faked by the Vitest config's outbound service. Fresh Poppy signing keys and a token key are generated for each run.

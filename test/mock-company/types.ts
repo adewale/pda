@@ -65,6 +65,14 @@ export type MockConfig = {
     readonly requests429: number;
     readonly retryAfterSeconds: number;
   };
+  /**
+   * Check client and Session assertions the way the strictest live Companies
+   * do (poppy-demo, Ilmer): header `typ` "JWT", a `kid` naming a published
+   * key, and a lifetime of at most 60 seconds. The draft doesn't require
+   * these (docs/poppy-issues.md, S2), but agents that skip them can't sign in
+   * at those Companies, so breaches are recorded as violations.
+   */
+  readonly strictAssertions: boolean;
   /** Revocation ends Sessions instead of leaving them signed out. */
   readonly endSessionsOnSignOut: boolean;
   /**
@@ -121,6 +129,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   deviceInterval: 5,
   deviceExpiresIn: 600,
   rateLimit: { tokenRequests429: 0, requests429: 0, retryAfterSeconds: 1 },
+  strictAssertions: true,
   endSessionsOnSignOut: false,
   endedSessionError: "invalid_token",
   streaming: true,

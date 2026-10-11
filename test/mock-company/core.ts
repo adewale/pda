@@ -28,8 +28,9 @@ const PRIVATE_JWK_FIELDS = ["d", "p", "q", "dp", "dq", "qi", "k"];
 /** DPoP acceptance window plus clock skew, seconds. */
 const DPOP_WINDOW = 60;
 const SKEW = 30;
-/** Longest assertion lifetime accepted, seconds. */
+/** Longest assertion lifetime accepted, seconds; strict Companies allow 60. */
 const MAX_ASSERTION_LIFETIME = 300;
+const STRICT_ASSERTION_LIFETIME = 60;
 
 /** A Response to send instead of continuing. */
 export class HttpError extends Error {
@@ -418,6 +419,16 @@ export class Company {
     if (header.jku || header.x5u || header.jwk) {
       this.violation(`${kind}: embeds or points to a key (jku/x5u/jwk)`);
     }
+    if (this.config.strictAssertions) {
+      if (header.typ !== "JWT") {
+        this.violation(`${kind}: strict Company: header typ must be "JWT", got ${JSON.stringify(header.typ)}`);
+        throw error();
+      }
+      if (!header.kid || !client.jwks.keys.some((key) => key.kid === header.kid)) {
+        this.violation(`${kind}: strict Company: kid ${JSON.stringify(header.kid)} names no published key`);
+        throw error();
+      }
+    }
     try {
       const { payload } = await jwtVerify(token, createLocalJWKSet(client.jwks), {
         algorithms: SIGNING_ALGS,
@@ -435,7 +446,8 @@ export class Company {
       this.violation(`${kind}: iat and exp are required`);
       return false;
     }
-    if (payload.exp - payload.iat > MAX_ASSERTION_LIFETIME) {
+    const longest = this.config.strictAssertions ? STRICT_ASSERTION_LIFETIME : MAX_ASSERTION_LIFETIME;
+    if (payload.exp - payload.iat > longest) {
       this.violation(`${kind}: lifetime ${payload.exp - payload.iat}s is too long`);
       return false;
     }

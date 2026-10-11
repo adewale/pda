@@ -38,16 +38,24 @@ async function agentKey() {
   return { kid: first!.kid!, key: (await importJWK(first!, "ES256")) as CryptoKey };
 }
 
-async function assertion(aud: string, sub = CLIENT_ID, extra: Record<string, unknown> = {}) {
+async function assertion(
+  aud: string,
+  sub = CLIENT_ID,
+  extra: Record<string, unknown> = {},
+  shape: { typ?: string | null; kid?: string | null; lifetime?: number } = {}
+) {
   const { kid, key } = await agentKey();
   const now = Math.floor(Date.now() / 1000);
+  const header: { alg: string; typ?: string; kid?: string } = { alg: "ES256" };
+  if (shape.typ !== null) header.typ = shape.typ ?? "JWT";
+  if (shape.kid !== null) header.kid = shape.kid ?? kid;
   return new SignJWT({ ...extra })
-    .setProtectedHeader({ alg: "ES256", kid })
+    .setProtectedHeader(header)
     .setIssuer(CLIENT_ID)
     .setSubject(sub)
     .setAudience(aud)
     .setIssuedAt(now)
-    .setExpirationTime(now + 60)
+    .setExpirationTime(now + (shape.lifetime ?? 60))
     .setJti(jti())
     .sign(key);
 }
@@ -131,6 +139,62 @@ describe("the mock Company", () => {
     expect(response.status).toBe(401);
     expect(await response.json()).toMatchObject({ error: "invalid_client" });
     expect((await c.stub.state()).violations).toEqual([`no client assertion at ${c.hosts.tokenEndpoint}`]);
+  });
+
+  it("rejects assertions a strict Company would, and records why", async () => {
+    const cases = [
+      { shape: { typ: null }, expected: 'header typ must be "JWT", got undefined' },
+      { shape: { typ: "at+jwt" }, expected: 'header typ must be "JWT", got "at+jwt"' },
+      { shape: { kid: null }, expected: "kid undefined names no published key" },
+      { shape: { kid: "not-a-key" }, expected: 'kid "not-a-key" names no published key' },
+      { shape: { lifetime: 120 }, expected: "lifetime 120s is too long" }
+    ] as const;
+    for (const { shape, expected } of cases) {
+      const c = company();
+      const key = await dpopKey();
+      const response = await c.call(c.hosts.tokenEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          DPoP: await proof(key, "POST", c.hosts.tokenEndpoint)
+        },
+        body: new URLSearchParams({
+          grant_type: JWT_BEARER,
+          assertion: await assertion(c.hosts.tokenEndpoint, "usr_Q7c1vKx9TzLw3NdR5mHa2B"),
+          client_id: CLIENT_ID,
+          client_assertion_type: ASSERTION_TYPE,
+          client_assertion: await assertion(c.hosts.tokenEndpoint, CLIENT_ID, {}, shape)
+        })
+      });
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({ error: "invalid_client" });
+      const violations = (await c.stub.state()).violations;
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toContain(expected);
+    }
+  });
+
+  it("accepts the same assertions with strict checks turned off", async () => {
+    const c = company();
+    await c.stub.configure({ strictAssertions: false });
+    const key = await dpopKey();
+    const response = await c.call(c.hosts.tokenEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        DPoP: await proof(key, "POST", c.hosts.tokenEndpoint)
+      },
+      body: new URLSearchParams({
+        grant_type: JWT_BEARER,
+        // With two published keys, an assertion without a kid can't be verified at all.
+        assertion: await assertion(c.hosts.tokenEndpoint, "usr_Q7c1vKx9TzLw3NdR5mHa2B", {}, { typ: null }),
+        client_id: CLIENT_ID,
+        client_assertion_type: ASSERTION_TYPE,
+        client_assertion: await assertion(c.hosts.tokenEndpoint, CLIENT_ID, {}, { typ: null, lifetime: 120 })
+      })
+    });
+    expect(response.status).toBe(200);
+    expect((await c.stub.state()).violations).toEqual([]);
   });
 
   it("starts a signed-out Session for a correct request, with no violations", async () => {
