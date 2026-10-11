@@ -83,3 +83,16 @@ Known gaps:
 
 - After the agent signs out of one account, a Mediated Sign-In for a *different* account on the same Session gets `account_mismatch` from the Company. Unlike the refresh path, the library's mediated path doesn't start a new Session on `account_mismatch`.
 - Client assertions carry no `typ: "JWT"`. A Company that requires it, as poppy-demo's does, will answer `invalid_client`.
+
+## The full grid (runner, run 2026-10-11T16:46:10Z)
+
+| Company | Pass | Fail |
+| --- | --- | --- |
+| adonis-agora | D S0 N SD SV SM SMC SX SXV C CI CS CA SO SE AO AS RL | none |
+| poppyseed | D S0 SD SM SMC SX C CI CS CA SE AO AM AS | SV, SXV, SO |
+| dpa-mock | D | everything else it ran (19) |
+| poppy-demo | D | S0 SD SX C CI CA SO AO AS |
+| Ilmer | D | S0 C CI |
+
+- **dpa-mock, poppy-demo, Ilmer.** The client signs assertions without `typ: "JWT"`, and all three require it: dpa-mock records `client-assertion.typ`, Northstar answers `invalid_grant` (reported as `invalid_client`), and Ilmer answers `invalid_client`. The draft leaves `typ` open (S2), but every strict Company refuses it.
+- **poppyseed SV, SXV, SO.** The client assertion's `aud` is the token endpoint even at the device authorization and revocation endpoints. poppyseed wants the URL of the endpoint the assertion is sent to, and answers `invalid_client` "assertion signature or claims are invalid".

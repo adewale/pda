@@ -29,20 +29,20 @@ docker run -e INTEROP_SECRET=… -v ca.pem:/interop/ca.pem:ro poppy-demo-agent
 
 | Op | Support |
 | --- | --- |
-| `discover` | Yes. `apis` are the API URLs. |
-| `session` | Yes. A first call starts a signed-out Session. Later calls start a new Session, which is signed in if an Account Token is held. |
+| `discover` | Yes. `apis` are the API types. Any document the caller won't use (or throws on) is `poppy_error: discovery_failed`, status 0. |
+| `session` | Yes. Discovers first if needed. It keeps the Session the caller already has (the caller's `start`), so two calls give the same `session_id`, as `S0` expects. |
 | `signin` | `direct` only; `device` and `mediated` answer 501. It always asks for `poppy:read poppy:write`, whatever `scopes` says. |
-| `signin_continue` | `callback_url` only. The adapter replays the callback to the caller's `/oauth/callback` with the visitor cookie. `account` is `null`, because the caller doesn't know it. An `error` on the callback comes back as `poppy_error`. |
+| `signin_continue` | `callback_url` only. The adapter replays the callback to the caller's `/oauth/callback` with the visitor cookie. `account` is `null`, because the caller doesn't know it. An `error` on the callback comes back as `poppy_error` with status 0. |
 | `send` | `text`, `conversation`. A send without `conversation` presses the caller's "New session" (`/api/pi/new`) first, so it starts a new conversation. `message_id` answers 501: the caller makes its own ids, so `CI` can't be driven. `messages` are the Company's messages after ours; `message_id` is our message's id, read back from the events. |
-| `read` | Yes, from the caller's own copy of the events after one events request. `has_more` is always `false`: the caller never follows it. |
-| `api` | Only Northstar's `listOrders` (`GET /api/orders`), the one operation the caller knows; anything else is 501. |
+| `read` | Yes, from the caller's own copy of the events. The caller has no long poll, so for `wait` the adapter repeats the events request every 500 ms while the conversation is `working`. `has_more` is always `false`: the caller never follows it. |
+| `api` | Only `openapi` `listOrders`, which the caller sends as `GET {company}/api/orders`, the one operation it knows; anything else is 501. |
 | `signout` | Revokes the Account Token, then renews the Session signed out. `{"revoked": false}` when no account is connected. |
 | `state` | Yes. |
 | `sse`, `web_join`, `approve_op` | 501. |
 
-Results follow 5.2. A Poppy error the Company returned is `{"ok": false, "poppy_error", "status"}`. An error the caller raised itself (it refused a document, or a step was out of order) is `{"ok": false, "agent_error", "status"}`; 5.2 has no shape for that.
+Results follow 5.2: a Poppy error the Company returned is `{"ok": false, "poppy_error", "status"}`, and one the caller raised itself has `status` 0. `send`, `signin` and `api` discover and start a Session first when the caller hasn't, since its UI makes the user do that by hand.
 
-Scenarios claimed: `D`, `S0`, `N`, `SD`, `SX`, `SO`, `C`, `AO`. `N` because the caller retries once with a `DPoP-Nonce`. `AO` works against Northstar only.
+Scenarios claimed: `D`, `S0`, `N`, `SD`, `SX`, `SO`, `C`, `CA`, `AO`. `N` because the caller retries once with a `DPoP-Nonce`. `AO` works against Northstar only.
 
 Readings: `S1` `token-endpoint` (each client assertion's `aud` is the endpoint it's sent to, including the revocation endpoint), `S2` `jwt-60s`, `S3` `append` (it fetches `${auth.issuer}/.well-known/oauth-authorization-server`; the same URL as insertion unless the issuer has a path), `S4` `omit`. `S23` doesn't apply: nonces aren't kept between requests.
 
@@ -53,13 +53,16 @@ Readings: `S1` `token-endpoint` (each client assertion's `aud` is the endpoint i
 3. **One Company per process.** The adapter restarts wrangler to retarget `RECEIVER_ORIGIN`.
 4. **CA trust.** `/interop/ca.pem` goes into the system store, and `NODE_EXTRA_CA_CERTS` is set. Checked: `NODE_EXTRA_CA_CERTS` alone is enough for workerd under wrangler 4.149. With no CA trust, every fetch fails with `TLS peer's certificate is not trusted`.
 
-## Pairings (11 October 2026, stand-in proxy, HTTPS throughout)
+## The grid (runner, 11 October 2026, run 2026-10-11T16:46:10Z)
 
-| Company | Result |
-| --- | --- |
-| poppy-demo (sibling) | **Works.** discover, signed-out Session, send (reply inline), Direct Sign-In approved through Northstar's consent page, signed-in send ("Order #1042…"), read, `listOrders`, revoke (Session back to signed out); deny gives `poppy_error: access_denied`; `/reset` rotates the key. |
-| poppyseed | **Mostly works.** Discover, signed-out Session, Direct Sign-In approved for alice through poppyseed's consent page (`poppy:read poppy:write`, signed in), send and read work. poppyseed ignores `wait` on a POST, so `send` returns `status: working` with no reply; the reply ("Noted.") appears in the next `read`. **Sign-out fails**: poppyseed answers `POST /oauth/revoke` with 200 and an empty body, as RFC 7009 permits. The caller runs `JSON.parse` on the body, throws, and reports `action_failed`. The token is revoked at the Company, but the caller still holds it and still thinks it's signed in. |
-| Ilmer | **Fails at `D`**, with `{"ok": false, "agent_error": "action_failed", "status": 500}`. Ilmer is signed-out only, so its OAuth metadata has no `authorization_endpoint`. The caller checks every endpoint with `new URL(…)`, and `new URL(undefined)` throws. A missing `authorization_endpoint` is a TypeError, so poppy-demo's agent can't use any signed-out-only Company. |
-| adonis-agora | See the adonis-agora-company README. |
+| Company | Pass | Fail | Why it fails |
+| --- | --- | --- | --- |
+| poppy-demo | D S0 SD SX C CA SO AO | none | |
+| poppyseed | D S0 SD SX C | CA, SO | **CA:** poppyseed ignores `wait` on a POST, so the signed-in send has no reply in its result; the scenario's assumption, not a bug (Poppy 7.3). **SO:** poppyseed answers `POST /oauth/revoke` with 200 and an empty body, as RFC 7009 permits. The caller `JSON.parse`s it, throws, and reports `action_failed`. The token is revoked at the Company, but the caller still holds it. |
+| Ilmer | none | D S0 C | Ilmer is signed-out only, so its OAuth metadata has no `authorization_endpoint`. The caller runs `new URL()` on every endpoint, and `new URL(undefined)` throws, so this agent can't use any signed-out-only Company. |
+| dpa-mock | none | D S0 N SD SX C CA SO AO | The caller requires `auth.issuer` to equal the Company's origin, and every endpoint to sit on it (`invalid_metadata`). dpa-mock's issuer is `https://auth.dpa-mock.company.interop.test`. The draft allows that (3.2). |
+| adonis-agora | none | D S0 N SD SX C CA SO AO | The same check: the issuer is `https://adonis-agora.company.interop.test/poppy`. |
 
-Upstream issues these show: the two crashes above (an empty revocation body; an absent optional endpoint), and those in [docs/poppy-issues.md](../../../docs/poppy-issues.md#poppy-demo-irvinebroquepoppy-demo).
+`CI`, `CS`, `SV`, `SM`, `SE`, `R`, `AM`, `AS`, `O`, `OX` and `RL` are unsupported: no chosen message ids, no SSE, Direct Sign-In only, no renewal op, one API operation, no Operations extension. Every failure is in [`known-failures.json`](../../known-failures.json).
+
+Upstream issues these show: the two crashes (an empty revocation body; an absent optional endpoint), the single-origin rule, and those in [docs/poppy-issues.md](../../../docs/poppy-issues.md#poppy-demo-irvinebroquepoppy-demo).

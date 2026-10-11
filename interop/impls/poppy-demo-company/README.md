@@ -15,7 +15,7 @@ docker run -e INTEROP_SECRET=… -v ca.pem:/interop/ca.pem:ro poppy-demo-company
 
 | Env | Default | Meaning |
 | --- | --- | --- |
-| `COMPANY_HOST` | `poppy-demo.company.interop.test` | Public name; `RECEIVER_ORIGIN` is `https://` plus this. |
+| `INTEROP_DOMAIN` (else `COMPANY_HOST`) | `poppy-demo.company.interop.test` | Public name; `RECEIVER_ORIGIN` is `https://` plus this. |
 | `AGENT_HOST` | `poppy-demo.agent.interop.test` | The sibling agent (`CALLER_ORIGIN`), still accepted. |
 | `INTEROP_PEER_SUFFIX` | `.agent.interop.test` in this image; unset upstream | Which other agents' `client_id`s are admitted (patch 0001). |
 | `INTEROP_SECRET` | none | Bearer secret for control requests. |
@@ -27,11 +27,11 @@ The adapter starts `wrangler dev --local-upstream $COMPANY_HOST --upstream-proto
 `GET /hooks` → `approve_authorization`, `deny_authorization`, `fixture`. Every other hook answers 501.
 
 - `approve_authorization` / `deny_authorization` drive Northstar's own consent page over HTTPS through the proxy, as a browser would: GET the authorization URL (which sets the `poppy_consent` cookie and renders the form with its nonce), then POST the form with `Origin` set to the issuer and `decision=approve` or `deny`. With `scopes`, only those checkboxes are ticked (so `AS` can approve `poppy:read` alone). The result is the 303 `Location`, with `code`, `state` and `iss`. Northstar has no login: the consent page stands for one synthetic account, so `account` is ignored.
-- `fixture` → `{"accounts": ["demo-account"], "scopes": ["poppy:read", "poppy:write"], "openapi": {"api": "https://poppy-demo.company.interop.test/openapi.json", "operation": "listOrders"}}`.
-- Hook bodies may be `{"params": {...}}` or the bare params object; results are `{"ok": true, "result": {...}}`.
-- Unsupported: `approve_device`, `deny_device`, `mediated_answers`, `last_one_time_code` (Northstar has only Direct Sign-In), `end_sessions` (no admin path; Sessions end only after 24 h), `staff_join`, `staff_reply` (no staffed desk; handoff returns to the store assistant at once), `propose_operation`, `settle_operation` (no Operations extension).
+- `fixture`: account `demo-account`; scopes `poppy:read poppy:write`; `openapi` = `listOrders`, `openapi_write` = `exchangeJacket` with `{replacement_sku: "stormline-insulated-m"}` (no `openapi_public`: both operations need sign-in); prompts `hello` ("What jackets do you have?") and `sign_in` ("Can you look up my order?", which gets an `authorization` event with `sign_in_required` when signed out); `otp_account: null`.
+- Hook bodies are the bare params and results the bare object, as the runner calls them.
+- Unsupported: `require_nonce`, `rate_limit`, `expire_tokens` (no such settings in Northstar), `approve_device`, `deny_device`, `mediated_answers`, `last_one_time_code` (Northstar has only Direct Sign-In), `end_sessions` (no admin path; Sessions end only after 24 h), `staff_join`, `staff_reply` (no staffed desk; handoff returns to the store assistant at once), `propose_operation`, `settle_operation` (no Operations extension).
 
-Scenarios claimed: `D`, `S0`, `SD`, `SX`, `SO`, `C`, `CI`, `H`, `DC`, `AO`, `AS`. Not `N` (Northstar never sends a DPoP nonce), `R` (the refresh grant doesn't rotate the Account Token), `CS` (no SSE), `SV`, `SM`, `O`, `W`.
+Scenarios claimed: `D`, `S0`, `SD`, `SX`, `SO`, `C`, `CI`, `CA`, `AO`, `AS`. Not `N` (Northstar never sends a DPoP nonce), `R` (the refresh grant doesn't rotate the Account Token), `CS` (no SSE), `SV`, `SM`, `O`, `W`.
 
 Readings: `S1` `token-endpoint` (assertion `aud` must equal the endpoint exactly), `S2` `jwt-60s` (`typ: JWT`, `exp - iat ≤ 60`), `S4` `omit` (a signed-out Session request carrying `scope` gets `invalid_scope`).
 
@@ -42,11 +42,15 @@ Readings: `S1` `token-endpoint` (assertion `aud` must equal the endpoint exactly
 3. **No service bindings, plain `wrangler dev`.** Upstream configures the Workers with the `cf` beta CLI (`cloudflare.config.ts`); [`wrangler.interop.jsonc`](wrangler.interop.jsonc) restates the receiver's bindings without the `CALLER` binding.
 4. **CA trust.** The entrypoint adds `/interop/ca.pem` to the system store and sets `NODE_EXTRA_CA_CERTS`. Wrangler 4.149 passes `NODE_EXTRA_CA_CERTS` on to workerd: with it, outbound HTTPS to `*.agent.interop.test` works; without any CA trust, workerd fails with `TLS peer's certificate is not trusted; reason = unable to get local issuer certificate`.
 
-## Verified (11 October 2026, stand-in proxy)
+## The grid (runner, 11 October 2026, run 2026-10-11T16:46:10Z)
 
-- Image builds; `/manifest`, `/healthz`, `/hooks`, `fixture` answer; 501 for unsupported hooks.
-- Discovery and OAuth metadata through the proxy name `https://poppy-demo.company.interop.test` throughout.
-- With its sibling agent ([poppy-demo-agent](../poppy-demo-agent)): discover, signed-out Session, send, Direct Sign-In approved by `approve_authorization`, signed-in send, read, `listOrders`, revoke; and `deny_authorization` giving `access_denied`. Cross-project pairings are in the agent's README.
+| Agent | Pass | Fail | Why it fails |
+| --- | --- | --- | --- |
+| dpa | D S0 SD SX C CI CA SO AO | AS | dpa holds non-GET API calls for the User's approval at a Company without the Operations extension, so the write is never sent and no `insufficient_scope` comes back. Northstar's OpenAPI declares no per-operation scopes either. The scenario has no approval step. |
+| poppy-demo | D S0 SD SX C CA SO AO | none | |
+| adonis-agora | D | S0 SD SX C CI CA SO AO AS | Its assertions have no `typ`. Northstar requires `typ: "JWT"` (`invalid_grant`, reported as `invalid_client`). |
+
+Before the runner, the stand-in proxy pairing also ran poppyseed's own `TestAgent` (published at `seed-agent.agent.interop.test`): discovery, a signed-out Session, a conversation, and a retried message id returning the same conversation.
 
 ## Known upstream issues seen while running it
 

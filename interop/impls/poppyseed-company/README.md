@@ -79,3 +79,15 @@ Checked by hand on a private network with a stand-in TLS proxy and a per-run CA,
 [`check-bridge.mjs`](check-bridge.mjs) serves poppyseed's hooks protocol in front of any 5.3 Company adapter, so `poppyseed check <origin> --hooks http://127.0.0.1:8090` can use it. Run against this adapter, through the bridge: 62 passed, 0 failed, 37 skipped. 33 of the skips need `siteSignIn`, which 5.3 has no equivalent for: 5.3 approves a whole authorization, while `check` wants the site's cookie so it can drive the consent page itself. 1 needs `connections`, 2 need `performed`, and 1 is the loopback skip.
 
 `check`'s agents publish `http://127.0.0.1:<port>` client_ids, so it only works against a Company that accepts loopback `http` agents and runs where those ports are reachable (the same container or network namespace).
+
+## The full grid (runner, run 2026-10-11T16:46:10Z)
+
+| Agent | Pass | Fail |
+| --- | --- | --- |
+| dpa | D S0 SD SV SM SMC SX SXV C CI CS SO SE AO AM AS O OX | CA |
+| poppy-demo | D S0 SD SX C | CA, SO |
+| adonis-agora | D S0 SD SM SMC SX C CI CS CA SE AO AM AS | SV, SXV, SO |
+
+- **CA (dpa, poppy-demo).** poppyseed honours `wait` only on `GET …/events`. The signed-in `POST …/messages?wait=2` answers at once with `status: working`, so the send result has no Company reply. Poppy 7.3 makes `wait` a hint, so this is the scenario's assumption, not a poppyseed bug. CA should `read` with `wait` after the send, as C does.
+- **SO (poppy-demo).** poppyseed answers revocation with 200 and an empty body (RFC 7009 allows it), and poppy-demo's caller throws parsing it. That's the agent's bug.
+- **SV, SXV, SO (adonis-agora).** At the device authorization and revocation endpoints, the adonis agent's client assertion has the token endpoint as `aud`. poppyseed requires the URL of the endpoint the assertion is sent to, and answers `invalid_client` "assertion signature or claims are invalid". Both declare S1 `token-endpoint`, because S1's values can't express "always the token endpoint" as opposed to "the endpoint it's sent to". That's a spec gap.

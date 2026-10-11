@@ -118,3 +118,16 @@ Verified on a private Docker network behind a TLS-terminating stand-in proxy wit
 - **SSE resume on an idle conversation never answers.** See the CS cell above.
 - **Mediated sign-in after a different account.** A Session that was signed in to one account answers a second account's Mediated Sign-In with `account_mismatch`. That's correct Company behaviour.
 - **`wait` returns early.** A POST with `wait` can return while the Company is still `working`, with only the first events. Readers must keep reading.
+
+## The full grid (runner, run 2026-10-11T16:46:10Z)
+
+| Agent | Pass | Fail / error |
+| --- | --- | --- |
+| dpa | D S0 N SD SV SM SMC SX SXV C CI SO SE AO RL | CA, AS; CS error |
+| adonis-agora | D S0 N SD SV SM SMC SX SXV C CI CS CA SO SE AO AS RL | none |
+| poppy-demo | none | D S0 N SD SX C CA SO AO |
+
+- **CS (dpa), error.** `@adonis-agora/agent`'s SSE handler waits for the first event before sending any headers, so a stream resumed with `Last-Event-ID` on an idle conversation never answers, not even with a keep-alive. dpa's `sse` has no deadline on the headers, so the control call never returns (HTTP 0, blamed on the harness). Company bug; dpa's adapter could also set a deadline.
+- **CA (dpa).** A `POST ?wait` returns as soon as any event follows the cursor, and the agent's own message always is one. It answers `working` with no reply, which Poppy 7.3 allows. That's the scenario's assumption.
+- **AS (dpa).** dpa holds non-GET calls for the User's approval at a Company without the Operations extension, so the write is never sent. That's dpa's design, and the scenario has no approval step.
+- **poppy-demo's agent** refuses discovery because the issuer has a path (`…/poppy`), and it requires `issuer` to equal the Company origin.
