@@ -85,6 +85,14 @@ export class Operations {
         ? record.account === context.account
         : record.sessionId === context.session.id;
       if (same && owner && JSON.stringify(record.operation.terms) === JSON.stringify(terms)) {
+        // A confirm reached us, so the agent knows this operation: it retries
+        // or reads it, and MUST NOT ask for a new proposal until it is final (Ops 6).
+        if (record.confirms > 0) {
+          this.company.violation(
+            "proposal.while-open",
+            `new proposal asked for while ${record.operation.operation_id} is ${record.operation.state} after a confirm`
+          );
+        }
         return record.operation;
       }
     }
@@ -164,6 +172,11 @@ export class Operations {
     record.confirms += 1;
     co.requireScopes(context, ["poppy:write"]);
     const operation = record.operation;
+    // The approval covers one revision, and the confirm names it (Ops 5.1, 5.2).
+    if (typeof body.revision !== "number" || !Number.isInteger(body.revision)) {
+      co.violation("confirm.revision", `confirm with revision ${JSON.stringify(body.revision)}`);
+      return json({ error: "invalid_request", error_description: "revision is required" }, 400);
+    }
     if (operation.state !== "proposed") return this.#respond(record);
     if (body.revision !== operation.revision) {
       return json({ error: "terms_changed", operation }, 409);

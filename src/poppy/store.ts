@@ -94,6 +94,12 @@ CREATE TABLE IF NOT EXISTS poppy_operations (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (issuer, operation_id)
 );
+CREATE TABLE IF NOT EXISTS poppy_proposals (
+  issuer TEXT NOT NULL,
+  request TEXT NOT NULL,
+  operation_id TEXT NOT NULL,
+  PRIMARY KEY (issuer, request)
+);
 CREATE TABLE IF NOT EXISTS poppy_permissions (
   id TEXT PRIMARY KEY,
   issuer TEXT NOT NULL,

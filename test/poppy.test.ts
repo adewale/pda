@@ -807,6 +807,23 @@ describe("7 conversations", () => {
     await a.stub.poppyFrame({ type: "poppy.direct.close", conversationId: direct.id });
   });
 
+  it("keeps the model's own words out of the User's Direct Conversation (7.10)", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.pushEvent(first.conversationId, { type: "user_requested", reason: "A specialist needs to confirm the exchange." });
+    await until(async () => (await cards(a)).find((card) => card.kind === "direct_invite"));
+    await a.stub.poppyFrame({ type: "poppy.direct.start", conversationId: first.conversationId, text: "Hi, it's me." });
+    const direct = (await c.stub.state()).conversations.find((conv) => conv.direct)!;
+    const said = await tool(a, "poppy_message", { domain: c.domain, conversation: direct.id, text: "The user means the medium." });
+    expect(said.isError).toBe(true);
+    expect(said.text).toContain("Direct Conversation");
+    const handed = await tool(a, "poppy_handoff", { conversation: direct.id, summary: "The user wants the medium." });
+    expect(handed.isError).toBe(true);
+    await a.stub.poppyFrame({ type: "poppy.direct.say", conversationId: direct.id, text: "Medium, please." });
+    expect((await c.stub.state()).conversations.find((conv) => conv.direct)!.sent).toEqual(["human:Hi, it's me.", "human:Medium, please."]);
+  });
+
   it("tells the User when part of a conversation has expired", async () => {
     const c = await company();
     const a = await agent();
@@ -963,6 +980,36 @@ describe("Operations extension", () => {
     const confirmed = state.requests.find((request) => request.url === `${operationUrl}/confirm`)!;
     const read = state.requests.find((request) => request.method === "GET" && request.url === operationUrl)!;
     expect(read.at - confirmed.at).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("doesn't ask for a new proposal while a confirmed operation isn't final (Ops 6)", async () => {
+    const { c, a, card } = await proposal({ slowConfirm: true });
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");
+    const requests = (await c.stub.state()).requests.length;
+    const again = await tool(a, "poppy_api_call", exchangeCall(c));
+    expect(again.isError).toBe(true);
+    expect(again.text).toContain(card.operationId);
+    expect((await c.stub.state()).requests.length).toBe(requests);
+    // Once it is final, the same request may propose again.
+    await a.stub.poppyAdvance(1000);
+    await a.stub.poppyWaitForNotice("is succeeded");
+    expect((await tool(a, "poppy_api_call", exchangeCall(c))).isError).toBe(false);
+    expect((await c.stub.state()).operations).toHaveLength(2);
+  });
+
+  it("doesn't ask an MCP tool for a new proposal while a confirmed operation isn't final (Ops 6)", async () => {
+    const c = await company({ slowConfirm: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    const call = { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
+    expect((await tool(a, "poppy_mcp_call", call)).isError).toBe(false);
+    const card = (await cards(a)).find((item) => item.kind === "operation")!;
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");
+    const again = await tool(a, "poppy_mcp_call", call);
+    expect(again.isError).toBe(true);
+    expect(again.text).toContain(card.operationId);
   });
 
   it("declines a proposal by cancelling it", async () => {

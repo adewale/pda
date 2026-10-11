@@ -382,6 +382,13 @@ export class Conversations {
         json({ error: "direct_conversation_open", conversation_id: conversation.directChild }, 409)
       );
     }
+    // In a Direct Conversation the agent relays the User's words as written,
+    // as `human` (7.10). It may still send context, such as user_available
+    // (7.4); its own words have no place there (our reading of S12), so they
+    // are recorded, though the draft gives the Company no error to return.
+    if (conversation.direct && message.sender !== "human" && (message.text !== undefined || message.data !== undefined)) {
+      this.company.violation("direct.agent-words-later", `agent's own words sent into Direct Conversation ${conversation.id}`);
+    }
     this.#remember(context, message, null, conversation);
     this.#accept(context, conversation, message);
     return this.#answer(inbound, conversation, 202);

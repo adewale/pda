@@ -2,7 +2,7 @@ import { PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
 import { fetchJson, readLimited } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
-import { handleProposal, proposeLocal, registerExecutor } from "./operations";
+import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
 import { intent } from "./store";
 
 type Api = Company["apis"][number];
@@ -142,6 +142,8 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
   }
   url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
   // Read-only lookups ask for a read-only token when the account allows (Guides).
+  const write = op.method === "GET" ? null : `${op.method} ${url.href} ${JSON.stringify(call.body ?? null)}`;
+  if (write) refuseWhileConfirming(client, company.issuer, write);
   const session = client.session(company.issuer, label);
   const readOnly = op.method === "GET" && session?.signed_in && session.scope.split(" ").includes("poppy:read") && session.scope !== "poppy:read";
   const response = await client.resource(
@@ -172,6 +174,7 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
   if (response.status === 202 && isObject(body) && isObject(body.operation)) {
     const operation = await handleProposal(client, company, label, body.operation);
     if (operation) {
+      if (write) rememberProposal(client, company.issuer, write, operation.operation_id);
       return { status: 202, proposed: { operation_id: operation.operation_id, revision: operation.revision, summary: operation.summary }, note: "Nothing has happened yet; the User decides on the approval card." };
     }
   }
@@ -333,11 +336,14 @@ export async function listMcpTools(client: PoppyClient, company: Company, label:
 
 async function performMcp(client: PoppyClient, company: Company, label: string, call: { apiUrl: string; tool: string; args: Json }): Promise<Json> {
   const api = findApi(company, "mcp", call.apiUrl);
+  const write = `MCP ${api.url} ${call.tool} ${JSON.stringify(call.args)}`;
+  refuseWhileConfirming(client, company.issuer, write);
   const key = await mcpSession(client, company, label, api);
   const { result } = await mcpRequest(client, company, label, api, "tools/call", { name: call.tool, arguments: call.args }, key);
   if (isObject(result) && isObject(result.structuredContent) && isObject(result.structuredContent.operation)) {
     const operation = await handleProposal(client, company, label, result.structuredContent.operation);
     if (operation) {
+      rememberProposal(client, company.issuer, write, operation.operation_id);
       return { proposed: { operation_id: operation.operation_id, revision: operation.revision, summary: operation.summary }, note: "Nothing has happened yet; the User decides on the approval card." };
     }
   }

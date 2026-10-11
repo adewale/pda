@@ -4,7 +4,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 
 ## How we found them
 
-- **Building a client.** We built a Personal Agent client and a strict mock Company. The mock records a violation for each of 132 named checks.
+- **Building a client.** We built a Personal Agent client and a strict mock Company. The mock records a violation for each of 142 named checks.
 - **Running it under different readings.** Our conformance tests run under six readings of the questions below.
 - **Reading other implementations.** We read nine other implementations; their issues are in [poppy-issues.md](poppy-issues.md). Their disagreements are often the evidence for an issue here.
 - **A discovery-document validator** ([`src/validator/`](../src/validator)).
@@ -75,6 +75,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | <a id="s14"></a>S14 | Interop | **DPoP error status at resource servers** (400 or 401?) isn't stated, and some Companies send no `WWW-Authenticate`. | State it. | Read the header, then the body. |
 | <a id="n1"></a>N1 | Interop | **DPoP at the device and revocation endpoints.** "A new proof for every request, including token requests" (#sending-tokens), but the device and sign-out examples carry none, and RFC 9449 doesn't define proofs there. | Proofs only at the token endpoint and resources; Companies MUST ignore them elsewhere. | n/a |
 | <a id="s23"></a>S23 | Interop | **Nonces "for that server"** (Guides): per origin, or per Company? | Say per origin. | Per origin. Tested both ways. |
+| <a id="n35"></a>N35 | Clarity | **One DPoP key per User?** 4.3 says the agent "generates a key pair for each User at each Company", with no keyword, and nothing says whether a Company may refuse a key it has already bound for another User. | Say SHOULD or MUST, and what a Company does with a shared key. | A key per User per issuer. The mock records a shared key but still issues the token. |
 
 ## Sign-in (4.4 to 4.9)
 
@@ -114,7 +115,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | <a id="s10"></a>S10 | Clarity | **Cursor on an empty first read.** `null`, `""` and `start_<id>` all appear. | Define it. | Opaque; store only strings. |
 | <a id="n30"></a>N30 | Clarity | **SSE.** A stream never conveys the starting `status`. `wait` on a stream, and `Last-Event-ID` with `cursor`, are undefined. | Send a status event first; define both. | n/a |
 | <a id="s11"></a>S11 | Clarity | **`sign_in_required` has no `scope`.** | Add it. | Request the scopes the task needs. |
-| <a id="s12"></a>S12 | Interop | **Direct Conversations.** May the agent send `sender: "agent"` messages? Unsupported ones come back three ways: 400 `invalid_request`, 400 `direct_conversations_not_supported`, or `conversation_not_found`. | One error; say who may send. | Report the error. |
+| <a id="s12"></a>S12 | Interop | **Direct Conversations.** May the agent send `sender: "agent"` messages? Unsupported ones come back three ways: 400 `invalid_request`, 400 `direct_conversations_not_supported`, or `conversation_not_found`. | One error; say who may send. | Report the error. Only the User's words go there; the mock records the agent's own, first or later. |
 | <a id="s15"></a>S15 | Clarity | **`queued` on handoff** is mandatory but impractical without a human queue. | Make it optional. | Don't depend on it. |
 | <a id="s17"></a>S17 | Clarity | **"Belongs to that account":** can another User ID signed in to the same account continue a conversation? | Define it. | n/a |
 | <a id="n21"></a>N21 | Interop | **No generic error** in 7.13 for a malformed message. Unclear which error means "the parent is itself a Direct Conversation". | Add `invalid_request`; name that case. | Report the error. |
@@ -126,6 +127,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | ID | Severity | Problem | Suggested fix | What we do |
 | --- | --- | --- | --- | --- |
 | <a id="n19"></a>N19 | Interop | **An operation from a signed-out Session can deadlock.** Ops 3.2 limits it to its Session. Sessions end with `invalid_session`, and Ops 6 forbids a new proposal until the operation is final, which `operation_not_found` then prevents. | Bind operations to the User ID, or make `operation_not_found` final. | Stop tracking it, as if final. |
+| <a id="n34"></a>N34 | Interop | **Which new proposals Ops 6 forbids.** "MUST NOT ask for a new proposal of the same action until the operation is final" sits in the paragraph about a failed confirm, so it's unclear whether it applies before any confirm. "The same action" isn't defined (3.1 makes a different size a new revision of the same operation), and before a confirm a Company can't tell a forbidden re-ask from a repeat through another channel, which Ops 4 says to answer with the existing operation. | State it for any operation the agent knows of that isn't final, and say a Company returns that operation. | We refuse to repeat the write that proposed an operation we've tried to confirm until it's final. The mock records only that case. |
 | <a id="n20"></a>N20 | Interop | **Statuses and errors** are undefined: the HTTP status of confirm, cancel and read (200 or 202 for `in_progress`); the error for a malformed confirm; whether `user_approval_required` carries `operation`. | Define them. | n/a |
 | <a id="s20"></a>S20 | Security | **Standing permissions have no checkable action.** There's no standard action field, money has no direction, and an approval can't be proved to the Company. | An action field; signed amounts; a proof of approval. | Match a summary word and `{ amount, currency }`. |
 
