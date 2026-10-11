@@ -4,7 +4,7 @@ import { reducePoppy, type PoppyView } from "../../src/use-pi-session";
 
 /** How the page folds Poppy frames from the agent into what it shows. */
 
-const EMPTY: PoppyView = { cards: [], accounts: [], permissions: [], direct: {} };
+const EMPTY: PoppyView = { cards: [], accounts: [], permissions: [], direct: {}, activity: null };
 
 const notice = (id: string, text = id): Card => ({ id, kind: "notice", company: "Acme", open: false, text });
 const approval = (id: string): Card => ({ id, kind: "approval", company: "Acme", open: true, approvalId: id, summary: "Submit", status: "pending" });
@@ -49,6 +49,32 @@ describe("reducePoppy", () => {
     expect(Object.keys(view.direct)).toEqual(["c1", "c2"]);
     expect(view.direct.c1).toMatchObject({ status: "closed", closed: true });
     expect(view.cards).toEqual([]);
+  });
+
+  it("replaces the activity whole, from nothing to the agent's latest, and leaves cards alone", () => {
+    const before = { ...EMPTY, cards: [approval("a")] };
+    expect(before.activity).toBeNull();
+    const entry = {
+      id: "signin-1",
+      at: 1,
+      kind: "sign_in" as const,
+      issuer: "https://auth.acme.example",
+      company: "Acme",
+      account: null,
+      what: "Sign-in at Acme on its own page",
+      how: "sign_in" as const,
+      access: "view" as const,
+      decidedBy: "you" as const,
+      result: "done" as const
+    };
+    const after = reducePoppy(before, { type: "poppy.activity", inProgress: [], log: [entry] });
+    expect(after).toEqual({ ...before, activity: { inProgress: [], log: [entry] } });
+    expect(reducePoppy(after, { type: "poppy.activity", inProgress: [], log: [] }).activity).toEqual({ inProgress: [], log: [] });
+  });
+
+  it("ignores a Poppy frame it doesn't know", () => {
+    const before = { ...EMPTY, cards: [approval("a")] };
+    expect(reducePoppy(before, { type: "poppy.later" } as never)).toBe(before);
   });
 
   it("never changes the view it was given", () => {

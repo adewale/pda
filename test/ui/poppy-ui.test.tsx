@@ -1,7 +1,9 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import fc from "fast-check";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { DirectConversations, PoppyCards, PoppySettings } from "../../src/poppy-ui";
+import { DirectConversations, PoppyCards } from "../../src/poppy-ui";
+import { CompaniesPage } from "../../src/ui/companies";
 import type { Card, ConnectedAccount, DirectUpdate, Permission, PoppyClientFrame } from "../../src/poppy/wire";
 import type { PoppyView } from "../../src/use-pi-session";
 
@@ -12,7 +14,7 @@ import type { PoppyView } from "../../src/use-pi-session";
  * Company supplies becomes a dangerous link.
  */
 
-const EMPTY: PoppyView = { cards: [], accounts: [], permissions: [], direct: {} };
+const EMPTY: PoppyView = { cards: [], accounts: [], permissions: [], direct: {}, activity: null };
 
 function view(patch: Partial<PoppyView>): PoppyView {
   return { ...EMPTY, ...patch };
@@ -113,7 +115,7 @@ describe("sign-in cards", () => {
     expect(link.getAttribute("rel")).toContain("noopener");
     expect(screen.getByText("poppy:read")).toBeTruthy();
     expect(sent).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel sign-in" }));
     expect(sent).toEqual([{ type: "poppy.signin.cancel", signInId: "s1" }]);
   });
 
@@ -186,7 +188,7 @@ describe("credentials card (Mediated Sign-In)", () => {
     // Typing sends nothing.
     expect(sent).toEqual([]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in to Acme" }));
     expect(sent).toEqual([
       { type: "poppy.credentials", signInId: "s3", values: { email: "ada@example.com", password: "correct horse" } }
     ]);
@@ -201,7 +203,7 @@ describe("credentials card (Mediated Sign-In)", () => {
   it("Cancel sends no values", () => {
     const { sent } = renderCards(credentialsCard);
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel sign-in" }));
     expect(sent).toEqual([{ type: "poppy.signin.cancel", signInId: "s3" }]);
     expect(JSON.stringify(sent)).not.toContain("hunter2");
   });
@@ -242,7 +244,7 @@ describe("one-time code card", () => {
     expect(input.autocomplete).toBe("one-time-code");
     fireEvent.change(input, { target: { value: "123456" } });
     expect(sent).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit code" }));
     expect(sent).toEqual([{ type: "poppy.code", signInId: "s4", code: "123456" }]);
     expect(input.value).toBe("");
   });
@@ -277,7 +279,7 @@ describe("operation card (Operations extension 5.1)", () => {
   it("offers only to stop an operation in progress", () => {
     const { sent } = renderCards(operationCard({ open: false, state: "in_progress" }));
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Ask to stop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask Acme to stop" }));
     expect(sent).toEqual([
       { type: "poppy.operation", issuer: "https://auth.acme.example", operationId: "op_7Hq", revision: 3, decision: "cancel" }
     ]);
@@ -373,8 +375,8 @@ describe("DirectConversations", () => {
   it("shows who is answering, the messages and a partial message, as text", () => {
     const { container } = renderDirect({ conv_9: update() });
     expect(screen.getByText("You're talking with Acme")).toBeTruthy();
-    expect(screen.getAllByText("A person").length).toBeGreaterThan(0);
-    expect(screen.getByText("Their agent")).toBeTruthy();
+    expect(screen.getAllByText("A person at Acme").length).toBeGreaterThan(0);
+    expect(screen.getByText("Acme's agent")).toBeTruthy();
     expect(screen.getByText("Hi, this is Sam")).toBeTruthy();
     expect(screen.getByText("Let me che")).toBeTruthy();
     expect(links(container)).toEqual([]);
@@ -386,7 +388,7 @@ describe("DirectConversations", () => {
     fireEvent.change(box, { target: { value: "  Thanks  " } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(box.value).toBe("");
-    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "End conversation" }));
     expect(sent).toEqual([
       { type: "poppy.direct.say", conversationId: "conv_9", text: "Thanks" },
       { type: "poppy.direct.close", conversationId: "conv_9" }
@@ -399,7 +401,7 @@ describe("DirectConversations", () => {
   });
 });
 
-describe("PoppySettings", () => {
+describe("Companies page", () => {
   const accounts: ConnectedAccount[] = [
     { issuer: "https://auth.acme.example", company: "Acme", account: "a***@example.com", scope: "poppy:read poppy:write", expiresAt: null },
     { issuer: "https://auth.globex.example", company: "Globex", account: "g***@example.com", scope: "poppy:read", expiresAt: null }
@@ -419,38 +421,49 @@ describe("PoppySettings", () => {
     }
   ];
 
-  function renderSettings(patch: Partial<PoppyView>) {
-    const sent: PoppyClientFrame[] = [];
-    const onClose = vi.fn();
-    const result = render(<PoppySettings view={view(patch)} send={(frame) => void sent.push(frame)} onClose={onClose} />);
-    return { ...result, sent, onClose };
+  function Page({ patch, sent }: { patch: Partial<PoppyView>; sent: PoppyClientFrame[] }) {
+    const [selected, setSelected] = useState<string | null>(null);
+    return <CompaniesPage view={view(patch)} send={(frame) => void sent.push(frame)} selected={selected} onSelect={setSelected} />;
   }
 
-  it("lists accounts and permissions, signs out and removes on a click", () => {
-    const { sent, onClose } = renderSettings({ accounts, permissions });
-    const panel = screen.getByRole("complementary", { name: "Companies" });
-    expect(within(panel).getByText("Globex")).toBeTruthy();
-    expect(within(panel).getByText(/1 of 3 uses/)).toBeTruthy();
+  function renderCompanies(patch: Partial<PoppyView>) {
+    const sent: PoppyClientFrame[] = [];
+    const result = render(<Page patch={patch} sent={sent} />);
+    return { ...result, sent };
+  }
+
+  it("lists each Company's account and access, signs out and removes on a click", () => {
+    const { sent } = renderCompanies({ accounts, permissions });
+    const table = screen.getByRole("table");
+    expect(within(table).getByRole("button", { name: "Globex" })).toBeTruthy();
+    // Access in plain words, with the scope it comes from.
+    expect(within(table).getByText("View and change")).toBeTruthy();
+    expect(within(table).getByText("poppy:read poppy:write")).toBeTruthy();
     expect(sent).toEqual([]);
-    fireEvent.click(within(panel).getAllByRole("button", { name: "Sign out" })[1]!);
-    fireEvent.click(within(panel).getByRole("button", { name: "Remove" }));
-    fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
+
+    fireEvent.click(within(table).getByRole("button", { name: "Globex" }));
+    expect(screen.getByRole("heading", { level: 1, name: "Globex" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Sign out of Globex" }));
+    fireEvent.click(screen.getByRole("button", { name: "All Companies" }));
+    fireEvent.click(within(screen.getByRole("table")).getByRole("button", { name: "Acme" }));
+    expect(screen.getByText(/1 of 3 uses, 2 left/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove standing permission" }));
     expect(sent).toEqual([
       { type: "poppy.signout", issuer: "https://auth.globex.example", account: "g***@example.com" },
       { type: "poppy.permission.remove", id: "perm_1" }
     ]);
-    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("adds a permission from labelled fields, for the chosen account", () => {
-    const { sent } = renderSettings({ accounts });
+    const { sent } = renderCompanies({ accounts });
+    fireEvent.click(screen.getByRole("button", { name: "Globex" }));
     fireEvent.change(screen.getByLabelText("Account"), { target: { value: "https://auth.globex.example|g***@example.com" } });
-    fireEvent.change(screen.getByLabelText(/Word the company's summary must contain/), { target: { value: "rebook" } });
+    fireEvent.change(screen.getByLabelText(/Word Globex's summary must contain/), { target: { value: "rebook" } });
     fireEvent.change(screen.getByLabelText("Up to"), { target: { value: "50" } });
     fireEvent.change(screen.getByLabelText("Currency"), { target: { value: "eur" } });
-    fireEvent.change(screen.getByLabelText("Times"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Number of times"), { target: { value: "2" } });
     expect(sent).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Add permission" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add standing permission" }));
     expect(sent).toEqual([
       {
         type: "poppy.permission.add",
@@ -464,9 +477,22 @@ describe("PoppySettings", () => {
     ]);
   });
 
+  it("checks the form inline and keeps what was typed", () => {
+    const { sent } = renderCompanies({ accounts });
+    fireEvent.click(screen.getByRole("button", { name: "Acme" }));
+    const amount = screen.getByLabelText("Up to") as HTMLInputElement;
+    fireEvent.change(amount, { target: { value: "lots" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add standing permission" }));
+    expect(sent).toEqual([]);
+    expect(screen.getByText(/Name a word the Company's summary must contain/)).toBeTruthy();
+    expect(screen.getByText(/Use a number/)).toBeTruthy();
+    expect(amount.value).toBe("lots");
+    expect(amount.getAttribute("aria-invalid")).toBe("true");
+  });
+
   it("offers no permission form before an account is connected", () => {
-    renderSettings({});
-    expect(screen.getByText("None yet.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Add permission" })).toBeNull();
+    renderCompanies({});
+    expect(screen.getByText("No Companies yet")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add standing permission" })).toBeNull();
   });
 });
