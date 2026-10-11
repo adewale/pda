@@ -738,6 +738,18 @@ const TAMPERS: readonly Tamper[] = [
       expect(response.status).toBe(200);
     }
   },
+  {
+    id: "user-id.personal",
+    what: "the User's name as a word in the User ID",
+    detail: '[user-id.personal] User ID "usr_ada_7" contains personal information',
+    run: async (c) => {
+      // Random ids that merely contain the letters are fine: this one has "ADA" inside.
+      const random = await startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub: "usr_rTcRuOEIIRADAIQTZPEmrA" } }) });
+      expect(random.status).toBe(200);
+      expect((await c.stub.state()).violations).toEqual([]);
+      return startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub: "usr_ada_7" } }) });
+    }
+  },
 
   // ---- Client metadata (as a second client the test serves) ----
   {

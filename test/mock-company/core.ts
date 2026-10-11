@@ -654,10 +654,14 @@ export class Company {
   checkUserId(userId: string): void {
     if (!this.userIds.has(userId)) {
       const lower = userId.toLowerCase();
+      // The local part counts only as a whole word ("usr_ada", "ada_lovelace"):
+      // 22 random base64url characters contain "ada" in about 1 ID in 1,600,
+      // which made tests fail at random.
+      const words = lower.split(/[^a-z0-9]+/);
       const personal = this.config.accounts.some(
         (account) =>
           lower.includes(account.email.toLowerCase()) ||
-          lower.includes(account.email.split("@")[0]!.toLowerCase())
+          words.includes(account.email.split("@")[0]!.toLowerCase())
       );
       if (userId.includes("@") || personal) {
         this.violation("user-id.personal", `User ID ${JSON.stringify(userId)} contains personal information`);

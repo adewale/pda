@@ -29,13 +29,19 @@ type Company = {
 /** Every mock Company the current test created, with the violations it expects. */
 const created: { company: Company; expected: RegExp[] }[] = [];
 
+/** Violations no pattern expects, and patterns no violation matched. */
+function compareViolations(violations: readonly string[], expected: readonly RegExp[]) {
+  return {
+    unexpected: violations.filter((violation) => !expected.some((pattern) => pattern.test(violation))),
+    missing: expected.filter((pattern) => !violations.some((violation) => pattern.test(violation))).map(String)
+  };
+}
+
 afterEach(async () => {
   const mocks = created.splice(0);
   for (const { company: c, expected } of mocks) {
     const violations = (await c.stub.state()).violations;
-    const unexpected = violations.filter((violation) => !expected.some((pattern) => pattern.test(violation)));
-    const missing = expected.filter((pattern) => !violations.some((violation) => pattern.test(violation)));
-    expect({ unexpected, missing }, `violations at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
+    expect(compareViolations(violations, expected), `violations at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
   }
 });
 
@@ -112,6 +118,22 @@ const PROFILES: readonly { name: string; config: Partial<MockConfig> }[] = [
   { name: "lenient assertions: no typ or kid needed, 300 s (S2)", config: { strictAssertions: false } },
   { name: "an issuer with a trailing slash, compared exactly (S7)", config: { issuerTrailingSlash: true } }
 ];
+
+describe("the violation check after each test", () => {
+  it("passes exactly the violations a test expects", () => {
+    expect(compareViolations([], [])).toEqual({ unexpected: [], missing: [] });
+    expect(compareViolations(["[code.pkce] x"], [])).toEqual({ unexpected: ["[code.pkce] x"], missing: [] });
+    expect(compareViolations([], [/^\[code\.pkce\]/])).toEqual({ unexpected: [], missing: ["/^\\[code\\.pkce\\]/"] });
+    expect(compareViolations(["[code.pkce] x", "[code.reused] y"], [/^\[code\.pkce\]/])).toEqual({ unexpected: ["[code.reused] y"], missing: [] });
+  });
+
+  it("lets a test that breaks the protocol on purpose say so", async () => {
+    const c = await company();
+    c.expectViolations(/^\[secret\.token-in-url\] token sent in URL /);
+    const response = await c.stub.fetch(new Request(`${c.hosts.api}/products?access_token=at_not_a_token`));
+    expect(response.status).toBe(401);
+  });
+});
 
 describe("4.1 agent identity", () => {
   it("serves the client metadata document at its own client_id", async () => {
