@@ -311,6 +311,13 @@ export class PersonalAgent extends ProductionAgent {
     return demoCalls.get(this.ctx.id.toString()) ?? 0;
   }
 
+  /** The newest assistant message in the transcript: its text and pi's recorded error, if any. */
+  async lastAssistant(): Promise<{ text: string; error: string | null }> {
+    const entries = (await this.harness.messages()) as Array<{ model?: Array<{ role?: string; content?: Message["content"]; errorMessage?: string }> }>;
+    const message = entries.map((entry) => entry.model?.[0]).filter((item) => item?.role === "assistant").at(-1);
+    return { text: textOf(message?.content as Message["content"] | undefined), error: message?.errorMessage ?? null };
+  }
+
   /** A background turn, as a Company message would start one. */
   async backgroundTurn(text: string, operationId: string): Promise<void> {
     await this.poppyNotify(text, operationId);
