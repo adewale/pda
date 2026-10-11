@@ -327,6 +327,8 @@ export class PoppyClient {
     options: { dpop: boolean }
   ): Promise<{ status: number; body: Json; headers: Headers }> {
     const signing = await currentKey(this.host.env);
+    // One retry for a new DPoP nonce, whenever it comes: after a 429 too.
+    let nonceRetried = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       await this.#respectLimit(company.issuer);
       // Each attempt gets new assertions and a new proof: Companies reject a reused jti.
@@ -360,7 +362,10 @@ export class PoppyClient {
       const wait = await this.#observeLimits(company.issuer, response);
       const body = await readJson(response);
       const error = isObject(body) && typeof body.error === "string" ? body.error : undefined;
-      if (error === "use_dpop_nonce" && nonce && attempt === 0) continue;
+      if (error === "use_dpop_nonce" && nonce && !nonceRetried) {
+        nonceRetried = true;
+        continue;
+      }
       if (wait !== null) {
         if (wait > INLINE_WAIT_MS || attempt === 2) throw new RateLimitedError(wait);
         await this.host.sleep(wait);
