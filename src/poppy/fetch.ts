@@ -1,4 +1,13 @@
+import {
+  cacheSeconds as headerCacheSeconds,
+  isPublicHost,
+  raceAbort,
+  readLimited as readWithin,
+  withDeadline
+} from "../validator/fetch.ts";
 import { parseStrictJson, type Json } from "./json";
+
+export { raceAbort, withDeadline };
 
 /** Every outbound Poppy request goes through one of these; tests swap it for the mock Company. */
 export type Fetcher = (request: Request) => Promise<Response>;
@@ -11,30 +20,37 @@ export class PoppyFetchError extends Error {
 export type SafeFetchOptions = {
   /** Maximum response size in bytes. */
   readonly maxBytes?: number;
+  /** One deadline for each hop: the response and its body. */
   readonly timeoutMs?: number;
   readonly maxRedirects?: number;
 };
 
 const DEFAULTS = { maxBytes: 100_000, timeoutMs: 5_000, maxRedirects: 3 } as const;
 
+/**
+ * How long the client waits on a Company. A token or revocation request,
+ * answer and body together, gets `oauthMs`; an API, conversation or
+ * operations request gets `requestMs` for its answer to start (a long poll
+ * adds its own wait), then `bodyMs` to read the body.
+ */
+export type PoppyTimeouts = { readonly oauthMs: number; readonly requestMs: number; readonly bodyMs: number };
+
+export const POPPY_TIMEOUTS: PoppyTimeouts = { oauthMs: 15_000, requestMs: 30_000, bodyMs: 30_000 };
+
 /** Hosts we never fetch: IP literals, localhost and single-label names. */
 export function assertPublicHost(url: URL): void {
-  // `localhost.` is `localhost`: a fully qualified name's root dot doesn't change the host.
-  const host = url.hostname.toLowerCase().replace(/\.$/, "");
-  if (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    !host.includes(".") ||
-    /^\d+(\.\d+){3}$/.test(host) ||
-    host.startsWith("[")
-  ) {
-    throw new PoppyFetchError(`Refusing to fetch non-public host ${host}`);
+  if (!isPublicHost(url)) {
+    throw new PoppyFetchError(`Refusing to fetch non-public host ${url.hostname.toLowerCase().replace(/\.$/, "")}`);
   }
 }
 
-/** Read a body up to `maxBytes`, failing beyond it. */
-export async function readLimited(response: Response, maxBytes: number): Promise<string> {
-  const bytes = await readLimitedBytes(response, maxBytes);
+/**
+ * Read a body up to `maxBytes`, failing beyond it, if it isn't UTF-8, or if
+ * `signal` aborts first (with the signal's reason). Without a signal, the
+ * read gets `POPPY_TIMEOUTS.bodyMs`, and running out is a `PoppyFetchError`.
+ */
+export async function readLimited(response: Response, maxBytes: number, signal?: AbortSignal): Promise<string> {
+  const bytes = await readLimitedBytes(response, maxBytes, signal);
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
@@ -43,33 +59,15 @@ export async function readLimited(response: Response, maxBytes: number): Promise
 }
 
 /** `readLimited`'s bytes, for a body that may not be UTF-8 (a web page). */
-export async function readLimitedBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
-  const declared = Number(response.headers.get("Content-Length") ?? "0");
-  if (declared > maxBytes) {
-    await response.body?.cancel();
-    throw new PoppyFetchError(`Response larger than ${maxBytes} bytes`);
-  }
-  if (!response.body) return new Uint8Array(0);
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > maxBytes) {
-      await reader.cancel();
-      throw new PoppyFetchError(`Response larger than ${maxBytes} bytes`);
-    }
-    chunks.push(value);
-  }
-  const all = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    all.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return all;
+export async function readLimitedBytes(response: Response, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array> {
+  const read = (within: AbortSignal) => readWithin(response, maxBytes, within);
+  const bytes = await (signal
+    ? read(signal)
+    : withDeadline(POPPY_TIMEOUTS.bodyMs, read).catch((error: unknown) => {
+        throw timeoutError(error, "Reading the response");
+      }));
+  if (!bytes) throw new PoppyFetchError(`Response larger than ${maxBytes} bytes`);
+  return bytes;
 }
 
 export type FetchedJson = {
@@ -81,22 +79,19 @@ export type FetchedJson = {
 };
 
 export function cacheSeconds(response: Response): number | null {
-  const control = response.headers.get("Cache-Control") ?? "";
-  if (/\bno-store\b|\bno-cache\b/i.test(control)) return 0;
-  const maxAge = /\bmax-age=(\d+)/i.exec(control);
-  if (maxAge) return Number(maxAge[1]);
-  const expires = response.headers.get("Expires");
-  if (expires) {
-    const at = Date.parse(expires);
-    if (!Number.isNaN(at)) return Math.max(0, Math.round((at - Date.now()) / 1000));
-  }
-  return null;
+  return headerCacheSeconds(response.headers);
+}
+
+/** A request that timed out, as a `PoppyFetchError`; anything else unchanged. */
+export function timeoutError(error: unknown, url: string): unknown {
+  return error instanceof Error && error.name === "TimeoutError" ? new PoppyFetchError(`${url}: ${error.message.toLowerCase()}`) : error;
 }
 
 /**
  * Fetch a JSON document another party controls: HTTPS only, a few redirects
- * (each HTTPS), a size cap and a timeout, no credentials, no private hosts
- * (Guides, "Fetching metadata safely"), and strict JSON.
+ * (each HTTPS), a size cap and a timeout over the answer and its body, no
+ * credentials, no private hosts (Guides, "Fetching metadata safely"), and
+ * strict JSON.
  */
 export async function fetchJson(
   fetcher: Fetcher,
@@ -110,31 +105,34 @@ export async function fetchJson(
       throw new PoppyFetchError(`Refusing non-HTTPS URL ${current.href}`);
     }
     assertPublicHost(current);
-    const response = await fetcher(
-      new Request(current.href, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        redirect: "manual",
-        signal: AbortSignal.timeout(timeoutMs)
-      })
-    );
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("Location");
-      await response.body?.cancel();
-      if (!location) throw new PoppyFetchError(`Redirect without Location from ${current.href}`);
+    const at = current;
+    const answer = await withDeadline(timeoutMs, async (signal) => {
+      const response = await raceAbort(
+        fetcher(new Request(at.href, { method: "GET", headers: { Accept: "application/json" }, redirect: "manual", signal })),
+        signal
+      );
+      if (response.status >= 300 && response.status < 400) {
+        await response.body?.cancel();
+        return { redirect: response.headers.get("Location") } as const;
+      }
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new PoppyFetchError(`${at.href} returned HTTP ${response.status}`);
+      }
+      return { text: await readLimited(response, maxBytes, signal), maxAgeSeconds: cacheSeconds(response) } as const;
+    }).catch((error: unknown) => {
+      throw timeoutError(error, at.href);
+    });
+    if ("redirect" in answer) {
+      if (!answer.redirect) throw new PoppyFetchError(`Redirect without Location from ${current.href}`);
       if (hop >= maxRedirects) throw new PoppyFetchError(`Too many redirects from ${url}`);
-      current = new URL(location, current);
+      current = new URL(answer.redirect, current);
       continue;
     }
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new PoppyFetchError(`${current.href} returned HTTP ${response.status}`);
-    }
-    const text = await readLimited(response, maxBytes);
     return {
-      json: parseStrictJson(text),
+      json: parseStrictJson(answer.text),
       finalUrl: current.href,
-      maxAgeSeconds: cacheSeconds(response)
+      maxAgeSeconds: answer.maxAgeSeconds
     };
   }
 }

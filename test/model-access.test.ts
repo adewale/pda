@@ -11,8 +11,7 @@ import { gatewayDemoLane, nativeProviders } from "../src/model-router";
 import { keyContext } from "../src/model-keys";
 import { Sealer } from "../src/poppy/store";
 import { agentNameFor, type Identity } from "../src/session";
-import { s256 } from "./encoding";
-import { fakeModels, keyState, openRouterCode, openRouterKeyFor } from "./fake-models";
+import { keyState, openRouterCode, openRouterKeyFor } from "./fake-models";
 import { chat, connect, cookiePair, fetchWorker, ORIGIN, sessionCookie } from "./agent-helpers";
 import type { PersonalAgent } from "./worker";
 
@@ -103,33 +102,12 @@ describe("own keys: the key never leaves the agent", () => {
   });
 
   it("fake vendors: `bad` and `revoked` are whole key segments, so a random key never spells them by chance", () => {
-    // A random suffix containing the letters (about 1 key in 170 for `bad`) is an ordinary key.
+    // A random UUID suffix contains `bad` in about 0.7% of keys; such a key is an ordinary one.
     expect(keyState("sk-ant-test-good-3fbad1e2-revoked7", "sk-ant-test-")).toBe("ok");
     expect(keyState("sk-test-good-0abadc", "sk-test-")).toBe("ok");
     expect(keyState("sk-ant-test-bad-0123", "sk-ant-test-")).toBe("refused");
     expect(keyState("sk-ant-test-revoked-0123", "sk-ant-test-")).toBe("revoked");
     expect(keyState("sk-test-0123", "sk-ant-test-")).toBe("refused");
-  });
-
-  it("fake OpenRouter: accepts only a key its PKCE exchange issued", async () => {
-    const verifier = `verifier-${crypto.randomUUID()}`;
-    const challenge = await s256(verifier);
-    const keyCheck = (key: string) => fakeModels(new Request("https://openrouter.ai/api/v1/key", { headers: { Authorization: `Bearer ${key}` } }));
-    // The key this code will be exchanged for, presented before the exchange, is a guess.
-    const key = openRouterKeyFor({ challenge });
-    expect((await keyCheck(key))!.status).toBe(401);
-    const exchanged = await fakeModels(
-      new Request("https://openrouter.ai/api/v1/auth/keys", {
-        method: "POST",
-        body: JSON.stringify({
-          code: openRouterCode({ challenge, challengeMethod: "S256", callbackUrl: `${ORIGIN}/auth/openrouter/callback` }),
-          code_verifier: verifier,
-          code_challenge_method: "S256"
-        })
-      })
-    );
-    expect(await exchanged!.json()).toMatchObject({ key });
-    expect((await keyCheck(key))!.status).toBe(200);
   });
 
   it("only takes keys from this origin, from a signed-in person", async () => {

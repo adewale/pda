@@ -50,10 +50,35 @@ export function cacheSeconds(headers: Headers, now = Date.now()): number | null 
 }
 
 /**
+ * Runs `run` with a signal that aborts after `ms` with a `TimeoutError`, on
+ * `setTimeout` (so fake timers drive it), and clears the timer afterwards.
+ */
+export async function withDeadline<T>(ms: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const deadline = new AbortController();
+  const timer = setTimeout(() => deadline.abort(new DOMException(`Timed out after ${ms / 1000} seconds`, "TimeoutError")), ms);
+  try {
+    return await run(deadline.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** `promise`, or the signal's reason if it aborts first: for a fetcher that may ignore the signal. */
+export function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  let onAbort = () => {};
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return Promise.race([promise, aborted]).finally(() => signal.removeEventListener("abort", onAbort));
+}
+
+/**
  * The body, up to `maxBytes` (null beyond). Rejects with the signal's reason
  * when it aborts mid-read, whether or not the fetcher ties the body to it.
  */
-async function readLimited(response: Response, maxBytes: number, signal: AbortSignal): Promise<Uint8Array | null> {
+export async function readLimited(response: Response, maxBytes: number, signal: AbortSignal): Promise<Uint8Array | null> {
   if (Number(response.headers.get("Content-Length") ?? "0") > maxBytes) {
     await response.body?.cancel();
     return null;

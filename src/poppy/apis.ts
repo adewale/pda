@@ -1,6 +1,6 @@
 import { PoppyClient, PoppyError, scopeSet } from "./client";
-import { protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
-import { fetchJson, readLimited } from "./fetch";
+import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
+import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
 import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
 import { intent } from "./store";
@@ -96,7 +96,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
     }
   }
   const document = { base, operations };
-  documents.set(api.url, { document, expiresAt: Date.now() + Math.min(86_400, Math.max(60, maxAgeSeconds ?? 300)) * 1000 });
+  documents.set(api.url, { document, expiresAt: Date.now() + boundedCacheSeconds(maxAgeSeconds) * 1000 });
   return document;
 }
 
@@ -244,7 +244,7 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
       ...(readOnly ? { scope: readOnly } : {})
     }
   );
-  const text = await readLimited(response, 2_000_000);
+  const text = await client.readBody(response);
   let body: Json = null;
   try {
     body = text ? parseStrictJson(text) : null;
@@ -342,9 +342,9 @@ async function checkResourceMetadata(client: PoppyClient, company: Company, api:
 }
 
 /** A JSON-RPC response from a Streamable HTTP reply: JSON, or the matching SSE message. */
-async function rpcResult(response: Response, id: number): Promise<Json> {
+async function rpcResult(client: PoppyClient, response: Response, id: number): Promise<Json> {
   const type = response.headers.get("Content-Type") ?? "";
-  const text = await readLimited(response, 2_000_000);
+  const text = await client.readBody(response);
   const messages: Json[] = [];
   if (type.includes("text/event-stream")) {
     for (const block of text.replace(/\r\n?/g, "\n").split("\n\n")) {
@@ -388,7 +388,7 @@ async function mcpRequest(client: PoppyClient, company: Company, label: string, 
     await response.body?.cancel();
     throw new PoppyError(`http_${response.status}`, `${api.url} returned HTTP ${response.status}`, response.status);
   }
-  return { result: await rpcResult(response, id), sessionId: response.headers.get("Mcp-Session-Id") };
+  return { result: await rpcResult(client, response, id), sessionId: response.headers.get("Mcp-Session-Id") };
 }
 
 async function mcpSession(client: PoppyClient, company: Company, label: string, api: Api): Promise<string> {

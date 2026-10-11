@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { openApi } from "../src/poppy/apis";
+import type { PoppyClient } from "../src/poppy/client";
 import { tokenHostAllowed } from "../src/poppy/discovery";
 import { assertPublicHost, fetchJson, PoppyFetchError, type Fetcher } from "../src/poppy/fetch";
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
@@ -166,6 +168,58 @@ describe("Guides: fetching metadata safely", () => {
     expect(result.isError).toBe(true);
     // Rejected as no domain at all, or as a host that isn't public.
     expect(result.text).toMatch(/isn't a domain name|isn't a public host/);
+  });
+
+  it("gives up on a document whose body stalls, within the time limit, and cancels it", async () => {
+    vi.useFakeTimers();
+    try {
+      // Headers at once, then one byte and silence: a fetcher that ignores the request's signal.
+      let cancelled = false;
+      const stalling: Fetcher = async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start: (controller) => controller.enqueue(new TextEncoder().encode("{")),
+            cancel: () => {
+              cancelled = true;
+            }
+          }),
+          { headers: { "Content-Type": "application/json" } }
+        );
+      const pending = fetchJson(stalling, "https://api.shop.example/openapi.json", { timeoutMs: 5_000 });
+      const settled = expect(pending).rejects.toThrow(new PoppyFetchError("https://api.shop.example/openapi.json: timed out after 5 seconds"));
+      await vi.advanceTimersByTimeAsync(5_000);
+      await settled;
+      expect(cancelled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { what: "no caching headers: a minute, as for poppy.json", headers: {}, fresh: 59, stale: 61 },
+    { what: "max-age=600", headers: { "Cache-Control": "max-age=600" }, fresh: 599, stale: 601 },
+    { what: "max-age=5, raised to a minute", headers: { "Cache-Control": "max-age=5" }, fresh: 59, stale: 61 }
+  ])("keeps an OpenAPI description as long as discovery would keep its documents: $what", async ({ headers, fresh, stale }) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const fetched: string[] = [];
+      const fetcher: Fetcher = async (request) => {
+        fetched.push(request.url);
+        return Response.json({ openapi: "3.1.0", paths: {} }, { headers: headers as Record<string, string> });
+      };
+      const client = { host: { fetcher } } as unknown as PoppyClient;
+      const api = { type: "openapi", url: `https://api.${crypto.randomUUID()}.example/openapi.json`, description: "" } as const;
+      const start = Date.now();
+      await openApi(client, api);
+      vi.setSystemTime(start + fresh * 1000);
+      await openApi(client, api);
+      expect(fetched).toHaveLength(1);
+      vi.setSystemTime(start + stale * 1000);
+      await openApi(client, api);
+      expect(fetched).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fetches a public host's document", async () => {
@@ -1437,6 +1491,7 @@ describe("Ops 6 a confirm whose answer never arrives", () => {
     await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "hold" });
     const approving = approve(a, c, card);
     await until(async () => (await c.stub.state()).performs === 1);
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
     // A restart: the client's memory is gone, and the interrupted step never hears back.
     await a.stub.poppyForgetMemory();
     await a.stub.poppyAdvance(60_000);
@@ -1455,6 +1510,7 @@ describe("Ops 6 a confirm whose answer never arrives", () => {
     const { c, a, card } = await proposal();
     await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "lose" });
     await approve(a, c, card);
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
     expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
     // Read first: still proposed, so the approved revision is confirmed, under the same id.
     await a.stub.poppyAdvance(5_000);
@@ -1574,6 +1630,7 @@ describe("4.5 a Direct Sign-In interrupted mid-exchange", () => {
     await a.stub.poppyFault({ ...exchange, mode: "hold" });
     const callback = worker.fetch(new Request(location, { headers: { Cookie: a.cookie } }), env);
     await until(async () => (await requests(c)).some((request) => request.grant === "authorization_code"));
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
     // A restart: memory is gone, and the exchange never hears back.
     await a.stub.poppyForgetMemory();
     expect((await signInRows(a))[0]!.status).toBe("exchanging");
@@ -1605,5 +1662,54 @@ describe("4.5 a Direct Sign-In interrupted mid-exchange", () => {
     expect(row!.status).toBe("done");
     expect(JSON.parse((await a.stub.poppyOpenSealed(row!.secret, `signin|${row!.id}|${row!.issuer}`))!)).toEqual({ scope: "poppy:read poppy:write" });
     expect((await cards(a)).find((item) => item.id === `signin-${row!.id}`)).toMatchObject({ kind: "notice", open: false });
+  });
+});
+
+describe("Guides: a Company that stops answering", () => {
+  /** `promise`, or a failure once `ms` have passed: a client with no deadline would wait forever. */
+  const within = <T>(promise: Promise<T>, ms = 10_000) =>
+    Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`Still waiting after ${ms} ms`)), ms))]);
+
+  it.each([
+    { what: "an API response", url: "/orders", method: "GET", signIn: true, call: (c: Company) => ({ name: "poppy_api_call", args: { domain: c.domain, operation: "GET /orders" } }) },
+    { what: "a conversation response", url: "/poppy/conversations", method: "POST", signIn: false, call: (c: Company) => ({ name: "poppy_message", args: { domain: c.domain, text: "hello" } }) }
+  ])("gives up on $what whose body stalls, and cancels it", async ({ url, method, signIn, call }) => {
+    const c = await company();
+    const a = await agent();
+    if (signIn) await signInDirect(a, c);
+    await a.stub.poppySetTimeouts({ bodyMs: 300 });
+    await a.stub.poppyFault({ method, url, mode: "stall" });
+    const { name, args } = call(c);
+    const result = await within(tool(a, name, args));
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/timed out after 0\.3 seconds/);
+    expect(await a.stub.poppyStalled()).toEqual({ stalled: 1, cancelled: 1 });
+  });
+
+  it("gives up on a token response whose body stalls", async () => {
+    const c = await company();
+    const a = await agent();
+    await a.stub.poppySetTimeouts({ oauthMs: 300 });
+    // The first use of a Company starts a Session at its token endpoint.
+    await a.stub.poppyFault({ method: "POST", url: "/oauth/token", mode: "stall" });
+    const result = await within(tool(a, "poppy_message", { domain: c.domain, text: "hello" }));
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/timed out after 0\.3 seconds/);
+    expect(await a.stub.poppyStalled()).toEqual({ stalled: 1, cancelled: 1 });
+  });
+
+  it("gives up on an API request whose answer never starts", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    await a.stub.poppySetTimeouts({ requestMs: 300 });
+    await a.stub.poppyFault({ method: "GET", url: "/orders", mode: "hold" });
+    const result = await within(tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" }));
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/timed out after 0\.3 seconds/);
+    expect(await a.stub.poppyReleaseHeld()).toBe(1);
   });
 });

@@ -26,7 +26,7 @@ import { Sealer } from "./poppy/store";
 import type { Card } from "./poppy/wire";
 import type { PoppyBrowser } from "./poppy/browser";
 import { PoppyCapability } from "./poppy/capability";
-import type { Fetcher } from "./poppy/fetch";
+import type { Fetcher, PoppyTimeouts } from "./poppy/fetch";
 import { FetchBrowser } from "./poppy/fetch-browser";
 import { poppyExtension } from "./poppy/tools";
 import { PiSessionSockets } from "./sockets";
@@ -307,6 +307,7 @@ export class PersonalAgent extends DurableObject<Env> {
     idleReadMs?: number;
     sleep?: (ms: number) => Promise<void>;
     now?: () => number;
+    timeouts?: PoppyTimeouts;
   } {
     return { readWaitSeconds: 20 };
   }

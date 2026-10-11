@@ -11,7 +11,7 @@ import {
   startDirectConversation,
   updateAvailability
 } from "./conversations";
-import type { Fetcher } from "./fetch";
+import type { Fetcher, PoppyTimeouts } from "./fetch";
 import type { Json } from "./json";
 import {
   addPermission,
@@ -50,6 +50,8 @@ export type PoppyOptions = {
   readonly sleep?: (ms: number) => Promise<void>;
   /** Now, in epoch ms, for waits and schedules; tests use a fake clock. */
   readonly now?: () => number;
+  /** How long to wait on a Company; `POPPY_TIMEOUTS` by default. */
+  readonly timeouts?: PoppyTimeouts;
 };
 
 /** The User counts as available while a page is open and was used recently (spec 7.4). */
@@ -123,7 +125,8 @@ export class PoppyCapability extends LifecycleCapability {
           this.lifecycle.sockets.get().length > 0 && Date.now() - this.#lastActivity < AVAILABLE_FOR_MS
       }),
       sleep: options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
-      now: options.now ?? Date.now
+      now: options.now ?? Date.now,
+      ...(options.timeouts ? { timeouts: options.timeouts } : {})
     };
   }
 

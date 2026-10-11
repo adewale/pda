@@ -6,7 +6,7 @@ import {
   type Company,
   type WebsiteOnly
 } from "./discovery";
-import { readLimited, type Fetcher } from "./fetch";
+import { POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type Fetcher, type PoppyTimeouts } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
 import {
   clientAssertion,
@@ -46,6 +46,8 @@ export type PoppyHost = {
    * operation tracking. Tests run it on a fake clock that `sleep` advances.
    */
   readonly now: () => number;
+  /** How long to wait on a Company; `POPPY_TIMEOUTS` unless a test shortens them. */
+  readonly timeouts?: PoppyTimeouts;
 };
 
 export type JobName = "poppy-read" | "poppy-device" | "poppy-operation";
@@ -211,8 +213,8 @@ export function parseRateLimit(header: string | null): { remaining: number; rese
   return remaining && reset ? { remaining: Number(remaining[1]), reset: Number(reset[1]) } : null;
 }
 
-async function readJson(response: Response): Promise<Json> {
-  const text = await readLimited(response, 2_000_000);
+async function readJson(response: Response, signal: AbortSignal): Promise<Json> {
+  const text = await readLimited(response, 2_000_000, signal);
   if (!text) return null;
   try {
     return parseStrictJson(text);
@@ -265,6 +267,27 @@ export class PoppyClient {
 
   get sql(): Sql {
     return this.host.sql;
+  }
+
+  get timeouts(): PoppyTimeouts {
+    return this.host.timeouts ?? POPPY_TIMEOUTS;
+  }
+
+  /**
+   * A Company's response body, up to `maxBytes`, within `timeouts.bodyMs`:
+   * a body that stalls fails as a `PoppyFetchError` rather than hanging.
+   */
+  async readBody(response: Response, maxBytes = 2_000_000): Promise<string> {
+    return withDeadline(this.timeouts.bodyMs, (signal) => readLimited(response, maxBytes, signal)).catch((error: unknown) => {
+      throw timeoutError(error, `Reading ${response.url || "the response"}`);
+    });
+  }
+
+  /** `readBody`, as JSON: null for an empty or unreadable one. */
+  async readJson(response: Response): Promise<Json> {
+    return withDeadline(this.timeouts.bodyMs, (signal) => readJson(response, signal)).catch((error: unknown) => {
+      throw timeoutError(error, `Reading ${response.url || "the response"}`);
+    });
   }
 
   // ---------------------------------------------------------------- Companies
@@ -428,13 +451,19 @@ export class PoppyClient {
           })
         );
       }
-      const response = await this.host.fetcher(
-        new Request(endpoint, { method: "POST", headers, body: form, redirect: "manual" })
-      );
+      // One deadline for the answer and its body.
+      const { response, body } = await withDeadline(this.timeouts.oauthMs, async (signal) => {
+        const response = await raceAbort(
+          this.host.fetcher(new Request(endpoint, { method: "POST", headers, body: form, redirect: "manual", signal })),
+          signal
+        );
+        return { response, body: await readJson(response, signal) };
+      }).catch((error: unknown) => {
+        throw timeoutError(error, endpoint);
+      });
       const nonce = response.headers.get("DPoP-Nonce");
       if (nonce) this.#nonces.set(origin, nonce);
       const wait = await this.#observeLimits(company.issuer, response);
-      const body = await readJson(response);
       const error = isObject(body) && typeof body.error === "string" ? body.error : undefined;
       if (error === "use_dpop_nonce" && nonce && !nonceRetried) {
         nonceRetried = true;
@@ -895,6 +924,8 @@ export class PoppyClient {
       body?: Json;
       headers?: Record<string, string>;
       accept?: string;
+      /** A long poll: how much longer than `timeouts.requestMs` the answer may take to start. */
+      waitMs?: number;
     },
     options: TokenOptions = {}
   ): Promise<Response> {
@@ -935,15 +966,23 @@ export class PoppyClient {
           })
         );
       }
-      const response = await this.host.fetcher(
-        new Request(url.href, {
-          method: request.method,
-          headers,
-          // Never follow a redirect with this proof or token (Guides).
-          redirect: "manual",
-          ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {})
-        })
-      );
+      // A deadline for the answer to start; the caller reads the body with `readBody`.
+      const response = await withDeadline(this.timeouts.requestMs + (request.waitMs ?? 0), (signal) =>
+        raceAbort(
+          this.host.fetcher(
+            new Request(url.href, {
+              method: request.method,
+              headers,
+              // Never follow a redirect with this proof or token (Guides).
+              redirect: "manual",
+              ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {})
+            })
+          ),
+          signal
+        )
+      ).catch((error: unknown) => {
+        throw timeoutError(error, `${url.origin}${url.pathname}`);
+      });
       const nonce = response.headers.get("DPoP-Nonce");
       if (nonce) this.#nonces.set(url.origin, nonce);
       const wait = await this.#observeLimits(company.issuer, response);
@@ -968,7 +1007,7 @@ export class PoppyClient {
       // Some Companies end a Session with `invalid_session` in the body rather
       // than 401 invalid_token (spec 6): start a new Session and retry once.
       if ((response.status === 400 || response.status === 401) && !restarted) {
-        const peek = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
+        const peek = (await this.readJson(response.clone()).catch(() => null)) as { error?: unknown } | null;
         if (peek?.error === "invalid_session") {
           await response.body?.cancel();
           this.#forgetSession(company.issuer, options.label ?? "main");
@@ -994,7 +1033,7 @@ export class PoppyClient {
     options: TokenOptions = {}
   ): Promise<{ status: number; body: Json; headers: Headers }> {
     const response = await this.resource(company, request, options);
-    const body = await readJson(response);
+    const body = await this.readJson(response);
     if (response.status >= 400) {
       const code = isObject(body) && typeof body.error === "string" ? body.error : `http_${response.status}`;
       throw new PoppyError(code, `${company.name} returned ${code}`, response.status, {

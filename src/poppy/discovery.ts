@@ -1,4 +1,5 @@
 import { summarize, validateCompany } from "../validator/index.ts";
+import { bareHost } from "../validator/primitives.ts";
 import type { Fetcher } from "./fetch";
 
 /** Extensions this client supports, with the major version it implements. */
@@ -67,14 +68,16 @@ export class DiscoveryError extends Error {
 const CACHE_MIN_SECONDS = 60;
 const CACHE_MAX_SECONDS = 24 * 60 * 60;
 
-/** Cache lifetime bounded to between a minute and a day (Guides). */
+/**
+ * How long the client keeps a document a Company serves (poppy.json and its
+ * issuer metadata, an OpenAPI description): its `Cache-Control` or `Expires`
+ * lifetime, bounded to between a minute and a day (Guides). A document that
+ * sends neither has said nothing about caching, so it gets the shortest
+ * lifetime, a minute.
+ */
 export function boundedCacheSeconds(seconds: number | null): number {
   if (seconds === null) return CACHE_MIN_SECONDS;
   return Math.min(CACHE_MAX_SECONDS, Math.max(CACHE_MIN_SECONDS, seconds));
-}
-
-function bareHost(host: string): string {
-  return host.toLowerCase().replace(/^www\./, "");
 }
 
 type Obj = { readonly [key: string]: unknown };

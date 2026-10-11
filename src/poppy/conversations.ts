@@ -433,6 +433,7 @@ export async function readConversation(
           method: "GET",
           url: url.href,
           accept: "text/event-stream, application/json",
+          waitMs: waitSeconds * 1000,
           ...(current.cursor ? { headers: { "Last-Event-ID": current.cursor } } : {})
         },
         tokenOptions(company, row.label)
@@ -452,7 +453,7 @@ export async function readConversation(
       throw error;
     }
     if (response.status === 410 || response.status === 400) {
-      const body = await response.json().catch(() => null) as { error?: string } | null;
+      const body = await client.readJson(response).catch(() => null) as { error?: string } | null;
       if (body?.error === "cursor_expired" || body?.error === "invalid_cursor") {
         // Read from the beginning; handled ids are skipped. Tell the User (7.5).
         client.sql.exec("UPDATE poppy_conversations SET cursor = NULL WHERE id = ?", id);
@@ -482,7 +483,7 @@ export async function readConversation(
     if (type.includes("text/event-stream")) {
       await readStream(client, company, id, response, waitSeconds);
     } else {
-      const body = await response.json() as { [key: string]: Json };
+      const body = JSON.parse(await client.readBody(response)) as { [key: string]: Json };
       const events = Array.isArray(body.events) ? body.events : [];
       await handleEvents(client, company, conversation(client, id)!, events);
       if (typeof body.cursor === "string") saveCursor(client, id, body.cursor);

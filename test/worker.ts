@@ -14,7 +14,7 @@ import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { PersonalAgent as ProductionAgent } from "../src/agent";
 import worker from "../src/index";
 import type { LaneModel, DemoRoute } from "../src/model-router";
-import type { Fetcher } from "../src/poppy/fetch";
+import { POPPY_TIMEOUTS, type Fetcher, type PoppyTimeouts } from "../src/poppy/fetch";
 import { readConversation } from "../src/poppy/conversations";
 import { Sealer } from "../src/poppy/store";
 import { poppyExtension } from "../src/poppy/tools";
@@ -51,28 +51,31 @@ export function testFetcher(env: Env, clock?: () => number): Fetcher {
  * - `gateway`: the Company handles it, then a gateway answers 504 instead;
  * - `hold`: the Company handles it, then the answer is held until `poppyReleaseHeld`,
  *   and the connection fails; meanwhile the test can act as a later step would;
- * - `lose`: the request fails before it reaches the Company.
+ * - `lose`: the request fails before it reaches the Company;
+ * - `stall`: the Company handles it and its answer starts (status, headers and
+ *   the body's first byte), then the body never ends. The fetcher ignores the
+ *   request's signal, so only the client's own deadline ends the wait.
  */
 export type NetworkFault = {
   readonly method: string;
   readonly url: string;
   readonly grant?: string;
-  readonly mode: "throw" | "gateway" | "hold" | "lose";
+  readonly mode: "throw" | "gateway" | "hold" | "lose" | "stall";
 };
 
-type Faults = { pending: NetworkFault[]; held: (() => void)[] };
+type Faults = { pending: NetworkFault[]; held: (() => void)[]; stalled: { cancelled: boolean }[] };
 const faultsByAgent = new WeakMap<object, Faults>();
 
 function faultsOf(agent: object): Faults {
   let faults = faultsByAgent.get(agent);
-  if (!faults) faultsByAgent.set(agent, (faults = { pending: [], held: [] }));
+  if (!faults) faultsByAgent.set(agent, (faults = { pending: [], held: [], stalled: [] }));
   return faults;
 }
 
 /** `fetcher`, with the faults a test asked for. No fault, no change. */
 function faultyFetcher(fetcher: Fetcher, faults: () => Faults): Fetcher {
   return async (request) => {
-    const { pending, held } = faults();
+    const { pending, held, stalled } = faults();
     if (pending.length === 0) return fetcher(request);
     let grant: string | null = null;
     if (request.method === "POST" && (request.headers.get("Content-Type") ?? "").includes("form-urlencoded")) {
@@ -86,6 +89,18 @@ function faultyFetcher(fetcher: Fetcher, faults: () => Faults): Fetcher {
     const [fault] = pending.splice(index, 1);
     if (fault!.mode === "lose") throw new Error("Network connection lost before the request was sent");
     const response = await fetcher(request);
+    if (fault!.mode === "stall") {
+      const first = new Uint8Array((await response.arrayBuffer()).slice(0, 1));
+      const stall = { cancelled: false };
+      stalled.push(stall);
+      const body = new ReadableStream<Uint8Array>({
+        start: (controller) => controller.enqueue(first),
+        cancel: () => {
+          stall.cancelled = true;
+        }
+      });
+      return new Response(body, { status: response.status, headers: response.headers });
+    }
     await response.body?.cancel();
     if (fault!.mode === "gateway") return new Response("upstream timed out", { status: 504 });
     if (fault!.mode === "hold") await new Promise<void>((resolve) => held.push(resolve));
@@ -126,6 +141,15 @@ for (const level of ["debug", "log", "info", "warn", "error"] as const) {
  * operation tracking) never runs on its own, only when a test advances.
  */
 type FakeClock = { now: number; sleeps: number[] };
+
+/** Each test agent's waits on a Company: production's, until a test shortens them (`poppySetTimeouts`). */
+const timeouts = new WeakMap<object, { -readonly [K in keyof PoppyTimeouts]: number }>();
+
+function timeoutsOf(agent: object) {
+  let found = timeouts.get(agent);
+  if (!found) timeouts.set(agent, (found = { ...POPPY_TIMEOUTS }));
+  return found;
+}
 const clocks = new WeakMap<object, FakeClock>();
 
 function clockOf(agent: object): FakeClock {
@@ -257,7 +281,8 @@ export class PersonalAgent extends ProductionAgent {
         clock.sleeps.push(ms);
         clock.now += ms;
       },
-      now: () => clockOf(this).now
+      now: () => clockOf(this).now,
+      timeouts: timeoutsOf(this)
     };
   }
 
@@ -412,6 +437,17 @@ export class PersonalAgent extends ProductionAgent {
   /** The next notice to the model containing `fragment` fails, as if the harness had thrown. */
   async poppyFailNoticeOnce(fragment: string): Promise<void> {
     this.#failingNotices.push(fragment);
+  }
+
+  /** Stalled bodies (the `stall` fault) so far, and how many of them the client cancelled. */
+  async poppyStalled(): Promise<{ stalled: number; cancelled: number }> {
+    const { stalled } = faultsOf(this);
+    return { stalled: stalled.length, cancelled: stalled.filter((stall) => stall.cancelled).length };
+  }
+
+  /** Shorten (or restore) how long the client waits on a Company. */
+  async poppySetTimeouts(timeouts: Partial<PoppyTimeouts>): Promise<void> {
+    Object.assign(timeoutsOf(this), timeouts);
   }
 
   /** Faults not yet triggered: network faults and failing notices. Zero once each has fired. */

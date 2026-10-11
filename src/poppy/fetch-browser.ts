@@ -502,7 +502,7 @@ class FetchContext implements BrowserContextHandle {
         let bytes: Uint8Array = new Uint8Array(0);
         try {
           if (init.discardBody) await response.body?.cancel();
-          else bytes = await readLimitedBytes(response, this.#options.maxBytes);
+          else bytes = await readLimitedBytes(response, this.#options.maxBytes, signal);
         } catch (error) {
           if (error instanceof PoppyFetchError) throw new PoppyError("too_large", `${current.href} is larger than ${this.#options.maxBytes} bytes`, 0);
           throw error;
