@@ -10,45 +10,52 @@ Datalayer's Python reference Company, Manzanita Outfitters (`personal_agent_prot
 
 One Python process (`adapter.py`, Python 3.12):
 
-- **Port 8080:** the Company, `company_app(service)` from the SDK, served by uvicorn. Its domain and issuer come from `INTEROP_ORIGIN` (default `https://datalayer-py.company.interop.test`). The SDK rebuilds every request URL on that origin, never on the inner `Host`, so DPoP `htu` checks work behind the proxy.
-- **Port 8081:** the control API. Hooks call the same in-process `CompanyService`, the way the upstream tests play the user at the Company.
+- **Port 8080:** the Company, `company_app(service)` from the SDK, served by uvicorn. Its domain and issuer come from `INTEROP_ORIGIN` (default `https://datalayer-py.company.interop.test`). The SDK rebuilds every request URL on that origin, never on the inner `Host`.
+- **Port 8081:** the control API. Hooks call the same in-process `CompanyService`, the way the upstream tests play the user at the Company. Each hook answers its result object as the body.
 
-`/manifest` and `/healthz` need no authentication; `/reset`, `/hooks` and `/hooks/<name>` need `Authorization: Bearer $INTEROP_SECRET`. A hook takes its params raw or as `{"params": {...}}` and answers `{"ok": true, "result": {...}}`.
+`/manifest` and `/healthz` need no authentication; `/reset`, `/hooks` and `/hooks/<name>` need `Authorization: Bearer $INTEROP_SECRET`. The image leaves `/interop` absent: the runner copies its trust directory there.
 
 ## Hooks
 
 | Hook | How |
 | --- | --- |
-| `fixture` | Manzanita's one account (`acct_ada`), its scopes (`orders:read orders:write`), `openapi` `{"api", "operation": "GET /api/orders"}`, `mcp` `{"api", "tool": "list_orders"}`, plus the write calls and the conversation texts the scripted company agent answers. |
-| `approve_authorization` | Opens the agent's authorization URL at the Company (in process), reads the consent form's `request_id`, then `service.approve_authorization(request_id, account_id, scopes)`. A request the Company refuses with a redirect (`invalid_scope`, ...) is returned as that redirect. |
-| `deny_authorization` | The same, then `service.deny_authorization`: a redirect with `error=access_denied` and `iss`. |
-| `approve_device`, `deny_device` | `service.approve_device(user_code, account_id, scopes)`, `service.deny_device(user_code)`. |
-| `mediated_answers` | Ada's email and password. Manzanita then asks for a one-time code. |
-| `last_one_time_code` | Manzanita's fixed code, `246810`. |
-| `end_sessions` | Deletes every Session and Session Token record from the store the adapter gave the Company; Account Tokens stay. The Company has no "end Session" feature, so this simulates one. Datalayer's Company then answers the old token with 401 `invalid_token` (not `invalid_session`). |
-| `settle_operation` | `service.settle(operation, result, succeeded=outcome == "succeeded")`, for operations left `in_progress` (Manzanita's repair). |
-| `staff_join`, `staff_reply`, `propose_operation` | 501. Manzanita has no staff (`humans_available` is false) and no way to inject a proposal: its scripted agent proposes the exchange when a signed-in user with `orders:write` asks for one ("Exchange it for something warmer"), or `POST /api/orders/ord_7Hk2/exchanges` proposes it. |
+| `fixture` | Manzanita's one account (`acct_ada`, also `otp_account`); `openapi` `GET /api/orders`; `openapi_write` `POST /api/orders/{order_id}/exchanges` with `params.order_id`; `openapi_public` `GET /api/openapi.json` (Manzanita has no signed-out API operation; its description, served at the API's own path, is the one GET that works signed out); `mcp` `list_orders`; prompts its scripted agent answers. |
+| `approve_authorization`, `deny_authorization` | Opens the agent's authorization URL at the Company (in process), reads the consent form's `request_id`, then `service.approve_authorization` or `deny_authorization`. A request the Company refuses with a redirect (`invalid_scope`, ...) is returned as that redirect. |
+| `approve_device`, `deny_device` | `service.approve_device`, `service.deny_device`. |
+| `mediated_answers`, `last_one_time_code` | Ada's email and password; Manzanita's fixed code `246810`. |
+| `propose_operation` | Reads the conversation from the store and returns the latest operation Manzanita's agent proposed in it that is still `proposed`. |
+| `settle_operation` | `service.settle`, for operations left `in_progress`. |
+| `end_sessions` | Deletes every Session and Session Token record from the store the adapter gave the Company; Account Tokens stay. Manzanita has no "end Session" feature, so this stands in for one. The Company then answers the old token with 401 `invalid_token`. |
+| `expire_tokens` | Rewrites every stored Session Token's expiry to one second ago; the service's own expiry check then refuses it (401 `invalid_token`). |
+| `require_nonce`, `rate_limit`, `staff_join`, `staff_reply` | 501: the service has no DPoP nonces, no rate limits and no staff, and the adapter doesn't fake them. |
 
 `POST /reset` builds a new Company with an empty store.
 
 ## Relaxations
 
-All in the adapter, none in upstream code (`patches/` is empty):
+All in the adapter, none in upstream code (`patches/` is empty). Each is off unless its variable is `1`; the image sets both.
 
-- `INTEROP_ALLOW_TEST_HOSTS=1` (set in the image, off when unset): a Reactor `pap.urlSafetyPolicy` contribution at order 0 lets the Company fetch client metadata and JWKS from `*.interop.test` hosts that resolve to private addresses. Every other host keeps the SDK's `PublicUrlSafetyPolicy`.
+- `INTEROP_ALLOW_TEST_HOSTS=1`: a Reactor `pap.urlSafetyPolicy` contribution at order 0 lets the Company fetch client metadata and JWKS from `*.interop.test` hosts that resolve to private addresses. Every other host keeps the SDK's `PublicUrlSafetyPolicy`.
+- `INTEROP_POPPY_SCOPES=1`: the scenarios ask for `poppy:read` and `poppy:write`; Manzanita knows `orders:read` and `orders:write` and refuses anything else with `invalid_scope`. In this mode the Company also offers the two poppy scopes, and its agent, API and MCP server are wrapped to read them as the orders scopes they stand for. `write_scopes` becomes `poppy:write` alone, because the service requires every write scope to confirm an operation. The poppy names get no `custom_scopes` description: `poppy:` names are reserved (our validator flags it, and our agent refuses the discovery document).
 - The httpx client the SDK is given trusts `/interop/ca.pem` (or `SSL_CERT_FILE`).
 - The organization domain and issuer are `INTEROP_ORIGIN`'s host instead of `manzanita.example`.
 
-## What works
+## Scenarios
 
-Paired with its sibling `datalayer-py-agent`, and with `datalayer-ts-agent` and `pi-poppy-agent`, through a TLS proxy: discovery, signed-out Session, conversations, Direct, Device and Mediated Sign-In (with the one-time code), OpenAPI and MCP calls, `insufficient_scope`, operations proposed, confirmed (twice, performed once) and declined, revocation, browser Session join, and SSE. Our validator passes its `poppy.json` and OAuth metadata with no messages.
+Claimed: D, S0, SD, SV, SMC, SX, SXV, R, SE, SO, C, CI, CS, CA, DC, AO, AS, W, O, O2, OX. Not claimed:
 
-## What doesn't, or differs
+- **SM:** Manzanita's one account always asks for a one-time code.
+- **AM:** every MCP tool needs a signed-in user.
+- **N, RL, H:** no nonces, no rate limits, no staff.
 
-- **SSE closes when caught up.** The stream sends the backlog after `Last-Event-ID` and ends, with no keep-alive and no live events (`service.py` `_stream`). The SDK's own client reconnects and then fails with `stream_unavailable`, so a stream resumed from the latest event never works, with either Datalayer client.
-- **Mediated Sign-In with no `scope` signs in with no scopes** instead of `invalid_scope` (already in [poppy-issues.md](../../../docs/poppy-issues.md)). Seen in the pairing with `pi-poppy-agent`: `signed_in: true, scope: ""`.
-- **Client assertions at the device authorization and revocation endpoints** must have `aud` equal to that endpoint (`service.py` lines 670 and 808), not the token endpoint or the issuer. The Datalayer clients, `datalayer-ts-agent` and `pi-poppy-agent` all send that; an agent that always uses the token endpoint would get `invalid_client`. The S1 reading only covers the token endpoint.
-- **No DPoP nonces**, so scenario `N` doesn't apply; no rate limits (`RL`), no staff (`H`).
+## Findings
+
+- **DPoP `htu` is compared with the decoded path.** `company/asgi.py` rebuilds the URL from ASGI `scope["path"]`, which is percent-decoded, so a request to `/api/orders/%7Border_id%7D/exchanges` is checked against `.../{order_id}/...` and refused with 401 `invalid_dpop_proof`. It should use `raw_path`: RFC 9449 section 4.3 and RFC 3986 section 6.2.2.2 only normalize unreserved characters. Seen with `dpa` in scenario AS.
+- **Its OpenAPI description doesn't declare path parameters.** `/api/orders/{order_id}/exchanges` has no `parameters`, which OpenAPI 3.x requires for path templates, so a client that fills only declared parameters (ours) sends the template literally.
+- **SSE closes when caught up.** `_stream` sends the backlog after `Last-Event-ID` and ends, with no keep-alive and no live events. The SDK's own client reconnects and then raises `stream_unavailable`.
+- **Mediated Sign-In with no `scope` signs in with no scopes** instead of `invalid_scope` (already in [poppy-issues.md](../../../docs/poppy-issues.md)).
+- **Client assertions at the device authorization and revocation endpoints** must have `aud` equal to that endpoint (`service.py` lines 670 and 808). The S1 reading only covers the token endpoint.
+- **An ended or expired Session gets 401 `invalid_token`**, never `invalid_session`.
 
 ## Readings
 

@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir -c /adapter/constraints.txt "/upstream[server]"
 
 COPY adapter.py /adapter/adapter.py
 
-RUN mkdir -p /interop
+# No /interop here: the runner copies its trust directory to /interop before start.
 ENV UPSTREAM_COMMIT=$UPSTREAM_COMMIT \
     INTEROP_NAME=datalayer-py \
     INTEROP_ALLOW_TEST_HOSTS=1 \

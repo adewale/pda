@@ -7,12 +7,17 @@ One process, two ports:
 - 8081: the interop control API (docs/interop-spec.md sections 4, 5.1, 5.3).
   Hooks call the same in-process `CompanyService` the Company runs on, the way
   the upstream tests play the user at the Company (`approve_authorization`,
-  `approve_device`, ...).
+  `approve_device`, ...). A hook answers its result object itself.
 
-Interop-only setting (off unless INTEROP_ALLOW_TEST_HOSTS=1, which the image
-sets): a URL-safety policy contributed through Reactor that lets the Company
-fetch client metadata and JWKS from *.interop.test hosts on private addresses.
-Every other host keeps the SDK's default public-address policy.
+Interop-only settings, each off unless set (the image sets both):
+
+- INTEROP_ALLOW_TEST_HOSTS=1: a URL-safety policy contributed through Reactor
+  that lets the Company fetch client metadata and JWKS from *.interop.test
+  hosts on private addresses. Every other host keeps the SDK's default policy.
+- INTEROP_POPPY_SCOPES=1: the scenarios ask for `poppy:read`/`poppy:write`;
+  Manzanita knows `orders:read`/`orders:write`. The Company also offers the
+  poppy scopes, and its agent, API and MCP server (wrapped here) read them as
+  the orders scopes they stand for.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ import json
 import os
 import ssl
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -30,12 +36,23 @@ import uvicorn
 from reactor import PluginManifest  # type: ignore[import-untyped]
 
 from personal_agent_protocol.company import (
+    COMPANY_ACCOUNTS,
+    COMPANY_AGENTS,
+    COMPANY_APIS,
+    COMPANY_MCP,
+    OPERATION_EXECUTORS,
     CompanyRequest,
     MemoryCompanyStore,
     build_company,
     company_app,
 )
-from personal_agent_protocol.company.store import SESSION, SESSION_TOKEN
+from personal_agent_protocol.company.store import (
+    CONVERSATION,
+    SESSION,
+    SESSION_TOKEN,
+    StoredConversation,
+    StoredSession,
+)
 from personal_agent_protocol.demo import manzanita as mz
 from personal_agent_protocol.demo.kit import StorePlugin
 from personal_agent_protocol.models import OperationResult
@@ -46,12 +63,17 @@ from personal_agent_protocol.reactor import (
 )
 
 NAME = os.environ.get("INTEROP_NAME", "datalayer-py")
-ORIGIN = os.environ.get("INTEROP_ORIGIN", f"https://{NAME}.company.interop.test").rstrip("/")
+_DOMAIN = os.environ.get("INTEROP_DOMAIN") or f"{NAME}.company.interop.test"
+ORIGIN = os.environ.get("INTEROP_ORIGIN", f"https://{_DOMAIN}").rstrip("/")
 DOMAIN = urlsplit(ORIGIN).hostname or ""
 SECRET = os.environ.get("INTEROP_SECRET", "")
-COMMIT = os.environ.get("UPSTREAM_COMMIT", "unknown")
+COMMIT = os.environ.get("INTEROP_COMMIT") or os.environ.get("UPSTREAM_COMMIT", "unknown")
 ALLOW_TEST_HOSTS = os.environ.get("INTEROP_ALLOW_TEST_HOSTS") == "1"
+POPPY_SCOPES = os.environ.get("INTEROP_POPPY_SCOPES") == "1"
 CA_FILE = os.environ.get("SSL_CERT_FILE") or "/interop/ca.pem"
+
+#: What each generic scope stands for at Manzanita (INTEROP_POPPY_SCOPES).
+SYNONYMS = {"poppy:read": "orders:read", "poppy:write": "orders:write"}
 
 HOOKS = [
     "approve_authorization",
@@ -61,9 +83,26 @@ HOOKS = [
     "mediated_answers",
     "last_one_time_code",
     "end_sessions",
+    "propose_operation",
     "settle_operation",
+    "expire_tokens",
     "fixture",
 ]
+
+RELAXATIONS = [
+    "INTEROP_ALLOW_TEST_HOSTS=1: a Reactor URL-safety contribution (adapter, not a patch) "
+    "lets the Company fetch client metadata and JWKS from *.interop.test hosts on private "
+    "addresses; other hosts keep the SDK's public-address policy",
+    "Trusts the per-run CA at /interop/ca.pem for those fetches (the adapter builds the "
+    "httpx client the SDK is given)",
+    "Organization domain and issuer come from INTEROP_ORIGIN instead of manzanita.example",
+]
+if POPPY_SCOPES:
+    RELAXATIONS.append(
+        "INTEROP_POPPY_SCOPES=1: the Company also offers poppy:read and poppy:write, and "
+        "Manzanita's agent, API and MCP server (wrapped in the adapter) read them as "
+        "orders:read and orders:write"
+    )
 
 MANIFEST = {
     "interop": 1,
@@ -72,19 +111,15 @@ MANIFEST = {
     "commit": COMMIT,
     "poppy": ["0.1"],
     "extensions": ["operations"],
+    # Not SM: Manzanita's one account always asks for a one-time code (SMC). Not AM: its
+    # MCP tools all need a signed-in user. Not N, RL, H: the Company has no DPoP nonces,
+    # no rate limits and no staff.
     "scenarios": [
-        "D", "S0", "SD", "SV", "SM", "SX", "R", "SE", "SO",
-        "C", "CI", "CS", "CA", "DC", "AO", "AM", "AS", "W", "O", "O2", "OX",
+        "D", "S0", "SD", "SV", "SMC", "SX", "SXV", "R", "SE", "SO",
+        "C", "CI", "CS", "CA", "DC", "AO", "AS", "W", "O", "O2", "OX",
     ],
     "readings": {"S1": "token-endpoint", "S2": "any", "S4": "either"},
-    "relaxations": [
-        "INTEROP_ALLOW_TEST_HOSTS=1: a Reactor URL-safety contribution (adapter, not a patch) "
-        "lets the Company fetch client metadata and JWKS from *.interop.test hosts on private "
-        "addresses; other hosts keep the SDK's public-address policy",
-        "Trusts the per-run CA at /interop/ca.pem for those fetches (the adapter builds the "
-        "httpx client the SDK is given)",
-        "Organization domain and issuer come from INTEROP_ORIGIN instead of manzanita.example",
-    ],
+    "relaxations": RELAXATIONS,
 }
 
 
@@ -109,6 +144,77 @@ class InteropPolicyPlugin:
         )
 
 
+def widen(scopes: tuple[str, ...]) -> tuple[str, ...]:
+    extra = tuple(SYNONYMS[s] for s in scopes if s in SYNONYMS and SYNONYMS[s] not in scopes)
+    return (*scopes, *extra)
+
+
+class SynonymAgent:
+    """Manzanita's agent, seeing poppy:* scopes as the orders:* ones they stand for."""
+
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+
+    async def respond(self, turn: Any) -> Any:
+        return await self.inner.respond(replace(turn, scopes=widen(tuple(turn.scopes))))
+
+
+class SynonymApi:
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+        self.description = inner.description
+
+    def openapi(self) -> dict[str, object]:
+        return self.inner.openapi()
+
+    async def handle(self, call: Any) -> Any:
+        return await self.inner.handle(replace(call, scopes=widen(tuple(call.scopes))))
+
+
+class SynonymMcp:
+    def __init__(self, inner: Any) -> None:
+        self.inner = inner
+        self.description = inner.description
+
+    def tools(self) -> list[dict[str, object]]:
+        return self.inner.tools()
+
+    async def call(self, name: str, arguments: dict[str, object], call: Any) -> Any:
+        return await self.inner.call(name, arguments, replace(call, scopes=widen(tuple(call.scopes))))
+
+
+class InteropManzanita(mz.ManzanitaPlugin):
+    """Manzanita's own contributions (as `ManzanitaPlugin`), its agent and APIs optionally wrapped."""
+
+    def provide_contributions(self, contributions: object) -> None:
+        contribute = contributions.contribute  # type: ignore[attr-defined]
+        agent, api, mcp = mz.ManzanitaAgent(), mz.ManzanitaApi(), mz.ManzanitaMcp()
+        if POPPY_SCOPES:
+            agent, api, mcp = SynonymAgent(agent), SynonymApi(api), SynonymMcp(mcp)  # type: ignore[assignment]
+        contribute(COMPANY_ACCOUNTS, mz.ManzanitaAccounts(), contribution_id="accounts")
+        contribute(COMPANY_AGENTS, agent, contribution_id="agent")
+        contribute(OPERATION_EXECUTORS, self.executor, contribution_id="exchange")
+        contribute(OPERATION_EXECUTORS, self.gift_wrap, contribution_id="gift-wrap")
+        contribute(OPERATION_EXECUTORS, self.returns, contribution_id="returns")
+        contribute(OPERATION_EXECUTORS, self.repairs, contribution_id="repairs")
+        contribute(COMPANY_APIS, api, contribution_id="api")
+        contribute(COMPANY_MCP, mcp, contribution_id="mcp")
+
+
+def config():  # type: ignore[no-untyped-def]
+    base = replace(mz.CONFIG, domain=DOMAIN)
+    if not POPPY_SCOPES:
+        return base
+    # poppy:* names are reserved, so they get no custom_scopes description (§4.4).
+    # `write_scopes` gates operation confirms and the service requires every one of
+    # them, so in this mode the write scope is poppy:write alone.
+    return replace(
+        base,
+        scopes=(*base.scopes, "poppy:read", "poppy:write"),
+        write_scopes=("poppy:write",),
+    )
+
+
 def http_client() -> httpx.AsyncClient:
     verify: Any = True
     if os.path.exists(CA_FILE):
@@ -121,7 +227,7 @@ class World:
 
     def __init__(self) -> None:
         self.store = MemoryCompanyStore()
-        self.plugin = mz.ManzanitaPlugin()
+        self.plugin = InteropManzanita()
         plugins: list[tuple[PluginManifest, object]] = [
             (PluginManifest(name="manzanita", version="1"), self.plugin),
             (PluginManifest(name="interop-store", version="1"), StorePlugin(self.store)),
@@ -131,9 +237,7 @@ class World:
                 (PluginManifest(name="interop-test-hosts", version="1"), InteropPolicyPlugin())
             )
         self.http = http_client()
-        self.service = build_company(
-            replace(mz.CONFIG, domain=DOMAIN), http_client=self.http, plugins=plugins
-        )
+        self.service = build_company(config(), http_client=self.http, plugins=plugins)
         self.app = company_app(self.service)
 
 
@@ -172,6 +276,12 @@ class HookError(Exception):
         self.status, self.error, self.detail = status, error, detail
 
 
+class RedirectInstead(Exception):
+    def __init__(self, location: str) -> None:
+        super().__init__(location)
+        self.location = location
+
+
 async def authorization_request(url: str) -> str:
     """Open the agent's authorization URL at the Company, as the user's browser would."""
 
@@ -191,26 +301,43 @@ async def authorization_request(url: str) -> str:
     return page.split(marker, 1)[1].split('"', 1)[0]
 
 
-class RedirectInstead(Exception):
-    def __init__(self, location: str) -> None:
-        super().__init__(location)
-        self.location = location
+def account_of(params: dict[str, Any]) -> str:
+    account = params.get("account") or "acct_ada"
+    if account not in ("acct_ada", mz.ADA["email"]):
+        raise HookError(400, "unknown_account", str(account))
+    return "acct_ada"
+
+
+def scopes_of(params: dict[str, Any]) -> list[str] | None:
+    scopes = params.get("scopes")
+    return [str(s) for s in scopes] if isinstance(scopes, list) and scopes else None
 
 
 async def hook(name: str, params: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
     service = world.service
     if name == "fixture":
+        read, write = ("poppy:read", "poppy:write") if POPPY_SCOPES else ("orders:read", "orders:write")
         return {
             "accounts": ["acct_ada"],
-            "scopes": list(mz.CONFIG.scopes),
-            "openapi": {"api": service.config.api_description, "operation": "GET /api/orders"},
-            "mcp": {"api": service.config.mcp_url, "tool": "list_orders"},
-            "write": {"openapi": "POST /api/orders/ord_7Hk2/exchanges", "mcp": "exchange_jacket"},
-            "conversation": {
-                "signed_out_text": "Hello",
-                "sign_in_text": "Where is my jacket order?",
-                "operation_text": "Exchange it for something warmer",
+            "scopes": list(config().scopes),
+            "openapi": {"api": "openapi", "operation": "GET /api/orders", "args": {}},
+            # Manzanita's API has no signed-out operation; its description, served at the
+            # API's own path, is the one GET that works signed out.
+            "openapi_public": {"api": "openapi", "operation": "GET /api/openapi.json", "args": {}},
+            "openapi_write": {
+                "api": "openapi",
+                "operation": "POST /api/orders/{order_id}/exchanges",
+                "args": {"params": {"order_id": "ord_7Hk2"}, "body": {}},
             },
+            "mcp": {"api": "mcp", "tool": "list_orders", "args": {}},
+            "prompts": {
+                "hello": "Hello",
+                "sign_in": "Where is my jacket order?",
+                "operation": "Exchange it for something warmer",
+            },
+            "otp_account": "acct_ada",
+            "read_scope": read,
+            "write_scope": write,
         }
     if name in ("approve_authorization", "deny_authorization"):
         try:
@@ -220,23 +347,19 @@ async def hook(name: str, params: dict[str, Any]) -> dict[str, Any]:  # noqa: C9
         try:
             if name == "deny_authorization":
                 return {"redirect": await service.deny_authorization(request_id)}
-            scopes = params.get("scopes")
             return {
                 "redirect": await service.approve_authorization(
-                    request_id,
-                    account_id=str(params.get("account") or "acct_ada"),
-                    scopes=list(scopes) if scopes else None,
+                    request_id, account_id=account_of(params), scopes=scopes_of(params)
                 )
             }
         except KeyError as exc:
             raise HookError(404, "unknown_request", str(exc)) from exc
     if name == "approve_device":
-        scopes = params.get("scopes")
         try:
             granted = await service.approve_device(
                 str(params.get("user_code", "")),
-                account_id=str(params.get("account") or "acct_ada"),
-                scopes=list(scopes) if scopes else None,
+                account_id=account_of(params),
+                scopes=scopes_of(params),
             )
         except KeyError as exc:
             raise HookError(404, "unknown_user_code", str(exc)) from exc
@@ -248,21 +371,60 @@ async def hook(name: str, params: dict[str, Any]) -> dict[str, Any]:  # noqa: C9
             raise HookError(404, "unknown_user_code", str(exc)) from exc
         return {}
     if name == "mediated_answers":
-        account = params.get("account") or "acct_ada"
-        if account not in ("acct_ada", mz.ADA["email"]):
-            raise HookError(404, "unknown_account", str(account))
+        account_of(params)
         return {"fields": dict(mz.ADA)}
     if name == "last_one_time_code":
         # Manzanita's one account has a fixed one-time code (demo/manzanita.py).
         return {"code": mz.ADA_CODE}
     if name == "end_sessions":
         # The Company ends every Session: their records and tokens go; Account Tokens stay.
-        entries = world.store._entries  # the store this adapter gave the Company
+        # (Manzanita has no such feature; this deletes the records from the store the
+        # adapter gave it.)
+        entries = world.store._entries
         keys = [key for key in entries if key[0] in (SESSION, SESSION_TOKEN)]
         ended = sum(1 for key in keys if key[0] == SESSION)
         for key in keys:
             del entries[key]
         return {"ended": ended}
+    if name == "expire_tokens":
+        # Every Session Token issued so far now carries an expiry in the past; the
+        # service's own expiry check then refuses it (401 invalid_token).
+        past = datetime.now(timezone.utc) - timedelta(seconds=1)
+        sessions = [key[1] for key in list(world.store._entries) if key[0] == SESSION]
+        expired = 0
+        for session_id in sessions:
+            changed = await service._change(
+                SESSION,
+                session_id,
+                StoredSession.from_json,
+                lambda stored: replace(
+                    stored,
+                    tokens={d: replace(t, expires_at=past) for d, t in stored.tokens.items()},
+                ),
+            )
+            if changed is not None:
+                expired += len(changed[1].tokens)
+        return {"expired": expired}
+    if name == "propose_operation":
+        # Manzanita's agent proposes the exchange when a signed-in user asks for it
+        # (fixture prompts.operation): the proposal it made in that conversation.
+        conversation = await service._read(
+            CONVERSATION, str(params.get("conversation", "")), StoredConversation.from_json
+        )
+        if conversation is None:
+            raise HookError(404, "unknown_conversation", "no such conversation")
+        ids = [
+            ((event.payload.get("message") or {}).get("operation") or {}).get("operation_id")
+            for event in conversation.events
+        ]
+        for operation_id in reversed([i for i in ids if i]):
+            stored = await service.operation_record(operation_id)
+            if stored.operation.state == "proposed":
+                return {"operation": operation_id}
+        raise HookError(
+            409, "no_operation",
+            "Nothing proposed: send fixture.prompts.operation in a signed-in conversation first",
+        )
     if name == "settle_operation":
         outcome = str(params.get("outcome", "succeeded"))
         try:
@@ -273,7 +435,9 @@ async def hook(name: str, params: dict[str, Any]) -> dict[str, Any]:  # noqa: C9
             )
         except (KeyError, ValueError) as exc:
             raise HookError(409, "not_settleable", str(exc)) from exc
-        return {"operation": operation.model_dump(mode="json")}
+        return {"state": operation.state}
+    # require_nonce, rate_limit, staff_join, staff_reply: Manzanita has no DPoP nonces,
+    # no rate limits and no staff, and the adapter doesn't fake them.
     raise HookError(501, "unsupported", name)
 
 
@@ -311,7 +475,7 @@ async def control(scope: dict[str, Any], receive: Any, send: Any) -> None:  # no
     if method == "POST" and path == "/reset":
         await world.http.aclose()
         world = World()
-        await respond(send, 200, {"ok": True, "result": {}})
+        await respond(send, 200, {"ok": True})
         return
     if method == "GET" and path == "/hooks":
         await respond(send, 200, {"interop": 1, "hooks": HOOKS})
@@ -326,7 +490,8 @@ async def control(scope: dict[str, Any], receive: Any, send: Any) -> None:  # no
         except Exception as error:  # noqa: BLE001 - the adapter reports, never crashes
             await respond(send, 500, {"error": "adapter_error", "detail": repr(error)})
             return
-        await respond(send, 200, {"ok": True, "result": result})
+        # The hook's result is the body itself (spec 5.3).
+        await respond(send, 200, result)
         return
     await respond(send, 404, {"error": "not_found", "detail": path})
 
@@ -334,7 +499,7 @@ async def control(scope: dict[str, Any], receive: Any, send: Any) -> None:  # no
 async def main() -> None:
     servers = [
         uvicorn.Server(
-            uvicorn.Config(company, host="0.0.0.0", port=8080, log_level="warning", proxy_headers=False)  # noqa: S104
+            uvicorn.Config(company, host="0.0.0.0", port=8080, log_level="warning")  # noqa: S104
         ),
         uvicorn.Server(
             uvicorn.Config(control, host="0.0.0.0", port=8081, log_level="warning")  # noqa: S104

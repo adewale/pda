@@ -31,7 +31,7 @@ import ssl
 import time
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 import httpx
 import jwt
@@ -84,10 +84,11 @@ from personal_agent_protocol.reactor import (
 from personal_agent_protocol.sessions import SessionToken, generate_pairwise_user_id
 
 NAME = os.environ.get("INTEROP_NAME", "datalayer-py")
-ORIGIN = os.environ.get("INTEROP_ORIGIN", f"https://{NAME}.agent.interop.test").rstrip("/")
+_DOMAIN = os.environ.get("INTEROP_DOMAIN") or f"{NAME}.agent.interop.test"
+ORIGIN = os.environ.get("INTEROP_ORIGIN", f"https://{_DOMAIN}").rstrip("/")
 DOMAIN = urlsplit(ORIGIN).hostname or ""
 SECRET = os.environ.get("INTEROP_SECRET", "")
-COMMIT = os.environ.get("UPSTREAM_COMMIT", "unknown")
+COMMIT = os.environ.get("INTEROP_COMMIT") or os.environ.get("UPSTREAM_COMMIT", "unknown")
 ALLOW_TEST_HOSTS = os.environ.get("INTEROP_ALLOW_TEST_HOSTS") == "1"
 CA_FILE = os.environ.get("SSL_CERT_FILE") or "/interop/ca.pem"
 TENANT = "interop"
@@ -105,8 +106,8 @@ MANIFEST = {
     "poppy": ["0.1"],
     "extensions": ["operations"],
     "scenarios": [
-        "D", "S0", "N", "SD", "SV", "SM", "SX", "SO",
-        "C", "CI", "CS", "CA", "AO", "AM", "AS", "W", "O", "O2", "OX",
+        "D", "S0", "N", "SD", "SV", "SM", "SMC", "SX", "SXV", "R", "SE", "SO",
+        "C", "CI", "CS", "CA", "AO", "AM", "AS", "RL", "W", "O", "O2", "OX",
     ],
     "readings": {"S1": "token-endpoint", "S2": "jwt-60s", "S3": "insertion", "S4": "omit"},
     "relaxations": [
@@ -115,6 +116,12 @@ MANIFEST = {
         "other hosts keep the SDK's public-address policy",
         "Trusts the per-run CA at /interop/ca.pem (the adapter builds the httpx client the SDK "
         "is given)",
+    ],
+    "notes": [
+        "Host policy in the adapter, not the SDK (which has none): on 401 invalid_token or "
+        "invalid_session it renews the Session (Account Token refresh when signed in, else the "
+        "assertion), starting a new Session if the old one is gone, and retries once; signin "
+        "with a held Account Token refreshes it into the Session instead of a new sign-in",
     ],
 }
 
@@ -224,6 +231,8 @@ class CompanyState:
     cursors: dict[str, str] = field(default_factory=dict)
     conversation_labels: dict[str, str] = field(default_factory=dict)
     operations: dict[str, tuple[Operation, str]] = field(default_factory=dict)
+    #: The runner's retry keys (`send` `message_id`) and the Message each one sent.
+    messages: dict[str, Message] = field(default_factory=dict)
 
 
 class Agent:
@@ -283,15 +292,17 @@ agent = Agent()
 
 
 class StepError(Exception):
+    """An adapter failure (bad params, nothing to continue): not the Company's doing."""
+
     def __init__(self, status: int, error: str, detail: str = "") -> None:
         super().__init__(detail)
         self.status, self.error, self.detail = status, error, detail
 
 
 class PoppyRefusal(Exception):
-    """A Poppy error from the Company that the SDK reports without an HTTP status."""
+    """A Poppy error: the Company's (with its HTTP status) or the agent's own (status 0)."""
 
-    def __init__(self, code: str, status: int | None, detail: str = "") -> None:
+    def __init__(self, code: str, status: int, detail: str = "") -> None:
         super().__init__(detail)
         self.code, self.status, self.detail = code, status, detail
 
@@ -302,7 +313,15 @@ class PoppyRefusal(Exception):
 async def company_state(host: str) -> CompanyState:
     state = agent.companies.get(host)
     if state is None:
-        company = await DiscoveryClient(reactor=agent.reactor, http_client=agent.http).discover(host)
+        try:
+            company = await DiscoveryClient(reactor=agent.reactor, http_client=agent.http).discover(
+                host
+            )
+        except PersonalAgentProtocolError as error:
+            # The agent won't use what the Company published (spec 5.2: discovery_failed).
+            raise PoppyRefusal(
+                "discovery_failed", 0, f"{error.code}: {error.message}"
+            ) from error
         state = agent.companies[host] = CompanyState(company)
     return state
 
@@ -322,10 +341,15 @@ def session_of(state: CompanyState, label: str | None, *, create: bool = False) 
     return session
 
 
-async def start_session(state: CompanyState, session: SessionState) -> SessionToken:
+def metadata_of(state: CompanyState):  # type: ignore[no-untyped-def]
     metadata = state.company.oauth_metadata
     if metadata is None:
-        raise StepError(409, "no_auth", "the Company publishes no auth")
+        raise PoppyRefusal("no_auth", 0, "the Company publishes no auth")
+    return metadata
+
+
+async def start_session(state: CompanyState, session: SessionState) -> SessionToken:
+    metadata = metadata_of(state)
     session.token = await SessionClient(reactor=agent.reactor, http_client=agent.http).start(
         client_id=agent.client_id,
         pairwise_user_id=session.pairwise,
@@ -333,21 +357,88 @@ async def start_session(state: CompanyState, session: SessionState) -> SessionTo
         token_endpoint=metadata.token_endpoint,
         tenant_id=TENANT,
     )
-    session.account_reference = None
     return session.token
 
 
-async def token_for(state: CompanyState, label: str | None) -> tuple[SessionState, SessionToken]:
+async def renew_signed_out(state: CompanyState, session: SessionState) -> SessionToken:
+    """Renew with the assertion, keeping the Session ID; a new Session if it is gone."""
+
+    metadata = metadata_of(state)
+    assert session.token is not None
+    try:
+        session.token = await SessionClient(reactor=agent.reactor, http_client=agent.http).renew(
+            client_id=agent.client_id,
+            pairwise_user_id=session.pairwise,
+            issuer=metadata.issuer,
+            token_endpoint=metadata.token_endpoint,
+            tenant_id=TENANT,
+            session_id=session.token.session_id,
+        )
+    except PersonalAgentProtocolError as error:
+        if error.code != "invalid_session":
+            raise
+        await start_session(state, session)
+    assert session.token is not None
+    return session.token
+
+
+async def refresh_into(state: CompanyState, session: SessionState) -> bool:
+    """Sign the Session in with the Account Token held for it; a new Session if it is gone."""
+
+    assert session.account_reference is not None and session.token is not None
+    accounts = AccountTokenClient(reactor=agent.reactor, http_client=agent.http)
+    for _ in range(2):
+        try:
+            result = await accounts.refresh(
+                session.account_reference,
+                context=account_context(state, session),
+                session_id=session.token.session_id,
+            )
+        except PersonalAgentProtocolError as error:
+            if error.code != "invalid_session":
+                raise
+            await start_session(state, session)
+            continue
+        if result.status == "signed_in" and result.token is not None:
+            session.token = result.token
+            return True
+        session.account_reference = None
+        return False
+    return False
+
+
+async def recover(state: CompanyState, session: SessionState) -> None:
+    """Host policy after 401 invalid_token or invalid_session: renew, or start again."""
+
+    if session.token is None:
+        await start_session(state, session)
+    elif session.account_reference is not None:
+        if not await refresh_into(state, session):
+            await renew_signed_out(state, session)
+    else:
+        await renew_signed_out(state, session)
+
+
+RECOVERABLE = {"invalid_token", "invalid_session"}
+
+
+async def with_session(state: CompanyState, label: str | None, call):  # type: ignore[no-untyped-def]
+    """Run `call(session, token)`, recovering once from an ended or expired Session."""
+
     session = session_of(state, label, create=True)
     if session.token is None:
         await start_session(state, session)
-    assert session.token is not None
-    return session, session.token
+    try:
+        return await call(session, session.token)
+    except PersonalAgentProtocolError as error:
+        if error.code not in RECOVERABLE:
+            raise
+    await recover(state, session)
+    return await call(session, session.token)
 
 
 def account_context(state: CompanyState, session: SessionState) -> AccountTokenContext:
-    metadata = state.company.oauth_metadata
-    assert metadata is not None
+    metadata = metadata_of(state)
     return AccountTokenContext(
         token_endpoint=metadata.token_endpoint,
         revocation_endpoint=metadata.revocation_endpoint,
@@ -361,7 +452,12 @@ def account_context(state: CompanyState, session: SessionState) -> AccountTokenC
 def signed_in(session: SessionState) -> dict[str, Any]:
     token = session.token
     assert token is not None
-    return {"signed_in": token.signed_in, "account": None, "scope": token.scope}
+    return {
+        "signed_in": token.signed_in,
+        "account": None,
+        "scope": token.scope,
+        "session_id": token.session_id,
+    }
 
 
 def message_view(state: CompanyState, label: str, event: Any) -> dict[str, Any]:
@@ -371,7 +467,7 @@ def message_view(state: CompanyState, label: str, event: Any) -> dict[str, Any]:
         view["data"] = message.data
     if message.operation is not None:
         state.operations[message.operation.operation_id] = (message.operation, label)
-        view["operation"] = message.operation.model_dump(mode="json", exclude_none=True)
+        view["operation"] = message.operation.operation_id
     return view
 
 
@@ -402,29 +498,43 @@ async def op_discover(host: str, params: dict[str, Any]) -> dict[str, Any]:
         "issuer": state.company.oauth_metadata.issuer if state.company.oauth_metadata else None,
         "poppy_version": document.protocol_version,
         "conversations": conversation_endpoint(document) is not None,
-        "apis": [api.url for api in document.apis],
-        "api_types": [api.type for api in document.apis],
+        "apis": [api.type for api in document.apis],
+        "api_urls": [api.url for api in document.apis],
     }
 
 
 async def op_session(host: str, params: dict[str, Any]) -> dict[str, Any]:
+    """The Session for `label`: started once, then renewed (same ID) while signed out."""
+
     state = await company_state(host)
     session = session_of(state, params.get("label"), create=True)
-    token = await start_session(state, session)
+    if session.token is None:
+        token = await start_session(state, session)
+    elif session.token.signed_in:
+        token = session.token
+    else:
+        token = await renew_signed_out(state, session)
     return {"session_id": token.session_id, "signed_in": token.signed_in, "scope": token.scope}
 
 
 async def op_signin(host: str, params: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
     state = await company_state(host)
-    session, token = await token_for(state, params.get("label"))
-    document, metadata = state.company.document, state.company.oauth_metadata
+    session = session_of(state, params.get("label"), create=True)
+    if session.token is None:
+        await start_session(state, session)
+    if session.account_reference is not None and await refresh_into(state, session):
+        # Already signed in to this Company: the Account Token signs the Session in.
+        return signed_in(session)
+    token = session.token
+    assert token is not None
+    document, metadata = state.company.document, metadata_of(state)
     method = params.get("method", "direct")
     auth = document.auth
-    if auth is None or metadata is None:
-        raise StepError(409, "no_auth", "the Company publishes no auth")
+    if auth is None:
+        raise PoppyRefusal("no_auth", 0, "the Company publishes no auth")
     declared = getattr(auth, method, None)
     if declared is None:
-        raise StepError(409, "method_not_offered", f"the Company offers no {method} sign-in")
+        raise PoppyRefusal("method_not_offered", 0, f"the Company offers no {method} sign-in")
     scopes = tuple(params.get("scopes") or getattr(declared, "scopes", None) or ())
     if method == "direct":
         agent.browser.opened = None
@@ -440,7 +550,7 @@ async def op_signin(host: str, params: dict[str, Any]) -> dict[str, Any]:  # noq
             session_id=token.session_id,
         )
         session.pending = {"method": "direct"}
-        return {"pending": {"url": agent.browser.opened}}
+        return {"pending": {"type": "direct", "url": agent.browser.opened}}
     if method == "device":
         started = await DeviceSignInClient(reactor=agent.reactor, http_client=agent.http).begin(
             device_authorization_endpoint=metadata.device_authorization_endpoint,  # type: ignore[arg-type]
@@ -455,13 +565,24 @@ async def op_signin(host: str, params: dict[str, Any]) -> dict[str, Any]:  # noq
         session.pending = {"method": "device", "reference": started.reference}
         return {
             "pending": {
-                "url": started.verification_uri_complete or started.verification_uri,
+                "type": "device",
+                "url": started.verification_uri,
                 "user_code": started.user_code,
+                **(
+                    {"url_complete": started.verification_uri_complete}
+                    if started.verification_uri_complete
+                    else {}
+                ),
             }
         }
     if method == "mediated":
         session.pending = {"method": "mediated", "scopes": scopes, "reference": None}
-        return {"pending": {"fields": [f.name for f in auth.mediated.fields]}}  # type: ignore[union-attr]
+        return {
+            "pending": {
+                "type": "mediated",
+                "fields": [f.name for f in auth.mediated.fields],  # type: ignore[union-attr]
+            }
+        }
     raise StepError(400, "unknown_method", str(method))
 
 
@@ -471,25 +592,28 @@ async def op_signin_continue(host: str, params: dict[str, Any]) -> dict[str, Any
     pending = session.pending or {}
     method = pending.get("method")
     if method == "direct":
+        session.pending = None
+        callback = str(params.get("callback_url", ""))
         try:
             result = await DirectSignInClient(
                 reactor=agent.reactor, http_client=agent.http
-            ).complete(str(params.get("callback_url", "")))
+            ).complete(callback)
         except PersonalAgentProtocolError as error:
             if error.code == "authorization_denied":
-                # The Company's error came on the redirect (error=access_denied), not in a
-                # response to the agent, so there is no HTTP status to report.
-                session.pending = None
-                raise PoppyRefusal("access_denied", None, error.message) from error
+                # The Company's error came on the redirect, not in an HTTP response.
+                raise PoppyRefusal("access_denied", 0, error.message) from error
             raise
-        session.pending = None
         session.token, session.account_reference = result.token, result.account_token_reference
         return signed_in(session)
     if method == "device":
         device = DeviceSignInClient(reactor=agent.reactor, http_client=agent.http)
         deadline = time.monotonic() + float(params.get("timeout", 90))
         while True:
-            poll = await device.poll(pending["reference"])
+            try:
+                poll = await device.poll(pending["reference"])
+            except PersonalAgentProtocolError:
+                session.pending = None
+                raise
             if poll.status == "complete":
                 session.pending = None
                 session.token, session.account_reference = poll.token, poll.account_token_reference
@@ -502,9 +626,8 @@ async def op_signin_continue(host: str, params: dict[str, Any]) -> dict[str, Any
         auth = state.company.document.auth
         assert auth is not None and auth.mediated is not None and session.token is not None
         mediated = MediatedSignInClient(reactor=agent.reactor, http_client=agent.http)
-        fields = params.get("fields") or {}
-        agent.input.answers = [dict(fields)]
         if pending.get("reference") is None:
+            agent.input.answers = [dict(params.get("fields") or {})]
             result = await mediated.sign_in(
                 mediated=auth.mediated,
                 organization=state.company.document.organization,
@@ -514,16 +637,20 @@ async def op_signin_continue(host: str, params: dict[str, Any]) -> dict[str, Any
                 **{k: v for k, v in who(state, session).items() if k != "issuer"},
             )
         else:
+            code = params.get("code") or (params.get("fields") or {}).get("code")
+            if not code:
+                raise StepError(400, "code_missing", "the Company asked for a one-time code")
+            agent.input.answers = [{"code": str(code)}]
             result = await mediated.submit_code(
                 pending["reference"], token=session.token, **who(state, session)
             )
         if result.status == "code_required":
             pending["reference"] = result.reference
-            return {"pending": {"fields": ["code"], "sent_to": result.sent_to}}
-        if result.status != "complete":
-            session.pending = None
-            return {"signed_in": False, "status": result.status}
+            return {"pending": {"type": "mediated", "code_required": True, "sent_to": result.sent_to}}
         session.pending = None
+        if result.status != "complete":
+            # The Company answered 200 with status failed or expired (§4.7).
+            raise PoppyRefusal(f"sign_in_{result.status}", 0, "Mediated Sign-In did not complete")
         session.token, session.account_reference = result.token, result.account_token_reference
         return signed_in(session)
     raise StepError(409, "nothing_pending", "no sign-in is pending for this Session")
@@ -532,7 +659,7 @@ async def op_signin_continue(host: str, params: dict[str, Any]) -> dict[str, Any
 def conversations_url(state: CompanyState) -> str:
     endpoint = conversation_endpoint(state.company.document)
     if endpoint is None:
-        raise StepError(409, "no_conversations", "the Company offers no conversation endpoint")
+        raise PoppyRefusal("no_company_agent", 0, "the Company offers no conversation endpoint")
     return endpoint
 
 
@@ -543,20 +670,25 @@ async def op_send(host: str, params: dict[str, Any]) -> dict[str, Any]:
     label = params.get("label") or (
         state.conversation_labels.get(conversation, "default") if conversation else "default"
     )
-    session, token = await token_for(state, label)
-    message = Message(
-        id=params.get("message_id") or generate_message_id(agent.reactor),
-        sender=params.get("sender", "agent"),
-        text=params.get("text"),
-        data=params.get("data"),
-        context=params.get("context"),
-    )
+    key = params.get("message_id")
+    message = state.messages.get(key) if key else None
+    if message is None:
+        message = Message(
+            id=generate_message_id(agent.reactor),
+            sender=params.get("sender", "agent"),
+            text=params.get("text"),
+            data=params.get("data"),
+            context=params.get("context"),
+        )
+        if key:
+            state.messages[key] = message
     wait = int(params.get("wait", 5))
     client = ConversationClient(transport=agent.transport)
-    if conversation is None:
-        response = await client.start(endpoint, message, token=token, wait=wait, **who(state, session))
-    else:
-        response = await client.send(
+
+    async def call(session: SessionState, token: SessionToken):  # type: ignore[no-untyped-def]
+        if conversation is None:
+            return await client.start(endpoint, message, token=token, wait=wait, **who(state, session))
+        return await client.send(
             endpoint,
             conversation,
             message,
@@ -565,20 +697,28 @@ async def op_send(host: str, params: dict[str, Any]) -> dict[str, Any]:
             wait=wait,
             **who(state, session),
         )
-    conversation = response.conversation_id
-    state.conversation_labels[conversation] = label
+
+    response = await with_session(state, label, call)
+    session = session_of(state, label)
+    conversation_id = response.conversation_id
+    state.conversation_labels[conversation_id] = label
     events = getattr(response, "events", None)
     if events is None:
+        assert session.token is not None
         page = await client.read_events(
-            endpoint, conversation, token=token, cursor=state.cursors.get(conversation), wait=wait,
+            endpoint,
+            conversation_id,
+            token=session.token,
+            cursor=state.cursors.get(conversation_id),
+            wait=wait,
             **who(state, session),
         )
         events, status, cursor = page.events, page.status, page.cursor
     else:
         status, cursor = response.status, response.cursor  # type: ignore[union-attr]
-    state.cursors[conversation] = cursor
+    state.cursors[conversation_id] = cursor
     return {
-        "conversation": conversation,
+        "conversation": conversation_id,
         "message_id": message.id,
         "status": status,
         **page_view(state, label, events),
@@ -589,15 +729,18 @@ async def op_read(host: str, params: dict[str, Any]) -> dict[str, Any]:
     state = await company_state(host)
     conversation = str(params.get("conversation", ""))
     label = params.get("label") or state.conversation_labels.get(conversation, "default")
-    session, token = await token_for(state, label)
-    page = await ConversationClient(transport=agent.transport).read_events(
-        conversations_url(state),
-        conversation,
-        token=token,
-        cursor=params.get("cursor"),
-        wait=int(params["wait"]) if "wait" in params else None,
-        **who(state, session),
-    )
+
+    async def call(session: SessionState, token: SessionToken):  # type: ignore[no-untyped-def]
+        return await ConversationClient(transport=agent.transport).read_events(
+            conversations_url(state),
+            conversation,
+            token=token,
+            cursor=params.get("cursor"),
+            wait=int(params["wait"]) if "wait" in params else None,
+            **who(state, session),
+        )
+
+    page = await with_session(state, label, call)
     state.cursors[conversation] = page.cursor
     return {
         "cursor": page.cursor,
@@ -608,46 +751,69 @@ async def op_read(host: str, params: dict[str, Any]) -> dict[str, Any]:
 
 
 async def op_sse(host: str, params: dict[str, Any]) -> dict[str, Any]:
+    """One stream: events until the Company ends it, `max_events`, or `wait` seconds.
+
+    `cursor` goes as `Last-Event-ID` (the SDK has no `?cursor`). The SDK's reconnect is
+    not used: a stream the Company ends is where this read stops. A stream that ends
+    with no event at all is `stream_unavailable` in the SDK; here it is zero events.
+    """
+
     state = await company_state(host)
     conversation = str(params.get("conversation", ""))
     label = params.get("label") or state.conversation_labels.get(conversation, "default")
-    session, token = await token_for(state, label)
-    limit = int(params.get("max_events", 10))
+    limit = int(params.get("max_events", 20))
+    budget = float(params.get("wait", params.get("timeout", 5)))
     collected: list[dict[str, Any]] = []
+    ended = {"by": "wait"}
 
-    async def collect() -> None:
+    async def call(session: SessionState, token: SessionToken) -> None:
         stream = ConversationClient(transport=agent.transport).stream(
             conversations_url(state),
             conversation,
             token=token,
             last_event_id=params.get("cursor"),
-            max_reconnects=int(params.get("max_reconnects", 2)),
+            max_reconnects=0,
             **who(state, session),
         )
-        async for item in stream:
-            if isinstance(item, StreamReconnected):
-                collected.append({"id": item.last_event_id, "type": "reconnected", "data": {}})
-                continue
-            if isinstance(item, TextDelta):
-                collected.append({"id": None, "type": "text-delta", "data": item.model_dump(mode="json")})
-            else:
-                data = item.model_dump(mode="json", exclude_none=True)
-                collected.append({"id": item.id, "type": item.type, "data": data})
-            if sum(1 for c in collected if c["type"] != "reconnected") >= limit:
-                return
+        try:
+            async for item in stream:
+                if isinstance(item, StreamReconnected):
+                    ended["by"] = "company"
+                    return
+                if isinstance(item, TextDelta):
+                    collected.append(
+                        {"id": None, "type": "text-delta", "data": item.model_dump(mode="json")}
+                    )
+                else:
+                    data = item.model_dump(mode="json", exclude_none=True)
+                    collected.append({"id": item.id, "type": item.type, "data": data})
+                if sum(1 for c in collected if c["id"]) >= limit:
+                    ended["by"] = "max_events"
+                    return
+        except PersonalAgentProtocolError as error:
+            if error.code != "stream_unavailable":
+                raise
+            ended["by"] = "company"
+        finally:
+            await stream.aclose()
 
     try:
-        await asyncio.wait_for(collect(), float(params.get("timeout", 15)))
+        await asyncio.wait_for(with_session(state, label, call), budget + 5)
     except asyncio.TimeoutError:
         pass
-    return {"events": collected}
+    ids = [c["id"] for c in collected if c["id"]]
+    return {
+        "events": collected,
+        "last_id": ids[-1] if ids else params.get("cursor"),
+        "ended_by": ended["by"],
+    }
 
 
 def find_api(state: CompanyState, api: str, kind: str) -> str:
     for descriptor in state.company.document.apis:
         if api in (descriptor.url, descriptor.type) and descriptor.type == kind:
             return descriptor.url
-    raise StepError(404, "unknown_api", api)
+    raise PoppyRefusal("no_api", 0, f"the Company declares no {kind} API {api}")
 
 
 HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
@@ -656,124 +822,133 @@ HTTP_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 async def resolve_operation(
     description: str, operation: str, args: dict[str, Any]
 ) -> tuple[str, str, Any]:
-    """`operation` is "METHOD /path" or an OpenAPI operationId; `args` fill path and query
-    parameters by name, and `args["body"]` (or, for a write, the remaining args) is the body.
-    URLs are relative to the description's origin (the SDK has no OpenAPI loader)."""
+    """`operation` is "METHOD /path" or an OpenAPI operationId. `args.params` fill the
+    path template; the other params go in the query; `args.body` is the body. URLs are
+    relative to the description's origin (the SDK has no OpenAPI loader)."""
 
     parts = urlsplit(description)
     origin = f"{parts.scheme}://{parts.netloc}"
-    args = dict(args or {})
+    values = dict((args or {}).get("params") or {})
     verb, _, path = operation.partition(" ")
-    parameters: list[dict[str, Any]] = []
-    has_body = False
     if verb.upper() not in HTTP_METHODS or not path:
         response = await agent.http.get(description, headers={"Accept": "application/json"})
         if response.status_code != 200:
-            raise StepError(502, "openapi_unavailable", f"{description}: {response.status_code}")
+            raise PoppyRefusal("openapi_unavailable", response.status_code, description)
         found = None
         for candidate, item in (response.json().get("paths") or {}).items():
             for name, spec in item.items():
                 if isinstance(spec, dict) and spec.get("operationId") == operation:
-                    found = (name.upper(), candidate, spec, item)
+                    found = (name, candidate)
         if found is None:
-            raise StepError(404, "unknown_operation", operation)
-        verb, path, spec, item = found
-        parameters = [*item.get("parameters", []), *spec.get("parameters", [])]
-        has_body = "requestBody" in spec
+            raise PoppyRefusal("no_operation", 0, f"the API has no operation {operation}")
+        verb, path = found
     verb = verb.upper()
-    query: dict[str, str] = {}
-    for parameter in parameters:
-        name = parameter.get("name")
-        if name in args and parameter.get("in") == "query":
-            query[name] = str(args.pop(name))
-    for name in list(args):
+    for name in list(values):
         if "{" + name + "}" in path:
-            path = path.replace("{" + name + "}", str(args.pop(name)))
+            path = path.replace("{" + name + "}", quote(str(values.pop(name)), safe=""))
     url = path if path.startswith("https://") else f"{origin}{path}"
-    if query:
-        url += "?" + "&".join(f"{k}={v}" for k, v in query.items())
-    body = args.pop("body", None)
-    if body is None and verb != "GET" and (has_body or args):
-        body = args or {}
+    if values:
+        url += ("&" if "?" in url else "?") + urlencode({k: str(v) for k, v in values.items()})
+    body = (args or {}).get("body")
     return verb, url, body
 
 
 async def op_api(host: str, params: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
     state = await company_state(host)
     label = params.get("label") or "default"
-    session, token = await token_for(state, label)
-    api = str(params.get("api", ""))
+    api = str(params.get("api") or ("mcp" if "tool" in params else "openapi"))
     args = params.get("args") or {}
     if "tool" in params:
         url = find_api(state, api, "mcp")
-        metadata = state.company.oauth_metadata
-        assert metadata is not None
-        if session.account_reference is not None:
-            refreshed = await AccountTokenClient(
-                reactor=agent.reactor, http_client=agent.http
-            ).bearer_for_mcp(
-                session.account_reference,
-                context=account_context(state, session),
-                session_id=token.session_id,
-                resource=url,
+        metadata = metadata_of(state)
+
+        async def mcp_call(session: SessionState, token: SessionToken):  # type: ignore[no-untyped-def]
+            if session.account_reference is not None:
+                refreshed = await AccountTokenClient(
+                    reactor=agent.reactor, http_client=agent.http
+                ).bearer_for_mcp(
+                    session.account_reference,
+                    context=account_context(state, session),
+                    session_id=token.session_id,
+                    resource=url,
+                )
+                if refreshed.token is None:
+                    raise PoppyRefusal(refreshed.status, 0, "no Bearer token for the MCP server")
+                bearer = refreshed.token
+            else:
+                bearer = await SessionClient(
+                    reactor=agent.reactor, http_client=agent.http
+                ).bearer_for_mcp(
+                    client_id=agent.client_id,
+                    pairwise_user_id=session.pairwise,
+                    issuer=metadata.issuer,
+                    token_endpoint=metadata.token_endpoint,
+                    tenant_id=TENANT,
+                    session_id=token.session_id,
+                    resource=url,
+                )
+            return await McpClient(http_client=agent.http, token=bearer, url=url).call_tool(
+                str(params["tool"]), args
             )
-            if refreshed.token is None:
-                raise StepError(409, refreshed.status, "no Bearer token for the MCP server")
-            bearer = refreshed.token
-        else:
-            bearer = await SessionClient(reactor=agent.reactor, http_client=agent.http).bearer_for_mcp(
-                client_id=agent.client_id,
-                pairwise_user_id=session.pairwise,
-                issuer=metadata.issuer,
-                token_endpoint=metadata.token_endpoint,
-                tenant_id=TENANT,
-                session_id=token.session_id,
-                resource=url,
-            )
-        result = await McpClient(http_client=agent.http, token=bearer, url=url).call_tool(
-            str(params["tool"]), args
-        )
+
+        result = await with_session(state, label, mcp_call)
         body = result.model_dump(mode="json", exclude_none=True)
         if result.operation is not None:
             state.operations[result.operation.operation_id] = (result.operation, label)
         return {"status": 200, "body": body}
     description = find_api(state, api, "openapi")
     method, url, body = await resolve_operation(description, str(params.get("operation", "")), args)
-    response = await ApiClient(transport=agent.transport).call(
-        method, url, token=token, body=body, **who(state, session)
-    )
+
+    async def call(session: SessionState, token: SessionToken):  # type: ignore[no-untyped-def]
+        return await ApiClient(transport=agent.transport).call(
+            method, url, token=token, body=body, **who(state, session)
+        )
+
+    response = await with_session(state, label, call)
     if response.operation is not None:
         state.operations[response.operation.operation_id] = (response.operation, label)
-        return {"status": response.status, "body": {"operation": response.operation.model_dump(mode="json", exclude_none=True)}}
+        return {
+            "status": response.status,
+            "body": {"operation": response.operation.model_dump(mode="json", exclude_none=True)},
+        }
     return {"status": response.status, "body": response.body}
 
 
 async def op_approve_op(host: str, params: dict[str, Any]) -> dict[str, Any]:
+    """`status` is the operation's state afterwards (`succeeded`, `cancelled`, ...)."""
+
     state = await company_state(host)
     operation_id = str(params.get("operation", ""))
     known = state.operations.get(operation_id)
     label = known[1] if known else (params.get("label") or "default")
-    session, token = await token_for(state, label)
     endpoint = operations_endpoint(
         state.company.document, ClientMetadata.model_validate(agent.metadata)
     )
     if endpoint is None:
-        raise StepError(409, "no_operations", "the Operations extension was not negotiated")
+        raise PoppyRefusal("extension_required", 0, "the Operations extension was not negotiated")
     client = OperationsClient(transport=agent.transport)
-    operation = known[0] if known else await client.read(
-        endpoint, operation_id, token=token, **who(state, session)
-    )
-    if params.get("decision", "approve") == "decline":
-        cancelled = await client.cancel(endpoint, operation_id, token=token, **who(state, session))
-        return {"status": "cancelled", "state": cancelled.state}
-    outcome = await client.confirm(
-        endpoint, operation, approval=approve(operation), token=token, **who(state, session)
-    )
-    result: dict[str, Any] = {"status": outcome.status}
-    if outcome.operation is not None:
-        result["state"] = outcome.operation.state
-        result["operation"] = outcome.operation.model_dump(mode="json", exclude_none=True)
-    return result
+
+    async def call(session: SessionState, token: SessionToken) -> dict[str, Any]:
+        operation = await client.read(endpoint, operation_id, token=token, **who(state, session))
+        if params.get("decision", "approve") == "decline":
+            cancelled = await client.cancel(
+                endpoint, operation_id, token=token, **who(state, session)
+            )
+            return {"status": cancelled.state, "revision": cancelled.revision}
+        outcome = await client.confirm(
+            endpoint, operation, approval=approve(operation), token=token, **who(state, session)
+        )
+        after = outcome.operation or operation
+        result: dict[str, Any] = {
+            "status": after.state,
+            "revision": after.revision,
+            "outcome": outcome.status,
+        }
+        if after.result is not None:
+            result["result"] = after.result.summary
+        return result
+
+    return await with_session(state, label, call)
 
 
 async def op_signout(host: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -794,19 +969,24 @@ async def op_signout(host: str, params: dict[str, Any]) -> dict[str, Any]:
 
 async def op_web_join(host: str, params: dict[str, Any]) -> dict[str, Any]:
     state = await company_state(host)
-    session, token = await token_for(state, params.get("label"))
     web = state.company.document.web
     endpoint = getattr(web, "browser_session_endpoint", None) if web is not None else None
     if not endpoint:
-        raise StepError(409, "no_browser_sessions", "the Company declares no browser_session_endpoint")
-    await BrowserSessionClient(reactor=agent.reactor).join(
-        client_id=agent.client_id,
-        pairwise_user_id=session.pairwise,
-        browser_session_endpoint=endpoint,
-        session_id=token.session_id,
-        return_to=str(params.get("url") or f"https://{state.company.document.organization.domain}/"),
-        company_domain=state.company.document.organization.domain,
-    )
+        raise PoppyRefusal("no_browser_sessions", 0, "the Company declares no browser_session_endpoint")
+
+    async def call(session: SessionState, token: SessionToken) -> None:
+        await BrowserSessionClient(reactor=agent.reactor).join(
+            client_id=agent.client_id,
+            pairwise_user_id=session.pairwise,
+            browser_session_endpoint=endpoint,
+            session_id=token.session_id,
+            return_to=str(
+                params.get("url") or f"https://{state.company.document.organization.domain}/"
+            ),
+            company_domain=state.company.document.organization.domain,
+        )
+
+    await with_session(state, params.get("label"), call)
     last = agent.poster.last
     joined = last is not None and last.status_code in (302, 303) and "set-cookie" in last.headers
     return {
@@ -951,18 +1131,14 @@ async def control(scope: dict[str, Any], receive: Any, send: Any) -> None:  # no
         )
         return
     except PersonalAgentProtocolError as error:
-        status = error.status_code
-        if status is not None and status >= 400:
-            # The Company refused: a Poppy error, not an adapter failure.
-            code = "access_denied" if error.code == "authorization_denied" else error.code
-            await respond(
-                send, 200,
-                {"ok": False, "poppy_error": code, "status": status, "detail": error.message,
-                 **({"details": error.details} if error.details else {})},
-            )
-        else:
-            # The SDK refused what the Company sent (or never reached it).
-            await respond(send, 422, {"error": error.code, "detail": error.message})
+        # A Company refusal keeps its HTTP status; the SDK's own refusal of what the
+        # Company did (a malformed answer, a denied device grant, ...) has status 0.
+        status = error.status_code if error.status_code and error.status_code >= 400 else 0
+        await respond(
+            send, 200,
+            {"ok": False, "poppy_error": error.code, "status": status, "detail": error.message,
+             **({"details": error.details} if error.details else {})},
+        )
         return
     except Exception as error:  # noqa: BLE001 - the adapter reports, never crashes
         await respond(send, 500, {"error": "adapter_error", "detail": repr(error)})
