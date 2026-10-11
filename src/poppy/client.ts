@@ -40,6 +40,11 @@ export type PoppyHost = {
   };
   /** Wait, in ms; tests make it instant. */
   readonly sleep: (ms: number) => Promise<void>;
+  /**
+   * Now, in epoch ms, for waits and schedules: rate limits, polling and
+   * operation tracking. Tests run it on a fake clock that `sleep` advances.
+   */
+  readonly now: () => number;
 };
 
 export type JobName = "poppy-read" | "poppy-device" | "poppy-operation";
@@ -142,13 +147,13 @@ export function parseWwwAuthenticate(header: string | null): { error?: string; s
   };
 }
 
-function retryAfterMs(response: Response): number | null {
+function retryAfterMs(response: Response, now: number): number | null {
   const header = response.headers.get("Retry-After");
   if (!header) return null;
   const seconds = Number(header);
   if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
   const at = Date.parse(header);
-  return Number.isNaN(at) ? null : Math.max(0, at - Date.now());
+  return Number.isNaN(at) ? null : Math.max(0, at - now);
 }
 
 /** `RateLimit` (IETF draft): both `remaining=, reset=` and `r=;t=` forms. */
@@ -289,7 +294,7 @@ export class PoppyClient {
 
   /** Wait for the Company's shared limit, inline if short, else fail (spec 4.3). */
   async #respectLimit(issuer: string): Promise<void> {
-    const delay = await this.#limiter(issuer).delay();
+    const delay = await this.#limiter(issuer).delay(this.host.now());
     if (delay <= 0) return;
     if (delay > INLINE_WAIT_MS) throw new RateLimitedError(delay);
     await this.host.sleep(delay);
@@ -298,11 +303,12 @@ export class PoppyClient {
   /** Record what a response says about limits; returns ms to wait before retrying, if any. */
   async #observeLimits(issuer: string, response: Response): Promise<number | null> {
     const limit = parseRateLimit(response.headers.get("RateLimit"));
-    if (limit) await this.#limiter(issuer).observe(limit.remaining, Date.now() + limit.reset * 1000);
+    const now = this.host.now();
+    if (limit) await this.#limiter(issuer).observe(limit.remaining, now + limit.reset * 1000);
     if (response.status !== 429 && response.status !== 503) return null;
-    const wait = retryAfterMs(response);
+    const wait = retryAfterMs(response, now);
     if (wait === null) return response.status === 429 ? 1_000 : null;
-    await this.#limiter(issuer).blockUntil(Date.now() + wait);
+    await this.#limiter(issuer).blockUntil(now + wait);
     return wait;
   }
 
@@ -321,6 +327,8 @@ export class PoppyClient {
     options: { dpop: boolean }
   ): Promise<{ status: number; body: Json; headers: Headers }> {
     const signing = await currentKey(this.host.env);
+    // One retry for a new DPoP nonce, whenever it comes: after a 429 too.
+    let nonceRetried = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       await this.#respectLimit(company.issuer);
       // Each attempt gets new assertions and a new proof: Companies reject a reused jti.
@@ -354,7 +362,10 @@ export class PoppyClient {
       const wait = await this.#observeLimits(company.issuer, response);
       const body = await readJson(response);
       const error = isObject(body) && typeof body.error === "string" ? body.error : undefined;
-      if (error === "use_dpop_nonce" && nonce && attempt === 0) continue;
+      if (error === "use_dpop_nonce" && nonce && !nonceRetried) {
+        nonceRetried = true;
+        continue;
+      }
       if (wait !== null) {
         if (wait > INLINE_WAIT_MS || attempt === 2) throw new RateLimitedError(wait);
         await this.host.sleep(wait);

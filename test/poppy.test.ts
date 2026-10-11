@@ -1,25 +1,64 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { assertPublicHost, fetchJson, PoppyFetchError, type Fetcher } from "../src/poppy/fetch";
 import { agentNameFor, createSession } from "../src/session";
-import { hostsFor, type MockCompany, type MockConfig } from "./mock-company";
+import { hostsFor, type MockCompany, type MockConfig, type MockRequest } from "./mock-company";
 import worker from "./worker";
 import type { PersonalAgent } from "./worker";
 
 /**
  * Conformance tests: the Personal Agent against a strict mock Company. Each
  * `describe` is a section of Personal Agent Protocol Draft 0.1 or the
- * Operations extension; every test also asserts the mock saw no violations.
+ * Operations extension. After every test, every mock it created must have
+ * recorded no violations, unless the test said which it expects.
  */
 
 type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
 const testEnv = env as TestEnv;
 const ORIGIN = "https://agent.test";
 
-async function company(config: Partial<MockConfig> = {}) {
+type Company = {
+  readonly id: string;
+  readonly stub: DurableObjectStub<MockCompany>;
+  readonly domain: string;
+  readonly hosts: ReturnType<typeof hostsFor>;
+  /** This test breaks the protocol on purpose: exactly these violations, and no others. */
+  expectViolations(...patterns: RegExp[]): void;
+};
+
+/** Every mock Company the current test created, with the violations it expects. */
+const created: { company: Company; expected: RegExp[] }[] = [];
+
+/** Violations no pattern expects, and patterns no violation matched. */
+function compareViolations(violations: readonly string[], expected: readonly RegExp[]) {
+  return {
+    unexpected: violations.filter((violation) => !expected.some((pattern) => pattern.test(violation))),
+    missing: expected.filter((pattern) => !violations.some((violation) => pattern.test(violation))).map(String)
+  };
+}
+
+afterEach(async () => {
+  const mocks = created.splice(0);
+  for (const { company: c, expected } of mocks) {
+    const violations = (await c.stub.state()).violations;
+    expect(compareViolations(violations, expected), `violations at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
+  }
+});
+
+async function company(config: Partial<MockConfig> = {}): Promise<Company> {
   const id = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const stub = testEnv.MOCK_COMPANY.getByName(id);
   await stub.configure({ deviceInterval: 1, ...config });
-  return { id, stub, domain: `${id}.shop.test`, hosts: hostsFor(id) };
+  const entry = { company: undefined as unknown as Company, expected: [] as RegExp[] };
+  entry.company = {
+    id,
+    stub,
+    domain: `${id}.shop.test`,
+    hosts: hostsFor(id, { issuerTrailingSlash: config.issuerTrailingSlash ?? false }),
+    expectViolations: (...patterns) => entry.expected.push(...patterns)
+  };
+  created.push(entry);
+  return entry.company;
 }
 
 async function agent() {
@@ -30,15 +69,15 @@ async function agent() {
 }
 
 type Agent = Awaited<ReturnType<typeof agent>>;
-type Company = Awaited<ReturnType<typeof company>>;
 
+/** Poll for a card (or anything else a test reads back); notices have `poppyWaitForNotice`. */
 async function until<T>(check: () => Promise<T | undefined | false>, timeoutMs = 15_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const value = await check();
     if (value) return value;
     if (Date.now() > deadline) throw new Error("Condition never held");
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }
 
@@ -50,8 +89,8 @@ async function cards(a: Agent): Promise<Array<Record<string, any>>> {
   return JSON.parse(await a.stub.poppyCards());
 }
 
-async function noViolations(c: Company) {
-  expect((await c.stub.state()).violations).toEqual([]);
+async function requests(c: Company): Promise<MockRequest[]> {
+  return (await c.stub.state()).requests;
 }
 
 /** Direct Sign-In end to end: the test plays the User on the Company's page. */
@@ -65,6 +104,36 @@ async function signInDirect(a: Agent, c: Company, scopes = ["poppy:read", "poppy
   const callback = await worker.fetch(new Request(location, { headers: { Cookie: a.cookie } }), env);
   return { callback, location, text: await callback.text() };
 }
+
+/**
+ * Readings of questions the draft leaves open (docs/poppy-issues.md). Sign-in,
+ * Sessions and DPoP, and signing out run under each, so a misreading our
+ * client and our mock share can't pass by agreement.
+ */
+const PROFILES: readonly { name: string; config: Partial<MockConfig> }[] = [
+  { name: "lenient aud, no nonces", config: {} },
+  { name: "client assertion aud exactly the endpoint called (S1)", config: { clientAssertionAud: "exact" } },
+  { name: "a DPoP nonce per origin (S23)", config: { requireNonce: true, nonceScope: "origin" } },
+  { name: "one DPoP nonce per Company (S23)", config: { requireNonce: true, nonceScope: "company" } },
+  { name: "lenient assertions: no typ or kid needed, 300 s (S2)", config: { strictAssertions: false } },
+  { name: "an issuer with a trailing slash, compared exactly (S7)", config: { issuerTrailingSlash: true } }
+];
+
+describe("the violation check after each test", () => {
+  it("passes exactly the violations a test expects", () => {
+    expect(compareViolations([], [])).toEqual({ unexpected: [], missing: [] });
+    expect(compareViolations(["[code.pkce] x"], [])).toEqual({ unexpected: ["[code.pkce] x"], missing: [] });
+    expect(compareViolations([], [/^\[code\.pkce\]/])).toEqual({ unexpected: [], missing: ["/^\\[code\\.pkce\\]/"] });
+    expect(compareViolations(["[code.pkce] x", "[code.reused] y"], [/^\[code\.pkce\]/])).toEqual({ unexpected: ["[code.reused] y"], missing: [] });
+  });
+
+  it("lets a test that breaks the protocol on purpose say so", async () => {
+    const c = await company();
+    c.expectViolations(/^\[secret\.token-in-url\] token sent in URL /);
+    const response = await c.stub.fetch(new Request(`${c.hosts.api}/products?access_token=at_not_a_token`));
+    expect(response.status).toBe(401);
+  });
+});
 
 describe("4.1 agent identity", () => {
   it("serves the client metadata document at its own client_id", async () => {
@@ -103,13 +172,17 @@ describe("3 discovery", () => {
     expect(found.apis.map((api: { type: string }) => api.type).sort()).toEqual(["mcp", "openapi"]);
     expect(found.extensions).toEqual(["operations"]);
     expect(found.agent).toContain("available");
-    await noViolations(c);
   });
 
   it("follows an HTTPS redirect of the well-known URL", async () => {
     const c = await company({ wellKnownRedirect: "https" });
     const a = await agent();
-    expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
+    const result = await tool(a, "poppy_discover", { domain: c.domain });
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.text).signIn).toEqual(["direct", "device", "mediated"]);
+    const seen = (await requests(c)).map((request) => `${request.status} ${request.method} ${request.url}`);
+    expect(seen).toContain(`302 GET https://${c.domain}/.well-known/poppy.json`);
+    expect(seen).toContain(`200 GET https://cdn.${c.domain}/poppy.json?for=${c.domain}`);
   });
 
   it("refuses a redirect to http", async () => {
@@ -128,7 +201,9 @@ describe("3 discovery", () => {
 
   it("refuses a document whose organization.domain doesn't match", async () => {
     const c = await company({ organizationDomain: "other.shop.test" });
-    expect((await tool(await agent(), "poppy_discover", { domain: c.domain })).isError).toBe(true);
+    const result = await tool(await agent(), "poppy_discover", { domain: c.domain });
+    expect(result.isError).toBe(true);
+    expect(result.text).toMatch(/organization\.domain/);
   });
 
   it("refuses an issuer whose metadata doesn't match", async () => {
@@ -153,60 +228,126 @@ describe("3 discovery", () => {
     const ids = JSON.parse(await a.stub.poppySql("SELECT user_id FROM poppy_user_ids"));
     expect(ids).toHaveLength(1);
     expect((await c.stub.state()).userIds).toEqual([ids[0].user_id]);
-    await noViolations(c);
   });
 });
 
-describe("4.2–4.3 sessions, tokens and DPoP", () => {
-  it("starts a signed-out Session with a random User ID", async () => {
-    const c = await company();
+describe("Guides: fetching metadata safely", () => {
+  const PRIVATE_HOSTS = ["127.0.0.1", "[::1]", "intranet", "x.localhost", "10.0.0.1"];
+
+  it.each(PRIVATE_HOSTS)("never fetches from %s, directly or by redirect", async (host) => {
+    const target = `https://${host}/openapi.json`;
+    expect(() => assertPublicHost(new URL(target))).toThrow(PoppyFetchError);
+    const fetched: string[] = [];
+    const answer = (response: () => Response): Fetcher => async (request) => {
+      fetched.push(request.url);
+      return response();
+    };
+    await expect(fetchJson(answer(() => Response.json({})), target)).rejects.toThrow(/non-public host/);
+    expect(fetched).toEqual([]);
+    const redirect = answer(() => new Response(null, { status: 302, headers: { Location: target } }));
+    await expect(fetchJson(redirect, "https://public.example/openapi.json")).rejects.toThrow(/non-public host/);
+    expect(fetched).toEqual(["https://public.example/openapi.json"]);
+  });
+
+  it.each(PRIVATE_HOSTS)("never discovers %s", async (host) => {
+    const result = await tool(await agent(), "poppy_discover", { domain: host });
+    expect(result.isError).toBe(true);
+    // Rejected as no domain at all, or as a host that isn't public.
+    expect(result.text).toMatch(/isn't a domain name|isn't a public host/);
+  });
+
+  it("fetches a public host's document", async () => {
+    expect(() => assertPublicHost(new URL("https://api.shop.example/openapi.json"))).not.toThrow();
+    const document = await fetchJson(async () => Response.json({ openapi: "3.1.0" }), "https://api.shop.example/openapi.json");
+    expect(document.json).toEqual({ openapi: "3.1.0" });
+  });
+
+  it("never fetches an OpenAPI document a Company lists on a private host", async () => {
+    const c = await company({ openapiUrlOverride: "https://10.0.0.1/openapi.json" });
     const a = await agent();
-    await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
+    const described = await tool(a, "poppy_api_describe", { domain: c.domain });
+    expect(described.isError).toBe(true);
+    expect(described.text).toMatch(/non-public host 10\.0\.0\.1/);
+  });
+});
+
+describe.each(PROFILES)("4.2–4.3 sessions, tokens and DPoP ($name)", ({ config: profile }) => {
+  const companyHere = (config: Partial<MockConfig> = {}) => company({ ...profile, ...config });
+
+  it("starts a signed-out Session with a random User ID", async () => {
+    const c = await companyHere();
+    const a = await agent();
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
     const state = await c.stub.state();
     expect(state.userIds).toHaveLength(1);
     expect(state.userIds[0]).toMatch(/^usr_[A-Za-z0-9_-]{22}$/);
     expect(state.userIds[0]).not.toContain("person");
     expect(state.sessions[0]?.signedIn).toBe(false);
-    await noViolations(c);
   });
 
   it("supports DPoP nonces", async () => {
-    const c = await company({ requireNonce: true });
+    const c = await companyHere({ requireNonce: true });
     const a = await agent();
     const result = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
     expect(result.isError).toBe(false);
-    await noViolations(c);
+    const seen = await requests(c);
+    // Each server asked for a nonce, and the very next request there carried it.
+    for (const origin of [new URL(c.hosts.tokenEndpoint).origin, c.hosts.api]) {
+      const here = seen.filter((request) => request.url.startsWith(origin) && request.headers.dpop);
+      const demanded = here.findIndex((request) => request.error === "use_dpop_nonce");
+      expect(demanded, `a nonce demanded at ${origin}`).toBeGreaterThanOrEqual(0);
+      expect(here[demanded]!.proofNonce).toBeNull();
+      expect(here[demanded + 1]!.proofNonce).toEqual(expect.any(String));
+      expect(here[demanded + 1]!.status).toBeLessThan(400);
+      expect(here.slice(demanded + 1).every((request) => request.proofNonce !== null)).toBe(true);
+    }
+    if (profile.nonceScope === "origin") {
+      const nonces = new Set(seen.map((request) => request.proofNonce).filter(Boolean));
+      expect(nonces.size).toBe(2);
+    }
   });
 
   it("waits out Retry-After on 429 before retrying", async () => {
-    const c = await company({ rateLimit: { tokenRequests429: 1, requests429: 1, retryAfterSeconds: 1 } });
+    const c = await companyHere({ rateLimit: { tokenRequests429: 1, requests429: 1, retryAfterSeconds: 1 } });
     const a = await agent();
     const result = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
     expect(result.isError).toBe(false);
-    await noViolations(c);
+    // The client waited at least a second, twice, on the fake clock...
+    expect((await a.stub.poppyClock()).sleeps.filter((ms) => ms >= 1000)).toHaveLength(2);
+    // ...and the Company saw each retry at least a second after its 429.
+    const seen = (await requests(c)).filter((request) => request.method === "POST");
+    const limited = seen.filter((request) => request.status === 429);
+    expect(limited).toHaveLength(2);
+    for (const refused of limited) {
+      const path = new URL(refused.url).pathname;
+      const retry = seen.find((request) => request.at > refused.at && new URL(request.url).pathname === path)!;
+      expect(retry.at - refused.at).toBeGreaterThanOrEqual(1000);
+    }
   });
 
   it("reports a Company that hasn't registered this agent", async () => {
-    const c = await company({ requireRegistration: ["https://someone-else.test/client.json"] });
+    const c = await companyHere({ requireRegistration: ["https://someone-else.test/client.json"] });
     const result = await tool(await agent(), "poppy_message", { domain: c.domain, text: "hello" });
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/invalid_client/);
   });
 
   it("gets new tokens with a new DPoP key after an eviction", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
     await a.stub.poppyForgetMemory();
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello again" })).isError).toBe(false);
     expect((await c.stub.state()).sessions.filter((s) => !s.ended)).toHaveLength(1);
-    await noViolations(c);
   });
 });
 
-describe("4.4–4.5 Direct Sign-In", () => {
+describe.each(PROFILES)("4.4–4.5 Direct Sign-In ($name)", ({ config: profile }) => {
+  const companyHere = (config: Partial<MockConfig> = {}) => company({ ...profile, ...config });
+  const codeExchanges = async (c: Company) => (await requests(c)).filter((request) => request.grant === "authorization_code");
+
   it("signs in through the Company's page and checks state and iss", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     const result = await signInDirect(a, c);
     expect(result!.callback.status).toBe(200);
@@ -214,19 +355,23 @@ describe("4.4–4.5 Direct Sign-In", () => {
     expect(status.sessions[0]).toMatchObject({ signedIn: true, scope: "poppy:read poppy:write" });
     expect((await c.stub.state()).accountTokens).toBe(1);
     expect((await a.stub.poppyNotices()).some((n) => n.includes(`Signed in to Mock Shop ${c.id}`))).toBe(true);
-    await noViolations(c);
   });
 
   it("uses each state once", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     const result = await signInDirect(a, c);
+    expect(result!.callback.status).toBe(200);
+    expect(await codeExchanges(c)).toHaveLength(1);
+    // The same redirect again: our client refuses it before any token request.
     const again = await worker.fetch(new Request(result!.location, { headers: { Cookie: a.cookie } }), env);
     expect(again.status).toBe(400);
+    expect(await again.text()).toContain("already used");
+    expect(await codeExchanges(c)).toHaveLength(1);
   });
 
   it("rejects a response whose iss isn't the Company's issuer", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_link")!;
@@ -234,100 +379,122 @@ describe("4.4–4.5 Direct Sign-In", () => {
     location.searchParams.set("iss", "https://auth.evil.shop.test");
     const callback = await worker.fetch(new Request(location.href, { headers: { Cookie: a.cookie } }), env);
     expect(callback.status).toBe(400);
+    expect(await callback.text()).toContain("come from the expected company");
+    expect(await codeExchanges(c)).toHaveLength(0);
     expect((await c.stub.state()).accountTokens).toBe(0);
   });
 
   it("needs the person's own app session for the callback", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_link")!;
     const location = await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_ada" });
     const callback = await worker.fetch(new Request(location), env);
     expect(callback.status).toBe(401);
+    expect(await codeExchanges(c)).toHaveLength(0);
   });
 
   it("notices when the User approves fewer scopes", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c, ["poppy:read", "poppy:write"], { scopes: ["poppy:read"] });
     expect((await a.stub.poppyNotices()).some((n) => n.includes('not granted "poppy:write"'))).toBe(true);
-    await noViolations(c);
   });
 
   it("handles a declined sign-in", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     const result = await signInDirect(a, c, ["poppy:read"], { approve: false });
     expect(result!.callback.status).toBe(400);
     expect((await a.stub.poppyNotices()).some((n) => n.includes("the User declined"))).toBe(true);
+    expect(await codeExchanges(c)).toHaveLength(0);
   });
 
   it("reuses an Account Token that covers the task instead of asking again", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c);
     const again = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "again", session: "second" });
     expect(again.text).toContain("signed in with access the User granted earlier");
-    await noViolations(c);
   });
 
   it("steps up: signs in again for more scopes and revokes the old Account Token", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c, ["poppy:read"]);
     await signInDirect(a, c, ["poppy:read", "poppy:write"]);
-    expect((await c.stub.state()).accountTokens).toBe(1);
-    await noViolations(c);
+    const state = await c.stub.state();
+    expect(state.accountTokens).toBe(1);
+    expect(state.revocationHints).toEqual(["refresh_token"]);
   });
 });
 
-describe("4.6 Device Sign-In", () => {
+describe.each(PROFILES)("4.6 Device Sign-In ($name)", ({ config: profile }) => {
+  const companyHere = (config: Partial<MockConfig> = {}) => company({ ...profile, ...config });
+  const polls = async (c: Company) =>
+    (await requests(c)).filter((request) => request.grant === "urn:ietf:params:oauth:grant-type:device_code");
+
   it("shows the code, polls at the interval and signs in when the User approves", async () => {
-    const c = await company({ signIn: { direct: null, device: ["poppy:read", "poppy:write"], mediated: null } });
+    const c = await companyHere({ signIn: { direct: null, device: ["poppy:read", "poppy:write"], mediated: null } });
     const a = await agent();
     const started = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
     expect(started.text).toContain("device");
     const card = (await cards(a)).find((item) => item.kind === "signin_device")!;
     expect(card.userCode).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
     expect(JSON.stringify(card)).not.toContain("device_code");
+    // Nothing before the interval; one poll once it has passed.
+    await a.stub.poppyAdvance(500);
+    expect(await polls(c)).toHaveLength(0);
+    await a.stub.poppyAdvance(500);
+    expect((await polls(c)).map((poll) => poll.error)).toEqual(["authorization_pending"]);
     await c.stub.approveDevice(card.userCode, { account: "acct_ada" });
-    await until(async () => (await a.stub.poppyNotices()).some((n) => n.includes("Signed in to")));
-    await noViolations(c);
+    await a.stub.poppyAdvance(1000);
+    await a.stub.poppyWaitForNotice("Signed in to");
+    const [first, second] = await polls(c);
+    expect(second!.status).toBe(200);
+    expect(second!.at - first!.at).toBeGreaterThanOrEqual(1000);
   });
 
   it("stops when the User declines", async () => {
-    const c = await company({ signIn: { direct: null, device: ["poppy:read"], mediated: null } });
+    const c = await companyHere({ signIn: { direct: null, device: ["poppy:read"], mediated: null } });
     const a = await agent();
     await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_device")!;
     await c.stub.denyDevice(card.userCode);
-    await until(async () => (await a.stub.poppyNotices()).some((n) => n.includes("the User declined")));
-    await noViolations(c);
+    await a.stub.poppyAdvance(1000);
+    await a.stub.poppyWaitForNotice("the User declined");
+    // No more polls, however long we wait.
+    await a.stub.poppyAdvance(60_000);
+    expect((await polls(c)).map((poll) => poll.error)).toEqual(["access_denied"]);
   });
 });
 
-describe("4.7 Mediated Sign-In", () => {
-  const mediatedOnly = { signIn: { direct: null, device: null, mediated: ["poppy:read"] } };
+describe.each(PROFILES)("4.7 Mediated Sign-In ($name)", ({ config: profile }) => {
+  const mediatedOnly = { ...profile, signIn: { direct: null, device: null, mediated: ["poppy:read"] } };
 
   it("sends the credentials only to the endpoint, never to the model, logs or storage", async () => {
     const c = await company(mediatedOnly);
     const a = await agent();
+    const logMark = await a.stub.poppyLogMark();
     await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_credentials")!;
     expect(card.fields.find((field: { name: string }) => field.name === "password").secret).toBe(true);
     await a.stub.poppyFrame({ type: "poppy.credentials", signInId: card.signInId, values: { email: "ada@example.com", password: "correct horse" } });
     const status = JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text);
     expect(status.sessions[0].signedIn).toBe(true);
-    const everything = JSON.stringify([
-      await a.stub.poppyNotices(),
-      await a.stub.poppyCards(),
-      await a.stub.poppySql("SELECT * FROM poppy_signins"),
-      await a.stub.poppySql("SELECT * FROM poppy_intents"),
-      await a.stub.poppySql("SELECT * FROM poppy_messages")
-    ]);
-    expect(everything).not.toContain("correct horse");
-    await noViolations(c);
+    // The model's notices, the cards, and every table in the agent's storage.
+    expect(JSON.stringify(await a.stub.poppyNotices())).not.toContain("correct horse");
+    expect(await a.stub.poppyCards()).not.toContain("correct horse");
+    expect(await a.stub.poppyDumpStorage()).not.toContain("correct horse");
+    // Everything written to the console meanwhile; the probe shows the capture works.
+    console.log("poppy log capture probe");
+    const logs = (await a.stub.poppyLogsSince(logMark)).join("\n");
+    expect(logs).toContain("poppy log capture probe");
+    expect(logs).not.toContain("correct horse");
+    // The mock saw the password once, in the body of the mediated endpoint (and nowhere else, or it would be a violation).
+    const sent = (await requests(c)).filter((request) => request.bodyKeys.includes("credentials"));
+    expect(sent.map((request) => request.url)).toEqual([c.hosts.mediatedEndpoint]);
   });
 
   it("submits only the one-time code when the Company asks for one", async () => {
@@ -341,8 +508,9 @@ describe("4.7 Mediated Sign-In", () => {
     await a.stub.poppyFrame({ type: "poppy.code", signInId: credentials.signInId, code: (await c.stub.lastOneTimeCode())! });
     const status = JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text);
     expect(status.sessions[0].signedIn).toBe(true);
-    expect(await a.stub.poppySql("SELECT * FROM poppy_signins")).not.toContain("battery staple");
-    await noViolations(c);
+    expect(await a.stub.poppyDumpStorage()).not.toContain("battery staple");
+    const submitted = (await requests(c)).filter((request) => request.url.startsWith(`${c.hosts.mediatedEndpoint}/`));
+    expect(submitted.map((request) => request.bodyKeys)).toEqual([["code"]]);
   });
 
   it("reports a wrong password without retrying", async () => {
@@ -352,38 +520,41 @@ describe("4.7 Mediated Sign-In", () => {
     const card = (await cards(a)).find((item) => item.kind === "signin_credentials")!;
     await a.stub.poppyFrame({ type: "poppy.credentials", signInId: card.signInId, values: { email: "ada@example.com", password: "wrong" } });
     expect((await a.stub.poppyNotices()).some((n) => n.includes("didn't complete"))).toBe(true);
-    await noViolations(c);
+    expect((await requests(c)).filter((request) => request.url === c.hosts.mediatedEndpoint)).toHaveLength(1);
   });
 });
 
-describe("4.8–4.9 Account Tokens and signing out", () => {
+describe.each(PROFILES)("4.8–4.9 Account Tokens and signing out ($name)", ({ config: profile }) => {
+  const companyHere = (config: Partial<MockConfig> = {}) => company({ ...profile, ...config });
+
   it("uses a rotated Account Token from then on", async () => {
-    const c = await company({ rotateRefreshTokens: true });
+    const c = await companyHere({ rotateRefreshTokens: true });
     const a = await agent();
     await signInDirect(a, c);
     for (let i = 0; i < 2; i++) {
       await a.stub.poppyForgetMemory();
       expect((await tool(a, "poppy_message", { domain: c.domain, text: `hello ${i}` })).isError).toBe(false);
     }
-    await noViolations(c);
+    expect((await requests(c)).filter((request) => request.grant === "refresh_token" && request.status === 200).length).toBeGreaterThanOrEqual(2);
   });
 
   it("signs out by revoking the Account Token; the Session continues signed out", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c);
-    const issuer = c.hosts.issuer;
-    await a.stub.poppyFrame({ type: "poppy.signout", issuer, account: "default" });
-    expect((await c.stub.state()).accountTokens).toBe(0);
+    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+    const state = await c.stub.state();
+    expect(state.accountTokens).toBe(0);
+    // RFC 7009 makes the hint optional; we send it.
+    expect(state.revocationHints).toEqual(["refresh_token"]);
     await a.stub.poppyForgetMemory();
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "still there?" })).isError).toBe(false);
     const status = JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text);
     expect(status.sessions[0].signedIn).toBe(false);
-    await noViolations(c);
   });
 
   it("continues signed out when the User disconnects the agent at the Company", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c);
     await c.stub.revokeAllForAccount("acct_ada");
@@ -391,15 +562,27 @@ describe("4.8–4.9 Account Tokens and signing out", () => {
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
     expect((await cards(a)).some((card) => card.kind === "notice" && card.text.includes("ended this agent's access"))).toBe(true);
     expect(await a.stub.poppySql("SELECT * FROM poppy_accounts")).toBe("[]");
-    await noViolations(c);
   });
 
   it("stores Account Tokens encrypted", async () => {
-    const c = await company();
+    const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c);
-    const stored = await a.stub.poppySql("SELECT token FROM poppy_accounts");
-    expect(stored).not.toContain("pat_");
+    const rows = JSON.parse(await a.stub.poppySql("SELECT issuer, account, token FROM poppy_accounts")) as { issuer: string; account: string; token: string }[];
+    expect(rows).toHaveLength(1);
+    const [token] = await c.stub.accountTokenValues();
+    const stored = rows[0]!.token;
+    expect(token).toMatch(/^pat_/);
+    expect(stored).not.toContain(token);
+    const base64 = btoa(token!);
+    expect(stored).not.toContain(base64.replace(/=+$/, ""));
+    expect(stored).not.toContain(base64.replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_"));
+    // Sealed for its own row: it opens there and nowhere else.
+    const [{ user_id: userId }] = JSON.parse(await a.stub.poppySql("SELECT user_id FROM poppy_user_ids")) as { user_id: string }[];
+    const context = (account: string, issuer = rows[0]!.issuer) => `account|${issuer}|${userId}|${account}`;
+    expect(await a.stub.poppyOpenSealed(stored, context(rows[0]!.account))).toBe(token);
+    expect(await a.stub.poppyOpenSealed(stored, context("someone-else"))).toBeNull();
+    expect(await a.stub.poppyOpenSealed(stored, context(rows[0]!.account, "https://auth.other.shop.test"))).toBeNull();
   });
 });
 
@@ -412,13 +595,21 @@ describe("5 web browsing", () => {
     expect(page.isError).toBe(false);
     expect(page.text).toContain("Signed in as acct_ada");
     expect((await c.stub.state()).browserJoins).toBe(1);
-    await noViolations(c);
+    const browsed = (await requests(c)).filter(
+      (request) => request.url.startsWith(`https://${c.domain}/`) && !request.url.includes("/.well-known/")
+    );
+    expect(browsed.map((request) => `${request.method} ${new URL(request.url).pathname} ${request.status}`)).toEqual([
+      "POST /poppy/browser-session 303",
+      "GET /orders 200",
+      "GET /orders 200"
+    ]);
   });
 
   it("browses only the Company's own domain", async () => {
     const c = await company();
     const result = await tool(await agent(), "poppy_browse", { domain: c.domain, action: "open", url: "https://elsewhere.test/" });
     expect(result.isError).toBe(true);
+    expect(result.text).toContain(`limited to ${c.domain}`);
   });
 
   it("never opens the Company's sign-in pages", async () => {
@@ -434,6 +625,7 @@ describe("5 web browsing", () => {
     await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/" });
     const result = await tool(a, "poppy_browse", { domain: c.domain, action: "fill", selector: "#password", value: "x" });
     expect(result.isError).toBe(true);
+    expect(result.text).toContain("never types credentials");
   });
 });
 
@@ -442,10 +634,20 @@ describe("6 APIs", () => {
     const c = await company();
     const a = await agent();
     const described = JSON.parse((await tool(a, "poppy_api_describe", { domain: c.domain })).text);
-    expect(described.operations.length).toBeGreaterThan(0);
-    const products = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
+    expect(described.operations.map((operation: { method: string; path: string }) => `${operation.method} ${operation.path}`)).toEqual([
+      "GET /products",
+      "GET /orders",
+      "GET /orders/{order_id}",
+      "POST /orders/{order_id}/exchanges"
+    ]);
+    const products = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "insulated" } });
     expect(products.isError).toBe(false);
-    await noViolations(c);
+    expect(products.text).toContain("stormline-insulated-m");
+    expect(products.text).not.toContain('"stormline-m"');
+    const call = (await requests(c)).find((request) => request.url.startsWith(`${c.hosts.api}/products`))!;
+    expect(call.url).toBe(`${c.hosts.api}/products?q=insulated`);
+    expect(call.headers.authorization).toBe("DPoP <redacted>");
+    expect(call.headers.dpop).toBe("<present>");
   });
 
   it("starts a new Session when the Company says the old one ended", async () => {
@@ -458,7 +660,6 @@ describe("6 APIs", () => {
       expect((await call()).isError).toBe(false);
       const state = await c.stub.state();
       expect(state.sessions.filter((session) => !session.ended)).toHaveLength(1);
-      await noViolations(c);
     }
   });
 
@@ -466,7 +667,7 @@ describe("6 APIs", () => {
     const c = await company();
     const a = await agent();
     const orders = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" });
-    expect(orders.text).toMatch(/sign_in_required|insufficient_scope/);
+    expect(orders.text).toMatch(/sign_in_required/);
   });
 
   it("gets a proposal, not an action, from a write at a Company with operations", async () => {
@@ -481,7 +682,6 @@ describe("6 APIs", () => {
     });
     expect(result.text).toContain("proposed");
     expect((await c.stub.state()).performs).toBe(0);
-    await noViolations(c);
   });
 
   it("waits for the User's approval of a write at a Company without operations, then makes it once", async () => {
@@ -500,7 +700,6 @@ describe("6 APIs", () => {
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
     expect((await c.stub.state()).performs).toBe(1);
-    await noViolations(c);
   });
 
   it("calls MCP tools with a Bearer token issued for that server only", async () => {
@@ -510,13 +709,26 @@ describe("6 APIs", () => {
     expect(tools.tools.map((t: { name: string }) => t.name)).toContain("search_products");
     const result = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
     expect(result.isError).toBe(false);
-    await noViolations(c);
+    expect(result.text).toContain("Stormline Jacket (M), Stormline Insulated Jacket (M)");
+    const seen = await requests(c);
+    // A Bearer token asked for the MCP server by name, without DPoP...
+    const tokenRequests = seen.filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"));
+    expect(tokenRequests.length).toBeGreaterThan(0);
+    for (const request of tokenRequests) expect(request.headers.dpop).toBeUndefined();
+    // ...and used only there.
+    const mcp = seen.filter((request) => request.url === c.hosts.mcpUrl);
+    expect(mcp.length).toBeGreaterThan(0);
+    for (const request of mcp) expect(request.headers.authorization).toBe("Bearer <redacted>");
+    for (const request of seen.filter((request) => request.url.startsWith(c.hosts.api))) {
+      expect(request.headers.authorization ?? "DPoP").toMatch(/^DPoP/);
+    }
   });
 
   it("refuses an MCP server whose metadata doesn't name the issuer", async () => {
     const c = await company({ mcpPrmOmitIssuer: true });
     const result = await tool(await agent(), "poppy_mcp_list", { domain: c.domain });
     expect(result.isError).toBe(true);
+    expect((await requests(c)).filter((request) => request.url === c.hosts.mcpUrl && request.headers.authorization)).toHaveLength(0);
   });
 });
 
@@ -530,13 +742,13 @@ describe("7 conversations", () => {
     const conversation = (await c.stub.state()).conversations[0]!;
     expect(conversation.sent).toEqual(["agent:hello"]);
     expect(JSON.parse(conversation.context)).toMatchObject({ locale: "en-GB", time_zone: "Europe/London" });
-    await noViolations(c);
   });
 
   it("refuses JSON in text", async () => {
     const c = await company();
     const result = await tool(await agent(), "poppy_message", { domain: c.domain, text: '{"order": 1042}' });
     expect(result.isError).toBe(true);
+    expect((await c.stub.state()).conversations).toHaveLength(0);
   });
 
   it("resends the same message id when a tool call is replayed", async () => {
@@ -547,7 +759,6 @@ describe("7 conversations", () => {
     const state = await c.stub.state();
     expect(state.conversations).toHaveLength(1);
     expect(state.conversations[0]!.sent).toEqual(["agent:hello"]);
-    await noViolations(c);
   });
 
   it("reads later events in the background, streaming, and tells the model", async () => {
@@ -555,19 +766,17 @@ describe("7 conversations", () => {
     const a = await agent();
     const result = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
     await c.stub.say(result.conversationId, "One more thing: we have a sale on.");
-    await until(async () => (await a.stub.poppyNotices()).some((n) => n.includes("we have a sale on")));
-    await noViolations(c);
+    await a.stub.poppyWaitForNotice("we have a sale on");
   });
 
   it("handles an authorization event, then continues signed in", async () => {
     const c = await company();
     const a = await agent();
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "I'd like to return order ord_7Hk2" })).text);
-    await until(async () => (await a.stub.poppyNotices()).some((n) => n.includes("needs the User signed in")));
+    await a.stub.poppyWaitForNotice("needs the User signed in");
     await signInDirect(a, c);
     await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "I'm signed in now; please exchange it for the insulated one." });
     await until(async () => (await cards(a)).find((card) => card.kind === "operation" && card.open));
-    await noViolations(c);
   });
 
   it("hands off to a person after a summary", async () => {
@@ -577,10 +786,9 @@ describe("7 conversations", () => {
     const handed = JSON.parse((await tool(a, "poppy_handoff", { conversation: first.conversationId, summary: "The jacket isn't warm enough; the user wants an exchange." })).text);
     expect(handed.status).toBe("queued");
     await c.stub.humanJoin(first.conversationId, "Hi, I'm Sam. I can help with that.");
-    await until(async () => (await a.stub.poppyNotices()).some((n) => n.includes("A person at")));
+    await a.stub.poppyWaitForNotice("A person at");
     const sent = (await c.stub.state()).conversations[0]!.sent;
     expect(sent.at(-1)).toContain("isn't warm enough");
-    await noViolations(c);
   });
 
   it("offers the User a Direct Conversation and sends their own words as human", async () => {
@@ -597,7 +805,6 @@ describe("7 conversations", () => {
     const blocked = await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "anything else?" });
     expect(blocked.text).toContain("direct_conversation_open");
     await a.stub.poppyFrame({ type: "poppy.direct.close", conversationId: direct.id });
-    await noViolations(c);
   });
 
   it("tells the User when part of a conversation has expired", async () => {
@@ -611,7 +818,6 @@ describe("7 conversations", () => {
     await a.stub.poppySql("UPDATE poppy_conversations SET cursor = ? WHERE id = ?", oldest.event_id, first.conversationId);
     await a.stub.poppyReadNow(first.conversationId);
     expect((await cards(a)).find((card) => card.kind === "notice" && card.text.includes("no longer has part"))).toBeDefined();
-    await noViolations(c);
   });
 
   it("skips event types it doesn't know", async () => {
@@ -620,9 +826,8 @@ describe("7 conversations", () => {
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
     await c.stub.pushEvent(first.conversationId, { type: "example.test/confetti", colour: "gold" });
     await c.stub.say(first.conversationId, "After the confetti.");
-    await until(async () => (await a.stub.poppyNotices()).some((n) => n.includes("After the confetti.")));
+    await a.stub.poppyWaitForNotice("After the confetti.");
     expect((await a.stub.poppyNotices()).join("\n")).not.toContain("confetti\"");
-    await noViolations(c);
   });
 
   it("lets the agent offer the User a Direct Conversation", async () => {
@@ -641,21 +846,22 @@ describe("7 conversations", () => {
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
     await tool(a, "poppy_close", { conversation: first.conversationId });
     expect((await c.stub.state()).conversations[0]!.status).toBe("closed");
-    await noViolations(c);
   });
 });
 
 describe("Operations extension", () => {
+  const exchangeCall = (c: Company) => ({
+    domain: c.domain,
+    operation: "POST /orders/{order_id}/exchanges",
+    params: { order_id: "ord_7Hk2" },
+    body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
+  });
+
   async function proposal(config: Partial<MockConfig> = {}) {
     const c = await company(config);
     const a = await agent();
     await signInDirect(a, c);
-    await tool(a, "poppy_api_call", {
-      domain: c.domain,
-      operation: "POST /orders/{order_id}/exchanges",
-      params: { order_id: "ord_7Hk2" },
-      body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
-    });
+    await tool(a, "poppy_api_call", exchangeCall(c));
     const card = (await cards(a)).find((item) => item.kind === "operation")!;
     return { c, a, card };
   }
@@ -670,7 +876,6 @@ describe("Operations extension", () => {
     expect(state.performs).toBe(1);
     expect(state.operations[0]).toMatchObject({ state: "succeeded", approvedBy: "user" });
     expect((await a.stub.poppyNotices()).some((n) => n.includes("is succeeded"))).toBe(true);
-    await noViolations(c);
   });
 
   it("needs a new approval when the terms change", async () => {
@@ -681,7 +886,6 @@ describe("Operations extension", () => {
     expect(updated.open).toBe(true);
     expect(updated.previousSummary).toBe(card.summary);
     expect((await c.stub.state()).performs).toBe(0);
-    await noViolations(c);
   });
 
   it("confirms under a standing permission within its limits", async () => {
@@ -689,10 +893,25 @@ describe("Operations extension", () => {
     const a = await agent();
     await signInDirect(a, c);
     await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD", maxUses: 1 });
-    await tool(a, "poppy_api_call", { domain: c.domain, operation: "POST /orders/{order_id}/exchanges", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+    await tool(a, "poppy_api_call", exchangeCall(c));
     const state = await c.stub.state();
     expect(state.operations[0]).toMatchObject({ state: "succeeded", approvedBy: "standing_permission" });
-    await noViolations(c);
+  });
+
+  it("asks the User once a standing permission's uses are spent", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD", maxUses: 1 });
+    await tool(a, "poppy_api_call", exchangeCall(c));
+    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "succeeded", approvedBy: "standing_permission" });
+    // A second exchange: the one use is spent, so the User decides.
+    await tool(a, "poppy_api_call", exchangeCall(c));
+    const state = await c.stub.state();
+    expect(state.operations).toHaveLength(2);
+    expect(state.operations[1]).toMatchObject({ state: "proposed", confirms: 0 });
+    expect(state.performs).toBe(1);
+    expect((await cards(a)).find((item) => item.kind === "operation" && item.operationId === state.operations[1]!.id)!.open).toBe(true);
   });
 
   it("asks the User when a standing permission's limit is exceeded", async () => {
@@ -700,9 +919,21 @@ describe("Operations extension", () => {
     const a = await agent();
     await signInDirect(a, c);
     await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "10", currency: "USD" });
-    await tool(a, "poppy_api_call", { domain: c.domain, operation: "POST /orders/{order_id}/exchanges", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+    await tool(a, "poppy_api_call", exchangeCall(c));
     expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
     expect((await c.stub.state()).performs).toBe(0);
+  });
+
+  it("asks the User when a standing permission's currency differs", async () => {
+    const c = await company({ exchangePrice: { amount: "70.00", currency: "EUR" } });
+    const a = await agent();
+    await signInDirect(a, c);
+    await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD" });
+    await tool(a, "poppy_api_call", exchangeCall(c));
+    expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
+    const state = await c.stub.state();
+    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
+    expect(state.performs).toBe(0);
   });
 
   it("never uses a standing permission when the Company requires the User's approval", async () => {
@@ -710,18 +941,28 @@ describe("Operations extension", () => {
     const a = await agent();
     await signInDirect(a, c);
     await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange" });
-    await tool(a, "poppy_api_call", { domain: c.domain, operation: "POST /orders/{order_id}/exchanges", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
-    expect((await c.stub.state()).performs).toBe(0);
-    await noViolations(c);
+    await tool(a, "poppy_api_call", exchangeCall(c));
+    const state = await c.stub.state();
+    expect(state.performs).toBe(0);
+    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
   });
 
   it("tracks a slow operation to its final state", async () => {
     const { c, a, card } = await proposal({ slowConfirm: true });
     await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    await until(async () => (await c.stub.state()).operations[0]?.state === "succeeded");
-    await until(async () => (await a.stub.poppyNotices()).some((n) => n.includes("is succeeded")));
-    expect((await c.stub.state()).performs).toBe(1);
-    await noViolations(c);
+    expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");
+    // The Company said Retry-After: 1; nothing is read before then.
+    await a.stub.poppyAdvance(999);
+    expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");
+    await a.stub.poppyAdvance(1);
+    await a.stub.poppyWaitForNotice("is succeeded");
+    const state = await c.stub.state();
+    expect(state.operations[0]?.state).toBe("succeeded");
+    expect(state.performs).toBe(1);
+    const operationUrl = `${c.hosts.operationsEndpoint}/${card.operationId}`;
+    const confirmed = state.requests.find((request) => request.url === `${operationUrl}/confirm`)!;
+    const read = state.requests.find((request) => request.method === "GET" && request.url === operationUrl)!;
+    expect(read.at - confirmed.at).toBeGreaterThanOrEqual(1000);
   });
 
   it("declines a proposal by cancelling it", async () => {
@@ -729,6 +970,5 @@ describe("Operations extension", () => {
     await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "decline" });
     expect((await c.stub.state()).operations[0]!.state).toBe("cancelled");
     expect((await c.stub.state()).performs).toBe(0);
-    await noViolations(c);
   });
 });

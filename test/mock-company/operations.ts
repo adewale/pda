@@ -34,14 +34,18 @@ type OperationRecord = {
 };
 
 const FINAL = new Set(["succeeded", "failed", "cancelled", "expired"]);
-const EXCHANGE_TERMS = {
-  order_id: "ord_7Hk2",
-  item_id: "itm_4Qa",
-  replacement_sku: "stormline-insulated-m",
-  price_difference: { amount: "70.00", currency: "USD" }
-};
-const EXCHANGE_SUMMARY =
-  "Exchange the Stormline Jacket (M) on order ord_7Hk2 for the Stormline Insulated Jacket (M), for $70.00 more, charged to the card used for the order.";
+function exchangeTerms(price: { amount: string; currency: string }) {
+  return {
+    order_id: "ord_7Hk2",
+    item_id: "itm_4Qa",
+    replacement_sku: "stormline-insulated-m",
+    price_difference: { amount: price.amount, currency: price.currency }
+  };
+}
+
+function exchangeSummary(price: { amount: string; currency: string }): string {
+  return `Exchange the Stormline Jacket (M) on order ord_7Hk2 for the Stormline Insulated Jacket (M), for ${price.currency === "USD" ? `$${price.amount}` : `${price.amount} ${price.currency}`} more, charged to the card used for the order.`;
+}
 
 /** The Operations extension, version 1, Company side. */
 export class Operations {
@@ -71,6 +75,8 @@ export class Operations {
    * terms in this Session or account (Ops 4: one record across channels).
    */
   proposeExchange(context: ResourceContext): Operation {
+    const price = this.company.config.exchangePrice;
+    const terms = exchangeTerms(price);
     for (const record of this.#records.values()) {
       this.#expire(record);
       const same =
@@ -78,7 +84,7 @@ export class Operations {
       const owner = record.account
         ? record.account === context.account
         : record.sessionId === context.session.id;
-      if (same && owner && JSON.stringify(record.operation.terms) === JSON.stringify(EXCHANGE_TERMS)) {
+      if (same && owner && JSON.stringify(record.operation.terms) === JSON.stringify(terms)) {
         return record.operation;
       }
     }
@@ -88,8 +94,8 @@ export class Operations {
       operation_id: id,
       revision: 1,
       state: "proposed",
-      summary: EXCHANGE_SUMMARY,
-      terms: { ...EXCHANGE_TERMS },
+      summary: exchangeSummary(price),
+      terms,
       expires_at: new Date(expiresAt).toISOString(),
       user_approval_required: this.company.config.userApprovalRequired,
       url: `${this.company.hosts.web}/orders/ord_7Hk2/exchanges/${id}`,
@@ -127,8 +133,7 @@ export class Operations {
 
   #perform(record: OperationRecord): void {
     record.performed += 1;
-    this.company.performs += 1;
-    if (record.performed > 1) this.company.violation(`operation ${record.operation.operation_id} performed twice`);
+    this.company.performExchange(record.account, `operation ${record.operation.operation_id}`);
     record.pending = false;
     record.operation.state = "succeeded";
     record.operation.result = {
@@ -164,11 +169,14 @@ export class Operations {
       return json({ error: "terms_changed", operation }, 409);
     }
     if (body.approved_by !== "user" && body.approved_by !== "standing_permission") {
-      co.violation(`confirm with approved_by ${JSON.stringify(body.approved_by)}`);
+      co.violation("confirm.approved-by", `confirm with approved_by ${JSON.stringify(body.approved_by)}`);
       return json({ error: "invalid_request" }, 400);
     }
     if (body.approved_by === "standing_permission" && operation.user_approval_required) {
-      co.violation("confirmed with a standing permission when user_approval_required is true");
+      co.violation(
+        "confirm.standing-permission-overrides-user",
+        "confirmed with a standing permission when user_approval_required is true"
+      );
       return json({ error: "user_approval_required", operation }, 403);
     }
     operation.confirmation = {

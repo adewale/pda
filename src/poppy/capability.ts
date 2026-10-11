@@ -46,6 +46,8 @@ export type PoppyOptions = {
   /** Shortest gap between reads of an idle conversation. */
   readonly idleReadMs?: number;
   readonly sleep?: (ms: number) => Promise<void>;
+  /** Now, in epoch ms, for waits and schedules; tests use a fake clock. */
+  readonly now?: () => number;
 };
 
 /** The User counts as available while a page is open and was used recently (spec 7.4). */
@@ -111,7 +113,8 @@ export class PoppyCapability extends LifecycleCapability {
         user_available:
           this.lifecycle.sockets.get().length > 0 && Date.now() - this.#lastActivity < AVAILABLE_FOR_MS
       }),
-      sleep: options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+      sleep: options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+      now: options.now ?? Date.now
     };
   }
 
