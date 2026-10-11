@@ -47,7 +47,8 @@ const SIGN_IN_ERRORS: Record<string, string> = {
   state: "That sign-in link expired. Please try again.",
   code: "The provider did not complete sign-in. Please try again.",
   token: "The provider did not confirm who you are. Please try again.",
-  profile: "The provider did not share your account id. Please try again."
+  profile: "The provider did not share your account id. Please try again.",
+  not_allowed: "That account isn't on this agent's allowlist. Ask the owner to add it, or sign in with another account."
 };
 
 function takeSignInError(): string | null {

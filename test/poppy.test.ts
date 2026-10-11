@@ -23,7 +23,7 @@ async function company(config: Partial<MockConfig> = {}) {
 }
 
 async function agent() {
-  const identity = { provider: "github" as const, sub: `u${crypto.randomUUID()}`, email: "person@example.com" };
+  const identity = { provider: "google" as const, sub: `u${crypto.randomUUID()}`, email: "person@workspace.example", domain: "workspace.example" };
   const stub = testEnv.PersonalAgent.getByName(await agentNameFor(identity)) as unknown as DurableObjectStub<PersonalAgent>;
   const cookie = (await createSession(identity, env.SESSION_SECRET)).split(";")[0]!;
   return { stub, cookie };

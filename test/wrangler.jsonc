@@ -28,6 +28,11 @@
     "GITHUB_CLIENT_SECRET": "github-test-secret",
     "PUBLIC_ORIGIN": "https://agent.test",
     "POPPY_CLIENT_NAME": "Test Personal Agent",
-    "POPPY_LOGO_URI": "https://agent.test/logo.svg"
+    "POPPY_LOGO_URI": "https://agent.test/logo.svg",
+    "ALLOWLIST": {
+      "emails": ["G@Example.com"],
+      "domains": ["Workspace.Example"],
+      "github": { "octo": 4242, "hubot": 4343 }
+    }
   }
 }

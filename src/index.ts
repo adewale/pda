@@ -1,7 +1,14 @@
+import { isAllowed, readAllowlist } from "./allowlist";
 import { ConfigError, readModelConfig, readSessionSecret } from "./config";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
 import { handleIdentityRoute } from "./poppy/routes";
-import { agentNameFor, AuthError, clearSession, verifySession } from "./session";
+import {
+  agentNameFor,
+  AuthError,
+  clearSession,
+  verifySession,
+  type Identity
+} from "./session";
 
 export { PersonalAgent } from "./agent";
 export { CompanyLimiter } from "./poppy/limiter";
@@ -17,6 +24,16 @@ function sameOrigin(request: Request): boolean {
   return request.headers.get("Origin") === new URL(request.url).origin;
 }
 
+/**
+ * The signed-in person, if they are still on the allowlist: removing someone
+ * and redeploying locks them out on their next request.
+ */
+async function signedIn(request: Request, env: Env): Promise<Identity> {
+  const identity = await verifySession(request, readSessionSecret(env));
+  if (!isAllowed(identity, readAllowlist(env))) throw new AuthError("Not on the allowlist");
+  return identity;
+}
+
 /** Verify the session, upgrade, and forward to the person's own agent. */
 async function handleWs(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return text(405, "Method not allowed");
@@ -28,7 +45,7 @@ async function handleWs(request: Request, env: Env): Promise<Response> {
   }
   // Fail here, naming the var, rather than inside the agent's constructor.
   readModelConfig(env);
-  const identity = await verifySession(request, readSessionSecret(env));
+  const identity = await signedIn(request, env);
   const name = await agentNameFor(identity);
   // Drop the query string so the client cannot pick a pi session.
   const url = new URL(request.url);
@@ -39,7 +56,7 @@ async function handleWs(request: Request, env: Env): Promise<Response> {
 /** Who is signed in, for the page header. */
 async function handleMe(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return text(405, "Method not allowed");
-  const identity = await verifySession(request, readSessionSecret(env));
+  const identity = await signedIn(request, env);
   return Response.json(
     { email: identity.email, provider: identity.provider },
     { headers: { "Cache-Control": "no-store" } }
@@ -67,7 +84,7 @@ async function handlePoppy(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return text(405, "Method not allowed");
   let identity;
   try {
-    identity = await verifySession(request, readSessionSecret(env));
+    identity = await signedIn(request, env);
   } catch (error) {
     if (!(error instanceof AuthError)) throw error;
     return new Response(

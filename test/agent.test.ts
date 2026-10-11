@@ -16,8 +16,15 @@ import worker from "./worker";
 
 const ORIGIN = "https://agent.example.com";
 
-function person(sub = `user-${crypto.randomUUID()}`, provider: Provider = "github"): Identity {
-  return { provider, sub, email: `${sub}@example.com` };
+/** Test GitHub accounts on the allowlist in test/wrangler.jsonc. */
+const OCTO = "4242";
+const HUBOT = "4343";
+
+/** A Google Workspace account at an allowlisted domain, or an allowlisted GitHub id. */
+function person(sub = `user-${crypto.randomUUID()}`, provider: Provider = "google"): Identity {
+  return provider === "google"
+    ? { provider, sub, email: `${sub}@workspace.example`, domain: "workspace.example" }
+    : { provider, sub, email: `${sub}@example.com`, domain: null };
 }
 
 /** `name=value` from a `Set-Cookie` header, ready for a `Cookie` header. */
@@ -228,8 +235,8 @@ describe("the conversation", () => {
   });
 
   it("gives the same id on Google and GitHub separate agents", async () => {
-    const google = person("same-id", "google");
-    const github = person("same-id", "github");
+    const google = person(HUBOT, "google");
+    const github = person(HUBOT, "github");
     expect(await agentNameFor(google)).not.toBe(await agentNameFor(github));
   });
 
@@ -275,7 +282,7 @@ describe("sign-in", () => {
   });
 
   it("signs in with GitHub and opens the same agent on every sign-in", async () => {
-    const id = String(Math.floor(Math.random() * 1e9));
+    const id = OCTO;
     const response = await signIn("github", `ok:${id}:octo@example.com`);
     expect(response.status).toBe(303);
     expect(response.headers.get("Location")).toBe("/");
@@ -302,6 +309,49 @@ describe("sign-in", () => {
       new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookiePair(session) } })
     );
     expect(await me.json()).toEqual({ email: "g@example.com", provider: "google" });
+  });
+
+  it("lets in a Google Workspace account at an allowlisted domain", async () => {
+    const response = await signIn("google", "ok:ws-sub:anyone@workspace.example:workspace.example");
+    expect(response.headers.get("Location")).toBe("/");
+    const me = await fetchWorker(
+      new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookiePair(sessionFrom(response)!) } })
+    );
+    expect(me.status).toBe(200);
+  });
+
+  it("refuses accounts that are not on the allowlist", async () => {
+    for (const [provider, code] of [
+      ["google", "ok:stranger:stranger@example.com"],
+      // A personal Google account using a work address is not the Workspace account.
+      ["google", "ok:personal:someone@workspace.example"],
+      ["google", "ok:other-ws:someone@other.example:other.example"],
+      ["github", "ok:999:octo@example.com"]
+    ] as const) {
+      const response = await signIn(provider, code);
+      expect(response.headers.get("Location")).toBe("/?signin_error=not_allowed");
+      expect(sessionFrom(response)).toBeUndefined();
+    }
+  });
+
+  it("locks out a signed-in person once they are off the allowlist", async () => {
+    const cookie = await sessionCookie(person());
+    const removed = { ALLOWLIST: { emails: [], domains: [], github: {} } } as unknown as Partial<Env>;
+    const me = () => new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookie } });
+    expect((await fetchWorker(me())).status).toBe(200);
+    expect((await fetchWorker(me(), removed)).status).toBe(401);
+    expect((await fetchWorker(wsRequest({ cookie }), removed)).status).toBe(401);
+    const callback = new Request(`${ORIGIN}/poppy/callback?code=x&state=y`, { headers: { Cookie: cookie } });
+    expect((await fetchWorker(callback, removed)).status).toBe(401);
+  });
+
+  it("fails sign-in with a config error when ALLOWLIST is missing", async () => {
+    const response = await fetchWorker(
+      new Request(`${ORIGIN}/auth/github/callback?code=x&state=y`),
+      { ALLOWLIST: undefined } as unknown as Partial<Env>
+    );
+    expect(response.status).toBe(500);
+    expect(await response.text()).toMatch(/^ALLOWLIST/);
   });
 
   it("rejects a callback whose state does not match", async () => {

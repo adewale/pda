@@ -26,7 +26,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 
 ## Status
 
-**Deployed** at `https://personal-agent.adewale-883.workers.dev`, with 100 tests passing in the Workers runtime (Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.0`, Pi 1.1.0, Wrangler 4.149).
+**Deployed** at `https://personal-agent.adewale-883.workers.dev`, with 107 tests passing in the Workers runtime (Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.0`, Pi 1.1.0, Wrangler 4.149).
 
 | Part | State |
 | --- | --- |
@@ -37,9 +37,10 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Poppy identity (`/poppy/client.json`, `/poppy/jwks.json`) | Live, with production signing keys |
 | Web browsing | Built on Browser Rendering; tested only with a fetch-based fake browser |
 | Chat page with Poppy cards and the Companies panel | Built; not yet checked in a browser, because sign-in isn't live |
-| Memory, skills, daily cap, email allowlist (milestone 2) | Not started |
+| Sign-in allowlist (emails, Google Workspace domains, GitHub accounts) | Built and tested; set in `wrangler.jsonc`, changed by redeploying |
+| Memory, skills, daily cap (milestone 2) | Not started |
 
-Until the daily cap or an allowlist exists, anyone with a Google or GitHub account who signs in spends the account's Claude credits.
+Only people on the allowlist can sign in. Everyone on it spends the account's Claude credits until the daily cap exists.
 
 ## Architecture
 
@@ -108,9 +109,14 @@ MCP uses a small Streamable HTTP client in `src/poppy/apis.ts` rather than the M
 App sign-in is the Worker's own Google and GitHub OAuth. It is separate from Poppy sign-in, which is the person signing in to a *Company* (see Signing in at a Company).
 
 - **Flow.** `GET /auth/{google|github}` sends the browser to the provider with `state` and a PKCE S256 challenge. Both are kept in a signed, 10-minute `__Host-oauth` cookie. `GET /auth/{provider}/callback` checks `state` and swaps the code. Google returns an ID token from its token endpoint over TLS, so its claims are checked (issuer, audience, expiry, `email_verified`) without a signature check, as OpenID Connect allows. GitHub returns a token used to read the numeric user id and the primary verified email.
-- **Session.** A `__Host-session` cookie (HttpOnly, Secure, SameSite=Lax, 30 days) holding `{provider, sub, email, exp}`, HMAC-SHA256 signed with `SESSION_SECRET`. Rotating the secret signs everyone out. `POST /logout` from the same origin clears it.
+- **Session.** A `__Host-session` cookie (HttpOnly, Secure, SameSite=Lax, 30 days) holding `{provider, sub, email, domain, exp}`, HMAC-SHA256 signed with `SESSION_SECRET`. Rotating the secret signs everyone out. `POST /logout` from the same origin clears it.
 - **Agent name.** `sha256("<provider>:<id>")`, using Google's `sub` or GitHub's numeric id, computed only in the Worker. A Google and a GitHub sign-in are separate agents.
-- **Who can sign in.** Anyone with a Google or GitHub account. Until the daily cap in milestone 2 exists, add an email allowlist before sharing the URL.
+- **Who can sign in.** People on the `ALLOWLIST` var in `wrangler.jsonc`; change it and redeploy. It is checked at the callback (a refusal redirects to `/?signin_error=not_allowed` with no session) and again on every `/ws`, `/api/me` and `/poppy/callback` request, so someone removed is locked out on their next request. A WebSocket already open stays open until it reconnects. Missing or malformed is a config error naming the var; an empty list lets nobody in.
+  - `emails`: Google accounts whose verified email matches, ignoring case.
+  - `domains`: Google Workspace accounts of that domain, from the ID token's `hd` claim. A personal Google account that uses a work address has no `hd`, so it doesn't count.
+  - `github`: `login: numeric id`. Only the id is checked, because a login can be renamed and then registered by someone else. `gh api users/<login> --jq .id` finds it.
+  - Emails and domains apply to Google sign-in only. A GitHub account's verified email proves the address was once confirmed, not that the person still works there.
+  - Defaults: `adewale@gmail.com`, the `sierra.ai` Workspace, and GitHub `adewale` (43644) and `ToddKerpelman` (4397978).
 
 **Worker routes**
 
@@ -550,16 +556,17 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
   - None of them reach the model, tool results, the transcript, logs or URLs. Mediated credentials pass through memory once, from the card to the one request.
   - Responses that carry codes are `Cache-Control: no-store`.
 - **Untrusted content.** Company text and data are presented to the model as information, never instructions, and never the User's approval.
-- **Spend.** A per-person daily message cap (milestone 2), and an email allowlist until then.
+- **Spend.** The sign-in allowlist now, and a per-person daily message cap (milestone 2).
 - **Deletion.** "Delete my agent" (milestone 2) first revokes every Account Token at its Company, then runs `ctx.storage.deleteAll()`.
 
 ## Testing and conformance
 
-`npm test` runs 100 tests in the Workers runtime, in three files.
+`npm test` runs 107 tests in the Workers runtime, in four files.
 
 | File | Tests | What |
 | --- | --- | --- |
-| `test/agent.test.ts` | 30 | App sign-in, `/ws`, the conversation's durability, configuration |
+| `test/agent.test.ts` | 34 | App sign-in and the allowlist, `/ws`, the conversation's durability, configuration |
+| `test/allowlist.test.ts` | 3 | Reading and matching the allowlist |
 | `test/mock-company.test.ts` | 9 | The mock Company itself, driven by hand-made requests |
 | `test/poppy.test.ts` | 61 | The Poppy client against the mock Company, grouped by spec section |
 
@@ -569,13 +576,13 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
   - **Violations.** Every breach is recorded, such as a reused `jti`, a token in a URL, JSON in `text`, a password seen anywhere but the Mediated endpoint, or an operation performed twice. Every Poppy test asserts the list is empty.
   - **Configuration.** Behaviours switch per test: nonces, registration, token rotation, rate limits, streaming, slow confirms, each sign-in type, wrong issuers and redirects.
 - **Routing.** The test agent sends Poppy requests for Company hosts to the mock and for `agent.test` to our own Worker. A fetch-based fake browser with a cookie jar per context stands in for Browser Rendering.
-- **Checks that tests catch bugs.** Disabling the `iss` check in Direct Sign-In fails exactly its test, and so does disabling the session cookie's signature check.
+- **Checks that tests catch bugs.** Disabling the `iss` check in Direct Sign-In fails exactly its test, and so does disabling the session cookie's signature check or the allowlist check on each request.
 - **What isn't tested.** Real Companies (none exist yet), real Browser Rendering, and the chat page in a browser. Appendix A marks each requirement as checked by a test, by the mock's verifier, by design, or not yet.
 
 ## Build plan
 
 1. **Chat demo.** Built. Remaining: register the OAuth clients, and fund the gateway.
-2. **Personal.** Not started: `memory`, skills, email allowlist, rate limit and daily cap. Done when "remember I'm vegetarian" survives a week and a redeploy.
+2. **Personal.** The sign-in allowlist is built. Not started: `memory`, skills, rate limit and daily cap. Done when "remember I'm vegetarian" survives a week and a redeploy.
 3. **Poppy core.** Built and passing against the mock: identity routes, discovery, User IDs, Sessions and DPoP, all three sign-in types, Account Tokens and sign-out, conversations with handoff and Direct Conversations, `CompanyLimiter`.
 4. **APIs and operations.** Built and passing against the mock: OpenAPI and MCP clients, the Operations extension, standing permissions, the local approval gate.
 5. **Mediated Sign-In and browsing.** Built; browsing is tested only with the fake browser. Next: a check against Browser Rendering on a preview deploy.

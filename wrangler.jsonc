@@ -32,7 +32,15 @@
     // The Poppy client_id lives on this origin forever; see the spec.
     "PUBLIC_ORIGIN": "https://personal-agent.adewale-883.workers.dev",
     "POPPY_CLIENT_NAME": "Durable Personal Agent",
-    "POPPY_LOGO_URI": "https://personal-agent.adewale-883.workers.dev/logo.svg"
+    "POPPY_LOGO_URI": "https://personal-agent.adewale-883.workers.dev/logo.svg",
+    // Who may sign in; edit and redeploy. Emails and domains are checked
+    // against Google sign-in (domains as Google Workspace accounts), GitHub
+    // accounts by numeric id: `gh api users/<login> --jq .id`.
+    "ALLOWLIST": {
+      "emails": ["adewale@gmail.com"],
+      "domains": ["sierra.ai"],
+      "github": { "adewale": 43644, "ToddKerpelman": 4397978 }
+    }
   },
   "observability": { "enabled": true }
 }

@@ -1,4 +1,5 @@
 import { decodeJwt } from "jose";
+import { isAllowed, readAllowlist } from "./allowlist";
 import {
   readProviderConfig,
   readSessionSecret,
@@ -106,6 +107,7 @@ export async function finishSignIn(
 ): Promise<Response> {
   const client = readProviderConfig(env, provider);
   const secret = readSessionSecret(env);
+  const allowlist = readAllowlist(env);
   const clearFlow = cookie(FLOW_COOKIE, "", { maxAge: 0 });
   try {
     const url = new URL(request.url);
@@ -130,6 +132,10 @@ export async function finishSignIn(
       provider === "google"
         ? await googleIdentity(client, code, flow.verifier, redirectUri)
         : await githubIdentity(client, code, flow.verifier, redirectUri);
+    if (!isAllowed(identity, allowlist)) {
+      const who = provider === "github" ? `GitHub id ${identity.sub}` : identity.email ?? `Google ${identity.sub}`;
+      throw new SignInError("not_allowed", `${who} is not on the allowlist`);
+    }
     return redirect("/", [clearFlow, await createSession(identity, secret)]);
   } catch (error) {
     if (!(error instanceof SignInError)) throw error;
@@ -199,7 +205,9 @@ async function googleIdentity(
     claims.email_verified === true && typeof claims.email === "string"
       ? claims.email
       : null;
-  return { provider: "google", sub: claims.sub, email };
+  // `hd` is present only for Google Workspace accounts.
+  const domain = typeof claims.hd === "string" && claims.hd !== "" ? claims.hd : null;
+  return { provider: "google", sub: claims.sub, email, domain };
 }
 
 async function githubIdentity(
@@ -246,5 +254,5 @@ async function githubIdentity(
     const primary = emails.find((entry) => entry.primary && entry.verified);
     email = typeof primary?.email === "string" ? primary.email : null;
   }
-  return { provider: "github", sub: String(user.id), email };
+  return { provider: "github", sub: String(user.id), email, domain: null };
 }

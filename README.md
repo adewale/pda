@@ -2,7 +2,21 @@
 
 Sign in with Google or GitHub, then chat with your own Claude Opus 5.5 agent in one conversation that survives reloads, crashes and deploys. The agent is also a Personal Agent for [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1: it can find a company, sign you in on the company's own page, talk to the company's agent, use its APIs and website, and ask you before anything that changes your account. Design: [`durable-personal-agent-spec.md`](durable-personal-agent-spec.md).
 
-Deployed at https://personal-agent.adewale-883.workers.dev. Sign-in is built into the Worker (the spec's Option B): Google and GitHub OAuth with PKCE, then an HMAC-signed `__Host-session` cookie (HttpOnly, Secure, SameSite=Lax, 30 days). Cloudflare Access is not used. Anyone with a Google or GitHub account can sign in; a Google and a GitHub sign-in are separate agents.
+Deployed at https://personal-agent.adewale-883.workers.dev. Sign-in is built into the Worker (the spec's Option B): Google and GitHub OAuth with PKCE, then an HMAC-signed `__Host-session` cookie (HttpOnly, Secure, SameSite=Lax, 30 days). Cloudflare Access is not used. Only people on the allowlist can sign in; a Google and a GitHub sign-in are separate agents.
+
+## Who can sign in
+
+The `ALLOWLIST` var in [`wrangler.jsonc`](wrangler.jsonc) decides; edit it and run `npm run deploy`. Someone removed is locked out on their next request.
+
+```jsonc
+"ALLOWLIST": {
+  "emails": ["adewale@gmail.com"],          // Google accounts with this verified email
+  "domains": ["sierra.ai"],                 // anyone in this Google Workspace
+  "github": { "adewale": 43644, "ToddKerpelman": 4397978 }  // login: numeric id
+}
+```
+
+GitHub accounts are matched by numeric id, since logins can change hands; get one with `gh api users/<login> --jq .id`. Emails and domains apply to Google sign-in; a domain matches Google Workspace accounts only, not a personal Google account that uses a work address.
 
 ## Setup still needed
 
@@ -48,7 +62,7 @@ Secrets take effect immediately; no redeploy is needed.
 
 ```sh
 npm install --legacy-peer-deps
-npm test           # 100 tests in the Workers runtime, including Poppy conformance
+npm test           # 107 tests in the Workers runtime, including Poppy conformance
 npm run typecheck
 npm run deploy
 ```

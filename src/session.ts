@@ -10,6 +10,8 @@ export type Identity = {
   /** The provider's stable user id: Google's `sub`, GitHub's numeric id. */
   readonly sub: string;
   readonly email: string | null;
+  /** Google Workspace domain (the ID token's `hd`); null for personal Google accounts and GitHub. */
+  readonly domain: string | null;
 };
 
 type SessionPayload = Identity & {
@@ -113,6 +115,7 @@ export async function createSession(
     provider: identity.provider,
     sub: identity.sub,
     email: identity.email,
+    domain: identity.domain,
     exp: Math.floor(now / 1000) + SESSION_TTL_SECONDS
   };
   return cookie(SESSION_COOKIE, await sign(payload, secret), {
@@ -145,7 +148,8 @@ export async function verifySession(
   return {
     provider: payload.provider,
     sub: payload.sub,
-    email: typeof payload.email === "string" ? payload.email : null
+    email: typeof payload.email === "string" ? payload.email : null,
+    domain: typeof payload.domain === "string" ? payload.domain : null
   };
 }
 

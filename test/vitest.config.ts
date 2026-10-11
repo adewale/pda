@@ -26,11 +26,11 @@ async function poppySecrets() {
 const idTokenKey = crypto.getRandomValues(new Uint8Array(32));
 
 /**
- * A test authorization code is `ok:<user id>:<email>`; anything else is a bad
- * code. The fakes also insist on the client secret and a PKCE verifier.
+ * A test authorization code is `ok:<user id>:<email>[:<workspace domain>]`;
+ * anything else is a bad code. The fakes also insist on the client secret and a PKCE verifier.
  */
 function parseCode(form: URLSearchParams, secret: string) {
-  const [ok, id, email] = (form.get("code") ?? "").split(":");
+  const [ok, id, email, hd] = (form.get("code") ?? "").split(":");
   if (
     ok !== "ok" ||
     !id ||
@@ -40,7 +40,7 @@ function parseCode(form: URLSearchParams, secret: string) {
   ) {
     return null;
   }
-  return { id, email: email ?? "" };
+  return { id, email: email ?? "", hd };
 }
 
 async function fakeProviders(request: Request): Promise<Response> {
@@ -49,7 +49,7 @@ async function fakeProviders(request: Request): Promise<Response> {
     const user = parseCode(new URLSearchParams(await request.text()), GOOGLE_CLIENT.secret);
     if (!user) return Response.json({ error: "invalid_grant" }, { status: 400 });
     const now = Math.floor(Date.now() / 1000);
-    const idToken = await new SignJWT({ email: user.email, email_verified: true })
+    const idToken = await new SignJWT({ email: user.email, email_verified: true, ...(user.hd ? { hd: user.hd } : {}) })
       .setProtectedHeader({ alg: "HS256" })
       .setIssuer("https://accounts.google.com")
       .setAudience(GOOGLE_CLIENT.id)
