@@ -130,20 +130,34 @@ To support a new version, add `src/validator/profiles/draft-N.ts`: reuse the rul
 
 ### Who can sign in
 
-The `ALLOWLIST` var in [`wrangler.jsonc`](wrangler.jsonc) decides. Edit it and run `npm run deploy`; someone you remove is locked out on their next request.
+Your own `deployment.local.json` decides; it is untracked, so the repository names nobody. Copy [`deployment.example.json`](deployment.example.json), fill it in, and run `npm run deploy`, which stops if the file is missing. Someone you remove is locked out on their next request.
 
 ```jsonc
-"ALLOWLIST": {
-  "emails": ["adewale@gmail.com"],                         // Google accounts with this verified email
-  "domains": ["sierra.ai"],                                // anyone in this Google Workspace
-  "github": { "adewale": 43644, "ToddKerpelman": 4397978 } // login: numeric id
+{
+  "OWNERS": { "emails": ["you@example.com"], "github": { "your-login": 1234567 } },  // always in, always on the demo
+  "SIGNIN_ALLOWLIST": {                                     // who may sign in while SIGNUP is "allowlist"
+    "emails": ["friend@example.com"],                       // Google accounts with this verified email
+    "domains": ["your-company.example"],                    // anyone in this Google Workspace
+    "github": { "their-login": 7654321 }                    // login: numeric id
+  },
+  "DEMO_ALLOWLIST": { "emails": [], "domains": [], "github": {} },  // who you pay model calls for
+  "PUBLIC_ORIGIN": "https://personal-agent.your-subdomain.workers.dev",
+  "POPPY_LOGO_URI": "https://personal-agent.your-subdomain.workers.dev/logo.svg"
 }
 ```
 
+- **`SIGNUP`** in `wrangler.jsonc` is `allowlist`. Set it to `open` to let anyone with a Google or GitHub account in; they then need their own model key unless they are on `DEMO_ALLOWLIST`.
 - **GitHub accounts** are matched by numeric id, because logins can change hands. Get one with `gh api users/<login> --jq .id`.
 - **Emails and domains** apply to Google sign-in only.
 - **A domain** matches Google Workspace accounts only, not a personal Google account that uses a work address.
 - **Google and GitHub** sign-ins are separate agents.
+
+### Who pays for the model
+
+- **Your own key, first.** Paste an Anthropic or OpenAI key in Settings, or connect OpenRouter. The agent checks it with the vendor, encrypts it, and sends it only to that vendor, never through the deployment's AI Gateway. It is never shown again. Whoever runs the deployment can technically read it, so prefer a spend-limited key; an OpenRouter key with a credit limit is safest.
+- **A refused key stops the agent.** A 401 marks the key invalid and the agent stops calling the model until you add another; it never falls back to the demo.
+- **The demo,** for `OWNERS` and `DEMO_ALLOWLIST`: the operator pays through an AI Gateway on Unified Billing, up to `DEMO_DAILY_USD_PER_USER` per person and `DEMO_DAILY_USD_PER_DOMAIN` per Google Workspace domain each UTC day. The agent checks both before every call, background work included; Settings shows today's spend.
+- **Otherwise the agent needs a key** and makes no model calls. Updates from Companies wait until it has one.
 
 ### How sign-in works
 
@@ -164,7 +178,7 @@ The app has four places:
 - **Chat** opens with a pinned **Needs you** tray: approvals, sign-ins, invitations to talk to a company yourself. The tray's count also shows in the tab title. Each company action in the conversation reads as one line, such as "Read your orders at Manzanita · API · view access".
 - **Activity** shows what's in progress, each item with a way to stop it, and a log of everything the agent did at companies: where, how, with what access, who decided, and the result.
 - **Companies** lists your connected accounts, the access each has, and the standing permissions you've given.
-- **Settings** has your account, the theme, the model and the agent's public identity.
+- **Settings** has your account, your model key or the demo with today's spend, the theme and the agent's public identity. While the agent can't call a model, a banner on every page says why.
 
 ## Develop
 
@@ -172,7 +186,7 @@ The app has four places:
 
 - Node.js 22.18 or later, with npm.
 - A Cloudflare account with Wrangler signed in (`npx wrangler login`).
-- To deploy your own copy: Google and GitHub OAuth apps, and AI Gateway billing ([setup guide](docs/setup.md)).
+- To deploy your own copy: a `deployment.local.json`, Google and GitHub OAuth apps, and, for the demo, an AI Gateway on Unified Billing ([setup guide](docs/setup.md)).
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
@@ -188,6 +202,7 @@ CI runs typecheck, the tests and the docs check on every push, and the interop g
 **What the tests cover:**
 
 - **Sign-in:** app sign-in against fake Google and GitHub that check PKCE and can refuse: a wrong audience, issuer or expiry, an unverified email, a broken GitHub profile. Also the allowlist on every route.
+- **Model access:** against fake Anthropic, OpenAI and OpenRouter. A key never appears in a response, frame, transcript, Activity row, log or storage in the clear; a sealed key opens only in its own agent; an own key beats the demo; the demo's caps are enforced before the call, per person and per domain, background turns included; a 401 stops calls with no fallback; OpenRouter's sign-in checks `state` and the PKCE verifier. Another test fails if an author host or identity enters the template.
 - **The agent:** the durable conversation, including after a crash. That test has its own runtime, so it can't reset objects other tests are using.
 - **Poppy:** conformance tests against a strict mock Company.
   - Each of the mock's checks has an id and a test that proves it fires.
@@ -199,7 +214,7 @@ CI runs typecheck, the tests and the docs check on every push, and the interop g
 - **Page:** the four places, the needs-you tray, cards, the Activity log (no secrets ever reach it), the sign-in page and the Browser Rendering adapter, in happy-dom.
 - **Interop harness:** its scenario interpreter, trace checks, attribution and report, in Node. The validator fixtures and the mock's tamper rows are also exported as language-neutral vectors (`interop/vectors/`), and a test fails while those files are stale.
 
-The model, Google, GitHub and Companies are faked; nothing calls the network.
+The model vendors, Google, GitHub and Companies are faked; nothing calls the network.
 
 **Interop.** `npm run interop` runs every agent against every Company in containers, over HTTPS through a recording proxy, and writes a grid with each failure blamed on a side by a named rule ([`interop/README.md`](interop/README.md), [`docs/interop-spec.md`](docs/interop-spec.md)). Our agent there is `src/poppy` driven directly, with no model; our Company is the mock, registered twice: lenient as the reference, and strict. Adapters for seven other projects let their agents and Companies meet ours and each other's. Docker is needed.
 
@@ -209,11 +224,11 @@ The model, Google, GitHub and Companies are faked; nothing calls the network.
 | --- | --- |
 | Workers and Static Assets | Routes, sign-in, the chat page, the validator |
 | Durable Objects (SQLite) | One agent per person; per-company rate limits |
-| AI Gateway (`AI` binding) | Claude Opus 5.5 |
+| AI Gateway (`AI` binding) | The demo: Claude Opus 5.5, paid by the operator |
 | Browser Rendering | Browsing a company's website in the agent's Session |
 | Rate Limiting | The validator's URL checks |
 
-**Cost:** Claude calls are paid through AI Gateway, with Unified Billing or your own Anthropic key. We haven't checked whether the rest fits the Workers free plan.
+**Cost:** the operator pays for demo calls through AI Gateway's Unified Billing, capped per person and per domain each day; everyone else pays their vendor with their own key. Every agent created also costs the operator storage, more so with `SIGNUP=open`. We haven't checked whether the rest fits the Workers free plan.
 
 ## Other implementations
 
@@ -244,13 +259,16 @@ Poppy implementations we know of, as of 11 Oct 2026. All were days old. [`docs/i
   - It checks documents, not behaviour: it can't tell whether a token endpoint works.
   - It checks the host name, not the IP address a name resolves to, so it can't refuse a name that points at a private address. The Guides ask for that check.
   - "Same domain" for an agent's `jwks_uri` accepts the same host or a parent or child host, because the spec doesn't define it.
-- **Not built yet:** memory, skills and a daily message cap (milestone 2).
+- **Not built yet:** memory and skills (milestone 2).
+- **Model keys and the demo aren't tried live yet:** the vendors, Unified Billing, the gateway's spend rules and OpenRouter's sign-in are faked in the tests (the spec's Model access lists what to check).
 
 ## Project layout
 
 ```text
 src/index.ts        Worker routes (chat, sign-in, Poppy identity, validator)
 src/agent.ts        The per-person Durable Object
+src/model-*.ts      Who pays for each model call: own keys (sealed), the demo and its caps
+deployment.*.json   The deployer's own vars: an example here, the real ones untracked
 src/ui/             The page: Chat, Activity, Companies, Settings
 src/poppy/          The Poppy client, its tools, its UI messages and the Activity log
 src/validator/      The validator: parser, primitives, profiles, fetch, HTTP, HTML
