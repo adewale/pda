@@ -550,6 +550,8 @@ class MockCompanyMachine(RuleBasedStateMachine):
             reply, events = self.poppy.read_events(ms.session, self.co, conversation.id, cursor, stream=stream)
             if ms.user is not conversation.user:
                 expect(reply, 404, "conversation_not_found")
+                # Another User of the same agent reaching for it: the mock records the breach (7.13, S17).
+                self.violation("conversation.cross-user")
                 return
             if not self.can_read(ms, conversation):
                 expect(reply, 403, "sign_in_required")
