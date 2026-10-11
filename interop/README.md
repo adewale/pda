@@ -25,6 +25,15 @@ npm run interop -- --set dpa:INTEROP_FAULT=assertion-typ --scenarios S0   # a de
 | `--min-free-gb n` | Refuse to start with less than `n` GB free on Docker's data disk (default 2). |
 | `--set name:KEY=VALUE` | Extra environment for one implementation's container. |
 | `--out dir` | Where to write results, instead of `interop/results/<run>/`. |
+| `--image-tag tag` | Build and run under a Docker tag (default `latest`); `--image-tag adv` keeps a full grid run's `:latest` images untouched. |
+
+**Adversarial cells** (the malicious `evil-agent`/`evil-company` and the fault-injection proxy; [`docs/adversarial-interop.md`](../docs/adversarial-interop.md)) run only against our own `owner: "self"` implementations, on the local lane, never live. No flag lifts this — see [`SECURITY.md`](../SECURITY.md) and [`docs/interop-spec.md`](../docs/interop-spec.md) §13. They appear in a separate security grid in `index.html` and never count toward the interop pass rates.
+
+```sh
+npm run interop -- --image-tag adv --agents evil-agent --companies dpa-mock --scenarios YR,YD,YA,YT,YS,YK,YU
+npm run interop -- --image-tag adv --agents dpa --companies evil-company --scenarios XH,XI,BX
+npm run interop -- --image-tag adv --agents dpa --companies dpa-mock --scenarios NREP,CDUP,CIDUP,ODUP
+```
 
 Each run writes:
 

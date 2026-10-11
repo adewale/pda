@@ -7,6 +7,10 @@ export type RegistryEntry = {
   readonly role: Role;
   readonly source: string;
   readonly commit: string;
+  /** `"self"` marks an implementation this project owns. Adversarial cells run only against self-owned honest sides. */
+  readonly owner?: "self";
+  /** An implementation that misbehaves on purpose (evil-agent, evil-company). The live lane refuses it (spec §10). */
+  readonly adversarial?: boolean;
   /** A directory holding a Dockerfile (local lane). */
   readonly build?: string;
   /** The Docker build context, relative to the repository root; the build directory when absent. */
@@ -32,6 +36,8 @@ export type Manifest = {
   readonly scenarios: readonly string[];
   readonly readings?: Readonly<Record<string, string>>;
   readonly relaxations?: readonly string[];
+  /** Attack ids this adversarial adapter can `arm` (spec §4). An unknown attack answers 501, so the cell is `unsupported`. */
+  readonly attacks?: readonly string[];
 };
 
 export type Actor = "agent" | "company" | "runner";
@@ -53,6 +59,24 @@ export type Step = {
 /** `{"${a.b}": value-or-operator}`, or `{"step": "name", "poppy_error": "code"}`, or a list of either. */
 export type Expectations = Readonly<Record<string, unknown>> | readonly Readonly<Record<string, unknown>>[];
 
+/** A network fault the recording proxy injects (spec §6, Part B of docs/adversarial-interop.md). */
+export type Fault = {
+  /** Which exchanges this fault acts on. */
+  readonly match: {
+    readonly host?: string;
+    readonly path?: string;
+    readonly method?: string;
+    readonly direction?: "to-company" | "to-agent";
+    /** Act only on the nth matching exchange (1-based); every match when absent. */
+    readonly nth?: number;
+  };
+  readonly action: "replay" | "duplicate" | "drop_response" | "delay" | "truncate" | "reset" | "status";
+  /** `delay`: milliseconds. `truncate`: bytes to keep. `status`: the HTTP status to answer. `replay`: milliseconds to wait before resending. */
+  readonly ms?: number;
+  readonly bytes?: number;
+  readonly status?: number;
+};
+
 export type Scenario = {
   readonly id: string;
   readonly title: string;
@@ -62,6 +86,16 @@ export type Scenario = {
   readonly needs?: { readonly agent?: readonly string[]; readonly company?: readonly string[] };
   /** Scenarios the live lane may run. */
   readonly live?: boolean;
+  /**
+   * An adversarial scenario (docs/adversarial-interop.md, Part B): the side that
+   * misbehaves. `"network"` is the fault-injection proxy; `"company"`/`"agent"`
+   * need an adversarial implementation of that role. Attribution applies rule 0.
+   */
+  readonly adversary?: "company" | "agent" | "network";
+  /** The draft requirement (`"N10"`) that permits the attack, so a failure is the spec's, not the honest side's. */
+  readonly permitted_by?: string;
+  /** Network faults the recording proxy injects for this scenario (spec §6). */
+  readonly faults?: readonly Fault[];
   readonly steps: readonly Step[];
 };
 
@@ -90,7 +124,7 @@ export type StepRecord = {
 
 export type Outcome = "pass" | "fail" | "unsupported" | "error";
 export type Blame = "agent" | "company" | "spec" | "harness" | null;
-export type Rule = "violation" | "grid" | "reading" | "unattributed" | null;
+export type Rule = "adversarial" | "violation" | "grid" | "reading" | "unattributed" | null;
 
 export type Cell = {
   readonly agent: string;
@@ -105,6 +139,8 @@ export type Cell = {
   /** Why the cell was unsupported or errored, or what failed first. */
   reason?: string;
   known?: { readonly issue: string; readonly reason?: string };
+  /** An adversarial cell (an adversarial side, or a proxy `faults` list): shown in the security grid, never in interop pass rates (spec §9). */
+  security?: boolean;
   /** Failed or errored, then passed when run again: recorded as a pass, never a known failure. */
   flaky?: boolean;
   /** Each run of a cell that was run again, in order; the cell itself is the last. */

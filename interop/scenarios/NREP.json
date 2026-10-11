@@ -1,0 +1,16 @@
+{
+  "id": "NREP",
+  "title": "Replayed token request (network fault)",
+  "requirements": ["4.2", "4.3"],
+  "adversary": "network",
+  "faults": [{ "match": { "path": "/oauth/token", "method": "POST", "direction": "to-company" }, "action": "replay", "ms": 50 }],
+  "needs": { "agent": ["discover", "session"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session", "save": "s" },
+    { "expect": { "${s.session_id}": { "$exists": true } } },
+    { "runner": "wait", "params": { "ms": 500 } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "injected": true, "path": "/oauth/token" } },
+    { "runner": "assert_trace", "params": { "check": "no_2xx_after", "path": "/oauth/token" } }
+  ]
+}

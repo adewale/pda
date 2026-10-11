@@ -1665,6 +1665,20 @@ const TAMPERS: readonly Tamper[] = [
       return call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${id}/close`, { body: { done: true } });
     }
   },
+  {
+    id: "conversation.cross-user",
+    what: "another User of the same agent reading a conversation",
+    detail: /^\[conversation\.cross-user\] User usr_Hd8pW2zQ5nVb7LtK3xRc9F reached conversation cnv_[\w-]+ of User usr_Q7c1vKx9TzLw3NdR5mHa2B$/,
+    run: async (c) => {
+      const a = await signedOut(c);
+      const id = await conversation(c, a);
+      // A second signed-out Session of the same agent, for a different User.
+      const bKey = await dpopKey();
+      const bResponse = await startSession(c, bKey, { assertion: await sessionAssertion(c, { claims: { sub: "usr_Hd8pW2zQ5nVb7LtK3xRc9F" } }) });
+      const b = { key: bKey, token: ((await bResponse.json()) as { access_token: string }).access_token, sessionId: "" };
+      return call(c, b, "GET", `${c.hosts.conversationsEndpoint}/${id}/events`);
+    }
+  },
 
   // ---- Operations extension ----
   {
@@ -1805,6 +1819,26 @@ describe("interop vectors", () => {
 });
 
 describe("the mock Company", () => {
+  it("checks conversation ownership before message-id idempotency on a signed-out retry (S8)", async () => {
+    // A signed-in User opens a conversation (owned by the account). A signed-out Session of the
+    // same User then retries the first message id. The idempotency cache would hand back the
+    // original conversation and its events; the ownership gate must come first, so the retry
+    // gets sign_in_required, not the reply.
+    const c = company();
+    const signedInSession = await signedIn(c);
+    // An order-related message makes the conversation belong to the User's account (7.2).
+    const first = message({ id: "msg_retry_after_signout", text: "Where is my order?" });
+    const opened = (await (await converse(c, signedInSession, first)).json()) as { conversation_id: string };
+    expect(opened.conversation_id).toMatch(/^cnv_/);
+    // A signed-out Session of the same User (same User ID) retries the same message id.
+    const signedOutSession = await signedOut(c);
+    const retry = await converse(c, signedOutSession, first);
+    expect(retry.status).toBe(403);
+    expect(await retry.json()).toMatchObject({ error: "sign_in_required" });
+    // The same User retried their own message: no cross-user violation.
+    expect((await c.stub.state()).violations).toEqual([]);
+  });
+
   it("publishes poppy.json and OAuth server metadata that check out", async () => {
     const c = company();
     const document = (await (await c.call(`https://${c.hosts.domain}/.well-known/poppy.json`)).json()) as {

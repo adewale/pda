@@ -4,9 +4,16 @@
  * plain HTTP to the implementation's container on port 8080, and keeps every
  * exchange, in full, as a HAR entry for the current cell.
  *
+ * It is also the fault-injection network adversary (docs/adversarial-interop.md,
+ * Part B): a scenario's `faults` list, given to `/cell`, lets it replay,
+ * duplicate, drop, delay, truncate, reset or re-status matching exchanges.
+ * An exchange it creates or alters is marked `_interop.injected`/`_interop.fault`
+ * in the HAR, and the checks skip injected exchanges so they are never blamed
+ * on an honest side.
+ *
  * A control server on port 8082 (plain HTTP, reached only by the runner):
  *   GET  /healthz            200 once both servers listen
- *   POST /cell {id}          start a new cell: forget earlier entries
+ *   POST /cell {id, faults?} start a new cell: forget earlier entries, set faults
  *   GET  /har                the current cell's HAR
  *   POST /control {target, method, path, body, headers}
  *                            forward a control call to target:8081 (not recorded)
@@ -34,6 +41,11 @@ const cert = fs.readFileSync(`${DIR}/proxy.pem`);
 /** The current cell's entries, in the order requests arrived. */
 let entries = [];
 let cell = null;
+/** The current cell's faults, and a per-fault count of matches so far (for `nth`). */
+let faults = [];
+let faultCounts = [];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function headerList(headers) {
   const list = [];
@@ -80,8 +92,37 @@ function readBody(stream) {
   });
 }
 
+/** The direction of a host, for fault matching. */
+function directionOf(host) {
+  if (/\.company\.interop\.test$/.test(host)) return "to-company";
+  if (/\.agent\.interop\.test$/.test(host)) return "to-agent";
+  return "other";
+}
+
+/** Whether a fault's `match` fits a request; `nth` picks the nth match (1-based). */
+function faultFits(fault, info) {
+  const m = fault.match ?? {};
+  if (m.host && !info.host.includes(m.host)) return false;
+  if (m.path && !new RegExp(m.path).test(info.path)) return false;
+  if (m.method && m.method !== info.method) return false;
+  if (m.direction && m.direction !== info.direction) return false;
+  return true;
+}
+
+/** The faults that act on this request now, incrementing match counts for `nth`. */
+function faultsFor(info) {
+  const matched = [];
+  faults.forEach((fault, index) => {
+    if (!faultFits(fault, info)) return;
+    faultCounts[index] = (faultCounts[index] ?? 0) + 1;
+    if (fault.match?.nth !== undefined && fault.match.nth !== faultCounts[index]) return;
+    matched.push(fault);
+  });
+  return matched;
+}
+
 /** One HAR entry, filled in as the response streams back. */
-function startEntry(req, url, body) {
+function startEntry(req, url, body, interop = null) {
   const started = Date.now();
   const mime = req.headers["content-type"] ?? "";
   const entry = {
@@ -90,7 +131,7 @@ function startEntry(req, url, body) {
     request: {
       method: req.method,
       url: url.href,
-      httpVersion: `HTTP/${req.httpVersion}`,
+      httpVersion: `HTTP/${req.httpVersion ?? "1.1"}`,
       cookies: [],
       headers: headerList(req.headers),
       queryString: [...url.searchParams].map(([name, value]) => ({ name, value })),
@@ -113,6 +154,7 @@ function startEntry(req, url, body) {
     timings: { send: 0, wait: 0, receive: 0 },
     _cell: cell,
     _upstream: null,
+    _interop: interop,
     _complete: false
   };
   entries.push(entry);
@@ -134,13 +176,38 @@ function finishEntry(entry, started, status, headers, chunks) {
   entry._complete = true;
 }
 
+/**
+ * Send the same request to upstream again, record it as an injected exchange,
+ * and discard the response (the fault-injection replay/duplicate; spec §6).
+ */
+function injectUpstream(upstream, method, href, headers, body, fault) {
+  const url = new URL(href);
+  const fake = { method, headers: { ...headers }, httpVersion: "1.1" };
+  const { entry, started } = startEntry(fake, url, body, { injected: true, fault });
+  return new Promise((resolve) => {
+    const out = { ...headers, "x-forwarded-proto": "https", "x-forwarded-host": url.host };
+    delete out.connection;
+    const request = http.request({ host: upstream, port: UPSTREAM_PORT, method, path: `${url.pathname}${url.search}`, headers: out }, async (response) => {
+      const chunks = [await readBody(response)];
+      finishEntry(entry, started, response.statusCode ?? 502, response.headers, chunks);
+      resolve();
+    });
+    request.setTimeout(30_000, () => request.destroy(new Error("timeout")));
+    request.on("error", () => {
+      finishEntry(entry, started, 0, {}, [Buffer.from("")]);
+      resolve();
+    });
+    request.end(body.length > 0 ? body : undefined);
+  });
+}
+
 async function handle(req, res) {
   const host = req.headers.host ?? "";
   const url = new URL(req.url ?? "/", `https://${host}`);
   const body = await readBody(req);
-  const { entry, started } = startEntry(req, url, body);
 
   if (url.hostname === "runner.interop.test") {
+    const { entry, started } = startEntry(req, url, body);
     const reply = Buffer.from(JSON.stringify({ ok: true, url: url.href }));
     const headers = { "content-type": "application/json", "content-length": String(reply.length) };
     res.writeHead(200, headers);
@@ -150,41 +217,83 @@ async function handle(req, res) {
   }
   const upstream = upstreamFor(host);
   if (!upstream) {
+    const { entry, started } = startEntry(req, url, body);
     const reply = Buffer.from(`No implementation serves ${host}`);
     res.writeHead(502, { "content-type": "text/plain" });
     res.end(reply);
     finishEntry(entry, started, 502, { "content-type": "text/plain" }, [reply]);
     return;
   }
+
+  // Faults the proxy injects for this request (docs/adversarial-interop.md, Part B).
+  const probe = "x-interop-probe" in req.headers;
+  const info = { host: host.toLowerCase().replace(/:\d+$/, ""), path: url.pathname, method: req.method ?? "GET", direction: directionOf(host.toLowerCase().replace(/:\d+$/, "")) };
+  const matched = probe ? [] : faultsFor(info);
+  const actions = new Set(matched.map((fault) => fault.action));
+  const faultOf = (action) => matched.find((fault) => fault.action === action);
+
+  // `delay`: hold the request before forwarding (network latency, SSE resume).
+  if (actions.has("delay")) await sleep(Number(faultOf("delay").ms ?? 500));
+
+  const { entry, started } = startEntry(req, url, body, matched.length ? { injected: false, fault: matched.map((f) => f.action).join("+") } : null);
   entry._upstream = upstream;
   const headers = { ...req.headers, "x-forwarded-proto": "https", "x-forwarded-host": host };
   delete headers.connection;
-  const outbound = http.request(
-    { host: upstream, port: UPSTREAM_PORT, method: req.method, path: req.url, headers },
-    (upstreamRes) => {
-      const chunks = [];
-      res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.headers);
-      res.flushHeaders?.();
-      upstreamRes.on("data", (chunk) => {
-        chunks.push(chunk);
-        res.write(chunk);
-      });
-      const done = () => {
-        if (entry._complete) return;
-        finishEntry(entry, started, upstreamRes.statusCode ?? 502, upstreamRes.headers, chunks);
-        res.end();
-      };
-      upstreamRes.on("end", done);
-      upstreamRes.on("close", done);
-      // The client went away mid-stream (an SSE reader that has what it needs).
-      res.on("close", () => {
-        if (!entry._complete) {
-          finishEntry(entry, started, upstreamRes.statusCode ?? 502, upstreamRes.headers, chunks);
-          upstreamRes.destroy();
-        }
-      });
+
+  // Response-side faults need the whole upstream response first.
+  const buffered = actions.has("truncate") || actions.has("status") || actions.has("drop_response") || actions.has("reset");
+
+  const afterEffects = async (upstreamHost) => {
+    // Request-side faults create extra, injected exchanges.
+    if (actions.has("duplicate")) await injectUpstream(upstreamHost, req.method, url.href, headers, body, "duplicate");
+    if (actions.has("replay")) {
+      await sleep(Number(faultOf("replay").ms ?? 50));
+      await injectUpstream(upstreamHost, req.method, url.href, headers, body, "replay");
     }
-  );
+  };
+
+  const outbound = http.request({ host: upstream, port: UPSTREAM_PORT, method: req.method, path: req.url, headers }, (upstreamRes) => {
+    const status = upstreamRes.statusCode ?? 502;
+    if (buffered) {
+      readBody(upstreamRes).then(async (full) => {
+        let outStatus = status;
+        let outBody = full;
+        if (actions.has("truncate")) outBody = full.subarray(0, Number(faultOf("truncate").bytes ?? 0));
+        if (actions.has("status")) outStatus = Number(faultOf("status").status ?? 500);
+        finishEntry(entry, started, status, upstreamRes.headers, [full]);
+        if (actions.has("reset") || actions.has("drop_response")) {
+          res.socket?.destroy();
+        } else {
+          res.writeHead(outStatus, upstreamRes.headers);
+          res.end(outBody);
+        }
+        await afterEffects(upstream);
+      });
+      return;
+    }
+    const chunks = [];
+    res.writeHead(status, upstreamRes.headers);
+    res.flushHeaders?.();
+    upstreamRes.on("data", (chunk) => {
+      chunks.push(chunk);
+      res.write(chunk);
+    });
+    const done = async () => {
+      if (entry._complete) return;
+      finishEntry(entry, started, status, upstreamRes.headers, chunks);
+      res.end();
+      await afterEffects(upstream);
+    };
+    upstreamRes.on("end", done);
+    upstreamRes.on("close", done);
+    // The client went away mid-stream (an SSE reader that has what it needs).
+    res.on("close", () => {
+      if (!entry._complete) {
+        finishEntry(entry, started, status, upstreamRes.headers, chunks);
+        upstreamRes.destroy();
+      }
+    });
+  });
   outbound.on("error", (error) => {
     if (entry._complete) return;
     const reply = Buffer.from(`Upstream ${upstream} failed: ${error.message}`);
@@ -269,7 +378,9 @@ const controlServer = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/cell") {
       entries = [];
       cell = typeof json.id === "string" ? json.id : null;
-      return sendJson(res, 200, { cell });
+      faults = Array.isArray(json.faults) ? json.faults : [];
+      faultCounts = faults.map(() => 0);
+      return sendJson(res, 200, { cell, faults: faults.length });
     }
     if (req.method === "GET" && url.pathname === "/har") return sendJson(res, 200, har());
     if (req.method === "POST" && url.pathname === "/control") {
