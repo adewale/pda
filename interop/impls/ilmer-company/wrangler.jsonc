@@ -1,0 +1,32 @@
+// Container-only Wrangler config for Ilmer Past's Poppy Worker (agent/), replacing
+// upstream's cf CLI config (cloudflare.config.ts) so it runs under `wrangler dev`
+// without a Cloudflare login. Bindings and Durable Object classes match upstream.
+// Differences, all interop-only: ORIGIN comes from the container (--var), LOCAL_DEV is
+// false (HTTPS client_ids only), and the Workers AI binding is left out, as upstream's
+// own ILMER_POPPY_OFFLINE=true does: conversations work, every model answer is
+// Ilmer's fixed apology.
+{
+  "name": "ilmer-poppy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-09",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/", "/api/*", "/oauth/*", "/poppy/*", "/.well-known/*", "/robots.txt", "/corpus.json"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "AGENTS", "class_name": "HistoryAgent" },
+      { "name": "CLIENTS", "class_name": "PoppyClient" },
+      { "name": "GUARDS", "class_name": "Guard" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HistoryAgent", "PoppyClient", "Guard"] }],
+  "vars": {
+    "ORIGIN": "https://ilmer.company.interop.test",
+    "SITE_URL": "https://www.ilmer.org",
+    "LOCAL_DEV": "false",
+    "MODEL": "@cf/zai-org/glm-5.3-flash",
+    "DAILY_PROMPT_LIMIT": "500"
+  }
+}
