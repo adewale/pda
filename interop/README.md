@@ -60,7 +60,7 @@ test/                Unit tests for the runner, in Node (interop/vitest.config.t
 
 ## Add an implementation
 
-1. Write an adapter in `interop/impls/<name>-agent/` or `interop/impls/<name>-company/` with a `Dockerfile`. The container serves the implementation on port 8080 (plain HTTP; the proxy terminates TLS) and the adapter API on port 8081:
+1. Write an adapter in `interop/impls/<name>-agent/` or `interop/impls/<name>-company/` with a `Dockerfile` whose base images are pinned by digest ([Base images](#base-images)). The container serves the implementation on port 8080 (plain HTTP; the proxy terminates TLS) and the adapter API on port 8081:
    - every adapter: `GET /manifest`, `GET /healthz`, `POST /reset` (spec section 5.1);
    - an agent: `POST /step` (5.2), driving the implementation's own protocol code, never a model;
    - a Company: `GET /hooks` and `POST /hooks/<name>` (5.3), and `GET /violations` if it records the agent's mistakes.
@@ -74,6 +74,19 @@ test/                Unit tests for the runner, in Node (interop/vitest.config.t
 **dpa-agent** bundles `src/poppy` with esbuild and runs it in Node: the same `PoppyClient`, sign-in, conversation, API and operations code the Durable Object runs. Node's built-in SQLite stands in for the Durable Object's (`impls/dpa-agent/sqlite.ts` implements the part of `SqlStorage` src/poppy uses), and jobs the Durable Object would schedule run when a step waits on them. It needs no relaxation: `*.interop.test` names pass src/poppy's public-host check, and Node trusts the run's CA. `INTEROP_FAULT=assertion-typ` re-signs every client and Session assertion without `typ`, in the adapter's network seam, to prove attribution; it is off unless set and never reaches `src/`.
 
 **dpa-mock** runs the conformance suite's mock Company unchanged, moved to `<name>.company.interop.test` by `placeCompanies` in `test/mock-company/types.ts`. It rotates Account Tokens and polls devices every second. Its hooks map to the RPC the conformance tests use, and every violation it records becomes an agent-side error check. `INTEROP_MOCK_PROFILE` picks its settings: `dpa-mock`, the reference Company for attribution rule 2, runs the S2-lenient profile (`strictAssertions: false`, as the conformance suite's "lenient assertions" profile: no `typ` or `kid` needed, assertions up to 300 s) and declares S2 `any`, since the spec treats S2 as a warning; **dpa-mock-strict** is the same image with `INTEROP_MOCK_PROFILE=strict` (registry `env`), refuses assertions without `typ: "JWT"`, a published `kid` and a 60-second lifetime, and declares S2 `jwt-60s`. A typ-less agent that declares S2 `any` fails there by rule 3 (reading), not rule 1.
+
+## Base images
+
+Every `FROM` names its tag and the digest of that tag's multi-arch index, such as `FROM node:24-slim@sha256:…`, so a rebuild gets the same image on amd64 and arm64 until we choose to move. Docker uses the digest and ignores the tag, which is there for readers. A new adapter's `Dockerfile` pins the same way.
+
+To update a pin, read the tag's current index digest without pulling, and replace the digest in every `FROM` that uses the tag:
+
+```sh
+docker buildx imagetools inspect node:24-slim | grep -m1 '^Digest:'   # the index, not a per-platform manifest
+grep -rn '^FROM node:24-slim@' interop/                                # where it's used
+```
+
+Check that `MediaType` is an image index (`…image.index…` or `…manifest.list…`) listing `linux/amd64` and `linux/arm64`, then rebuild the images that use it and run the grid.
 
 ## Vectors
 

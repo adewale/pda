@@ -629,6 +629,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | `test/validator.test.ts` | The discovery document validator: fixtures declared as data, a catalog test that every message has one, the spec's examples, live documents, fetching, the HTTP endpoint |
 | `test/mock-company.test.ts` | The mock Company itself: one `TAMPERS` row per check, proving it fires, and a catalog test that every check has a row |
 | `test/poppy.test.ts` | The Poppy client against the mock Company, grouped by spec section, with the sign-in, Session and sign-out sections run under six profiles |
+| `test/smoke.test.ts` | `scripts/smoke.mjs`, the read-only smoke test of a deployed Worker: passes against the Worker, fails against broken answers, sends only credential-free GETs |
 | `test/durability/crash.test.ts` | The conversation after a crash |
 | `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, the Browser Rendering adapter against a stub of Puppeteer |
 

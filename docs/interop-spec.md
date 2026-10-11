@@ -180,6 +180,8 @@ The open questions whose answers change the wire format. An adapter declares its
 | S4 | `scope` on a signed-out Session request | `omit`, `poppy-read`, `either` |
 | S23 | DPoP nonce scope | `per-origin`, `per-company` |
 
+Our own adapters' readings, and why we chose them, are in [readings.md](readings.md).
+
 ## 8. Checks
 
 After each cell the runner checks the recording, independently of either side's opinion.
