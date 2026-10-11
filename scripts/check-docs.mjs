@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
- * Checks that the docs still describe the tests:
+ * Checks that the docs still name real tests:
  *
  * 1. Every test name quoted in the "Checked by" column of Appendix A of
  *    durable-personal-agent-spec.md names a real test. "…" stands for any
  *    text, at the start, middle or end of a name.
- * 2. Every test count the docs claim matches the suite: "runs N tests",
- *    "N tests passing", "in N files", "passes N conformance tests" (the Poppy
- *    tests), and the per-file rows of the Testing and conformance table.
+ * 2. Every scenario id and test name the Status column of the attack tables
+ *    in docs/adversarial-interop.md points at exists: a scenario file in
+ *    interop/scenarios/, or a test.
+ *
+ * The docs give no test counts, so none are checked.
  *
  * Test names come from `vitest list`, so names made by `it.each` or by a
  * loop over a table are checked as Vitest will run them. Each Vitest config
@@ -24,7 +26,6 @@ import path from "node:path";
 const root = path.resolve(import.meta.dirname, "..");
 const read = (file) => readFileSync(path.join(root, file), "utf8");
 const SPEC = "durable-personal-agent-spec.md";
-const DOCS = ["README.md", SPEC];
 
 /** The Vitest configs `npm test` runs. */
 function testConfigs() {
@@ -74,34 +75,6 @@ function pattern(quoted) {
   return new RegExp(`^${quoted.split("…").map(escape).join(".*")}$`, "s");
 }
 
-const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
-const number = (text) => (/^\d+$/.test(text) ? Number(text) : WORDS.indexOf(text.toLowerCase()));
-
-/** Test counts the docs claim, each with what it should equal. */
-function countClaims(tests) {
-  const byFile = new Map();
-  for (const test of tests) byFile.set(test.file, (byFile.get(test.file) ?? 0) + 1);
-  const claims = [];
-  for (const doc of DOCS) {
-    read(doc).split("\n").forEach((line, index) => {
-      const at = `${doc}:${index + 1}`;
-      for (const m of line.matchAll(/\bruns (\d+) tests\b|\b(\d+) tests passing\b/g)) {
-        claims.push({ at, what: "tests in all", claimed: Number(m[1] ?? m[2]), actual: tests.length });
-      }
-      for (const m of line.matchAll(/\b(\d+|[a-z]+) tests? in (\d+|[a-z]+) files\b|\btests\b[^.]*?\bin (\d+|[a-z]+) files\b/gi)) {
-        const files = number(m[2] ?? m[3]);
-        if (files >= 0) claims.push({ at, what: "test files", claimed: files, actual: byFile.size });
-      }
-      for (const m of line.matchAll(/\bpasses (\d+) conformance tests\b/g)) {
-        claims.push({ at, what: "test/poppy.test.ts tests", claimed: Number(m[1]), actual: byFile.get("test/poppy.test.ts") ?? 0 });
-      }
-      const row = /^\|\s*`(test\/[^`]+\.test\.tsx?)`\s*\|\s*(\d+)\s*\|/.exec(line);
-      if (row) claims.push({ at, what: `${row[1]} tests`, claimed: Number(row[2]), actual: byFile.get(row[1]) ?? 0 });
-    });
-  }
-  return { claims, byFile };
-}
-
 const tests = listTests();
 const problems = [];
 
@@ -143,15 +116,9 @@ for (const { at, name } of advTests) {
   }
 }
 
-const { claims, byFile } = countClaims(tests);
-for (const claim of claims) {
-  if (claim.claimed !== claim.actual) {
-    problems.push(`${claim.at}: says ${claim.claimed} ${claim.what}; there are ${claim.actual}`);
-  }
-}
-
+const files = new Set(tests.map((test) => test.file));
 console.log(
-  `${tests.length} tests in ${byFile.size} files; ${names.length} test names in Appendix A; ${claims.length} test counts in the docs; ` +
+  `${tests.length} tests in ${files.size} files; ${names.length} test names in Appendix A; ` +
     `${advScenarios.length} scenarios and ${advTests.length} tests named in ${ADVERSARIAL}.`
 );
 if (problems.length > 0) {

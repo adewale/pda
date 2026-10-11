@@ -8,7 +8,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 - **Running it under different readings.** Our conformance tests run under six readings of the questions below.
 - **Reading other implementations.** We read nine other implementations; their issues are in [poppy-issues.md](poppy-issues.md). Their disagreements are often the evidence for an issue here.
 - **A discovery-document validator** ([`src/validator/`](../src/validator)).
-- **An interop grid.** Our [harness](interop-spec.md) ran six agents against eight Companies from seven projects, in containers, through a recording proxy; [the results](interop-results/) are committed. Where two implementations that each pass alone fail together, the cause is usually one of the issues here, and the row says "Grid:".
+- **An interop grid.** Our [harness](interop-spec.md) ran six agents against eight Companies from seven projects, in containers, through a recording proxy; [a summary of the results](interop-results/README.md) is committed. Where two implementations that each pass alone fail together, the cause is usually one of the issues here, and the row says "Grid:".
 - **A full crawl of the site on 11 October 2026.**
   - The sitemap lists nine pages: home, overview, spec, extensions, Operations, guides, open topics, license, contributions.
   - There's no `llms.txt`, changelog or public source repository; the only copy of the source is in poppyseed.
