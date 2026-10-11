@@ -10,6 +10,7 @@ import {
 } from "jose";
 import { describe, expect, it } from "vitest";
 import {
+  CLOCK_HEADER,
   hostsFor,
   VIOLATION_IDS,
   violationId,
@@ -39,7 +40,6 @@ const USER_ID = "usr_Q7c1vKx9TzLw3NdR5mHa2B";
 const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code";
 const ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
-const CLOCK_HEADER = "x-test-clock-offset";
 
 function company() {
   const id = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
@@ -921,14 +921,23 @@ const TAMPERS: readonly Tamper[] = [
   },
   {
     id: "dpop.nonce-ignored",
-    what: "a proof without the nonce the server just sent",
+    what: "a proof, a second after using the nonce, without it",
     config: { requireNonce: true },
-    detail: (c) => `[dpop.nonce-ignored] DPoP: proof without the nonce ${new URL(c.hosts.tokenEndpoint).origin} already sent this key (must support nonces)`,
+    detail: (c) =>
+      `[dpop.nonce-ignored] DPoP: proof without the nonce this key already used at ${new URL(c.hosts.tokenEndpoint).origin} (must keep using nonces)`,
     run: async (c) => {
       const key = await dpopKey();
       const first = await startSession(c, key);
       expect(await first.json()).toMatchObject({ error: "use_dpop_nonce" });
-      return startSession(c, key);
+      const nonce = first.headers.get("DPoP-Nonce")!;
+      const now = seconds();
+      const withNonce = await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { nonce, claims: { iat: now } });
+      expect((await startSession(c, key, { dpop: withNonce })).status).toBe(200);
+      // Made in the same second, it may have been in flight before the nonce arrived: excused.
+      const racing = await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { iat: now } });
+      expect((await startSession(c, key, { dpop: racing })).status).toBe(400);
+      expect((await c.stub.state()).violations).toEqual([]);
+      return startSession(c, key, { dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { iat: now + 1 } }) });
     }
   },
   {
@@ -979,7 +988,7 @@ const TAMPERS: readonly Tamper[] = [
       const renewed = await startSession(c, s.key, { fields: { session_id: s.sessionId } });
       expect(renewed.status).toBe(200);
       // Three seconds later, by the mock's clock.
-      return call(c, s, "GET", `${c.hosts.api}/products`, { headers: { [CLOCK_HEADER]: "3000" } });
+      return call(c, s, "GET", `${c.hosts.api}/products`, { headers: { [CLOCK_HEADER]: String(Date.now() + 3000) } });
     }
   },
   {
@@ -1046,8 +1055,8 @@ const TAMPERS: readonly Tamper[] = [
       const key = await dpopKey();
       expect((await startSession(c, key)).status).toBe(429);
       // One second on is still too soon; two seconds on is fine.
-      expect((await startSession(c, key, { headers: { [CLOCK_HEADER]: "1000" } })).status).toBe(429);
-      expect((await startSession(c, key, { headers: { [CLOCK_HEADER]: "3100" } })).status).toBe(200);
+      expect((await startSession(c, key, { headers: { [CLOCK_HEADER]: String(Date.now() + 1000) } })).status).toBe(429);
+      expect((await startSession(c, key, { headers: { [CLOCK_HEADER]: String(Date.now() + 3100) } })).status).toBe(200);
     }
   },
   {
@@ -1815,7 +1824,7 @@ describe("the mock Company's other surfaces", () => {
     // A second later, by the mock's clock (which follows the agent's fake clock).
     const signedIn = (await (
       await form(c, c.hosts.tokenEndpoint, { grant_type: DEVICE_CODE, device_code: flow.device.device_code, session_id: flow.s.sessionId }, flow.s.key, {
-        headers: { [CLOCK_HEADER]: "1100" }
+        headers: { [CLOCK_HEADER]: String(Date.now() + 1100) }
       })
     ).json()) as { refresh_token: string; scope: string };
     expect(signedIn.scope).toBe("poppy:read");

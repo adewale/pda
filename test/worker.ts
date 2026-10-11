@@ -23,17 +23,17 @@ type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
 /**
  * Where the test agent's Poppy requests go: our own origin to our Worker
  * (so Companies can fetch our client metadata and keys), Company hosts to
- * the mock Company, anything else nowhere. Requests to the mock carry how
- * far the agent's fake clock has run ahead, so the mock keeps the same time.
+ * the mock Company, anything else nowhere. With a fake clock, requests to
+ * the mock carry its time, so the mock keeps the same time as the agent.
  */
-export function testFetcher(env: Env, clockOffset: () => number = () => 0): Fetcher {
+export function testFetcher(env: Env, clock?: () => number): Fetcher {
   return async (request) => {
     const url = new URL(request.url);
     if (url.host === "agent.test") return worker.fetch(request, env);
     const id = companyIdFromHost(url.host);
     if (id) {
       const stamped = new Request(request);
-      stamped.headers.set(CLOCK_HEADER, String(clockOffset()));
+      if (clock) stamped.headers.set(CLOCK_HEADER, String(clock()));
       return (env as TestEnv).MOCK_COMPANY.getByName(id).fetch(stamped);
     }
     return new Response("No network in tests", { status: 502 });
@@ -66,17 +66,19 @@ for (const level of ["debug", "log", "info", "warn", "error"] as const) {
 }
 
 /**
- * A test agent's fake clock: how far it has run ahead of the real one, and
- * every wait the client asked for. `sleep` returns at once and moves the
- * clock on, so a Retry-After is honoured without a real wait.
+ * A test agent's fake clock, and every wait the client asked of it. It
+ * stands still: only the client's `sleep` (which returns at once) and a
+ * test's `poppyAdvance` move it, so waits and schedules are exact. It starts
+ * an hour ahead of the real clock, so a job scheduled on it (a device poll,
+ * operation tracking) never runs on its own, only when a test advances.
  */
-type FakeClock = { offset: number; sleeps: number[] };
+type FakeClock = { now: number; sleeps: number[] };
 const clocks = new WeakMap<object, FakeClock>();
 
 function clockOf(agent: object): FakeClock {
   let clock = clocks.get(agent);
   if (!clock) {
-    clock = { offset: 0, sleeps: [] };
+    clock = { now: Date.now() + 3_600_000, sleeps: [] };
     clocks.set(agent, clock);
   }
   return clock;
@@ -111,11 +113,11 @@ export class PersonalAgent extends ProductionAgent {
   #noticeWaiters: (() => void)[] = [];
 
   protected override poppyFetcher(): Fetcher {
-    return testFetcher(this.env, () => clockOf(this).offset);
+    return testFetcher(this.env, () => clockOf(this).now);
   }
 
   protected override poppyBrowser(): PoppyBrowser {
-    return new FakeBrowser(testFetcher(this.env, () => clockOf(this).offset));
+    return new FakeBrowser(testFetcher(this.env, () => clockOf(this).now));
   }
 
   protected override poppySettings() {
@@ -125,35 +127,36 @@ export class PersonalAgent extends ProductionAgent {
       sleep: async (ms: number) => {
         const clock = clockOf(this);
         clock.sleeps.push(ms);
-        clock.offset += ms;
+        clock.now += ms;
       },
-      now: () => Date.now() + clockOf(this).offset
+      now: () => clockOf(this).now
     };
   }
 
-  /** The fake clock: how far ahead it is, and every wait the client asked for, in ms. */
+  /** The fake clock: its time, and every wait the client asked for, in ms. */
   async poppyClock(): Promise<FakeClock> {
     const clock = clockOf(this);
-    return { offset: clock.offset, sleeps: [...clock.sleeps] };
+    return { now: clock.now, sleeps: [...clock.sleeps] };
   }
 
   /**
-   * Move the fake clock on by `ms` and run every Poppy job that is now due
-   * (device polls, operation tracking, conversation reads), as the alarm
-   * would have once that much time had passed.
+   * Move the fake clock on by `ms` and run every Poppy job due by then
+   * (device polls, operation tracking), as the alarm would once that much
+   * time had passed. Conversation reads are scheduled on the real clock and
+   * run on their own.
    */
   async poppyAdvance(ms: number): Promise<void> {
     const clock = clockOf(this);
-    clock.offset += ms;
+    clock.now += ms;
     const hasJobs = this.ctx.storage.sql
       .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cf_agents_jobs'")
       .toArray().length > 0;
     if (!hasJobs) return;
-    const now = Date.now();
+    // The job queue runs on the real clock: make the jobs due by the fake one due now.
     this.ctx.storage.sql.exec(
       "UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0 AND time <= ?",
-      now,
-      now + clock.offset
+      Date.now(),
+      clock.now
     );
     await this.lifecycle.alarm();
   }

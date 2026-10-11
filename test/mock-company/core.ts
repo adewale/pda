@@ -93,12 +93,13 @@ export type Inbound = {
 };
 
 /**
- * The header the test agent's fetcher stamps on every request: how far its
- * fake clock has run ahead of the real one, in ms. The mock's clock follows
- * it, so a Retry-After the agent waited out on the fake clock has elapsed
- * here too.
+ * The header the test agent's fetcher stamps on every request: the time on
+ * its fake clock, in epoch ms. Once a request carries it, the mock's clock
+ * reads the latest such time (it stands still between them, as the agent's
+ * does), so a Retry-After the agent waited out on the fake clock has elapsed
+ * here too, and nothing else has.
  */
-export const CLOCK_HEADER = "x-test-clock-offset";
+export const CLOCK_HEADER = "x-test-clock";
 
 /** A client metadata document or JWKS a test serves at a URL instead of our Worker. */
 export type ServedDocument = { readonly status: number; readonly body: string };
@@ -187,8 +188,8 @@ export class Company {
   readonly served = new Map<string, ServedDocument>();
   /** Exchanges actually made, by account, order and item, to catch one made twice. */
   readonly exchanged = new Set<string>();
-  /** ms the test agent's fake clock is ahead of the real one. */
-  clockOffset = 0;
+  /** The latest time a request carried in `CLOCK_HEADER`, if any did. */
+  #stampedNow: number | null = null;
   readonly clients = new Map<string, ClientInfo>();
   readonly userIds = new Set<string>();
   readonly sessions = new Map<string, Session>();
@@ -197,8 +198,11 @@ export class Company {
   readonly latestToken = new Map<string, { value: string; at: number }>();
   readonly accountTokens = new Map<string, AccountToken>();
   readonly seenJtis = new Map<string, Set<string>>();
-  /** DPoP keys we've sent a nonce to, by thumbprint and server origin. */
-  readonly nonceSentTo = new Set<string>();
+  /**
+   * When each DPoP key, at each server origin, first sent the nonce: that
+   * proof's `iat`. From then on it holds the nonce and must keep using it.
+   */
+  readonly nonceHeldSince = new Map<string, number>();
   /** DPoP nonces, one for the Company or one per origin (`nonceScope`). */
   readonly #nonces = new Map<string, string>();
   /** One-time codes we've "sent" to Users, for the secret scan. */
@@ -226,9 +230,14 @@ export class Company {
     this.hosts = hostsFor(this.id, { issuerTrailingSlash: config.issuerTrailingSlash });
   }
 
-  /** Now, by the test agent's fake clock: for comparing when requests arrive. */
+  /**
+   * Now, for comparing when requests arrive (rate limits, device polling,
+   * token age): the test agent's fake clock once it has stamped a request,
+   * the real clock until then. JWT times are always checked on the real
+   * clock, since the agent signs with it.
+   */
   now(): number {
-    return Date.now() + this.clockOffset;
+    return this.#stampedNow ?? Date.now();
   }
 
   /** Record a violation; `id` names the check (see `violations.ts`). */
@@ -238,8 +247,10 @@ export class Company {
 
   /** Log a request as it arrives; the response fills in `status` and `error`. */
   log(inbound: Inbound, bodyKeys: string[]): { -readonly [K in keyof MockRequest]: MockRequest[K] } {
-    const stamped = Number(inbound.request.headers.get(CLOCK_HEADER) ?? "0");
-    if (Number.isFinite(stamped) && stamped > this.clockOffset) this.clockOffset = stamped;
+    const stamped = Number(inbound.request.headers.get(CLOCK_HEADER) ?? "");
+    if (inbound.request.headers.has(CLOCK_HEADER) && Number.isFinite(stamped)) {
+      this.#stampedNow = Math.max(stamped, this.#stampedNow ?? 0);
+    }
     const headers: Record<string, string> = {};
     inbound.request.headers.forEach((value, name) => {
       if (name === "authorization") headers[name] = `${value.split(" ")[0]} <redacted>`;
@@ -724,15 +735,25 @@ export class Company {
       throw fail("invalid_dpop_proof", "ath doesn't match the token", "dpop.ath");
     }
     const jkt = await calculateJwkThumbprint(jwk);
-    if (this.config.requireNonce && claims.nonce !== this.nonceFor(origin)) {
-      // Nonces belong to a server (RFC 9449; Guides: "keep it for that server"),
-      // so only a server that already sent this key a nonce can expect it back.
-      const sentTo = `${jkt}|${origin}`;
-      if (claims.nonce === undefined && this.nonceSentTo.has(sentTo)) {
-        this.violation("dpop.nonce-ignored", `DPoP: proof without the nonce ${origin} already sent this key (must support nonces)`);
+    if (this.config.requireNonce) {
+      // Nonces belong to a server (RFC 9449; Guides: "keep it for that server").
+      const holder = `${jkt}|${origin}`;
+      const since = this.nonceHeldSince.get(holder);
+      if (claims.nonce === this.nonceFor(origin)) {
+        if (since === undefined) this.nonceHeldSince.set(holder, claims.iat);
+      } else {
+        // Dropping a nonce this key already used here is a violation. A proof
+        // made in the same second may have been in flight before the nonce
+        // arrived (two requests racing to a server new to this key), so only
+        // a later one counts.
+        if (claims.nonce === undefined && since !== undefined && claims.iat > since) {
+          this.violation(
+            "dpop.nonce-ignored",
+            `DPoP: proof without the nonce this key already used at ${origin} (must keep using nonces)`
+          );
+        }
+        throw fail("use_dpop_nonce", "nonce required", null);
       }
-      this.nonceSentTo.add(sentTo);
-      throw fail("use_dpop_nonce", "nonce required", null);
     }
     return jkt;
   }

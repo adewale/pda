@@ -91,7 +91,7 @@ export const VIOLATIONS = {
   "dpop.iat": "DPoP proof iat is outside the acceptance window",
   "dpop.ath-at-token-endpoint": "DPoP proof at the token endpoint carries ath",
   "dpop.ath": "DPoP proof ath isn't the hash of the token sent",
-  "dpop.nonce-ignored": "DPoP proof without the nonce this server already sent this key",
+  "dpop.nonce-ignored": "DPoP proof without the nonce this key already used at this server",
   "dpop.key-mismatch": "DPoP proof key isn't the key the token is bound to",
 
   // ---- Session Tokens on resources (4.3, 6) ----
