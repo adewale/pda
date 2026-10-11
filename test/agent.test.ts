@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { abortAllDurableObjects, evictDurableObject } from "cloudflare:test";
+import { evictDurableObject } from "cloudflare:test";
 import { createAI } from "agents/models/pi-ai";
 import { describe, expect, it } from "vitest";
 import type { Provider } from "../src/config";
@@ -13,105 +13,21 @@ import {
 } from "../src/session";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../src/view";
 import { grantCode, type Grant } from "./fake-providers";
-import worker from "./worker";
-
-const ORIGIN = "https://agent.example.com";
+import {
+  chat,
+  connect,
+  cookiePair,
+  fetchWorker,
+  follow,
+  ORIGIN,
+  person,
+  sessionCookie,
+  wsRequest
+} from "./agent-helpers";
 
 /** Test GitHub accounts on the allowlist in test/wrangler.jsonc. */
 const OCTO = "4242";
 const HUBOT = "4343";
-
-/** A Google Workspace account at an allowlisted domain, or an allowlisted GitHub id. */
-function person(sub = `user-${crypto.randomUUID()}`, provider: Provider = "google"): Identity {
-  return provider === "google"
-    ? { provider, sub, email: `${sub}@workspace.example`, domain: "workspace.example" }
-    : { provider, sub, email: `${sub}@example.com`, domain: null };
-}
-
-/** `name=value` from a `Set-Cookie` header, ready for a `Cookie` header. */
-function cookiePair(setCookie: string): string {
-  return setCookie.split(";")[0]!;
-}
-
-async function sessionCookie(identity: Identity, now?: number): Promise<string> {
-  return cookiePair(await createSession(identity, env.SESSION_SECRET, now));
-}
-
-function wsRequest(
-  init: { cookie?: string; origin?: string; upgrade?: boolean; query?: string } = {}
-): Request {
-  const headers = new Headers();
-  if (init.upgrade !== false) headers.set("Upgrade", "websocket");
-  headers.set("Origin", init.origin ?? ORIGIN);
-  if (init.cookie) headers.set("Cookie", init.cookie);
-  return new Request(`${ORIGIN}/ws${init.query ?? ""}`, { headers });
-}
-
-async function fetchWorker(request: Request, overrides: Partial<Env> = {}) {
-  return worker.fetch(request, { ...env, ...overrides });
-}
-
-/** Folds every `events` frame into a view, as the browser hook does. */
-function follow(socket: WebSocket) {
-  let view: PiSessionView = EMPTY_VIEW;
-  const frames: Array<PiServerMessage | { type: string; name?: string }> = [];
-  const waiters: Array<() => void> = [];
-  socket.addEventListener("message", (event) => {
-    if (typeof event.data !== "string") return;
-    const message = JSON.parse(event.data) as PiServerMessage | { type: string };
-    frames.push(message);
-    if (message.type === "events") {
-      view = reduceEvents(
-        view,
-        (message as Extract<PiServerMessage, { type: "events" }>).events
-      );
-    }
-    for (const waiter of waiters.splice(0)) waiter();
-  });
-  const until = async (check: () => boolean) => {
-    for (let i = 0; i < 500 && !check(); i++) {
-      await new Promise<void>((resolve) => {
-        waiters.push(resolve);
-        setTimeout(resolve, 20);
-      });
-    }
-    if (!check()) throw new Error("Condition never held");
-  };
-  const texts = () =>
-    view.messages.flatMap((message) =>
-      message.parts.flatMap((part) =>
-        part.type === "text" ? [`${message.role}: ${part.text}`] : []
-      )
-    );
-  return { view: () => view, frames, until, texts };
-}
-
-async function connect(identity: Identity | string, query = "") {
-  const cookie = typeof identity === "string" ? identity : await sessionCookie(identity);
-  const response = await fetchWorker(wsRequest({ cookie, query }));
-  expect(response.status).toBe(101);
-  const socket = response.webSocket!;
-  socket.accept();
-  const client = follow(socket);
-  await client.until(() => client.frames.some((f) => f.type === "events"));
-  return { socket, client };
-}
-
-async function chat(
-  socket: WebSocket,
-  client: ReturnType<typeof follow>,
-  text: string,
-  expected?: string
-) {
-  socket.send(JSON.stringify({ type: "submit", id: crypto.randomUUID(), input: text }));
-  // Without an expected answer, any turn number will do: the agent may have history.
-  await client.until(() =>
-    expected === undefined
-      ? client.texts().some((t) => t.startsWith(`assistant: echo: ${text} (turn `))
-      : client.texts().includes(`assistant: ${expected}`)
-  );
-  await client.until(() => !client.view().running);
-}
 
 /** Who agrees on the provider's consent page, and how the provider answers for them. */
 type Consent = Omit<Grant, "clientId" | "redirectUri" | "challenge" | "challengeMethod">;
@@ -308,24 +224,6 @@ describe("the conversation", () => {
     expect(github.client.texts().join("\n")).not.toContain(marker);
     google.socket.close();
     github.socket.close();
-  });
-
-  it("brings the whole history back after a reconnect and a crash", async () => {
-    const identity = person();
-    const first = await connect(identity);
-    await chat(first.socket, first.client, "one", "echo: one (turn 1)");
-    first.socket.close();
-
-    const second = await connect(identity);
-    expect(second.client.texts()).toEqual(["user: one", "assistant: echo: one (turn 1)"]);
-    second.socket.close();
-
-    await abortAllDurableObjects();
-
-    const third = await connect(identity);
-    expect(third.client.texts()).toEqual(["user: one", "assistant: echo: one (turn 1)"]);
-    await chat(third.socket, third.client, "two", "echo: two (turn 2)");
-    third.socket.close();
   });
 
   it("answers on an open socket after the object is evicted", async () => {
