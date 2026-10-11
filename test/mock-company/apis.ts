@@ -122,7 +122,7 @@ export class Apis {
     if (co.config.requireOperationsExtension) {
       throw new HttpError(json({ error: "extension_required", extension: "operations" }, 403));
     }
-    co.performs += 1;
+    co.performExchange(context.account, "direct API call");
     return {
       status: 201,
       body: { exchange: { exchange_id: randomId("exc_", 6), order_id: "ord_7Hk2", state: "placed" } }
@@ -157,7 +157,7 @@ export class Apis {
         const seen = this.#idempotency.get(scoped);
         if (seen) {
           if (seen.hash !== inbound.bodyText) {
-            co.violation("Idempotency-Key reused with a different body");
+            co.violation("idempotency.key-reused", `Idempotency-Key ${key} reused with a different body`);
             return json({ error: "idempotency_key_conflict" }, 409);
           }
           return json(seen.body, seen.status);
@@ -189,7 +189,7 @@ export class Apis {
     if (inbound.request.method !== "POST") return new Response(null, { status: 405 });
     const accept = inbound.request.headers.get("Accept") ?? "";
     if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
-      co.violation("MCP request must Accept application/json and text/event-stream");
+      co.violation("mcp.accept", `MCP request must Accept application/json and text/event-stream, got ${JSON.stringify(accept)}`);
     }
     let context: ResourceContext;
     try {

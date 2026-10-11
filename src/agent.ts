@@ -115,7 +115,12 @@ export class PersonalAgent extends DurableObject<Env> {
   }
 
   /** Timings tests shorten. */
-  protected poppySettings(): { readWaitSeconds: number; idleReadMs?: number; sleep?: (ms: number) => Promise<void> } {
+  protected poppySettings(): {
+    readWaitSeconds: number;
+    idleReadMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+  } {
     return { readWaitSeconds: 20 };
   }
 

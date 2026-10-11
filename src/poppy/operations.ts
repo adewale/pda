@@ -230,7 +230,7 @@ async function update(client: PoppyClient, company: Company, value: Json): Promi
   if (operation.state === "in_progress") {
     await client.host.schedule(
       "poppy-operation",
-      Date.now() + 5_000,
+      client.host.now() + 5_000,
       { issuer: company.issuer, id: operation.operation_id },
       `op-${company.issuer}-${operation.operation_id}`
     );
@@ -291,7 +291,7 @@ export async function confirm(client: PoppyClient, issuer: string, operationId: 
       const retryAfter = Number(headers.get("Retry-After") ?? "5");
       await client.host.schedule(
         "poppy-operation",
-        Date.now() + Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5) * 1000,
+        client.host.now() + Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5) * 1000,
         { issuer, id: operationId },
         `op-${issuer}-${operationId}`
       );
@@ -299,7 +299,7 @@ export async function confirm(client: PoppyClient, issuer: string, operationId: 
   } catch (error) {
     if (!(error instanceof PoppyError)) {
       // A timeout or network failure: read or confirm again with the same id later (Ops 6).
-      await client.host.schedule("poppy-operation", Date.now() + 5_000, { issuer, id: operationId }, `op-${issuer}-${operationId}`);
+      await client.host.schedule("poppy-operation", client.host.now() + 5_000, { issuer, id: operationId }, `op-${issuer}-${operationId}`);
       return;
     }
     if (error.code === "terms_changed") {
@@ -326,7 +326,7 @@ export async function confirm(client: PoppyClient, issuer: string, operationId: 
       return;
     }
     if (error.code === "rate_limited") {
-      await client.host.schedule("poppy-operation", Date.now() + (error.detail.retryAfter ?? 30) * 1000, { issuer, id: operationId }, `op-${issuer}-${operationId}`);
+      await client.host.schedule("poppy-operation", client.host.now() + (error.detail.retryAfter ?? 30) * 1000, { issuer, id: operationId }, `op-${issuer}-${operationId}`);
       return;
     }
     releasePermission(client, row);
@@ -374,10 +374,10 @@ export async function trackOperation(client: PoppyClient, issuer: string, operat
     );
   } catch (error) {
     if (error instanceof PoppyError && error.code === "rate_limited") {
-      return Date.now() + (error.detail.retryAfter ?? 30) * 1000;
+      return client.host.now() + (error.detail.retryAfter ?? 30) * 1000;
     }
     if (error instanceof PoppyError && error.code === "operation_not_found") return null;
-    return Date.now() + 30_000;
+    return client.host.now() + 30_000;
   }
   const operation = await update(client, company, response.body);
   if (!operation) return null;
@@ -387,7 +387,7 @@ export async function trackOperation(client: PoppyClient, issuer: string, operat
   }
   if (operation.state === "in_progress") {
     const retryAfter = Number(response.headers.get("Retry-After") ?? "5");
-    return Date.now() + Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5) * 1000;
+    return client.host.now() + Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5) * 1000;
   }
   return null;
 }

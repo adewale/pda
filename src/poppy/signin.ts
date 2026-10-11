@@ -159,7 +159,7 @@ export async function startSignIn(
     }
     const interval = typeof body.interval === "number" && body.interval > 0 ? body.interval : 5;
     const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 600;
-    const expiresAt = Date.now() + expiresIn * 1000;
+    const expiresAt = client.host.now() + expiresIn * 1000;
     // `device_code` stays private: sealed at rest, never shown (spec 4.6).
     insert(
       await client.sealer.seal(JSON.stringify({ device_code: body.device_code }), sealContext(base)),
@@ -182,7 +182,7 @@ export async function startSignIn(
       scopes: info,
       reason: request.reason
     });
-    await client.host.schedule("poppy-device", Date.now() + interval * 1000, { id }, `device-${id}`);
+    await client.host.schedule("poppy-device", client.host.now() + interval * 1000, { id }, `device-${id}`);
   } else {
     insert(await client.sealer.seal("{}", sealContext(base)), null, null, Date.now() + SIGN_IN_TTL_MS);
     await client.host.showCard({
@@ -293,7 +293,7 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
 export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise<number | null> {
   const row = signIn(client, id);
   if (!row || row.status !== "pending") return null;
-  if (row.expires_at <= Date.now()) {
+  if (row.expires_at <= client.host.now()) {
     await finish(client, row, { ok: false, message: "the code expired before the User approved" });
     return null;
   }
@@ -313,12 +313,12 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
   } catch (error) {
     if (!(error instanceof PoppyError)) throw error;
     const interval = row.interval_seconds ?? 5;
-    if (error.code === "authorization_pending") return Date.now() + interval * 1000;
+    if (error.code === "authorization_pending") return client.host.now() + interval * 1000;
     if (error.code === "slow_down") {
       client.sql.exec("UPDATE poppy_signins SET interval_seconds = ? WHERE id = ?", interval + 5, id);
-      return Date.now() + (interval + 5) * 1000;
+      return client.host.now() + (interval + 5) * 1000;
     }
-    if (error.code === "rate_limited") return Date.now() + (error.detail.retryAfter ?? interval) * 1000;
+    if (error.code === "rate_limited") return client.host.now() + (error.detail.retryAfter ?? interval) * 1000;
     const message =
       error.code === "access_denied"
         ? "the User declined"

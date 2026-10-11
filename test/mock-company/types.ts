@@ -73,6 +73,23 @@ export type MockConfig = {
    * at those Companies, so breaches are recorded as violations.
    */
   readonly strictAssertions: boolean;
+  /**
+   * What a client assertion's `aud` may be, which the draft never says
+   * (docs/poppy-issues.md, S1). "lenient" accepts the endpoint called, the
+   * token endpoint or the issuer; "exact" only the endpoint called.
+   */
+  readonly clientAssertionAud: "lenient" | "exact";
+  /**
+   * With `requireNonce`, which servers share a DPoP nonce (S23): one value
+   * for every origin of the Company, or a different value per origin.
+   */
+  readonly nonceScope: "company" | "origin";
+  /** The issuer ends in a slash (`https://auth.<domain>/`), compared exactly (S7). */
+  readonly issuerTrailingSlash: boolean;
+  /** The exchange's price difference, in its proposal's terms. */
+  readonly exchangePrice: { readonly amount: string; readonly currency: string };
+  /** Overrides the OpenAPI entry's `url` in poppy.json. */
+  readonly openapiUrlOverride: string | null;
   /** Revocation ends Sessions instead of leaving them signed out. */
   readonly endSessionsOnSignOut: boolean;
   /**
@@ -130,6 +147,11 @@ export const DEFAULT_CONFIG: MockConfig = {
   deviceExpiresIn: 600,
   rateLimit: { tokenRequests429: 0, requests429: 0, retryAfterSeconds: 1 },
   strictAssertions: true,
+  clientAssertionAud: "lenient",
+  nonceScope: "company",
+  issuerTrailingSlash: false,
+  exchangePrice: { amount: "70.00", currency: "USD" },
+  openapiUrlOverride: null,
   endSessionsOnSignOut: false,
   endedSessionError: "invalid_token",
   streaming: true,
@@ -155,15 +177,32 @@ export const DEFAULT_CONFIG: MockConfig = {
   ]
 };
 
+/** One request the mock received, with secrets redacted. */
+export type MockRequest = {
+  readonly method: string;
+  readonly url: string;
+  /** Header values; `dpop` and `cookie` read "<present>", `authorization` its scheme only. */
+  readonly headers: Record<string, string>;
+  readonly bodyKeys: string[];
+  /** `grant_type` of a form body, if any. */
+  readonly grant: string | null;
+  /** The DPoP proof's `nonce`, if it had one. */
+  readonly proofNonce: string | null;
+  /** When it arrived, by the mock's clock (which follows the test agent's fake clock). */
+  readonly at: number;
+  /** The response status. */
+  readonly status: number;
+  /** The `error` the response carried, from `WWW-Authenticate` or the JSON body. */
+  readonly error: string | null;
+};
+
 /** What a test can read back. JSON-safe and shallow. */
 export type MockState = {
+  /** `[id] detail`, ids from `VIOLATIONS`. */
   readonly violations: string[];
-  readonly requests: {
-    readonly method: string;
-    readonly url: string;
-    readonly headers: Record<string, string>;
-    readonly bodyKeys: string[];
-  }[];
+  readonly requests: MockRequest[];
+  /** `token_type_hint` of each revocation request, or null when absent (RFC 7009 makes it optional). */
+  readonly revocationHints: (string | null)[];
   readonly userIds: string[];
   readonly clientIds: string[];
   readonly sessions: {
@@ -217,23 +256,23 @@ export type Hosts = {
   readonly browserSessionEndpoint: string;
 };
 
-export function hostsFor(id: string): Hosts {
+export function hostsFor(id: string, options: { issuerTrailingSlash?: boolean } = {}): Hosts {
   const domain = `${id}.shop.test`;
-  const issuer = `https://auth.${domain}`;
+  const auth = `https://auth.${domain}`;
   const api = `https://api.${domain}`;
   return {
     id,
     domain,
     altDomain: `${id}.shop-uk.test`,
-    issuer,
+    issuer: options.issuerTrailingSlash ? `${auth}/` : auth,
     api,
     mcpUrl: `https://mcp.${domain}/mcp`,
     web: `https://${domain}`,
-    tokenEndpoint: `${issuer}/oauth/token`,
-    revocationEndpoint: `${issuer}/oauth/revoke`,
-    authorizationEndpoint: `${issuer}/oauth/authorize`,
-    deviceEndpoint: `${issuer}/oauth/device`,
-    mediatedEndpoint: `${issuer}/poppy/sign-in`,
+    tokenEndpoint: `${auth}/oauth/token`,
+    revocationEndpoint: `${auth}/oauth/revoke`,
+    authorizationEndpoint: `${auth}/oauth/authorize`,
+    deviceEndpoint: `${auth}/oauth/device`,
+    mediatedEndpoint: `${auth}/poppy/sign-in`,
     conversationsEndpoint: `${api}/poppy/conversations`,
     operationsEndpoint: `${api}/poppy/operations`,
     browserSessionEndpoint: `https://${domain}/poppy/browser-session`

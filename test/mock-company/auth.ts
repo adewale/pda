@@ -70,7 +70,7 @@ export class AuthServer {
   #form(inbound: Inbound): URLSearchParams {
     const type = inbound.request.headers.get("Content-Type") ?? "";
     if (!type.startsWith("application/x-www-form-urlencoded")) {
-      this.company.violation(`${inbound.url.pathname} sent as ${type}, not a form`);
+      this.company.violation("form.not-form", `${inbound.url.pathname} sent as ${JSON.stringify(type)}, not a form`);
       throw oauthError(400, "invalid_request", "expected a form body");
     }
     return new URLSearchParams(inbound.bodyText);
@@ -83,7 +83,7 @@ export class AuthServer {
   /** Each sign-in MUST include `scope`; unknown or unavailable scopes are refused (4.4). */
   #checkScopes(type: "direct" | "device" | "mediated", raw: string | null): string[] {
     if (raw === null || raw.trim() === "") {
-      this.company.violation(`${type} sign-in without scope`);
+      this.company.violation("signin.no-scope", `${type} sign-in without scope`);
       throw oauthError(400, "invalid_scope", "scope is required");
     }
     const scope = parseScope(raw);
@@ -108,7 +108,7 @@ export class AuthServer {
     if (inbound.request.headers.get("DPoP")) {
       jkt = await co.verifyDpop(inbound, undefined);
     } else if (resource !== co.hosts.mcpUrl || (grant !== JWT_BEARER && grant !== "refresh_token")) {
-      co.violation(`token request (${grant}) without a DPoP proof`);
+      co.violation("token.no-dpop", `token request (${grant}) without a DPoP proof`);
       throw oauthError(400, "invalid_dpop_proof", "DPoP proof required", {
         "WWW-Authenticate": 'DPoP error="invalid_dpop_proof"'
       });
@@ -119,7 +119,7 @@ export class AuthServer {
     if (jkt === null && resource === co.hosts.mcpUrl) {
       // Bearer is fine; DPoP plus the MCP resource would make a token MCP can't use.
     } else if (jkt !== null && resource === co.hosts.mcpUrl) {
-      co.violation("asked for a DPoP-bound token for the MCP server; MCP uses Bearer");
+      co.violation("token.mcp-dpop", "asked for a DPoP-bound token for the MCP server; MCP uses Bearer");
     }
     const binding = { jkt, resource };
     switch (grant) {
@@ -156,7 +156,10 @@ export class AuthServer {
       this.#session(client, form.get("session_id"), userId) ?? co.newSession(client.clientId, userId);
     if (session.account) {
       // A signed-in Session is renewed with the Account Token (4.2).
-      co.violation("renewed a signed-in Session with the assertion instead of the Account Token");
+      co.violation(
+        "token.signed-in-renewed-with-assertion",
+        "renewed a signed-in Session with the assertion instead of the Account Token"
+      );
     }
     const access = co.issueAccess(
       { ...session, account: null } as Session,
@@ -171,11 +174,11 @@ export class AuthServer {
     const token = value ? co.accountTokens.get(value) : undefined;
     if (!token) throw oauthError(400, "invalid_grant", "unknown Account Token");
     if (token.clientId !== client.clientId) {
-      co.violation("Account Token used by a different client_id");
+      co.violation("account-token.other-client", "Account Token used by a different client_id");
       throw oauthError(400, "invalid_grant");
     }
     if (token.rotated) {
-      co.violation("used an Account Token after the Company rotated it (4.8)");
+      co.violation("account-token.rotated-reused", "used an Account Token after the Company rotated it (4.8)");
       throw oauthError(400, "invalid_grant", "Account Token was rotated");
     }
     if (token.revoked || (token.expiresAt !== null && token.expiresAt <= Date.now())) {
@@ -225,23 +228,23 @@ export class AuthServer {
       throw oauthError(400, "invalid_grant", "code expired or unknown");
     }
     if (code.used) {
-      co.violation("authorization code used twice");
+      co.violation("code.reused", "authorization code used twice");
       throw oauthError(400, "invalid_grant", "code already used");
     }
     code.used = true;
     if (code.clientId !== client.clientId) throw oauthError(400, "invalid_grant");
     if (form.get("redirect_uri") !== code.redirectUri) {
-      co.violation("redirect_uri at the token endpoint differs from the authorization request");
+      co.violation("code.redirect-uri", "redirect_uri at the token endpoint differs from the authorization request");
       throw oauthError(400, "invalid_grant");
     }
     const verifier = form.get("code_verifier");
     if (!verifier || (await sha256b64(verifier)) !== code.challenge) {
-      co.violation("PKCE code_verifier doesn't match the challenge");
+      co.violation("code.pkce", "PKCE code_verifier doesn't match the challenge");
       throw oauthError(400, "invalid_grant");
     }
     const sessionId = form.get("session_id");
     if (!sessionId) {
-      co.violation("authorization code exchanged without session_id (4.5)");
+      co.violation("code.no-session-id", "authorization code exchanged without session_id (4.5)");
       throw oauthError(400, "invalid_request", "session_id is required");
     }
     const session = co.sessions.get(sessionId);
@@ -263,21 +266,30 @@ export class AuthServer {
     if (!device || device.clientId !== client.clientId) {
       throw oauthError(400, "invalid_grant", "unknown device_code");
     }
-    const now = Date.now();
+    // Polling is timed by the test agent's fake clock.
+    const now = co.now();
     if (device.status === "denied" || device.status === "done") {
       if (device.status === "done" || device.lastPoll < 0) {
-        co.violation(`kept polling after ${device.status === "done" ? "completion" : "access_denied"}`);
+        co.violation(
+          "device.polled-after-final",
+          `kept polling after ${device.status === "done" ? "completion" : "access_denied"}`
+        );
       }
       device.lastPoll = -1;
       throw oauthError(400, device.status === "done" ? "invalid_grant" : "access_denied");
     }
     if (device.expiresAt <= now) {
-      if (device.lastPoll < 0) co.violation("kept polling after expired_token");
+      if (device.lastPoll < 0) co.violation("device.polled-after-expiry", "kept polling after expired_token");
       device.lastPoll = -1;
       throw oauthError(400, "expired_token");
     }
     if (device.lastPoll > 0 && now - device.lastPoll < device.interval * 1000 - 250) {
-      if (device.slowedDown) co.violation("polled faster than the interval after slow_down");
+      if (device.slowedDown) {
+        co.violation(
+          "device.too-fast",
+          `polled ${now - device.lastPoll} ms after the last poll, under the ${device.interval} s interval after slow_down`
+        );
+      }
       device.slowedDown = true;
       device.interval += 5;
       device.lastPoll = now;
@@ -287,7 +299,7 @@ export class AuthServer {
     if (device.status === "pending") throw oauthError(400, "authorization_pending");
     const sessionId = form.get("session_id");
     if (!sessionId) {
-      co.violation("device code exchanged without session_id");
+      co.violation("device.no-session-id", "device code exchanged without session_id");
       throw oauthError(400, "invalid_request", "session_id is required");
     }
     const session = co.sessions.get(sessionId);
@@ -307,9 +319,8 @@ export class AuthServer {
     co.rateLimit("token", inbound);
     const form = this.#form(inbound);
     const client = await co.authenticateClient(form, co.hosts.revocationEndpoint);
-    if (form.get("token_type_hint") !== "refresh_token") {
-      co.violation("revocation without token_type_hint=refresh_token");
-    }
+    // RFC 7009 makes the hint optional: recorded, never required.
+    co.revocationHints.push(form.get("token_type_hint"));
     const token = co.accountTokens.get(form.get("token") ?? "");
     // RFC 7009: unknown tokens still get 200.
     if (token && token.clientId === client.clientId) this.revokeToken(token.value);
@@ -358,7 +369,7 @@ export class AuthServer {
     }
     const redirectUri = params.get("redirect_uri") ?? "";
     if (!client.redirectUris.includes(redirectUri)) {
-      co.violation(`redirect_uri ${redirectUri} isn't an exact registered redirect_uri`);
+      co.violation("authorize.redirect-uri", `redirect_uri ${redirectUri} isn't an exact registered redirect_uri`);
       return page(400, "redirect_uri doesn't match");
     }
     const state = params.get("state");
@@ -371,15 +382,15 @@ export class AuthServer {
     };
     if (params.get("response_type") !== "code") return redirectError("unsupported_response_type");
     if (!state) {
-      co.violation("authorization request without state");
+      co.violation("authorize.no-state", "authorization request without state");
       return redirectError("invalid_request");
     }
     if (params.get("code_challenge_method") !== "S256" || !params.get("code_challenge")) {
-      co.violation("authorization request without PKCE S256");
+      co.violation("authorize.no-pkce", "authorization request without PKCE S256");
       return redirectError("invalid_request");
     }
     for (const name of ["access_token", "refresh_token", "assertion", "client_assertion"]) {
-      if (params.has(name)) co.violation(`${name} in the authorization URL`);
+      if (params.has(name)) co.violation("authorize.secret-in-url", `${name} in the authorization URL`);
     }
     let scope: string[];
     try {
@@ -471,7 +482,7 @@ export class AuthServer {
       userCode: `${pick()}-${pick()}`,
       clientId: client.clientId,
       scope,
-      expiresAt: Date.now() + co.config.deviceExpiresIn * 1000,
+      expiresAt: co.now() + co.config.deviceExpiresIn * 1000,
       interval: co.config.deviceInterval,
       lastPoll: 0,
       status: "pending",
@@ -480,7 +491,7 @@ export class AuthServer {
       slowedDown: false
     };
     this.#devices.set(device.deviceCode, device);
-    const verification = `${co.hosts.issuer}/device`;
+    const verification = new URL("/device", co.hosts.tokenEndpoint).href;
     return json(
       {
         device_code: device.deviceCode,
@@ -541,7 +552,7 @@ export class AuthServer {
     const credentials = body.credentials ?? {};
     for (const field of ["email", "password"]) {
       if (typeof credentials[field] !== "string") {
-        co.violation(`mediated sign-in missing field ${field}`);
+        co.violation("mediated.missing-field", `mediated sign-in missing field ${field}`);
       }
     }
     if (++this.#mediatedAttempts > 20) {
@@ -609,7 +620,7 @@ export class AuthServer {
     }
     const body = JSON.parse(inbound.bodyText || "{}") as Record<string, unknown>;
     if ("credentials" in body || "password" in body || "email" in body) {
-      co.violation("credentials resent with the one-time code (4.7: submit only the code)");
+      co.violation("mediated.credentials-with-code", "credentials resent with the one-time code (4.7: submit only the code)");
     }
     if (signIn.expiresAt <= Date.now()) {
       signIn.finished = true;

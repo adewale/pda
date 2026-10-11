@@ -13,25 +13,73 @@ import worker from "../src/index";
 import type { PoppyBrowser } from "../src/poppy/browser";
 import type { Fetcher } from "../src/poppy/fetch";
 import { readConversation } from "../src/poppy/conversations";
+import { Sealer } from "../src/poppy/store";
 import { poppyExtension } from "../src/poppy/tools";
 import { FakeBrowser } from "./fake-browser";
-import { companyIdFromHost, type MockCompany } from "./mock-company";
+import { CLOCK_HEADER, companyIdFromHost, type MockCompany } from "./mock-company";
 
 type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
 
 /**
  * Where the test agent's Poppy requests go: our own origin to our Worker
  * (so Companies can fetch our client metadata and keys), Company hosts to
- * the mock Company, anything else nowhere.
+ * the mock Company, anything else nowhere. Requests to the mock carry how
+ * far the agent's fake clock has run ahead, so the mock keeps the same time.
  */
-export function testFetcher(env: Env): Fetcher {
+export function testFetcher(env: Env, clockOffset: () => number = () => 0): Fetcher {
   return async (request) => {
     const url = new URL(request.url);
     if (url.host === "agent.test") return worker.fetch(request, env);
     const id = companyIdFromHost(url.host);
-    if (id) return (env as TestEnv).MOCK_COMPANY.getByName(id).fetch(request);
+    if (id) {
+      const stamped = new Request(request);
+      stamped.headers.set(CLOCK_HEADER, String(clockOffset()));
+      return (env as TestEnv).MOCK_COMPANY.getByName(id).fetch(stamped);
+    }
     return new Response("No network in tests", { status: 502 });
   };
+}
+
+/**
+ * Everything written to the console in this isolate, where the test agents
+ * and the mock Companies run, so tests can check a secret never reached a log.
+ */
+const logs: string[] = [];
+for (const level of ["debug", "log", "info", "warn", "error"] as const) {
+  const original = console[level].bind(console);
+  console[level] = (...args: unknown[]) => {
+    logs.push(
+      args
+        .map((arg) => {
+          if (typeof arg === "string") return arg;
+          if (arg instanceof Error) return `${arg.name}: ${arg.message}\n${arg.stack ?? ""}`;
+          try {
+            return JSON.stringify(arg);
+          } catch {
+            return String(arg);
+          }
+        })
+        .join(" ")
+    );
+    original(...args);
+  };
+}
+
+/**
+ * A test agent's fake clock: how far it has run ahead of the real one, and
+ * every wait the client asked for. `sleep` returns at once and moves the
+ * clock on, so a Retry-After is honoured without a real wait.
+ */
+type FakeClock = { offset: number; sleeps: number[] };
+const clocks = new WeakMap<object, FakeClock>();
+
+function clockOf(agent: object): FakeClock {
+  let clock = clocks.get(agent);
+  if (!clock) {
+    clock = { offset: 0, sleeps: [] };
+    clocks.set(agent, clock);
+  }
+  return clock;
 }
 
 function textOf(content: Message["content"] | undefined): string {
@@ -59,16 +107,55 @@ function script(context: TranscriptContext): AssistantMessage {
 
 /** The production agent with pi-ai's faux provider in place of AI Gateway. */
 export class PersonalAgent extends ProductionAgent {
+  /** Woken whenever the model is told something. */
+  #noticeWaiters: (() => void)[] = [];
+
   protected override poppyFetcher(): Fetcher {
-    return testFetcher(this.env);
+    return testFetcher(this.env, () => clockOf(this).offset);
   }
 
   protected override poppyBrowser(): PoppyBrowser {
-    return new FakeBrowser(testFetcher(this.env));
+    return new FakeBrowser(testFetcher(this.env, () => clockOf(this).offset));
   }
 
   protected override poppySettings() {
-    return { readWaitSeconds: 1, idleReadMs: 500 };
+    return {
+      readWaitSeconds: 1,
+      idleReadMs: 500,
+      sleep: async (ms: number) => {
+        const clock = clockOf(this);
+        clock.sleeps.push(ms);
+        clock.offset += ms;
+      },
+      now: () => Date.now() + clockOf(this).offset
+    };
+  }
+
+  /** The fake clock: how far ahead it is, and every wait the client asked for, in ms. */
+  async poppyClock(): Promise<FakeClock> {
+    const clock = clockOf(this);
+    return { offset: clock.offset, sleeps: [...clock.sleeps] };
+  }
+
+  /**
+   * Move the fake clock on by `ms` and run every Poppy job that is now due
+   * (device polls, operation tracking, conversation reads), as the alarm
+   * would have once that much time had passed.
+   */
+  async poppyAdvance(ms: number): Promise<void> {
+    const clock = clockOf(this);
+    clock.offset += ms;
+    const hasJobs = this.ctx.storage.sql
+      .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cf_agents_jobs'")
+      .toArray().length > 0;
+    if (!hasJobs) return;
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      "UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0 AND time <= ?",
+      now,
+      now + clock.offset
+    );
+    await this.lifecycle.alarm();
   }
 
   /** Records what the model is told, then tells it, as production does. */
@@ -77,7 +164,56 @@ export class PersonalAgent extends ProductionAgent {
       "CREATE TABLE IF NOT EXISTS test_notices (seq INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, operation_id TEXT)"
     );
     this.ctx.storage.sql.exec("INSERT INTO test_notices (text, operation_id) VALUES (?, ?)", text, operationId);
+    const waiters = this.#noticeWaiters;
+    this.#noticeWaiters = [];
+    for (const wake of waiters) wake();
     await super.poppyNotify(text, operationId);
+  }
+
+  /** The first notice to the model containing `fragment`: now, or as soon as it's sent. */
+  async poppyWaitForNotice(fragment: string, timeoutMs = 15_000): Promise<string> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const found = (await this.poppyNotices()).find((notice) => notice.includes(fragment));
+      if (found !== undefined) return found;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error(`The model was never told anything containing ${JSON.stringify(fragment)}`);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await new Promise<void>((resolve) => {
+        this.#noticeWaiters.push(resolve);
+        timer = setTimeout(resolve, remaining);
+      });
+      clearTimeout(timer);
+    }
+  }
+
+  /** How many console lines this isolate has written so far; pass it to `poppyLogsSince`. */
+  async poppyLogMark(): Promise<number> {
+    return logs.length;
+  }
+
+  async poppyLogsSince(mark: number): Promise<string[]> {
+    return logs.slice(mark);
+  }
+
+  /** Every row of every table in the agent's SQLite, as text. */
+  async poppyDumpStorage(): Promise<string> {
+    const tables = this.ctx.storage.sql
+      .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'")
+      .toArray()
+      .map((row) => String(row.name));
+    return JSON.stringify(
+      Object.fromEntries(tables.map((table) => [table, this.ctx.storage.sql.exec(`SELECT * FROM "${table}"`).toArray()]))
+    );
+  }
+
+  /** Open a sealed value with `context` as its additional data, as the client would; null if it fails. */
+  async poppyOpenSealed(sealed: string, context: string): Promise<string | null> {
+    try {
+      return await new Sealer(this.env).open(sealed, context);
+    } catch {
+      return null;
+    }
   }
 
   /** Run one model-facing Poppy tool as the model would; returns its text. */

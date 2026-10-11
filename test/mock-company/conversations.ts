@@ -8,6 +8,7 @@ import {
   type ResourceContext
 } from "./core";
 import type { Operations } from "./operations";
+import type { ViolationId } from "./violations";
 
 export type ConversationEvent = {
   readonly id: string;
@@ -52,15 +53,14 @@ function now(): string {
   return new Date().toISOString();
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** Personal Agent Protocol conversations, Company side (spec section 7). */
 export class Conversations {
   readonly #conversations = new Map<string, Conversation>();
   /** Message idempotency per User: id → content hash and conversation (7.3). */
   readonly #messageIds = new Map<string, { hash: string; conversationId: string }>();
+  /** Long polls waiting for the next event in any conversation. */
+  #waiters: (() => void)[] = [];
   operations: Operations | undefined;
 
   constructor(readonly company: Company) {}
@@ -88,6 +88,9 @@ export class Conversations {
   #add(conversation: Conversation, event: Omit<ConversationEvent, "id" | "created_at">): ConversationEvent {
     const full = { id: randomId("evt_", 8), created_at: now(), ...event } as ConversationEvent;
     conversation.events.push(full);
+    const waiters = this.#waiters;
+    this.#waiters = [];
+    for (const wake of waiters) wake();
     return full;
   }
 
@@ -130,42 +133,44 @@ export class Conversations {
 
   #validate(message: IncomingMessage | undefined): IncomingMessage {
     const co = this.company;
-    const bad = (why: string) => {
-      co.violation(`conversation message: ${why}`);
+    const bad = (id: ViolationId, why: string) => {
+      co.violation(id, `conversation message: ${why}`);
       return new HttpError(json({ error: "invalid_request", error_description: why }, 400));
     };
-    if (!message || typeof message !== "object") throw bad("missing message");
-    if (typeof message.id !== "string" || !ID.test(message.id)) throw bad("id must be 1-256 base64url characters");
-    if (message.sender !== "agent" && message.sender !== "human") throw bad("sender must be agent or human");
+    if (!message || typeof message !== "object") throw bad("message.missing", "missing message");
+    if (typeof message.id !== "string" || !ID.test(message.id)) {
+      throw bad("message.id", "id must be 1-256 base64url characters");
+    }
+    if (message.sender !== "agent" && message.sender !== "human") throw bad("message.sender", "sender must be agent or human");
     if (message.text === undefined && message.data === undefined && message.context === undefined) {
-      throw bad("needs at least one of text, data or context");
+      throw bad("message.empty", "needs at least one of text, data or context");
     }
     if (message.text !== undefined) {
-      if (typeof message.text !== "string") throw bad("text must be a string");
+      if (typeof message.text !== "string") throw bad("message.text-type", "text must be a string");
       const trimmed = message.text.trim();
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
         try {
           JSON.parse(trimmed);
-          co.violation("conversation message: JSON in text; use data (7.4)");
+          co.violation("message.json-in-text", "conversation message: JSON in text; use data (7.4)");
         } catch {
           // Prose that starts with a bracket.
         }
       }
     }
     if (message.data !== undefined && (typeof message.data !== "object" || message.data === null || Array.isArray(message.data))) {
-      throw bad("data must be a JSON object");
+      throw bad("message.data-type", "data must be a JSON object");
     }
     if (message.context !== undefined) {
       const context = message.context as Record<string, unknown>;
-      if (typeof context !== "object" || context === null) throw bad("context must be an object");
+      if (typeof context !== "object" || context === null) throw bad("message.context-type", "context must be an object");
       if ("locale" in context && (typeof context.locale !== "string" || !LOCALE.test(context.locale))) {
-        co.violation(`context.locale ${JSON.stringify(context.locale)} is not an RFC 5646 tag`);
+        co.violation("context.locale", `context.locale ${JSON.stringify(context.locale)} is not an RFC 5646 tag`);
       }
       if ("time_zone" in context && (typeof context.time_zone !== "string" || !TIME_ZONE.test(context.time_zone))) {
-        co.violation(`context.time_zone ${JSON.stringify(context.time_zone)} is not an IANA name`);
+        co.violation("context.time-zone", `context.time_zone ${JSON.stringify(context.time_zone)} is not an IANA name`);
       }
       if ("user_available" in context && typeof context.user_available !== "boolean") {
-        co.violation("context.user_available must be a boolean");
+        co.violation("context.user-available", "context.user_available must be a boolean");
       }
     }
     return message;
@@ -178,7 +183,7 @@ export class Conversations {
     const seen = this.#messageIds.get(key);
     if (!seen) return null;
     if (seen.hash !== hash) {
-      this.company.violation(`message id ${String(message.id)} reused with different content`);
+      this.company.violation("message.id-reused", `message id ${String(message.id)} reused with different content`);
       throw new HttpError(json({ error: "message_id_conflict" }, 409));
     }
     return this.#conversations.get(seen.conversationId) ?? null;
@@ -265,8 +270,14 @@ export class Conversations {
   async #read(conversation: Conversation, cursor: string | null, wait: number) {
     let start = this.#from(conversation, cursor);
     const deadline = Date.now() + Math.min(wait, this.company.config.maxWaitSeconds) * 1000;
+    // A long poll: wake on the next event, or give up at the deadline.
     while (conversation.events.length <= start && Date.now() < deadline) {
-      await sleep(25);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await new Promise<void>((resolve) => {
+        this.#waiters.push(resolve);
+        timer = setTimeout(resolve, deadline - Date.now());
+      });
+      clearTimeout(timer);
       start = this.#from(conversation, cursor);
     }
     const events = conversation.events.slice(start, start + PAGE);
@@ -323,7 +334,10 @@ export class Conversations {
       }
       // In a Direct Conversation the User talks; their words go as `human` (7.10).
       if (message.sender !== "human" && message.text !== undefined) {
-        this.company.violation("Direct Conversation opened with words not marked as the User's (sender agent)");
+        this.company.violation(
+          "direct.agent-words",
+          "Direct Conversation opened with words not marked as the User's (sender agent)"
+        );
       }
     }
     const conversation: Conversation = {
@@ -397,15 +411,17 @@ export class Conversations {
     });
   }
 
-  #emptyBody(inbound: Inbound, what: string): void {
+  #emptyBody(inbound: Inbound, id: "handoff.body" | "close.body"): void {
     const body = this.#body(inbound);
-    if (Object.keys(body).length !== 0) this.company.violation(`${what} body should be {}`);
+    if (Object.keys(body).length !== 0) {
+      this.company.violation(id, `${id.split(".")[0]} body should be {}, got ${inbound.bodyText}`);
+    }
   }
 
   /** `POST {endpoint}/{id}/handoff` (7.9). */
   async handoff(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
-    this.#emptyBody(inbound, "handoff");
+    this.#emptyBody(inbound, "handoff.body");
     if (conversation.status === "closed") throw new HttpError(json({ error: "conversation_closed" }, 409));
     if (conversation.directChild) {
       throw new HttpError(
@@ -419,7 +435,7 @@ export class Conversations {
   /** `POST {endpoint}/{id}/close` (7.12). */
   async close(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
-    this.#emptyBody(inbound, "close");
+    this.#emptyBody(inbound, "close.body");
     this.#closeConversation(conversation);
     return json({ status: conversation.status, responder: conversation.responder });
   }

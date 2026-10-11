@@ -31,10 +31,9 @@ export class CompanyLimiter extends DurableObject<Env> {
     await this.ctx.storage.put("state", state);
   }
 
-  /** How long to wait before sending, in ms; 0 means go ahead. */
-  async delay(): Promise<number> {
+  /** How long to wait before sending, in ms; 0 means go ahead. `now` is the caller's clock. */
+  async delay(now: number = Date.now()): Promise<number> {
     const state = await this.#load();
-    const now = Date.now();
     if (state.blockedUntil > now) return state.blockedUntil - now;
     if (state.remaining !== null && state.remaining <= 0 && state.resetAt && state.resetAt > now) {
       return state.resetAt - now;

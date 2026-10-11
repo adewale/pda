@@ -15,8 +15,10 @@ import {
   DEFAULT_CONFIG,
   hostsFor,
   type Hosts,
-  type MockConfig
+  type MockConfig,
+  type MockRequest
 } from "./types";
+import type { JwtKind, SignedKind, ViolationId } from "./violations";
 
 export const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 export const DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code";
@@ -89,6 +91,17 @@ export type Inbound = {
   readonly url: URL;
   readonly bodyText: string;
 };
+
+/**
+ * The header the test agent's fetcher stamps on every request: how far its
+ * fake clock has run ahead of the real one, in ms. The mock's clock follows
+ * it, so a Retry-After the agent waited out on the fake clock has elapsed
+ * here too.
+ */
+export const CLOCK_HEADER = "x-test-clock-offset";
+
+/** A client metadata document or JWKS a test serves at a URL instead of our Worker. */
+export type ServedDocument = { readonly status: number; readonly body: string };
 
 /** Who is calling a resource, after the Session Token checked out. */
 export type ResourceContext = {
@@ -165,15 +178,17 @@ export { sha256b64 };
 
 /** All the Company's state, and the checks a strict Company makes. */
 export class Company {
-  config: MockConfig = DEFAULT_CONFIG;
-  readonly hosts: Hosts;
+  #config: MockConfig = DEFAULT_CONFIG;
+  hosts: Hosts;
   readonly violations: string[] = [];
-  readonly requests: {
-    method: string;
-    url: string;
-    headers: Record<string, string>;
-    bodyKeys: string[];
-  }[] = [];
+  readonly requests: { -readonly [K in keyof MockRequest]: MockRequest[K] }[] = [];
+  readonly revocationHints: (string | null)[] = [];
+  /** Documents tests serve in place of a client's metadata or JWKS, by URL. */
+  readonly served = new Map<string, ServedDocument>();
+  /** Exchanges actually made, by account, order and item, to catch one made twice. */
+  readonly exchanged = new Set<string>();
+  /** ms the test agent's fake clock is ahead of the real one. */
+  clockOffset = 0;
   readonly clients = new Map<string, ClientInfo>();
   readonly userIds = new Set<string>();
   readonly sessions = new Map<string, Session>();
@@ -184,7 +199,8 @@ export class Company {
   readonly seenJtis = new Map<string, Set<string>>();
   /** DPoP keys we've sent a nonce to, by thumbprint and server origin. */
   readonly nonceSentTo = new Set<string>();
-  readonly nonce = randomId("n_");
+  /** DPoP nonces, one for the Company or one per origin (`nonceScope`). */
+  readonly #nonces = new Map<string, string>();
   /** One-time codes we've "sent" to Users, for the secret scan. */
   readonly oneTimeCodes = new Set<string>();
   lastOneTimeCode: string | null = null;
@@ -201,33 +217,69 @@ export class Company {
     this.hosts = hostsFor(id);
   }
 
-  violation(message: string): void {
-    this.violations.push(message);
+  get config(): MockConfig {
+    return this.#config;
   }
 
-  log(inbound: Inbound, bodyKeys: string[]): void {
+  set config(config: MockConfig) {
+    this.#config = config;
+    this.hosts = hostsFor(this.id, { issuerTrailingSlash: config.issuerTrailingSlash });
+  }
+
+  /** Now, by the test agent's fake clock: for comparing when requests arrive. */
+  now(): number {
+    return Date.now() + this.clockOffset;
+  }
+
+  /** Record a violation; `id` names the check (see `violations.ts`). */
+  violation(id: ViolationId, detail: string): void {
+    this.violations.push(`[${id}] ${detail}`);
+  }
+
+  /** Log a request as it arrives; the response fills in `status` and `error`. */
+  log(inbound: Inbound, bodyKeys: string[]): { -readonly [K in keyof MockRequest]: MockRequest[K] } {
+    const stamped = Number(inbound.request.headers.get(CLOCK_HEADER) ?? "0");
+    if (Number.isFinite(stamped) && stamped > this.clockOffset) this.clockOffset = stamped;
     const headers: Record<string, string> = {};
     inbound.request.headers.forEach((value, name) => {
-      headers[name] = ["authorization", "dpop", "cookie"].includes(name)
-        ? "<present>"
-        : value;
+      if (name === "authorization") headers[name] = `${value.split(" ")[0]} <redacted>`;
+      else headers[name] = name === "dpop" || name === "cookie" ? "<present>" : value;
     });
-    this.requests.push({
+    let proofNonce: string | null = null;
+    try {
+      const proof = inbound.request.headers.get("DPoP");
+      const nonce = proof ? decodeJwt(proof).nonce : undefined;
+      if (typeof nonce === "string") proofNonce = nonce;
+    } catch {
+      // Not a JWT; verifyDpop records that.
+    }
+    const type = inbound.request.headers.get("Content-Type") ?? "";
+    const grant = type.startsWith("application/x-www-form-urlencoded")
+      ? new URLSearchParams(inbound.bodyText).get("grant_type")
+      : null;
+    const entry = {
       method: inbound.request.method,
       url: inbound.url.href,
       headers,
-      bodyKeys
-    });
+      bodyKeys,
+      grant,
+      proofNonce,
+      at: this.now(),
+      status: 0,
+      error: null as string | null
+    };
+    this.requests.push(entry);
+    return entry;
   }
 
   /** JTIs are single-use within each kind of JWT. */
-  freshJti(kind: string, jti: unknown): boolean {
+  freshJti(kind: JwtKind, jti: unknown): boolean {
     if (typeof jti !== "string" || jti === "") {
-      this.violation(`${kind}: missing jti`);
+      this.violation(`${kind}.jti-missing`, `${kind}: missing jti`);
       return false;
     }
     if (!/^[A-Za-z0-9_-]{22,}$/.test(jti)) {
-      this.violation(`${kind}: jti ${JSON.stringify(jti)} is not 128 random bits of base64url`);
+      this.violation(`${kind}.jti-weak`, `${kind}: jti ${JSON.stringify(jti)} is not 128 random bits of base64url`);
     }
     let seen = this.seenJtis.get(kind);
     if (!seen) {
@@ -235,21 +287,47 @@ export class Company {
       this.seenJtis.set(kind, seen);
     }
     if (seen.has(jti)) {
-      this.violation(`${kind}: reused jti ${jti}`);
+      this.violation(`${kind}.jti-reused`, `${kind}: reused jti ${jti}`);
       return false;
     }
     seen.add(jti);
     return true;
   }
 
+  /** The DPoP nonce the server at `origin` expects. */
+  nonceFor(origin: string): string {
+    const key = this.config.nonceScope === "origin" ? origin : "company";
+    let nonce = this.#nonces.get(key);
+    if (!nonce) {
+      nonce = randomId("n_");
+      this.#nonces.set(key, nonce);
+    }
+    return nonce;
+  }
+
+  /**
+   * Make the jacket exchange. An item can be exchanged once, so a second time
+   * for the same account means the agent retried a write without its
+   * Idempotency-Key or confirmed the same thing twice.
+   */
+  performExchange(account: string | null, how: string): void {
+    this.performs += 1;
+    const key = `${account ?? ""}|ord_7Hk2|itm_4Qa`;
+    if (this.exchanged.has(key)) {
+      this.violation("exchange.performed-twice", `itm_4Qa on ord_7Hk2 exchanged again for ${account} (${how})`);
+    }
+    this.exchanged.add(key);
+  }
+
   // ---- Rate limits (4.3) ----
 
   /** 429 when configured; a request before an earlier Retry-After is a violation. */
   rateLimit(kind: "token" | "other", inbound: Inbound): void {
-    const now = Date.now();
+    const now = this.now();
     if (now < this.retryAfterUntil) {
       this.violation(
-        `sent ${inbound.request.method} ${inbound.url.pathname} before Retry-After elapsed`
+        "rate-limit.retry-after-ignored",
+        `sent ${inbound.request.method} ${inbound.url.pathname} ${this.retryAfterUntil - now} ms before Retry-After elapsed`
       );
       throw this.tooMany(Math.ceil((this.retryAfterUntil - now) / 1000));
     }
@@ -289,6 +367,7 @@ export class Company {
       ["body", inbound.bodyText]
     ];
     const check = (
+      id: "secret.password" | "secret.one-time-code" | "secret.account-token",
       kind: string,
       secret: string,
       allowedHere: boolean
@@ -296,15 +375,15 @@ export class Company {
       for (const [where, text] of places) {
         if (!text.includes(secret)) continue;
         if (allowedHere && where === "body") continue;
-        this.violation(`${kind} sent in ${where} of ${inbound.request.method} ${inbound.url.href}`);
+        this.violation(id, `${kind} sent in ${where} of ${inbound.request.method} ${inbound.url.href}`);
       }
     };
     for (const account of this.config.accounts) {
-      check("password", account.password, allowed === "credentials");
+      check("secret.password", "password", account.password, allowed === "credentials");
     }
-    for (const code of this.oneTimeCodes) check("one-time code", code, allowed === "code");
+    for (const code of this.oneTimeCodes) check("secret.one-time-code", "one-time code", code, allowed === "code");
     for (const token of this.accountTokens.values()) {
-      check("Account Token", token.value, allowed === "account-token");
+      check("secret.account-token", "Account Token", token.value, allowed === "account-token");
     }
     // Session Tokens never belong in a URL (4.3).
     for (const [name, value] of inbound.url.searchParams) {
@@ -314,7 +393,7 @@ export class Company {
         this.accessTokens.has(value) ||
         this.accountTokens.has(value)
       ) {
-        this.violation(`token sent in URL ${inbound.url.href}`);
+        this.violation("secret.token-in-url", `token sent in URL ${inbound.url.href}`);
         throw resourceError("DPoP", 401, "invalid_token");
       }
     }
@@ -323,6 +402,10 @@ export class Company {
   // ---- Fetching the Personal Agent's metadata (4.1) ----
 
   async #fetchAgent(url: string): Promise<Response> {
+    const served = this.served.get(url);
+    if (served) {
+      return new Response(served.body, { status: served.status, headers: { "Content-Type": "application/json" } });
+    }
     const agentHost = new URL(this.env.PUBLIC_ORIGIN).host;
     const request = new Request(url, { redirect: "manual" });
     // Guides: never send credentials on metadata fetches; fetch without redirects.
@@ -333,29 +416,29 @@ export class Company {
   async client(clientId: string): Promise<ClientInfo> {
     const cached = this.clients.get(clientId);
     if (cached) return cached;
-    const fail = (message: string): HttpError => {
-      this.violation(`client metadata: ${message}`);
+    const fail = (id: ViolationId, message: string): HttpError => {
+      this.violation(id, `client metadata: ${message}`);
       return oauthError(401, "invalid_client", message);
     };
     let url: URL;
     try {
       url = new URL(clientId);
     } catch {
-      throw fail(`client_id ${JSON.stringify(clientId)} is not a URL`);
+      throw fail("client-metadata.not-url", `client_id ${JSON.stringify(clientId)} is not a URL`);
     }
-    if (url.protocol !== "https:") throw fail("client_id must be an https URL");
+    if (url.protocol !== "https:") throw fail("client-metadata.not-https", "client_id must be an https URL");
     const response = await this.#fetchAgent(clientId);
     if (response.status !== 200) {
-      throw fail(`fetching client_id returned ${response.status}; it must not redirect`);
+      throw fail("client-metadata.fetch-status", `fetching client_id returned ${response.status}; it must not redirect`);
     }
     let metadata: Record<string, unknown>;
     try {
       metadata = (await response.json()) as Record<string, unknown>;
     } catch {
-      throw fail("client metadata is not JSON");
+      throw fail("client-metadata.not-json", "client metadata is not JSON");
     }
     if (metadata.client_id !== clientId) {
-      throw fail("client_id in the document doesn't equal the URL it was fetched from");
+      throw fail("client-metadata.client-id-mismatch", "client_id in the document doesn't equal the URL it was fetched from");
     }
     const sameDomain = (value: unknown): value is string => {
       if (typeof value !== "string") return false;
@@ -367,24 +450,26 @@ export class Company {
       }
     };
     if (!sameDomain(metadata.jwks_uri)) {
-      throw fail("jwks_uri must be https on the client_id domain");
+      throw fail("client-metadata.jwks-uri", "jwks_uri must be https on the client_id domain");
     }
     const redirectUris = Array.isArray(metadata.redirect_uris) ? metadata.redirect_uris : [];
     if (!redirectUris.every(sameDomain)) {
-      throw fail("redirect_uris must be https on the client_id domain");
+      throw fail("client-metadata.redirect-uris", "redirect_uris must be https on the client_id domain");
     }
     if (metadata.token_endpoint_auth_method !== "private_key_jwt") {
-      this.violation("client metadata: token_endpoint_auth_method should be private_key_jwt");
+      this.violation("client-metadata.auth-method", "client metadata: token_endpoint_auth_method should be private_key_jwt");
     }
     const jwksResponse = await this.#fetchAgent(metadata.jwks_uri as string);
-    if (jwksResponse.status !== 200) throw fail(`jwks_uri returned ${jwksResponse.status}`);
-    const jwks = (await jwksResponse.json()) as JSONWebKeySet;
-    if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) throw fail("JWKS has no keys");
+    if (jwksResponse.status !== 200) throw fail("client-metadata.jwks-status", `jwks_uri returned ${jwksResponse.status}`);
+    const jwks = (await jwksResponse.json().catch(() => ({}))) as JSONWebKeySet;
+    if (!Array.isArray(jwks.keys) || jwks.keys.length === 0) throw fail("client-metadata.jwks-empty", "JWKS has no keys");
     for (const key of jwks.keys) {
       if (isPrivateJwk(key as unknown as Record<string, unknown>)) {
-        throw fail("JWKS publishes a private key");
+        throw fail("client-metadata.jwks-private", "JWKS publishes a private key");
       }
-      if (!key.kid) this.violation("JWKS key without kid (Guides: give every key a kid)");
+      if (!key.kid) {
+        this.violation("client-metadata.key-without-kid", "client metadata: JWKS key without kid (Guides: give every key a kid)");
+      }
     }
     const extensions = (metadata.extensions ?? {}) as Record<string, { version?: unknown }>;
     const info: ClientInfo = {
@@ -399,33 +484,29 @@ export class Company {
   }
 
   /** Verify a JWT signed by the client's keys; returns its payload. */
+  /** Verify a JWT signed by the client's keys, its header already decoded; returns its payload. */
   async #verifyClientJwt(
     client: ClientInfo,
     token: string,
-    kind: string,
+    header: ReturnType<typeof decodeProtectedHeader>,
+    kind: SignedKind,
     error: () => HttpError
   ): Promise<JWTPayload> {
-    let header;
-    try {
-      header = decodeProtectedHeader(token);
-    } catch {
-      this.violation(`${kind}: not a JWT`);
-      throw error();
-    }
+    const label = kind === "client-assertion" ? "client assertion" : "Session assertion";
     if (!header.alg || !SIGNING_ALGS.includes(header.alg)) {
-      this.violation(`${kind}: alg ${header.alg} is not allowed`);
+      this.violation(`${kind}.alg`, `${label}: alg ${header.alg} is not allowed`);
       throw error();
     }
     if (header.jku || header.x5u || header.jwk) {
-      this.violation(`${kind}: embeds or points to a key (jku/x5u/jwk)`);
+      this.violation(`${kind}.embedded-key`, `${label}: embeds or points to a key (jku/x5u/jwk)`);
     }
     if (this.config.strictAssertions) {
       if (header.typ !== "JWT") {
-        this.violation(`${kind}: strict Company: header typ must be "JWT", got ${JSON.stringify(header.typ)}`);
+        this.violation(`${kind}.typ`, `${label}: strict Company: header typ must be "JWT", got ${JSON.stringify(header.typ)}`);
         throw error();
       }
       if (!header.kid || !client.jwks.keys.some((key) => key.kid === header.kid)) {
-        this.violation(`${kind}: strict Company: kid ${JSON.stringify(header.kid)} names no published key`);
+        this.violation(`${kind}.kid`, `${label}: strict Company: kid ${JSON.stringify(header.kid)} names no published key`);
         throw error();
       }
     }
@@ -436,19 +517,20 @@ export class Company {
       });
       return payload;
     } catch (cause) {
-      this.violation(`${kind}: ${cause instanceof Error ? cause.message : String(cause)}`);
+      this.violation(`${kind}.signature`, `${label}: ${cause instanceof Error ? cause.message : String(cause)}`);
       throw error();
     }
   }
 
-  #checkLifetime(kind: string, payload: JWTPayload): boolean {
+  #checkLifetime(kind: SignedKind, payload: JWTPayload): boolean {
+    const label = kind === "client-assertion" ? "client assertion" : "Session assertion";
     if (typeof payload.iat !== "number" || typeof payload.exp !== "number") {
-      this.violation(`${kind}: iat and exp are required`);
+      this.violation(`${kind}.iat-exp-missing`, `${label}: iat and exp are required`);
       return false;
     }
     const longest = this.config.strictAssertions ? STRICT_ASSERTION_LIFETIME : MAX_ASSERTION_LIFETIME;
     if (payload.exp - payload.iat > longest) {
-      this.violation(`${kind}: lifetime ${payload.exp - payload.iat}s is too long`);
+      this.violation(`${kind}.lifetime`, `${label}: lifetime ${payload.exp - payload.iat}s is too long (at most ${longest}s)`);
       return false;
     }
     return true;
@@ -463,7 +545,7 @@ export class Company {
     const assertion = form.get("client_assertion");
     if (!clientId) throw oauthError(401, "invalid_client", "client_id is required");
     if (form.get("client_assertion_type") !== CLIENT_ASSERTION_TYPE || !assertion) {
-      this.violation(`no client assertion at ${endpoint}`);
+      this.violation("client-assertion.missing", `no client assertion at ${endpoint}`);
       throw oauthError(401, "invalid_client", "client assertion is required");
     }
     const registered = this.config.requireRegistration;
@@ -471,31 +553,43 @@ export class Company {
       throw oauthError(401, "invalid_client", "this Personal Agent is not registered");
     }
     const client = await this.client(clientId);
-    const header = decodeProtectedHeader(assertion);
+    let header;
+    try {
+      header = decodeProtectedHeader(assertion);
+      decodeJwt(assertion);
+    } catch {
+      this.violation("client-assertion.not-jwt", "client assertion: not a JWT");
+      throw oauthError(401, "invalid_client", "client assertion is not a JWT");
+    }
     if (header.typ === "poppy-browser+jwt" || header.typ === "dpop+jwt") {
-      this.violation(`client assertion has typ ${header.typ}`);
+      this.violation("client-assertion.wrong-typ", `client assertion has typ ${header.typ}`);
       throw oauthError(401, "invalid_client");
     }
-    const payload = await this.#verifyClientJwt(client, assertion, "client assertion", () =>
+    const payload = await this.#verifyClientJwt(client, assertion, header, "client-assertion", () =>
       oauthError(401, "invalid_client", "client assertion did not verify")
     );
     if (Array.isArray(payload.aud)) {
-      this.violation("client assertion: aud is an array");
+      this.violation("client-assertion.aud-array", "client assertion: aud is an array");
       throw oauthError(401, "invalid_client");
     }
-    const audiences = [endpoint, this.hosts.tokenEndpoint, this.hosts.issuer];
+    // The draft never says what aud is (S1); exact Companies want the endpoint called.
+    const exact = this.config.clientAssertionAud === "exact";
+    const audiences = exact ? [endpoint] : [endpoint, this.hosts.tokenEndpoint, this.hosts.issuer];
     if (typeof payload.aud !== "string" || !audiences.includes(payload.aud)) {
-      this.violation(`client assertion: aud ${JSON.stringify(payload.aud)} is not this Company`);
+      this.violation(
+        "client-assertion.aud",
+        `client assertion: aud ${JSON.stringify(payload.aud)} is not ${exact ? `exactly ${endpoint}` : "this Company"}`
+      );
       throw oauthError(401, "invalid_client");
     }
     if (payload.iss !== clientId || payload.sub !== clientId) {
-      this.violation("client assertion: iss and sub must both be the client_id");
+      this.violation("client-assertion.iss-sub", "client assertion: iss and sub must both be the client_id");
       throw oauthError(401, "invalid_client");
     }
-    if (!this.#checkLifetime("client assertion", payload)) {
+    if (!this.#checkLifetime("client-assertion", payload)) {
       throw oauthError(401, "invalid_client");
     }
-    if (!this.freshJti("client assertion", payload.jti)) {
+    if (!this.freshJti("client-assertion", payload.jti)) {
       throw oauthError(401, "invalid_client", "assertion jti already used");
     }
     return client;
@@ -504,39 +598,41 @@ export class Company {
   /** The Session assertion of the JWT bearer grant (4.2). Returns the User ID. */
   async verifySessionAssertion(client: ClientInfo, assertion: string | null): Promise<string> {
     if (!assertion) {
-      this.violation("JWT bearer grant without an assertion");
+      this.violation("session-assertion.missing", "JWT bearer grant without an assertion");
       throw oauthError(400, "invalid_grant", "assertion is required");
     }
     let header;
     try {
       header = decodeProtectedHeader(assertion);
+      decodeJwt(assertion);
     } catch {
-      this.violation("Session assertion: not a JWT");
+      this.violation("session-assertion.not-jwt", "Session assertion: not a JWT");
       throw oauthError(400, "invalid_grant");
     }
     if (header.typ === "poppy-browser+jwt") {
-      this.violation("browser assertion sent to the token endpoint");
+      this.violation("session-assertion.browser-typ", "browser assertion sent to the token endpoint");
       throw oauthError(400, "invalid_grant");
     }
-    const payload = await this.#verifyClientJwt(client, assertion, "Session assertion", () =>
+    const payload = await this.#verifyClientJwt(client, assertion, header, "session-assertion", () =>
       oauthError(400, "invalid_grant", "assertion did not verify")
     );
     if (Array.isArray(payload.aud) || payload.aud !== this.hosts.tokenEndpoint) {
       this.violation(
+        "session-assertion.aud",
         `Session assertion: aud must be the token_endpoint as a single string, got ${JSON.stringify(payload.aud)}`
       );
       throw oauthError(400, "invalid_grant");
     }
     if (payload.iss !== client.clientId) {
-      this.violation("Session assertion: iss must be the client_id");
+      this.violation("session-assertion.iss", "Session assertion: iss must be the client_id");
       throw oauthError(400, "invalid_grant");
     }
     if (typeof payload.sub !== "string" || payload.sub === "") {
-      this.violation("Session assertion: sub (User ID) is missing");
+      this.violation("session-assertion.sub", "Session assertion: sub (User ID) is missing");
       throw oauthError(400, "invalid_grant");
     }
-    if (!this.#checkLifetime("Session assertion", payload)) throw oauthError(400, "invalid_grant");
-    if (!this.freshJti("Session assertion", payload.jti)) {
+    if (!this.#checkLifetime("session-assertion", payload)) throw oauthError(400, "invalid_grant");
+    if (!this.freshJti("session-assertion", payload.jti)) {
       throw oauthError(400, "invalid_grant", "assertion jti already used");
     }
     this.checkUserId(payload.sub);
@@ -553,7 +649,7 @@ export class Company {
           lower.includes(account.email.split("@")[0]!.toLowerCase())
       );
       if (userId.includes("@") || personal) {
-        this.violation(`User ID ${JSON.stringify(userId)} contains personal information`);
+        this.violation("user-id.personal", `User ID ${JSON.stringify(userId)} contains personal information`);
       }
     }
     this.userIds.add(userId);
@@ -570,71 +666,73 @@ export class Company {
     accessToken: string | undefined
   ): Promise<string> {
     const atTokenEndpoint = accessToken === undefined;
-    const fail = (error: string, why: string, isViolation = true): HttpError => {
-      if (isViolation) this.violation(`DPoP: ${why} (${inbound.request.method} ${inbound.url.pathname})`);
+    const origin = inbound.url.origin;
+    const fail = (error: string, why: string, id: ViolationId | null): HttpError => {
+      if (id) this.violation(id, `DPoP: ${why} (${inbound.request.method} ${inbound.url.pathname})`);
       const headers: Record<string, string> = { "WWW-Authenticate": `DPoP error="${error}"` };
-      if (error === "use_dpop_nonce") headers["DPoP-Nonce"] = this.nonce;
+      if (error === "use_dpop_nonce") headers["DPoP-Nonce"] = this.nonceFor(origin);
       return atTokenEndpoint
         ? oauthError(400, error, why, headers)
         : resourceError("DPoP", 401, error, {
-            headers: error === "use_dpop_nonce" ? { "DPoP-Nonce": this.nonce } : {}
+            headers: error === "use_dpop_nonce" ? { "DPoP-Nonce": this.nonceFor(origin) } : {}
           });
     };
     const proofs = inbound.request.headers.get("DPoP");
-    if (!proofs) throw fail("invalid_dpop_proof", "missing DPoP header");
-    if (proofs.includes(",")) throw fail("invalid_dpop_proof", "more than one DPoP proof");
+    if (!proofs) throw fail("invalid_dpop_proof", "missing DPoP header", "dpop.missing");
+    if (proofs.includes(",")) throw fail("invalid_dpop_proof", "more than one DPoP proof", "dpop.multiple");
     let header;
     let claims: JWTPayload;
     try {
       header = decodeProtectedHeader(proofs);
       claims = decodeJwt(proofs);
     } catch {
-      throw fail("invalid_dpop_proof", "proof is not a JWT");
+      throw fail("invalid_dpop_proof", "proof is not a JWT", "dpop.not-jwt");
     }
-    if (header.typ !== "dpop+jwt") throw fail("invalid_dpop_proof", `typ is ${header.typ}`);
+    if (header.typ !== "dpop+jwt") throw fail("invalid_dpop_proof", `typ is ${header.typ}`, "dpop.typ");
     if (!header.alg || !SIGNING_ALGS.includes(header.alg)) {
-      throw fail("invalid_dpop_proof", `alg ${header.alg} not allowed`);
+      throw fail("invalid_dpop_proof", `alg ${header.alg} not allowed`, "dpop.alg");
     }
     const jwk = header.jwk as JWK | undefined;
-    if (!jwk) throw fail("invalid_dpop_proof", "no jwk in header");
+    if (!jwk) throw fail("invalid_dpop_proof", "no jwk in header", "dpop.no-jwk");
     if (isPrivateJwk(jwk as unknown as Record<string, unknown>)) {
-      throw fail("invalid_dpop_proof", "jwk contains a private key");
+      throw fail("invalid_dpop_proof", "jwk contains a private key", "dpop.private-jwk");
     }
     try {
       const key = await importJWK(jwk, header.alg);
       await jwtVerify(proofs, key, { typ: "dpop+jwt", algorithms: SIGNING_ALGS });
     } catch (cause) {
-      throw fail("invalid_dpop_proof", `signature: ${cause instanceof Error ? cause.message : String(cause)}`);
+      throw fail("invalid_dpop_proof", `signature: ${cause instanceof Error ? cause.message : String(cause)}`, "dpop.signature");
     }
     const htu = `${inbound.url.origin}${inbound.url.pathname}`;
     if (claims.htm !== inbound.request.method) {
-      throw fail("invalid_dpop_proof", `htm ${String(claims.htm)} != ${inbound.request.method}`);
+      throw fail("invalid_dpop_proof", `htm ${String(claims.htm)} != ${inbound.request.method}`, "dpop.htm");
     }
     if (claims.htu !== htu) {
-      throw fail("invalid_dpop_proof", `htu ${String(claims.htu)} != ${htu}`);
+      throw fail("invalid_dpop_proof", `htu ${String(claims.htu)} != ${htu}`, "dpop.htu");
     }
+    // Proofs carry the agent's real time; the fake clock moves only request timing.
     const now = Math.floor(Date.now() / 1000);
     if (typeof claims.iat !== "number" || Math.abs(now - claims.iat) > DPOP_WINDOW + SKEW) {
-      throw fail("invalid_dpop_proof", "iat outside the acceptance window");
+      throw fail("invalid_dpop_proof", "iat outside the acceptance window", "dpop.iat");
     }
-    if (!this.freshJti("DPoP proof", claims.jti)) {
-      throw fail("invalid_dpop_proof", "jti reused", false);
+    if (!this.freshJti("dpop", claims.jti)) {
+      throw fail("invalid_dpop_proof", "jti reused", null);
     }
     if (atTokenEndpoint) {
-      if ("ath" in claims) throw fail("invalid_dpop_proof", "ath on a token request");
+      if ("ath" in claims) throw fail("invalid_dpop_proof", "ath on a token request", "dpop.ath-at-token-endpoint");
     } else if (claims.ath !== (await sha256b64(accessToken))) {
-      throw fail("invalid_dpop_proof", "ath doesn't match the token");
+      throw fail("invalid_dpop_proof", "ath doesn't match the token", "dpop.ath");
     }
     const jkt = await calculateJwkThumbprint(jwk);
-    if (this.config.requireNonce && claims.nonce !== this.nonce) {
+    if (this.config.requireNonce && claims.nonce !== this.nonceFor(origin)) {
       // Nonces belong to a server (RFC 9449; Guides: "keep it for that server"),
       // so only a server that already sent this key a nonce can expect it back.
-      const sentTo = `${jkt}|${inbound.url.origin}`;
+      const sentTo = `${jkt}|${origin}`;
       if (claims.nonce === undefined && this.nonceSentTo.has(sentTo)) {
-        this.violation("DPoP: proof without the nonce the Company already sent (must support nonces)");
+        this.violation("dpop.nonce-ignored", `DPoP: proof without the nonce ${origin} already sent this key (must support nonces)`);
       }
       this.nonceSentTo.add(sentTo);
-      throw fail("use_dpop_nonce", "nonce required", false);
+      throw fail("use_dpop_nonce", "nonce required", null);
     }
     return jkt;
   }
@@ -676,7 +774,7 @@ export class Company {
     this.accessTokens.set(token.value, token);
     this.latestToken.set(`${session.id}|${token.kind}|${token.resource ?? ""}`, {
       value: token.value,
-      at: now
+      at: this.now()
     });
     return token;
   }
@@ -734,7 +832,7 @@ export class Company {
     const scheme = mcp ? "Bearer" : "DPoP";
     const header = inbound.request.headers.get("Authorization");
     if (!header) {
-      this.violation(`request without a Session Token: ${inbound.request.method} ${inbound.url.href}`);
+      this.violation("resource.no-token", `request without a Session Token: ${inbound.request.method} ${inbound.url.href}`);
       throw resourceError(scheme, 401, "invalid_token");
     }
     const [given, value] = header.split(" ", 2) as [string, string | undefined];
@@ -742,20 +840,20 @@ export class Company {
     const token = this.accessTokens.get(value);
     if (mcp) {
       if (given !== "Bearer") {
-        this.violation(`MCP request with ${given} scheme; MCP uses Bearer`);
+        this.violation("mcp.not-bearer", `MCP request with ${given} scheme; MCP uses Bearer`);
         throw resourceError("Bearer", 401, "invalid_token");
       }
       if (token && (token.kind !== "bearer" || token.resource !== this.hosts.mcpUrl)) {
-        this.violation("MCP request with a token not issued for this MCP server");
+        this.violation("mcp.wrong-token", "MCP request with a token not issued for this MCP server");
         throw resourceError("Bearer", 401, "invalid_token");
       }
     } else {
       if (given !== "DPoP") {
-        this.violation(`${given} token on ${inbound.url.pathname}; Bearer is only for MCP`);
+        this.violation("resource.bearer-scheme", `${given} token on ${inbound.url.pathname}; Bearer is only for MCP`);
         throw resourceError("DPoP", 401, "invalid_token");
       }
       if (token && token.kind !== "dpop") {
-        this.violation("Bearer Session Token sent with the DPoP scheme");
+        this.violation("resource.bearer-token-as-dpop", "Bearer Session Token sent with the DPoP scheme");
         throw resourceError("DPoP", 401, "invalid_token");
       }
     }
@@ -771,13 +869,13 @@ export class Company {
     if (!mcp) {
       const jkt = await this.verifyDpop(inbound, value);
       if (jkt !== token.jkt) {
-        this.violation("DPoP proof key isn't the key the token is bound to");
+        this.violation("dpop.key-mismatch", "DPoP proof key isn't the key the token is bound to");
         throw resourceError("DPoP", 401, "invalid_dpop_proof");
       }
     }
     const latest = this.latestToken.get(`${session.id}|${token.kind}|${token.resource ?? ""}`);
-    if (latest && latest.value !== token.value && Date.now() - latest.at > 2000) {
-      this.violation("used an older Session Token after a newer one was issued for the Session");
+    if (latest && latest.value !== token.value && this.now() - latest.at > 2000) {
+      this.violation("resource.stale-token", "used an older Session Token after a newer one was issued for the Session");
     }
     const client = await this.client(session.clientId);
     // Sign-out takes effect right away (4.9): check the Session, not just the token.

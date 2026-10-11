@@ -14,7 +14,9 @@ import {
 import { Web } from "./web";
 
 export { companyIdFromHost, hostsFor, DEFAULT_CONFIG };
-export type { MockAccount, MockConfig, MockState, Hosts } from "./types";
+export { CLOCK_HEADER } from "./core";
+export { VIOLATION_IDS, VIOLATIONS, violationId, type ViolationId } from "./violations";
+export type { MockAccount, MockConfig, MockRequest, MockState, Hosts } from "./types";
 
 type Parts = {
   readonly company: Company;
@@ -24,6 +26,15 @@ type Parts = {
   readonly apis: Apis;
   readonly web: Web;
 };
+
+/** The error a response carries, from `WWW-Authenticate` or a JSON body, for the request log. */
+async function errorOf(response: Response): Promise<string | null> {
+  const challenge = /error="([^"]+)"/.exec(response.headers.get("WWW-Authenticate") ?? "");
+  if (challenge) return challenge[1]!;
+  if (response.status < 400 || !(response.headers.get("Content-Type") ?? "").includes("json")) return null;
+  const body = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
+  return typeof body?.error === "string" ? body.error : null;
+}
 
 function bodyKeys(inbound: Inbound): string[] {
   if (!inbound.bodyText) return [];
@@ -83,14 +94,21 @@ export class MockCompany extends DurableObject<Env> {
         ? ""
         : new TextDecoder().decode(await request.arrayBuffer());
     const inbound: Inbound = { request, url, bodyText };
-    parts.company.log(inbound, bodyKeys(inbound));
+    const logged = parts.company.log(inbound, bodyKeys(inbound));
+    let response: Response;
     try {
-      return await this.#route(parts, inbound);
+      response = await this.#route(parts, inbound);
     } catch (error) {
-      if (error instanceof HttpError) return error.response;
-      console.error("mock company error", error);
-      return json({ error: "server_error", error_description: String(error) }, 500);
+      if (error instanceof HttpError) {
+        response = error.response;
+      } else {
+        console.error("mock company error", error);
+        response = json({ error: "server_error", error_description: String(error) }, 500);
+      }
     }
+    logged.status = response.status;
+    logged.error = await errorOf(response);
+    return response;
   }
 
   async #route(parts: Parts, inbound: Inbound): Promise<Response> {
@@ -190,6 +208,7 @@ export class MockCompany extends DurableObject<Env> {
     return {
       violations: [...company.violations],
       requests: company.requests.map((request) => ({ ...request, headers: { ...request.headers } })),
+      revocationHints: [...company.revocationHints],
       userIds: [...company.userIds],
       clientIds: [...company.clients.keys()],
       sessions: [...company.sessions.values()].map((session) => ({
@@ -208,6 +227,22 @@ export class MockCompany extends DurableObject<Env> {
       operations: operations.summary(),
       browserJoins: company.browserJoins
     };
+  }
+
+  /**
+   * Serve a document at `url` in place of a client's own (client metadata or
+   * JWKS), so a test can hand the mock a broken one, or a second client.
+   */
+  async serveClientDocument(url: string, body: unknown, status = 200): Promise<void> {
+    this.#named().company.served.set(url, {
+      status,
+      body: typeof body === "string" ? body : JSON.stringify(body)
+    });
+  }
+
+  /** The Account Tokens the Company has issued, valid or not (to check they're stored sealed). */
+  async accountTokenValues(): Promise<string[]> {
+    return [...this.#named().company.accountTokens.keys()];
   }
 
   /** The User approves or declines on the Direct Sign-In consent page; returns the redirect. */

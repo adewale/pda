@@ -1,5 +1,6 @@
 import { createLocalJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from "jose";
 import { Company, HttpError, json, randomId, type Inbound } from "./core";
+import type { ViolationId } from "./violations";
 
 /** Discovery documents, the website, and the browser-session endpoint (sections 3 and 5). */
 export class Web {
@@ -53,7 +54,11 @@ export class Web {
       apis.push({ type: "graphql", url: `${hosts.api}/graphql`, description: "Everything, as GraphQL" });
     }
     if (config.openapi) {
-      apis.push({ type: "openapi", url: `${hosts.api}/openapi.json`, description: "Orders and exchanges" });
+      apis.push({
+        type: "openapi",
+        url: config.openapiUrlOverride ?? `${hosts.api}/openapi.json`,
+        description: "Orders and exchanges"
+      });
     }
     if (config.mcp) {
       apis.push({ type: "mcp", url: hosts.mcpUrl, description: "Product search and exchanges" });
@@ -116,35 +121,35 @@ export class Web {
   /** `POST {browser_session_endpoint}` (section 5). */
   async browserSession(inbound: Inbound): Promise<Response> {
     const co = this.company;
-    const page = (message: string) => {
-      co.violation(`browser session: ${message}`);
+    const page = (id: ViolationId | null, message: string) => {
+      if (id) co.violation(id, `browser session: ${message}`);
       return new Response(`<!doctype html><p>${message}</p>`, {
         status: 400,
         headers: { "Content-Type": "text/html; charset=utf-8" }
       });
     };
     if (!co.config.browserSession) return new Response("Not found", { status: 404 });
-    if (inbound.url.searchParams.has("assertion")) return page("assertion sent in the URL");
-    if (inbound.request.method !== "POST") return page("must be a form POST");
+    if (inbound.url.searchParams.has("assertion")) return page("browser-assertion.in-url", "assertion sent in the URL");
+    if (inbound.request.method !== "POST") return page("browser-assertion.not-post", "must be a form POST");
     const type = inbound.request.headers.get("Content-Type") ?? "";
-    if (!type.startsWith("application/x-www-form-urlencoded")) return page(`content type ${type}`);
+    if (!type.startsWith("application/x-www-form-urlencoded")) return page("browser-assertion.content-type", `content type ${JSON.stringify(type)}`);
     const assertion = new URLSearchParams(inbound.bodyText).get("assertion");
-    if (!assertion) return page("no assertion");
+    if (!assertion) return page("browser-assertion.missing", "no assertion");
     let header;
     let claims;
     try {
       header = decodeProtectedHeader(assertion);
       claims = decodeJwt(assertion);
     } catch {
-      return page("assertion is not a JWT");
+      return page("browser-assertion.not-jwt", "assertion is not a JWT");
     }
-    if (header.typ !== "poppy-browser+jwt") return page(`typ ${String(header.typ)}`);
-    if (typeof claims.iss !== "string") return page("no iss");
+    if (header.typ !== "poppy-browser+jwt") return page("browser-assertion.typ", `typ ${String(header.typ)}`);
+    if (typeof claims.iss !== "string") return page("browser-assertion.no-iss", "no iss");
     let client;
     try {
       client = await co.client(claims.iss);
     } catch (error) {
-      if (error instanceof HttpError) return page("unknown Personal Agent");
+      if (error instanceof HttpError) return page("browser-assertion.unknown-agent", "unknown Personal Agent");
       throw error;
     }
     try {
@@ -154,31 +159,32 @@ export class Web {
         clockTolerance: 30
       });
     } catch (cause) {
-      return page(`signature or expiry: ${cause instanceof Error ? cause.message : String(cause)}`);
+      return page("browser-assertion.signature", `signature or expiry: ${cause instanceof Error ? cause.message : String(cause)}`);
     }
     if (Array.isArray(claims.aud) || claims.aud !== co.hosts.browserSessionEndpoint) {
-      return page(`aud ${JSON.stringify(claims.aud)}`);
+      return page("browser-assertion.aud", `aud ${JSON.stringify(claims.aud)}`);
     }
     if (typeof claims.iat !== "number" || typeof claims.exp !== "number" || claims.exp - claims.iat > 60) {
-      return page("exp must be no more than 60 seconds after iat");
+      return page("browser-assertion.lifetime", "exp must be no more than 60 seconds after iat");
     }
-    if (!co.freshJti("browser assertion", claims.jti)) return page("jti reused");
+    // freshJti records the violation.
+    if (!co.freshJti("browser-assertion", claims.jti)) return page(null, "jti missing or reused");
     const sessionId = claims.session_id;
     const session = typeof sessionId === "string" ? co.sessions.get(sessionId) : undefined;
     if (!session || session.ended || session.clientId !== client.clientId || session.userId !== claims.sub) {
-      return page("Session isn't active or isn't this agent's and User's");
+      return page("browser-assertion.session", "Session isn't active or isn't this agent's and User's");
     }
     let returnTo: URL;
     try {
       returnTo = new URL(String(claims.return_to));
     } catch {
-      return page("return_to is not a URL");
+      return page("browser-assertion.return-to-not-url", "return_to is not a URL");
     }
     const domains = [co.hosts.domain, co.hosts.altDomain];
     const onDomain = domains.some(
       (domain) => returnTo.hostname === domain || returnTo.hostname.endsWith(`.${domain}`)
     );
-    if (returnTo.protocol !== "https:" || !onDomain) return page("return_to is not on the Company's domain");
+    if (returnTo.protocol !== "https:" || !onDomain) return page("browser-assertion.return-to-off-domain", "return_to is not on the Company's domain");
     const cookie = randomId("", 18);
     this.#cookies.set(cookie, session.id);
     co.browserJoins += 1;
