@@ -23,7 +23,9 @@ RUN for p in /patches/*.patch; do [ -e "$p" ] || continue; git apply "$p"; done
 RUN npm install --no-audit --no-fund --ignore-scripts && npm run build
 
 COPY adapter.mjs /upstream/interop/adapter.mjs
-RUN mkdir -p /interop
+
+# Interop-only: offer poppy:read/poppy:write as synonyms for Manzanita's orders:* scopes (see README).
+ENV INTEROP_POPPY_SCOPES=1
 
 EXPOSE 8080 8081
 CMD ["node", "/upstream/interop/adapter.mjs"]

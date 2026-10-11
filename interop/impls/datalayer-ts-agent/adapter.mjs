@@ -48,7 +48,7 @@ const MANIFEST = {
   commit: UPSTREAM_COMMIT,
   poppy: ["0.1"],
   extensions: ["operations"],
-  scenarios: ["D", "S0", "N", "SD", "SV", "SM", "SX", "SO", "C", "CI", "CS", "AO", "O", "OX"],
+  scenarios: ["D", "S0", "N", "SD", "SV", "SXV", "SM", "SMC", "SX", "SE", "SO", "R", "RL", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX"],
   readings: { S1: "token-endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit" },
   relaxations: [],
 };
@@ -159,6 +159,15 @@ class StepError extends Error {
   }
 }
 
+/** `{ok: false, poppy_error, status}`: the Company refused, or the agent refused the Company (status 0). */
+class Refusal extends Error {
+  constructor(code, status, detail) {
+    super(detail ?? code);
+    this.code = code;
+    this.status = status;
+  }
+}
+
 function randomId(prefix) {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return `${prefix}_${Buffer.from(bytes).toString("base64url")}`;
@@ -176,7 +185,12 @@ function company(host) {
 
 async function discovered(c) {
   if (!c.discovered) {
-    c.discovered = await discoverCompany(c.host, { reactor: world.reactor });
+    try {
+      c.discovered = await discoverCompany(c.host, { reactor: world.reactor });
+    } catch (error) {
+      // Documents the agent won't use (spec 5.2: discovery_failed, status 0).
+      throw new Refusal("discovery_failed", 0, `${error?.code ?? "error"}: ${error?.message ?? error}`);
+    }
   }
   return c.discovered;
 }
@@ -208,6 +222,76 @@ async function startSession(c) {
   });
   c.signedIn = undefined;
   return c.session;
+}
+
+function accountContext(c) {
+  const metadata = oauth(c);
+  return {
+    tokenEndpoint: metadata.token_endpoint,
+    issuer: metadata.issuer,
+    clientId: world.clientId,
+    tenantId: TENANT,
+    pairwiseUserId: c.pairwise,
+    ...(metadata.revocation_endpoint ? { revocationEndpoint: metadata.revocation_endpoint } : {}),
+  };
+}
+
+/** Sign the current Session in again with the stored Account Token (refresh grant, §4.8). */
+async function refreshInto(c) {
+  const result = await new AccountTokenClient({ reactor: world.reactor, fetch: world.fetch }).refresh(c.accountRef, {
+    context: accountContext(c),
+    sessionId: c.session.sessionId,
+  });
+  if (result.status !== "signed_in" || !result.token) {
+    c.accountRef = undefined;
+    c.signedIn = undefined;
+    return false;
+  }
+  c.signedIn = result.token;
+  c.session = result.token;
+  return true;
+}
+
+/**
+ * What the SDK leaves to its host (and Datalayer's own examples do): on 401
+ * invalid_token renew the Session (with the Account Token when signed in), and on
+ * invalid_session start a new one and sign it in again. Retried once.
+ */
+async function recover(c, error) {
+  const code = error?.code;
+  const status = error?.statusCode;
+  if (!((status === 401 && code === "invalid_token") || code === "invalid_session")) return false;
+  const metadata = oauth(c);
+  if (code === "invalid_token" && c.session) {
+    try {
+      if (c.accountRef) return await refreshInto(c);
+      c.session = await new SessionClient({ reactor: world.reactor, fetch: world.fetch }).renew({
+        clientId: world.clientId,
+        pairwiseUserId: c.pairwise,
+        issuer: metadata.issuer,
+        tokenEndpoint: metadata.token_endpoint,
+        tenantId: TENANT,
+        sessionId: c.session.sessionId,
+      });
+      c.signedIn = c.session.signedIn ? c.session : undefined;
+      return true;
+    } catch (renewal) {
+      if (renewal?.code !== "invalid_session" && renewal?.code !== "invalid_grant") throw renewal;
+    }
+  }
+  await startSession(c);
+  if (c.accountRef) await refreshInto(c);
+  return true;
+}
+
+async function withSession(c, work) {
+  const token = await ensureSession(c);
+  try {
+    return await work(token);
+  } catch (error) {
+    if (!(await recover(c, error))) throw error;
+    return work(c.signedIn ?? c.session);
+  }
 }
 
 function conversationEndpoint(c) {
@@ -243,7 +327,160 @@ function remember(c, page) {
 function signedInResult(c, token, granted, params) {
   c.signedIn = token;
   c.session = token;
+  c.grantedScopes = [...granted];
+  c.account = params?.account ?? c.account;
   return { signed_in: token.signedIn, account: params?.account ?? null, scope: [...granted].join(" ") };
+}
+
+async function sendOnce(c, endpoint, token, message, conversation, params) {
+  const options = { token, ...who(c), ...(params.wait === undefined ? {} : { wait: params.wait }) };
+  const previous = conversation ? c.conversations.get(conversation) : undefined;
+  let response = conversation
+    ? await world.conversations.send(endpoint, conversation, message, {
+        ...options,
+        ...(previous?.cursor ? { cursor: previous.cursor } : {}),
+      })
+    : await world.conversations.start(endpoint, message, options);
+  if (response.events === undefined) {
+    // A bare receipt: read what has happened since our last cursor.
+    response = {
+      ...(await world.conversations.readEvents(endpoint, response.conversation_id, {
+        token,
+        ...who(c),
+        ...(previous?.cursor ? { cursor: previous.cursor } : {}),
+      })),
+      receipt: response,
+    };
+  }
+  c.conversations.set(response.conversation_id, { cursor: response.cursor });
+  remember(c, response);
+  return {
+    conversation: response.conversation_id,
+    message_id: message.id,
+    status: response.status,
+    messages: messagesOf(response),
+    operations: operationsOf(response),
+    cursor: response.cursor ?? null,
+    events: response.events ?? [],
+  };
+}
+
+async function readOnce(c, token, params) {
+  const page = await world.conversations.readEvents(conversationEndpoint(c), params.conversation, {
+    token,
+    ...who(c),
+    ...(params.cursor ? { cursor: params.cursor } : {}),
+    ...(params.wait === undefined ? {} : { wait: params.wait }),
+  });
+  remember(c, page);
+  return {
+    messages: messagesOf(page),
+    operations: operationsOf(page),
+    cursor: page.cursor,
+    has_more: page.has_more,
+    status: page.status,
+    events: page.events,
+  };
+}
+
+async function sseOnce(c, token, params) {
+  const max = params.max_events ?? 10;
+  const abort = new AbortController();
+  // `wait` (seconds) bounds how long the step listens; the stream may stay open.
+  const limit = params.timeout_ms ?? (typeof params.wait === "number" ? Math.max(1, params.wait) * 1000 + 2000 : 10_000);
+  const timer = setTimeout(() => abort.abort(), limit);
+  const events = [];
+  const stream = world.conversations.stream(conversationEndpoint(c), params.conversation, {
+    token,
+    ...who(c),
+    ...(params.cursor ? { lastEventId: params.cursor } : {}),
+    signal: abort.signal,
+  });
+  let failure;
+  const reading = (async () => {
+    for await (const item of stream) {
+      if (item.kind !== undefined) continue; // text deltas and reconnect notices
+      events.push({ id: item.id, type: item.type, data: item });
+      if (events.length >= max) return;
+    }
+  })().catch((error) => {
+    failure = error;
+  });
+  // The abort signal alone doesn't stop a read waiting on a quiet stream, so the step
+  // also ends at the deadline, whatever the stream is doing.
+  const deadline = new Promise((resolve) => abort.signal.addEventListener("abort", resolve, { once: true }));
+  try {
+    await Promise.race([reading, deadline]);
+  } finally {
+    clearTimeout(timer);
+    const timedOut = abort.signal.aborted;
+    abort.abort();
+    stream.return?.().catch(() => undefined);
+    if (failure && !timedOut && events.length === 0) throw failure;
+  }
+  return {
+    events,
+    last_id: events.at(-1)?.id ?? params.cursor ?? null,
+    ...(failure ? { ended: failure.code ?? String(failure) } : {}),
+  };
+}
+
+/** Resolve `operation` ("METHOD /path" or an OpenAPI operationId) and `args` to a request. */
+async function apiOnce(c, token, params) {
+  const apis = c.discovered.document.apis ?? [];
+  const api = apis.find((a) => a.url === params.api || a.type === params.api || a.name === params.api) ?? apis[0];
+  if (!api) throw new StepError(409, "no_api", "the Company lists no API");
+  const args = params.args ?? {};
+  const values = { ...(args.params ?? {}) };
+  let method;
+  let path;
+  let base = new URL("/", api.url).toString();
+  const literal = /^([A-Z]+)\s+(\/\S*)$/.exec(String(params.operation ?? "GET /"));
+  if (literal) {
+    [, method, path] = literal;
+  } else {
+    const described = await world.transport.request("GET", api.url, { token, ...who(c), headers: { Accept: "application/json" } });
+    if (!described.ok) throw new Refusal("api_description_failed", described.status, `GET ${api.url}`);
+    const openapi = await described.json();
+    for (const [template, item] of Object.entries(openapi.paths ?? {})) {
+      for (const [verb, operation] of Object.entries(item ?? {})) {
+        if (operation?.operationId === params.operation) {
+          method = verb.toUpperCase();
+          path = template;
+        }
+      }
+    }
+    if (!method) throw new StepError(404, "unknown_operation", `no operationId ${params.operation} in ${api.url}`);
+    const server = openapi.servers?.[0]?.url;
+    if (server) base = new URL(server, api.url).toString();
+  }
+  path = path.replace(/\{([^}]+)\}/g, (_, name) => {
+    const value = values[name] ?? args[name] ?? "";
+    delete values[name];
+    return encodeURIComponent(String(value));
+  });
+  // Paths are relative to the first server URL (OpenAPI 3), or to the origin; params
+  // left over after the path go in the query.
+  const url = new URL(path.replace(/^\//, ""), base.endsWith("/") ? base : `${base}/`);
+  for (const [name, value] of Object.entries(values)) url.searchParams.set(name, String(value));
+  const body = args.body;
+  const response = await world.transport.request(method, url.toString(), {
+    token,
+    ...who(c),
+    headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const text = await response.text();
+  let parsed = text;
+  try { parsed = JSON.parse(text); } catch { /* not JSON */ }
+  if (response.status >= 400) {
+    const challenge = /error="([^"]+)"/.exec(response.headers.get("www-authenticate") ?? "")?.[1];
+    const code = (typeof parsed === "object" && parsed?.error) || challenge || `http_${response.status}`;
+    const error = new Refusal(code, response.status, `${method} ${url.pathname}`);
+    error.statusCode = response.status;
+    throw error;
+  }
+  return { status: response.status, body: parsed };
 }
 
 // ---------------------------------------------------------------------------------
@@ -256,13 +493,14 @@ const ops = {
       issuer: d.oauthMetadata?.issuer ?? d.document.auth?.issuer ?? null,
       poppy_version: d.document.protocol_version,
       conversations: Boolean(d.document.agent?.protocols?.some((p) => p.type === "poppy")),
-      apis: (d.document.apis ?? []).map((api) => api.name ?? api.type),
+      apis: (d.document.apis ?? []).map((api) => api.type),
     };
   },
 
   async session(c) {
     await discovered(c);
-    const token = await startSession(c);
+    // The Session this agent already holds with the Company, or a new one.
+    const token = c.session ?? (await startSession(c));
     return { session_id: token.sessionId, signed_in: token.signedIn, scope: token.scopes.join(" ") };
   },
 
@@ -272,6 +510,13 @@ const ops = {
     const auth = c.discovered.document.auth ?? {};
     const method = params.method ?? "direct";
     const scopesFor = (descriptor) => params.scopes ?? descriptor?.scopes ?? [];
+    const wanted = scopesFor(auth[method]);
+    if (c.accountRef && wanted.every((scope) => (c.grantedScopes ?? []).includes(scope))) {
+      if (!c.signedIn) await refreshInto(c);
+      if (c.signedIn) {
+        return { signed_in: true, account: params.account ?? c.account ?? null, scope: c.signedIn.scopes.join(" ") };
+      }
+    }
     if (method === "direct") {
       if (!metadata.authorization_endpoint) throw new StepError(501, "unsupported", "no Direct Sign-In");
       world.browser.last = undefined;
@@ -326,7 +571,7 @@ const ops = {
         // An OAuth error the Company sent back through the redirect is the Company's
         // refusal (spec 5.2 poppy_error), not an adapter failure. It has no HTTP status.
         const refused = error?.code === "authorization_denied" && new URL(params.callback_url).searchParams.get("error");
-        if (refused) return { __poppy_error: refused };
+        if (refused) throw new Refusal(refused, 0, "the Company's redirect carried an error");
         throw error;
       }
       c.accountRef = result.accountTokenReference;
@@ -335,7 +580,13 @@ const ops = {
     if (pending.method === "device") {
       const deadline = Date.now() + (params.timeout_ms ?? 60_000);
       for (;;) {
-        const poll = await pending.client.poll(pending.reference);
+        let poll;
+        try {
+          poll = await pending.client.poll(pending.reference);
+        } catch (error) {
+          c.pending = undefined;
+          throw error;
+        }
         if (poll.status === "complete") {
           c.pending = undefined;
           c.accountRef = poll.accountTokenReference;
@@ -349,7 +600,7 @@ const ops = {
     if (pending.method === "mediated") {
       const auth = c.discovered.document.auth;
       const client = new MediatedSignInClient({ reactor: world.reactor, fetch: world.fetch });
-      world.input.answers = [params.fields ?? {}];
+      world.input.answers = [pending.stage === "code" ? { code: params.code ?? params.fields?.code } : (params.fields ?? {})];
       let result;
       if (pending.stage === "credentials") {
         result = await client.signIn({
@@ -365,10 +616,10 @@ const ops = {
       }
       if (result.status === "code_required") {
         c.pending = { ...pending, stage: "code", reference: result.reference };
-        return { pending: { fields: ["code"], sent_to: result.sentTo ?? null } };
+        return { pending: { code_required: true, fields: ["code"], sent_to: result.sentTo ?? null } };
       }
       c.pending = undefined;
-      if (result.status !== "complete") throw new StepError(422, `mediated_${result.status}`, "Mediated Sign-In did not complete");
+      if (result.status !== "complete") throw new Refusal(result.status === "failed" ? "access_denied" : `mediated_${result.status}`, 0, "Mediated Sign-In did not complete");
       c.accountRef = result.accountTokenReference;
       return signedInResult(c, result.token, result.grantedScopes, params);
     }
@@ -376,131 +627,31 @@ const ops = {
   },
 
   async send(c, params) {
-    const token = await ensureSession(c);
+    await ensureSession(c);
     const endpoint = conversationEndpoint(c);
-    const message = { id: params.message_id ?? world.conversations.generateMessageId(), sender: "human", text: params.text };
-    const options = { token, ...who(c), ...(params.wait === undefined ? {} : { wait: params.wait }) };
-    const previous = params.conversation ? c.conversations.get(params.conversation) : undefined;
-    let response = params.conversation
-      ? await world.conversations.send(endpoint, params.conversation, message, {
-          ...options,
-          ...(previous?.cursor ? { cursor: previous.cursor } : {}),
-        })
-      : await world.conversations.start(endpoint, message, options);
-    if (response.events === undefined) {
-      // A bare receipt (no `wait`): read what has happened since our last cursor.
-      response = {
-        ...(await world.conversations.readEvents(endpoint, response.conversation_id, {
-          token,
-          ...who(c),
-          ...(previous?.cursor ? { cursor: previous.cursor } : {}),
-        })),
-        receipt: response,
-      };
-    }
-    c.conversations.set(response.conversation_id, { cursor: response.cursor });
-    remember(c, response);
-    return {
-      conversation: response.conversation_id,
-      message_id: message.id,
-      status: response.status,
-      messages: messagesOf(response),
-      operations: operationsOf(response),
-      cursor: response.cursor ?? null,
-      events: response.events ?? [],
-    };
+    // `message_id` is a retry key (spec 5.2): the same key sends the same message, same id.
+    const key = params.message_id;
+    const retried = key === undefined ? undefined : c.retryKeys?.get(key);
+    const message = retried?.message ?? { id: world.conversations.generateMessageId(), sender: "human", text: params.text };
+    const conversation = params.conversation ?? retried?.conversation;
+    const result = await withSession(c, (token) => sendOnce(c, endpoint, token, message, conversation, params));
+    if (key !== undefined) (c.retryKeys ??= new Map()).set(key, { message, conversation: result.conversation });
+    return result;
   },
 
   async read(c, params) {
-    const token = await ensureSession(c);
-    const page = await world.conversations.readEvents(conversationEndpoint(c), params.conversation, {
-      token,
-      ...who(c),
-      ...(params.cursor ? { cursor: params.cursor } : {}),
-      ...(params.wait === undefined ? {} : { wait: params.wait }),
-    });
-    remember(c, page);
-    return { messages: messagesOf(page), operations: operationsOf(page), cursor: page.cursor, has_more: page.has_more, status: page.status, events: page.events };
+    return withSession(c, (token) => readOnce(c, token, params));
   },
 
   async sse(c, params) {
-    const token = await ensureSession(c);
-    const max = params.max_events ?? 10;
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), params.timeout_ms ?? 10_000);
-    const events = [];
-    const stream = world.conversations.stream(conversationEndpoint(c), params.conversation, {
-      token,
-      ...who(c),
-      ...(params.cursor ? { lastEventId: params.cursor } : {}),
-      signal: abort.signal,
-    });
-    const reading = (async () => {
-      for await (const item of stream) {
-        if (item.kind !== undefined) continue; // text deltas and reconnect notices
-        events.push({ id: item.id, type: item.type, data: item });
-        if (events.length >= max) return;
-      }
-    })();
-    // The abort signal alone doesn't stop a read that is waiting on a quiet stream, so
-    // the step also ends at the deadline whatever the stream is doing.
-    const deadline = new Promise((resolve) => abort.signal.addEventListener("abort", resolve, { once: true }));
-    try {
-      await Promise.race([reading, deadline]);
-    } catch (error) {
-      if (!abort.signal.aborted) throw error;
-    } finally {
-      clearTimeout(timer);
-      abort.abort();
-      reading.catch(() => undefined);
-      stream.return?.().catch(() => undefined);
-    }
-    return { events, timed_out: events.length < max };
+    return withSession(c, (token) => sseOnce(c, token, params));
   },
 
   async api(c, params) {
-    const token = await ensureSession(c);
-    if (params.tool !== undefined) throw new StepError(501, "unsupported", "MCP calls are not wired in this adapter");
-    const apis = c.discovered.document.apis ?? [];
-    const api = apis.find((a) => a.name === params.api || a.url === params.api || a.type === params.api) ?? apis[0];
-    if (!api) throw new StepError(409, "no_api", "the Company lists no API");
-    // `operation` is either "METHOD /path" or an OpenAPI operationId; spec 5.2 doesn't say.
-    let method;
-    let path;
-    let base = new URL("/", api.url).toString();
-    const args = params.args ?? {};
-    const literal = /^([A-Z]+)\s+(\/\S*)$/.exec(String(params.operation ?? "GET /"));
-    if (literal) {
-      [, method, path] = literal;
-    } else {
-      const described = await world.transport.request("GET", api.url, { token, ...who(c), headers: { Accept: "application/json" } });
-      const openapi = await described.json();
-      for (const [template, item] of Object.entries(openapi.paths ?? {})) {
-        for (const [verb, operation] of Object.entries(item ?? {})) {
-          if (operation?.operationId === params.operation) {
-            method = verb.toUpperCase();
-            path = template;
-          }
-        }
-      }
-      if (!method) throw new StepError(404, "unknown_operation", `no operationId ${params.operation} in ${api.url}`);
-      const server = openapi.servers?.[0]?.url;
-      if (server) base = new URL(server, api.url).toString();
+    if (params.tool !== undefined || params.api === "mcp") {
+      throw new StepError(501, "unsupported", "the TypeScript SDK has no MCP client");
     }
-    path = path.replace(/\{([^}]+)\}/g, (_, name) => encodeURIComponent(String(args[name] ?? args.path?.[name] ?? "")));
-    // Paths are relative to the first server URL (OpenAPI 3), or to the origin.
-    const url = new URL(path.replace(/^\//, ""), base.endsWith("/") ? base : `${base}/`).toString();
-    const body = args.body;
-    const response = await world.transport.request(method, url, {
-      token,
-      ...who(c),
-      headers: { Accept: "application/json", ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    const text = await response.text();
-    let parsed = text;
-    try { parsed = JSON.parse(text); } catch { /* not JSON */ }
-    return { status: response.status, body: parsed };
+    return withSession(c, (token) => apiOnce(c, token, params));
   },
 
   async approve_op(c, params) {
@@ -581,13 +732,17 @@ function errorOf(error) {
       ? [501, { error: "unsupported", detail: error.message }]
       : [error.status, { error: error.code, detail: error.message }];
   }
+  if (error instanceof Refusal) {
+    return [200, { ok: false, poppy_error: error.code, status: error.status, detail: error.message }];
+  }
   const status = error?.statusCode;
   if (typeof error?.code === "string" && typeof status === "number" && status >= 400) {
     // A refusal the Company sent: not an adapter error (spec 5.2).
     return [200, { ok: false, poppy_error: error.code, status, detail: error.message }];
   }
   if (typeof error?.code === "string") {
-    return [422, { error: error.code, detail: String(error.message ?? error) }];
+    // The SDK refused something the Company did or sent: the agent's own refusal, status 0.
+    return [200, { ok: false, poppy_error: error.code, status: 0, detail: String(error.message ?? error) }];
   }
   return [500, { error: "adapter_error", detail: String(error?.stack ?? error) }];
 }
@@ -614,7 +769,6 @@ const control = createServer(async (request, response) => {
       const op = ops[body.op];
       if (!op) return send(response, 501, { error: "unsupported", detail: `op ${body.op}` });
       const result = await serialized(() => op(body.op === "state" ? undefined : company(body.company), body.params ?? {}));
-      if (result?.__poppy_error) return send(response, 200, { ok: false, poppy_error: result.__poppy_error, status: null });
       return send(response, 200, { ok: true, result });
     }
     return send(response, 404, { error: "not_found" });

@@ -7,8 +7,27 @@
 // Port 8081: the hooks API. Hooks call the CompanyService in this process directly.
 import { createServer } from "node:http";
 
-import { MemoryCompanyStore, RecordKinds, companyRequestListener } from "../lib/server.js";
-import { ADA, ADA_CODE, CONFIG_OPTIONS, manzanita } from "../lib/demo/manzanita.js";
+import {
+  CompanyAccounts,
+  CompanyAgents,
+  CompanyApis,
+  CompanyConfig,
+  CompanyStores,
+  MemoryCompanyStore,
+  OperationExecutors,
+  RecordKinds,
+  buildCompany,
+  companyRequestListener,
+} from "../lib/server.js";
+import {
+  ADA,
+  ADA_CODE,
+  CONFIG_OPTIONS,
+  ManzanitaAccounts,
+  ManzanitaAgent,
+  ManzanitaApi,
+  ManzanitaPlugin,
+} from "../lib/demo/manzanita.js";
 
 const UPSTREAM_COMMIT = "12d71877d477b93f3ee68ebdc542560ba85997b9";
 const NAME = process.env.INTEROP_NAME || "datalayer-ts";
@@ -16,6 +35,11 @@ const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${NAME}.company.interop.t
 const DOMAIN = new URL(ORIGIN).hostname;
 const SECRET = process.env.INTEROP_SECRET || "";
 const ACCOUNT = "acct_ada";
+// Interop-only, off unless set: the scenarios ask for Poppy's poppy:read and poppy:write,
+// which Manzanita doesn't define. With this on, Manzanita also offers them, as synonyms
+// for orders:read and orders:write.
+const POPPY_SCOPES = process.env.INTEROP_POPPY_SCOPES === "1";
+const SYNONYMS = { "poppy:read": "orders:read", "poppy:write": "orders:write" };
 
 const MANIFEST = {
   interop: 1,
@@ -24,9 +48,14 @@ const MANIFEST = {
   commit: UPSTREAM_COMMIT,
   poppy: ["0.1"],
   extensions: ["operations"],
-  scenarios: ["D", "S0", "SD", "SV", "SM", "SX", "SE", "SO", "C", "CI", "CS", "AO", "AS", "O", "O2", "OX"],
+  scenarios: ["D", "S0", "SD", "SV", "SXV", "SMC", "SX", "SE", "SO", "R", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX"],
   readings: { S1: "token-endpoint", S3: "insertion", S4: "omit" },
-  relaxations: [`organization.domain and auth.issuer set to ${DOMAIN} (Manzanita's config.domain; upstream default manzanita.example)`],
+  relaxations: [
+    `organization.domain and auth.issuer set to ${DOMAIN} (Manzanita's config.domain; upstream default manzanita.example)`,
+    ...(POPPY_SCOPES
+      ? ["INTEROP_POPPY_SCOPES=1: Manzanita also offers poppy:read and poppy:write, as synonyms for orders:read and orders:write (adapter wrappers around its agent and API; no patch)"]
+      : []),
+  ],
 };
 
 /** The memory store, remembering which Sessions exist so `end_sessions` can end them. */
@@ -50,9 +79,47 @@ class TrackingStore {
 
 let company;
 
+const widen = (scopes) => [...new Set([...scopes, ...scopes.map((scope) => SYNONYMS[scope]).filter(Boolean)])];
+
+/** Manzanita's agent, seeing poppy:* scopes as the orders:* ones they stand for. */
+class SynonymAgent {
+  constructor(inner) { this.inner = inner; }
+  respond(turn) { return this.inner.respond({ ...turn, scopes: widen(turn.scopes ?? []) }); }
+}
+
+/** Manzanita's API, the same way. */
+class SynonymApi {
+  constructor(inner) { this.inner = inner; this.description = inner.description; }
+  openapi() { return this.inner.openapi(); }
+  handle(call) { return this.inner.handle({ ...call, scopes: widen(call.scopes ?? []) }); }
+}
+
+/** Manzanita, assembled as `manzanita()` does, with its store given and its scopes optionally widened. */
 function build() {
   const store = new TrackingStore();
-  const { service, plugin } = manzanita({ store, config: { domain: DOMAIN } });
+  const plugin = new ManzanitaPlugin();
+  const agent = new ManzanitaAgent();
+  const api = new ManzanitaApi();
+  const contributes = [
+    { point: CompanyAccounts, value: new ManzanitaAccounts(), options: { id: "accounts" } },
+    { point: CompanyAgents, value: POPPY_SCOPES ? new SynonymAgent(agent) : agent, options: { id: "agent" } },
+    { point: OperationExecutors, value: plugin.executor, options: { id: "exchange" } },
+    { point: OperationExecutors, value: plugin.giftWrap, options: { id: "gift-wrap" } },
+    { point: OperationExecutors, value: plugin.returns, options: { id: "returns" } },
+    { point: OperationExecutors, value: plugin.repairs, options: { id: "repairs" } },
+    { point: CompanyApis, value: POPPY_SCOPES ? new SynonymApi(api) : api, options: { id: "api" } },
+    { point: CompanyStores, value: store, options: { id: "given-store", order: 0 } },
+  ];
+  const options = { ...CONFIG_OPTIONS, domain: DOMAIN };
+  if (POPPY_SCOPES) {
+    options.scopes = [...CONFIG_OPTIONS.scopes, "poppy:read", "poppy:write"];
+    // The service confirms operations only for a Session holding every write scope, so
+    // with synonyms on, the write scope is poppy:write (orders:write alone no longer confirms).
+    options.writeScopes = ["poppy:write"];
+  }
+  const service = buildCompany(new CompanyConfig(options), {
+    plugins: [{ name: "manzanita-interop", version: "1", contributes }],
+  });
   company = { service, plugin, store, listener: companyRequestListener(service, { onError: (e) => console.error("[company]", e) }) };
 }
 
@@ -132,17 +199,54 @@ const hooks = {
     return { state: operation.state };
   },
   async fixture() {
+    const read = POPPY_SCOPES ? "poppy:read" : "orders:read";
     return {
       accounts: [ACCOUNT],
-      scopes: [...CONFIG_OPTIONS.scopes],
-      openapi: { api: `${ORIGIN}/api/openapi.json`, operation: "GET /api/orders" },
-      mediated: { account: ACCOUNT },
-      conversation: {
-        signed_out_text: "Hello",
-        sign_in_text: "Where is my jacket order?",
-        operation_text: "I'd like to exchange it for a warmer one",
+      scopes: POPPY_SCOPES ? ["poppy:read", "poppy:write", ...CONFIG_OPTIONS.scopes] : [...CONFIG_OPTIONS.scopes],
+      openapi: { api: "openapi", operation: "GET /api/orders", args: {} },
+      openapi_write: { api: "openapi", operation: "POST /api/orders/{order_id}/exchanges", args: { params: { order_id: "ord_7Hk2" }, body: {} } },
+      prompts: {
+        hello: "Hello",
+        sign_in: "Where is my jacket order?",
+        operation: "I'd like to exchange it for a warmer one",
       },
+      otp_account: ACCOUNT,
+      read_scope: read,
     };
+  },
+  async propose_operation(params) {
+    // Manzanita's agent proposes the exchange when a signed-in user asks for it
+    // (fixture prompts.operation); this returns the proposal it made in the conversation.
+    const record = await company.store.get(RecordKinds.conversation, String(params.conversation ?? ""));
+    if (!record) throw new HookError(404, "unknown_conversation", "no such conversation");
+    const operations = record.value.events
+      .map((event) => event.payload?.message?.operation?.operation_id)
+      .filter(Boolean);
+    for (const id of operations.reverse()) {
+      const stored = await company.service.operationRecord(id).catch(() => undefined);
+      if (stored?.operation.state === "proposed") return { operation: id };
+    }
+    throw new HookError(409, "no_operation", "Nothing proposed: send fixture.prompts.operation in a signed-in conversation first");
+  },
+  async expire_tokens() {
+    // Every Session Token issued so far now carries an expiry in the past.
+    const { store } = company;
+    const past = new Date(Date.now() - 1000).toISOString();
+    let expired = 0;
+    for (const key of store.keys[RecordKinds.session]) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const entry = await store.get(RecordKinds.session, key);
+        if (!entry) break;
+        const tokens = Object.fromEntries(
+          Object.entries(entry.value.tokens).map(([digest, token]) => [digest, { ...token, expiresAt: past }]),
+        );
+        if (await store.replace(RecordKinds.session, key, entry.version, { ...entry.value, tokens })) {
+          expired += Object.keys(tokens).length;
+          break;
+        }
+      }
+    }
+    return { expired };
   },
 };
 
@@ -176,7 +280,7 @@ const control = createServer(async (request, response) => {
       if (!hook) return send(response, 501, { error: "unsupported", detail: path });
       const body = await readJson(request);
       const params = body && typeof body.params === "object" && body.params !== null ? body.params : body;
-      return send(response, 200, { ok: true, result: await hook(params ?? {}) });
+      return send(response, 200, await hook(params ?? {}));
     }
     return send(response, 404, { error: "not_found" });
   } catch (error) {
