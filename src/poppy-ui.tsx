@@ -14,6 +14,13 @@ import type { PoppyView } from "./use-pi-session";
 
 type Send = (frame: PoppyClientFrame) => void;
 
+/** A Company-supplied link, only if it is an HTTPS URL: never `javascript:`, `data:` or `http:`. */
+function httpsHref(value: string | undefined): string | null {
+  if (!value || !URL.canParse(value)) return null;
+  const url = new URL(value);
+  return url.protocol === "https:" ? url.href : null;
+}
+
 /** A QR code drawn as SVG cells, for opening a device sign-in on a phone. */
 function QrCode({ value }: { value: string }) {
   const cells = useMemo(() => {
@@ -90,7 +97,7 @@ function CredentialsCard({ card, send }: { card: Extract<Card, { kind: "signin_c
               className="mt-1 w-full rounded-lg border border-kumo-line bg-kumo-base px-3 py-2 text-sm"
               type={field.secret ? "password" : "text"}
               autoComplete={field.secret ? "current-password" : "username"}
-              value={values[field.name] ?? ""}
+              value={Object.hasOwn(values, field.name) ? values[field.name] : ""}
               onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
               required
             />
@@ -218,48 +225,55 @@ function DirectInvite({ card, send }: { card: Extract<Card, { kind: "direct_invi
 function PoppyCard({ card, send }: { card: Card; send: Send }) {
   const dismiss = () => send({ type: "poppy.card.dismiss", id: card.id });
   switch (card.kind) {
-    case "signin_link":
+    case "signin_link": {
+      const href = httpsHref(card.url);
       return (
         <CardFrame title="Sign in" company={card.company}>
           <p className="text-sm">{card.reason}</p>
           <Scopes scopes={card.scopes} />
           <div className="mt-3 flex gap-2">
-            <a
-              href={card.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-kumo-contrast px-3 py-1.5 text-sm font-medium text-kumo-inverse"
-            >
-              Sign in on {card.company}'s page <ArrowSquareOutIcon size={14} />
-            </a>
+            {href ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-kumo-contrast px-3 py-1.5 text-sm font-medium text-kumo-inverse"
+              >
+                Sign in on {card.company}'s page <ArrowSquareOutIcon size={14} />
+              </a>
+            ) : (
+              <p className="text-sm text-kumo-danger">This sign-in link isn't a secure web address, so it isn't shown.</p>
+            )}
             <Button variant="secondary" size="sm" onClick={() => send({ type: "poppy.signin.cancel", signInId: card.signInId })}>
               Cancel
             </Button>
           </div>
         </CardFrame>
       );
-    case "signin_device":
+    }
+    case "signin_device": {
+      const href = httpsHref(card.verificationUriComplete) ?? httpsHref(card.verificationUri);
       return (
         <CardFrame title="Sign in on any device" company={card.company}>
           <p className="text-sm">{card.reason}</p>
           <Scopes scopes={card.scopes} />
           <div className="mt-3 flex flex-wrap items-center gap-4">
-            <QrCode value={card.verificationUriComplete ?? card.verificationUri} />
+            {href ? <QrCode value={href} /> : null}
             <div className="space-y-2">
               <p className="text-xs text-kumo-subtle">Check that the page shows this code:</p>
               <p className="font-mono text-2xl font-semibold tracking-widest">{card.userCode}</p>
-              <a
-                href={card.verificationUriComplete ?? card.verificationUri}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-sm underline"
-              >
-                Open {card.company}'s page <ArrowSquareOutIcon size={14} />
-              </a>
+              {href ? (
+                <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm underline">
+                  Open {card.company}'s page <ArrowSquareOutIcon size={14} />
+                </a>
+              ) : (
+                <p className="text-sm text-kumo-danger">This sign-in link isn't a secure web address, so it isn't shown.</p>
+              )}
             </div>
           </div>
         </CardFrame>
       );
+    }
     case "signin_credentials":
       return <CredentialsCard card={card} send={send} />;
     case "signin_code":

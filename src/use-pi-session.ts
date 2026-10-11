@@ -40,7 +40,7 @@ const INITIAL_STATE: State = {
   poppy: { cards: [], accounts: [], permissions: [], direct: {} }
 };
 
-function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView {
+export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView {
   switch (frame.type) {
     case "poppy.cards": {
       // A full list replaces ours; a one-off notice is added to it.
