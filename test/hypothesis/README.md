@@ -18,7 +18,7 @@ It needs `uv` and Node; `uv run --frozen` installs the pinned, hash-locked depen
 
 `launcher.ts` runs the mock in Node, bundled by `interop/impls/shared/build.mjs` like the interop adapter, under `<id>.company.interop.test`. The Python client's transport sends each `https://` request to 127.0.0.1 with the Company's host in `Host` and `X-Forwarded-Proto: https`, as the interop proxy does, so the mock checks `htu`, `aud` and the issuer against the real URLs. No check is relaxed. The Python agent's client metadata and JWKS reach the mock through its `serveClientDocument`, made for a second client, and are checked like any other client's.
 
-The launcher's control port has the interop hooks it needs (`fixture`, `approve_authorization`, `approve_device`, `mediated_answers`, `last_one_time_code`), `GET /violations`, `GET /state`, and `POST /reset` with the settings a run draws: strict or lenient assertions, the client assertion's `aud` (S1), rotation and reuse detection, nonces per Company or per origin (S23), token responses without `scope`, an issuer with a trailing slash, sign-out that ends Sessions, streaming, text deltas, keep-alives, and whether the Company Agent replies.
+The launcher's control port has the interop hooks and `GET /violations` of `interop/impls/shared/mock-hooks.ts`, the module the `dpa-mock` adapter uses too, `GET /state`, and `POST /reset` with the settings a run draws: strict or lenient assertions, the client assertion's `aud` (S1), rotation and reuse detection, nonces per Company or per origin (S23), token responses without `scope`, an issuer with a trailing slash, sign-out that ends Sessions, streaming, text deltas, keep-alives, and whether the Company Agent replies.
 
 ## The model and its rules
 
