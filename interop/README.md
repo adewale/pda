@@ -52,7 +52,7 @@ Everything a run creates on Docker, its containers, network and any volumes, car
 
 Before it starts, the runner checks free space on Docker's data disk, running `df -Pk /` in a short-lived container of the proxy image, and refuses to start below `--min-free-gb` (2 GB by default), saying how much there is. A first run, before the proxy image is built, skips the check.
 
-The latest grid, for readers who don't run it, is in [`docs/interop-results/`](../docs/interop-results/): [`results.json`](../docs/interop-results/results.json) and [`index.html`](../docs/interop-results/index.html) (open it locally or through a raw-HTML viewer; its HAR links point at files that aren't committed). Its [README](../docs/interop-results/README.md) says which implementations and commits it covers.
+Results aren't committed. A summary of the last full grid, for readers who don't run it, is in [`docs/interop-results/README.md`](../docs/interop-results/README.md): a snapshot of one run, with the implementations and commits it covered, the totals, the matrix and the causes of each failure. For the full results, run the grid (output in `results/<run>/`, gitignored) or download the `interop-results` artifact that CI's Interop workflow (`.github/workflows/interop.yml`) uploads.
 
 ## How a cell runs
 
@@ -73,7 +73,7 @@ proxy/               The recording TLS proxy (Node, no dependencies)
 impls/dpa-agent/     Our agent: src/poppy in Node, no model
 impls/dpa-mock/      Our strict mock Company (test/mock-company) behind the hooks API
 impls/shared/        What our two adapters share: the HTTP shim and the esbuild bundle
-vectors/             One-sided cases for other implementations' testers (spec section 11)
+vectors/datalayer/  Runs Datalayer's conformance cases against src/poppy and src/validator (spec section 11)
 test/                Unit tests for the runner, in Node (interop/vitest.config.ts, part of npm test)
 ```
 
@@ -109,4 +109,4 @@ Check that `MediaType` is an image index (`…image.index…` or `…manifest.li
 
 ## Vectors
 
-`vectors/validator.json` and `vectors/mock-company.json` are generated from `test/validator.test.ts` and `test/mock-company.test.ts`. After changing a fixture or a tamper row, run `npm run interop:vectors`; until then the tests that generate them fail.
+`vectors/datalayer/run.mjs` runs Datalayer's language-neutral conformance cases against our client and validator ([its README](vectors/datalayer/README.md)). We used to export our own validator fixtures and the mock's tamper rows the same way, as `vectors/validator.json` and `vectors/mock-company.json`; they were removed because nothing consumed them, and the shared vectors repository they were meant to seed was never made. The fixtures and rows themselves are still the tests in `test/validator.test.ts` and `test/mock-company.test.ts`.

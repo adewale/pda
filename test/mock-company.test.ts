@@ -13,7 +13,6 @@ import {
   CLOCK_HEADER,
   hostsFor,
   VIOLATION_IDS,
-  VIOLATIONS,
   violationId,
   type MockCompany,
   type MockConfig,
@@ -25,7 +24,6 @@ import conversationsSource from "./mock-company/conversations.ts?raw";
 import coreSource from "./mock-company/core.ts?raw";
 import indexSource from "./mock-company/index.ts?raw";
 import operationsSource from "./mock-company/operations.ts?raw";
-import violationsSource from "./mock-company/violations.ts?raw";
 import webSource from "./mock-company/web.ts?raw";
 
 /**
@@ -1764,57 +1762,6 @@ describe("each check the mock Company makes", () => {
     expect(unknown).toEqual([]);
     // Nothing records a violation without an id.
     expect(source.match(/\bviolation\(\s*`[^`$]*`/g) ?? []).toEqual([]);
-  });
-});
-
-/**
- * The rows as one-sided interop vectors, in Datalayer's schema: what an
- * agent got wrong, and the check a strict Company should name for it. The
- * requests themselves are code (signed with the test's keys at the test's
- * time), so a vector describes the mutation rather than replaying it.
- * Regenerate with `npm run interop:vectors`; this test fails while the file
- * is stale.
- */
-describe("interop vectors", () => {
-  it("exports every row to interop/vectors/mock-company.json", async () => {
-    // Each catalog section's heading names the spec sections it checks: `// ---- Title (4.2, 4.3) ----`.
-    const sections = new Map<string, string[]>();
-    let current: string[] = [];
-    for (const line of violationsSource.split("\n")) {
-      const heading = /^\s*\/\/ ---- (.*?)\s*(?:\(([^)]*)\))? ----/.exec(line);
-      if (heading) current = heading[2] ? heading[2].split(/[,;]\s*/).map((part) => part.trim()).filter(Boolean) : [heading[1]!];
-      const entry = /^\s*"([a-z.-]+)":/.exec(line);
-      if (entry) sections.set(entry[1]!, current);
-    }
-    const example = { hosts: hostsFor("acme") } as unknown as C;
-    const seen = new Map<string, number>();
-    const vectors = TAMPERS.map((row) => {
-      const detail = typeof row.detail === "function" ? row.detail(example) : row.detail;
-      const n = (seen.get(row.id) ?? 0) + 1;
-      seen.set(row.id, n);
-      return {
-        id: `dpa.mock.${row.id}${n > 1 ? `.${n}` : ""}`,
-        kind: "agent-request",
-        role: "company",
-        requirements: sections.get(row.id) ?? [],
-        check: row.id,
-        input: { mutation: row.what, ...(row.config ? { company_config: row.config } : {}) },
-        expect: {
-          refused_or_recorded: row.id,
-          ...(row.ids ? { violations: [...row.ids] } : {}),
-          ...(typeof detail === "string" ? { detail } : detail ? { detail_pattern: detail.source } : {})
-        },
-        description: VIOLATIONS[row.id]
-      };
-    });
-    const file = {
-      version: 1,
-      source: "test/mock-company.test.ts (TAMPERS) and test/mock-company/violations.ts",
-      notes:
-        "Each vector is one thing an agent can get wrong in an otherwise correct request; a strict Company refuses it or records the check named in `check`. `detail` is the mock Company's wording for a Company at acme.shop.test.",
-      vectors
-    };
-    await expect(`${JSON.stringify(file, null, 2)}\n`).toMatchFileSnapshot("../interop/vectors/mock-company.json");
   });
 });
 

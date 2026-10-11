@@ -117,7 +117,7 @@ I'd offer the plugin a place in the M×N interop harness in [adewale/dpa](https:
 - A registry entry with a pinned commit.
 - An adapter (`docs/interop-spec.md` §5.2) that serves the identity on port 8080 and `POST /step` on port 8081, driving the plugin's protocol code, never a model.
 
-Our Datalayer Python adapter is a ready template. The one-sided vectors (validator fixtures and the strict mock Company's tamper rows, in Datalayer's schema) run without Docker.
+Our Datalayer Python adapter is a ready template.
 
 **Lessons from the grid that apply directly:**
 

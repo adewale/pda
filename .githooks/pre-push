@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fast checks before a push: the types and the docs check, not the test
-# suites (CI runs those). Enable once per clone:
+# Fast check before a push: the types only (about 5 s). CI runs the tests
+# and the docs check. Enable once per clone:
 #   git config core.hooksPath .githooks
 # Skip it for one push, knowingly: git push --no-verify
 set -euo pipefail
@@ -14,6 +14,3 @@ fi
 
 echo "pre-push: npm run typecheck" >&2
 npm run --silent typecheck
-
-echo "pre-push: npm run check:docs" >&2
-npm run --silent check:docs

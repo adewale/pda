@@ -127,8 +127,6 @@ I'd offer the plugin a place in the M×N interop harness in [adewale/dpa](https:
 - A registry entry with a pinned commit.
 - A small adapter (`docs/interop-spec.md` §5.2). It serves the plugin's identity on port 8080 and `POST /step` on port 8081, and it drives the plugin's protocol code directly, never a model.
 
-The one-sided vectors (validator fixtures and the strict mock Company's tamper rows, in Datalayer's schema) can run in this repo's CI without Docker.
-
 **What the grid showed breaks between implementations**, so this plugin can avoid it from day one:
 
 - **Assertion `typ`.** Client and Session assertions without `typ: "JWT"` are refused by strict Companies. Send `typ: "JWT"`, a `kid`, and a lifetime of 60 s or less.

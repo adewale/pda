@@ -1,6 +1,6 @@
 # M×N interoperability testing for Poppy
 
-How to test every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, using pirate testing. This is the design and its rationale; [interop-spec.md](interop-spec.md) is the contract an implementation meets to join, and [`interop/`](../interop/README.md) is the harness. The implementations are listed in the [README](../README.md#other-implementations); the spec issues the grid exercises are in [spec-issues.md](spec-issues.md), and what it found in each project is in [poppy-issues.md](poppy-issues.md). The latest results are in [interop-results/](interop-results/). How these ideas evolved is in [conformance-testing-history.md](conformance-testing-history.md), and the next step, deliberately misbehaving peers, in [adversarial-interop.md](adversarial-interop.md).
+How to test every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, using pirate testing. This is the design and its rationale; [interop-spec.md](interop-spec.md) is the contract an implementation meets to join, and [`interop/`](../interop/README.md) is the harness. The implementations are listed in the [README](../README.md#other-implementations); the spec issues the grid exercises are in [spec-issues.md](spec-issues.md), and what it found in each project is in [poppy-issues.md](poppy-issues.md). A summary of the last full grid, a snapshot, is in [interop-results/](interop-results/README.md). How these ideas evolved is in [conformance-testing-history.md](conformance-testing-history.md), and the next step, deliberately misbehaving peers, in [adversarial-interop.md](adversarial-interop.md).
 
 ## What's built
 
@@ -10,10 +10,10 @@ How to test every Personal Agent implementation of the [Personal Agent Protocol]
 - **The checker** ([`checks.ts`](../interop/runner/checks.ts), [`documents.ts`](../interop/runner/documents.ts), [`readings.ts`](../interop/runner/readings.ts)): pure functions over the recording, named with the mock Company's violation ids where one fits, plus `src/validator` over every discovery document and client metadata served.
 - **Attribution** ([`attribution.ts`](../interop/runner/attribution.ts)) by the four rules, and known failures ([`known-failures.json`](../interop/known-failures.json)).
 - **Our two adapters:** [`dpa-agent`](../interop/impls/dpa-agent) runs `src/poppy` in Node, with Node's SQLite behind the Durable Object SQL API it uses, and no model; [`dpa-mock`](../interop/impls/dpa-mock) runs the mock Company behind the hooks API and reports its violations. It is registered twice: `dpa-mock`, the reference Company, is lenient where the draft is silent (assertion `typ`, `kid` and lifetime, reading S2), and `dpa-mock-strict` keeps the strict checks, so a failure caused only by an open question is blamed on the spec, not hidden behind it. Node was chosen over `wrangler dev` because Node trusts the run's CA through `NODE_EXTRA_CA_CERTS`, starts in a second, and needs no `workerd` networking in a container; the mock and the client are plain TypeScript over `fetch`, so the bundle is our shipped code.
-- **One-sided vectors** ([`interop/vectors/`](../interop/vectors)): the validator fixtures and the mock's tamper rows, in Datalayer's schema, generated from the tests.
+- **Datalayer's vectors** ([`interop/vectors/datalayer/`](../interop/vectors/datalayer)): a runner for Datalayer's 124 language-neutral conformance cases against `src/poppy` and `src/validator`. We also exported our validator fixtures and the mock's tamper rows as vectors in Datalayer's schema; they were removed because nothing consumed them, and the shared vectors repository they were meant to seed was never made.
 - **Adapters for seven other projects:** Datalayer (TypeScript and Python, both sides), pi-poppy (both), poppy-demo (both), poppyseed (Company), adonis-agora (both), Ilmer (Company), and everruns (both; compiles, not yet built into images). Each fetches upstream at a pinned commit; every change an implementation needed to act as a peer is an interop-only setting or a patch, listed in its manifest's `relaxations`.
 - **Known failures** take `*` for any agent, Company or scenario, so one root cause is one entry.
-- **CI** runs our agent against both mocks on every push and keeps the results as an artifact.
+- **CI** runs our agent against both mocks on pushes to `main` and on pull requests that touch the client, the validator, the mock or the harness, and keeps the results as an artifact (`.github/workflows/interop.yml`).
 
 Other implementations' adapters go in `interop/impls/<name>-agent` and `interop/impls/<name>-company`, registered in [`interop/registry.json`](../interop/registry.json).
 
@@ -97,15 +97,15 @@ Datalayer already applies it to Poppy: 124 shared JSON cases in `protocol/fixtur
 | Operations | `O` propose, approve, confirm; `O2` confirm twice, performed once; `OX` decline |
 | Limits | `RL` 429 with `Retry-After` |
 
-Hardening (SSRF, duplicate JSON members, redirects on `client_id`) stays as one-sided pirate vectors, not pairs.
+Hardening (SSRF, duplicate JSON members, redirects on `client_id`) stays in one-sided tests (the validator's fixtures and the mock's tamper rows), not pairs.
 
 ## Plan
 
-Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repository, the Playwright consent scripts, nightly CI for the full grid, and scenarios H, DC, W, O2 and CM. Datalayer's 124 cases run against our code: 24 pass, 2 fail on readings the draft leaves open, and 98 don't apply.
+Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repository (never made; our exported vectors were removed because nothing consumed them), the Playwright consent scripts, nightly CI for the full grid, and scenarios H, DC, W, O2 and CM. Datalayer's 124 cases run against our code: 24 pass, 2 fail on readings the draft leaves open, and 98 don't apply.
 
 
 1. **Pirate vectors, no network.**
-   - Export our validator fixtures and the mock's tamper rows as language-neutral JSON.
+   - Export our validator fixtures and the mock's tamper rows as language-neutral JSON. (Done, then removed: nothing consumed them.)
    - Run Datalayer's 124 cases against `src/poppy` and `src/validator`.
    - Propose a shared `poppy-test-vectors` repository using Datalayer's schema, and merge in poppyseed's 124 mutants.
 2. **3×3.**
