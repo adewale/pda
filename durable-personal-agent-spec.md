@@ -26,7 +26,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 
 ## Status
 
-**Deployed** at `https://personal-agent.adewale-883.workers.dev`, with 107 tests passing in the Workers runtime (Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.0`, Pi 1.1.0, Wrangler 4.149).
+**Deployed** at `https://personal-agent.adewale-883.workers.dev`, with 137 tests passing in the Workers runtime (Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.0`, Pi 1.1.0, Wrangler 4.149).
 
 | Part | State |
 | --- | --- |
@@ -38,6 +38,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Web browsing | Built on Browser Rendering; tested only with a fetch-based fake browser |
 | Chat page with Poppy cards and the Companies panel | Built; not yet checked in a browser, because sign-in isn't live |
 | Sign-in allowlist (emails, Google Workspace domains, GitHub accounts) | Built and tested; set in `wrangler.jsonc`, changed by redeploying |
+| Discovery document validator (library, CLI, JSON API, form) | Built and tested; live at `/validator`; the client's discovery uses it as its ingestion gate |
 | Memory, skills, daily cap (milestone 2) | Not started |
 
 Only people on the allowlist can sign in. Everyone on it spends the account's Claude credits until the daily cap exists.
@@ -129,6 +130,7 @@ App sign-in is the Worker's own Google and GitHub OAuth. It is separate from Pop
 | `GET /poppy/client.json` | The Poppy client metadata document; its URL is our `client_id` | M3 |
 | `GET /poppy/jwks.json` | Our public signing keys | M3 |
 | `GET /poppy/callback` | Direct Sign-In redirect target; the app session picks the person's agent | M3 |
+| `GET /validator`, `POST /validator`, `GET`/`POST /validator/api`, `GET /validator/messages` | The public discovery document validator: form, JSON API, message docs | Built |
 
 ## The agent
 
@@ -238,7 +240,7 @@ The client targets **Draft 0.1** exactly, and treats the document's `protocol_ve
 
 ### Discovery (§3)
 
-For a domain the User or the model names:
+For a domain the User or the model names, the client calls `validateCompany` in `src/validator/` (see Discovery document validator) and uses the Company only if the outcome is `valid`. Any error, or a document that couldn't be fetched, refuses it, and the error text goes to the model. The validator does steps 1 to 3:
 
 1. **Fetch the document.** `GET https://{domain}/.well-known/poppy.json` with `redirect: "manual"`, following at most 3 redirects, each of which MUST be HTTPS. The fetch is safe by construction:
    - **Limits:** a 100 KB size cap and a 5 s timeout.
@@ -251,13 +253,42 @@ For a domain the User or the model names:
    - Ignore unknown fields.
    - Keep only extensions we support (`operations` version `1`), API types we know (`openapi`, `mcp`) and conversation types we know (`poppy`).
 3. **Check the issuer (§3.2).** If `auth` is present:
-   - Fetch `{auth.issuer}/.well-known/oauth-authorization-server` under the same limits.
-   - Require its `issuer` to equal `auth.issuer` exactly, and its `poppy_domains` to include `organization.domain`.
+   - Fetch the issuer's metadata under the same limits, at the RFC 8414 §3.1 location: `/.well-known/oauth-authorization-server` inserted between the host and any path of `auth.issuer` (`https://a.example/t` → `https://a.example/.well-known/oauth-authorization-server/t`).
+   - Require its `issuer` to equal `auth.issuer` exactly, and its `poppy_domains` to include `organization.domain` (exactly, ignoring case only).
    - Require `token_endpoint` and `revocation_endpoint`, plus `authorization_endpoint` or `device_authorization_endpoint` when `auth.direct` or `auth.device` is present.
 4. **Cache** both documents by their HTTP caching headers, bounded to at least 1 minute and at most 1 day.
 5. **Key Companies by issuer.** The Company's identity is `auth.issuer`. Several domains naming one issuer are one Company, with one User ID, the same Sessions and the same Account Tokens.
 
 A document without `auth` can only be browsed as an ordinary website (§3.1), and the tools say so.
+
+### Discovery document validator
+
+`src/validator/` checks the four documents discovery depends on: `poppy.json`, the issuer's OAuth server metadata, a Personal Agent's client metadata, and its key set. It is both our ingestion gate and a public tool. The design follows what the W3C Feed Validator learned:
+
+- **One library, four front ends.**
+  - The client's discovery.
+  - The CLI (`scripts/poppy-validate.ts`; Node 22.18+ runs it directly).
+  - The JSON API (`POST /validator/api`).
+  - The form (`/validator`).
+
+  The library has no Worker dependencies. feedvalidator and feedparser were separate codebases, so "valid" and "parses" drifted apart; here they can't.
+- **Severity follows RFC 2119.** An `error` is a broken MUST and refuses the document. A `warning` is a SHOULD or an interoperability hazard. An `info` is harmless, such as an unknown field, which the spec says to ignore. Warnings never change validity.
+- **Three outcomes.**
+  - `valid`
+  - `invalid`
+  - `indeterminate`, when a document couldn't be fetched. This keeps "the server was down" apart from "the document is wrong".
+- **Stable message ids, each with an explanation, a fix and a spec reference**, at `/validator/messages#<id>`. Help links depend on the id only, so changing a message's severity doesn't break them.
+- **Location.** Each message carries a JSON Pointer and, when parsed from text, a 1-based line and column. The parser keeps going past duplicate member names so it can report them.
+- **Skipped checks.** A check that needs context the input lacks is listed as skipped rather than passed. Examples: the requested domain for a pasted `poppy.json`, or the fetch URL for client metadata.
+- **Versions.** `src/validator/primitives.ts` holds version-independent checks: types, HTTPS URLs, scope tokens, host names, resource indicators, unknown members. `profiles/draft-0.ts` composes them into the rules for major version 0, with each rule a separate exported function.
+  - `poppy.json`'s `protocol_version` picks the profile, and newer minors are checked with the newest rules.
+  - A later major version adds a profile that reuses what still applies. Old profiles stay, so old documents keep being checked by their own rules.
+- **The JSON report is versioned** (`outputVersion: 1`).
+- **Every message is tested.** `test/validator.test.ts` includes a fixture for every message id, and its last test fails if one is missing. The fixtures include the spec's own examples and poppy-demo's live documents.
+- **Public endpoint limits.**
+  - URL checks are rate-limited per client address with the Workers Rate Limiting binding (20 a minute).
+  - Documents are capped at 100 KB.
+  - The API allows any origin and uses no cookies.
 
 ### User IDs (§4.2)
 
@@ -561,14 +592,15 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 
 ## Testing and conformance
 
-`npm test` runs 107 tests in the Workers runtime, in four files.
+`npm test` runs 137 tests in the Workers runtime, in five files.
 
 | File | Tests | What |
 | --- | --- | --- |
 | `test/agent.test.ts` | 34 | App sign-in and the allowlist, `/ws`, the conversation's durability, configuration |
 | `test/allowlist.test.ts` | 3 | Reading and matching the allowlist |
+| `test/validator.test.ts` | 29 | The discovery document validator: a fixture for every message, the spec's examples, live documents, fetching, the HTTP endpoint |
 | `test/mock-company.test.ts` | 9 | The mock Company itself, driven by hand-made requests |
-| `test/poppy.test.ts` | 61 | The Poppy client against the mock Company, grouped by spec section |
+| `test/poppy.test.ts` | 62 | The Poppy client against the mock Company, grouped by spec section |
 
 - **The model** is Pi AI's faux provider. Google and GitHub are faked by the Vitest config's outbound service. Fresh Poppy signing keys and a token key are generated for each run.
 - **The mock Company** (`test/mock-company/`) is a strict Company in a Durable Object, one instance per company id, serving all of its hosts.
@@ -602,6 +634,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 - [ ] **DPoP nonces per server.** The Guides say to keep a nonce "for that server". We key nonces by origin, so a Company's token endpoint and API can each require their own. Is that the intended reading?
 - [ ] **Writes at Companies with the Operations extension.** We let them through, expecting a proposal. A Company may use operations for some actions and not others, so a write there could act at once. Should the draft let a description mark which endpoints propose?
 - [ ] **Local Personal Agents.** §4.1 needs an HTTPS `client_id` on the same domain as the redirect URIs, so an agent on someone's laptop needs a hosted identity or Device Sign-In. A short note in the draft would help.
+- [ ] **Spec ambiguities found across implementations.** [`docs/poppy-issues.md`](docs/poppy-issues.md) lists 23, with how implementations differ and what we do. The ones that affect interoperability most: the client assertion's `aud` (S1), the assertion `typ` and lifetime (S2), where the metadata lives for an issuer with a path (S3), and `scope` on a signed-out Session (S4).
 - [ ] **Eviction.** In tests, `evictDurableObject()` timed out after a completed Pi run. If idle agents stay resident, DPoP keys live longer than assumed (harmless); if evictions are frequent, token requests increase.
 - [ ] **Compaction** of the never-ending conversation.
 - [ ] **Push notifications** are an open topic, so the agent polls.
@@ -626,7 +659,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 3 | Cache `poppy.json` per HTTP caching headers (SHOULD) | `client.ts` `lookup` | Not yet |
 | 3.1 | MUST NOT use a document whose major version isn't supported; ignore unknown fields | `discovery.ts` | Test: "refuses an unsupported major version", "discovers a Company…" |
 | 3.1 | `organization.domain` must match the requested host, ignoring `www.`; a redirect's host doesn't count | `discovery.ts` | Test: "refuses a document whose organization.domain doesn't match" |
-| 3.2 | MUST check the metadata's `issuer` equals `auth.issuer` and `poppy_domains` includes the domain | `discovery.ts` | Test: "refuses an issuer whose metadata doesn't match", "…poppy_domains leaves the domain out" |
+| 3.2 | MUST check the metadata's `issuer` equals `auth.issuer` and `poppy_domains` includes the domain | `validator/profiles/draft-0.ts`, `discovery.ts` | Test: "refuses an issuer whose metadata doesn't match", "…poppy_domains leaves the domain out"; validator tests "requires the issuer to match exactly…" |
 | 3.2 | Domains naming one issuer are one Company | `client.ts` | Test: "treats two domains naming one issuer as one Company" |
 | 3.3 | MUST ignore unsupported extensions and unknown fields; list supported extensions in client metadata | `discovery.ts`, `routes.ts` | Test: "discovers a Company…", "serves the client metadata document…" |
 | 3.3 | Handle `extension_required` | `apis.ts` | Not yet |
@@ -725,6 +758,8 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 ## Sources
 
 - [Personal Agent Protocol: home](https://personalagentprotocol.org/), [Overview](https://personalagentprotocol.org/docs/overview), [Specification, Draft 0.1](https://personalagentprotocol.org/docs/spec), [Extensions](https://personalagentprotocol.org/docs/extensions), [Operations extension](https://personalagentprotocol.org/docs/extensions/operations), [Guides](https://personalagentprotocol.org/docs/guides), [Open topics](https://personalagentprotocol.org/docs/open-topics), [License](https://personalagentprotocol.org/license) (Apache 2.0). All read in full on 11 Oct 2026.
+- Other implementations, read on 11 Oct 2026: [irvinebroque/poppy-demo](https://github.com/irvinebroque/poppy-demo), [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol), [akshay5995/poppyseed](https://github.com/akshay5995/poppyseed), [DavideCarvalho/adonis-agora-authkit](https://github.com/DavideCarvalho/adonis-agora-authkit) and [adonis-agora-agent](https://github.com/DavideCarvalho/adonis-agora-agent), [everruns/everruns](https://github.com/everruns/everruns), [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org). [`docs/poppy-issues.md`](docs/poppy-issues.md) lists what we found in them and in the spec.
+- Feed validators, for the validator's design: the [W3C Feed Validation Service](https://validator.w3.org/feed/) and its source ([rubys/feedvalidator](https://github.com/rubys/feedvalidator)), the [Nu HTML Checker's JSON output](https://github.com/validator/validator/wiki/Output-%C2%BB-JSON), and the [OpenID Foundation conformance suite](https://gitlab.com/openid/conformance-suite).
 - [richardanaya/pi-poppy](https://github.com/richardanaya/pi-poppy), another Poppy client as a pi coding-agent extension, read on 11 Oct 2026. From it we took tool descriptions that say what each tool doesn't do, and the token-in-URL guard; its loopback `client_id` is why "Local Personal Agents" is an open question.
 - [Impeccable: AI slop](https://impeccable.style/slop), applied to the chat page and this document.
 - [Cloudflare agents repo: Pi harness example](https://github.com/cloudflare/agents/tree/main/examples/next/harnesses/pi)

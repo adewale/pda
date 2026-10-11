@@ -448,6 +448,20 @@ describe("6 APIs", () => {
     await noViolations(c);
   });
 
+  it("starts a new Session when the Company says the old one ended", async () => {
+    for (const endedSessionError of ["invalid_token", "invalid_session"] as const) {
+      const c = await company({ endedSessionError });
+      const a = await agent();
+      const call = () => tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
+      expect((await call()).isError).toBe(false);
+      expect(await c.stub.endAllSessions()).toBe(1);
+      expect((await call()).isError).toBe(false);
+      const state = await c.stub.state();
+      expect(state.sessions.filter((session) => !session.ended)).toHaveLength(1);
+      await noViolations(c);
+    }
+  });
+
   it("asks for sign-in when an API needs the account", async () => {
     const c = await company();
     const a = await agent();

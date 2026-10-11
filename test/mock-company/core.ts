@@ -750,7 +750,12 @@ export class Company {
     if (!token) throw resourceError(scheme, 401, "invalid_token");
     if (token.expiresAt <= Date.now()) throw resourceError(scheme, 401, "invalid_token");
     const session = this.sessions.get(token.sessionId);
-    if (!session || session.ended) throw resourceError(scheme, 401, "invalid_token");
+    if (!session || session.ended) {
+      if (session && this.config.endedSessionError === "invalid_session") {
+        throw new HttpError(json({ error: "invalid_session" }, 400));
+      }
+      throw resourceError(scheme, 401, "invalid_token");
+    }
     if (!mcp) {
       const jkt = await this.verifyDpop(inbound, value);
       if (jkt !== token.jkt) {

@@ -262,6 +262,13 @@ export class MockCompany extends DurableObject<Env> {
     return this.#named().operations.revise(operationId, newSummary, newTerms);
   }
 
+  /** The Company ends every Session, as when they expire (4.2). */
+  async endAllSessions(): Promise<number> {
+    const { company } = this.#named();
+    for (const session of company.sessions.values()) session.ended = true;
+    return company.sessions.size;
+  }
+
   /** The User disconnects the Personal Agent in their account settings (4.9). */
   async revokeAllForAccount(account: string): Promise<number> {
     const { company, auth } = this.#named();

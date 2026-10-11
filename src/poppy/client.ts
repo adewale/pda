@@ -610,7 +610,9 @@ export class PoppyClient {
             company.endpoints.token
           ),
           ...(current ? { session_id: current.session_id } : {}),
-          ...extra
+          // A signed-out token has no scopes (4.2), and some Companies reject
+          // `scope` on this grant, so only `resource` narrows it.
+          ...(options.resource ? { resource: options.resource } : {})
         }),
         dpop
       );
@@ -765,6 +767,7 @@ export class PoppyClient {
     const url = new URL(request.url);
     if (url.protocol !== "https:") throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
     let renewed = false;
+    let restarted = false;
     for (let attempt = 0; attempt < 4; attempt++) {
       await this.#respectLimit(company.issuer);
       const token = await this.token(company, options);
@@ -819,6 +822,17 @@ export class PoppyClient {
         this.dropToken(company, options);
         renewed = true;
         continue;
+      }
+      // Some Companies end a Session with `invalid_session` in the body rather
+      // than 401 invalid_token (spec 6): start a new Session and retry once.
+      if ((response.status === 400 || response.status === 401) && !restarted) {
+        const peek = (await response.clone().json().catch(() => null)) as { error?: unknown } | null;
+        if (peek?.error === "invalid_session") {
+          await response.body?.cancel();
+          this.#forgetSession(company.issuer, options.label ?? "main");
+          restarted = true;
+          continue;
+        }
       }
       if (challenge.error && (response.status === 401 || response.status === 403)) {
         await response.body?.cancel();

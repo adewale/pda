@@ -1,8 +1,5 @@
-import { fetchJson, PoppyFetchError, type Fetcher } from "./fetch";
-import { isObject, type Json } from "./json";
-
-/** The only protocol major version this client supports (Draft 0.1). */
-export const SUPPORTED_MAJOR = 0;
+import { summarize, validateCompany } from "../validator/index.ts";
+import type { Fetcher } from "./fetch";
 
 /** Extensions this client supports, with the major version it implements. */
 export const SUPPORTED_EXTENSIONS = { operations: "1" } as const;
@@ -78,28 +75,17 @@ function bareHost(host: string): string {
   return host.toLowerCase().replace(/^www\./, "");
 }
 
-function str(value: Json | undefined): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
+type Obj = { readonly [key: string]: unknown };
 
-function strings(value: Json | undefined): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
+const isObj = (value: unknown): value is Obj =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
-function httpsUrl(value: Json | undefined, what: string): string {
-  const text = str(value);
-  if (!text) throw new DiscoveryError(`${what} is missing`);
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    throw new DiscoveryError(`${what} is not a URL`);
-  }
-  if (url.protocol !== "https:") throw new DiscoveryError(`${what} must be HTTPS`);
-  return url.href;
-}
+const str = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
 
-function optionalResource(entry: { [key: string]: Json }): { resource?: string } {
+const strings = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+
+function optionalResource(entry: Obj): { resource?: string } {
   const resource = str(entry.resource);
   return resource ? { resource } : {};
 }
@@ -111,116 +97,54 @@ export type Discovered = {
 };
 
 /**
- * Discovery for one domain (spec 3): fetch `poppy.json`, check its version
- * and `organization.domain`, then fetch the issuer's OAuth metadata and check
- * `issuer` and `poppy_domains` before trusting any of it (3.2).
+ * Discovery for one domain (spec 3). The validator in `src/validator` fetches
+ * poppy.json and the issuer's OAuth metadata and checks both, including
+ * `issuer` and `poppy_domains` (3.2). We ingest only documents it calls
+ * valid: any MUST broken, or a document that couldn't be fetched, and we
+ * refuse the Company. What follows reads fields the validator has checked.
  */
 export async function discover(fetcher: Fetcher, domain: string): Promise<Discovered> {
-  const requested = bareHost(domain.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, ""));
-  if (!/^[a-z0-9.-]+\.[a-z0-9-]+$/.test(requested)) {
-    throw new DiscoveryError(`${JSON.stringify(domain)} is not a domain name`);
+  const checked = await validateCompany(fetcher, domain);
+  if (checked.outcome !== "valid" || !isObj(checked.poppy)) {
+    throw new DiscoveryError(summarize(checked) || "poppy.json couldn't be used");
   }
-  let document;
-  try {
-    // Ask the host the caller named; a leading www. is ignored only when checking.
-    const host = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-    document = await fetchJson(fetcher, `https://${host}/.well-known/poppy.json`);
-  } catch (error) {
-    if (error instanceof PoppyFetchError) throw new DiscoveryError(error.message);
-    throw error;
-  }
-  const doc = document.json;
-  if (!isObject(doc)) throw new DiscoveryError("poppy.json is not a JSON object");
-
-  const version = str(doc.protocol_version);
-  const match = version ? /^(\d+)\.(\d+)$/.exec(version) : null;
-  if (!match) throw new DiscoveryError("protocol_version must be major.minor");
-  if (Number(match[1]) !== SUPPORTED_MAJOR) {
-    throw new DiscoveryError(
-      `poppy.json is protocol version ${version}; this agent supports only ${SUPPORTED_MAJOR}.x`
-    );
-  }
-
-  const organization = doc.organization;
-  if (!isObject(organization)) throw new DiscoveryError("organization is missing");
-  const name = str(organization.name) ?? requested;
-  const orgDomain = str(organization.domain);
-  // The domain we requested must match, whatever host a redirect served it from.
-  if (!orgDomain || bareHost(orgDomain) !== requested) {
-    throw new DiscoveryError(
-      `poppy.json at ${requested} names organization.domain ${JSON.stringify(orgDomain)}`
-    );
-  }
+  const doc = checked.poppy;
+  const organization = doc.organization as Obj;
+  const orgDomain = bareHost(organization.domain as string);
+  const name = str(organization.name) ?? orgDomain;
+  const cacheSeconds = boundedCacheSeconds(checked.maxAgeSeconds);
 
   const auth = doc.auth;
-  if (!isObject(auth)) {
-    return {
-      result: { websiteOnly: true, name, domain: bareHost(orgDomain) },
-      cacheSeconds: boundedCacheSeconds(document.maxAgeSeconds)
-    };
+  if (!isObj(auth) || !isObj(checked.metadata)) {
+    return { result: { websiteOnly: true, name, domain: orgDomain }, cacheSeconds };
   }
-  // The issuer is compared as an exact string, never normalised (3.2).
-  httpsUrl(auth.issuer, "auth.issuer");
-  const issuerText = str(auth.issuer)!;
-
-  // RFC 8414: the metadata lives under the issuer's well-known path.
-  const issuerUrl = new URL(issuerText);
-  const metadataUrl = `${issuerUrl.origin}/.well-known/oauth-authorization-server${
-    issuerUrl.pathname === "/" ? "" : issuerUrl.pathname
-  }`;
-  let metadataDoc;
-  try {
-    metadataDoc = await fetchJson(fetcher, metadataUrl);
-  } catch (error) {
-    if (error instanceof PoppyFetchError) throw new DiscoveryError(error.message);
-    throw error;
-  }
-  const metadata = metadataDoc.json;
-  if (!isObject(metadata)) throw new DiscoveryError("OAuth metadata is not a JSON object");
-  if (str(metadata.issuer) !== issuerText) {
-    throw new DiscoveryError(
-      `OAuth metadata issuer ${JSON.stringify(metadata.issuer)} doesn't match auth.issuer ${issuerText}`
-    );
-  }
-  if (!strings(metadata.poppy_domains).map(bareHost).includes(bareHost(orgDomain))) {
-    throw new DiscoveryError(`The issuer's poppy_domains doesn't include ${orgDomain}`);
-  }
+  const metadata = checked.metadata;
+  const issuer = auth.issuer as string;
 
   const signIn: { -readonly [K in keyof Company["signIn"]]: Company["signIn"][K] } = {};
-  if (isObject(auth.direct)) signIn.direct = { scopes: strings(auth.direct.scopes) };
-  if (isObject(auth.device)) signIn.device = { scopes: strings(auth.device.scopes) };
-  if (isObject(auth.mediated)) {
-    const fields = Array.isArray(auth.mediated.fields) ? auth.mediated.fields : [];
+  if (isObj(auth.direct)) signIn.direct = { scopes: strings(auth.direct.scopes) };
+  if (isObj(auth.device)) signIn.device = { scopes: strings(auth.device.scopes) };
+  if (isObj(auth.mediated)) {
     signIn.mediated = {
-      endpoint: httpsUrl(auth.mediated.endpoint, "auth.mediated.endpoint"),
-      fields: fields.filter(isObject).flatMap((field) => {
-        const fieldName = str(field.name);
-        return fieldName
-          ? [{ name: fieldName, label: str(field.label) ?? fieldName, secret: field.secret === true }]
-          : [];
-      }),
+      endpoint: auth.mediated.endpoint as string,
+      fields: (auth.mediated.fields as Obj[]).map((field) => ({
+        name: field.name as string,
+        label: field.label as string,
+        secret: field.secret === true
+      })),
       scopes: strings(auth.mediated.scopes)
     };
   }
 
   const endpoints = {
-    token: httpsUrl(metadata.token_endpoint, "token_endpoint"),
-    revocation: httpsUrl(metadata.revocation_endpoint, "revocation_endpoint"),
-    ...(signIn.direct
-      ? { authorization: httpsUrl(metadata.authorization_endpoint, "authorization_endpoint") }
-      : {}),
-    ...(signIn.device
-      ? {
-          deviceAuthorization: httpsUrl(
-            metadata.device_authorization_endpoint,
-            "device_authorization_endpoint"
-          )
-        }
-      : {})
+    token: metadata.token_endpoint as string,
+    revocation: metadata.revocation_endpoint as string,
+    ...(signIn.direct ? { authorization: metadata.authorization_endpoint as string } : {}),
+    ...(signIn.device ? { deviceAuthorization: metadata.device_authorization_endpoint as string } : {})
   };
 
   const customScopes: Record<string, string> = {};
-  if (isObject(auth.custom_scopes)) {
+  if (isObj(auth.custom_scopes)) {
     for (const [scope, description] of Object.entries(auth.custom_scopes)) {
       if (typeof description === "string") customScopes[scope] = description;
     }
@@ -228,25 +152,19 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
 
   // Conversation protocols: use the first we know; skip unfamiliar types (7.1).
   let conversations: Company["conversations"];
-  const agent = doc.agent;
-  if (isObject(agent) && Array.isArray(agent.protocols)) {
-    const entry = agent.protocols.filter(isObject).find((item) => item.type === "poppy");
-    if (entry) {
-      conversations = {
-        endpoint: httpsUrl(entry.endpoint, "agent.protocols endpoint"),
-        ...optionalResource(entry)
-      };
-    }
+  if (isObj(doc.agent) && Array.isArray(doc.agent.protocols)) {
+    const entry = doc.agent.protocols.filter(isObj).find((item) => item.type === "poppy");
+    if (entry) conversations = { endpoint: entry.endpoint as string, ...optionalResource(entry) };
   }
 
   // APIs: skip types we don't recognise (6).
   const apis: Company["apis"][number][] = [];
   if (Array.isArray(doc.apis)) {
-    for (const entry of doc.apis.filter(isObject)) {
+    for (const entry of doc.apis.filter(isObj)) {
       if (entry.type !== "openapi" && entry.type !== "mcp") continue;
       apis.push({
         type: entry.type,
-        url: httpsUrl(entry.url, `${entry.type} url`),
+        url: entry.url as string,
         description: str(entry.description) ?? "",
         ...optionalResource(entry)
       });
@@ -254,34 +172,26 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
   }
 
   let web: Company["web"];
-  if (isObject(doc.web)) {
+  if (isObj(doc.web)) {
     const endpoint = str(doc.web.browser_session_endpoint);
-    web = endpoint
-      ? { browserSessionEndpoint: httpsUrl(endpoint, "web.browser_session_endpoint") }
-      : {};
+    web = endpoint ? { browserSessionEndpoint: endpoint } : {};
   }
 
   // Extensions: keep only those we support, at the version we implement (3.3).
   const extensions: { -readonly [K in keyof Company["extensions"]]: Company["extensions"][K] } = {};
-  if (isObject(doc.extensions) && isObject(doc.extensions.operations)) {
+  if (isObj(doc.extensions) && isObj(doc.extensions.operations)) {
     const operations = doc.extensions.operations;
-    if (str(operations.version) === SUPPORTED_EXTENSIONS.operations) {
-      extensions.operations = {
-        endpoint: httpsUrl(operations.endpoint, "operations endpoint"),
-        ...optionalResource(operations)
-      };
+    if (operations.version === SUPPORTED_EXTENSIONS.operations) {
+      extensions.operations = { endpoint: operations.endpoint as string, ...optionalResource(operations) };
     }
   }
 
-  const ages = [document.maxAgeSeconds, metadataDoc.maxAgeSeconds].filter(
-    (age): age is number => age !== null
-  );
   return {
     result: {
-      issuer: issuerText,
+      issuer,
       name,
-      domain: bareHost(orgDomain),
-      protocolVersion: version!,
+      domain: orgDomain,
+      protocolVersion: doc.protocol_version as string,
       endpoints,
       signIn,
       customScopes,
@@ -290,7 +200,7 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
       ...(web ? { web } : {}),
       extensions
     },
-    cacheSeconds: boundedCacheSeconds(ages.length ? Math.min(...ages) : null)
+    cacheSeconds
   };
 }
 

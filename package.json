@@ -4,13 +4,20 @@
   "private": true,
   "type": "module",
   "version": "0.0.0",
+  "bin": {
+    "poppy-validate": "./scripts/poppy-validate.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "start": "vite dev",
     "build": "vite build",
     "deploy": "vite build && wrangler deploy",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types env.d.ts --include-runtime false",
-    "test": "vitest run --config test/vitest.config.ts"
+    "test": "vitest run --config test/vitest.config.ts",
+    "validate": "node scripts/poppy-validate.ts"
   },
   "dependencies": {
     "@cloudflare/kumo": "^2.6.0",

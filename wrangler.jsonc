@@ -7,7 +7,7 @@
   "ai": { "binding": "AI", "remote": true },
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/ws", "/api/*", "/auth/*", "/logout", "/poppy/*"]
+    "run_worker_first": ["/ws", "/api/*", "/auth/*", "/logout", "/poppy/*", "/validator", "/validator/*"]
   },
   "durable_objects": {
     "bindings": [
@@ -25,6 +25,10 @@
   // put`, never in this file: SESSION_SECRET, GOOGLE_CLIENT_ID,
   // GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
   // POPPY_SIGNING_JWKS and TOKEN_ENC_KEY.
+  // The public validator's URL checks: per client address.
+  "ratelimits": [
+    { "name": "VALIDATOR_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }
+  ],
   "vars": {
     "MODEL_ID": "anthropic/claude-opus-5-5",
     "THINKING_LEVEL": "medium",

@@ -67,6 +67,12 @@ export type MockConfig = {
   };
   /** Revocation ends Sessions instead of leaving them signed out. */
   readonly endSessionsOnSignOut: boolean;
+  /**
+   * How an API or conversation answers a token whose Session has ended:
+   * 401 `invalid_token` (spec 6), or 400 `invalid_session` in the body, as
+   * some Companies do (poppy-demo).
+   */
+  readonly endedSessionError: "invalid_token" | "invalid_session";
   /** Stream conversation events with SSE when asked. */
   readonly streaming: boolean;
   /** Send `text-delta` pieces before each streamed Company message. */
@@ -116,6 +122,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   deviceExpiresIn: 600,
   rateLimit: { tokenRequests429: 0, requests429: 0, retryAfterSeconds: 1 },
   endSessionsOnSignOut: false,
+  endedSessionError: "invalid_token",
   streaming: true,
   textDeltas: true,
   maxWaitSeconds: 2,

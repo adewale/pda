@@ -17,6 +17,10 @@
       "new_sqlite_classes": ["PersonalAgent", "CompanyLimiter", "MockCompany"]
     }
   ],
+  // The public validator's URL checks: per client address.
+  "ratelimits": [
+    { "name": "VALIDATOR_LIMITER", "namespace_id": "1001", "simple": { "limit": 20, "period": 60 } }
+  ],
   "vars": {
     "MODEL_ID": "anthropic/claude-opus-5-5",
     "THINKING_LEVEL": "medium",

@@ -2,6 +2,7 @@ import { isAllowed, readAllowlist } from "./allowlist";
 import { ConfigError, readModelConfig, readSessionSecret } from "./config";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
 import { handleIdentityRoute } from "./poppy/routes";
+import { handleValidator } from "./validator/http.ts";
 import {
   agentNameFor,
   AuthError,
@@ -110,6 +111,15 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const { pathname } = new URL(request.url);
     try {
+      if (pathname === "/validator" || pathname.startsWith("/validator/")) {
+        const response = await handleValidator(request, {
+          fetcher: (outbound) => fetch(outbound),
+          // URL checks fetch from the network: a few a minute per address.
+          allowFetch: async (inbound) =>
+            (await env.VALIDATOR_LIMITER.limit({ key: inbound.headers.get("CF-Connecting-IP") ?? "unknown" })).success
+        });
+        if (response) return response;
+      }
       if (pathname === "/ws") return await handleWs(request, env);
       if (pathname === "/api/me") return await handleMe(request, env);
       if (pathname === "/logout") return handleLogout(request);
