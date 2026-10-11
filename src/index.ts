@@ -2,6 +2,7 @@ import type { KeyResult, PersonalAgent } from "./agent";
 import { maySignIn } from "./allowlist";
 import { ConfigError, readSessionSecret } from "./config";
 import { checkDeployment } from "./deployment.ts";
+import { withPagePolicy } from "./csp";
 import { clearOpenRouterFlow, readOpenRouterCallback, startOpenRouter } from "./openrouter";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
 import { handleIdentityRoute } from "./poppy/routes";
@@ -173,44 +174,50 @@ async function handleAuth(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
+  /** Every page the Worker writes gets the app's Content-Security-Policy. */
   async fetch(request: Request, env: Env): Promise<Response> {
-    const { pathname } = new URL(request.url);
-    try {
-      if (pathname === "/validator" || pathname.startsWith("/validator/")) {
-        const response = await handleValidator(request, {
-          fetcher: (outbound) => fetch(outbound),
-          // URL checks fetch from the network: a few a minute per address.
-          allowFetch: async (inbound) =>
-            (await env.VALIDATOR_LIMITER.limit({ key: inbound.headers.get("CF-Connecting-IP") ?? "unknown" })).success
-        });
-        if (response) return response;
-      }
-      // Fail closed, naming the setting, until the deployer has said who
-      // this deployment is for and where it lives.
-      checkDeployment(env);
-      if (pathname === "/ws") return await handleWs(request, env);
-      if (pathname === "/api/me") return await handleMe(request, env);
-      if (pathname === "/api/entitlement") return await handleEntitlement(request, env);
-      if (pathname === "/api/model-key") return await handleModelKey(request, env);
-      if (pathname === "/logout") return handleLogout(request);
-      if (pathname.startsWith("/auth/")) return await handleAuth(request, env);
-      if (pathname.startsWith("/poppy/")) {
-        return (await handleIdentityRoute(request, env)) ?? (await handlePoppy(request, env));
-      }
-      // Static assets serve everything outside `run_worker_first`, so this
-      // is only reached by unknown `/api/*` paths, including the SDK's own
-      // `/agents/<class>/<name>` URLs, which are deliberately not routed.
-      return text(404, "Not found");
-    } catch (error) {
-      if (error instanceof AuthError) {
-        return text(401, "Unauthorized");
-      }
-      if (error instanceof ConfigError) {
-        console.error("config error", error.message);
-        return text(500, error.message);
-      }
-      console.error("request failed", error instanceof Error ? `${error.name}: ${error.message}` : "unknown");
-      return text(500, "Internal error");
-    }
+    return withPagePolicy(await route(request, env));
   }
 } satisfies ExportedHandler<Env>;
+
+/** The Worker's own routes; static assets serve everything else. */
+async function route(request: Request, env: Env): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  try {
+    if (pathname === "/validator" || pathname.startsWith("/validator/")) {
+      const response = await handleValidator(request, {
+        fetcher: (outbound) => fetch(outbound),
+        // URL checks fetch from the network: a few a minute per address.
+        allowFetch: async (inbound) =>
+          (await env.VALIDATOR_LIMITER.limit({ key: inbound.headers.get("CF-Connecting-IP") ?? "unknown" })).success
+      });
+      if (response) return response;
+    }
+    // Fail closed, naming the setting, until the deployer has said who
+    // this deployment is for and where it lives.
+    checkDeployment(env);
+    if (pathname === "/ws") return await handleWs(request, env);
+    if (pathname === "/api/me") return await handleMe(request, env);
+    if (pathname === "/api/entitlement") return await handleEntitlement(request, env);
+    if (pathname === "/api/model-key") return await handleModelKey(request, env);
+    if (pathname === "/logout") return handleLogout(request);
+    if (pathname.startsWith("/auth/")) return await handleAuth(request, env);
+    if (pathname.startsWith("/poppy/")) {
+      return (await handleIdentityRoute(request, env)) ?? (await handlePoppy(request, env));
+    }
+    // Static assets serve everything outside `run_worker_first`, so this
+    // is only reached by unknown `/api/*` paths, including the SDK's own
+    // `/agents/<class>/<name>` URLs, which are deliberately not routed.
+    return text(404, "Not found");
+  } catch (error) {
+    if (error instanceof AuthError) {
+      return text(401, "Unauthorized");
+    }
+    if (error instanceof ConfigError) {
+      console.error("config error", error.message);
+      return text(500, error.message);
+    }
+    console.error("request failed", error instanceof Error ? `${error.name}: ${error.message}` : "unknown");
+    return text(500, "Internal error");
+  }
+}

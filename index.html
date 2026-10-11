@@ -4,19 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Personal agent</title>
-    <script>
-      (() => {
-        let stored = null;
-        try {
-          stored = localStorage.getItem("theme");
-        } catch {}
-        const mode =
-          stored ||
-          (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-        document.documentElement.setAttribute("data-mode", mode);
-        document.documentElement.style.colorScheme = mode;
-      })();
-    </script>
+    <!-- The theme before the page draws; a file, since the CSP allows no inline script (src/csp.ts). -->
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>

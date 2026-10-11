@@ -12,6 +12,9 @@ import {
   type Identity
 } from "../src/session";
 import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../src/view";
+import { CONTENT_SECURITY_POLICY } from "../src/csp";
+import indexHtml from "../index.html?raw";
+import assetHeaders from "../public/_headers?raw";
 import { s256 } from "./encoding";
 import { grantCode, type Grant } from "./fake-providers";
 import {
@@ -585,5 +588,36 @@ describe("/api/me", () => {
   it("refuses a request without a session", async () => {
     const response = await fetchWorker(new Request(`${ORIGIN}/api/me`));
     expect(response.status).toBe(401);
+  });
+});
+
+describe("the pages' Content-Security-Policy", () => {
+  /** The `/*` rule's policy in public/_headers, which static assets serve with the app's page. */
+  function assetPolicy(): string | undefined {
+    const lines = assetHeaders.split("\n");
+    const rule = lines.indexOf("/*");
+    return lines.slice(rule + 1).find((line) => /^\s+Content-Security-Policy:/.test(line))?.replace(/^\s+Content-Security-Policy:\s*/, "");
+  }
+
+  it("loads images only from this origin or data:, and scripts only from this origin", () => {
+    const directives = new Map(CONTENT_SECURITY_POLICY.split(/;\s*/).map((directive) => [directive.split(" ")[0], directive.split(" ").slice(1)]));
+    expect(directives.get("img-src")).toEqual(["'self'", "data:"]);
+    expect(directives.get("script-src")).toEqual(["'self'"]);
+    expect(directives.get("connect-src")).toEqual(["'self'"]);
+    expect(directives.get("default-src")).toEqual(["'self'"]);
+    // The app's page needs no inline script, so script-src 'self' doesn't break it.
+    expect(indexHtml).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
+  });
+
+  it("is sent with the app's page (static assets) and with every page the Worker writes", async () => {
+    expect(assetPolicy()).toBe(CONTENT_SECURITY_POLICY);
+    const validator = await fetchWorker(new Request(`${ORIGIN}/validator`));
+    expect(validator.headers.get("Content-Type")).toMatch(/^text\/html/);
+    expect(validator.headers.get("Content-Security-Policy")).toBe(CONTENT_SECURITY_POLICY);
+    const callback = await fetchWorker(new Request(`${ORIGIN}/poppy/callback?state=x&code=y`, { headers: { Cookie: await sessionCookie(person()) } }));
+    expect(callback.headers.get("Content-Type")).toMatch(/^text\/html/);
+    expect(callback.headers.get("Content-Security-Policy")).toBe(CONTENT_SECURITY_POLICY);
+    // Not a page: no policy needed, and none added.
+    expect((await fetchWorker(new Request(`${ORIGIN}/poppy/client.json`))).headers.get("Content-Security-Policy")).toBeNull();
   });
 });
