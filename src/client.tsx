@@ -144,7 +144,7 @@ function ToolCallCard({
         <Badge variant="secondary">{running ? "Running" : "Called"}</Badge>
       </summary>
       <div className="border-t border-kumo-line px-3 py-3">
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
+        <p className="mb-1 text-xs font-semibold text-kumo-subtle">
           Arguments
         </p>
         <JsonBlock value={part.arguments} />
@@ -182,7 +182,7 @@ function ToolResultCard({
       <div className="space-y-3 border-t border-kumo-line px-3 py-3">
         {text ? (
           <div>
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
+            <p className="mb-1 text-xs font-semibold text-kumo-subtle">
               Result
             </p>
             <JsonBlock value={text} />
@@ -200,7 +200,7 @@ function ToolResultCard({
         )}
         {part.details !== undefined ? (
           <div>
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-kumo-inactive">
+            <p className="mb-1 text-xs font-semibold text-kumo-subtle">
               Details
             </p>
             <JsonBlock value={part.details} />
@@ -507,8 +507,8 @@ function Chat({
               <div className="py-10 sm:py-16">
                 <Empty
                   icon={<BrainIcon size={32} />}
-                  title="Your agent is listening"
-                  description="One conversation that survives reloads, crashes and deploys."
+                  title="Ask your agent anything"
+                  description="It keeps this one conversation, so it remembers what you tell it."
                 />
               </div>
             ) : null}
@@ -639,7 +639,7 @@ function Chat({
             </div>
           </form>
           <div className="flex items-center justify-center gap-2 px-5 py-3">
-            <span className="hidden text-[10px] text-kumo-inactive sm:inline">
+            <span className="hidden text-xs text-kumo-subtle sm:inline">
               Enter to send · Shift+Enter for a new line
             </span>
             <span className="hidden text-kumo-line sm:inline">·</span>

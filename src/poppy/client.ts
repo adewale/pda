@@ -768,6 +768,10 @@ export class PoppyClient {
     for (let attempt = 0; attempt < 4; attempt++) {
       await this.#respectLimit(company.issuer);
       const token = await this.token(company, options);
+      // Tokens never travel in a URL (spec 4.3), whatever a description or a model supplies.
+      if (url.href.includes(token.value)) {
+        throw new PoppyError("invalid_request", "Refusing a URL that contains a token", 0);
+      }
       const headers = new Headers(request.headers);
       headers.set("Accept", request.accept ?? "application/json");
       if (request.body !== undefined) headers.set("Content-Type", "application/json");

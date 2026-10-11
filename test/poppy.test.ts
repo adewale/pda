@@ -593,6 +593,27 @@ describe("7 conversations", () => {
     await noViolations(c);
   });
 
+  it("skips event types it doesn't know", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await c.stub.pushEvent(first.conversationId, { type: "example.test/confetti", colour: "gold" });
+    await c.stub.say(first.conversationId, "After the confetti.");
+    await until(async () => (await a.stub.poppyNotices()).some((n) => n.includes("After the confetti.")));
+    expect((await a.stub.poppyNotices()).join("\n")).not.toContain("confetti\"");
+    await noViolations(c);
+  });
+
+  it("lets the agent offer the User a Direct Conversation", async () => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    await tool(a, "poppy_invite_user", { conversation: first.conversationId, reason: "You may want to explain the fit yourself." });
+    const card = (await cards(a)).find((item) => item.kind === "direct_invite")!;
+    expect(card.reason).toContain("explain the fit");
+    expect((await c.stub.state()).conversations.filter((conv) => conv.direct)).toHaveLength(0);
+  });
+
   it("closes a conversation", async () => {
     const c = await company();
     const a = await agent();

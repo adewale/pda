@@ -39,7 +39,7 @@ function Scopes({ scopes }: { scopes: readonly { scope: string; description: str
     <ul className="mt-2 space-y-1 text-xs text-kumo-subtle">
       {scopes.map((scope) => (
         <li key={scope.scope}>
-          <code className="font-semibold text-kumo-default">{scope.scope}</code> — {scope.description}
+          <code className="font-semibold text-kumo-default">{scope.scope}</code>: {scope.description}
         </li>
       ))}
     </ul>
@@ -287,7 +287,7 @@ function PoppyCard({ card, send }: { card: Card; send: Send }) {
       return <DirectInvite card={card} send={send} />;
     case "notice":
       return (
-        <CardFrame title={card.company || "Notice"} company="" onDismiss={dismiss}>
+        <CardFrame title={card.company || "Personal agent"} company="" onDismiss={dismiss}>
           <p className="text-sm">{card.text}</p>
         </CardFrame>
       );
@@ -310,7 +310,7 @@ export function PoppyCards({ view, send }: { view: PoppyView; send: Send }) {
 function DirectPanel({ update, send }: { update: DirectUpdate; send: Send }) {
   const [text, setText] = useState("");
   return (
-    <Surface className="rounded-xl p-4 ring-2 ring-kumo-brand">
+    <Surface className="rounded-xl p-4 ring ring-kumo-line">
       <div className="mb-3 flex items-center justify-between gap-2">
         <p className="text-sm font-semibold">You're talking with {update.company}</p>
         <div className="flex items-center gap-1.5">
@@ -329,8 +329,8 @@ function DirectPanel({ update, send }: { update: DirectUpdate; send: Send }) {
           <div key={message.id} className={message.role === "user" ? "flex justify-end" : "flex"}>
             <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${message.role === "user" ? "bg-kumo-contrast text-kumo-inverse" : "bg-kumo-elevated"}`}>
               {message.role === "company" ? (
-                <p className="mb-0.5 flex items-center gap-1 text-[10px] uppercase tracking-wide text-kumo-subtle">
-                  <UserIcon size={10} /> {message.sender === "human" ? "Person" : "Agent"}
+                <p className="mb-0.5 flex items-center gap-1 text-xs text-kumo-subtle">
+                  <UserIcon size={12} /> {message.sender === "human" ? "A person" : "Their agent"}
                 </p>
               ) : null}
               {message.text}
@@ -383,7 +383,7 @@ export function PoppySettings({ view, send, onClose }: { view: PoppyView; send: 
       </div>
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
         <section>
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-kumo-subtle">Connected accounts</h2>
+          <h2 className="mb-2 text-sm font-semibold">Connected accounts</h2>
           {accounts.length === 0 ? <p className="text-sm text-kumo-subtle">None yet.</p> : null}
           <ul className="space-y-2">
             {accounts.map((account) => (
@@ -401,7 +401,7 @@ export function PoppySettings({ view, send, onClose }: { view: PoppyView; send: 
           </ul>
         </section>
         <section>
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-kumo-subtle">Standing permissions</h2>
+          <h2 className="mb-2 text-sm font-semibold">Standing permissions</h2>
           <p className="mb-2 text-xs text-kumo-subtle">
             Let the agent approve matching proposals for you. Anything outside the limits still asks you.
           </p>
@@ -439,18 +439,34 @@ export function PoppySettings({ view, send, onClose }: { view: PoppyView; send: 
                 setDraft({ ...draft, action: "", maxAmount: "", maxUses: "" });
               }}
             >
-              <select className="w-full rounded-lg border border-kumo-line bg-kumo-base px-2 py-1.5" value={draft.account} onChange={(event) => setDraft({ ...draft, account: event.target.value })} aria-label="Company account">
+              <p className="pt-2 text-sm font-semibold">Add a permission</p>
+              <label className="block">
+                <span className="text-kumo-subtle">Account</span>
+              <select className="mt-1 w-full rounded-lg border border-kumo-line bg-kumo-base px-2 py-1.5" value={draft.account} onChange={(event) => setDraft({ ...draft, account: event.target.value })}>
                 {accounts.map((account) => (
                   <option key={`${account.issuer}|${account.account}`} value={`${account.issuer}|${account.account}`}>
                     {account.company} ({account.account})
                   </option>
                 ))}
               </select>
-              <input className="w-full rounded-lg border border-kumo-line bg-kumo-base px-2 py-1.5" placeholder="Action the summary mentions, e.g. exchange" value={draft.action} onChange={(event) => setDraft({ ...draft, action: event.target.value })} required />
+              </label>
+              <label className="block">
+                <span className="text-kumo-subtle">Word the company's summary must contain, such as “exchange”</span>
+                <input className="mt-1 w-full rounded-lg border border-kumo-line bg-kumo-base px-2 py-1.5" value={draft.action} onChange={(event) => setDraft({ ...draft, action: event.target.value })} required />
+              </label>
               <div className="flex gap-2">
-                <input className="w-24 rounded-lg border border-kumo-line bg-kumo-base px-2 py-1.5" placeholder="Max amount" inputMode="decimal" value={draft.maxAmount} onChange={(event) => setDraft({ ...draft, maxAmount: event.target.value })} />
-                <input className="w-16 rounded-lg border border-kumo-line bg-kumo-base px-2 py-1.5" placeholder="USD" value={draft.currency} onChange={(event) => setDraft({ ...draft, currency: event.target.value.toUpperCase() })} />
-                <input className="w-20 rounded-lg border border-kumo-line bg-kumo-base px-2 py-1.5" placeholder="Max uses" inputMode="numeric" value={draft.maxUses} onChange={(event) => setDraft({ ...draft, maxUses: event.target.value })} />
+                <label className="block">
+                  <span className="text-kumo-subtle">Up to</span>
+                  <input className="mt-1 w-24 rounded-lg border border-kumo-line bg-kumo-base px-2 py-1.5" inputMode="decimal" value={draft.maxAmount} onChange={(event) => setDraft({ ...draft, maxAmount: event.target.value })} />
+                </label>
+                <label className="block">
+                  <span className="text-kumo-subtle">Currency</span>
+                  <input className="mt-1 w-16 rounded-lg border border-kumo-line bg-kumo-base px-2 py-1.5" value={draft.currency} onChange={(event) => setDraft({ ...draft, currency: event.target.value.toUpperCase() })} />
+                </label>
+                <label className="block">
+                  <span className="text-kumo-subtle">Times</span>
+                  <input className="mt-1 w-16 rounded-lg border border-kumo-line bg-kumo-base px-2 py-1.5" inputMode="numeric" value={draft.maxUses} onChange={(event) => setDraft({ ...draft, maxUses: event.target.value })} />
+                </label>
               </div>
               <Button type="submit" variant="secondary" size="sm">
                 Add permission

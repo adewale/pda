@@ -659,6 +659,24 @@ export async function sayInDirect(client: PoppyClient, id: string, text: string)
   pushDirect(client, company, id);
 }
 
+/**
+ * Offer the User a Direct Conversation (spec 7.10): a card where they can
+ * start talking with the Company themselves. Only their agreement opens it.
+ */
+export async function inviteUser(client: PoppyClient, id: string, reason: string): Promise<void> {
+  const row = conversation(client, id);
+  if (!row || row.direct) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+  const company = client.companyByIssuer(row.issuer);
+  await client.host.showCard({
+    id: `direct-invite-${id}`,
+    kind: "direct_invite",
+    company: company.name,
+    open: true,
+    conversationId: id,
+    reason
+  });
+}
+
 /** The User declined the Company's request to talk with them; say so in the conversation (7.10). */
 export async function declineDirect(client: PoppyClient, parentId: string): Promise<void> {
   const parent = conversation(client, parentId);
