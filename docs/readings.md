@@ -1,6 +1,6 @@
 # Our readings of the draft's open questions
 
-Where Poppy Draft 0.1 is ambiguous, we had to pick a behaviour. This file records each pick: which reading our client takes, which our strict and lenient mock Companies take, whether we're strict or lenient there, and why. The questions themselves, with suggested fixes, are in [spec-issues.md](spec-issues.md); its "What we do" column is the one-line summary, and this file is the reasoning behind it.
+Where Poppy Draft 0.1 is ambiguous, we had to pick a behaviour. This file records each pick: which reading our client takes, which our strict and lenient mock Companies take, whether we're strict or lenient there, and why. The questions themselves, with suggested fixes, are in [spec-issues.md](spec-issues.md); its "What we do" column summarises the rest, and for S1, S2, S3, S4, S7 and S23 links here, where the reading and the reasoning behind it are kept.
 
 Back to [spec-issues.md](spec-issues.md) · [interop-spec.md §7](interop-spec.md#7-readings)
 
@@ -36,32 +36,32 @@ Each adapter declares these in its manifest (`readings` in `interop/impls/dpa-ag
 | [S4](spec-issues.md#s4) | `scope` on a signed-out Session request | `omit` | `either` | `either` | Client strict; mocks lenient |
 | [S23](spec-issues.md#s23) | DPoP nonce scope | `per-origin` | `per-company` | `per-company` | Lenient, both sides |
 
-### S1: the client assertion's `aud`
+### <a id="s1"></a>S1: the client assertion's `aud`
 
 - **Client:** the endpoint the assertion is sent to, as a single string: `clientAssertion(signing, clientId, endpoint)` in `oauthRequest` (`src/poppy/client.ts`), called with the token, device authorization or revocation endpoint. That's the narrowest audience, and every Company in the grid that checks `aud` accepts it.
 - **Mocks:** `authenticateClient` in `test/mock-company/core.ts` accepts the endpoint called, the token endpoint or the issuer (`clientAssertionAud: "lenient"`). It refuses an array (`client-assertion.aud-array`) and anything else (`client-assertion.aud`). The `exact` setting, tested as a profile, accepts only the endpoint called.
 - **Why.** `aud` is security-relevant: it stops an assertion made for one server being replayed at another. All three accepted values name this Company, so accepting any of them can't let in an assertion made for someone else, and the assertion's `jti` is single-use across all three endpoints (`freshJti`). The three readings differ only in which of this Company's names is used, which is cosmetic. Being lenient there lets the mock tell an agent's real faults from this open question.
 
-### S2: assertion `typ`, `kid` and lifetime
+### <a id="s2"></a>S2: assertion `typ`, `kid` and lifetime
 
 - **Client:** header `typ: "JWT"`, a `kid` naming a published key, and `exp` 60 s after `iat`, on both client and Session assertions (`ASSERTION_SECONDS` in `src/poppy/jwt.ts`).
 - **Strict mock:** refuses an assertion without `typ: "JWT"` (`client-assertion.typ`, `session-assertion.typ`), without a published `kid` (`.kid`), or living longer than 60 s (`.lifetime`).
 - **Lenient mock:** no `typ` or `kid` needed, and assertions up to 300 s (`MAX_ASSERTION_LIFETIME`), which it declares as `lenient-300s`: the runner counts it compatible with agents reading `jwt-60s` or `lenient-300s`, not with `any`. It still refuses a DPoP proof or browser assertion used as one (`client-assertion.wrong-typ`, `session-assertion.browser-typ`), an algorithm other than ES256 or RS256, a bad signature against the published keys, and a reused `jti`, and records an embedded key (`.embedded-key`).
 - **Why.** The parts that stop confusion and replay are strict in both mocks: a distinct `typ` for the other JWT kinds (see N25), a signature from a published key, single-use `jti`. Requiring `typ: "JWT"` on top, and 60 s rather than 300, is what the strictest live Companies do, so the client sends it and the strict mock checks it. The lenient mock is the grid's reference Company: its job is attribution, not gatekeeping, and the interop spec treats S2 as a warning. If it refused typ-less agents, every cell for pi-poppy's and adonis-agora's agents would stop at the first token request and nothing past it would be tested. `dpa-mock-strict` runs in the same grid, so the strict reading is still checked.
 
-### S3: metadata location for an issuer with a path
+### <a id="s3"></a>S3: metadata location for an issuer with a path
 
 - **Client:** RFC 8414 §3.1 insertion: `/.well-known/oauth-authorization-server` between the host and the issuer's path (`metadataUrl` in `src/validator/fetch.ts`, used by discovery through `validateCompany`). It doesn't fall back to the appended form. Tested in `test/validator.test.ts` with a `/tenant/` issuer.
 - **Mocks:** the issuer is `https://auth.<domain>` with no path by default (optionally with a trailing slash). With `issuerPath` (`/tenant`), it is `https://auth.<domain>/tenant` and the metadata is served only at the inserted location, `/.well-known/oauth-authorization-server/tenant`; the appended one is 404. The conformance tests run sign-in, Sessions and sign-out under that profile too, and the grid's `DP` scenario (the `issuer_path` hook) runs it between our agent and both mocks.
 - **Why strict.** This isn't cosmetic: it decides which document is trusted as the issuer's. RFC 8414, which the draft builds on, has one answer. Falling back would make two requests where one should do, and would entrench a misreading RFC 9413 warns about. The security control is that the metadata's `issuer` must equal `auth.issuer` exactly (`metadata-issuer-mismatch`), and that holds either way.
 
-### S4: `scope` on a signed-out Session request
+### <a id="s4"></a>S4: `scope` on a signed-out Session request
 
 - **Client:** never sends `scope` on the jwt-bearer grant; only `resource` narrows it (`src/poppy/client.ts`, the comment "A signed-out token has no scopes (4.2)").
 - **Mocks:** `#jwtBearer` in `test/mock-company/auth.ts` ignores `scope` and issues a token with no scopes, whatever was asked.
 - **Why.** The client sends the reading no Company rejects (three reject `scope` there). The mocks accept both because the parameter can't widen anything: a signed-out token gets no scopes either way. That makes it cosmetic as far as access goes.
 
-### S23: DPoP nonce scope
+### <a id="s23"></a>S23: DPoP nonce scope
 
 - **Client:** keeps the latest `DPoP-Nonce` per server origin (`#nonces` in `src/poppy/client.ts`), at the token endpoint and at resources, and retries once on `use_dpop_nonce`. That works with a Company that keeps one nonce for all its origins, at the cost of one extra round trip per origin.
 - **Mocks:** one nonce for the whole Company (`nonceScope: "company"`) when nonces are required (`requireNonce`, off by default; the `require_nonce` hook in the grid). The `origin` profile is tested too.
@@ -75,7 +75,7 @@ These aren't declared in the grid's manifests, because they don't change what go
 | --- | --- | --- | --- |
 | [S5](spec-issues.md#s5) Renewing a signed-in Session | Renews with the Account Token (`refresh_token` grant), never the Session assertion | Records `token.signed-in-renewed-with-assertion`, then issues a signed-out token | **Strict.** An assertion mustn't keep a Session signed in to an account. The mock records it rather than refusing because the draft defines no error. |
 | [S6](spec-issues.md#s6) "Same domain" for `jwks_uri` and `redirect_uris` | Publishes both on `PUBLIC_ORIGIN` itself; the validator accepts the same host or a parent or child host | Requires exactly the `client_id`'s host (`client-metadata.jwks-uri`, `.redirect-uris`); refuses a redirect on the `client_id` fetch (`client-metadata.fetch-status`) | **Strict** in the mocks: these bind our keys and redirects to our identity. The validator is broader only because it has no Public Suffix List, and says so. |
-| [S7](spec-issues.md#s7) Trailing slashes in the issuer | Compares exactly: metadata `issuer` against `auth.issuer` (`metadata-issuer-mismatch`), and `iss` on redirects | Publishes one string everywhere; the trailing-slash profile is tested | **Strict.** The issuer is the Company's identity; normalising it invites mix-up (RFC 9207). |
+| <a id="s7"></a>[S7](spec-issues.md#s7) Trailing slashes in the issuer | Compares exactly: metadata `issuer` against `auth.issuer` (`metadata-issuer-mismatch`), and `iss` on redirects | Publishes one string everywhere; the trailing-slash profile is tested | **Strict.** The issuer is the Company's identity; normalising it invites mix-up (RFC 9207). |
 | [S8](spec-issues.md#s8) A retry after sign-out | n/a (Company side) | The 7.11 check comes first, for a later message and a retried first message alike: `sign_in_required` | **Strict**, since the original can include account data. The retried first message skipped the check until the Hypothesis model (`test/hypothesis`) caught it. |
 | [S9](spec-issues.md#s9) Message-id idempotency | 128-bit ids, reused with the same content on retry | Ids are per `client_id` and User ID, not per conversation. The same content (the same JSON value, whatever its members' order: `canonicalJson`) returns the original, including a first message retried to the conversation it started; different content is 409 `message_id_conflict` and `message.id-reused` | **Lenient** on where a retry may go (cosmetic: it's the same message); **strict** on changed content, which could be a different action under an old id. |
 | [N4](spec-issues.md#n4) Which Sessions a revoked Account Token signs out | Revokes the replaced token after a step-up, as 4.4 asks | Signs out the Sessions signed in with that token or one it was rotated from (`grant` in `test/mock-company/core.ts`), not the account's other sign-ins; reuse detection revokes only the reused token's own sign-in | **Strict**, to the letter of 4.9: signing out more than was revoked is harmless for access but hides N4 from our tests. Found by the Hypothesis model (`test/hypothesis`); the mock used to sign out the whole account. |
@@ -102,4 +102,4 @@ None known. The three found while writing this were fixed: `dpa-mock` now declar
 
 ## Keeping this current
 
-When a reading changes, change the code, the adapter's declared `readings`, the "What we do" cell in [spec-issues.md](spec-issues.md), and the row here, in one commit.
+When a reading changes, change the code, the adapter's declared `readings`, the entry here, and the "What we do" cell in [spec-issues.md](spec-issues.md) where it summarises rather than links, in one commit.

@@ -2,7 +2,7 @@
 
 Oct 11, 2026 · Ade Oshineye
 
-This spec follows **Personal Agent Protocol ("Poppy") Draft 0.1, updated Oct 9, 2026**, its Operations extension (version 1) and its Guides. It describes what is built, and marks what isn't. Earlier versions designed PAP support before the protocol was published; their A2A messages, agent cards, signed receipts and `sub = HMAC(userKey, …)` are withdrawn.
+This spec follows **Personal Agent Protocol ("Poppy") Draft 0.1, updated Oct 9, 2026**, its Operations extension (version 1) and its Guides. It describes what is built, and marks what isn't. Why each part is built the way it is, and what was considered instead, is in [`docs/decisions.md`](docs/decisions.md); what is left to deploy and check is in [`docs/deployment-tasks.md`](docs/deployment-tasks.md). Earlier versions designed PAP support before the protocol was published; their A2A messages, agent cards, signed receipts and `sub = HMAC(userKey, …)` are withdrawn.
 
 ## Summary
 
@@ -26,7 +26,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 
 ## Status
 
-**Deployed** at `https://personal-agent.adewale-883.workers.dev`. `npm test` passes in the Workers runtime and happy-dom (Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.0`, Pi 1.1.0, Wrangler 4.149).
+**Deployed** at `https://personal-agent.adewale-883.workers.dev`. `npm test` passes: five suites, in the Workers runtime, happy-dom and Node (see Testing and conformance; Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.0`, Pi 1.1.0, Wrangler 4.149).
 
 | Part | State |
 | --- | --- |
@@ -48,7 +48,7 @@ With `SIGNUP=allowlist` (the committed value) only `OWNERS` and people on `SIGNI
 
 ```mermaid
 flowchart TB
-  browser["Browser<br/>chat page, one WebSocket"] --> worker["Worker<br/>app sign-in, routes, Poppy identity"]
+  browser["Browser<br/>chat page, one WebSocket"] --> worker["Worker<br/>app sign-in, routes, Poppy identity,<br/>the public validator"]
   worker -- "getByName(sha256(provider:id))" --> agent
   subgraph agent["PersonalAgent Durable Object, one per person"]
     pi["PiHarness<br/>root session = the chat"]
@@ -66,7 +66,7 @@ flowchart TB
   company -- "fetch client_id, jwks_uri" --> worker
 ```
 
-The Worker turns a verified app session into the person's Durable Object and forwards the WebSocket. It also serves the agent's public identity and passes the Direct Sign-In callback to the right person's object. Everything durable happens in that object. A `CompanyLimiter` Durable Object per Company shares rate-limit state across users, because Companies limit by `client_id` and every user shares ours.
+The Worker turns a verified app session into the person's Durable Object and forwards the WebSocket. It also serves the agent's public identity and passes the Direct Sign-In callback to the right person's object. Everything durable happens in that object. A `CompanyLimiter` Durable Object per Company shares rate-limit state across users, because Companies limit by `client_id` and every user shares ours. A `DomainBudget` Durable Object per budget domain holds the demo lane's spend for everyone in it, because one person's agent can't see another's. The validator runs in the Worker itself, with no Durable Object, rate-limited per client address.
 
 ## Cloudflare stack
 
@@ -74,10 +74,11 @@ The Worker turns a verified app session into the person's Durable Object and for
 
 | Product | Used for | Binding / config |
 | --- | --- | --- |
-| Workers + Static Assets | Worker and the Vite-built chat page | `assets`, `run_worker_first` for `/ws`, `/api/*`, `/auth/*`, `/logout`, `/poppy/*` |
+| Workers + Static Assets | Worker and the Vite-built chat page | `assets`, `run_worker_first` for `/ws`, `/api/*`, `/auth/*`, `/logout`, `/poppy/*`, `/validator`, `/validator/*` |
 | Durable Objects (SQLite) | `PersonalAgent` per person; `CompanyLimiter` per Company issuer; `DomainBudget` per demo budget domain | migrations `v1`, `v2` and `v3` |
 | Agents SDK | `PiHarness`, `Lifecycle` (capabilities and durable jobs), `WebSockets`, Pi AI provider, `useAgent` | `agents` |
 | AI binding → AI Gateway | The demo lane: Claude Opus 5.5 on Unified Billing | `ai` binding `AI`; `DEMO_GATEWAY_ID` |
+| Workers Rate Limiting | The public validator's URL checks: 20 a minute per client address | `ratelimits` binding `VALIDATOR_LIMITER` |
 | Workers Logs | Logs, with secrets redacted | `observability` |
 
 **Settings.** No setting has a default. A missing one stops the request with a 500 that names it. Every route except the validator checks the deployment settings first (`src/deployment.ts`), so a copy nobody has configured fails closed.
@@ -98,7 +99,8 @@ The Worker turns a verified app session into the person's Durable Object and for
 | `POPPY_SIGNING_JWKS` | secret, set | JSON array of private ES256 JWKs with `kid`s; the first signs |
 | `TOKEN_ENC_KEY` | secret, set | 32 random bytes, base64: AES-GCM key for Account Tokens, pending sign-in secrets and model keys |
 | `TOKEN_ENC_KEY_PREVIOUS` | secret, optional | Only while rotating `TOKEN_ENC_KEY`: the old key. Values it sealed still open, and are sealed again under the new one when used |
-| `GOOGLE_CLIENT_ID/SECRET`, `GITHUB_CLIENT_ID/SECRET` | secret, not set | App sign-in |
+| `GITHUB_CLIENT_ID/SECRET` | secret, set | App sign-in with GitHub |
+| `GOOGLE_CLIENT_ID/SECRET` | secret, not set | App sign-in with Google: until they are set, Google sign-in answers a 500 naming the missing setting |
 
 "Deployer's var" means the committed `wrangler.jsonc` holds an empty placeholder, and each deployer keeps their real value in an untracked `deployment.local.json` (shape in `deployment.example.json`). `vite.config.ts` lays that file over the template's vars for `vite dev` and `vite build`, refusing names the template doesn't declare. `npm run deploy` runs `scripts/check-deployment.ts` between the build and `wrangler deploy`: it reads the config the build wrote and stops if it still says nobody owns the deployment, so a missing file can't replace production values with empty ones. `secrets.required` isn't used: with it, Wrangler drops every `.dev.vars` secret not listed, and listing the OAuth secrets would fail the deploy of a deployment that has only one provider set up.
 
@@ -144,7 +146,7 @@ App sign-in is the Worker's own Google and GitHub OAuth. It is separate from Pop
 | `GET /poppy/client.json` | The Poppy client metadata document; its URL is our `client_id` | M3 |
 | `GET /poppy/jwks.json` | Our public signing keys | M3 |
 | `GET /poppy/callback` | Direct Sign-In redirect target; the app session picks the person's agent | M3 |
-| `GET /validator`, `POST /validator`, `GET`/`POST /validator/api`, `GET /validator/messages` | The public discovery document validator: form, JSON API, message docs | Built |
+| `GET /validator`, `POST /validator`, `GET`/`POST`/`OPTIONS /validator/api`, `GET /validator/messages` | The public discovery document validator: form, JSON API (any origin, no cookies), message docs. It answers before the deployment check, so it works on a copy nobody has configured | Built |
 
 ## The agent
 
@@ -213,7 +215,7 @@ Who pays for a model call is decided before every call, in `src/model-router.ts`
 
 **Keys.**
 
-- **Pasting.** `POST /api/model-key` takes an Anthropic or OpenAI API key, the only kinds of own key, checks its shape, then makes a free call the key must pass (list models). Only then is it sealed. A stored key for any other provider (an OpenRouter key from before that lane was removed) is deleted unopened the next time the agent reads its key, and the agent carries on as if it had none.
+- **Pasting.** `POST /api/model-key` takes an Anthropic or OpenAI API key, the only kinds of own key, checks its shape, then makes a free call the key must pass (list models). Only then is it sealed. A stored key for any other provider (left from an earlier lane, since removed; see [`docs/decisions.md`](docs/decisions.md)) is deleted unopened the next time the agent reads its key, and the agent carries on as if it had none.
 - **Sealing.** AES-GCM under `TOKEN_ENC_KEY`, with additional data `model-key:v1:<provider>:<agent id>`, in that person's agent only. Every sealed value now starts `v1.`; values from before still open.
 - **Never shown again.** The key isn't echoed to the page, logged, put in the transcript or the Activity log, or reachable by any model tool. A vendor error that reaches the transcript has anything shaped like a key redacted.
 - **Who can read it.** The deployment's operator (they hold `TOKEN_ENC_KEY` and choose the code) and Cloudflare, as the runtime. Settings says so and advises setting a spending limit on the key at the provider.
@@ -672,11 +674,11 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 
 ## Testing and conformance
 
-`npm test` runs five suites, one after another. CI (`.github/workflows/ci.yml`) runs them on pushes to `main` and on pull requests with `npm run typecheck` and `npm run check:docs`, which checks that every test named in Appendix A exists. The docs give no test counts; `npx vitest list` does.
+`npm test` runs five suites, one after another; this table is the one list of them, which the README and `CLAUDE.md` point to. CI (`.github/workflows/ci.yml`) runs them on pushes to `main` and on pull requests with `npm run typecheck` and `npm run check:docs`, which checks that every test named in Appendix A, and every scenario and test the attack tables of `docs/adversarial-interop.md` name, exists. The docs give no test counts; `npx vitest list` does. Two more run outside `npm test`, both described below: the interop grid (`npm run interop`, in Docker; CI's Interop workflow runs our own pair) and the Hypothesis client (`npm run test:hypothesis`, local only).
 
 | Suite | Config | What |
 | --- | --- | --- |
-| Workers | `test/vitest.config.ts` | Everything below except the two other suites, in one workerd runtime |
+| Workers | `test/vitest.config.ts` | Every file in `test/` that isn't in another suite, in one workerd runtime |
 | Durability | `test/durability/vitest.config.ts` | Crashing every Durable Object and reloading the conversation; a runtime of its own, because a global abort would reset the objects other files are using |
 | Page | `test/ui/vitest.config.ts` | The chat page's cards and panels and the sign-in page, in happy-dom |
 | Interop | `interop/vitest.config.ts` | The interop runner's scenario interpreter, trace checks, readings, attribution and known failures, in Node |
@@ -685,6 +687,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | File | What |
 | --- | --- |
 | `test/agent.test.ts` | App sign-in (PKCE, every ID-token and GitHub profile check, flow expiry), the allowlist, `/ws`, durability, configuration |
+| `test/activity.test.ts` | The Activity frame: what it logs, and that it never carries a token, code, credential or sign-in secret |
 | `test/allowlist.test.ts` | Reading and matching the allowlists and `OWNERS`; `SIGNUP` |
 | `test/model-access.test.ts` | Own keys (Anthropic and OpenAI only), sealing, the demo's caps, background turns, refused keys, `SIGNUP`, against fake vendors |
 | `test/template.test.ts` | No committed file but docs names the deployer's identities or hosts (read from the untracked `deployment.local.json`), and the template fails closed |
@@ -739,7 +742,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 
 ## Build plan
 
-1. **Chat demo.** Built. Remaining: register the OAuth clients, create and fund the demo gateway.
+1. **Chat demo.** Built. Remaining: register Google's OAuth client (GitHub's is configured), and create and fund the demo gateway ([`docs/deployment-tasks.md`](docs/deployment-tasks.md)).
 2. **Personal.** The sign-in allowlist, own model keys and the demo's daily caps are built. Not started: `memory`, skills. Done when "remember I'm vegetarian" survives a week and a redeploy.
 3. **Poppy core.** Built and passing against the mock: identity routes, discovery, User IDs, Sessions and DPoP, all three sign-in types, Account Tokens and sign-out, conversations with handoff and Direct Conversations, `CompanyLimiter`.
 4. **APIs and operations.** Built and passing against the mock: OpenAPI and MCP clients, the Operations extension, standing permissions, the local approval gate.
@@ -760,9 +763,9 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 - [ ] **DPoP nonces per server.** The Guides say to keep a nonce "for that server". We key nonces by origin, so a Company's token endpoint and API can each require their own. Is that the intended reading?
 - [ ] **Writes at Companies with the Operations extension.** We let them through, expecting a proposal. A Company may use operations for some actions and not others, so a write there could act at once. Should the draft let a description mark which endpoints propose?
 - [ ] **Local Personal Agents.** §4.1 needs an HTTPS `client_id` on the same domain as the redirect URIs, so an agent on someone's laptop needs a hosted identity or Device Sign-In. A short note in the draft would help.
-- [ ] **Spec problems.** [`docs/spec-issues.md`](docs/spec-issues.md) lists 65, from comparing implementations (S1 to S23), a full crawl of the site (N1 to N33), the mock's new checks (N34, N35) and the interop grid (N36 to N42), each with a suggested fix and what we do. The most important: sign-in not bound to the Session until the code exchange (N2), step-up revocation signing out other Sessions (N4), non-HTTPS URLs in `poppy.json` (N9), which hosts receive Session Tokens (N10), a shared issuer merging Companies (N11), and the client assertion's `aud` (S1).
-- [ ] **Gaps the crawl found in our own client and mock**, listed in [`docs/poppy-issues.md`](docs/poppy-issues.md) under "This project". The client's are closed, and so are the mock's.
-- [x] **M×N interop testing** with the other implementations: built ([`docs/interop-testing.md`](docs/interop-testing.md), [`docs/interop-spec.md`](docs/interop-spec.md), [`interop/`](interop/README.md)). everruns compiles but isn't in the grid yet (Docker disk); adversarial adapters are next ([`docs/adversarial-interop.md`](docs/adversarial-interop.md)).
+- [ ] **Spec problems.** [`docs/spec-issues.md`](docs/spec-issues.md) lists 68, from comparing implementations (S1 to S23), a full crawl of the site (N1 to N33), the mock's new checks (N34, N35), the interop grid (N36 to N42) and later work (N43 to N45: website submissions with no approval step, when to fetch discovery documents again, and a lost code exchange orphaning an Account Token), each with a suggested fix and what we do. The most important: sign-in not bound to the Session until the code exchange (N2), step-up revocation signing out other Sessions (N4), non-HTTPS URLs in `poppy.json` (N9), which hosts receive Session Tokens (N10), a shared issuer merging Companies (N11), and the client assertion's `aud` (S1).
+- [x] **Gaps the crawl found in our own client and mock**, listed in [`docs/poppy-issues.md`](docs/poppy-issues.md) under "This project". The client's are closed, and so are the mock's.
+- [x] **M×N interop testing** with the other implementations: built ([`docs/interop-testing.md`](docs/interop-testing.md), [`docs/interop-spec.md`](docs/interop-spec.md), [`interop/`](interop/README.md)), and so are the adversarial adapters and the fault-injection proxy, run only against our own implementations. What's left is the "Not yet" rows of [`docs/adversarial-interop.md`](docs/adversarial-interop.md), and the live lane and everruns' adapters, which stay unrun until our agent is verified against a real Company ([`docs/deployment-tasks.md`](docs/deployment-tasks.md)).
 - [ ] **Eviction.** In tests, `evictDurableObject()` timed out after a completed Pi run. If idle agents stay resident, DPoP keys live longer than assumed (harmless); if evictions are frequent, token requests increase.
 - [ ] **Compaction** of the never-ending conversation.
 - [ ] **Push notifications** are an open topic, so the agent polls.
@@ -784,7 +787,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | § | Requirement | Where | Checked by |
 | --- | --- | --- | --- |
 | 3 | Follow redirects for `poppy.json`; every redirect MUST be HTTPS | `discovery.ts`, `fetch.ts` | Test: "follows an HTTPS redirect…", "refuses a redirect to http" |
-| 3 | Cache `poppy.json` per HTTP caching headers (SHOULD) | `client.ts` `lookup` | Not yet |
+| 3 | Cache `poppy.json` per HTTP caching headers (SHOULD) | `client.ts` `lookup` | Property: "keeps cache lifetimes between a minute and a day (Guides)", "the client and the validator read Cache-Control alike"; that `lookup` reuses a cached document until it expires: not yet |
 | 3.1 | MUST NOT use a document whose major version isn't supported; ignore unknown fields | `discovery.ts` | Test: "refuses an unsupported major version", "discovers a Company…"; property: "refuses a protocol_version whose major isn't 0", "discovers it, keyed by its issuer…" |
 | 3.1 | `organization.domain` must match the requested host, ignoring `www.`; a redirect's host doesn't count | `discovery.ts` | Test: "refuses a document whose organization.domain doesn't match"; property: "refuses an organization.domain that isn't the requested host" |
 | 3.2 | MUST check the metadata's `issuer` equals `auth.issuer` and `poppy_domains` includes the domain | `validator/profiles/draft-0.ts`, `discovery.ts` | Test: "refuses an issuer whose metadata doesn't match", "…poppy_domains leaves the domain out"; validator tests "requires the issuer to match exactly…"; property: "refuses metadata whose issuer isn't exactly auth.issuer", "refuses metadata whose poppy_domains leaves out organization.domain" |
@@ -799,7 +802,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.2 | User ID MUST NOT contain or derive from personal information, even with a keyed hash | `client.ts` | Test: same; Mock |
 | 4.2 | Session assertion: `iss`, `sub`, single-string `aud`, short `exp`, `jti` ≥ 128 bits | `jwt.ts` | Mock; property: "a Session assertion, for any User ID our client makes", "a client assertion with one thing wrong" |
 | 4.2 | MUST NOT depend on Session Token contents | `client.ts` | Design |
-| 4.2 | Renew with `session_id`; on `invalid_session` start a new Session | `client.ts` | Test: "gets new tokens with a new DPoP key after an eviction"; `invalid_session` not yet |
+| 4.2 | Renew with `session_id`; on `invalid_session` start a new Session | `client.ts` | Test: "gets new tokens with a new DPoP key after an eviction", "starts a new Session when the Company says the old one ended" (as `invalid_session` and as `invalid_token`) |
 | 4.3 | API and conversation requests MUST carry `Authorization: DPoP` and a proof | `client.ts` `resource` | Mock |
 | 4.3 | A new proof per request; `ath` except at the token endpoint; `htu` without query or fragment | `jwt.ts` | Mock; property: "a DPoP proof, for any method and URL, with the token's ath and the server's nonce", "a proof with one thing wrong", "is the request URL without its query or fragment" |
 | 4.3 | A DPoP key pair for each User at each Company | `client.ts` `dpopKey` | Design: one person per Durable Object, one key per issuer; Mock |
@@ -826,7 +829,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.7 | Secret fields MUST never be shown back, logged, or sent elsewhere | `signin.ts`, page | Test: "sends the credentials only to the endpoint…", "labels each field, makes secret fields password inputs…"; Mock |
 | 4.7 | MUST NOT send credentials anywhere but `auth.mediated.endpoint` | `signin.ts` | Mock |
 | 4.7 | Submit only the code, from the same Session | `signin.ts` | Test: "submits only the one-time code…"; Mock |
-| 4.7 | Handle `complete`, `code_required`, `failed`, `expired` | `signin.ts` | Test: the first three; `expired` not yet |
+| 4.7 | Handle `complete`, `code_required`, `failed`, `expired` | `signin.ts` | Test: "sends the credentials only to the endpoint…" (`complete`), "submits only the one-time code…" (`code_required`), "reports a wrong password without retrying" (`failed`); `expired` not yet |
 | 4.8 | MUST use a rotated Account Token from then on | `client.ts` | Test: "uses a rotated Account Token from then on", "never uses a rotated Account Token twice, even when renewals run in parallel" (at a Company that revokes the family on reuse); Mock |
 | 4.8 | MUST store Account Tokens as secrets, never in model context, messages, logs or URLs | `client.ts`, `store.ts` | Test: "stores Account Tokens encrypted"; Design |
 | 4.8 | `scope` may narrow, never broaden; `invalid_grant` continues signed out | `client.ts` | Test: "continues signed out when the User disconnects the agent…" |
@@ -869,7 +872,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | § | Requirement | Where | Checked by |
 | --- | --- | --- | --- |
 | 2 | List `operations` version `1` in client metadata | `routes.ts` | Test: "serves the client metadata document…" |
-| 4 | Accept proposals from OpenAPI, MCP and conversations; a message never confirms | `apis.ts`, `conversations.ts` | Test: OpenAPI ("gets a proposal…") and conversations ("handles an authorization event…"); MCP not yet |
+| 4 | Accept proposals from OpenAPI, MCP and conversations; a message never confirms | `apis.ts`, `conversations.ts` | Test: OpenAPI ("gets a proposal…"), MCP ("doesn't ask an MCP tool for a new proposal…") and conversations ("handles an authorization event…"); a message never confirms: "never confirms an operation, or speaks as the User, when a Company message says the User approved" |
 | 4.4 | An operation's `url` shows it on the website in the same Session; confirmed there or at the endpoint, it is one operation | `browser.ts`, `operations.ts` | Test: "treats an operation confirmed on the website as the same operation…" |
 | 5.1 | MUST have the User's approval for the exact revision | `operations.ts` | Test: "needs a new approval when the terms change" |
 | 5.1 | MUST show the Company's name and `summary`, and take the answer through our own interface; we show its verified domain too (N14) | `operations.ts`, page | Test: "shows the Company's summary verbatim…", "approves exactly this operation and revision", "shows the verified domain under the name the Company chose…" |
@@ -892,7 +895,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | Demo caps per person and per domain, checked before the call, background turns included | `model-router.ts`, `budget.ts`, `agent.ts` | Test: "refuses a call once the person has spent today's cap, before calling", "refuses everyone in a Workspace domain once the domain has spent its cap", "holds a background turn past the cap, with a notice, and never calls the model for it", "charges production's demo lane pi-ai's price for the usage it reports…" |
 | No key and no demo: no model calls; background notices wait | `agent.ts` | Test: "makes no model calls, says so, and runs held background turns once a key is added" |
 | A 401 marks the key invalid, stops calls, and never falls back to the demo | `model-router.ts` | Test: "marks the key invalid on a 401, stops model calls, and never falls back to the demo" |
-| Own keys are Anthropic or OpenAI only: no OpenRouter sign-in, and a stored OpenRouter key from before is deleted unopened, never a crash | `index.ts`, `agent.ts`, `model-keys.ts` | Test: "has no OpenRouter sign-in, and refuses a pasted key for any other provider", "deletes an OpenRouter key stored before that lane was removed, unopened, and falls back as if there were none" |
+| Own keys are Anthropic or OpenAI only: no sign-in for another provider, and a stored key for a provider since removed is deleted unopened, never a crash | `index.ts`, `agent.ts`, `model-keys.ts` | Test: "has no OpenRouter sign-in, and refuses a pasted key for any other provider", "deletes an OpenRouter key stored before that lane was removed, unopened, and falls back as if there were none" |
 | `SIGNUP=allowlist` behaves as before; `open` lets anyone in without the demo | `allowlist.ts` | Test: "allowlist: lets in owners and the sign-in allowlist only, as before", "open: lets anyone in, who then needs a key unless they are on the demo" |
 | The template names no author host or identity, and fails closed | `wrangler.jsonc`, `deployment.ts` | Test: "holds none of the deployer's identities or origins (from deployment.local.json, when this checkout has one)", "gives an email address only at a name reserved for examples", "commits empty identity placeholders, and example identities only at reserved names", "fails closed: every signed-in route refuses until OWNERS and PUBLIC_ORIGIN are set" |
 

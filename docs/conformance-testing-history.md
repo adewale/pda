@@ -87,7 +87,7 @@ Certification needs a stable spec. Grids suit drafts. WPT's move from per-browse
 - **Metamorphic testing.** When there is no oracle for one output, check a relation between the outputs of related inputs ([Chen, Cheung and Yiu, 1998](https://arxiv.org/abs/2002.12543)).
 - **Mutation testing of test suites.** Seed small faults and require the tests to catch them ([DeMillo, Lipton and Sayward, 1978](https://www.cerias.purdue.edu/apps/reports_and_papers/view/919)).
   - BoGo's "configurable bugs" turn the idea on the peer. [poppyseed](https://github.com/akshay5995/poppyseed) has 124 mutants, each of which breaks one rule and must make a named check fail ([poppy-issues](poppy-issues.md#poppyseed-akshay5995poppyseed)).
-  - Our `TAMPERS` rows do the same for our mock's 142 checks.
+  - Our `TAMPERS` rows do the same for every check our mock makes.
 
 ## 7. Lessons
 
@@ -132,16 +132,16 @@ Certification needs a stable spec. Grids suit drafts. WPT's move from per-browse
 
 | Idea | Where it is in our harness |
 | --- | --- |
-| Tests as data | 22 scenarios in [`interop/scenarios/`](../interop/scenarios); Datalayer's one-sided vectors run against our code by [`interop/vectors/datalayer/`](../interop/vectors/datalayer). We exported our own validator fixtures and tamper rows in Datalayer's schema too, but removed them: nothing consumed them |
-| Thin adapter per implementation | Control API and hooks API ([interop-spec §5](interop-spec.md#5-adapter-apis)); 6 agents and 10 Companies in [`registry.json`](../interop/registry.json) |
+| Tests as data | Scenarios as JSON in [`interop/scenarios/`](../interop/scenarios), honest, adversarial and network-fault; Datalayer's one-sided vectors run against our code by [`interop/vectors/datalayer/`](../interop/vectors/datalayer). We exported our own validator fixtures and tamper rows in Datalayer's schema too, but removed them: nothing consumed them |
+| Thin adapter per implementation | Control API and hooks API ([interop-spec §5](interop-spec.md#5-adapter-apis)); every implementation is an entry in [`registry.json`](../interop/registry.json) |
 | Unsupported ≠ failed | 501 from an adapter, and `scenarios` in the manifest |
-| Playing the missing side | The strict mock Company is the reference column for attribution rule 2 |
+| Playing the missing side | Our mock Company, in its lenient profile (`dpa-mock`), is the reference column for attribution rule 2; the strict profile runs beside it as `dpa-mock-strict` |
 | Recorded traffic and passive checks | Recording proxy, a HAR per cell, the mock's checks as pure functions over the trace |
 | Disagreement as evidence about the spec | Readings S1–S23, rule 3 (blame `spec`), and "Grid:" rows in [spec-issues](spec-issues.md) |
 | Testing the tests | `TAMPERS` and the catalog test; `INTEROP_FAULT=assertion-typ` to check attribution |
 | Six readings of open questions | The `PROFILES` in `test/poppy.test.ts` |
 | Ledger | Appendix A of the spec and `npm run check:docs`, kept by hand |
-| Known failures linked to issues | [`known-failures.json`](../interop/known-failures.json), 28 entries with wildcards; an entry that matched no failed cell in a run that could judge it is stale and fails the run |
+| Known failures linked to issues | [`known-failures.json`](../interop/known-failures.json), with wildcards, one entry per root cause; an entry that matched no failed cell in a run that could judge it is stale and fails the run |
 
 ### What to add, in priority order
 
@@ -153,7 +153,7 @@ Certification needs a stable spec. Grids suit drafts. WPT's move from per-browse
 6. **Metamorphic variants of existing scenarios.** Run each scenario again with a transformation that shouldn't change the outcome: an issuer with a trailing slash or a path (S3, S7), percent-encoded paths (the Datalayer `htu` bug), nonces on (S23), reordered JSON members, a different host case, a retry with the same message id (S9). A pass becoming a fail pinpoints the bug without a new oracle.
 7. **Model-based scenario generation.** Scenarios are already data over a fixed vocabulary of steps. Write a small model of Session, Account Token, conversation and operation state, and generate random step sequences as scenario JSON. Check invariants after each step (an operation is performed at most once; tokens only go to listed hosts; no `jti` is reused), and shrink failures to a minimal scenario. Rotation (N5), sign-out (N16) and Ops deadlocks (N19) are the bugs this approach finds.
 8. **Fuzzing with the HARs as seeds.** Mutate recorded exchanges, AFLNet-style, against Companies. Fuzz `poppy.json` and client metadata from the validator's schema against every agent's discovery code, with WPT-style "crashtests" (pass means no crash, no hang, a clean `discovery_failed`). Run Schemathesis against fixture OpenAPI descriptions.
-9. **Adversarial implementations.** `evil-company` and `evil-agent` adapters, and a fault-injection proxy; see [adversarial-interop.md](adversarial-interop.md).
+9. **Adversarial implementations.** Built: `evil-company` and `evil-agent` adapters and a fault-injection proxy, run only against our own implementations. What remains is the "Not yet" rows of [adversarial-interop.md](adversarial-interop.md)'s attack tables.
 10. **Community process, not certification.** While the draft is 0.1, keep an open grid. Suggest the spec carry an RFC 7942 Implementation Status section that links the grid, and hold a virtual plugfest once implementers have adapters. Present results as a shared Interop-style score per scenario, not a ranking of projects ([risks](interop-testing.md#risks)). Certification is premature until the spec stops breaking compatibility.
 
 ## Sources
