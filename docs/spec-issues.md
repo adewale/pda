@@ -8,13 +8,14 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 - **Running it under different readings.** Our conformance tests run under six readings of the questions below.
 - **Reading other implementations.** We read nine other implementations; their issues are in [poppy-issues.md](poppy-issues.md). Their disagreements are often the evidence for an issue here.
 - **A discovery-document validator** ([`src/validator/`](../src/validator)).
+- **An interop grid.** Our [harness](interop-spec.md) ran six agents against eight Companies from seven projects, in containers, through a recording proxy; [the results](interop-results/) are committed. Where two implementations that each pass alone fail together, the cause is usually one of the issues here, and the row says "Grid:".
 - **A full crawl of the site on 11 October 2026.**
   - The sitemap lists nine pages: home, overview, spec, extensions, Operations, guides, open topics, license, contributions.
   - There's no `llms.txt`, changelog or public source repository; the only copy of the source is in poppyseed.
   - The home page's walkthrough traces exist only in a JavaScript bundle.
   - The spec has 107 sentences with RFC 2119 keywords: Personal Agent 43, Company 51, both 13. About 70 more requirements carry no keyword. Operations has 20, and the Guides about 138 recommendations.
 
-**IDs.** S-numbers came from comparing implementations, N-numbers from the crawl. Our tests and docs cite them, so they don't change.
+**IDs.** S-numbers came from comparing implementations, N-numbers from the crawl and later work, including the grid. Our tests and docs cite them, so they don't change.
 
 **Severity:**
 - **Interop:** two conforming implementations can fail to work together.
@@ -35,6 +36,8 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | [N19](#n19) | An operation proposed in a signed-out Session can deadlock | Interop |
 | [N22](#n22) | No way to offer two versions at once | Interop |
 | [S1](#s1) | The client assertion's `aud` is never stated | Interop |
+| [S2](#s2) | Whether assertions need `typ`, `kid` and a short lifetime | Interop |
+| [N36](#n36) | Whether the issuer may be on another host or path than the Company | Interop |
 | [S3](#s3) | Where metadata lives for an issuer with a path | Interop |
 | [S23](#s23) | Whether DPoP nonces are per origin or per Company | Interop |
 
@@ -49,18 +52,21 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | <a id="n24"></a>N24 | Editorial | **The metadata examples break RFC 8414.** They omit `response_types_supported`, which RFC 8414 §2 requires. They also don't show `authorization_response_iss_parameter_supported`, `dpop_signing_alg_values_supported` or `token_endpoint_auth_methods_supported`. | Complete the example. | The validator checks the latter three. |
 | <a id="n26"></a>N26 | Clarity | **Extension endpoints and `auth`.** The rule for when `auth` is required (3.1) leaves out extension endpoints, which need Session Tokens. | Include them. | n/a |
 | <a id="n27"></a>N27 | Clarity | **Subdomains.** `poppy.json` may be on a subdomain (3), but `organization.domain` must equal the host requested. Nothing says how an agent finds `shop.example.com` from `example.com`, and `return_to` can't reach the apex. | Say how discovery reaches a subdomain. | Discover the host the User names. |
+| <a id="n36"></a>N36 | Interop | **Issuer and origin.** 3.2 lets domains name an issuer, and its examples put the issuer on the Company's host, but nothing says the issuer may be on another host (`auth.example.com`) or have a path. Grid: poppy-demo's agent requires the issuer to equal the Company's origin, so it fails every scenario at our mock (`auth.…`) and adonis-agora (`…/poppy`). | Say the issuer is any HTTPS URL the Company controls, with an example on another host and one with a path (see S3). | Any issuer the document names, compared exactly. |
+| <a id="n37"></a>N37 | Interop | **Redirects at `/.well-known/poppy.json`.** The draft is silent. everruns documents a 302 from the website to its channel; withpoppyseed.dev 308-redirects the apex to `www.`, including its OAuth endpoints. Agents differ on following them, and on which host `organization.domain` must then equal. | Allow a few HTTPS redirects for `poppy.json` only, with `organization.domain` compared to the host the User named; forbid redirects on OAuth endpoints and `client_id`. | Follow up to three HTTPS redirects for `poppy.json`; none for `client_id`; compare `organization.domain` with the host named. |
 
 ## Agent identity and assertions (4.1, 4.2)
 
 | ID | Severity | Problem | Suggested fix | What we do |
 | --- | --- | --- | --- | --- |
-| <a id="s1"></a>S1 | Interop | **The client assertion's `aud`** at the token, revocation and device endpoints is never stated. Implementations accept the exact endpoint, the token endpoint, or the issuer. | Name it: the endpoint called. | Exact endpoint. Tested both ways. |
-| <a id="s2"></a>S2 | Interop | **Assertion `typ` and lifetime** are unspecified. Only browser assertions get "60 seconds"; the Guides say "reject a long lifetime" without a number. Strict Companies require `typ: "JWT"`, a `kid` and 60 s or less; others accept 300 s. | State `typ`, `kid` and a maximum. | `typ: "JWT"`, `kid`, 60 s. |
+| <a id="s1"></a>S1 | Interop | **The client assertion's `aud`** at the token, revocation and device endpoints is never stated. Implementations accept the exact endpoint, the token endpoint, or the issuer. Grid: adonis-agora's agent uses the token endpoint everywhere; poppyseed, poppy-demo and Datalayer's Python Company require the endpoint called, so adonis-agora × poppyseed fails Device Sign-In and sign-out. | Name it: the endpoint called. | Exact endpoint. Tested both ways. |
+| <a id="s2"></a>S2 | Interop | **Assertion `typ` and lifetime** are unspecified. Only browser assertions get "60 seconds"; the Guides say "reject a long lifetime" without a number. Strict Companies require `typ: "JWT"`, a `kid` and 60 s or less; others accept 300 s. Grid: pi-poppy's and adonis-agora's agents send no `typ`, so every signed-in or signed-out cell fails at a strict Company, and nothing past the first Session is tested. | State `typ`, `kid` and a maximum. | `typ: "JWT"`, `kid`, 60 s. |
 | <a id="n25"></a>N25 | Security | **Client and Session assertions can be confused.** Both are signed with the same keys and carry the same `iss` and `aud`; they differ only in `sub`. everruns doesn't check `sub == client_id`. | Give them distinct `typ` values, and require that check. | n/a |
 | <a id="s6"></a>S6 | Clarity | **"Same domain"** for `jwks_uri` and `redirect_uris` isn't defined: host, registrable domain, or port too? Redirects on the `client_id` fetch aren't addressed. | Define it; forbid redirects on `client_id`. | Same host or parent/child host; a redirect is an error. |
 | <a id="s21"></a>S21 | Clarity | **Local agents.** An HTTPS `client_id` on the same domain as the redirect URIs rules out an agent on someone's laptop unless it has a hosted identity. pi-poppy, poppyseed and Ilmer's tests use loopback `client_id`s. | A short note: hosted identity, or Device Sign-In. | Hosted identity. |
 | <a id="n23"></a>N23 | Interop | **The client metadata example has no `grant_types`**, so RFC 7591's default (`authorization_code` only) applies, though the agent uses jwt-bearer, refresh_token and device_code. It also lacks `dpop_bound_access_tokens`. | Add both. | n/a |
 | <a id="s19"></a>S19 | Interop | **Algorithms.** Is ES256 required, or only preferred? withpoppyseed.dev advertises RS256 only. | Make ES256 mandatory to implement. | ES256. |
+| <a id="n38"></a>N38 | Interop | **Key rotation and JWKS caching.** The Guides describe rotating keys but don't say a new key needs a new `kid`, how long a Company may cache a JWKS, or whether it refetches on an unknown `kid`. Grid: poppy-demo keeps `kid: agent-key-1` across rotations; pi-poppy's Company answers an unknown `kid` with `invalid_client` and doesn't refetch for 60 s; AuthKit caches for 30 s. An agent that rotates is refused for up to a minute. | A new key MUST have a new `kid`; a Company SHOULD refetch once, rate-limited, on an unknown `kid`; state a maximum cache time. | Each key has its own `kid`; the old key stays published until its signatures expire. |
 
 ## Sessions and tokens (4.2, 4.3, 4.8)
 
@@ -76,6 +82,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | <a id="n1"></a>N1 | Interop | **DPoP at the device and revocation endpoints.** "A new proof for every request, including token requests" (#sending-tokens), but the device and sign-out examples carry none, and RFC 9449 doesn't define proofs there. | Proofs only at the token endpoint and resources; Companies MUST ignore them elsewhere. | n/a |
 | <a id="s23"></a>S23 | Interop | **Nonces "for that server"** (Guides): per origin, or per Company? | Say per origin. | Per origin. Tested both ways. |
 | <a id="n35"></a>N35 | Clarity | **One DPoP key per User?** 4.3 says the agent "generates a key pair for each User at each Company", with no keyword, and nothing says whether a Company may refuse a key it has already bound for another User. | Say SHOULD or MUST, and what a Company does with a shared key. | A key per User per issuer. The mock records a shared key but still issues the token. |
+| <a id="n39"></a>N39 | Interop | **The error for an ended Session.** 4.2 says an ended Session gets `invalid_session`, but not where: at resources, at the token endpoint on renewal, or both. Grid: Datalayer answers an ended Session with `invalid_token` everywhere; pi-poppy's agent renews on `invalid_token`, gets `invalid_session` from the token endpoint, and gives up instead of starting a new Session. See also S13. | `invalid_session` at both, and say the agent starts a new Session on it. | Start a new Session on `invalid_session` from either; renew on `invalid_token` at a resource. |
 
 ## Sign-in (4.4 to 4.9)
 
@@ -113,13 +120,14 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | <a id="s8"></a>S8 | Security | **Retries after sign-out.** 7.3 returns "the original response" to a retry; 7.11 requires sign-in. poppy-demo returns the original, which can include account data. | 7.11 wins. | n/a (Company side) |
 | <a id="s9"></a>S9 | Interop | **Message-id idempotency.** Per conversation? A retry while the first is in flight? What "the original response" includes? | Define all three. | 128-bit ids, reused on retry. |
 | <a id="s10"></a>S10 | Clarity | **Cursor on an empty first read.** `null`, `""` and `start_<id>` all appear. | Define it. | Opaque; store only strings. |
-| <a id="n30"></a>N30 | Clarity | **SSE.** A stream never conveys the starting `status`. `wait` on a stream, and `Last-Event-ID` with `cursor`, are undefined. | Send a status event first; define both. | n/a |
+| <a id="n30"></a>N30 | Interop | **SSE.** A stream never conveys the starting `status`. `wait` on a stream, and `Last-Event-ID` with `cursor`, are undefined, as are when headers are sent and how soon an agent reconnects. Grid: adonis-agora sends no headers on an idle resumed stream until an event arrives; Datalayer's Companies close after sending the backlog; Datalayer's TypeScript agent reconnects with no delay, ignoring `retry:`, and gives up after five tries. | Send headers and a status event at once, keep-alive comments while idle; agents honour `retry:`; define `wait` and `Last-Event-ID`. | n/a |
 | <a id="s11"></a>S11 | Clarity | **`sign_in_required` has no `scope`.** | Add it. | Request the scopes the task needs. |
 | <a id="s12"></a>S12 | Interop | **Direct Conversations.** May the agent send `sender: "agent"` messages? Unsupported ones come back three ways: 400 `invalid_request`, 400 `direct_conversations_not_supported`, or `conversation_not_found`. | One error; say who may send. | Report the error. Only the User's words go there; the mock records the agent's own, first or later. |
 | <a id="s15"></a>S15 | Clarity | **`queued` on handoff** is mandatory but impractical without a human queue. | Make it optional. | Don't depend on it. |
 | <a id="s17"></a>S17 | Clarity | **"Belongs to that account":** can another User ID signed in to the same account continue a conversation? | Define it. | n/a |
 | <a id="n21"></a>N21 | Interop | **No generic error** in 7.13 for a malformed message. Unclear which error means "the parent is itself a Direct Conversation". | Add `invalid_request`; name that case. | Report the error. |
 | <a id="n29"></a>N29 | Clarity | **`context`** can't clear a field, and it's unclear whether it carries into Direct or new conversations. | Define both. | Send only what changed. |
+| <a id="n40"></a>N40 | Interop | **`wait` is a hint, but examples read like a promise.** 7.3's example returns the Company's reply in the send response. Grid: poppyseed honours `wait` only on `GET …/events`, so an agent that expects the reply from the send never sees it. | Say a Company MAY ignore `wait` and the agent MUST read events for the reply. | Read in the background when the reply isn't in the response. |
 | <a id="n31"></a>N31 | Clarity | **Declining `user_requested`** is free text only. | A structured signal. | n/a |
 
 ## Operations extension
@@ -129,6 +137,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | <a id="n19"></a>N19 | Interop | **An operation from a signed-out Session can deadlock.** Ops 3.2 limits it to its Session. Sessions end with `invalid_session`, and Ops 6 forbids a new proposal until the operation is final, which `operation_not_found` then prevents. | Bind operations to the User ID, or make `operation_not_found` final. | Stop tracking it, as if final. |
 | <a id="n34"></a>N34 | Interop | **Which new proposals Ops 6 forbids.** "MUST NOT ask for a new proposal of the same action until the operation is final" sits in the paragraph about a failed confirm, so it's unclear whether it applies before any confirm. "The same action" isn't defined (3.1 makes a different size a new revision of the same operation), and before a confirm a Company can't tell a forbidden re-ask from a repeat through another channel, which Ops 4 says to answer with the existing operation. | State it for any operation the agent knows of that isn't final, and say a Company returns that operation. | We refuse to repeat the write that proposed an operation we've tried to confirm until it's final. The mock records only that case. |
 | <a id="n20"></a>N20 | Interop | **Statuses and errors** are undefined: the HTTP status of confirm, cancel and read (200 or 202 for `in_progress`); the error for a malformed confirm; whether `user_approval_required` carries `operation`. | Define them. | n/a |
+| <a id="n41"></a>N41 | Interop | **`null` for an optional member.** Nothing says whether an optional member may be `null` rather than absent, here or in the core protocol. Grid: Datalayer sends `"expires_at": null` on confirm and `"result": {"data": null}` on cancel; pi-poppy rejects both, so it reports a performed operation as failed. | Omit optional members; receivers treat `null` as absent. | Treat `null` as absent. |
 | <a id="s20"></a>S20 | Security | **Standing permissions have no checkable action.** There's no standard action field, money has no direction, and an approval can't be proved to the Company. | An action field; signed amounts; a proof of approval. | Match a summary word and `{ amount, currency }`. |
 
 ## Versions and extensions
@@ -144,6 +153,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 | <a id="n11"></a>N11 | Security | **A shared issuer merges Companies.** Domains naming one issuer "are then one Company: the same User IDs" (3.2). A multi-tenant identity provider with one issuer shares User IDs across unrelated Companies, defeating 4.2. | Issuers MUST be per Company (path issuers; see S3). | User IDs per issuer. |
 | <a id="n12"></a>N12 | Security | **Signed-out tracking can't be reset.** The User ID is permanent: one sign-in links all earlier signed-out activity, and Account Tokens are tied to it. | A User-controlled reset; Companies MUST NOT rely on permanence. | n/a |
 | <a id="n15"></a>N15 | Security | **No prompt-injection considerations.** Company text, data, summaries, API and MCP descriptions and web pages all reach a model. Only Ops 5.1 and 7.11 touch on it. | A Security Considerations section. | Company text is data, never approval; only the page approves. |
+| <a id="n42"></a>N42 | Security | **No test mode.** The SSRF rules (Guides) forbid private addresses and loopback, so an implementation can't be tested against another without a relaxation, and each invents its own: poppyseed's `allowInsecureClients`, AuthKit's `allowInsecureClientIds` (which also allows `http` `client_id`s), pi-poppy's and Datalayer's private-address settings. Broad switches like these are easy to leave on in production. | A Guides note: a test mode limited to a named reserved suffix (such as `.test`), HTTPS only, off by default. | Our harness names `*.interop.test` and needed no relaxation for our client; see [interop-spec.md](interop-spec.md) §3. |
 
 ## Editorial
 
