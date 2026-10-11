@@ -1,8 +1,8 @@
-import { covers, grantedScope, PoppyClient, PoppyError, scopeSet } from "./client";
+import { covers, grantedScope, PoppyClient, PoppyError, registerSignInRecovery, scopeSet } from "./client";
 import type { Company, SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
-import { one } from "./store";
+import { one, rows } from "./store";
 import type { ScopeInfo } from "./wire";
 
 /** Pending sign-ins expire after this long (Guides: keep device flows short). */
@@ -221,6 +221,24 @@ export async function startSignIn(
   return { status: "waiting", type, signInId: id };
 }
 
+type TokenResponse = Parameters<PoppyClient["completeSignIn"]>[3];
+
+/** What the User sees and the model is told once a sign-in has its tokens. */
+function signedInText(company: Company, row: SignInRow, scope: string): string {
+  const granted = scopeSet(scope);
+  const missing = row.scopes.split(" ").filter((item) => !granted.has(item));
+  return missing.length
+    ? `Signed in to ${company.name}, but the User approved fewer scopes than requested: granted "${scope}", not granted "${missing.join(" ")}".`
+    : `Signed in to ${company.name} with "${scope}".`;
+}
+
+/** Close the sign-in's card with how it ended, and tell the model, once. */
+async function report(client: PoppyClient, row: SignInRow, text: string): Promise<void> {
+  const company = client.companyByIssuer(row.issuer);
+  await client.host.showCard({ id: `signin-${row.id}`, kind: "notice", company: company.name, domain: company.domain, open: false, text });
+  await client.host.notifyModel(`[system] ${text}`, `poppy-signin-${row.id}`);
+}
+
 async function finish(
   client: PoppyClient,
   row: SignInRow,
@@ -230,21 +248,108 @@ async function finish(
   setStatus(client, row.id, outcome.ok ? "done" : "failed");
   let text: string;
   if (outcome.ok) {
-    const raw = outcome.response as Parameters<PoppyClient["completeSignIn"]>[3];
+    const raw = outcome.response as TokenResponse;
     // An omitted `scope` grants what was asked for (RFC 6749 §5.1, N6).
     const response = { ...raw, scope: grantedScope(raw, row.scopes) };
     await client.completeSignIn(company, row.label, row.account, response);
-    const granted = scopeSet(response.scope);
-    const missing = row.scopes.split(" ").filter((scope) => !granted.has(scope));
-    text = missing.length
-      ? `Signed in to ${company.name}, but the User approved fewer scopes than requested: granted "${response.scope}", not granted "${missing.join(" ")}".`
-      : `Signed in to ${company.name} with "${response.scope}".`;
+    text = signedInText(company, row, response.scope);
   } else {
     text = `Sign-in to ${company.name} didn't complete: ${outcome.message}`;
   }
-  await client.host.showCard({ id: `signin-${row.id}`, kind: "notice", company: company.name, domain: company.domain, open: false, text });
-  await client.host.notifyModel(`[system] ${text}`, `poppy-signin-${row.id}`);
+  await report(client, row, text);
 }
+
+// ---------------------------------------------------------------- Direct Sign-In's code exchange
+//
+// The code is single-use (4.5), so its exchange is recorded before it is
+// sent, and its answer before it is used:
+//
+//   used ─▶ exchanging ─▶ exchanged ─▶ stored ─▶ done
+//                │
+//                └─▶ failed (refused, or interrupted with no answer)
+//
+// `exchanging` with no answer kept means the Company may have signed the
+// Session in, and we hold no Account Token to renew it with; the assertion
+// mustn't be used for a signed-in Session (4.2), so that Session is
+// abandoned for a new one and the User starts the sign-in again. `exchanged`
+// keeps the answer (sealed, without its Session Token), so the tokens are
+// stored from it. `stored` only has the card and the notice left.
+
+const EXCHANGE = (id: string) => `signin|${id}`;
+
+/** The answer to a code exchange, kept until its tokens are stored: never the Session Token. */
+type KeptAnswer = Omit<TokenResponse, "access_token">;
+
+function keepable(response: TokenResponse): KeptAnswer {
+  const { access_token: _sessionToken, ...kept } = response;
+  return kept;
+}
+
+/** Store the tokens from a code exchange's answer, then close the card. Safe to repeat. */
+async function finishExchange(client: PoppyClient, row: SignInRow, answer?: KeptAnswer): Promise<void> {
+  const company = client.companyByIssuer(row.issuer);
+  let scope: string;
+  if (row.status === "stored") {
+    scope = (JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as { scope: string }).scope;
+  } else {
+    const kept = answer ?? (JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as KeptAnswer);
+    // An omitted `scope` grants what was asked for (RFC 6749 §5.1, N6).
+    const response = { ...kept, access_token: "", scope: grantedScope(kept, row.scopes) } as TokenResponse;
+    await client.completeSignIn(company, row.label, row.account, response);
+    scope = response.scope ?? "";
+    // The Account Token is in poppy_accounts now; this row keeps only the scope.
+    client.sql.exec(
+      "UPDATE poppy_signins SET status = 'stored', secret = ? WHERE id = ?",
+      await client.sealer.seal(JSON.stringify({ scope }), sealContext(row)),
+      row.id
+    );
+  }
+  await report(client, row, signedInText(company, row, scope));
+  setStatus(client, row.id, "done");
+}
+
+/** No answer we can trust: start a new Session, and ask the User to sign in again. */
+async function abandonExchange(client: PoppyClient, row: SignInRow): Promise<void> {
+  const company = client.companyByIssuer(row.issuer);
+  const session = client.session(row.issuer, row.label);
+  // A Session we already hold signed in renews with its Account Token, never the assertion.
+  if (session && !session.signed_in) client.abandonSession(row.issuer, row.label);
+  setStatus(client, row.id, "failed");
+  await report(
+    client,
+    row,
+    `Sign-in to ${company.name} was interrupted before it finished, so the agent continues in a new Session. Ask the User to sign in again if the task needs it.`
+  );
+}
+
+/**
+ * Direct Sign-Ins left between sending the code and finishing (an
+ * exception, or the object restarted): finish storing the tokens when their
+ * answer was kept, otherwise start a new Session. Runs before any token for
+ * the Company, on start, and on the next callback.
+ */
+export async function recoverSignIns(client: PoppyClient, issuer?: string): Promise<void> {
+  const pending = rows<SignInRow>(
+    client.sql,
+    `SELECT * FROM poppy_signins WHERE status IN ('exchanging', 'exchanged', 'stored')${issuer ? " AND issuer = ?" : ""}`,
+    ...(issuer ? [issuer] : [])
+  );
+  for (const found of pending) {
+    const key = EXCHANGE(found.id);
+    if (client.inFlight.has(key)) continue;
+    client.inFlight.add(key);
+    try {
+      // Read again: another caller may have resolved it while this one waited.
+      const row = signIn(client, found.id);
+      if (row?.status === "exchanging") await abandonExchange(client, row);
+      else if (row?.status === "exchanged" || row?.status === "stored") await finishExchange(client, row);
+    } finally {
+      client.inFlight.delete(key);
+    }
+  }
+}
+
+registerSignInRecovery(recoverSignIns);
 
 /**
  * `GET /poppy/callback` for Direct Sign-In (spec 4.5): check `state` (single
@@ -260,6 +365,8 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
     await sha256(state)
   );
   if (!row || row.status !== "pending") {
+    // A reload of an interrupted sign-in's callback: resolve it now.
+    if (row) await recoverSignIns(client, row.issuer);
     return { ok: false, message: "This sign-in has expired or was already used. Start it again from the chat." };
   }
   // Single use, whatever happens next.
@@ -289,23 +396,49 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
     await finish(client, row, { ok: false, message: "no authorization code came back" });
     return { ok: false, message: "The company didn't send an authorization code." };
   }
+  // The code is spent from here on: record that before sending it.
+  const key = EXCHANGE(row.id);
+  setStatus(client, row.id, "exchanging");
+  client.inFlight.add(key);
   try {
-    const response = await client.tokenRequest(company, async () => {
-      const session = client.session(company.issuer, row.label);
-      return {
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: client.identity.redirectUri,
-        code_verifier: secret.verifier,
-        ...(session ? { session_id: session.session_id } : {})
-      };
-    });
-    await finish(client, row, { ok: true, response: response as unknown as Json });
+    let response: TokenResponse;
+    try {
+      response = await client.tokenRequest(company, async () => {
+        const session = client.session(company.issuer, row.label);
+        return {
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: client.identity.redirectUri,
+          code_verifier: secret.verifier,
+          ...(session ? { session_id: session.session_id } : {})
+        };
+      });
+    } catch (error) {
+      if (error instanceof PoppyError && error.status >= 400 && error.status < 500) {
+        // The Company refused the code: nothing changed there.
+        await finish(client, row, { ok: false, message: error.code });
+        return { ok: false, message: `Sign-in to ${company.name} failed (${error.code}).` };
+      }
+      // No answer, or one we can't read: the Company may have signed the Session in.
+      await abandonExchange(client, row);
+      return { ok: false, message: `Sign-in to ${company.name} was interrupted. Go back to the chat and start it again.` };
+    }
+    // Keep the answer before using it, so an interruption from here still stores its tokens.
+    const answer = keepable(response);
+    client.sql.exec(
+      "UPDATE poppy_signins SET status = 'exchanged', secret = ? WHERE id = ?",
+      await client.sealer.seal(JSON.stringify(answer), sealContext(row)),
+      row.id
+    );
+    try {
+      await finishExchange(client, signIn(client, row.id)!, answer);
+    } catch (error) {
+      console.warn("poppy sign-in not finished", error instanceof Error ? error.message : String(error));
+      return { ok: false, message: `Signing in to ${company.name} didn't finish here. Go back to the chat; the agent finishes it the next time it works with ${company.name}.` };
+    }
     return { ok: true, message: `Connected to ${company.name}. You can close this tab.` };
-  } catch (error) {
-    if (!(error instanceof PoppyError)) throw error;
-    await finish(client, row, { ok: false, message: error.code });
-    return { ok: false, message: `Sign-in to ${company.name} failed (${error.code}).` };
+  } finally {
+    client.inFlight.delete(key);
   }
 }
 

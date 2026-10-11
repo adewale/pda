@@ -41,6 +41,57 @@ export function testFetcher(env: Env, clock?: () => number): Fetcher {
 }
 
 /**
+ * A fault a test puts between the test agent and a Company: the next request
+ * matching `method`, a URL containing `url`, and (for the token endpoint) a
+ * form `grant_type`, goes wrong once, as a network would make it:
+ *
+ * - `throw`: the Company handles it, then the connection fails before the answer arrives;
+ * - `gateway`: the Company handles it, then a gateway answers 504 instead;
+ * - `hold`: the Company handles it, then the answer is held until `poppyReleaseHeld`,
+ *   and the connection fails; meanwhile the test can act as a later step would;
+ * - `lose`: the request fails before it reaches the Company.
+ */
+export type NetworkFault = {
+  readonly method: string;
+  readonly url: string;
+  readonly grant?: string;
+  readonly mode: "throw" | "gateway" | "hold" | "lose";
+};
+
+type Faults = { pending: NetworkFault[]; held: (() => void)[] };
+const faultsByAgent = new WeakMap<object, Faults>();
+
+function faultsOf(agent: object): Faults {
+  let faults = faultsByAgent.get(agent);
+  if (!faults) faultsByAgent.set(agent, (faults = { pending: [], held: [] }));
+  return faults;
+}
+
+/** `fetcher`, with the faults a test asked for. No fault, no change. */
+function faultyFetcher(fetcher: Fetcher, faults: () => Faults): Fetcher {
+  return async (request) => {
+    const { pending, held } = faults();
+    if (pending.length === 0) return fetcher(request);
+    let grant: string | null = null;
+    if (request.method === "POST" && (request.headers.get("Content-Type") ?? "").includes("form-urlencoded")) {
+      grant = new URLSearchParams(await request.clone().text()).get("grant_type");
+    }
+    const index = pending.findIndex(
+      (fault) =>
+        fault.method === request.method && request.url.includes(fault.url) && (fault.grant === undefined || fault.grant === grant)
+    );
+    if (index === -1) return fetcher(request);
+    const [fault] = pending.splice(index, 1);
+    if (fault!.mode === "lose") throw new Error("Network connection lost before the request was sent");
+    const response = await fetcher(request);
+    await response.body?.cancel();
+    if (fault!.mode === "gateway") return new Response("upstream timed out", { status: 504 });
+    if (fault!.mode === "hold") await new Promise<void>((resolve) => held.push(resolve));
+    throw new Error("Network connection lost before the answer arrived");
+  };
+}
+
+/**
  * Everything written to the console in this isolate, where the test agents
  * and the mock Companies run, so tests can check a secret never reached a log.
  */
@@ -113,7 +164,7 @@ export class PersonalAgent extends ProductionAgent {
   #noticeWaiters: (() => void)[] = [];
 
   protected override poppyFetcher(): Fetcher {
-    return testFetcher(this.env, () => clockOf(this).now);
+    return faultyFetcher(testFetcher(this.env, () => clockOf(this).now), () => faultsOf(this));
   }
 
   protected override poppyBrowser(): PoppyBrowser {
@@ -161,8 +212,16 @@ export class PersonalAgent extends ProductionAgent {
     await this.lifecycle.alarm();
   }
 
+  /** `poppyFailNoticeOnce`: notices still to fail, by a fragment of their text. */
+  #failingNotices: string[] = [];
+
   /** Records what the model is told, then tells it, as production does. */
   protected override async poppyNotify(text: string, operationId: string): Promise<void> {
+    const failing = this.#failingNotices.findIndex((fragment) => text.includes(fragment));
+    if (failing !== -1) {
+      this.#failingNotices.splice(failing, 1);
+      throw new Error("The model couldn't be told (a test fault)");
+    }
     this.ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS test_notices (seq INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, operation_id TEXT)"
     );
@@ -250,11 +309,32 @@ export class PersonalAgent extends ProductionAgent {
     return JSON.stringify(this.ctx.storage.sql.exec(query, ...bindings).toArray());
   }
 
+  /** What the model was told, in order: once per operation id, as the harness delivers it. */
   async poppyNotices(): Promise<string[]> {
     this.ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS test_notices (seq INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, operation_id TEXT)"
     );
-    return this.ctx.storage.sql.exec("SELECT text FROM test_notices ORDER BY seq").toArray().map((row) => String(row.text));
+    return this.ctx.storage.sql
+      .exec("SELECT text FROM test_notices WHERE seq IN (SELECT MIN(seq) FROM test_notices GROUP BY operation_id) ORDER BY seq")
+      .toArray()
+      .map((row) => String(row.text));
+  }
+
+  /** The next request matching `fault` goes wrong once (see `NetworkFault`). */
+  async poppyFault(fault: NetworkFault): Promise<void> {
+    faultsOf(this).pending.push(fault);
+  }
+
+  /** Let every held answer go (as a failed connection); returns how many there were. */
+  async poppyReleaseHeld(): Promise<number> {
+    const held = faultsOf(this).held.splice(0);
+    for (const release of held) release();
+    return held.length;
+  }
+
+  /** The next notice to the model containing `fragment` fails, as if the harness had thrown. */
+  async poppyFailNoticeOnce(fragment: string): Promise<void> {
+    this.#failingNotices.push(fragment);
   }
 
   async poppyCards(): Promise<string> {

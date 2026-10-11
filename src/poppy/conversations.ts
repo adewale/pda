@@ -185,6 +185,8 @@ export async function sendMessage(
   if (body.message.context && isObject(body.message.context)) rememberContext(client, id, body.message.context);
   updateState(client, id, response);
 
+  // The background read is scheduled first, so events a failure below leaves unhandled are read again.
+  await scheduleRead(client, id, 0);
   let replies: SendResult["replies"] = [];
   if (Array.isArray(response.events)) {
     // With `wait`, the reply is a read of the events (7.3): handle them like any read.
@@ -193,7 +195,6 @@ export async function sendMessage(
     });
     if (typeof response.cursor === "string") saveCursor(client, id, response.cursor);
   }
-  await scheduleRead(client, id, 0);
   const row = conversation(client, id)!;
   return { conversationId: id, status: row.status, responder: row.responder, replies };
 }
@@ -233,10 +234,24 @@ function describe(company: Company, row: ConversationRow, message: { [key: strin
   return lines.join("\n");
 }
 
+/** One reader of a conversation's events at a time, per client: a background read and a send's `wait` can get the same events. */
+const readers = new WeakMap<PoppyClient, Map<string, Promise<unknown>>>();
+
+function oneReader<T>(client: PoppyClient, id: string, work: () => Promise<T>): Promise<T> {
+  let locks = readers.get(client);
+  if (!locks) readers.set(client, (locks = new Map()));
+  const next = (locks.get(id) ?? Promise.resolve()).then(work, work);
+  locks.set(id, next.catch(() => undefined));
+  return next;
+}
+
 /**
  * Handle events in order (spec 7.5): skip ids already handled and types we
- * don't know, then let the caller save the cursor. Returns Company messages,
- * for a caller that waited on a reply.
+ * don't know, then let the caller save the cursor. Each event is recorded as
+ * handled only after it is handled, so a failure in between means it is seen
+ * again, and `handleEvent` is safe to repeat. A failure stops the batch, so
+ * later events wait for it. Returns Company messages, for a caller that
+ * waited on a reply.
  */
 async function handleEvents(
   client: PoppyClient,
@@ -245,26 +260,35 @@ async function handleEvents(
   events: readonly Json[],
   options: { quietModel?: boolean } = {}
 ): Promise<{ sender: string; text?: string; data?: Json }[]> {
-  const replies: { sender: string; text?: string; data?: Json }[] = [];
-  for (const event of events) {
-    if (!isObject(event) || typeof event.id !== "string" || typeof event.type !== "string") continue;
-    const seen = one(
-      client.sql,
-      "SELECT 1 AS seen FROM poppy_events WHERE conversation_id = ? AND event_id = ?",
-      row.id,
-      event.id
-    );
-    if (seen) continue;
-    client.sql.exec(
-      "INSERT INTO poppy_events (conversation_id, event_id) VALUES (?, ?)",
-      row.id,
-      event.id
-    );
-    await handleEvent(client, company, conversation(client, row.id) ?? row, event, options, replies);
-  }
-  return replies;
+  return oneReader(client, row.id, async () => {
+    const replies: { sender: string; text?: string; data?: Json }[] = [];
+    for (const event of events) {
+      if (!isObject(event) || typeof event.id !== "string" || typeof event.type !== "string") continue;
+      const seen = one(
+        client.sql,
+        "SELECT 1 AS seen FROM poppy_events WHERE conversation_id = ? AND event_id = ?",
+        row.id,
+        event.id
+      );
+      if (seen) continue;
+      await handleEvent(client, company, conversation(client, row.id) ?? row, event, options, replies);
+      client.sql.exec(
+        "INSERT OR IGNORE INTO poppy_events (conversation_id, event_id) VALUES (?, ?)",
+        row.id,
+        event.id
+      );
+    }
+    return replies;
+  });
 }
 
+/**
+ * One event. Safe to run twice for the same event id: model notices carry an
+ * id derived from the event, which `notifyModel` delivers at most once;
+ * cards are replaced by id; the inbox keeps one copy per event; a state
+ * change is stored after the notices it causes; and a proposal seen again
+ * is the same operation (Ops 4).
+ */
 async function handleEvent(
   client: PoppyClient,
   company: Company,
@@ -278,12 +302,20 @@ async function handleEvent(
     case "message": {
       const message = event.message;
       if (!isObject(message)) return;
-      client.sql.exec(
-        "INSERT INTO poppy_inbox (conversation_id, event, created_at) VALUES (?, ?, ?)",
+      const kept = one(
+        client.sql,
+        "SELECT 1 AS kept FROM poppy_inbox WHERE conversation_id = ? AND json_extract(event, '$.id') = ?",
         row.id,
-        JSON.stringify(event),
-        Date.now()
+        event.id
       );
+      if (!kept) {
+        client.sql.exec(
+          "INSERT INTO poppy_inbox (conversation_id, event, created_at) VALUES (?, ?, ?)",
+          row.id,
+          JSON.stringify(event),
+          Date.now()
+        );
+      }
       if (row.direct) {
         pushDirect(client, company, row.id);
         return;
@@ -301,18 +333,20 @@ async function handleEvent(
       return;
     }
     case "state": {
-      const before = row.responder;
-      updateState(client, row.id, event);
-      const after = conversation(client, row.id)!;
-      if (row.direct) pushDirect(client, company, row.id);
-      else if (before !== "human" && after.responder === "human") {
+      // Notices first, then the stored state: if a notice fails, the event
+      // is handled again from the same state.
+      const responder = typeof event.responder === "string" ? event.responder : row.responder;
+      const status = typeof event.status === "string" ? event.status : row.status;
+      if (!row.direct && row.responder !== "human" && responder === "human") {
         await client.host.notifyModel(
           `[system] A person at ${company.name} has joined conversation ${row.id}. Write for a person: plain sentences, details in text.`,
           operationId
         );
-      } else if (after.status === "closed") {
+      } else if (!row.direct && status === "closed") {
         await client.host.notifyModel(`[system] ${company.name} closed conversation ${row.id}.`, operationId);
       }
+      updateState(client, row.id, event);
+      if (row.direct) pushDirect(client, company, row.id);
       return;
     }
     case "authorization": {

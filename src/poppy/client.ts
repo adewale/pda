@@ -78,6 +78,16 @@ export class RateLimitedError extends PoppyError {
   }
 }
 
+/**
+ * Resolves Direct Sign-Ins whose code exchange was interrupted (4.5).
+ * `signin.ts` registers it, so this module needn't import that one.
+ */
+let signInRecovery: ((client: PoppyClient, issuer: string) => Promise<void>) | undefined;
+
+export function registerSignInRecovery(recover: (client: PoppyClient, issuer: string) => Promise<void>): void {
+  signInRecovery = recover;
+}
+
 /** Longest `Retry-After` we wait out inline; longer ones fail the call. */
 const INLINE_WAIT_MS = 5_000;
 /** Renew a Session Token this long before it expires. */
@@ -219,6 +229,12 @@ export class PoppyClient {
    * read) would use one twice (spec 4.8).
    */
   readonly #locks = new Map<string, Promise<unknown>>();
+  /**
+   * Steps this object has started and not finished: a confirm, a code
+   * exchange. Memory only, so after a restart the stored state of such a
+   * step, with no entry here, means it was interrupted and is recovered.
+   */
+  readonly inFlight = new Set<string>();
 
   #serial<T>(issuer: string, work: () => Promise<T>): Promise<T> {
     const previous = this.#locks.get(issuer) ?? Promise.resolve();
@@ -473,6 +489,30 @@ export class PoppyClient {
     );
   }
 
+  /**
+   * Stop using a Session, and drop its tokens: the next request starts a new
+   * one. For a Session the Company may have signed in without our knowing,
+   * which must never be renewed with the Session assertion (4.2).
+   */
+  abandonSession(issuer: string, label: string): void {
+    this.#forgetSession(issuer, label);
+  }
+
+  /**
+   * Before any token for a Company: resolve a Direct Sign-In whose code
+   * exchange was interrupted (4.5), so a Session it may have signed in is
+   * never renewed with the assertion. Cheap when there is none.
+   */
+  async #recoverSignIns(issuer: string): Promise<void> {
+    if (!signInRecovery) return;
+    const found = one(
+      this.sql,
+      "SELECT 1 AS found FROM poppy_signins WHERE issuer = ? AND status IN ('exchanging', 'exchanged', 'stored') LIMIT 1",
+      issuer
+    );
+    if (found) await signInRecovery(this, issuer);
+  }
+
   #forgetSession(issuer: string, label: string): void {
     this.sql.exec("DELETE FROM poppy_sessions WHERE issuer = ? AND label = ?", issuer, label);
     for (const key of [...this.#tokens.keys()]) {
@@ -564,6 +604,7 @@ export class PoppyClient {
    * next token request binds a new token to it.
    */
   async token(company: Company, options: TokenOptions = {}): Promise<HeldToken> {
+    await this.#recoverSignIns(company.issuer);
     const label = options.label ?? "main";
     const key = `${company.issuer}|${label}|${options.resource ?? ""}|${options.scope ?? ""}|${options.bearer ? "bearer" : "dpop"}`;
     const dpop = options.bearer ? null : await this.dpopKey(company.issuer);
@@ -725,12 +766,13 @@ export class PoppyClient {
    * the User isn't asked again. Returns false when there is none that covers
    * `scopes`.
    */
-  signInWithAccount(
+  async signInWithAccount(
     company: Company,
     label: string,
     scopes: readonly string[],
     accountLabel?: string
   ): Promise<boolean> {
+    await this.#recoverSignIns(company.issuer);
     return this.#serial(company.issuer, () => this.#signInWithAccount(company, label, scopes, accountLabel));
   }
 

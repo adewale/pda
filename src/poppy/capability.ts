@@ -28,6 +28,7 @@ import {
   cancelSignIn,
   completeDirectSignIn,
   pollDeviceSignIn,
+  recoverSignIns,
   signOut,
   submitCredentials,
   submitSignInCode
@@ -129,6 +130,10 @@ export class PoppyCapability extends LifecycleCapability {
   override async onStart(): Promise<void> {
     if (!this.#hasPoppyState()) return;
     await recoverInterruptedApprovals(this.client);
+    // A Direct Sign-In the restart interrupted: finish it, or start a new Session (4.5).
+    await recoverSignIns(this.client).catch((error: unknown) =>
+      console.warn("poppy sign-in recovery failed", error instanceof Error ? error.message : String(error))
+    );
   }
 
   #hasPoppyState(): boolean {

@@ -31,6 +31,19 @@ type OperationRow = {
   confirmed: number;
 };
 
+/**
+ * `poppy_operations.confirmed`: whether a confirm is outstanding. `SENT` is
+ * recorded, and the tracking job scheduled, before the confirm goes out, so
+ * an answer that never arrives (lost, an exception, the object restarting)
+ * is followed up: read first, then confirm the same revision again only if
+ * the operation still awaits it (Ops 6).
+ */
+const NOT_SENT = 0;
+const ANSWERED = 1;
+const SENT = 2;
+/** When the tracking job checks on a confirm whose answer never came. */
+const CONFIRM_CHECK_MS = 60_000;
+
 const FINAL = new Set(["succeeded", "failed", "cancelled", "expired"]);
 const STATES = new Set(["proposed", "in_progress", ...FINAL]);
 const ID = /^[A-Za-z0-9_-]{1,256}$/;
@@ -219,15 +232,23 @@ export async function handleProposal(
       await approveAndConfirm(client, company.issuer, operation.operation_id, operation.revision, "standing_permission", permission);
       return operation;
     }
-    await showOperation(client, company, row);
-    await client.host.notifyModel(
-      `[system] ${company.name} proposed operation ${operation.operation_id} (revision ${operation.revision}): "${operation.summary}". Nothing has happened yet. The User has been shown the terms and decides on the card; don't say it's done until it is.`,
-      `poppy-op-${company.issuer}-${operation.operation_id}-${operation.revision}`
-    );
+    await announceProposal(client, company, row, operation);
+  } else if (operation.state === "proposed" && row.approved_revision !== operation.revision) {
+    // The same proposal again (a repeated event or call): its card and notice
+    // again, both idempotent, in case the first time didn't get that far.
+    await announceProposal(client, company, row, operation);
   } else {
     await afterUpdate(client, company, row, previous);
   }
   return operation;
+}
+
+async function announceProposal(client: PoppyClient, company: Company, row: OperationRow, operation: Operation): Promise<void> {
+  await showOperation(client, company, row);
+  await client.host.notifyModel(
+    `[system] ${company.name} proposed operation ${operation.operation_id} (revision ${operation.revision}): "${operation.summary}". Nothing has happened yet. The User has been shown the terms and decides on the card; don't say it's done until it is.`,
+    `poppy-op-${company.issuer}-${operation.operation_id}-${operation.revision}`
+  );
 }
 
 async function afterUpdate(
@@ -305,12 +326,32 @@ export async function approveAndConfirm(
   await confirm(client, issuer, operationId);
 }
 
-/** POST `/confirm` for the approved revision; safe to repeat (Ops 5.2, 6). */
+function setConfirmed(client: PoppyClient, issuer: string, operationId: string, value: number): void {
+  client.sql.exec("UPDATE poppy_operations SET confirmed = ? WHERE issuer = ? AND operation_id = ?", value, issuer, operationId);
+}
+
+async function scheduleTracking(client: PoppyClient, issuer: string, operationId: string, at: number): Promise<void> {
+  await client.host.schedule("poppy-operation", at, { issuer, id: operationId }, `op-${issuer}-${operationId}`);
+}
+
+const CONFIRMING = (issuer: string, operationId: string) => `confirm|${issuer}|${operationId}`;
+
+/**
+ * POST `/confirm` for the approved revision (Ops 5.2). Never for a final
+ * operation, and never twice at once. The intent and its follow-up are
+ * recorded before sending, so a lost answer is checked on (Ops 6).
+ */
 export async function confirm(client: PoppyClient, issuer: string, operationId: string): Promise<void> {
   const row = stored(client, issuer, operationId);
   if (!row || row.approved_revision === null || !row.approved_by) return;
+  if (FINAL.has((JSON.parse(row.operation) as Operation).state)) return;
+  const key = CONFIRMING(issuer, operationId);
+  if (client.inFlight.has(key)) return;
   const company = client.companyByIssuer(issuer);
   const endpoint = endpointOf(company);
+  setConfirmed(client, issuer, operationId, SENT);
+  await scheduleTracking(client, issuer, operationId, client.host.now() + CONFIRM_CHECK_MS);
+  client.inFlight.add(key);
   try {
     const { body, headers } = await client.resourceJson(
       company,
@@ -321,23 +362,30 @@ export async function confirm(client: PoppyClient, issuer: string, operationId: 
       },
       { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
     );
-    client.sql.exec("UPDATE poppy_operations SET confirmed = 1 WHERE issuer = ? AND operation_id = ?", issuer, operationId);
+    setConfirmed(client, issuer, operationId, ANSWERED);
     const operation = await update(client, company, body);
     if (operation?.state === "in_progress") {
       const retryAfter = Number(headers.get("Retry-After") ?? "5");
-      await client.host.schedule(
-        "poppy-operation",
-        client.host.now() + Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5) * 1000,
-        { issuer, id: operationId },
-        `op-${issuer}-${operationId}`
+      await scheduleTracking(
+        client,
+        issuer,
+        operationId,
+        client.host.now() + Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5) * 1000
       );
     }
   } catch (error) {
-    if (!(error instanceof PoppyError)) {
-      // A timeout or network failure: read or confirm again with the same id later (Ops 6).
-      await client.host.schedule("poppy-operation", client.host.now() + 5_000, { issuer, id: operationId }, `op-${issuer}-${operationId}`);
+    if (!(error instanceof PoppyError) || error.status >= 500 || error.code === "invalid_response") {
+      // No answer we can trust: read, then confirm again only if still needed, with the same id (Ops 6).
+      await scheduleTracking(client, issuer, operationId, client.host.now() + 5_000);
       return;
     }
+    if (error.code === "rate_limited") {
+      // Not acted on: after Retry-After the tracking job reads, then confirms.
+      await scheduleTracking(client, issuer, operationId, client.host.now() + (error.detail.retryAfter ?? 30) * 1000);
+      return;
+    }
+    // The Company answered, so no confirm is outstanding.
+    setConfirmed(client, issuer, operationId, NOT_SENT);
     if (error.code === "terms_changed") {
       releasePermission(client, row);
       clearApproval(client, issuer, operationId);
@@ -361,15 +409,13 @@ export async function confirm(client: PoppyClient, issuer: string, operationId: 
       );
       return;
     }
-    if (error.code === "rate_limited") {
-      await client.host.schedule("poppy-operation", client.host.now() + (error.detail.retryAfter ?? 30) * 1000, { issuer, id: operationId }, `op-${issuer}-${operationId}`);
-      return;
-    }
     releasePermission(client, row);
     await client.host.notifyModel(
       `[system] ${company.name} refused to confirm operation ${operationId} (${error.code}).`,
       `poppy-op-error-${issuer}-${operationId}-${error.code}`
     );
+  } finally {
+    client.inFlight.delete(key);
   }
 }
 
@@ -381,33 +427,69 @@ function clearApproval(client: PoppyClient, issuer: string, operationId: string)
   );
 }
 
-/** Approved operations waiting on a sign-in: confirm them now. */
+/** GET the operation and store what the Company says; throws a PoppyError if it can't be read. */
+async function readOperation(
+  client: PoppyClient,
+  company: Company,
+  row: OperationRow
+): Promise<{ operation: Operation | null; retryAfter: number }> {
+  const endpoint = endpointOf(company);
+  const response = await client.resourceJson(
+    company,
+    { method: "GET", url: `${endpoint.url}/${encodeURIComponent(row.operation_id)}` },
+    { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
+  );
+  const retryAfter = Number(response.headers.get("Retry-After") ?? "5");
+  return {
+    operation: await update(client, company, response.body),
+    retryAfter: Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5)
+  };
+}
+
+/**
+ * Approved operations waiting on a sign-in: read each first, since it may
+ * have been confirmed elsewhere, revised or ended meanwhile, and confirm it
+ * only if it still awaits the approved revision. A final one never is.
+ */
 export async function retryApproved(client: PoppyClient, issuer: string): Promise<void> {
   for (const row of rows<OperationRow>(
     client.sql,
-    "SELECT * FROM poppy_operations WHERE issuer = ? AND approved_revision IS NOT NULL AND confirmed = 0",
-    issuer
+    "SELECT * FROM poppy_operations WHERE issuer = ? AND approved_revision IS NOT NULL AND confirmed = ?",
+    issuer,
+    NOT_SENT
   )) {
-    await confirm(client, issuer, row.operation_id);
+    if (FINAL.has((JSON.parse(row.operation) as Operation).state)) continue;
+    let operation: Operation | null;
+    try {
+      ({ operation } = await readOperation(client, client.companyByIssuer(issuer), row));
+    } catch (error) {
+      if (!(error instanceof PoppyError)) throw error;
+      continue;
+    }
+    const current = stored(client, issuer, row.operation_id);
+    if (operation?.state === "proposed" && current?.approved_revision === operation.revision && current.confirmed === NOT_SENT) {
+      await confirm(client, issuer, row.operation_id);
+    }
   }
 }
 
 /**
- * The durable tracking job (Ops 6): read the operation; if a confirm was
- * lost, confirm again with the same revision. Returns when to run next.
+ * The durable tracking job (Ops 6): read the operation; if a confirm's
+ * answer was lost and it still awaits the approved revision, confirm that
+ * revision again. A final operation is neither read nor confirmed again.
+ * Returns when to run next.
  */
 export async function trackOperation(client: PoppyClient, issuer: string, operationId: string): Promise<number | null> {
   const row = stored(client, issuer, operationId);
   if (!row) return null;
+  const known = JSON.parse(row.operation) as Operation;
+  if (FINAL.has(known.state)) return null;
+  // A proposal with no confirm outstanding has nothing to follow up.
+  if (known.state === "proposed" && row.confirmed !== SENT) return null;
   const company = client.companyByIssuer(issuer);
-  const endpoint = endpointOf(company);
-  let response;
+  let read;
   try {
-    response = await client.resourceJson(
-      company,
-      { method: "GET", url: `${endpoint.url}/${encodeURIComponent(operationId)}` },
-      { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
-    );
+    read = await readOperation(client, company, row);
   } catch (error) {
     if (error instanceof PoppyError && error.code === "rate_limited") {
       return client.host.now() + (error.detail.retryAfter ?? 30) * 1000;
@@ -415,16 +497,22 @@ export async function trackOperation(client: PoppyClient, issuer: string, operat
     if (error instanceof PoppyError && error.code === "operation_not_found") return null;
     return client.host.now() + 30_000;
   }
-  const operation = await update(client, company, response.body);
+  const { operation } = read;
   if (!operation) return null;
-  if (operation.state === "proposed" && row.approved_revision === operation.revision && !row.confirmed) {
+  if (operation.state === "proposed") {
+    const current = stored(client, issuer, operationId)!;
+    if (current.confirmed !== SENT) return null;
+    if (current.approved_revision !== operation.revision) {
+      // Revised since the approval, which covered only the old revision: the card asks again.
+      setConfirmed(client, issuer, operationId, NOT_SENT);
+      return null;
+    }
+    // This object is still waiting on that confirm's answer.
+    if (client.inFlight.has(CONFIRMING(issuer, operationId))) return client.host.now() + CONFIRM_CHECK_MS;
     await confirm(client, issuer, operationId);
     return null;
   }
-  if (operation.state === "in_progress") {
-    const retryAfter = Number(response.headers.get("Retry-After") ?? "5");
-    return client.host.now() + Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5) * 1000;
-  }
+  if (operation.state === "in_progress") return client.host.now() + read.retryAfter * 1000;
   return null;
 }
 

@@ -71,6 +71,9 @@ const SIGN_IN_RESULT: Record<string, ActivityResult> = {
   code: "waiting",
   sent: "in_progress",
   used: "in_progress",
+  exchanging: "in_progress",
+  exchanged: "in_progress",
+  stored: "in_progress",
   done: "done",
   failed: "failed"
 };
