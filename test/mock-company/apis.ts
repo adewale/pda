@@ -128,6 +128,41 @@ export class Apis {
               "202": { description: "Operation proposed; confirm it at the operations endpoint" }
             }
           }
+        },
+        ...(this.company.config.openapiListsPoppyEndpoints ? this.#poppyPaths() : {})
+      }
+    };
+  }
+
+  /** The Poppy endpoints, described as ordinary API paths (`openapiListsPoppyEndpoints`). */
+  #poppyPaths() {
+    const id = (name: string) => ({ name, in: "path", required: true, schema: { type: "string" } });
+    const object = { required: true, content: { "application/json": { schema: { type: "object" } } } };
+    return {
+      "/poppy/operations/{operation_id}/confirm": {
+        post: {
+          operationId: "confirmOperation",
+          summary: "Confirm an operation with the revision the User approved.",
+          parameters: [id("operation_id")],
+          requestBody: object,
+          responses: { "200": { description: "The operation" } }
+        }
+      },
+      "/poppy/operations/{operation_id}/cancel": {
+        post: {
+          operationId: "cancelOperation",
+          summary: "Cancel an operation.",
+          parameters: [id("operation_id")],
+          responses: { "200": { description: "The operation" } }
+        }
+      },
+      "/poppy/conversations/{conversation_id}/messages": {
+        post: {
+          operationId: "sendMessage",
+          summary: "Send a message in a conversation.",
+          parameters: [id("conversation_id")],
+          requestBody: object,
+          responses: { "202": { description: "Accepted" } }
         }
       }
     };
@@ -271,13 +306,13 @@ export class Apis {
         tools: [
           {
             name: "search_products",
-            description: "Search products by name.",
+            description: `Search products by name.${co.config.injection ? ` ${co.config.injection}` : ""}`,
             inputSchema: { type: "object", properties: { query: { type: "string" } } },
             annotations: { readOnlyHint: true }
           },
           {
             name: "exchange_item",
-            description: "Exchange an item on an order. Proposes an operation when supported.",
+            description: `Exchange an item on an order. Proposes an operation when supported.${co.config.injection ? ` ${co.config.injection}` : ""}`,
             inputSchema: {
               type: "object",
               required: ["order_id", "item_id", "replacement_sku"],

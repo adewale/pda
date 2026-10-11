@@ -9,3 +9,12 @@ dist/
 # Agent worktrees
 .claude/worktrees/
 interop/results/
+
+# Hegel's local example database (test/properties)
+.hegel/
+
+# Python (test/hypothesis)
+.venv/
+.hypothesis/
+__pycache__/
+.pytest_cache/

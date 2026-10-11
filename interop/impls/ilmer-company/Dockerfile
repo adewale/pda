@@ -1,7 +1,7 @@
 # Ilmer Past's signed-out Poppy Company (agent/ in rbirkby/Ilmer.org), under
 # `wrangler dev`, behind a spec 5.3 adapter.
 # Upstream: https://github.com/rbirkby/Ilmer.org (MIT). Nothing upstream is vendored.
-FROM node:22-bookworm
+FROM node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
 
 ARG ILMER_COMMIT=4ca76e0026a1fa442f9430eddba61e82e6e4c9b4
 ARG WRANGLER_VERSION=4.149.0

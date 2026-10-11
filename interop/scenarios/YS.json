@@ -1,0 +1,13 @@
+{
+  "id": "YS",
+  "title": "Adversarial agent: Bearer scheme outside MCP",
+  "requirements": ["6", "N17"],
+  "adversary": "agent",
+  "needs": { "agent": ["arm", "attack"] },
+  "steps": [
+    { "agent": "arm", "params": { "attack": "YS" } },
+    { "agent": "attack", "save": "r" },
+    { "expect": { "step": "r", "poppy_error": { "$exists": true } } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "/products" } }
+  ]
+}

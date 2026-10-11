@@ -1,7 +1,7 @@
 # poppyseed's reference Company (fixtures/next-app: the reference company served
 # through poppyseed/next), with its own test hooks on, behind a spec 5.3 adapter.
 # Upstream: https://github.com/akshay5995/poppyseed (MIT). Nothing upstream is vendored.
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 
 ARG POPPYSEED_COMMIT=f479fb6bd1754b9639440515f259e01936b0a18a
 ENV NEXT_TELEMETRY_DISABLED=1 \

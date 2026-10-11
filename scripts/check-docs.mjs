@@ -17,7 +17,7 @@
  * Exits 1 and lists each problem when anything doesn't match.
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -113,6 +113,36 @@ for (const { line, name } of names) {
   }
 }
 
+// docs/adversarial-interop.md: every scenario id and test name the X/Y attack tables'
+// Status column points at must exist (a scenario file, or a test `vitest list` knows).
+const ADVERSARIAL = "docs/adversarial-interop.md";
+function adversarialStatuses() {
+  const found = { scenarios: [], tests: [] };
+  read(ADVERSARIAL).split("\n").forEach((line, index) => {
+    const row = /^\|\s*`([A-Z][A-Z0-9]*)`\s*\|.*\|([^|]*)\|\s*$/.exec(line);
+    if (!row) return;
+    const at = `${ADVERSARIAL}:${index + 1}`;
+    const status = row[2];
+    for (const m of status.matchAll(/\b[Ss]cenarios?\s+`([A-Z][A-Z0-9]*)`/g)) found.scenarios.push({ at, id: m[1] });
+    // A test/row the Status column points at is quoted after "check", "test" or "TAMPERS".
+    for (const m of status.matchAll(/(?:check|test|TAMPERS)s?\s+`?"([^"]+)"/g)) found.tests.push({ at, name: m[1] });
+  });
+  return found;
+}
+const { scenarios: advScenarios, tests: advTests } = adversarialStatuses();
+const scenariosDir = path.join(root, "interop", "scenarios");
+for (const { at, id } of advScenarios) {
+  if (!existsSync(path.join(scenariosDir, `${id}.json`))) {
+    problems.push(`${at}: names scenario ${id}, but interop/scenarios/${id}.json doesn't exist`);
+  }
+}
+for (const { at, name } of advTests) {
+  const re = pattern(name);
+  if (!tests.some((test) => re.test(test.title))) {
+    problems.push(`${at}: names a test that doesn't exist: "${name}"`);
+  }
+}
+
 const { claims, byFile } = countClaims(tests);
 for (const claim of claims) {
   if (claim.claimed !== claim.actual) {
@@ -121,7 +151,8 @@ for (const claim of claims) {
 }
 
 console.log(
-  `${tests.length} tests in ${byFile.size} files; ${names.length} test names in Appendix A; ${claims.length} test counts in the docs.`
+  `${tests.length} tests in ${byFile.size} files; ${names.length} test names in Appendix A; ${claims.length} test counts in the docs; ` +
+    `${advScenarios.length} scenarios and ${advTests.length} tests named in ${ADVERSARIAL}.`
 );
 if (problems.length > 0) {
   for (const problem of problems) console.error(problem);

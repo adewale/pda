@@ -2,7 +2,7 @@
 # The adapter drives CallerSession's protocol actions through the caller's own /api/action route,
 # the one its UI buttons use; the Pi model and Workers AI are never involved.
 # Nothing goes in /interop: the runner copies its CA there before the container starts.
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \

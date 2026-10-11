@@ -5,14 +5,14 @@ A copy of one run of the [interop harness](../../interop/README.md), so the grid
 - [`results.json`](results.json): every cell's outcome, blame, rule, steps and checks ([interop spec](../interop-spec.md) section 9).
 - [`index.html`](index.html): the same as one grid per scenario. Its links to each cell's HAR point at files that aren't committed (they hold every request and response of the run).
 
-The run, on 11 October 2026 (`2026-10-11T18:10:44Z`), local lane:
+The run, on 11 October 2026 (`2026-10-11T20:18:42Z`), local lane:
 
 ```sh
 npm run interop -- --no-build --agents dpa,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora \
   --companies dpa-mock,dpa-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,adonis-agora
 ```
 
-Our implementations are at `18cbaa6`; Datalayer at `12d71877`, pi-poppy at `11ea1063`, poppy-demo at `02a9b304`, poppyseed at `f479fb6b`, Ilmer at `4ca76e00`, adonis-agora's Company at `97838853` and its agent at `e66a2329`. 1,242 cells: 659 pass, 143 fail, 440 unsupported, 0 errors. Every failure is a known upstream or spec failure, and no known failure went unmatched, so the run exits 0.
+Our implementations are at `18cbaa6` (the images were not rebuilt; `src/`, the mock and our adapters are unchanged since, and `results.json` records `04c2471-dirty`, the runner's own uncommitted retry, cleanup and attribution changes); Datalayer at `12d71877`, pi-poppy at `11ea1063`, poppy-demo at `02a9b304`, poppyseed at `f479fb6b`, Ilmer at `4ca76e00`, adonis-agora's Company at `97838853` and its agent at `e66a2329`. 1,242 cells: 659 pass, 143 fail, 440 unsupported, 0 errors. Every failed cell was run a second time and failed again, so no cell was flaky. Every failure is a known upstream or spec failure, and no known failure was stale (each matched a failed cell), so the run exits 0.
 
 Pass / fail / unsupported, by agent (rows) and Company (columns), over 23 scenarios:
 
@@ -44,16 +44,17 @@ The failures by the attribution rule that decided them (spec section 9), each in
 
 - [S2](../spec-issues.md#s2), assertion `typ`: pi-poppy's Session assertions and adonis-agora's client and Session assertions have no `typ`, and both declare S2 `any`. dpa-mock-strict, poppy-demo's Northstar and Ilmer declare `jwt-60s` and refuse them at the first Session (pi-poppy × dpa-mock-strict, poppy-demo and Ilmer; adonis-agora × the same three). The lenient reference `dpa-mock` accepts them.
 - [S1](../spec-issues.md#s1), client assertion `aud`: adonis-agora names the token endpoint at the device authorization and revocation endpoints too; poppyseed, pi-poppy's Company and both Datalayer Companies want the endpoint called and answer `invalid_client` (SV, SXV, SO).
-- A few cells whose real cause is elsewhere are labelled reading because the scenario lists a question the two sides happen to declare differently: poppy-demo × dpa-mock and dpa-mock-strict, D (S3, though the issuer has no path) and poppy-demo × Ilmer, S0. Their known-failure reasons give the cause.
+
+Rule 3 now needs evidence in the trace that the question mattered (a `reading.<id>.refused` check or a Company-recorded error of that question), not only two declarations that differ. Every cell above has it. Three cells the previous grid labelled reading had none and are now unattributed (below): poppy-demo × dpa-mock and dpa-mock-strict, D, where poppy-demo refuses `poppy.json` for its `auth.` issuer before fetching any metadata, so S3 never came up; and poppy-demo × Ilmer, S0, where the caller crashes on Ilmer's missing `authorization_endpoint`, not on S1.
 
 **Rule 4, unattributed (no single side by rule; the known failure names the cause):**
 
-- poppy-demo × dpa-mock, dpa-mock-strict and adonis-agora (the rest): its caller requires `auth.issuer` to equal the Company's origin, and those issuers are on `auth.` or under `/poppy` ([N36](../spec-issues.md#n36)).
-- poppy-demo × Ilmer: Ilmer's metadata has no `authorization_endpoint`, and the caller runs `new URL(undefined)` on it.
+- poppy-demo × dpa-mock, dpa-mock-strict and adonis-agora (the rest, now including D at both mocks): its caller requires `auth.issuer` to equal the Company's origin, and those issuers are on `auth.` or under `/poppy` ([N36](../spec-issues.md#n36)).
+- poppy-demo × Ilmer (D, S0 and C): Ilmer's metadata has no `authorization_endpoint`, and the caller runs `new URL(undefined)` on it.
 - poppy-demo × Datalayer TS and Python, SD, SX, CA, SO, AO: the caller always asks for its hard-coded `poppy:read poppy:write`; Manzanita offers only `orders:read` and `orders:write` and answers `invalid_scope`.
 - poppy-demo × poppyseed, SO: poppyseed answers revocation with an empty 200 (RFC 7009 allows it); the caller parses it as JSON and throws.
 - adonis-agora × Datalayer TS and Python, SE: adonis-agora recovers from an ended Session by renewing with its Account Token and no `session_id`, which Poppy 4.8 says starts a new signed-in Session; Datalayer's Companies require `session_id` and answer `invalid_session`.
 - pi-poppy × Datalayer TS and Python, O and OX: Datalayer sends optional Operation members as `null`, which pi-poppy rejects ([N41](../spec-issues.md#n41)).
 - datalayer-ts × dpa-mock, dpa-mock-strict and both Datalayer Companies, CS: the TypeScript `ConversationClient.stream` reconnects at once and gives up with `stream_unavailable` after five empty reconnects.
 
-The triage that produced this run also fixed harness bugs that had shown as failures: metadata appended to an issuer's path (S3 `append`) wasn't recognised by scenario D or the revocation check; declared readings were keyed by name, so a project's Company's readings replaced its agent's; and three adapters (datalayer-py ignored `servers`, adonis-agora didn't accept `"METHOD /path"` or a body-only Poppy error, datalayer-ts sent a retried first message to the conversation it had started; see [S9](../spec-issues.md#s9)).
+The triage behind the previous run (`18cbaa6`) also fixed harness bugs that had shown as failures: metadata appended to an issuer's path (S3 `append`) wasn't recognised by scenario D or the revocation check; declared readings were keyed by name, so a project's Company's readings replaced its agent's; and three adapters (datalayer-py ignored `servers`, adonis-agora didn't accept `"METHOD /path"` or a body-only Poppy error, datalayer-ts sent a retried first message to the conversation it had started; see [S9](../spec-issues.md#s9)).

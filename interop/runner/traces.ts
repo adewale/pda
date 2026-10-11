@@ -5,11 +5,11 @@
  * nonce can't show the agent retrying with one), which makes the cell
  * unsupported rather than failed. Pure functions.
  */
-import { decodeJwt, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
-import { retryAfterChecks } from "./checks.ts";
+import { authorization, decodeJwt, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
+import { issuedTokens, retryAfterChecks } from "./checks.ts";
 import type { RunnerReply } from "./cell.ts";
 
-const agentRequests = (all: readonly Exchange[]) => all.filter((x) => x.direction === "to-company" && !x.probe);
+const agentRequests = (all: readonly Exchange[]) => all.filter((x) => x.direction === "to-company" && !x.probe && !x.injected);
 
 function nonceChallenge(x: Exchange): string | null {
   const nonce = x.responseHeaders.get("dpop-nonce");
@@ -94,12 +94,119 @@ export function requestSeen(all: readonly Exchange[], params: Record<string, unk
   return match ? { kind: "ok", result: { exchange: match.index } } : { kind: "failed", detail: `no request matching ${JSON.stringify(params)}` };
 }
 
+// ---------------------------------------------------------------- Harm oracles (adversarial)
+
+/** Every non-probe request, honest or injected: what the attacker and the honest side both sent. */
+const anyRequest = (all: readonly Exchange[]) => all.filter((x) => !x.probe && x.direction !== "other");
+
+/** A host matches when it equals or ends with `host` (`sink.interop.test` matches `evil.sink.interop.test`). */
+function hostMatches(url: URL, host: string): boolean {
+  const target = host.toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  const name = url.host.toLowerCase();
+  return name === target || name.endsWith(`.${target}`);
+}
+
+/** No request of the honest side reached `host`: an SSRF or redirect sink the agent must not call (XS, XK). */
+export function noRequestTo(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  const host = String(params.host ?? "");
+  if (!host) return { kind: "failed", detail: "no_request_to needs a host" };
+  const hit = anyRequest(all).find((x) => !x.injected && hostMatches(x.url, host));
+  return hit ? { kind: "failed", detail: `a request to ${host} (exchange ${hit.index})` } : { kind: "ok", result: { host } };
+}
+
+/** The strings that carry a token, so a leak can be spotted: every issued access and refresh token, plus any `nonce` secret the scenario planted. */
+function secrets(all: readonly Exchange[], extra: readonly string[] = []): string[] {
+  return [...issuedTokens(all).keys(), ...extra].filter((value) => typeof value === "string" && value.length >= 8);
+}
+
+/** No token the Company issued was sent to `host`: a token-theft sink (XH, XM, XS). */
+export function tokenNotSentTo(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  const host = String(params.host ?? "");
+  if (!host) return { kind: "failed", detail: "token_not_sent_to needs a host" };
+  const tokens = secrets(all);
+  for (const x of anyRequest(all)) {
+    if (x.injected || !hostMatches(x.url, host)) continue;
+    const auth = authorization(x);
+    const haystack = `${x.url.href} ${x.requestBody} ${auth?.token ?? ""}`;
+    const leaked = tokens.find((token) => haystack.includes(token));
+    if (leaked) return { kind: "failed", detail: `a token reached ${host} (exchange ${x.index})` };
+  }
+  return { kind: "ok", result: { host, tokens: tokens.length } };
+}
+
+/** An action was performed at most once: at most one 2xx answered a matching request (duplicate/replay idempotency, S9, Ops). */
+export function performedAtMostOnce(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  const path = new RegExp(String(params.path ?? "."));
+  const method = params.method === undefined ? undefined : String(params.method);
+  const matching = anyRequest(all).filter(
+    (x) => path.test(x.url.pathname) && (method === undefined || x.method === method) && x.status >= 200 && x.status < 300
+  );
+  if (matching.length === 0) return { kind: "inapplicable", detail: `no 2xx to ${method ?? ""} ${params.path}` };
+  return matching.length <= 1
+    ? { kind: "ok", result: { performed: matching.length } }
+    : { kind: "failed", detail: `${matching.length} successes for ${method ?? ""} ${params.path} (exchanges ${matching.map((x) => x.index).join(", ")})` };
+}
+
+/** No 2xx answered a replayed (injected) request: the Company caught the replay (YR, YD, proxy replay). */
+export function no2xxAfter(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  const path = params.path === undefined ? undefined : new RegExp(String(params.path));
+  const injected = all.filter((x) => x.injected && x.direction !== "other" && (!path || path.test(x.url.pathname)));
+  if (injected.length === 0) return { kind: "inapplicable", detail: "no replayed request was injected" };
+  const ok = injected.find((x) => x.status >= 200 && x.status < 300);
+  return ok ? { kind: "failed", detail: `a replayed request was accepted (${ok.status} at exchange ${ok.index})` } : { kind: "ok", result: { replays: injected.length } };
+}
+
+/** A planted secret or canary never left in an outbound request (XJ injected text, canary exfiltration). */
+export function noSecretIn(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  const planted = Array.isArray(params.values) ? params.values.map(String) : params.value !== undefined ? [String(params.value)] : [];
+  const tokens = secrets(all, planted);
+  if (tokens.length === 0) return { kind: "inapplicable", detail: "no secret to look for" };
+  for (const x of anyRequest(all)) {
+    if (x.injected) continue;
+    const haystack = `${x.url.href} ${x.requestBody} ${authorization(x)?.token ?? ""}`;
+    const leaked = tokens.find((secret) => haystack.includes(secret));
+    if (leaked) return { kind: "failed", detail: `a secret appeared in a request to ${x.url.host} (exchange ${x.index})` };
+  }
+  return { kind: "ok", result: { watched: tokens.length } };
+}
+
+/**
+ * The attack precondition (spec §6): the trace shows the attack happened, or
+ * the cell is in error with blame `harness` (cell.ts turns a failed
+ * attack_observed into an error). A matching request or response, honest or
+ * injected, counts; `injected: true` requires the proxy to have injected one.
+ */
+export function attackObserved(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  const path = params.path === undefined ? undefined : new RegExp(String(params.path));
+  const method = params.method === undefined ? undefined : String(params.method);
+  const status = typeof params.status === "number" ? params.status : undefined;
+  const wantInjected = params.injected === true;
+  const contains = params.body_contains === undefined ? undefined : String(params.body_contains);
+  const match = all.find(
+    (x) =>
+      !x.probe &&
+      x.direction !== "other" &&
+      (!wantInjected || x.injected) &&
+      (!path || path.test(x.url.pathname)) &&
+      (method === undefined || x.method === method) &&
+      (status === undefined || x.status === status) &&
+      (contains === undefined || `${x.requestBody} ${x.responseBody}`.includes(contains))
+  );
+  return match ? { kind: "ok", result: { exchange: match.index } } : { kind: "failed", detail: `the attack wasn't observed (${JSON.stringify(params)})` };
+}
+
 export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params: Record<string, unknown>) => RunnerReply> = {
   nonce_retry: (all) => nonceRetry(all),
   revoked: (all) => revoked(all),
   refresh_rotated: (all) => refreshRotated(all),
   retry_after_respected: (all) => retryAfterRespected(all),
-  request_seen: requestSeen
+  request_seen: requestSeen,
+  no_request_to: noRequestTo,
+  token_not_sent_to: tokenNotSentTo,
+  performed_at_most_once: performedAtMostOnce,
+  no_2xx_after: no2xxAfter,
+  no_secret_in: noSecretIn,
+  attack_observed: attackObserved
 };
 
 export function assertTrace(all: readonly Exchange[], params: unknown): RunnerReply {

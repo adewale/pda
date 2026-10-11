@@ -19,7 +19,8 @@ const DEFAULTS = { maxBytes: 100_000, timeoutMs: 5_000, maxRedirects: 3 } as con
 
 /** Hosts we never fetch: IP literals, localhost and single-label names. */
 export function assertPublicHost(url: URL): void {
-  const host = url.hostname.toLowerCase();
+  // `localhost.` is `localhost`: a fully qualified name's root dot doesn't change the host.
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
   if (
     host === "localhost" ||
     host.endsWith(".localhost") ||
@@ -55,7 +56,11 @@ export async function readLimited(response: Response, maxBytes: number): Promise
     all.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder("utf-8", { fatal: true }).decode(all);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(all);
+  } catch {
+    throw new PoppyFetchError("Response isn't UTF-8");
+  }
 }
 
 export type FetchedJson = {
@@ -66,7 +71,7 @@ export type FetchedJson = {
   readonly maxAgeSeconds: number | null;
 };
 
-function cacheSeconds(response: Response): number | null {
+export function cacheSeconds(response: Response): number | null {
   const control = response.headers.get("Cache-Control") ?? "";
   if (/\bno-store\b|\bno-cache\b/i.test(control)) return 0;
   const maxAge = /\bmax-age=(\d+)/i.exec(control);

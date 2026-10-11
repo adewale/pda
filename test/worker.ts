@@ -2,6 +2,7 @@ import {
   fauxAssistantMessage,
   fauxProvider,
   fauxText,
+  fauxToolCall,
   type AssistantMessage,
   type Message,
   type TranscriptContext
@@ -146,16 +147,81 @@ function textOf(content: Message["content"] | undefined): string {
 }
 
 /**
+ * A directive the faux model obeys wherever it reads one: `@@obey <tool>
+ * <arguments>`, the arguments as base64url JSON so they survive being quoted
+ * in a tool result. It stands for a model that follows instructions a
+ * Company slipped into what it reads (test/prompt-injection.test.ts).
+ */
+export function obey(tool: string, args: Record<string, unknown>): string {
+  return `@@obey ${tool} ${btoa(JSON.stringify(args)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+}
+
+/** Tool calls for the directives in everything since the model last spoke, each made once per transcript. */
+function obeyed(context: TranscriptContext) {
+  let lastSpoke = context.messages.length - 1;
+  while (lastSpoke >= 0 && context.messages[lastSpoke]!.role !== "assistant") lastSpoke--;
+  const fresh = context.messages
+    .slice(lastSpoke + 1)
+    .map((m) => (m.role === "user" || m.role === "toolResult" ? textOf(m.content as Message["content"]) : ""))
+    .join("\n");
+  const made = new Set(
+    context.messages.flatMap((m) =>
+      m.role === "assistant"
+        ? m.content.flatMap((part) => (part.type === "toolCall" ? [`${part.name} ${JSON.stringify(part.arguments)}`] : []))
+        : []
+    )
+  );
+  const calls = [];
+  for (const [, name, encoded] of fresh.matchAll(/@@obey (\w+) ([A-Za-z0-9_-]+)/g)) {
+    const args = JSON.parse(atob(encoded!.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, never>;
+    const key = `${name} ${JSON.stringify(args)}`;
+    if (made.has(key)) continue;
+    made.add(key);
+    calls.push(fauxToolCall(name!, args));
+  }
+  return calls;
+}
+
+/**
  * The faux model's script, derived from the transcript alone so it answers
  * the same way after a crash as before: it echoes the latest user message
  * and says how many user turns it has seen, which proves history survived.
+ * First, it obeys any `@@obey` directive it has just read.
  */
 function script(context: TranscriptContext): AssistantMessage {
+  const calls = obeyed(context);
+  if (calls.length) return fauxAssistantMessage(calls, { stopReason: "toolUse" });
   const users = context.messages.filter((m) => m.role === "user");
   const prompt = textOf(users.at(-1)?.content);
   return fauxAssistantMessage([
     fauxText(`echo: ${prompt} (turn ${users.length})`)
   ]);
+}
+
+/** A request for a host that is neither ours nor a mock Company's, which tests never answer. */
+type StrayRequest = { method: string; url: string; headers: string[]; body: string };
+const strays = new WeakMap<object, StrayRequest[]>();
+
+/**
+ * `fetcher`, recording each stray request. Keyed by the agent rather than a
+ * field of it, because the production constructor asks for the fetcher
+ * before a subclass's fields exist.
+ */
+function recording(agent: object, fetcher: Fetcher): Fetcher {
+  return async (request) => {
+    const host = new URL(request.url).host;
+    if (host !== "agent.test" && !companyIdFromHost(host)) {
+      const list = strays.get(agent) ?? [];
+      strays.set(agent, list);
+      list.push({
+        method: request.method,
+        url: request.url,
+        headers: [...request.headers.keys()],
+        body: request.body ? await request.clone().text() : ""
+      });
+    }
+    return fetcher(request);
+  };
 }
 
 /** The production agent with pi-ai's faux provider in place of AI Gateway. */
@@ -164,11 +230,25 @@ export class PersonalAgent extends ProductionAgent {
   #noticeWaiters: (() => void)[] = [];
 
   protected override poppyFetcher(): Fetcher {
-    return faultyFetcher(testFetcher(this.env, () => clockOf(this).now), () => faultsOf(this));
+    return faultyFetcher(recording(this, testFetcher(this.env, () => clockOf(this).now)), () => faultsOf(this));
   }
 
   protected override poppyBrowser(): PoppyBrowser {
-    return new FakeBrowser(testFetcher(this.env, () => clockOf(this).now));
+    return new FakeBrowser(recording(this, testFetcher(this.env, () => clockOf(this).now)));
+  }
+
+  /** Every request this agent sent to a host that is neither ours nor a mock Company's. */
+  async poppyStrayRequests(): Promise<StrayRequest[]> {
+    return strays.get(this) ?? [];
+  }
+
+  /** Every message in the model's transcript, as text: what the model has read and said. */
+  async poppyTranscript(): Promise<string> {
+    const tables = this.ctx.storage.sql
+      .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'pi_%'")
+      .toArray()
+      .map((row) => String(row.name));
+    return JSON.stringify(tables.map((table) => this.ctx.storage.sql.exec(`SELECT * FROM "${table}"`).toArray()));
   }
 
   protected override poppySettings() {

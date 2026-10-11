@@ -78,8 +78,8 @@ const DPOP_WINDOW_SECONDS = 90;
 const withoutQuery = (url: URL) => `${url.origin}${url.pathname}`;
 const sha256 = (text: string) => createHash("sha256").update(text).digest("base64url");
 
-/** Requests an agent sent to a Company, excluding the runner's probes. */
-const agentRequests = (all: readonly Exchange[]) => all.filter((x) => x.direction === "to-company" && !x.probe);
+/** Requests an agent sent to a Company, excluding the runner's probes and the proxy's injected exchanges (spec §6). */
+const agentRequests = (all: readonly Exchange[]) => all.filter((x) => x.direction === "to-company" && !x.probe && !x.injected);
 
 /** Client and Session assertions: header, lifetime, jti, audience. */
 export function assertionChecks(all: readonly Exchange[]): Check[] {
@@ -180,7 +180,7 @@ export function tokenInUrlChecks(all: readonly Exchange[]): Check[] {
   const tokens = issuedTokens(all);
   const found: Check[] = [];
   for (const x of all) {
-    if (x.probe || x.direction === "other") continue;
+    if (x.probe || x.injected || x.direction === "other") continue;
     for (const [name, value] of x.url.searchParams) {
       if (name === "access_token" || tokens.has(value)) {
         found.push(check("secret.token-in-url", x, `${name}= in ${withoutQuery(x.url)}`));
@@ -220,7 +220,7 @@ export function unlistedHostChecks(all: readonly Exchange[]): Check[] {
   const listed = listedHosts(all);
   const found: Check[] = [];
   for (const x of all) {
-    if (x.probe) continue;
+    if (x.probe || x.injected) continue;
     const auth = authorization(x);
     if (!auth || (auth.scheme !== "DPoP" && auth.scheme !== "Bearer")) continue;
     const issuer = tokens.get(auth.token);
@@ -238,7 +238,7 @@ export function unlistedHostChecks(all: readonly Exchange[]): Check[] {
 export function redirectChecks(all: readonly Exchange[]): Check[] {
   const found: Check[] = [];
   for (const [i, x] of all.entries()) {
-    if (x.probe || x.status < 300 || x.status >= 400) continue;
+    if (x.probe || x.injected || x.status < 300 || x.status >= 400) continue;
     if (!x.requestHeaders.has("authorization") && !x.requestHeaders.has("dpop")) continue;
     const location = x.responseHeaders.get("location");
     if (!location) continue;

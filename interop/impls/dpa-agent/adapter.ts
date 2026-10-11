@@ -39,8 +39,11 @@ import {
 } from "../../../src/poppy/signin.ts";
 import { migrate, rows } from "../../../src/poppy/store.ts";
 import type { Card } from "../../../src/poppy/wire.ts";
+import { ATTACKS, runAttack, type AttackContext } from "./attacks.ts";
 
 const NAME = process.env.INTEROP_NAME ?? "dpa";
+/** Interop-only: the adversarial Personal Agent (`evil-agent`). Off unless the registry sets it. */
+const ADVERSARY = process.env.INTEROP_ADVERSARY === "agent";
 const SECRET = setting("INTEROP_SECRET");
 const ORIGIN = process.env.INTEROP_ORIGIN ?? `https://${NAME}.agent.interop.test`;
 const COMMIT = process.env.INTEROP_COMMIT ?? "unknown";
@@ -54,13 +57,25 @@ const MANIFEST = {
   commit: COMMIT,
   poppy: ["0.1"],
   extensions: ["operations"],
-  scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL"],
+  scenarios: ADVERSARY
+    ? [...ATTACKS]
+    : [
+        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL",
+        // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
+        "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX"
+      ],
   // S1 "endpoint": every client assertion's aud is the endpoint it is sent to (src/poppy/client.ts oauthRequest).
   readings: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
   relaxations: [] as string[],
+  ...(ADVERSARY ? { attacks: [...ATTACKS], adversarial: true } : {}),
   ...(FAULT ? { faults: [FAULT] } : {}),
-  notes: "Drives src/poppy directly (PoppyClient, signin, conversations, apis, operations); no model."
+  notes: ADVERSARY
+    ? "Adversarial Personal Agent: raw attacks over the wire (interop/impls/dpa-agent/attacks.ts); never src/poppy."
+    : "Drives src/poppy directly (PoppyClient, signin, conversations, apis, operations); no model."
 };
+
+/** The armed attack, for the adversarial agent's `arm` then `attack` ops. */
+let armed: { attack: string; params: Params } | null = null;
 
 // ---------------------------------------------------------------- The agent, per reset
 
@@ -531,6 +546,29 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     return { revoked: true };
   },
 
+  /**
+   * Adversarial agent only (docs/adversarial-interop.md, Part B). `arm` stores an
+   * attack; `attack` runs it as a raw wire attack. An unknown attack answers 501,
+   * so the cell is `unsupported` (spec §5).
+   */
+  async arm(_domain, params) {
+    if (!ADVERSARY) throw new StepError(501, "unsupported", "This adapter isn't the adversarial agent");
+    const attack = text(params.attack, "attack");
+    if (!ATTACKS.includes(attack as (typeof ATTACKS)[number])) throw new StepError(501, "unsupported", `Unknown attack ${attack}`);
+    armed = { attack, params };
+    return { armed: attack };
+  },
+
+  async attack(domain, params) {
+    if (!ADVERSARY) throw new StepError(501, "unsupported", "This adapter isn't the adversarial agent");
+    if (!armed) throw new StepError(409, "not_armed", "No attack armed; call arm first");
+    const c = await company(domain);
+    const ctx: AttackContext = { clientId: `${ORIGIN}/poppy/client.json`, signingJwks: agent.env.POPPY_SIGNING_JWKS as unknown as string, fetcher: (request) => fetch(request) };
+    const result = await runAttack(ctx, c, armed.attack, { ...armed.params, ...params });
+    if (result.poppy_error) throw new PoppyStepError(result.poppy_error, result.status, result.detail ?? `${armed.attack} refused`);
+    return { status: result.status, body: result.body };
+  },
+
   async state() {
     return {
       sessions: agent.client.sessions().map((session) => ({
@@ -612,6 +650,7 @@ async function control(request: Request): Promise<Response> {
   if (request.method === "POST" && url.pathname === "/reset") {
     agent = await newAgent();
     pending.clear();
+    armed = null;
     return json({ ok: true });
   }
   if (request.method === "POST" && url.pathname === "/step") return step(request);

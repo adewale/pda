@@ -193,6 +193,22 @@ export function lintScenario(value: unknown, file: string): string[] {
   const scenario = value as Partial<Scenario>;
   if (typeof scenario.id !== "string" || !/^[A-Z][A-Z0-9]{0,7}$/.test(scenario.id)) problems.push(`${file}: id must be a short upper-case name`);
   if (typeof scenario.title !== "string") problems.push(`${file}: no title`);
+  if (scenario.adversary !== undefined && !["company", "agent", "network"].includes(scenario.adversary)) {
+    problems.push(`${file}: adversary must be company, agent or network`);
+  }
+  const FAULT_ACTIONS = ["replay", "duplicate", "drop_response", "delay", "truncate", "reset", "status"];
+  if (scenario.faults !== undefined) {
+    if (!Array.isArray(scenario.faults)) problems.push(`${file}: faults must be a list`);
+    else
+      scenario.faults.forEach((fault, index) => {
+        if (!fault || typeof fault !== "object" || typeof (fault as { action?: unknown }).action !== "string" || !FAULT_ACTIONS.includes((fault as { action: string }).action)) {
+          problems.push(`${file}: fault ${index} needs an action of ${FAULT_ACTIONS.join(", ")}`);
+        }
+      });
+    if (scenario.adversary !== "network" && Array.isArray(scenario.faults) && scenario.faults.length) {
+      problems.push(`${file}: a faults list needs adversary "network"`);
+    }
+  }
   if (!Array.isArray(scenario.steps) || scenario.steps.length === 0) return [...problems, `${file}: no steps`];
   const saved = new Set<string>(["fixture"]);
   scenario.steps.forEach((step, index) => {

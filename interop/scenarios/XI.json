@@ -1,0 +1,13 @@
+{
+  "id": "XI",
+  "title": "Adversarial Company: claims an issuer it can't prove",
+  "requirements": ["3.2"],
+  "adversary": "company",
+  "needs": { "agent": ["discover"], "company": ["arm"] },
+  "steps": [
+    { "company": "arm", "params": { "attack": "XI" } },
+    { "agent": "discover", "save": "r" },
+    { "expect": { "step": "r", "poppy_error": "discovery_failed" } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "body_contains": "imposter" } }
+  ]
+}

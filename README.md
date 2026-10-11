@@ -176,12 +176,14 @@ The app has four places:
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
-npm test                         # four suites: Workers, durability, page, interop harness
+npm test                         # five suites: Workers, durability, page, interop harness, properties
 npm run typecheck
 npm run check:docs               # every test the spec's Appendix A names exists
 npm run interop                  # the interop grid in Docker (interop/README.md)
 npm run deploy
 ```
+
+**Before a push.** `.githooks/pre-push` runs `npm run typecheck` and `npm run check:docs`, and stops the push if either fails. Turn it on once per clone with `git config core.hooksPath .githooks`; `git push --no-verify` skips it.
 
 CI runs typecheck, the tests and the docs check on every push, and the interop grid for our agent against our mock Company (`.github/workflows/ci.yml`).
 
@@ -233,7 +235,7 @@ Poppy implementations we know of, as of 11 Oct 2026. All were days old. [`docs/i
 | [introspection-js-sdk `examples/pap-travel`](https://github.com/introspection-org/introspection-js-sdk/pull/441) | Demo of both sides (pull request open) | TypeScript |
 | [dirnbauer/webconsulting-typo3-lab](https://github.com/dirnbauer/webconsulting-typo3-lab) | Minimal signed-out Company (the extension itself is private) | PHP |
 
-[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 65 problems in the specification itself, with suggested fixes, [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, [`interop/`](interop/README.md) runs it, and [`docs/interop-results/`](docs/interop-results/) has the latest grid. [`docs/conformance-testing-history.md`](docs/conformance-testing-history.md) traces where pirate testing and interop runners came from, [`docs/adversarial-interop.md`](docs/adversarial-interop.md) designs deliberately misbehaving peers, and [`docs/proposals/`](docs/proposals/) holds unposted drafts proposing Poppy support in OpenClaw and Hermes Agent.
+[`docs/poppy-issues.md`](docs/poppy-issues.md) lists the issues we found in them and what we changed in our own client as a result. [`docs/spec-issues.md`](docs/spec-issues.md) lists 65 problems in the specification itself, with suggested fixes ([`docs/readings.md`](docs/readings.md) records which reading we chose for each open question, and why), [`docs/interop-testing.md`](docs/interop-testing.md) designs testing every agent against every Company, [`interop/`](interop/README.md) runs it, and [`docs/interop-results/`](docs/interop-results/) has the latest grid. [`docs/conformance-testing-history.md`](docs/conformance-testing-history.md) traces where pirate testing and interop runners came from, [`docs/adversarial-interop.md`](docs/adversarial-interop.md) designs deliberately misbehaving peers, and [`docs/proposals/`](docs/proposals/) holds unposted drafts proposing Poppy support in OpenClaw and Hermes Agent.
 
 ## Limitations
 
@@ -263,5 +265,6 @@ docs/               Setup guide; spec problems; issues in other implementations;
 ## Support, contributing and license
 
 - **Support:** this is a private repository for its collaborators. Report problems with [GitHub issues](https://github.com/adewale/dpa/issues).
+- **Security:** report a vulnerability privately, as [`SECURITY.md`](SECURITY.md) describes. It also sets out how we disclose what interop and adversarial testing finds in other projects: to their maintainers, privately, first.
 - **Contributing:** pull requests should keep `npm test` and `npm run typecheck` passing. A new Poppy feature needs a test, and a check in the mock Company where the spec has a MUST.
 - **License:** no license has been chosen yet. Files copied from Cloudflare's `agents` examples keep their MIT license; see [`NOTICE.md`](NOTICE.md).

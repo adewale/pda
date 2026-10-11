@@ -1,0 +1,13 @@
+{
+  "id": "YD",
+  "title": "Adversarial agent: replay a DPoP proof",
+  "requirements": ["4.3"],
+  "adversary": "agent",
+  "needs": { "agent": ["arm", "attack"] },
+  "steps": [
+    { "agent": "arm", "params": { "attack": "YD" } },
+    { "agent": "attack", "save": "r" },
+    { "expect": { "step": "r", "poppy_error": { "$exists": true } } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "/oauth/token", "method": "POST" } }
+  ]
+}
