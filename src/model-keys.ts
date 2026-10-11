@@ -1,5 +1,5 @@
 import type { AuthContext, Credential, CredentialInfo, CredentialStore } from "@earendil-works/pi-ai";
-import type { KeyProvider } from "./config";
+import { isKeyProvider, type KeyProvider } from "./config";
 import type { Sealer } from "./poppy/store";
 
 /**
@@ -29,15 +29,14 @@ export type KeyInfo = {
   readonly provider: KeyProvider;
   /** `invalid` after the provider refused it (401): no model calls until it is replaced. */
   readonly status: "valid" | "invalid";
-  /** Pasted in Settings, or issued by OpenRouter's sign-in. */
-  readonly source: "pasted" | "openrouter";
+  /** Pasted in Settings: the only way a key arrives. */
+  readonly source: "pasted";
   readonly addedAt: number;
 };
 
 export const PROVIDER_LABEL: Record<KeyProvider, string> = {
   anthropic: "Anthropic",
-  openai: "OpenAI",
-  openrouter: "OpenRouter"
+  openai: "OpenAI"
 };
 
 /** The additional data a key is sealed with. */
@@ -49,7 +48,7 @@ type Row = {
   provider: KeyProvider;
   sealed: string;
   status: "valid" | "invalid";
-  source: "pasted" | "openrouter";
+  source: "pasted";
   added_at: number;
 };
 
@@ -68,9 +67,17 @@ export class ModelKeys {
   }
 
   #row(): Row | undefined {
-    return this.#sql.exec("SELECT provider, sealed, status, source, added_at FROM model_keys WHERE slot = 1").toArray()[0] as
-      | Row
+    const row = this.#sql.exec("SELECT provider, sealed, status, source, added_at FROM model_keys WHERE slot = 1").toArray()[0] as
+      | (Omit<Row, "provider"> & { provider: string })
       | undefined;
+    if (row && !isKeyProvider(row.provider)) {
+      // A key for a provider this agent no longer takes (an OpenRouter key
+      // stored before that lane was removed): deleted unopened, so the agent
+      // falls back to the demo or "needs a key" instead of failing every call.
+      this.#sql.exec("DELETE FROM model_keys WHERE slot = 1 AND provider = ?", row.provider);
+      return undefined;
+    }
+    return row as Row | undefined;
   }
 
   info(): KeyInfo | null {
@@ -79,14 +86,13 @@ export class ModelKeys {
   }
 
   /** Seal and store a key, replacing any other. */
-  async put(provider: KeyProvider, key: string, source: KeyInfo["source"]): Promise<void> {
+  async put(provider: KeyProvider, key: string): Promise<void> {
     const sealed = await this.#sealer().seal(key, keyContext(provider, this.#agent));
     this.#sql.exec(
       `INSERT OR REPLACE INTO model_keys (slot, provider, sealed, status, source, added_at, invalid_at)
-       VALUES (1, ?, ?, 'valid', ?, ?, NULL)`,
+       VALUES (1, ?, ?, 'valid', 'pasted', ?, NULL)`,
       provider,
       sealed,
-      source,
       Date.now()
     );
   }
@@ -161,7 +167,7 @@ export const NO_AMBIENT_AUTH: AuthContext = {
   fileExists: async () => false
 };
 
-const PREFIX: Record<KeyProvider, string> = { anthropic: "sk-ant-", openai: "sk-", openrouter: "sk-or-" };
+const PREFIX: Record<KeyProvider, string> = { anthropic: "sk-ant-", openai: "sk-" };
 
 /** A format problem with a pasted key, or null. Never repeats the key. */
 export function keyFormatProblem(provider: KeyProvider, key: string): string | null {
@@ -174,10 +180,7 @@ export function keyFormatProblem(provider: KeyProvider, key: string): string | n
   return null;
 }
 
-/**
- * A free, read-only request that only a working key passes: list models, or
- * read the key's own details at OpenRouter. No tokens are spent.
- */
+/** A free, read-only request that only a working key passes: list models. No tokens are spent. */
 export function keyCheckRequest(provider: KeyProvider, key: string): Request {
   switch (provider) {
     case "anthropic":
@@ -186,8 +189,6 @@ export function keyCheckRequest(provider: KeyProvider, key: string): Request {
       });
     case "openai":
       return new Request("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key}` } });
-    case "openrouter":
-      return new Request("https://openrouter.ai/api/v1/key", { headers: { Authorization: `Bearer ${key}` } });
   }
 }
 

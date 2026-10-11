@@ -1,7 +1,7 @@
 import { KeyIcon, WarningIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 import type { Entitlement } from "../model-router";
-import { Action, ActionLink } from "./controls";
+import { Action } from "./controls";
 
 /**
  * How the agent pays for its model calls, from `GET /api/entitlement`: the
@@ -16,19 +16,9 @@ export type EntitlementState =
   | { readonly state: "ready"; readonly entitlement: Entitlement }
   | { readonly state: "unavailable" };
 
-const PROVIDER: Record<"anthropic" | "openai" | "openrouter", string> = {
+const PROVIDER: Record<"anthropic" | "openai", string> = {
   anthropic: "Anthropic",
-  openai: "OpenAI",
-  openrouter: "OpenRouter"
-};
-
-/** Set by the OpenRouter callback's redirect back to Settings. */
-const OPENROUTER_RESULT: Record<string, string> = {
-  connected: "OpenRouter is connected. Your agent uses your OpenRouter key from now on.",
-  denied: "OpenRouter wasn't connected: the sign-in was cancelled.",
-  state: "OpenRouter wasn't connected: that sign-in link expired or was started elsewhere. Try again.",
-  code: "OpenRouter wasn't connected: it didn't send a code back. Try again.",
-  exchange: "OpenRouter wasn't connected: it didn't issue a key. Try again."
+  openai: "OpenAI"
 };
 
 /** The entitlement, refreshed on demand. One per page; Settings and the banner share it. */
@@ -129,7 +119,6 @@ function Status({ entitlement }: { entitlement: Entitlement }) {
     return (
       <p className="text-base text-pretty">
         Using your <span className="font-medium">{PROVIDER[key.provider]}</span> key
-        {key.source === "openrouter" ? ", connected through OpenRouter" : ""}
         {model ? <> for {model.name}</> : null}. Added {new Date(key.addedAt).toLocaleDateString()}.
       </p>
     );
@@ -150,7 +139,7 @@ function Status({ entitlement }: { entitlement: Entitlement }) {
   return <p className="text-base text-pretty text-kumo-warning">Needs a key: your agent can't call a model until you add one.</p>;
 }
 
-/** Paste a key (sent once, never shown again), remove it, or connect OpenRouter. */
+/** Paste an Anthropic or OpenAI key (sent once, never shown again), or remove it. */
 function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange: (next: Entitlement) => void }) {
   const [provider, setProvider] = useState<"anthropic" | "openai">("anthropic");
   const [key, setKey] = useState("");
@@ -203,78 +192,59 @@ function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange
 
   const hasKey = entitlement.key !== null;
   return (
-    <div className="space-y-4">
-      <form noValidate onSubmit={submit} className="space-y-3" aria-label={hasKey ? "Replace your model key" : "Add your model key"}>
-        <fieldset>
-          <legend className="text-[13px] font-medium text-kumo-default">{hasKey ? "Replace it with a key from" : "Your key from"}</legend>
-          <div className="mt-1 flex flex-wrap gap-2">
-            {(["anthropic", "openai"] as const).map((value) => (
-              <label
-                key={value}
-                className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 text-base ring ring-kumo-line transition-colors duration-150 has-checked:bg-kumo-tint has-checked:ring-kumo-focus/40 has-focus-visible:ring-2 has-focus-visible:ring-kumo-brand max-sm:min-h-11"
-              >
-                <input type="radio" name="model-key-provider" value={value} checked={provider === value} onChange={() => setProvider(value)} className="size-4" />
-                {PROVIDER[value]}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <div>
-          <label htmlFor={ids.key} className="block text-[13px] font-medium text-kumo-default">
-            API key
-          </label>
-          <input
-            id={ids.key}
-            type="password"
-            autoComplete="off"
-            spellCheck={false}
-            className={field}
-            placeholder={provider === "anthropic" ? "sk-ant-…" : "sk-…"}
-            value={key}
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? ids.error : undefined}
-            onChange={(event) => setKey(event.target.value)}
-          />
-          {error ? (
-            <p id={ids.error} role="alert" className="mt-1 text-[13px] text-kumo-danger">
-              {error}
-            </p>
-          ) : null}
+    <form noValidate onSubmit={submit} className="space-y-3" aria-label={hasKey ? "Replace your model key" : "Add your model key"}>
+      <fieldset>
+        <legend className="text-[13px] font-medium text-kumo-default">{hasKey ? "Replace it with a key from" : "Your key from"}</legend>
+        <div className="mt-1 flex flex-wrap gap-2">
+          {(["anthropic", "openai"] as const).map((value) => (
+            <label
+              key={value}
+              className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg px-3 text-base ring ring-kumo-line transition-colors duration-150 has-checked:bg-kumo-tint has-checked:ring-kumo-focus/40 has-focus-visible:ring-2 has-focus-visible:ring-kumo-brand max-sm:min-h-11"
+            >
+              <input type="radio" name="model-key-provider" value={value} checked={provider === value} onChange={() => setProvider(value)} className="size-4" />
+              {PROVIDER[value]}
+            </label>
+          ))}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {hasKey ? (
-            <Action type="button" variant="secondary" disabled={busy} onClick={() => void remove()}>
-              Remove key
-            </Action>
-          ) : null}
-          <Action type="submit" variant="primary" loading={busy} icon={<KeyIcon size={16} aria-hidden />}>
-            Check and save key
-          </Action>
-        </div>
-      </form>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-kumo-hairline pt-4">
-        <p className="min-w-0 flex-1 text-[13px] text-pretty text-kumo-subtle">Or sign in to OpenRouter, which gives your agent a key you can cap and revoke there.</p>
-        <ActionLink href="/auth/openrouter/start" variant="secondary">
-          Connect OpenRouter
-        </ActionLink>
+      </fieldset>
+      <div>
+        <label htmlFor={ids.key} className="block text-[13px] font-medium text-kumo-default">
+          API key
+        </label>
+        <input
+          id={ids.key}
+          type="password"
+          autoComplete="off"
+          spellCheck={false}
+          className={field}
+          placeholder={provider === "anthropic" ? "sk-ant-…" : "sk-…"}
+          value={key}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? ids.error : undefined}
+          onChange={(event) => setKey(event.target.value)}
+        />
+        {error ? (
+          <p id={ids.error} role="alert" className="mt-1 text-[13px] text-kumo-danger">
+            {error}
+          </p>
+        ) : null}
       </div>
-    </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {hasKey ? (
+          <Action type="button" variant="secondary" disabled={busy} onClick={() => void remove()}>
+            Remove key
+          </Action>
+        ) : null}
+        <Action type="submit" variant="primary" loading={busy} icon={<KeyIcon size={16} aria-hidden />}>
+          Check and save key
+        </Action>
+      </div>
+    </form>
   );
 }
 
 /** Settings' Model section: status, the demo meter, and the key panel. */
 export function ModelSettings({ entitlement, onChange }: { entitlement: EntitlementState; onChange: (next?: Entitlement) => void }) {
-  const [notice, setNotice] = useState<string | null>(null);
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const result = url.searchParams.get("model_key") ?? url.searchParams.get("model_key_error");
-    if (!result) return;
-    url.searchParams.delete("model_key");
-    url.searchParams.delete("model_key_error");
-    window.history.replaceState(null, "", url);
-    setNotice(OPENROUTER_RESULT[result] ?? "OpenRouter wasn't connected. Try again.");
-  }, []);
-
   if (entitlement.state === "loading") {
     return (
       <p role="status" className="rounded-xl p-4 text-[13px] text-kumo-subtle ring ring-kumo-hairline">
@@ -288,17 +258,13 @@ export function ModelSettings({ entitlement, onChange }: { entitlement: Entitlem
   const current = entitlement.entitlement;
   return (
     <div className="space-y-4 rounded-xl p-4 ring ring-kumo-hairline">
-      {notice ? (
-        <p role="status" className="text-[13px] text-pretty text-kumo-default">
-          {notice}
-        </p>
-      ) : null}
       <Status entitlement={current} />
       {current.demo && current.lane !== "own_key" ? <DemoMeter demo={current.demo} /> : null}
       <KeyForm entitlement={current} onChange={(next) => onChange(next)} />
       <p className="text-[13px] text-pretty text-kumo-subtle">
         Your key is checked with the provider, then encrypted and kept in your agent. It's never shown again, here or anywhere. Whoever runs this
-        deployment can technically read it, so prefer a key with a spend limit: an OpenRouter key with a credit limit is the safest choice.
+        deployment can technically read it, so set a spending limit on the key with your provider before you paste it, and revoke it there if you
+        stop using this agent.
       </p>
     </div>
   );

@@ -70,7 +70,3 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET
 ```
 
 Secrets take effect immediately; no redeploy is needed.
-
-## 6. OpenRouter
-
-Nothing to register: OpenRouter's PKCE sign-in needs no client id. It sends people back to `<origin>/auth/openrouter/callback`.

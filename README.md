@@ -154,7 +154,7 @@ Your own `deployment.local.json` decides; it is untracked, so the repository nam
 
 ### Who pays for the model
 
-- **Your own key, first.** Paste an Anthropic or OpenAI key in Settings, or connect OpenRouter. The agent checks it with the vendor, encrypts it, and sends it only to that vendor, never through the deployment's AI Gateway. It is never shown again. Whoever runs the deployment can technically read it, so prefer a spend-limited key; an OpenRouter key with a credit limit is safest.
+- **Your own key, first.** Paste an Anthropic or OpenAI API key in Settings. The agent checks it with the vendor, encrypts it, and sends it only to that vendor, never through the deployment's AI Gateway. It is never shown again. Whoever runs the deployment can technically read it, so set a spending limit on the key at the provider.
 - **A refused key stops the agent.** A 401 marks the key invalid and the agent stops calling the model until you add another; it never falls back to the demo.
 - **The demo,** for `OWNERS` and `DEMO_ALLOWLIST`: the operator pays through an AI Gateway on Unified Billing, up to `DEMO_DAILY_USD_PER_USER` per person and `DEMO_DAILY_USD_PER_DOMAIN` per Google Workspace domain each UTC day. The agent checks both before every call, background work included; Settings shows today's spend.
 - **Otherwise the agent needs a key** and makes no model calls. Updates from Companies wait until it has one.
@@ -204,7 +204,7 @@ CI runs typecheck, the tests and the docs check on pushes to `main` and on pull 
 **What the tests cover:**
 
 - **Sign-in:** app sign-in against fake Google and GitHub that check PKCE and can refuse: a wrong audience, issuer or expiry, an unverified email, a broken GitHub profile. Also the allowlist on every route.
-- **Model access:** against fake Anthropic, OpenAI and OpenRouter. A key never appears in a response, frame, transcript, Activity row, log or storage in the clear; a sealed key opens only in its own agent; an own key beats the demo; the demo's caps are enforced before the call, per person and per domain, background turns included; a 401 stops calls with no fallback; OpenRouter's sign-in checks `state` and the PKCE verifier. Another test fails if an author host or identity enters the template.
+- **Model access:** against fake Anthropic and OpenAI. A key never appears in a response, frame, transcript, Activity row, log or storage in the clear; a sealed key opens only in its own agent; an own key beats the demo; the demo's caps are enforced before the call, per person and per domain, background turns included; a 401 stops calls with no fallback; only Anthropic and OpenAI keys are taken, and an OpenRouter key stored before that lane was removed is deleted unopened. Another test fails if an author host or identity enters the template.
 - **The agent:** the durable conversation, including after a crash. That test has its own runtime, so it can't reset objects other tests are using.
 - **Poppy:** conformance tests against a strict mock Company.
   - Each of the mock's checks has an id and a test that proves it fires.
@@ -262,7 +262,7 @@ Poppy implementations we know of, as of 11 Oct 2026. All were days old. [`docs/i
   - It checks the host name, not the IP address a name resolves to, so it can't refuse a name that points at a private address. The Guides ask for that check.
   - "Same domain" for an agent's `jwks_uri` accepts the same host or a parent or child host, because the spec doesn't define it.
 - **Not built yet:** memory and skills (milestone 2).
-- **Model keys and the demo aren't tried live yet:** the vendors, Unified Billing, the gateway's spend rules and OpenRouter's sign-in are faked in the tests (the spec's Model access lists what to check).
+- **Model keys and the demo aren't tried live yet:** the vendors, Unified Billing and the gateway's spend rules are faked in the tests (the spec's Model access lists what to check).
 
 ## Project layout
 

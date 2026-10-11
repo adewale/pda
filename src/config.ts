@@ -11,9 +11,9 @@ const THINKING_LEVELS: readonly ThinkingLevel[] = [
 ];
 
 /** Where a person's own model key comes from. */
-export type KeyProvider = "anthropic" | "openai" | "openrouter";
+export type KeyProvider = "anthropic" | "openai";
 
-export const KEY_PROVIDERS: readonly KeyProvider[] = ["anthropic", "openai", "openrouter"];
+export const KEY_PROVIDERS: readonly KeyProvider[] = ["anthropic", "openai"];
 
 export function isKeyProvider(value: unknown): value is KeyProvider {
   return typeof value === "string" && (KEY_PROVIDERS as readonly string[]).includes(value);
@@ -64,7 +64,6 @@ export type ConfigEnv = {
   readonly DEMO_MODEL_ID?: unknown;
   readonly ANTHROPIC_MODEL_ID?: unknown;
   readonly OPENAI_MODEL_ID?: unknown;
-  readonly OPENROUTER_MODEL_ID?: unknown;
   readonly DEMO_DAILY_USD_PER_USER?: unknown;
   readonly DEMO_DAILY_USD_PER_DOMAIN?: unknown;
   readonly SIGNUP?: unknown;
@@ -112,8 +111,7 @@ export function readModelConfig(env: ConfigEnv): ModelConfig {
     },
     ownKey: {
       anthropic: required(env, "ANTHROPIC_MODEL_ID"),
-      openai: required(env, "OPENAI_MODEL_ID"),
-      openrouter: required(env, "OPENROUTER_MODEL_ID")
+      openai: required(env, "OPENAI_MODEL_ID")
     }
   };
 }

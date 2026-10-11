@@ -32,7 +32,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | --- | --- |
 | Chat with one durable agent per person | Built; tested with Pi's fake model |
 | App sign-in with Google and GitHub | Built and tested against fake providers that check PKCE and can refuse. GitHub's OAuth client is configured (the live redirect to GitHub checks out); Google's isn't registered yet, so Google sign-in fails with a 500 naming the missing setting |
-| Model access: own keys (Anthropic, OpenAI, OpenRouter) and the operator-paid demo lane with daily caps | Built and tested against fake vendors and pi's fake model. Not yet run live: see Model access, "Check live" |
+| Model access: own keys (Anthropic, OpenAI) and the operator-paid demo lane with daily caps | Built and tested against fake vendors and pi's fake model. Not yet run live: see Model access, "Check live" |
 | Claude through AI Gateway (the demo lane) | Built; a live call fails with `x-api-key header is required` until the demo gateway has Unified Billing credits |
 | Poppy client: every part in this spec | Built; passes the conformance tests against a strict mock Company, under six readings of the draft's open questions. In the [interop grid](docs/interop-results/README.md) (a snapshot of the 11 October run) it passes every scenario it shares with the Companies of six other projects. Not yet tried against a production Company, because none has published `poppy.json` |
 | Poppy identity (`/poppy/client.json`, `/poppy/jwks.json`) | Live, with production signing keys |
@@ -57,7 +57,7 @@ flowchart TB
     web["FetchBrowser<br/>a cookie jar per Session, no JavaScript"]
   end
   pi -- "demo lane, capped" --> gw["AI Gateway (demo gateway)<br/>Claude Opus 5.5, Unified Billing"]
-  pi -- "own key" --> vendor["Anthropic, OpenAI or OpenRouter<br/>directly"]
+  pi -- "own key" --> vendor["Anthropic or OpenAI<br/>directly"]
   pi -- "demo spend per domain" --> budget["DomainBudget DO<br/>one per Workspace domain"]
   poppy -- "rate-limit state" --> limiter["CompanyLimiter DO<br/>one per Company issuer"]
   poppy -- "HTTPS + DPoP" --> company["Company<br/>poppy.json, OAuth server,<br/>APIs, MCP, Company Agent"]
@@ -87,9 +87,9 @@ The Worker turns a verified app session into the person's Durable Object and for
 | `THINKING_LEVEL` | var | `medium` |
 | `DEMO_GATEWAY_ID`, `DEMO_MODEL_ID` | var | The demo lane: gateway `demo`, `anthropic/claude-opus-5-5` from pi-ai's gateway catalog (it must have a price, or the caps can't work) |
 | `DEMO_DAILY_USD_PER_USER`, `DEMO_DAILY_USD_PER_DOMAIN` | var | Daily demo caps in US dollars, per UTC day: `2` and `10`. `0` turns the demo off |
-| `ANTHROPIC_MODEL_ID`, `OPENAI_MODEL_ID`, `OPENROUTER_MODEL_ID` | var | The own-key lane's model per provider: `claude-opus-5-5`, `gpt-6.1-sol`, `anthropic/claude-opus-5.5` |
+| `ANTHROPIC_MODEL_ID`, `OPENAI_MODEL_ID` | var | The own-key lane's model per provider: `claude-opus-5-5`, `gpt-6.1-sol` |
 | `SIGNUP` | var | `allowlist` (committed) or `open` |
-| `POPPY_CLIENT_NAME` | var | Shown on Companies' consent pages, and as the OpenRouter key's label |
+| `POPPY_CLIENT_NAME` | var | Shown on Companies' consent pages |
 | `OWNERS` | deployer's var | The deployment's operators: always allowed in, always on the demo. Empty in the template, which then refuses every request |
 | `SIGNIN_ALLOWLIST`, `DEMO_ALLOWLIST` | deployer's var | Who may sign in with `SIGNUP=allowlist`; who the operator pays for |
 | `PUBLIC_ORIGIN` | deployer's var | The origin the Poppy `client_id`, `jwks_uri` and `redirect_uris` live on |
@@ -140,7 +140,6 @@ App sign-in is the Worker's own Google and GitHub OAuth. It is separate from Pop
 | `GET /api/me` | Signed-in email and provider | v0 |
 | `GET /api/entitlement` | The model lane, today's demo spend against its cap, the key's provider and state (never the key) | Built |
 | `POST`/`DELETE /api/model-key` | Same origin only. Check a pasted Anthropic or OpenAI key with a free vendor call, then seal it; or remove it | Built |
-| `GET /auth/openrouter/start`, `GET /auth/openrouter/callback` | Connect OpenRouter with its PKCE flow instead of pasting a key | Built |
 | `GET /auth/{provider}`, `GET /auth/{provider}/callback`, `POST /logout` | App sign-in | v0 |
 | `GET /poppy/client.json` | The Poppy client metadata document; its URL is our `client_id` | M3 |
 | `GET /poppy/jwks.json` | Our public signing keys | M3 |
@@ -203,7 +202,7 @@ Session Tokens and DPoP private keys are never written to storage.
 
 Who pays for a model call is decided before every call, in `src/model-router.ts`. Pi sees one model whose provider asks for the lane each time, so the check covers the person's own turns, background turns (Company messages) and every tool round.
 
-1. **Own key.** If the person has a key, it always wins. pi-ai's own `anthropic`, `openai` or `openrouter` provider sends it straight to the vendor through a `CredentialStore` that opens the sealed key for that call. It never goes through the operator's gateway, so a request that lost its key can't be billed to the operator. pi-ai's default auth context reads `process.env`, which under `nodejs_compat` holds the Worker's secrets, so it is replaced by one with no ambient credentials.
+1. **Own key.** If the person has a key, it always wins. pi-ai's own `anthropic` or `openai` provider sends it straight to the vendor through a `CredentialStore` that opens the sealed key for that call. It never goes through the operator's gateway, so a request that lost its key can't be billed to the operator. pi-ai's default auth context reads `process.env`, which under `nodejs_compat` holds the Worker's secrets, so it is replaced by one with no ambient credentials.
 2. **Refused key.** A 401 from the vendor marks the key `invalid`, stops model calls and posts a notice. It never falls back to the demo.
 3. **Demo.** For `OWNERS` and `DEMO_ALLOWLIST`, while both caps have room: the AI binding through `DEMO_GATEWAY_ID` (Unified Billing, so the operator holds no provider key), with gateway metadata `u` (a hash naming the agent, never the person) and `d` (the budget domain).
    - **The primary limit is ours.** The agent adds each call's pi-ai `usage.cost` to `model_spend`, and a `DomainBudget` Durable Object per budget domain (a Workspace domain, or `personal` for every personal Google and GitHub account) holds the domain's total. Both are checked before the call; a call over either cap is refused without being made. The cost is added after the call, so a cap can be overshot by the calls already in flight, one per agent. Costs are pi-ai's catalog prices, an estimate: Unified Billing adds its fee.
@@ -214,19 +213,17 @@ Who pays for a model call is decided before every call, in `src/model-router.ts`
 
 **Keys.**
 
-- **Pasting.** `POST /api/model-key` takes an Anthropic or OpenAI key, checks its shape, then makes a free call the key must pass (list models; OpenRouter: read the key's own details). Only then is it sealed.
-- **OpenRouter** can be connected instead, with its OAuth PKCE flow: `state` and the verifier wait in a signed, 10-minute `__Host-openrouter` cookie bound to the agent that started it, and the code is swapped for a key the person can cap and revoke at OpenRouter.
+- **Pasting.** `POST /api/model-key` takes an Anthropic or OpenAI API key, the only kinds of own key, checks its shape, then makes a free call the key must pass (list models). Only then is it sealed. A stored key for any other provider (an OpenRouter key from before that lane was removed) is deleted unopened the next time the agent reads its key, and the agent carries on as if it had none.
 - **Sealing.** AES-GCM under `TOKEN_ENC_KEY`, with additional data `model-key:v1:<provider>:<agent id>`, in that person's agent only. Every sealed value now starts `v1.`; values from before still open.
 - **Never shown again.** The key isn't echoed to the page, logged, put in the transcript or the Activity log, or reachable by any model tool. A vendor error that reaches the transcript has anything shaped like a key redacted.
-- **Who can read it.** The deployment's operator (they hold `TOKEN_ENC_KEY` and choose the code) and Cloudflare, as the runtime. Settings says so and recommends a spend-limited OpenRouter key.
+- **Who can read it.** The deployment's operator (they hold `TOKEN_ENC_KEY` and choose the code) and Cloudflare, as the runtime. Settings says so and advises setting a spending limit on the key at the provider.
 
 **Check live.** These are faked in the tests and not yet run against the real services:
 
-- pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key, and OpenRouter's Anthropic-format endpoint accepting the key as pi-ai sends it.
+- pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key.
 - Claude Opus 5.5 (and any other demo model) on Unified Billing through the binding.
 - That `createAI` metadata reaches the gateway's spend rules, the 429s they return, and how far bursts overshoot.
-- The free key checks (`GET /v1/models`, OpenRouter's `GET /api/v1/key`) at each vendor.
-- OpenRouter PKCE from this origin: that it echoes `state` and accepts `key_label`, and whether OAuth-issued keys can be capped in the person's OpenRouter settings.
+- The free key checks (`GET /v1/models`) at each vendor.
 - How the Deploy to Cloudflare button handles the deployer's vars.
 
 ## Chat transport and UI
@@ -271,7 +268,7 @@ The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line 
 - **Companies.**
   - **A table:** each Company's account, access in words with the raw scope, until when, and its standing permissions.
   - **A page per Company:** sign out, standing permissions with uses left and an add form, and its open conversations.
-- **Settings:** the signed-in account; the model: whose key or the demo, today's demo spend as a meter, a key panel (paste an Anthropic or OpenAI key, remove it, connect OpenRouter) that says the operator can read keys; the theme; and the agent's public identity. While the agent can't call a model, a banner above every place says why and leads here.
+- **Settings:** the signed-in account; the model: whose key or the demo, today's demo spend as a meter, a key panel (paste an Anthropic or OpenAI key, or remove it) that says the operator can read keys and advises a spending limit at the provider; the theme; and the agent's public identity. While the agent can't call a model, a banner above every place says why and leads here.
 
 ## Poppy client
 
@@ -689,7 +686,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | --- | --- |
 | `test/agent.test.ts` | App sign-in (PKCE, every ID-token and GitHub profile check, flow expiry), the allowlist, `/ws`, durability, configuration |
 | `test/allowlist.test.ts` | Reading and matching the allowlists and `OWNERS`; `SIGNUP` |
-| `test/model-access.test.ts` | Own keys, sealing, the demo's caps, background turns, refused keys, OpenRouter's PKCE, `SIGNUP`, against fake vendors |
+| `test/model-access.test.ts` | Own keys (Anthropic and OpenAI only), sealing, the demo's caps, background turns, refused keys, `SIGNUP`, against fake vendors |
 | `test/template.test.ts` | The committed template names no author host or identity, and fails closed |
 | `test/properties/json.test.ts` | Both JSON parsers against `JSON.parse`, property-based: duplicates, depth, garbage |
 | `test/properties/discovery.test.ts` | Discovery and the validator: every generated valid Company is discovered as its documents say; each broken MUST refuses it; no document, however broken, makes either throw anything but a DiscoveryError |
@@ -707,7 +704,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 
 - **Fakes.**
   - The demo lane's model is Pi AI's faux provider. It echoes the latest user message, and obeys any `@@obey <tool> <arguments>` line it has just read, standing in for a model that follows instructions injected into Company text. It is counted, and priced by a `[cost N]` marker in the prompt.
-  - Anthropic, OpenAI and OpenRouter are faked in `test/fake-models.ts`, in each vendor's streaming format. Whether a key works is in its text; a request carrying AI Gateway credentials is refused. OpenRouter's consent page is played by the test, and its key exchange checks the PKCE verifier and can refuse.
+  - Anthropic and OpenAI are faked in `test/fake-models.ts`, in each vendor's streaming format. Whether a key works is in its text; a request carrying AI Gateway credentials is refused.
   - Google and GitHub are faked in `test/fake-providers.ts`. A test plays the consent page, and the fakes check the client, the redirect URI and the PKCE verifier. Each code can make them refuse or misbehave: a wrong `aud`, `iss` or `exp`, an unverified email, a GitHub profile with no id.
   - Fresh Poppy signing keys and a token key are generated for each run.
 - **The mock Company** (`test/mock-company/`) is a strict Company in a Durable Object, one instance per company id, serving all of its hosts.
@@ -894,7 +891,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | Demo caps per person and per domain, checked before the call, background turns included | `model-router.ts`, `budget.ts`, `agent.ts` | Test: "refuses a call once the person has spent today's cap, before calling", "refuses everyone in a Workspace domain once the domain has spent its cap", "holds a background turn past the cap, with a notice, and never calls the model for it", "charges production's demo lane pi-ai's price for the usage it reports…" |
 | No key and no demo: no model calls; background notices wait | `agent.ts` | Test: "makes no model calls, says so, and runs held background turns once a key is added" |
 | A 401 marks the key invalid, stops calls, and never falls back to the demo | `model-router.ts` | Test: "marks the key invalid on a 401, stops model calls, and never falls back to the demo" |
-| OpenRouter's PKCE checks `state`, the agent that started it, and the verifier | `openrouter.ts` | Test: "refuses a callback whose state doesn't match, or that another person's browser started", "refuses a code minted for another flow's challenge: the verifier doesn't match", "reports a refusal at OpenRouter, and a person who declined" |
+| Own keys are Anthropic or OpenAI only: no OpenRouter sign-in, and a stored OpenRouter key from before is deleted unopened, never a crash | `index.ts`, `agent.ts`, `model-keys.ts` | Test: "has no OpenRouter sign-in, and refuses a pasted key for any other provider", "deletes an OpenRouter key stored before that lane was removed, unopened, and falls back as if there were none" |
 | `SIGNUP=allowlist` behaves as before; `open` lets anyone in without the demo | `allowlist.ts` | Test: "allowlist: lets in owners and the sign-in allowlist only, as before", "open: lets anyone in, who then needs a key unless they are on the demo" |
 | The template names no author host or identity, and fails closed | `wrangler.jsonc`, `deployment.ts` | Test: "holds no author hosts or identities", "fails closed: every signed-in route refuses until OWNERS and PUBLIC_ORIGIN are set" |
 

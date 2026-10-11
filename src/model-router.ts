@@ -15,7 +15,6 @@ import {
 import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
-import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { createAI } from "agents/models/pi-ai";
 import { budgetDomain, onDemo } from "./allowlist";
 import { nextUtcMidnight, utcDay, type Ledger } from "./budget";
@@ -119,9 +118,9 @@ export function gatewayDemoLane(env: Env, route: DemoRoute): LaneModel {
   return { provider: ai.provider, model: ai(config.demo.modelId) as Model<Api> };
 }
 
-/** pi-ai's Anthropic, OpenAI and OpenRouter providers: straight to each vendor, with the person's key. */
+/** pi-ai's Anthropic and OpenAI providers: straight to each vendor, with the person's key. */
 export function nativeProviders(): readonly Provider[] {
-  return [anthropicProvider(), openaiProvider(), openrouterProvider()];
+  return [anthropicProvider(), openaiProvider()];
 }
 
 /** A text explaining a refusal: the model error pi records, and the notice the person sees. */
@@ -172,7 +171,7 @@ export class ModelAccess {
     const id = readModelConfig(this.#options.env).ownKey[provider];
     const model = this.#models().getModel(provider, id);
     if (!model) {
-      const name = { anthropic: "ANTHROPIC_MODEL_ID", openai: "OPENAI_MODEL_ID", openrouter: "OPENROUTER_MODEL_ID" }[provider];
+      const name = { anthropic: "ANTHROPIC_MODEL_ID", openai: "OPENAI_MODEL_ID" }[provider];
       throw new ConfigError(`${name} ${JSON.stringify(id)} isn't in pi-ai's ${PROVIDER_LABEL[provider]} catalog`);
     }
     return model;

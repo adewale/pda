@@ -516,8 +516,17 @@ describe("model settings", () => {
     expect(meter.getAttribute("aria-valuemax")).toBe("2");
     expect(screen.getByText("$0.50 of $2.00 used today")).toBeTruthy();
     expect(screen.getByText(/Whoever runs this deployment can technically read it/)).toBeTruthy();
-    expect(screen.getByText(/an OpenRouter key with a credit limit is the safest choice/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Connect OpenRouter" }).getAttribute("href")).toBe("/auth/openrouter/start");
+    expect(screen.getByText(/set a spending limit on the key with your provider/)).toBeTruthy();
+  });
+
+  it("offers a pasted Anthropic or OpenAI key, and nothing else", async () => {
+    stubFetch(NO_KEY);
+    const { container } = open("/settings");
+    await screen.findByLabelText("API key");
+    const providers = screen.getAllByRole("radio").filter((radio) => radio.getAttribute("name") === "model-key-provider");
+    expect(providers.map((radio) => radio.getAttribute("value"))).toEqual(["anthropic", "openai"]);
+    expect(container.querySelector('a[href^="/auth/"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/openrouter/i);
   });
 
   it("says plainly when the agent needs a key, on every place, and leads to Settings", async () => {
@@ -583,12 +592,5 @@ describe("model settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check and save key" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Anthropic refused that key.");
     expect(input.getAttribute("aria-invalid")).toBe("true");
-  });
-
-  it("reports how connecting OpenRouter went, once", async () => {
-    stubFetch(NO_KEY);
-    open("/settings?model_key_error=state");
-    expect(await screen.findByText(/that sign-in link expired or was started elsewhere/)).toBeTruthy();
-    expect(window.location.search).toBe("");
   });
 });

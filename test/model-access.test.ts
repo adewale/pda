@@ -12,8 +12,8 @@ import { calculateCost } from "@earendil-works/pi-ai";
 import { keyContext } from "../src/model-keys";
 import { Sealer } from "../src/poppy/store";
 import { agentNameFor, type Identity } from "../src/session";
-import { keyState, openRouterCode, openRouterKeyFor } from "./fake-models";
-import { chat, connect, cookiePair, fetchWorker, ORIGIN, sessionCookie } from "./agent-helpers";
+import { keyState } from "./fake-models";
+import { chat, connect, fetchWorker, ORIGIN, sessionCookie } from "./agent-helpers";
 import type { PersonalAgent } from "./worker";
 
 const testEnv = env as Env;
@@ -182,7 +182,7 @@ describe("precedence and who pays", () => {
   });
 
   it("sends own-key calls only to pi-ai's vendor providers, never the AI binding", () => {
-    expect(nativeProviders().map((provider) => provider.id)).toEqual(["anthropic", "openai", "openrouter"]);
+    expect(nativeProviders().map((provider) => provider.id)).toEqual(["anthropic", "openai"]);
   });
 
   it("tags demo calls with the agent and its budget domain, on the demo gateway, and prices them by pi-ai's catalog", async () => {
@@ -355,83 +355,40 @@ describe("a key the vendor stops accepting", () => {
   });
 });
 
-describe("connecting OpenRouter (PKCE)", () => {
-  async function start(identity: Identity) {
-    const response = await api(identity, "/auth/openrouter/start");
-    expect(response.status).toBe(303);
-    const authorize = new URL(response.headers.get("Location")!);
-    return { authorize, cookie: cookiePair(response.headers.get("Set-Cookie")!) };
-  }
-
-  function consent(authorize: URL, refuse = false) {
-    return openRouterCode({
-      challenge: authorize.searchParams.get("code_challenge")!,
-      challengeMethod: authorize.searchParams.get("code_challenge_method")!,
-      callbackUrl: authorize.searchParams.get("callback_url")!,
-      refuse
-    });
-  }
-
-  async function callback(identity: Identity, flowCookie: string, params: Record<string, string>) {
-    const headers = new Headers({ Cookie: `${await sessionCookie(identity)}; ${flowCookie}` });
-    return fetchWorker(new Request(`${ORIGIN}/auth/openrouter/callback?${new URLSearchParams(params)}`, { headers }));
-  }
-
-  it("sends the browser to OpenRouter with state and an S256 challenge, then stores the key it issues", async () => {
+describe("only Anthropic and OpenAI keys", () => {
+  it("has no OpenRouter sign-in, and refuses a pasted key for any other provider", async () => {
     const identity = someone("nokey.example");
-    const { authorize, cookie } = await start(identity);
-    expect(authorize.origin + authorize.pathname).toBe("https://openrouter.ai/auth");
-    expect(authorize.searchParams.get("callback_url")).toBe(`${ORIGIN}/auth/openrouter/callback`);
-    expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(authorize.searchParams.get("code_challenge")).toMatch(/^[\w-]{43}$/);
-    expect(authorize.searchParams.get("state")).toMatch(/^[\w-]{43}$/);
-    expect(cookie).toMatch(/^__Host-openrouter=/);
+    expect((await api(identity, "/auth/openrouter/start")).status).toBe(404);
+    expect((await api(identity, "/auth/openrouter/callback?code=x&state=y")).status).toBe(404);
+    const refused = await saveKey(identity, "openrouter", `sk-or-v1-${crypto.randomUUID()}`);
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain("Choose Anthropic or OpenAI.");
+    expect((await entitlement(identity)).key).toBeNull();
+  });
 
-    const done = await callback(identity, cookie, { code: consent(authorize), state: authorize.searchParams.get("state")! });
-    expect(done.headers.get("Location")).toBe("/settings?model_key=connected");
-    expect(await entitlement(identity)).toMatchObject({ lane: "own_key", key: { provider: "openrouter", source: "openrouter" } });
+  it("deletes an OpenRouter key stored before that lane was removed, unopened, and falls back as if there were none", async () => {
+    const stored = async (identity: Identity) => {
+      const stub = await stubFor(identity);
+      await entitlement(identity); // creates the table
+      await stub.poppySql(
+        "INSERT INTO model_keys (slot, provider, sealed, status, source, added_at) VALUES (1, 'openrouter', 'v1.not-a-real-seal', 'valid', 'openrouter', ?)",
+        Date.now()
+      );
+      return stub;
+    };
 
-    const key = openRouterKeyFor({ challenge: authorize.searchParams.get("code_challenge")! });
-    const connection = await connect(identity);
-    await chat(connection.socket, connection.client, "via OpenRouter", "fake OpenRouter (anthropic/claude-opus-5.5) answers: via OpenRouter");
-    expect(JSON.stringify(connection.client.frames)).not.toContain(key);
-    expect(await (await stubFor(identity)).poppyDumpStorage()).not.toContain(key);
+    const nokey = someone("nokey.example");
+    const stub = await stored(nokey);
+    expect(await entitlement(nokey)).toMatchObject({ lane: "none", reason: "no_key", key: null });
+    expect(JSON.parse(await stub.poppySql("SELECT COUNT(*) AS n FROM model_keys"))).toEqual([{ n: 0 }]);
+    const connection = await connect(nokey);
+    await send(connection, "still answering?");
+    expect((await stub.lastAssistant()).error).toContain("this agent has no model key");
     connection.socket.close();
-  });
 
-  it("refuses a callback whose state doesn't match, or that another person's browser started", async () => {
-    const identity = someone("nokey.example");
-    const { authorize, cookie } = await start(identity);
-    const forged = await callback(identity, cookie, { code: consent(authorize), state: "forged" });
-    expect(forged.headers.get("Location")).toBe("/settings?model_key_error=state");
-
-    const intruder = someone("nokey.example");
-    const stolen = await callback(intruder, cookie, { code: consent(authorize), state: authorize.searchParams.get("state")! });
-    expect(stolen.headers.get("Location")).toBe("/settings?model_key_error=state");
-    expect((await entitlement(identity)).key).toBeNull();
-    expect((await entitlement(intruder)).key).toBeNull();
-  });
-
-  it("refuses a code minted for another flow's challenge: the verifier doesn't match", async () => {
-    const identity = someone("nokey.example");
-    const attacker = await start(someone("nokey.example"));
-    const victim = await start(identity);
-    const response = await callback(identity, victim.cookie, {
-      code: consent(attacker.authorize),
-      state: victim.authorize.searchParams.get("state")!
-    });
-    expect(response.headers.get("Location")).toBe("/settings?model_key_error=exchange");
-    expect((await entitlement(identity)).key).toBeNull();
-  });
-
-  it("reports a refusal at OpenRouter, and a person who declined", async () => {
-    const identity = someone("nokey.example");
-    const flow = await start(identity);
-    const refused = await callback(identity, flow.cookie, { code: consent(flow.authorize, true), state: flow.authorize.searchParams.get("state")! });
-    expect(refused.headers.get("Location")).toBe("/settings?model_key_error=exchange");
-    const declined = await callback(identity, flow.cookie, { error: "access_denied", state: flow.authorize.searchParams.get("state")! });
-    expect(declined.headers.get("Location")).toBe("/settings?model_key_error=denied");
-    expect((await entitlement(identity)).key).toBeNull();
+    const onDemo = someone("workspace.example");
+    await stored(onDemo);
+    expect(await entitlement(onDemo)).toMatchObject({ lane: "demo", reason: null, key: null });
   });
 });
 

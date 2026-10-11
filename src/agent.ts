@@ -21,7 +21,6 @@ import {
   type Profile,
   type DemoRoute
 } from "./model-router";
-import { exchangeOpenRouterCode } from "./openrouter";
 import { Sealer } from "./poppy/store";
 import type { Card } from "./poppy/wire";
 import type { PoppyBrowser } from "./poppy/browser";
@@ -153,7 +152,7 @@ export class PersonalAgent extends DurableObject<Env> {
     return nativeProviders();
   }
 
-  /** Where key checks and the OpenRouter code exchange go. */
+  /** Where key checks go. */
   protected modelFetcher(): (request: Request) => Promise<Response> {
     return (request) => fetch(request);
   }
@@ -244,8 +243,8 @@ export class PersonalAgent extends DurableObject<Env> {
   /** Check a pasted key with the provider, then seal and store it. The key is never returned or logged. */
   async setModelKey(identity: Profile, provider: unknown, key: unknown): Promise<KeyResult> {
     await this.recordIdentity(identity);
-    if (!isKeyProvider(provider) || provider === "openrouter") {
-      return { ok: false, status: 400, error: "Choose Anthropic or OpenAI, or connect OpenRouter." };
+    if (!isKeyProvider(provider)) {
+      return { ok: false, status: 400, error: "Choose Anthropic or OpenAI." };
     }
     if (typeof key !== "string") return { ok: false, status: 400, error: "Paste a key." };
     const trimmed = key.trim();
@@ -253,16 +252,7 @@ export class PersonalAgent extends DurableObject<Env> {
     if (problem) return { ok: false, status: 400, error: problem };
     const checked = await checkKey(provider, trimmed, this.modelFetcher());
     if (!checked.ok) return checked;
-    await this.keys.put(provider, trimmed, "pasted");
-    return this.#keyChanged();
-  }
-
-  /** Finish OpenRouter's PKCE sign-in: swap the code for a key, then store it like a pasted one. */
-  async connectOpenRouter(identity: Profile, code: string, verifier: string): Promise<KeyResult> {
-    await this.recordIdentity(identity);
-    const exchanged = await exchangeOpenRouterCode(code, verifier, this.modelFetcher());
-    if (!exchanged.ok) return exchanged;
-    await this.keys.put("openrouter", exchanged.key, "openrouter");
+    await this.keys.put(provider, trimmed);
     return this.#keyChanged();
   }
 

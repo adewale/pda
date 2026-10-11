@@ -43,7 +43,6 @@
     // The own-key lane: each provider's model, from pi-ai's catalogs.
     "ANTHROPIC_MODEL_ID": "claude-opus-5-5",
     "OPENAI_MODEL_ID": "gpt-6.1-sol",
-    "OPENROUTER_MODEL_ID": "anthropic/claude-opus-5.5",
     // `allowlist`: only OWNERS and SIGNIN_ALLOWLIST sign in. `open`: anyone
     // with a Google or GitHub account (they need their own key or the demo).
     "SIGNUP": "allowlist",

@@ -3,7 +3,6 @@ import { maySignIn } from "./allowlist";
 import { ConfigError, readSessionSecret } from "./config";
 import { checkDeployment } from "./deployment.ts";
 import { withPagePolicy } from "./csp";
-import { clearOpenRouterFlow, readOpenRouterCallback, startOpenRouter } from "./openrouter";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
 import { handleIdentityRoute } from "./poppy/routes";
 import { handleValidator } from "./validator/http.ts";
@@ -143,29 +142,9 @@ async function handlePoppy(request: Request, env: Env): Promise<Response> {
   return agent.fetch(new Request(url.toString(), { method: "GET" }));
 }
 
-/** `/auth/openrouter/start` and its callback: connect OpenRouter instead of pasting a key. */
-async function handleOpenRouter(request: Request, env: Env, step: string): Promise<Response> {
-  const identity = await signedIn(request, env);
-  const agentName = await agentNameFor(identity);
-  if (step === "start") {
-    return startOpenRouter(request, env, agentName, env.POPPY_CLIENT_NAME);
-  }
-  const done = (query: string) =>
-    new Response(null, {
-      status: 303,
-      headers: { Location: `/settings?${query}`, "Set-Cookie": clearOpenRouterFlow(), "Cache-Control": "no-store" }
-    });
-  const callback = await readOpenRouterCallback(request, env, agentName);
-  if (!callback.ok) return done(`model_key_error=${callback.error}`);
-  const result = await (await agentFor(identity, env)).connectOpenRouter(identity, callback.code, callback.verifier);
-  return done(result.ok ? "model_key=connected" : "model_key_error=exchange");
-}
-
 /** `/auth/<provider>` and `/auth/<provider>/callback`. */
 async function handleAuth(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return text(405, "Method not allowed");
-  const openRouter = /^\/auth\/openrouter\/(start|callback)$/.exec(new URL(request.url).pathname);
-  if (openRouter) return handleOpenRouter(request, env, openRouter[1]!);
   const match = /^\/auth\/([a-z]+)(\/callback)?$/.exec(new URL(request.url).pathname);
   if (!match || !isProvider(match[1]!)) return text(404, "Not found");
   return match[2]
