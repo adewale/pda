@@ -220,7 +220,7 @@ Who pays for a model call is decided before every call, in `src/model-router.ts`
 - **Never shown again.** The key isn't echoed to the page, logged, put in the transcript or the Activity log, or reachable by any model tool. A vendor error that reaches the transcript has anything shaped like a key redacted.
 - **Who can read it.** The deployment's operator (they hold `TOKEN_ENC_KEY` and choose the code) and Cloudflare, as the runtime. Settings says so and advises setting a spending limit on the key at the provider.
 
-**Check live.** These are faked in the tests and not yet run against the real services:
+**Check live.** These are faked in the tests and not yet run against the real services; each is an item in [`docs/deployment-tasks.md`](docs/deployment-tasks.md):
 
 - pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key.
 - Claude Opus 5.5 (and any other demo model) on Unified Billing through the binding.
@@ -747,7 +747,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 3. **Poppy core.** Built and passing against the mock: identity routes, discovery, User IDs, Sessions and DPoP, all three sign-in types, Account Tokens and sign-out, conversations with handoff and Direct Conversations, `CompanyLimiter`.
 4. **APIs and operations.** Built and passing against the mock: OpenAPI and MCP clients, the Operations extension, standing permissions, the local approval gate.
 5. **Mediated Sign-In and browsing.** Built; browsing runs on the fetch-based browser, tested against the mock Company. Next: try it on the first real Company's website.
-6. **Reference release.** Next:
+6. **Reference release.** Next (the owner's steps, in order, are in [`docs/deployment-tasks.md`](docs/deployment-tasks.md)):
    - close the "not yet" rows in Appendix A;
    - choose the final domain and move `PUBLIC_ORIGIN` to it;
    - try the agent against the first real Company to publish `poppy.json`;

@@ -71,8 +71,8 @@ scenarios/           One JSON file per scenario (spec section 6)
 runner/              The CLI, cell runner, checks, attribution and report
 proxy/               The recording TLS proxy (Node, no dependencies)
 impls/dpa-agent/     Our agent: src/poppy in Node, no model
-impls/dpa-mock/      Our strict mock Company (test/mock-company) behind the hooks API
-impls/shared/        What our two adapters share: the HTTP shim and the esbuild bundle
+impls/dpa-mock/      Our mock Company (test/mock-company) behind the hooks API, as dpa-mock (lenient) and dpa-mock-strict
+impls/shared/        What our two adapters share: the HTTP shim, the esbuild bundle, and the mock's hooks (mock-hooks.ts, also used by test/hypothesis)
 vectors/datalayer/  Runs Datalayer's conformance cases against src/poppy and src/validator (spec section 11)
 test/                Unit tests for the runner, in Node (interop/vitest.config.ts, part of npm test)
 ```
