@@ -19,7 +19,7 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 - [ ] **Code. A runbook for rotating `POPPY_SIGNING_JWKS`**, and for a leaked signing key: add the new key, publish both, switch the signer, retire the old `kid` after Companies' caches expire (N38).
 - [ ] **Owner. Spending alerts:** a Cloudflare billing notification, and provider-side limits and alerts on any funded key.
 - [ ] **Owner. Read the monthly dependency report.** `.github/workflows/deps.yml` runs `npm run deps:check` on the 1st (report only, no pull requests); it fails only on a high or critical audit finding.
-- [ ] **Owner. Allow or deny npm install scripts.** Node 24's npm skips dependency install scripts unless approved, and warns about seven (`workerd`, `esbuild`, `koffi`, `protobufjs`, `fsevents`, `core-js-pure`, `@google/genai`); every check passes without them. Decide with `npm install-scripts approve|deny <package>`.
+- [ ] **Owner. Allow or deny npm install scripts.** An npm warned about seven dependency install scripts (`workerd`, `esbuild`, `koffi`, `protobufjs`, `fsevents`, `core-js-pure`, `@google/genai`). Unverified: the `npm install-scripts approve|deny` command we noted doesn't exist in npm 11.12.1 (checked 12 October), which runs every script (`ignore-scripts=false`). The dependency audit's advice: `workerd` and `esbuild` are harmless to allow (they place native binaries that also arrive as optional packages); the other five do nothing we need (a banner, a warning, a no-op, a prebuilt binary).
 - [ ] **Owner. Node 26** becomes LTS on 28 October 2026; Node 24 (now used) is supported until April 2028.
 
 ## Product
