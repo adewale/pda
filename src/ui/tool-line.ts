@@ -5,7 +5,7 @@
  * Pure, so it is tested on its own (test/ui/tool-line.test.ts).
  */
 
-export type ToolHow = "API" | "their agent" | "website" | "sign-in" | "web page" | "memory" | "clock" | "calculator";
+export type ToolHow = "API" | "their agent" | "website" | "sign-in" | "web page" | "memory" | "clock" | "calculator" | "schedule";
 export type ToolAccess = "view" | "view and change";
 export type ToolState = "running" | "done" | "failed" | "waiting";
 
@@ -143,6 +143,22 @@ function generalLine(name: string, a: Args, outcome: ToolOutcome | undefined): T
       if (expression && result && state === "done") return line(`Calculated ${clip(expression, 60)} = ${clip(result, 40)}`, "calculator");
       return line("Did a calculation", "calculator", expression ? clip(expression) : undefined);
     }
+    case "remind_me":
+    case "schedule_task": {
+      const reminder = name === "remind_me";
+      const text = str(reminder ? a.text : a.instruction);
+      const quote = text ? clip(text) : undefined;
+      if (state === "failed") return line(reminder ? "Didn't set a reminder" : "Didn't schedule a task", "schedule", quote);
+      if (state === "running") return line(reminder ? "Setting a reminder" : "Scheduling a task", "schedule", quote);
+      const repeats = str(details.repeats);
+      const next = str(details.next_run);
+      const when = repeats && repeats !== "once" ? ` ${repeats}` : next ? ` for ${next.slice(0, 16).replace("T", " ")}` : "";
+      return line(`${reminder ? "Set a reminder" : "Scheduled a task"}${when}`, "schedule", quote);
+    }
+    case "list_scheduled":
+      return line("Listed reminders and scheduled tasks", "schedule");
+    case "cancel_scheduled":
+      return line(state === "failed" ? "Didn't cancel a reminder or task" : "Cancelled a reminder or task", "schedule", str(details.text) ? clip(str(details.text)!) : undefined);
     default:
       return null;
   }

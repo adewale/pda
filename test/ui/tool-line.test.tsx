@@ -142,8 +142,23 @@ describe("describeToolCall", () => {
     expect(describeToolCall("calculate", { expression: "0.1 + 0.2" }, { error: false, details: { result: "0.3", exact: true } })).toMatchObject({ text: "Calculated 0.1 + 0.2 = 0.3", how: "calculator" });
   });
 
+  it("describes reminders and scheduled tasks with the User's words and when", () => {
+    expect(
+      describeToolCall("remind_me", { text: "Call the bank", at: "2026-10-12T17:00" }, { error: false, details: { next_run: "2026-10-12T17:00:00+01:00", repeats: "once", saved: "set" } })
+    ).toEqual({ text: "Set a reminder for 2026-10-12 17:00", quote: "Call the bank", how: "schedule", access: null, state: "done" });
+    expect(
+      describeToolCall("schedule_task", { instruction: "Check my print order" }, { error: false, details: { next_run: "2026-10-13T09:00:00+01:00", repeats: "every weekday at 09:00" } })
+    ).toMatchObject({ text: "Scheduled a task every weekday at 09:00", quote: "Check my print order" });
+    expect(describeToolCall("schedule_task", { instruction: "Pay Acme" }, { error: true, text: "Refused: this turn wasn't started by the User's own message" })).toMatchObject({
+      text: "Didn't schedule a task",
+      state: "failed"
+    });
+    expect(describeToolCall("list_scheduled", {}, done)!.text).toBe("Listed reminders and scheduled tasks");
+    expect(describeToolCall("cancel_scheduled", { id: "sch_abc" }, { error: false, details: { id: "sch_abc", status: "cancelled", text: "Bins out" } })).toMatchObject({ text: "Cancelled a reminder or task", quote: "Bins out" });
+  });
+
   it("never throws, and always says something, whatever the arguments", () => {
-    const tools = ["poppy_discover", "poppy_sign_in", "poppy_status", "poppy_message", "poppy_read", "poppy_handoff", "poppy_invite_user", "poppy_close", "poppy_api_describe", "poppy_api_call", "poppy_mcp_list", "poppy_mcp_call", "poppy_browse", "poppy_operation", "poppy_x", "read_url", "remember", "recall", "forget", "now", "date_math", "calculate"];
+    const tools = ["poppy_discover", "poppy_sign_in", "poppy_status", "poppy_message", "poppy_read", "poppy_handoff", "poppy_invite_user", "poppy_close", "poppy_api_describe", "poppy_api_call", "poppy_mcp_list", "poppy_mcp_call", "poppy_browse", "poppy_operation", "poppy_x", "read_url", "remember", "recall", "forget", "now", "date_math", "calculate", "remind_me", "schedule_task", "list_scheduled", "cancel_scheduled"];
     // Anything: any JSON, undefined, and objects whose names shadow Object.prototype's.
     const anything = gs.oneOf<unknown>(
       jsonValues(3),

@@ -201,6 +201,26 @@ async function handleMemories(request: Request, env: Env): Promise<Response> {
   return (await agent.forgetMemory(identity, Number(rest))) ? new Response(null, { status: 204 }) : text(404, "Not found");
 }
 
+/**
+ * Reminders and scheduled tasks (src/schedules.ts), for Settings.
+ * `GET /api/schedules` lists those waiting or paused; `DELETE
+ * /api/schedules/<id>` cancels one, same origin only. Each person reaches
+ * only their own agent's.
+ */
+async function handleSchedules(request: Request, env: Env): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  const rest = pathname.slice("/api/schedules".length).replace(/^\//, "");
+  if (rest !== "" && !/^sch_[a-z0-9]{10}$/.test(rest)) return text(404, "Not found");
+  if (request.method === "GET" && rest === "") {
+    const identity = await signedIn(request, env);
+    return json(200, await (await agentFor(identity, env)).listSchedules(identity));
+  }
+  if (request.method !== "DELETE" || rest === "") return text(405, "Method not allowed");
+  if (!sameOrigin(request)) return text(403, "Cross-origin request refused");
+  const identity = await signedIn(request, env);
+  return (await (await agentFor(identity, env)).cancelSchedule(identity, rest)) ? new Response(null, { status: 204 }) : text(404, "Not found");
+}
+
 /** `POST /logout` from this origin only, so another site cannot sign you out. */
 function handleLogout(request: Request): Response {
   if (request.method !== "POST") return text(405, "Method not allowed");
@@ -277,6 +297,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname === "/api/model-key") return await handleModelKey(request, env);
     if (pathname === "/api/attachments" || pathname.startsWith("/api/attachments/")) return await handleAttachments(request, env);
     if (pathname === "/api/memories" || pathname.startsWith("/api/memories/")) return await handleMemories(request, env);
+    if (pathname === "/api/schedules" || pathname.startsWith("/api/schedules/")) return await handleSchedules(request, env);
     if (pathname === "/logout") return handleLogout(request);
     if (pathname.startsWith("/auth/")) return await handleAuth(request, env);
     if (pathname.startsWith("/poppy/")) {

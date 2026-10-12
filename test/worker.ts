@@ -796,6 +796,37 @@ export class PersonalAgent extends ProductionAgent {
     return { text: textOf(message?.content as Message["content"] | undefined), error: message?.errorMessage ?? null };
   }
 
+  /** Reminders' and tasks' jobs: a year out on the real clock, so none runs by itself; `scheduleAdvance` makes them due. */
+  protected override scheduleJobTime(_at: number): number {
+    return Date.now() + 365 * 86_400_000;
+  }
+
+  /**
+   * Set the clock (`setClock`) to `at` and make every reminder and task job
+   * due on the real clock; the test then runs the alarm
+   * (`runDurableObjectAlarm`), and each job checks its row's own time.
+   */
+  async scheduleAdvance(at: number): Promise<void> {
+    fixedClocks.set(this.ctx.id.toString(), at);
+    this.ctx.storage.sql.exec("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'schedules' AND running = 0", Date.now());
+  }
+
+  /** A reminder or task made straight in the store, without the tools' check of whose turn it is (test setup). */
+  async scheduleCreate(input: { kind: "reminder" | "task"; text: string; when: Record<string, unknown>; timeZone: string }): Promise<{ id: string; nextRun: number | null; error?: string }> {
+    try {
+      const { schedule } = await this.schedules.create({ ...input, createdFrom: `test:${crypto.randomUUID()}` });
+      return { id: schedule.id, nextRun: schedule.nextRun };
+    } catch (error) {
+      // A refusal comes back as its words rather than a rejected call.
+      return { id: "", nextRun: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** Wait until every scheduled task's turn this agent is waiting on has been recorded. */
+  async scheduleSettled(): Promise<void> {
+    await this.schedules.settledForTests();
+  }
+
   /** A background turn, as a Company message would start one. */
   async backgroundTurn(text: string, operationId: string): Promise<void> {
     await this.poppyNotify(text, operationId);

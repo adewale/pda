@@ -46,6 +46,8 @@ type SignInRow = { id: string; type: string; issuer: string; account: string; sc
 
 type ConversationRow = { id: string; issuer: string; direct: number; status: string; responder: string; last_event_at: number; created_at: number };
 
+type ScheduleRunRow = { id: number; kind: string; text: string; ran_at: number; outcome: string; detail: string | null };
+
 type MessageRow = { id: string; issuer: string; conversation_id: string | null; body: string; created_at: number };
 
 const OPERATION_RESULT: Record<string, ActivityResult> = {
@@ -426,6 +428,34 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       decidedBy: null,
       result: "done"
     });
+  }
+
+  // Reminders and scheduled tasks that ran (src/schedules.ts): the User's own words, and how it went.
+  const hasRuns = rows(sql, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schedule_runs'").length > 0;
+  if (hasRuns) {
+    for (const row of rows<ScheduleRunRow>(
+      sql,
+      "SELECT id, kind, text, ran_at, outcome, detail FROM schedule_runs ORDER BY id DESC LIMIT ?",
+      ACTIVITY_LOG_LIMIT
+    )) {
+      const reminder = row.kind === "reminder";
+      log.push({
+        id: `scheduled-${row.id}`,
+        at: row.ran_at,
+        kind: "scheduled",
+        issuer: "",
+        company: "Your agent",
+        account: null,
+        what: reminder ? "Reminded you" : row.outcome === "failed" ? "Couldn't run your scheduled task" : "Ran your scheduled task",
+        quote: clip(row.text),
+        quoteBy: "you",
+        how: "schedule",
+        access: null,
+        decidedBy: "you",
+        result: row.outcome === "failed" ? "failed" : row.outcome === "started" ? "in_progress" : "done",
+        ...(row.detail ? { outcome: clip(row.detail), outcomeBy: "agent" as const } : {})
+      });
+    }
   }
 
   log.sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));

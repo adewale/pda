@@ -470,10 +470,14 @@ describe("the tools the model is offered", () => {
         "forget",
         "now",
         "date_math",
-        "calculate"
+        "calculate",
+        "remind_me",
+        "schedule_task",
+        "list_scheduled",
+        "cancel_scheduled"
       ].sort()
     );
-    expect(Object.keys(request.sections)).toEqual(expect.arrayContaining(["poppy", "web", "memory", "time"]));
+    expect(Object.keys(request.sections)).toEqual(expect.arrayContaining(["poppy", "web", "memory", "time", "schedule"]));
     connection.socket.close();
   });
 });

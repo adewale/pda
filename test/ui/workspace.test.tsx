@@ -681,3 +681,71 @@ describe("memory settings", () => {
     expect(calls).toEqual(["GET /api/memories", "DELETE /api/memories", "GET /api/memories"]);
   });
 });
+
+describe("scheduled settings", () => {
+  const ITEMS = [
+    {
+      id: "sch_aaaaaaaaaa",
+      kind: "reminder",
+      text: "Call the bank",
+      nextRun: Date.UTC(2026, 9, 12, 16, 0),
+      repeats: "once",
+      timeZone: "Europe/London",
+      status: "active",
+      failures: 0,
+      lastRun: null,
+      lastOutcome: null
+    },
+    {
+      id: "sch_bbbbbbbbbb",
+      kind: "task",
+      text: "Check whether my print order has shipped",
+      nextRun: Date.UTC(2026, 9, 13, 8, 0),
+      repeats: "every weekday at 09:00",
+      timeZone: "Europe/London",
+      status: "paused",
+      failures: 3,
+      lastRun: Date.UTC(2026, 9, 12, 8, 0),
+      lastOutcome: "failed"
+    }
+  ];
+
+  /** `/api/schedules` answering `items`, recording each call; cancelling removes one as the agent would. */
+  function stubSchedules(items = ITEMS) {
+    let held = [...items];
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/entitlement") return Response.json(DEMO);
+        if (!url.startsWith("/api/schedules")) return new Response("Not found", { status: 404 });
+        const method = init?.method ?? "GET";
+        calls.push(`${method} ${url}`);
+        if (method === "GET") return Response.json({ schedules: held, limit: 20 });
+        held = held.filter((item) => `/api/schedules/${item.id}` !== url);
+        return new Response(null, { status: 204 });
+      })
+    );
+    return calls;
+  }
+
+  it("lists each reminder and task with what, when next, how it repeats and its status, and cancels one with its own button", async () => {
+    const calls = stubSchedules();
+    open("/settings");
+    const list = await screen.findByRole("list", { name: "Your reminders and tasks" });
+    const items = within(list).getAllByRole("listitem").map((item) => item.textContent);
+    expect(items[0]).toMatch(/^ReminderCall the bankOnce · next .*17:00.* \(Europe\/London\)Cancel$/);
+    expect(items[1]).toBe("TaskCheck whether my print order has shippedPaused after 3 failed runs in a rowCancel");
+    expect(screen.getByText(/1 of 20 waiting/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel reminder: Call the bank" }));
+    await waitFor(() => expect(screen.queryByText("Call the bank")).toBeNull());
+    expect(calls).toEqual(["GET /api/schedules", "DELETE /api/schedules/sch_aaaaaaaaaa", "GET /api/schedules"]);
+  });
+
+  it("says how to ask for one when nothing is scheduled", async () => {
+    stubSchedules([]);
+    open("/settings");
+    expect(await screen.findByText(/Nothing scheduled\. Ask your agent, for example “Remind me at 5pm to call the bank”/)).toBeTruthy();
+  });
+});

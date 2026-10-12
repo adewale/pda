@@ -4,6 +4,7 @@ import type { Entitlement } from "../model-router";
 import { Action, PageHeader, Section } from "./controls";
 import { MemorySettings } from "./memory";
 import { ModelSettings, type EntitlementState } from "./model";
+import { ScheduledSettings } from "./scheduled";
 
 export type Identity = { readonly email: string | null; readonly provider: "google" | "github" };
 
@@ -145,6 +146,10 @@ export function SettingsPage({
 
       <Section title="Memory" description="Short notes your agent has saved about you. It sees the newest 50 with every message, even after older messages are summarised, and can search the rest. Delete any you don't want it to keep.">
         <MemorySettings />
+      </Section>
+
+      <Section title="Scheduled" description="Reminders and background tasks you've asked your agent for. Only you can set them, by asking in the chat.">
+        <ScheduledSettings />
       </Section>
 
       <Section title="Appearance">
