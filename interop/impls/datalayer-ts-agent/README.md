@@ -2,7 +2,7 @@
 
 Datalayer's TypeScript Personal Agent SDK ([datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol), `src/`), behind an adapter for the interop harness ([spec](../../../docs/interop-spec.md) 5.2).
 
-- **Upstream commit:** `12d71877d477b93f3ee68ebdc542560ba85997b9` (v0.6.0, 11 October 2026), fetched inside the image. Nothing upstream is vendored here.
+- **Upstream commit:** `0c048aa7fef8d98bbc23de5474220b6e7206384a` (v0.10.0, 12 October 2026; moved from `12d71877`, v0.6.0), fetched inside the image. Nothing upstream is vendored here.
 - **Licence:** BSD-3-Clause (upstream). The adapter is ours.
 - **Build:** the runner builds this directory. Upstream has no lockfile at this commit, so `npm install` resolves dependency versions within its `package.json` ranges; installs run with `--ignore-scripts`.
 - **Ports:** 8080 serves the agent's identity (`/agent.json` is the `client_id`, `/jwks.json`, `/oauth/callback`) at `INTEROP_ORIGIN`. 8081 is the control API.
@@ -10,7 +10,7 @@ Datalayer's TypeScript Personal Agent SDK ([datalayer/personal-agent-protocol](h
 
 ## How the adapter drives the SDK
 
-`adapter.mjs` assembles a Reactor host the way Datalayer's own pairing tests do (`src/__tests__/support/world.mjs`): an ES256 `JoseSigner` for client assertions, a `JoseDpopProofProvider` with one key per Company, in-memory token and authorization-state stores, a browser handoff that only records the authorization URL, and a protected-input contribution answered from `signin_continue`. Every step calls the SDK's clients (`discoverCompany`, `SessionClient`, `DirectSignInClient`, `DeviceSignInClient`, `MediatedSignInClient`, `ConversationClient`, `DpopFetchClient`, `OperationsClient`, `AccountTokenClient`). No model is involved. `/reset` rebuilds the host with a new signing key (new `kid`) and forgets every Company.
+`adapter.mjs` assembles a Reactor host the way Datalayer's own pairing tests do (`src/__tests__/support/world.mjs`): an ES256 `JoseSigner` for client assertions, a `JoseDpopProofProvider` with one key per Company, in-memory token and authorization-state stores, a browser handoff that only records the authorization URL, and a protected-input contribution answered from `signin_continue`. Every step calls the SDK's clients (`discoverCompany`, `SessionClient`, `DirectSignInClient`, `DeviceSignInClient`, `MediatedSignInClient`, `ConversationClient`, `DpopFetchClient`, `McpClient`, `OperationsClient`, `AccountTokenClient`). No model is involved. `/reset` rebuilds the host with a new signing key (new `kid`) and forgets every Company.
 
 The SDK leaves some decisions to its host, so the adapter makes them, as a host would:
 
@@ -26,13 +26,23 @@ The SDK leaves some decisions to its host, so the adapter makes them, as a host 
 | `signin_continue` | yes | Direct: `callback_url` (an `error=` callback is `poppy_error` with status 0). Device: polls until the Company answers (60 s). Mediated: `fields`, then `code` after `{"pending": {"code_required": true}}`. |
 | `send`, `read` | yes | `wait` is passed to the Company. Results add `operations` (proposals seen), `cursor` and the raw `events`. |
 | `sse` | yes | Up to `max_events`, for about `wait` seconds; returns `last_id`. |
-| `api` | OpenAPI only | `operation` is `"METHOD /path"` or an `operationId`; `args.params` fill path templates, the rest go in the query; `args.body` is the JSON body. A 4xx or 5xx is `poppy_error` with its status. MCP is 501: the TypeScript SDK has no MCP client. |
+| `api` | yes | OpenAPI: `operation` is `"METHOD /path"` or an `operationId`; `args.params` fill path templates, the rest go in the query; `args.body` is the JSON body. A 4xx or 5xx is `poppy_error` with its status. MCP (`api: "mcp"` or a `tool`): `McpClient.callTool` with a Bearer token for the server's `url`, from `AccountTokenClient.bearerForMcp` when signed in, otherwise `SessionClient.bearerForMcp`; the body is the tool result (`content`, `structuredContent`, `isError`, `text`). |
 | `approve_op` | yes | `approve` confirms with the user's approval; `decline` cancels. |
 | `signout` | yes | Revokes the Account Token. |
 | `state` | yes | No token values. |
 | `web_join` | 501 | Needs a browser. |
 
-**Manifest:** scenarios `D S0 N SD SV SXV SM SMC SX SE SO R RL C CI CS CA AO AS O OX`. Readings: `S1: endpoint` (each client assertion's `aud` is the endpoint it is sent to), `S2: jwt-60s` (`typ: JWT`, `exp = iat + 60`), `S3: insertion`, `S4: omit`. `S23` is not declared: the SDK keeps no nonce between requests; it answers each `use_dpop_nonce` challenge once, with that response's nonce.
+**Manifest:** scenarios `D S0 N SD SV SVN SXV SM SMC SX SE SO R RL C CI CS CA AO AS AM O OX`. Readings: `S1: endpoint` (each client assertion's `aud` is the endpoint it is sent to), `S2: jwt-60s` (`typ: JWT`, `exp = iat + 60`, a 22-character `jti`), `S3: insertion`, `S4: omit`. `S23` is not declared: the SDK keeps no nonce between requests; it answers each `use_dpop_nonce` challenge once, with that response's nonce.
+
+## Moving from v0.6.0 to v0.10.0
+
+Nothing the adapter calls changed its signature; the clients now trace through an optional telemetry point the adapter doesn't contribute. What changed for the grid:
+
+- **MCP.** v0.10.0 adds `McpClient`, `McpBearerAuth` and `bearerForMcp` on `SessionClient` and `AccountTokenClient` (a token requested without DPoP, with `resource` set to the server's `url`). The adapter now runs `api` for MCP and claims AM; before, it answered 501.
+- **Response limits.** Every client reads at most its `maxResponseBytes` of a response (`readLimited`); a larger body is refused.
+- **Redirects.** A request with a body is never sent on to a redirect other than 303 (`redirect_refused`).
+- **Mediated Sign-In** may send credentials to the `auth.issuer` host as well as the Company's domain (`endpointOnCompanyDomain`).
+- **URL policy.** The portable check now refuses local names (`localhost`, `.local`, `.internal`, `home.arpa`, `localdomain`) and every non-global IP literal. `*.interop.test` isn't one, so nothing is relaxed.
 
 ## Relaxations and patches
 
@@ -40,6 +50,8 @@ None. The SDK's default URL policy checks only host strings, so `*.interop.test`
 
 ## Known upstream issues seen in the grid
 
-- **SSE resume (CS).** `ConversationClient.stream` reconnects immediately, with no delay and no `retry:` handling, and throws `stream_unavailable` after five reconnects that bring nothing new. A Company that closes an idle stream (dpa-mock after `wait`, Manzanita at once) fails it when the agent resumes at the latest event (Poppy 7.6).
-- **Device polling ignores `use_dpop_nonce`** (`src/device.ts`), unlike the Session, code, refresh and revocation requests, so Device Sign-In fails at Companies that require nonces (pi-poppy). The Python SDK has the same gap (Poppy 4.3, RFC 9449 section 8).
-- `validateDirectSignInCallback` (`src/auth.ts`) reports an `error` callback before checking `state`, after the pending state has been taken, so any `error=` callback to the redirect URI ends a pending sign-in. Low severity.
+Still present at `0c048aa7`:
+
+- **SSE resume (CS).** `ConversationClient.stream` ([`src/conversations.ts` lines 405-481](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/conversations.ts#L405-L481)) reconnects immediately, with no delay and no `retry:` handling, and throws `stream_unavailable` after five reconnects that bring nothing new. A Company that closes an idle stream (dpa-mock after `wait`, Manzanita at once) fails it when the agent resumes at the latest event (Poppy 7.6).
+- **Device polling ignores `use_dpop_nonce`** ([`src/device.ts` lines 333-360](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/device.ts#L333-L360): one proof, no nonce, no retry), unlike the Session, code, refresh and revocation requests, so Device Sign-In fails at Companies that require nonces (pi-poppy, scenario SVN). The Python SDK has the same gap (Poppy 4.3, RFC 9449 section 8).
+- `validateDirectSignInCallback` (`src/auth.ts` lines 160-200) reports an `error` callback before checking `state`, after the pending state has been taken, so any `error=` callback to the redirect URI ends a pending sign-in. Low severity.

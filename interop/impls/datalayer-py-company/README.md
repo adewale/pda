@@ -2,9 +2,21 @@
 
 Datalayer's Python reference Company, Manzanita Outfitters (`personal_agent_protocol.company` with `personal_agent_protocol/demo/manzanita.py`), behind the interop hooks adapter of [docs/interop-spec.md](../../../docs/interop-spec.md) section 5.3.
 
-- **Upstream:** [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol), commit `12d71877d477b93f3ee68ebdc542560ba85997b9` (11 October 2026, v0.6.0). The Dockerfile clones it at that commit; nothing upstream is copied into this repository.
+- **Upstream:** [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol), commit `0c048aa7fef8d98bbc23de5474220b6e7206384a` (12 October 2026, v0.10.0). The Dockerfile clones it at that commit; nothing upstream is copied into this repository.
 - **Licence:** BSD 3-Clause (upstream). The adapter is ours.
-- **Dependencies:** pinned in `constraints.txt`, from `pip freeze` of the first build.
+- **Dependencies:** pinned in `constraints.txt`, from `pip freeze` of the first build (at v0.6.0). v0.10.0 changes no runtime dependency: `datalayer_reactor>=1.0.5` is still the floor, and the new `ui` and `telemetry` extras (Reactor 1.1, OpenTelemetry) are imported only when used.
+
+## Moving from v0.6.0 to v0.10.0
+
+What changed upstream that matters here:
+
+- **Client assertion `aud`.** `_client` now accepts the issuer, the token endpoint or the endpoint called, at the token, device authorization and revocation endpoints alike (`company/service.py` lines 580-611). S1 is now `either`.
+- **Assertion limits.** Client and Session assertions live at most 120 s (was five minutes) and need a `jti` of 16 to 256 characters; `typ` is still absent or `JWT` (`company/verify.py`). DPoP proofs also need a 16+ character `jti` (`crypto.py`).
+- **Operations.** An Operation omits `expires_at`, `terms` and `url` when they have no value, instead of sending `null` (`models.py`). `result.data` is still `null` on a cancelled operation.
+- **Mediated Sign-In** with no `scope` is now `invalid_scope`, and failed attempts lock a key out (5 failures, 15 minutes). `AccountDirectory.authenticate` takes a `SignInContext`; Manzanita's own does.
+- **Other hardening:** a token in the query is refused on every route; a repeated `Authorization` or `DPoP` header is 400; a request body over 1 MiB is 413; a DPoP refusal at the token endpoint carries `WWW-Authenticate`; the consent page binds its request to the browser (`__Host-poppy_consent` cookie and a `csrf` field); the web cookie is `__Host-poppy_session`; the replay cache lives in the Company's store; an unfetchable `client_id` is remembered for 30 s; an agent's reply is framed by `working` and `idle` state events; Manzanita's agent says plainly when it can't propose an exchange to an agent that didn't declare Operations.
+
+Adapter changes: `ManzanitaPlugin` now contributes exactly what the adapter's own subclass did (accounts, agent, the four executors, the API and the MCP server), so the adapter uses it as it is. The consent hooks still read `request_id` from the page and call `approve_authorization` and `deny_authorization` directly, which the new browser binding doesn't involve (it guards the form POST, `consent_decision`). Readings: S1 `either`, S2 `lenient-300s`.
 
 ## How it runs
 
@@ -51,13 +63,21 @@ Claimed: D, S0, SD, SV, SMC, SX, SXV, R, SE, SO, C, CI, CS, CA, DC, AO, AS, W, O
 
 ## Findings
 
-- **DPoP `htu` is compared with the decoded path.** `company/asgi.py` rebuilds the URL from ASGI `scope["path"]`, which is percent-decoded, so a request to `/api/orders/%7Border_id%7D/exchanges` is checked against `.../{order_id}/...` and refused with 401 `invalid_dpop_proof`. It should use `raw_path`: RFC 9449 section 4.3 and RFC 3986 section 6.2.2.2 only normalize unreserved characters. Seen with `dpa` in scenario AS.
-- **Its OpenAPI description doesn't declare path parameters.** `/api/orders/{order_id}/exchanges` has no `parameters`, which OpenAPI 3.x requires for path templates, so a client that fills only declared parameters (ours) sends the template literally.
-- **SSE closes when caught up.** `_stream` sends the backlog after `Last-Event-ID` and ends, with no keep-alive and no live events. The SDK's own client reconnects and then raises `stream_unavailable`.
-- **Mediated Sign-In with no `scope` signs in with no scopes** instead of `invalid_scope` (already in [poppy-issues.md](../../../docs/poppy-issues.md)).
-- **Client assertions at the device authorization and revocation endpoints** must have `aud` equal to that endpoint (`service.py` lines 670 and 808), as at the token endpoint: S1 `endpoint`.
-- **An ended or expired Session gets 401 `invalid_token`**, never `invalid_session`.
+Still so at v0.10.0:
+
+- **DPoP `htu` is compared with the decoded path.** `company/asgi.py` rebuilds the URL from ASGI `scope["path"]` ([line 59](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/asgi.py#L59)), which is percent-decoded, so a request to `/api/orders/%7Border_id%7D/exchanges` is checked against `.../{order_id}/...` and refused with 401 `invalid_dpop_proof`. It should use `raw_path`: RFC 9449 section 4.3 and RFC 3986 section 6.2.2.2 only normalize unreserved characters. Seen with `dpa` in scenario AS.
+- **Its OpenAPI description doesn't declare path parameters.** `/api/orders/{order_id}/exchanges` has no `parameters` ([demo/manzanita.py lines 141-143](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/demo/manzanita.py#L141-L143)), which OpenAPI 3.x requires for path templates, so a client that fills only declared parameters sends the template literally.
+- **SSE closes when caught up.** `_stream` ([company/service.py lines 2034-2058](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/service.py#L2034-L2058)) sends the backlog after `Last-Event-ID` and ends, with no keep-alive and no live events. The SDK's own client reconnects and then raises `stream_unavailable`.
+- **Renewal requires `session_id`.** A `refresh_token` grant without one is `invalid_session` ([company/service.py lines 731-736](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/service.py#L731-L736)), where Poppy 4.8 says it starts a new signed-in Session.
+- **A cancelled Operation's `result.data` is `null`** ([company/service.py lines 2195-2213](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/service.py#L2195-L2213); `OperationResult.data` defaults to `None`, [models.py line 281](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/models.py#L281)). `expires_at`, `terms` and `url` are now omitted instead.
+- **An ended or expired Session gets 401 `invalid_token`** ([company/service.py lines 1446-1454](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/service.py#L1446-L1454)), never `invalid_session`.
+
+Fixed by v0.10.0:
+
+- Mediated Sign-In with no `scope` signed in with no scopes; it is now `invalid_scope`.
+- Client assertions at the device authorization and revocation endpoints had to name that endpoint as `aud`; any of the issuer, the token endpoint and the endpoint called is now accepted.
+- A proposed Operation's unset `expires_at` was `null`; it is now omitted.
 
 ## Readings
 
-`S1: endpoint` (assertion `aud` must be the endpoint it is sent to), `S2: any` (`typ` absent or `JWT`, lifetime up to five minutes), `S4: either` (`scope` on a signed-out Session request is ignored). The issuer has no path, so S3 doesn't arise.
+`S1: either` (assertion `aud` may be the issuer, the token endpoint or the endpoint it is sent to, at every endpoint), `S2: lenient-300s` (`typ` absent or `JWT`, lifetime at most 120 s: no section 7 value says 120 s, and this is the nearest that states a cap), `S4: either` (`scope` on a signed-out Session request is ignored). The issuer has no path, so S3 doesn't arise.

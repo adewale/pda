@@ -21,7 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 
-export const COMMIT = "12d71877d477b93f3ee68ebdc542560ba85997b9";
+export const COMMIT = "0c048aa7fef8d98bbc23de5474220b6e7206384a";
 const SUITES = ["protocol", "security", "lifecycle", "conversations", "operations"];
 // The number of cases at COMMIT.
 const EXPECTED_CASES = 124;

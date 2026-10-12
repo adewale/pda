@@ -34,48 +34,48 @@
       "company": "datalayer-ts",
       "scenario": "O",
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
-      "reason": "Datalayer's confirm answers an Operation with \"expires_at\": null; pi-poppy's parseOperation accepts the member absent but not null, so it reports a failure for an operation the Company performed. The Operations extension doesn't say whether optional members may be null."
+      "reason": "Datalayer's confirm answers an Operation with \"expires_at\": null; pi-poppy's parseOperation accepts the member absent but not null, so it reports a failure for an operation the Company performed. The Operations extension doesn't say whether optional members may be null. Expected stale at Datalayer 0c048aa, whose confirm omits expires_at instead of sending null; kept until a run shows it passes."
     },
     {
       "agent": "pi-poppy",
       "company": "datalayer-ts",
       "scenario": "OX",
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
-      "reason": "Datalayer's cancel answers \"result\": {\"summary\", \"data\": null}; pi-poppy's parseOperation rejects result.data: null. The Operations extension doesn't say whether optional members may be null."
+      "reason": "Datalayer's cancel still answers (at 0c048aa) \"result\": {\"summary\", \"data\": null}; pi-poppy's parseOperation rejects result.data: null. The Operations extension doesn't say whether optional members may be null."
     },
     {
       "agent": "pi-poppy",
       "company": "datalayer-py",
       "scenario": "O",
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
-      "reason": "Datalayer's confirm answers an Operation with \"expires_at\": null; pi-poppy's parseOperation accepts the member absent but not null, so it reports a failure for an operation the Company performed. The Operations extension doesn't say whether optional members may be null."
+      "reason": "Datalayer's confirm answers an Operation with \"expires_at\": null; pi-poppy's parseOperation accepts the member absent but not null, so it reports a failure for an operation the Company performed. The Operations extension doesn't say whether optional members may be null. Expected stale at Datalayer 0c048aa, whose confirm omits expires_at instead of sending null; kept until a run shows it passes."
     },
     {
       "agent": "pi-poppy",
       "company": "datalayer-py",
       "scenario": "OX",
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
-      "reason": "Datalayer's cancel answers \"result\": {\"summary\", \"data\": null}; pi-poppy's parseOperation rejects result.data: null. The Operations extension doesn't say whether optional members may be null."
+      "reason": "Datalayer's cancel still answers (at 0c048aa) \"result\": {\"summary\", \"data\": null}; pi-poppy's parseOperation rejects result.data: null. The Operations extension doesn't say whether optional members may be null."
     },
     {
       "agent": "datalayer-ts",
       "company": "*",
       "scenario": "SVN",
-      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/src/device.ts",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/device.ts#L333-L360",
       "reason": "Datalayer's TypeScript DeviceSignInClient.poll sends each device token request once and never retries use_dpop_nonce (unlike its Session, code, refresh and revocation requests), so Device Sign-In fails at a Company that requires nonces (Poppy 4.3, RFC 9449 section 8)."
     },
     {
       "agent": "datalayer-py",
       "company": "*",
       "scenario": "SVN",
-      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/personal_agent_protocol/device.py",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/device.py#L200-L287",
       "reason": "Datalayer's Python DeviceSignInClient.poll has no use_dpop_nonce handling (device.py), unlike its Session, code, refresh and revocation requests, so Device Sign-In fails at a Company that requires nonces (Poppy 4.3, RFC 9449 section 8)."
     },
     {
       "agent": "datalayer-ts",
       "company": "*",
       "scenario": "CS",
-      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/src/conversations.ts",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/conversations.ts#L405-L481",
       "reason": "Datalayer's TypeScript ConversationClient.stream reconnects at once, with no delay or retry: handling, and throws stream_unavailable after five reconnects that bring nothing new; a Company that closes an idle stream fails the resume at the latest event (Poppy 7.6)."
     },
     {
@@ -166,14 +166,14 @@
       "agent": "adonis-agora",
       "company": "datalayer-ts",
       "scenario": "SE",
-      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/src/company/service.ts#L675-L681",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/company/service.ts#L870-L877",
       "reason": "After invalid_session, adonis-agora recovers by renewing with its Account Token and no session_id, which Poppy 4.8 says starts a new signed-in Session; Datalayer's TypeScript CompanyService requires a session_id on every refresh_token grant and answers invalid_session again. (dpa-mock, pi-poppy, poppyseed and adonis-agora's Company accept it.)"
     },
     {
       "agent": "adonis-agora",
       "company": "datalayer-py",
       "scenario": "SE",
-      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/12d71877d477b93f3ee68ebdc542560ba85997b9/personal_agent_protocol/company/service.py#L616-L621",
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/service.py#L731-L736",
       "reason": "As at datalayer-ts: Datalayer's Python CompanyService answers a refresh_token grant without session_id with invalid_session, where Poppy 4.8 says it starts a new signed-in Session, so adonis-agora's recovery fails."
     },
     {
@@ -181,7 +181,7 @@
       "company": "*",
       "scenario": "SV",
       "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
-      "reason": "Reading S1, blamed on the spec: adonis-agora's client assertions name the token endpoint as aud everywhere (S1 token-endpoint), including at the device authorization endpoint; poppyseed, pi-poppy and both Datalayer Companies require the endpoint the assertion is sent to (S1 endpoint) and answer invalid_client."
+      "reason": "Reading S1, blamed on the spec: adonis-agora's client assertions name the token endpoint as aud everywhere (S1 token-endpoint), including at the device authorization endpoint; poppyseed and pi-poppy require the endpoint the assertion is sent to (S1 endpoint) and answer invalid_client. (Both Datalayer Companies did too until 0.10.0, which accepts the issuer, the token endpoint or the endpoint called.)"
     },
     {
       "agent": "adonis-agora",

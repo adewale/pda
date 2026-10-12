@@ -58,7 +58,7 @@
       "name": "datalayer-ts",
       "role": "agent",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "12d71877d477b93f3ee68ebdc542560ba85997b9",
+      "commit": "0c048aa7fef8d98bbc23de5474220b6e7206384a",
       "build": "interop/impls/datalayer-ts-agent",
       "notes": "TypeScript SDK clients driven directly; no model. BSD-3-Clause."
     },
@@ -66,7 +66,7 @@
       "name": "datalayer-ts",
       "role": "company",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "12d71877d477b93f3ee68ebdc542560ba85997b9",
+      "commit": "0c048aa7fef8d98bbc23de5474220b6e7206384a",
       "build": "interop/impls/datalayer-ts-company",
       "notes": "Manzanita reference Company on the TypeScript CompanyService. BSD-3-Clause."
     },
@@ -74,7 +74,7 @@
       "name": "datalayer-py",
       "role": "agent",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "12d71877d477b93f3ee68ebdc542560ba85997b9",
+      "commit": "0c048aa7fef8d98bbc23de5474220b6e7206384a",
       "build": "interop/impls/datalayer-py-agent",
       "notes": "Python SDK clients driven directly; no model. BSD-3-Clause."
     },
@@ -82,7 +82,7 @@
       "name": "datalayer-py",
       "role": "company",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "12d71877d477b93f3ee68ebdc542560ba85997b9",
+      "commit": "0c048aa7fef8d98bbc23de5474220b6e7206384a",
       "build": "interop/impls/datalayer-py-company",
       "notes": "Manzanita reference Company; hooks call the Python CompanyService in process. BSD-3-Clause."
     },

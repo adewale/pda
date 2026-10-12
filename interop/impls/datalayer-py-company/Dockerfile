@@ -3,7 +3,7 @@
 FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 ARG UPSTREAM=https://github.com/datalayer/personal-agent-protocol
-ARG UPSTREAM_COMMIT=12d71877d477b93f3ee68ebdc542560ba85997b9
+ARG UPSTREAM_COMMIT=0c048aa7fef8d98bbc23de5474220b6e7206384a
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \

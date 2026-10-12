@@ -5,6 +5,12 @@
 // the proxy). Every URL it publishes and every DPoP htu it checks is built from that
 // origin (CompanyConfig.base), never from the inner request.
 // Port 8081: the hooks API. Hooks call the CompanyService in this process directly.
+//
+// Since 0.10.0 the Node Company fetches agents' metadata over its resolving transport,
+// which refuses a host that resolves to any non-global address. The grid's agents are
+// *.agent.interop.test names on the run's private network, so with
+// INTEROP_ALLOW_TEST_HOSTS=1 (set in the image) the Company is given that same
+// transport with private addresses allowed for *.interop.test names only.
 import { createServer } from "node:http";
 
 import {
@@ -12,29 +18,32 @@ import {
   CompanyAgents,
   CompanyApis,
   CompanyConfig,
+  CompanyMcps,
   CompanyStores,
   MemoryCompanyStore,
   OperationExecutors,
   RecordKinds,
   buildCompany,
   companyRequestListener,
+  createResolvingFetch,
 } from "../lib/server.js";
 import {
   ADA,
   ADA_CODE,
   CONFIG_OPTIONS,
-  ManzanitaAccounts,
   ManzanitaAgent,
   ManzanitaApi,
+  ManzanitaMcp,
   ManzanitaPlugin,
 } from "../lib/demo/manzanita.js";
 
-const UPSTREAM_COMMIT = "12d71877d477b93f3ee68ebdc542560ba85997b9";
+const UPSTREAM_COMMIT = "0c048aa7fef8d98bbc23de5474220b6e7206384a";
 const NAME = process.env.INTEROP_NAME || "datalayer-ts";
 const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${NAME}.company.interop.test`).replace(/\/$/, "");
 const DOMAIN = new URL(ORIGIN).hostname;
 const SECRET = process.env.INTEROP_SECRET || "";
 const ACCOUNT = "acct_ada";
+const ALLOW_TEST_HOSTS = process.env.INTEROP_ALLOW_TEST_HOSTS === "1";
 
 const MANIFEST = {
   interop: 1,
@@ -44,11 +53,30 @@ const MANIFEST = {
   poppy: ["0.1"],
   extensions: ["operations"],
   scenarios: ["D", "S0", "SD", "SV", "SXV", "SMC", "SX", "SE", "SO", "R", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX"],
-  readings: { S1: "endpoint", S3: "insertion", S4: "omit" },
+  // S1: a client assertion's aud may be the issuer, the token endpoint or the endpoint it
+  // is sent to, at every endpoint (0.10.0). S2: typ absent or "JWT", at most 120 s and a
+  // jti of 16 to 256 characters; lenient-300s is the nearest section 7 value, as for
+  // datalayer-py's Company.
+  readings: { S1: "either", S2: "lenient-300s", S3: "insertion", S4: "omit" },
   relaxations: [
     `organization.domain and auth.issuer set to ${DOMAIN} (Manzanita's config.domain; upstream default manzanita.example)`,
+    ...(ALLOW_TEST_HOSTS
+      ? ["INTEROP_ALLOW_TEST_HOSTS=1: *.interop.test names may resolve to private addresses when the Company fetches client metadata and JWKS"]
+      : []),
   ],
 };
+
+/** The SDK's resolving transport, with private addresses allowed for *.interop.test names only. */
+function companyFetch() {
+  if (!ALLOW_TEST_HOSTS) return undefined; // buildCompany's default, createResolvingFetch()
+  const strict = createResolvingFetch();
+  const testHosts = createResolvingFetch({ allowPrivateNetworks: true });
+  return (input, init) => {
+    const host = new URL(String(input)).hostname.toLowerCase().replace(/\.$/, "");
+    const test = host === "interop.test" || host.endsWith(".interop.test");
+    return (test ? testHosts : strict)(input, init);
+  };
+}
 
 /** The memory store, remembering which Sessions exist so `end_sessions` can end them. */
 class TrackingStore {
@@ -78,17 +106,20 @@ function build() {
   const agent = new ManzanitaAgent();
   const api = new ManzanitaApi();
   const contributes = [
-    { point: CompanyAccounts, value: new ManzanitaAccounts(), options: { id: "accounts" } },
+    { point: CompanyAccounts, value: plugin.accounts, options: { id: "accounts" } },
     { point: CompanyAgents, value: agent, options: { id: "agent" } },
     { point: OperationExecutors, value: plugin.executor, options: { id: "exchange" } },
     { point: OperationExecutors, value: plugin.giftWrap, options: { id: "gift-wrap" } },
     { point: OperationExecutors, value: plugin.returns, options: { id: "returns" } },
     { point: OperationExecutors, value: plugin.repairs, options: { id: "repairs" } },
     { point: CompanyApis, value: api, options: { id: "api" } },
+    { point: CompanyMcps, value: new ManzanitaMcp(), options: { id: "mcp" } },
     { point: CompanyStores, value: store, options: { id: "given-store", order: 0 } },
   ];
   const options = { ...CONFIG_OPTIONS, domain: DOMAIN };
+  const fetch = companyFetch();
   const service = buildCompany(new CompanyConfig(options), {
+    ...(fetch === undefined ? {} : { fetch }),
     plugins: [{ name: "manzanita-interop", version: "1", contributes }],
   });
   company = { service, plugin, store, listener: companyRequestListener(service, { onError: (e) => console.error("[company]", e) }) };
@@ -176,6 +207,8 @@ const hooks = {
       scopes: { read: ["orders:read"], write: ["orders:read", "orders:write"] },
       openapi: { api: "openapi", operation: "GET /api/orders", args: {} },
       openapi_write: { api: "openapi", operation: "POST /api/orders/{order_id}/exchanges", args: { params: { order_id: "ord_7Hk2" }, body: {} } },
+      // Manzanita's MCP server (0.10.0); every tool needs a signed-in user, so AM isn't claimed.
+      mcp: { api: "mcp", tool: "list_orders", args: {} },
       prompts: {
         hello: "Hello",
         sign_in: "Where is my jacket order?",

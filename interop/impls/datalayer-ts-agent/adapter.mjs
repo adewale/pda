@@ -20,6 +20,7 @@ import {
   DpopFetchClient,
   DpopProofProviders,
   JoseDpopProofProvider,
+  McpClient,
   MediatedSignInClient,
   OperationsClient,
   ProtectedInputs,
@@ -35,7 +36,7 @@ import {
 } from "../lib/index.js";
 import { JoseSigner } from "../lib/server.js";
 
-const UPSTREAM_COMMIT = "12d71877d477b93f3ee68ebdc542560ba85997b9";
+const UPSTREAM_COMMIT = "0c048aa7fef8d98bbc23de5474220b6e7206384a";
 const NAME = process.env.INTEROP_NAME || "datalayer-ts";
 const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${NAME}.agent.interop.test`).replace(/\/$/, "");
 const SECRET = process.env.INTEROP_SECRET || "";
@@ -48,7 +49,7 @@ const MANIFEST = {
   commit: UPSTREAM_COMMIT,
   poppy: ["0.1"],
   extensions: ["operations"],
-  scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SXV", "SM", "SMC", "SX", "SE", "SO", "R", "RL", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX"],
+  scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SXV", "SM", "SMC", "SX", "SE", "SO", "R", "RL", "C", "CI", "CS", "CA", "AO", "AS", "AM", "O", "OX"],
   readings: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit" },
   relaxations: [],
 };
@@ -483,6 +484,51 @@ async function apiOnce(c, token, params) {
   return { status: response.status, body: parsed };
 }
 
+/**
+ * Call an MCP tool (0.10.0's McpClient) with a Bearer Session Token for that server's
+ * url: from the Account Token when signed in, otherwise the Session's own renewal.
+ */
+async function mcpOnce(c, token, params) {
+  const apis = c.discovered.document.apis ?? [];
+  const api = apis.find((a) => a.type === "mcp" && (a.url === params.api || params.api === undefined || params.api === "mcp"));
+  if (!api) throw new StepError(409, "no_api", "the Company lists no MCP server");
+  const metadata = oauth(c);
+  let bearer;
+  if (c.accountRef) {
+    const result = await new AccountTokenClient({ reactor: world.reactor, fetch: world.fetch }).bearerForMcp(c.accountRef, {
+      context: accountContext(c),
+      sessionId: token.sessionId,
+      resource: api.url,
+    });
+    if (result.status !== "signed_in" || !result.token) {
+      throw new Refusal(String(result.status ?? "no_bearer"), 0, "no Bearer token for the MCP server");
+    }
+    bearer = result.token;
+  } else {
+    bearer = await new SessionClient({ reactor: world.reactor, fetch: world.fetch }).bearerForMcp({
+      clientId: world.clientId,
+      pairwiseUserId: c.pairwise,
+      issuer: metadata.issuer,
+      tokenEndpoint: metadata.token_endpoint,
+      tenantId: TENANT,
+      sessionId: token.sessionId,
+      resource: api.url,
+    });
+  }
+  const client = new McpClient({ token: bearer, url: api.url, fetch: world.fetch });
+  const result = await client.callTool(String(params.tool), params.args ?? {});
+  if (result.operation?.operation_id) c.operations.set(result.operation.operation_id, result.operation);
+  return {
+    status: 200,
+    body: {
+      content: result.content,
+      ...(result.structuredContent === undefined ? {} : { structuredContent: result.structuredContent }),
+      isError: result.isError,
+      text: result.text,
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------------
 // Operations (spec 5.2).
 
@@ -652,7 +698,7 @@ const ops = {
 
   async api(c, params) {
     if (params.tool !== undefined || params.api === "mcp") {
-      throw new StepError(501, "unsupported", "the TypeScript SDK has no MCP client");
+      return withSession(c, (token) => mcpOnce(c, token, params));
     }
     return withSession(c, (token) => apiOnce(c, token, params));
   },
