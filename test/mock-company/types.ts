@@ -173,6 +173,22 @@ export type MockConfig = {
    * signed out. Only agents that list the Operations extension can order.
    */
   readonly printShop: boolean;
+  /**
+   * The description says which writes propose an operation (Ops 4.1): a 202
+   * with an `operation` in the OpenAPI description, an `outputSchema` with an
+   * `operation` on the MCP tool. Off, the writes propose all the same, but
+   * the agent can't tell, so it asks the User on its own card first.
+   */
+  readonly documentsProposals: boolean;
+  /** The exchange's description declares an `Idempotency-Key` header. */
+  readonly exchangeTakesIdempotencyKey: boolean;
+  /**
+   * The exchange operation's id prefix, in place of `exc_`: Ops 3 lets an
+   * `operation_id` be the Company's own record's, such as `booking:` or `ord#`.
+   */
+  readonly operationIdPrefix: string | null;
+  /** The exchange operation's summary and terms, in place of the jacket's, for standing-permission tests. */
+  readonly exchangeOperation: { readonly summary: string; readonly terms?: Record<string, unknown> } | null;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -250,7 +266,11 @@ export const DEFAULT_CONFIG: MockConfig = {
   poppyJsonCacheHeaders: null,
   metadataCacheHeaders: null,
   eventPageSize: 20,
-  printShop: false
+  printShop: false,
+  documentsProposals: true,
+  exchangeTakesIdempotencyKey: true,
+  operationIdPrefix: null,
+  exchangeOperation: null
 };
 
 /** One request the mock received, with secrets redacted. */

@@ -41,7 +41,7 @@ Built and passing in the grid (scenario OU, against the store at its pinned comm
 - [ ] **Owner. Ask print-with-poppy to allowlist our `client_id`.** The store admits only agents its operator lists in `AGENT_CLIENT_IDS`, by exact `client_id` (`https://<PUBLIC_ORIGIN>/poppy/client.json`); until then its token endpoint answers `invalid_client` ("must register its HTTPS metadata URL"), which the agent reports as "hasn't approved this agent yet". Settle the final domain first, since the allowlisted URL can't change.
 - [ ] **Owner. Confirm the store is in demo mode** (`GET /api/catalog` says `mode: "demo"`) before a live run, so nothing is charged or printed; outside demo mode an approved order is a real Stripe checkout the User pays.
 - [ ] **Owner. Try it live once both are done**, on the deployed agent with a real photo: the two cards (sending the photo, then the order's terms), the receipt's checkout link.
-- [ ] **Code. Activity lists an operation the Company no longer has (N19) as still open**, because `src/poppy/activity.ts` reads the operation's own state; the card, the model and the confirm path already treat it as final. Left while that file is being changed elsewhere.
+- [x] **Code. Activity lists an operation the Company no longer has (N19) as still open.** Fixed: Activity's log says it may have happened or wasn't done, and neither Activity's in-progress list nor `poppy_status` lists it.
 - [ ] **Code. HEIC photos** aren't taken; most browsers convert them for a file picker whose `accept` list leaves HEIC out, but a pasted or dropped HEIC is refused.
 
 ## Testing and interop
@@ -57,7 +57,7 @@ Built and passing in the grid (scenario OU, against the store at its pinned comm
 
 - [ ] Eviction: whether idle agents stay resident, and how often DPoP keys and tokens are renewed as a result.
 - [ ] Push notifications are an open topic in the draft, so the agent polls.
-- [ ] Standing permissions need a checkable action field; DPoP nonces per server; writes at Companies with the Operations extension; local Personal Agents. All in the [spec's Open questions](durable-personal-agent-spec.md#open-questions-and-risks).
+- [ ] Standing permissions need a checkable action field (we now require the summary to begin with the action, and every term to be one we can check); DPoP nonces per server; a standard marker for writes that propose (we now gate any write whose description doesn't say so); local Personal Agents. All in the [spec's Open questions](durable-personal-agent-spec.md#open-questions-and-risks).
 
 ## Environment (this machine)
 

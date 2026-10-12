@@ -63,7 +63,7 @@ function AddPermission({ company, send }: { company: CompanyRow; send: Send }) {
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const found: Record<string, string> = {};
-    if (!draft.action.trim()) found.action = "Name a word the Company's summary must contain, such as exchange.";
+    if (!draft.action.trim()) found.action = "Name the word or words the Company's summary must begin with, such as exchange.";
     if (draft.maxAmount && !/^\d+(\.\d+)?$/.test(draft.maxAmount.trim())) found.amount = "Use a number, such as 50 or 49.99.";
     if (draft.maxUses && !/^[1-9]\d*$/.test(draft.maxUses.trim())) found.uses = "Use a whole number of times, such as 3.";
     setErrors(found);
@@ -97,7 +97,7 @@ function AddPermission({ company, send }: { company: CompanyRow; send: Send }) {
       </label>
       <div>
         <label className={label}>
-          Word {company.name}'s summary must contain
+          Word or words {company.name}'s summary must begin with
           <input
             className={field}
             value={draft.action}
@@ -157,7 +157,7 @@ function AddPermission({ company, send }: { company: CompanyRow; send: Send }) {
           ) : null}
         </div>
       </div>
-      <p className="text-[13px] text-pretty text-kumo-subtle">Leave the amount or the number of times empty for no limit.</p>
+      <p className="text-[13px] text-pretty text-kumo-subtle">Leave the amount or the number of times empty for no limit. Terms the agent can't check, such as a renewal or a flag, still come to you.</p>
       <div className="flex justify-end">
         <Action type="submit" variant="primary">
           Add standing permission

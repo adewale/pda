@@ -254,3 +254,13 @@ export function intent(sql: Sql, callKey: string, create: () => string): string 
   );
   return value;
 }
+
+/**
+ * True the first time it is asked for `callKey`, false ever after, including
+ * when Pi replays the call after a crash: for a write that has no
+ * idempotency key, so a replay can't send it twice.
+ */
+export function firstTime(sql: Sql, callKey: string): boolean {
+  const mine = crypto.randomUUID();
+  return intent(sql, callKey, () => mine) === mine;
+}

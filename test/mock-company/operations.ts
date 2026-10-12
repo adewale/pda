@@ -13,7 +13,7 @@ export type Operation = {
   revision: number;
   state: "proposed" | "in_progress" | "succeeded" | "failed" | "cancelled" | "expired";
   summary: string;
-  terms: Record<string, unknown>;
+  terms?: Record<string, unknown>;
   expires_at: string | null;
   user_approval_required: boolean;
   url: string;
@@ -79,7 +79,8 @@ export class Operations {
    */
   proposeExchange(context: ResourceContext): Operation {
     const price = this.company.config.exchangePrice;
-    const terms = exchangeTerms(price);
+    const custom = this.company.config.exchangeOperation;
+    const terms = custom ? custom.terms : exchangeTerms(price);
     for (const record of this.#records.values()) {
       this.#expire(record);
       const same =
@@ -99,17 +100,17 @@ export class Operations {
         return record.operation;
       }
     }
-    const id = randomId("exc_", 6);
+    const id = randomId(this.company.config.operationIdPrefix ?? "exc_", 6);
     const expiresAt = Date.now() + 10 * 60_000;
     const operation: Operation = {
       operation_id: id,
       revision: 1,
       state: "proposed",
-      summary: `${exchangeSummary(price)}${this.company.config.injection ? ` ${this.company.config.injection}` : ""}`,
+      summary: `${custom?.summary ?? exchangeSummary(price)}${this.company.config.injection ? ` ${this.company.config.injection}` : ""}`,
       terms,
       expires_at: new Date(expiresAt).toISOString(),
       user_approval_required: this.company.config.userApprovalRequired,
-      url: `${this.company.hosts.web}/orders/ord_7Hk2/exchanges/${id}`,
+      url: `${this.company.hosts.web}/orders/ord_7Hk2/exchanges/${encodeURIComponent(id)}`,
       confirmation: null,
       result: null
     };

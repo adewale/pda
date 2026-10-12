@@ -1,5 +1,5 @@
 import type { PoppyClient } from "./client";
-import type { Operation } from "./operations";
+import { lostOutcome, type Operation } from "./operations";
 import { rows } from "./store";
 import type { ActivityAccess, ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
 
@@ -116,7 +116,8 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     "SELECT issuer, operation_id, account, operation, approved_revision, approved_by, confirmed, updated_at FROM poppy_operations ORDER BY updated_at DESC"
   ).flatMap((row) => {
     const operation = JSON.parse(row.operation) as Operation;
-    if (operation.state !== "proposed" && operation.state !== "in_progress") return [];
+    // One the Company no longer has (N19) is final for us, whatever its last state said.
+    if (lostOutcome(row.confirmed) || (operation.state !== "proposed" && operation.state !== "in_progress")) return [];
     const approved = row.approved_revision !== null && row.approved_revision === operation.revision;
     return [
       {
@@ -216,8 +217,15 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
     const operation = JSON.parse(row.operation) as Operation;
     const company = name(row.issuer);
     const approved = row.approved_revision !== null && row.approved_revision === operation.revision;
-    const result: ActivityResult =
-      operation.state === "proposed" && approved ? "in_progress" : (OPERATION_RESULT[operation.state] ?? "unknown");
+    // The Company no longer has it (N19): final for us, done or not as far as we know.
+    const lost = lostOutcome(row.confirmed);
+    const result: ActivityResult = lost
+      ? lost === "unknown"
+        ? "unknown"
+        : "expired"
+      : operation.state === "proposed" && approved
+        ? "in_progress"
+        : (OPERATION_RESULT[operation.state] ?? "unknown");
     log.push({
       id: `op-${row.issuer}-${row.operation_id}`,
       at: row.updated_at,
@@ -232,8 +240,19 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       access: "view_and_change",
       decidedBy: row.approved_by === "user" ? "you" : row.approved_by === "standing_permission" ? "standing_permission" : null,
       result,
-      ...(operation.result?.summary ? { outcome: clip(operation.result.summary), outcomeBy: "company" as const } : {})
+      ...(lost
+        ? {
+            outcome:
+              lost === "unknown"
+                ? `${company} no longer has it, and it may have happened: check with ${company}.`
+                : `${company} no longer has it, and it wasn't done.`,
+            outcomeBy: "agent" as const
+          }
+        : operation.result?.summary
+          ? { outcome: clip(operation.result.summary), outcomeBy: "company" as const }
+          : {})
     });
+    if (lost) continue;
     if (operation.state === "in_progress") {
       inProgress.push({
         id: `op-${row.issuer}-${row.operation_id}`,
@@ -261,7 +280,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
     }
   }
 
-  // Local approvals, at Companies without the operations extension.
+  // Local approvals: writes no operation covers, uploads and website submits.
   for (const row of rows<ApprovalRow>(
     sql,
     "SELECT id, issuer, summary, json_extract(request, '$.kind') AS kind, status, result, created_at FROM poppy_approvals"

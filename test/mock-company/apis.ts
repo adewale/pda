@@ -85,6 +85,22 @@ function parseMultipart(body: Uint8Array, boundary: string): Part[] | null {
 }
 
 /** The Company's OpenAPI API and MCP server (spec section 6). */
+/**
+ * A write's 202 answer in the description: a proposal (Ops 4.1), with the
+ * operation in `operation`, as print-with-poppy describes `POST /api/orders`.
+ * Ops 4.1: "The Company SHOULD say in its OpenAPI description which
+ * endpoints return operations"; the agent sends such a write without its
+ * own card first (`documentsProposals`).
+ */
+const PROPOSED = {
+  description: "Operation proposed; confirm it at the operations endpoint",
+  content: {
+    "application/json": {
+      schema: { type: "object", required: ["operation"], properties: { operation: { $ref: "#/components/schemas/Operation" } } }
+    }
+  }
+};
+
 export class Apis {
   readonly #idempotency = new Map<string, { hash: string; status: number; body: unknown }>();
   /** The print shop's photos, each belonging to the Session that uploaded it. */
@@ -113,6 +129,19 @@ export class Apis {
       components: {
         securitySchemes: {
           session: { type: "http", scheme: "DPoP", description: "Personal Agent Protocol Session Token" }
+        },
+        schemas: {
+          Operation: {
+            type: "object",
+            required: ["operation_id", "revision", "state", "summary", "confirmation", "result"],
+            properties: {
+              operation_id: { type: "string" },
+              revision: { type: "integer" },
+              state: { enum: ["proposed", "in_progress", "succeeded", "failed", "cancelled", "expired"] },
+              summary: { type: "string" },
+              terms: { type: "object" }
+            }
+          }
         }
       },
       paths: {
@@ -168,7 +197,9 @@ export class Apis {
             ...secured(write),
             parameters: [
               { name: "order_id", in: "path", required: true, schema: { type: "string" } },
-              { name: "Idempotency-Key", in: "header", required: false, schema: { type: "string" } }
+              ...(this.company.config.exchangeTakesIdempotencyKey
+                ? [{ name: "Idempotency-Key", in: "header", required: false, schema: { type: "string" } }]
+                : [])
             ],
             requestBody: {
               required: true,
@@ -184,7 +215,7 @@ export class Apis {
             },
             responses: {
               "201": { description: "Exchange placed" },
-              "202": { description: "Operation proposed; confirm it at the operations endpoint" }
+              ...(this.company.config.documentsProposals ? { "202": PROPOSED } : {})
             }
           }
         },
@@ -254,7 +285,7 @@ export class Apis {
             }
           },
           responses: {
-            "202": { description: "Operation proposed; confirm it at the operations endpoint" },
+            ...(this.company.config.documentsProposals ? { "202": PROPOSED } : {}),
             "403": { description: "extension_required: the Operations extension" }
           }
         }
@@ -556,6 +587,18 @@ export class Apis {
                 replacement_sku: { type: "string" }
               }
             },
+            // The tool answers with a proposal (Ops 4.2), as its output schema says.
+            ...(co.config.documentsProposals
+              ? {
+                  outputSchema: {
+                    type: "object",
+                    properties: {
+                      operation: { type: "object", description: "The proposed operation, to confirm at the operations endpoint" },
+                      exchange: { type: "object", description: "The exchange, placed at once for an agent without the Operations extension" }
+                    }
+                  }
+                }
+              : {}),
             annotations: { readOnlyHint: false, destructiveHint: false }
           }
         ]

@@ -5,7 +5,7 @@ import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
 import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
 import { randomId } from "./jwt";
-import { intent } from "./store";
+import { firstTime, intent } from "./store";
 
 type Api = Company["apis"][number];
 
@@ -27,6 +27,12 @@ export type OpenApiOperation = {
   /** A `multipart/form-data` request body: its file fields, its other fields, and whether JSON is accepted too. */
   readonly upload?: Upload;
   readonly acceptsIdempotencyKey: boolean;
+  /**
+   * The description says the operation answers with a proposal (Ops 4.1): a
+   * `202` response whose JSON body has an `operation`. Only such a write goes
+   * to a Company with the Operations extension without our own card first.
+   */
+  readonly proposes: boolean;
   /** Scopes its first security requirement names, the operation's own or the document's. */
   readonly scopes: readonly string[];
 };
@@ -62,6 +68,25 @@ export function uploadOf(root: Json, requestBody: Json | undefined): Upload | un
   for (const [name, property] of Object.entries(properties)) (isBinary(resolveRef(root, property)) ? files : fields).push(name);
   const required = isObject(schema) && Array.isArray(schema.required) ? schema.required.filter((name): name is string => typeof name === "string") : [];
   return { files, fields, required, json: isObject(requestBody.content["application/json"]) };
+}
+
+/**
+ * Whether an OpenAPI operation says it answers with Operations' proposal, as
+ * Ops 4.1 asks ("The Company SHOULD say in its OpenAPI description which
+ * endpoints return operations", with no marker defined: S22): a `202` whose
+ * `application/json` schema has an `operation` property, or poppyseed's
+ * `x-poppy-operation: true`. A bare 202 isn't enough: "Accepted" also means
+ * a job that will act without asking.
+ */
+export function proposesOperation(root: Json, op: Json): boolean {
+  if (!isObject(op)) return false;
+  if (op["x-poppy-operation"] === true) return true;
+  if (!isObject(op.responses ?? null)) return false;
+  const accepted = resolveRef(root, (op.responses as Record<string, Json>)["202"] ?? null);
+  if (!isObject(accepted) || !isObject(accepted.content)) return false;
+  const body = accepted.content["application/json"];
+  const schema = isObject(body) ? resolveRef(root, body.schema ?? null) : null;
+  return isObject(schema) && isObject(schema.properties) && schema.properties.operation !== undefined;
 }
 
 /** The scopes of the first security requirement: `[{ scheme: [scopes] }]`. */
@@ -129,6 +154,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
           ...(requestBody !== undefined ? { requestBody } : {}),
           ...(upload ? { upload } : {}),
           acceptsIdempotencyKey: parameters.some((parameter) => parameter.in === "header" && /^idempotency-key$/i.test(parameter.name)),
+          proposes: proposesOperation(json, op),
           scopes: declaredScopes(op.security ?? json.security)
         });
       }
@@ -357,15 +383,22 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
       if (write) rememberProposal(client, company.issuer, write, operation.operation_id);
       return { status: 202, proposed: { operation_id: operation.operation_id, revision: operation.revision, summary: operation.summary }, note: "Nothing has happened yet; the User decides on the approval card." };
     }
+    return { status: 202, unusable: true, note: UNUSABLE, body };
   }
   return { status: response.status, body };
 }
 
+const UNUSABLE = "The Company proposed an operation the agent can't use, so nothing was done and nothing can be approved; the User has been told.";
+
 /**
  * Call an OpenAPI operation with a DPoP Session Token. Reads go straight
- * through. Writes get a stored `Idempotency-Key` where the API accepts one;
- * at a Company without the operations extension they wait for the User's
- * approval first.
+ * through. A write goes straight to the Company only when it has the
+ * Operations extension and the description says this operation answers with
+ * a proposal (`proposes`); any other write, and every upload, waits for the
+ * User's approval on our own card first, fixed per tool call. A write sent
+ * straight through carries a stored `Idempotency-Key` where the API accepts
+ * one; where it doesn't, it is sent at most once per tool call, so a replay
+ * after a crash says so instead of sending it again.
  */
 export async function callOpenApi(
   client: PoppyClient,
@@ -416,10 +449,26 @@ export async function callOpenApi(
     );
     return { proposed: id, note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
   }
-  if (op.method === "GET" || company.extensions.operations) {
+  if (op.method === "GET") return performOpenApi(client, company, label, call);
+  if (company.extensions.operations && op.proposes) {
+    if (!call.idempotencyKey && !firstTime(client.sql, `sent|${request.callKey}`)) {
+      throw new PoppyError(
+        "interrupted",
+        `This call to ${company.name} was interrupted after it may have been sent, and the operation takes no Idempotency-Key, so it isn't sent again. Check poppy_status for a proposal from ${company.name} before asking again.`,
+        0
+      );
+    }
     return performOpenApi(client, company, label, call);
   }
-  const id = await proposeLocal(client, company, label, "openapi", `${company.name}: ${op.method} ${op.path} (${op.summary || op.operationId}) with ${JSON.stringify({ params: call.params, body: call.body ?? null })}`, { issuer: company.issuer, call } as unknown as Json);
+  const id = await proposeLocal(
+    client,
+    company,
+    label,
+    "openapi",
+    `${company.name}: ${op.method} ${op.path} (${op.summary || op.operationId}) with ${JSON.stringify({ params: call.params, body: call.body ?? null })}`,
+    { issuer: company.issuer, call } as unknown as Json,
+    { id: intent(client.sql, `approval|${request.callKey}`, () => randomId("apr_")) }
+  );
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
 
@@ -586,14 +635,28 @@ async function performMcp(client: PoppyClient, company: Company, label: string, 
       rememberProposal(client, company.issuer, write, operation.operation_id);
       return { proposed: { operation_id: operation.operation_id, revision: operation.revision, summary: operation.summary }, note: "Nothing has happened yet; the User decides on the approval card." };
     }
+    return { unusable: true, note: UNUSABLE, result };
   }
   return result;
 }
 
 /**
- * Call an MCP tool. Tools marked `readOnlyHint` go straight through; others
- * wait for the User's approval at a Company without the operations
- * extension, as with OpenAPI writes.
+ * Whether an MCP tool says it answers with a proposal (Ops 4.2): its
+ * `outputSchema` has an `operation` property, the MCP counterpart of an
+ * OpenAPI 202 with one.
+ */
+export function mcpToolProposes(tool: Json): boolean {
+  if (!isObject(tool) || !isObject(tool.outputSchema)) return false;
+  const { properties } = tool.outputSchema;
+  return isObject(properties) && properties.operation !== undefined;
+}
+
+/**
+ * Call an MCP tool. A tool marked `readOnlyHint` goes straight through, as an
+ * OpenAPI GET does: it is the Company's own server saying the call changes
+ * nothing (our reading, docs/readings.md). So does a tool at a Company with
+ * the Operations extension whose `outputSchema` says it proposes. Any other
+ * tool waits for the User's approval on our own card, as an OpenAPI write does.
  */
 export async function callMcpTool(
   client: PoppyClient,
@@ -607,15 +670,9 @@ export async function callMcpTool(
   if (!isObject(tool)) throw new PoppyError("no_tool", `${api.url} has no tool ${request.tool}`, 0);
   const readOnly = isObject(tool.annotations) && tool.annotations.readOnlyHint === true;
   const call = { apiUrl: api.url, tool: request.tool, args: request.args };
-  if (readOnly || company.extensions.operations) return performMcp(client, company, label, call);
+  if (readOnly || (company.extensions.operations && mcpToolProposes(tool))) return performMcp(client, company, label, call);
   const id = await proposeLocal(client, company, label, "mcp", `${company.name}: run ${request.tool} with ${JSON.stringify(request.args)}`, { issuer: company.issuer, call } as unknown as Json);
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
-}
-
-export async function isReadOnlyMcpTool(client: PoppyClient, company: Company, label: string, apiUrl: string | undefined, toolName: string): Promise<boolean> {
-  const tools = await listMcpTools(client, company, label, apiUrl);
-  const tool = tools.find((item) => isObject(item) && item.name === toolName);
-  return isObject(tool) && isObject(tool.annotations) && tool.annotations.readOnlyHint === true;
 }
 
 registerExecutor("mcp", async (client, request, label) => {

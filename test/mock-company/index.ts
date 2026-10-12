@@ -184,9 +184,16 @@ export class MockCompany extends DurableObject<Env> {
       if (id && action === "close" && method === "POST") return conversations.close(inbound, context, id);
       return json({ error: "not_found" }, 404);
     }
-    const operation = /^\/poppy\/operations\/([A-Za-z0-9_-]+)(?:\/(confirm|cancel))?$/.exec(path);
+    // An operation id is the Company's own text, percent-encoded in the path (Ops 3).
+    const operation = /^\/poppy\/operations\/([^/]+)(?:\/(confirm|cancel))?$/.exec(path);
     if (operation) {
-      const [, id, action] = operation;
+      const [, encoded, action] = operation;
+      let id: string;
+      try {
+        id = decodeURIComponent(encoded!);
+      } catch {
+        return json({ error: "operation_not_found" }, 404);
+      }
       if (!company.config.operations || !context.client.listsOperations) {
         return json({ error: "operation_not_found" }, 404);
       }
