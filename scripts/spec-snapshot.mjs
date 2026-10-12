@@ -467,22 +467,42 @@ function walkthroughMarkdown(list) {
 
 const KEYWORD = /\b(MUST NOT|MUST|SHALL NOT|SHALL|SHOULD NOT|SHOULD|REQUIRED|RECOMMENDED|NOT RECOMMENDED|MAY|OPTIONAL)\b/g;
 
-/** Sentences with a BCP 14 keyword in capitals, outside code, without the boilerplate that defines the keywords. */
+/**
+ * Sentences with a BCP 14 keyword in capitals, outside code, without the
+ * boilerplate that defines the keywords: [{ section, text }], where section
+ * is the nearest heading above. Table cells count as sentences of their own.
+ */
 export function keywordSentences(markdown) {
-  const text = markdown.replace(/```[\s\S]*?```/g, "\n").replace(/`[^`]*`/g, "x");
-  const units = text
-    .split(/\n\s*\n|\n(?=\s*(?:[-*] |\d+\. |\|))/)
-    .flatMap((block) => (block.trim().startsWith("|") ? block.split(/\s\|\s/) : [block]))
-    .flatMap((block) => block.replace(/\s+/g, " ").split(/(?<=[.!?])\s+(?=[A-Z*[("])/));
-  return units
-    .map((s) => s.trim())
-    .filter((s) => s.match(KEYWORD) && !/key words .*BCP 14|in the sense of SHOULD|it says MUST and links/.test(s));
+  const spans = [];
+  const text = markdown
+    .replace(/```[\s\S]*?```/g, "\n")
+    .replace(/`[^`]*`/g, (span) => `\u0001${spans.push(span) - 1}\u0001`);
+  const restore = (s) => s.replace(/\u0001(\d+)\u0001/g, (_, i) => spans[Number(i)]);
+  const found = [];
+  let section = "";
+  for (const block of text.split(/\n\s*\n|\n(?=\s*(?:[-*] |\d+\. |\||#))/)) {
+    const heading = block.trim().match(/^#+\s+(.*)/);
+    if (heading) {
+      section = heading[1].trim();
+      continue;
+    }
+    const cells = block.trim().startsWith("|") ? block.split(/\s\|\s/) : [block];
+    for (const cell of cells) {
+      for (const sentence of cell.replace(/\s+/g, " ").split(/(?<=[.!?])\s+(?=[A-Z*[("])/)) {
+        const s = sentence.trim();
+        if (s.match(KEYWORD) && !/key words .*BCP 14|in the sense of SHOULD|it says MUST and links/.test(s)) {
+          found.push({ section, text: restore(s) });
+        }
+      }
+    }
+  }
+  return found;
 }
 
 function keywordCounts(markdown) {
   const sentences = keywordSentences(markdown);
   const words = {};
-  for (const s of sentences) for (const [w] of s.matchAll(KEYWORD)) words[w] = (words[w] ?? 0) + 1;
+  for (const { text } of sentences) for (const [w] of text.matchAll(KEYWORD)) words[w] = (words[w] ?? 0) + 1;
   return { sentences: sentences.length, words };
 }
 
