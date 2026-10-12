@@ -109,6 +109,8 @@ The API accepts any origin and uses no cookies; URL checks are limited to 20 a m
 
 [`docs/implementations.md`](docs/implementations.md) surveys every public Poppy implementation we found on 11 October 2026: Datalayer's SDK, poppyseed, pi-poppy, adonis-agora, poppy-demo, everruns, Ilmer and others, with licences, maturity and live deployments. The ones our harness runs are in [`interop/registry.json`](interop/registry.json): six other projects, plus everruns' adapters (written, not yet run) and a README for a TYPO3 Company whose extension is private. What we found in them is in [`docs/poppy-issues.md`](docs/poppy-issues.md), and a snapshot of the last full grid in [`docs/interop-results/`](docs/interop-results/README.md).
 
+[`docs/ecosystem.md`](docs/ecosystem.md) maps the whole Poppy ecosystem as of 12 October 2026, from the spec and its checkers to the demo Companies you can reach, and how to keep the map current.
+
 ## Project layout
 
 ```text

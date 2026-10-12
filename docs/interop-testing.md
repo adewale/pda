@@ -1,6 +1,6 @@
 # M×N interoperability testing for Poppy
 
-How to test every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, using pirate testing. This is the design and its rationale; [interop-spec.md](interop-spec.md) is the contract an implementation meets to join, and [`interop/`](../interop/README.md) is the harness. The implementations are surveyed in [implementations.md](implementations.md), and the ones the harness runs are in [`interop/registry.json`](../interop/registry.json); the spec issues the grid exercises are in [spec-issues.md](spec-issues.md), and what it found in each project is in [poppy-issues.md](poppy-issues.md). A summary of the last full grid, a snapshot, is in [interop-results/](interop-results/README.md). How these ideas evolved is in [conformance-testing-history.md](conformance-testing-history.md), and the next step, deliberately misbehaving peers, in [adversarial-interop.md](adversarial-interop.md).
+How to test every Personal Agent implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) against every Company implementation, using pirate testing. This is the design and its rationale; [interop-spec.md](interop-spec.md) is the contract an implementation meets to join, and [`interop/`](../interop/README.md) is the harness. The implementations are surveyed in [implementations.md](implementations.md) and mapped in [ecosystem.md](ecosystem.md); the newest ones that could join, and a cross-check of the validators, are [below](#candidates-from-the-12-october-survey), and the ones the harness runs are in [`interop/registry.json`](../interop/registry.json); the spec issues the grid exercises are in [spec-issues.md](spec-issues.md), and what it found in each project is in [poppy-issues.md](poppy-issues.md). A summary of the last full grid, a snapshot, is in [interop-results/](interop-results/README.md). How these ideas evolved is in [conformance-testing-history.md](conformance-testing-history.md), and the next step, deliberately misbehaving peers, in [adversarial-interop.md](adversarial-interop.md).
 
 ## What's built
 
@@ -120,6 +120,52 @@ Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repos
    - Scenarios: SV, SM, R, SE, CS, H, DC, AO, AM, RL.
    - Invite implementers by registry pull request.
 5. **Live lane.** Public deployments (poppy.ilmer.org, withpoppyseed.dev), signed-out only and gently rate-limited. AdonisJS authkit and everruns come later; W needs real browsers.
+
+## Candidates from the 12 October survey
+
+The re-survey ([implementations.md](implementations.md), [ecosystem.md](ecosystem.md)) found these. None was added to the registry: the runner refuses to start with less than 2 GB free on Docker's disk, there was about 2.4 GB, and the one runnable new Company would need a large image.
+
+| Project | Side it could join | What an adapter would need | Decision |
+| --- | --- | --- | --- |
+| [print-with-poppy](https://github.com/spenciefy/print-with-poppy) at `7ef69be` | Company | A Node 24 image with its native dependencies (`better-sqlite3`, `sharp`), run with `APP_MODE=demo` (payments, prints and email are simulated), `PUBLIC_URL` on `*.interop.test`, and our agent's `client_id` in `AGENT_CLIENT_IDS`: an ordinary setting, not a relaxation; Node trusts the run's CA through `NODE_EXTRA_CA_CERTS`, as for our own adapters. Hooks: `reset` (a fresh `DATA_DIR`), `fixture` (no scopes, its OpenAPI operations). It could take D, S0, AO and, through its required Operations v1, O and OX; it has no sign-in, nonces or conversations. No licence is declared, so the adapter fetches upstream at build and keeps nothing. | Not built: disk. The first new Company with Operations and a real checkout flow, so worth it when there is room. |
+| [nestjs-agent](https://github.com/DavideCarvalho/nestjs-agent) `packages/poppy` at `548576a` | Company (the agent side is a copy of adonis-agora's client, already in the grid) | The conversation endpoint with its in-memory stores and fake model, behind adonis-agora AuthKit for discovery, tokens and the token resolver, as our `adonis-agora-company` image already runs. Built from the workspace, since the package isn't on npm. | Not built: it would add only a second conversation endpoint behind the same AuthKit. |
+| [tusharck/poppy-validator](https://github.com/tusharck/poppy-validator) at `d2220bf`, [habib-analyst/poppy-sidecar](https://github.com/habib-analyst/poppy-sidecar) at `858db66` | Neither: they check documents | A validator is a reference row for attribution rule 2 at most. What they can do now is check the same documents as ours: the [cross-check](#validator-cross-check) below. | Run once, by hand. |
+| [tiny-poppy-gate](https://github.com/bobbyhalljr/tiny-poppy-gate) at `a7d084d` | Neither | Nothing to adapt: an in-memory toy with its own document shape, no HTTP and no OAuth. | n/a |
+| Fillthemat ([draft PR #200](https://github.com/fillthemat/fillthemat/pull/200)) | Company, later | Its discovery document so far has no `agent`, `apis` or `web`. Its issuers have a path on a shared host (`https://auth.fillthemat.com/schools/<id>`), the deployment our `DP` scenario was written for. | Watch; an adapter once sign-in or a Company Agent is merged. |
+
+Datalayer's 0.10.0 (`0c048aa`, 34 commits past our pin) changes cells: its Companies now accept a client assertion `aud` of the issuer, the token endpoint or the endpoint called, so adonis-agora's S1 known failures at both Datalayer Companies should pass, and assertions over 120 s are refused. Device Sign-In still doesn't retry `use_dpop_nonce`, the TypeScript SSE client still gives up after five quick reconnects, some optional Operation members are still `null`, and renewal still needs `session_id`. Moving the pin means rebuilding two images and re-running their rows and columns.
+
+## Validator cross-check
+
+A validator is neither a Personal Agent nor a Company, so it has no row or column in the grid. Instead, on 12 October we ran ours and the two open third-party validators over the same `poppy.json` documents, in file mode with the requested domain given and no network.
+
+- **Documents (107):** the 26 `poppy.json` fixtures of `test/validator.test.ts` (the spec's example, poppy-demo's live document as served on 11 October, and each mutation); 27 probes, one per rule we expected the validators to read differently; poppy-validator's own 51 fixtures; and poppy-sidecar's 3 generated examples. The grid's Companies serve their documents only at run time, and their HAR files aren't kept, so only poppy-demo's is in the set.
+- **How:** ours through `validateText` in Node. Theirs in a container with `--network none`, on the Datalayer Python image already on disk plus `jsonschema` 4.23.0, with their source copied in at the pinned commit. The scripts were one-off and aren't in the repository.
+- **Same verdict (valid or not):** ours and poppy-validator on 75 of 107; ours and poppy-sidecar on 84; all three on 65. poppy-sidecar is the loosest: it accepts malformed versions, unparseable issuers and extension names without a domain, and checks HTTPS only as a prefix.
+
+The 32 documents where ours and poppy-validator differ, by cause, each checked against [the stored draft](../spec/draft-0.1-2026-10-09/pages/spec.md):
+
+| Rule | Docs | Ours | poppy-validator | The draft | Who's right |
+| --- | --- | --- | --- | --- | --- |
+| HTTPS for `apis[].url`, `auth.mediated.endpoint`, `web.browser_session_endpoint` | 6 | error | info (advisory) | HTTPS is stated only for `issuer` and conversation endpoints (3.1) | Both say why. Ours is stricter on purpose ([N9](spec-issues.md#n9)), and its message says so. |
+| An issuer with a query or fragment, in a file | 3 | error | info; error only when it fetches the metadata | RFC 8414 §2 defines the issuer without either | The same rule; we apply it without the network. |
+| `poppy:` scopes other than read and write | 2 | error | info | "Names starting with `poppy:` are reserved for this protocol" (4.4), with no keyword | A rule without a keyword: a judgement either way. |
+| Scope syntax (a space in a scope) | 2 | error | info | RFC 6749 §3.3's grammar | Ours: such a scope can't be requested at all. |
+| Extension `version` as an integer | 2 | error | accepted | "Each entry has a `version`, the extension's major version" (3.3); no type stated ([N22](spec-issues.md#n22)); the examples are strings | Theirs: we're stricter than the text. A warning would do. |
+| Empty `auth.mediated.fields`; a field name listed twice | 2 | error | nothing; info | Silent | Ours, but it rests on no text. |
+| `operations` without its `endpoint` | 1 | error | not checked | "lists the extension … with the URL of its operations endpoint" (Ops 2) | Ours; they don't check extensions' members. |
+| A duplicate JSON member | 1 | error | accepted (Python keeps the last) | RFC 8259 §4: names SHOULD be unique | Ours: two parsers can see two different documents. |
+| An unparseable `resource` | 1 | error | info (it's a MAY member) | RFC 8707 asks for an absolute URI | Ours. |
+| A trailing dot on `organization.domain` | 1 | error | info | Silent | Cosmetic; either. |
+| An API type other than `openapi` or `mcp` in a 0.1 document | 2 | info | error | "Each API's `type` MUST be one of these" (6); agents SHOULD skip unknown ones | **Theirs**, for a document that says 0.1; they make it info for a newer minor, as we do for every document. |
+| A plain extension name the draft doesn't define | 2 | warning | error | "Anyone else MUST start an extension's name with a domain they control" (3.3) | **Theirs** by the letter; a later minor version may define the name, which is why we warn. |
+| `apis[]` entry with no `description` | 2 | warning | error | "Each has a `type` …, a `url`, and a short `description`" (3.1) | Theirs by the field table; harmless to agents either way. |
+| `agent.protocols: []` | 2 | warning | error | "`protocols` lists its supported conversation protocols" (3.1) | Theirs: an empty list offers nothing. |
+| No `organization.name` | 1 | warning | error (sidecar too) | `organization`: "Display name and domain", required (3.1) | Open: [S18](spec-issues.md#s18). |
+| A byte order mark | 1 | warning | error (neither Python parser reads it) | RFC 8259 §8.1: senders MUST NOT add one; parsers MAY ignore it | The Company breaks a MUST NOT; an error is defensible. |
+| `auth.issuer` of `https://.` | 1 | accepted | error | An HTTPS URL that names a host | **Theirs: a gap in ours.** `httpsUrl` in `src/validator/primitives.ts` checks the scheme, not the host. |
+
+The changes this suggests to our validator are in [implementations.md](implementations.md#what-we-can-learn-from-the-12-october-participants). Things only ours checks: the issuer's metadata beyond endpoints (auth methods, algorithms, PKCE, the `iss` parameter), client metadata and JWKS, size, content type, UTF-8, non-public hosts, and a secret-looking mediated field marked `secret: false`. Things only poppy-validator reports: an issuer's metadata found only at the appended location (`OA09`, a diagnostic for S3), an empty `apis` list, an uppercase domain, and `web` without a browser session endpoint.
 
 ## Risks
 
