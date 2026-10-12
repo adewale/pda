@@ -115,7 +115,7 @@ A security property the draft states as a MUST, RFC MUST or Rule stays a failure
 
 The grid's mock (`MOCK_BASE`) no longer lists an API of type `graphql`. The conformance tests' default still lists one, to check that agents skip it. Under section 6 that is a MUST the mock breaks on purpose, and a reference Company keeps to every MUST.
 
-**Validator.** 75 messages, against 71 before, each with a basis. Errors went from 39 to 34, warnings from 20 to 29, and info stayed at 12.
+**Validator.** 75 messages, against 71 before, each with a basis. Errors went from 39 to 34, warnings from 20 to 29, and info stayed at 12. A 76th, `http-non-public-address`, came later, with the Node CLI's address check.
 
 - Nine errors became warnings (all listed above, and our client still refuses every one):
   - the five fetch-limit messages;
