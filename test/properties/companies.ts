@@ -69,9 +69,10 @@ export const companies = gs.composite<GeneratedCompany>((tc) => {
     auth.custom_scopes = Object.fromEntries(custom.map((scope) => [scope, tc.draw(gs.text({ maxSize: 40 }))]));
   }
 
+  // Any minor: one newer than the validator knows is information, not an error.
+  const minor = tc.draw(gs.integers({ minValue: 0, maxValue: Number.MAX_SAFE_INTEGER }));
   const poppy: Record<string, any> = {
-    // Any minor: one newer than the validator knows is information, not an error.
-    protocol_version: `0.${tc.draw(gs.integers({ minValue: 0, maxValue: Number.MAX_SAFE_INTEGER }))}`,
+    protocol_version: `0.${minor}`,
     organization: { name: tc.draw(gs.text({ maxSize: 40 })), domain },
     auth
   };
@@ -83,7 +84,9 @@ export const companies = gs.composite<GeneratedCompany>((tc) => {
     poppy.apis = tc.draw(
       gs.arrays(
         gs.composite((inner) => {
-          const type = inner.draw(gs.sampledFrom(["openapi", "mcp", "graphql"]));
+          // 6: "Each API's type MUST be one of these", so a valid 0.0 or 0.1 document has only
+          // openapi and mcp; a newer minor may add types, which agents skip (3.1, 6).
+          const type = inner.draw(gs.sampledFrom(minor > 1 ? ["openapi", "mcp", "graphql"] : ["openapi", "mcp"]));
           return { type, url: `${api}${inner.draw(paths)}/${type}`, description: inner.draw(gs.text({ minSize: 1, maxSize: 30 })) };
         }),
         { minSize: 1, maxSize: 3 }

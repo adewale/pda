@@ -20,11 +20,12 @@ Options:
   --fetched-from <url>  For a client metadata file: the URL that serves it
   --protocol <x.y>      Version for documents that don't declare one (default: newest known)
   --json                Print the JSON report
-  --strict              Fail on warnings too
+  --strict              Fail on warnings too (SHOULDs, the Guides, our readings)
   --quiet               Print errors only
   --version, --help
 
-Exit status: 0 valid, 1 invalid, 2 couldn't check or bad usage.
+Exit status: 0 valid, 1 invalid (an error: a MUST or normative rule broken), 2 couldn't check or bad usage.
+Each message names its basis; only errors make a document invalid (docs/conformance-levels.md).
 Every message's explanation: /validator/messages on any deployment of this agent.`;
 
 const KINDS: readonly DocumentKind[] = ["poppy", "oauth-metadata", "client-metadata", "jwks"];
@@ -92,8 +93,9 @@ if (values.json) {
     if (values.quiet && message.severity !== "error") continue;
     const position = message.line !== undefined ? `:${message.line}:${message.column}` : "";
     const pointer = message.pointer ? ` at ${message.pointer}` : "";
+    const policy = message.refuses && message.severity !== "error" ? "; our agent refuses it" : !message.refuses && message.severity === "error" ? "; our agent tolerates it" : "";
     process.stdout.write(
-      `${where(message.document)}${position}: ${message.severity} [${message.id}] ${message.text}${pointer} (${message.ref.label})\n`
+      `${where(message.document)}${position}: ${message.severity} [${message.id}] ${message.text}${pointer} (${message.basis}${policy}; ${message.ref.label})\n`
     );
   }
   if (!values.quiet) {
@@ -102,13 +104,14 @@ if (values.json) {
   const { error, warning, info } = report.counts;
   const headline =
     report.outcome === "indeterminate"
-      ? "couldn't check: a document couldn't be fetched"
+      ? "couldn't check: a document couldn't be fetched within the limits"
       : report.outcome === "invalid"
         ? "not valid"
         : warning > 0
-          ? "valid, with recommendations"
+          ? "valid, with warnings"
           : "valid";
-  process.stdout.write(`${headline} (${report.checkedAgainst}): ${error} errors, ${warning} warnings, ${info} info\n`);
+  const ours = report.outcome === "indeterminate" ? "" : report.refused ? "; our agent refuses it" : report.outcome === "invalid" ? "; our agent tolerates it" : "";
+  process.stdout.write(`${headline} (${report.checkedAgainst}): ${error} errors, ${warning} warnings, ${info} info${ours}\n`);
 }
 
 const failed = report.outcome === "invalid" || (values.strict && report.counts.warning > 0);

@@ -15,7 +15,7 @@ import { Web } from "./web";
 
 export { companyIdFromHost, hostsFor, DEFAULT_CONFIG };
 export { CLOCK_HEADER } from "./core";
-export { basisOf, STRICT_ONLY, VIOLATION_IDS, VIOLATIONS, violationId, type Basis, type ViolationId } from "./violations";
+export { basisOf, isViolation, levelOfCheck, VIOLATION_IDS, VIOLATIONS, violationId, type Basis, type Level, type ViolationId } from "./violations";
 export type { MockAccount, MockConfig, MockRequest, MockState, Hosts } from "./types";
 
 type Parts = {
@@ -215,7 +215,9 @@ export class MockCompany extends DurableObject<Env> {
   async state(): Promise<MockState> {
     const { company, conversations, operations } = this.#named();
     return {
-      violations: [...company.violations],
+      recorded: [...company.recorded],
+      violations: company.violations,
+      warnings: company.warnings,
       requests: company.requests.map((request) => ({ ...request, headers: { ...request.headers } })),
       revocationHints: [...company.revocationHints],
       userIds: [...company.userIds],

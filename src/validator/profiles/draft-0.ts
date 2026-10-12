@@ -22,13 +22,16 @@ import {
   sameDomain,
   stringList,
   unknownMembers,
-  type Obj
+  type Obj,
+  type UrlRules
 } from "../primitives.ts";
 import type { ClientFacts, Profile, PoppyFacts } from "./profile.ts";
 
 const PROTOCOL_SCOPES = ["poppy:read", "poppy:write"];
 const SIGN_IN_TYPES = ["direct", "device", "mediated"] as const;
 const API_TYPES = ["openapi", "mcp"];
+/** URLs the draft doesn't require to be HTTPS or fragment-free (spec-issues N9): we do, as a reading. */
+const OURS: UrlRules = { https: "unstated", fragment: "unstated" };
 /** Extensions defined with the protocol, and the versions this validator knows. */
 const PROTOCOL_EXTENSIONS: Readonly<Record<string, readonly string[]>> = { operations: ["1"] };
 const LOOKS_SECRET = /pass(word|code|phrase)?|\bpin\b|otp|one.?time|secret|security.?(code|answer)|cvv|cvc/i;
@@ -116,7 +119,7 @@ export function checkAuth(c: Checker, auth: Obj): Pick<PoppyFacts, "issuer" | "s
     const scopes = member<unknown[]>(c, entry, at, "scopes", "array", true, spec("4.4", "sign-in"));
     if (scopes) for (const scope of checkScopes(c, scopes, `${at}/scopes`)) offered.add(scope);
     if (type === "mediated") {
-      httpsMember(c, entry, at, "endpoint", true, spec("4.7", "mediated-sign-in"));
+      httpsMember(c, entry, at, "endpoint", true, spec("4.7", "mediated-sign-in"), OURS);
       checkMediatedFields(c, entry);
       unknownMembers(c, entry, at, ["endpoint", "fields", "scopes"]);
     } else {
@@ -159,7 +162,7 @@ export function checkAgent(c: Checker, agent: Obj): void {
       return;
     }
     const type = member<string>(c, entry, at, "type", "string", true, spec("7.1", "conversation-protocols"));
-    httpsMember(c, entry, at, "endpoint", true, spec("7.1", "conversation-protocols"));
+    httpsMember(c, entry, at, "endpoint", true, spec("7.1", "conversation-protocols"), { fragment: "unstated" });
     if ("resource" in entry) resourceIndicator(c, entry.resource, `${at}/resource`);
     if (type === "poppy") poppy = true;
     else if (type !== undefined) c.report("protocol-type-unknown", `${at}/type`, `Agents that don't know ${JSON.stringify(type)} skip this entry.`);
@@ -168,7 +171,16 @@ export function checkAgent(c: Checker, agent: Obj): void {
   if (!poppy) c.report("no-poppy-protocol", "/agent/protocols", "agent.protocols has no entry of type poppy.");
 }
 
-export function checkApis(c: Checker, apis: unknown[]): void {
+/** Minor versions of 0.x this profile was written against; a document declaring a newer one may use what it adds (3.1). */
+const MINORS = [1];
+
+/** Whether a poppy.json declares a 0.x minor version newer than this profile knows. */
+function newerMinor(version: unknown): boolean {
+  const match = typeof version === "string" ? /^0\.(0|[1-9]\d*)$/.exec(version) : null;
+  return match !== null && Number(match[1]) > Math.max(...MINORS);
+}
+
+export function checkApis(c: Checker, apis: unknown[], newer = false): void {
   apis.forEach((entry, index) => {
     const at = `/apis/${index}`;
     if (!isObject(entry)) {
@@ -177,9 +189,10 @@ export function checkApis(c: Checker, apis: unknown[]): void {
     }
     const type = member<string>(c, entry, at, "type", "string", true, spec("6", "apis"));
     if (type !== undefined && !API_TYPES.includes(type)) {
-      c.report("api-type-unknown", `${at}/type`, `Agents skip APIs of type ${JSON.stringify(type)}.`);
+      if (newer) c.report("api-type-newer", `${at}/type`, `Agents that don't know APIs of type ${JSON.stringify(type)} skip them.`);
+      else c.report("api-type-unknown", `${at}/type`, `${JSON.stringify(type)} isn't an API type of this version (openapi or mcp); agents skip it.`);
     }
-    const url = httpsMember(c, entry, at, "url", true, spec("6", "apis"));
+    const url = httpsMember(c, entry, at, "url", true, spec("6", "apis"), OURS);
     const description = member<string>(c, entry, at, "description", "string", false, spec("6", "apis"));
     if (!("description" in entry) || description === "") {
       c.report("api-description-missing", `${at}/description`, `${label(at)} has no description to help agents choose it.`);
@@ -195,7 +208,7 @@ export function checkApis(c: Checker, apis: unknown[]): void {
 }
 
 export function checkWeb(c: Checker, web: Obj): boolean {
-  const endpoint = httpsMember(c, web, "/web", "browser_session_endpoint", false, spec("5", "web-browsing"));
+  const endpoint = httpsMember(c, web, "/web", "browser_session_endpoint", false, spec("5", "web-browsing"), OURS);
   unknownMembers(c, web, "/web", ["browser_session_endpoint"]);
   return endpoint !== undefined || "browser_session_endpoint" in web;
 }
@@ -213,12 +226,17 @@ export function checkExtensions(c: Checker, extensions: Obj): void {
       c.report("wrong-type", at, `The ${name} extension's entry must be an object with a version.`, spec("3.3", "extensions"));
       continue;
     }
+    // 3.3 gives no JSON type for version (N22); a number is our reading's warning, not wrong-type.
+    if (typeof entry.version === "number") {
+      c.report("extension-version-number", `${at}/version`, `The ${name} extension's version is the number ${entry.version}; write it as a string, such as "${entry.version}".`);
+      continue;
+    }
     const version = member<string>(c, entry, at, "version", "string", true, spec("3.3", "extensions"));
     if (name === "operations") {
       if (version !== undefined && !PROTOCOL_EXTENSIONS.operations!.includes(version)) {
         c.report("extension-version-unknown", `${at}/version`, `operations version ${version} isn't one this validator knows (1).`);
       } else if (version !== undefined) {
-        httpsMember(c, entry, at, "endpoint", true, operationsExt("2", "support"));
+        httpsMember(c, entry, at, "endpoint", true, operationsExt("2", "support"), OURS);
         if ("resource" in entry) resourceIndicator(c, entry.resource, `${at}/resource`);
         unknownMembers(c, entry, at, ["version", "endpoint", "resource"]);
       }
@@ -238,7 +256,7 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   const apis = member<unknown[]>(c, doc, "", "apis", "array", false);
   const web = member<Obj>(c, doc, "", "web", "object", false);
   if (agent) checkAgent(c, agent);
-  if (apis) checkApis(c, apis);
+  if (apis) checkApis(c, apis, newerMinor(doc.protocol_version));
   const browserSession = web ? checkWeb(c, web) : false;
   if (!("agent" in doc) && !("apis" in doc) && !("web" in doc)) {
     c.report("nothing-offered", "", "poppy.json has none of agent, apis or web.");
@@ -329,13 +347,13 @@ export function checkClientMetadata(c: Checker, doc: unknown, context: { fetched
     c.report("wrong-type", "", "Client metadata must be a JSON object.", ref);
     return facts;
   }
-  const clientId = httpsMember(c, doc, "", "client_id", true, ref);
+  const clientId = httpsMember(c, doc, "", "client_id", true, ref, { fragment: "unstated" });
   if (clientId && context.fetchedFrom !== undefined && doc.client_id !== context.fetchedFrom) {
     c.report("client-id-mismatch", "/client_id", `client_id is ${String(doc.client_id)}, but the document was fetched from ${context.fetchedFrom}.`);
   }
   member<string>(c, doc, "", "client_name", "string", false, ref);
-  if ("logo_uri" in doc) httpsMember(c, doc, "", "logo_uri", false, ref);
-  const jwksUri = httpsMember(c, doc, "", "jwks_uri", true, ref);
+  if ("logo_uri" in doc) httpsMember(c, doc, "", "logo_uri", false, ref, OURS);
+  const jwksUri = httpsMember(c, doc, "", "jwks_uri", true, ref, { fragment: "unstated" });
   if (jwksUri && clientId && !sameDomain(jwksUri.hostname, clientId.hostname)) {
     c.report("client-other-domain", "/jwks_uri", `jwks_uri is on ${jwksUri.hostname}, not client_id's domain ${clientId.hostname}.`);
   }
@@ -416,7 +434,7 @@ export function checkJwks(c: Checker, doc: unknown): void {
 
 export const draft0: Profile = {
   major: 0,
-  minors: [1],
+  minors: MINORS,
   name: "Draft 0.1",
   poppy: checkPoppy,
   oauthMetadata: checkOAuthMetadata,

@@ -353,7 +353,7 @@ A document without `auth` can only be browsed as an ordinary website (§3.1), an
   - The form (`/validator`).
 
   The library has no Worker dependencies. feedvalidator and feedparser were separate codebases, so "valid" and "parses" drifted apart; here they can't.
-- **Severity follows RFC 2119, with named exceptions.** An `error` refuses the document, as our client does: a broken MUST or required field, or one of a few rules the draft doesn't make, each saying so in its explanation (fetching limits from the Guides; HTTPS for every URL, spec-issues N9; duplicate member names and `kid`s; key types). A `warning` is a SHOULD or an interoperability hazard. An `info` is harmless, such as an unknown field, which the spec says to ignore. Warnings never change validity.
+- **Severity follows the basis** ([docs/conformance-levels.md](docs/conformance-levels.md)). An `error` is a broken MUST, a broken MUST of an RFC the draft builds on, or a broken normative rule stated without a key word; only errors make documents invalid. A `warning` departs from a SHOULD, the Guides or one of our readings. An `info` reports something harmless, such as an unknown field, which the spec says to ignore. Whether our client refuses the documents is reported separately (`refused`): every error except the few the draft tells readers to tolerate, and the warnings that guard against hostile documents (fetching limits from the Guides, duplicate member names, HTTPS for every URL as in spec-issues N9).
 - **Three outcomes.**
   - `valid`
   - `invalid`

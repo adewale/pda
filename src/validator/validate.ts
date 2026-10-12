@@ -5,13 +5,19 @@
  */
 import { fetchDocument, metadataUrl, type Fetched, type Fetcher } from "./fetch.ts";
 import { parseJson } from "./json.ts";
+import { MESSAGES } from "./messages.ts";
 import { Checker, isHostname, isObject, type DocumentKind, type Message } from "./primitives.ts";
 import { LATEST, PROFILES, profileForMajor } from "./profiles/index.ts";
 import type { PoppyFacts, Profile } from "./profiles/profile.ts";
 
 export const VALIDATOR = { name: "poppy-validator", version: "1.0.0" } as const;
 
-/** valid: no errors. invalid: an error (a MUST broken, or a limit or reading of ours that the message names). indeterminate: a document couldn't be fetched. */
+/**
+ * valid: no errors. invalid: an error, which is a MUST, an RFC's MUST or a
+ * normative statement without a key word broken (docs/conformance-levels.md).
+ * indeterminate: a document couldn't be fetched, or not within the limits
+ * the Guides recommend, so it wasn't checked.
+ */
 export type Outcome = "valid" | "invalid" | "indeterminate";
 
 export type DocumentResult = {
@@ -36,16 +42,26 @@ export type Report = {
   readonly checkedAgainst: string;
   readonly documents: readonly DocumentResult[];
   readonly counts: { readonly error: number; readonly warning: number; readonly info: number };
+  /**
+   * Whether our own client refuses these documents (it reads a Company's;
+   * for an agent's, only the document being unreachable counts): a message that `refuses`
+   * (every error but those the draft tells a reader to tolerate, and the
+   * warnings that guard against hostile documents), or a document that
+   * couldn't be checked. Separate from `outcome`, which is about the draft.
+   */
+  readonly refused: boolean;
   readonly messages: readonly Message[];
   readonly skipped: readonly Skipped[];
 };
 
-const UNREACHABLE = new Set(["http-failed", "http-status"]);
+/** Messages after which the document wasn't fetched or read, so nothing in it was checked. */
+const UNREACHABLE = new Set(["http-failed", "http-status", "http-non-public-host", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large"]);
 
 function report(profile: Profile, documents: DocumentResult[], checkers: Checker[], skipped: Skipped[]): Report {
   const messages = checkers.flatMap((c) => c.messages);
   const count = (severity: Message["severity"]) => messages.filter((m) => m.severity === severity).length;
-  const outcome: Outcome = messages.some((m) => UNREACHABLE.has(m.id))
+  const unreachable = messages.some((m) => UNREACHABLE.has(m.id));
+  const outcome: Outcome = unreachable
     ? "indeterminate"
     : count("error") > 0
       ? "invalid"
@@ -57,6 +73,7 @@ function report(profile: Profile, documents: DocumentResult[], checkers: Checker
     checkedAgainst: profile.name,
     documents,
     counts: { error: count("error"), warning: count("warning"), info: count("info") },
+    refused: unreachable || messages.some((m) => m.refuses),
     messages,
     skipped
   };
@@ -68,7 +85,9 @@ function parse(c: Checker, text: string): unknown {
   if (!parsed.ok) {
     c.messages.push({
       id: "json-syntax",
-      severity: "error",
+      basis: MESSAGES["json-syntax"].basis,
+      severity: MESSAGES["json-syntax"].severity,
+      refuses: MESSAGES["json-syntax"].refuses,
       document: c.document,
       pointer: "",
       line: parsed.position.line,
@@ -280,9 +299,9 @@ export async function validateTarget(fetcher: Fetcher, target: string, options: 
   return validateClient(fetcher, url.href, options);
 }
 
-/** One line per error, for exceptions and logs. */
+/** One line per message our client refuses the documents over (every error but the tolerated ones, and the refusing warnings), for exceptions and logs. */
 export function summarize(result: Report, limit = 3): string {
-  const errors = result.messages.filter((m) => m.severity === "error");
+  const errors = result.messages.filter((m) => m.refuses);
   const shown = errors.slice(0, limit).map((m) => m.text.replace(/\.$/, ""));
   const more = errors.length > limit ? ` (and ${errors.length - limit} more)` : "";
   return `${shown.join("; ")}${more}`;

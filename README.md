@@ -73,7 +73,7 @@ Deploy your own: [`docs/setup.md`](docs/setup.md), in the order [`docs/deploymen
 
 ## The validator
 
-- **Severity.** An `error` is a document our client refuses: usually a broken MUST, otherwise a fetching limit from the Guides or a rule the draft leaves open (such as HTTPS for every URL, spec-issues N9), which its explanation names; a `warning` is a SHOULD or an interoperability hazard; an `info` is harmless.
+- **Severity.** Each message names its basis, and its severity follows from it ([docs/conformance-levels.md](docs/conformance-levels.md)). An `error` breaks a MUST, an RFC's MUST or a rule the draft states without a key word, and only errors make a document invalid. A `warning` departs from a SHOULD, the Guides or our reading of an open question. An `info` is harmless. What our own client refuses is reported separately (`refused`, and `refuses` on each message): it also refuses a few warnings that guard against hostile documents (the Guides' fetch limits, duplicate members, HTTPS everywhere, spec-issues N9), and tolerates a few errors the draft tells readers to tolerate.
 - **Explanations.** Each message has a stable id and a page saying what it means and how to fix it ([all messages](https://personal-agent.adewale-883.workers.dev/validator/messages)).
 - **Outcome.** `valid`, `invalid`, or `indeterminate` when a document couldn't be fetched.
 

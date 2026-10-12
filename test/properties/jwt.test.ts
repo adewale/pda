@@ -100,7 +100,7 @@ describe("our client's JWTs pass the mock Company's checks", () => {
       const endpoint = company.hosts[tc.draw(gs.sampledFrom(endpointNames))];
       const result = await attempt(async () => company.authenticateClient(form(await clientAssertion(signing, identity.clientId, endpoint)), endpoint));
       expect(result.ok).toBe(true);
-      expect(company.violations).toEqual([]);
+      expect(company.recorded).toEqual([]);
     })
   );
 
@@ -113,7 +113,7 @@ describe("our client's JWTs pass the mock Company's checks", () => {
       const client = await company.authenticateClient(form(await clientAssertion(signing, identity.clientId, company.hosts.tokenEndpoint)), company.hosts.tokenEndpoint);
       const verified = await company.verifySessionAssertion(client, await sessionAssertion(signing, identity.clientId, userId, company.hosts.tokenEndpoint));
       expect(verified).toBe(userId);
-      expect(company.violations).toEqual([]);
+      expect(company.recorded).toEqual([]);
     })
   );
 
@@ -131,7 +131,7 @@ describe("our client's JWTs pass the mock Company's checks", () => {
       const proof = await dpopProof(key, { method, url, ...(token !== undefined ? { accessToken: token } : {}), ...(nonce ? { nonce } : {}) });
       const result = await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: proof }), token));
       expect(result).toEqual({ ok: true, value: key.thumbprint });
-      expect(company.violations).toEqual([]);
+      expect(company.recorded).toEqual([]);
     })
   );
 });
@@ -259,7 +259,7 @@ describe("the mock Company refuses each thing wrong with an assertion, naming it
       const assertion = await wrongAssertion(wrong.mutation, { iss: identity.clientId, sub: identity.clientId, aud: endpoint, iat: now, exp: now + 60, jti: jtis() });
       const result = await attempt(() => company.authenticateClient(form(assertion), endpoint));
       expect(result.ok).toBe(wrong.recordedOnly === true);
-      expect(company.violations.map(violationId)).toEqual([strict ? wrong.violation : (wrong.lenient ?? wrong.violation)]);
+      expect(company.recorded.map(violationId)).toEqual([strict ? wrong.violation : (wrong.lenient ?? wrong.violation)]);
     })
   );
 
@@ -271,7 +271,7 @@ describe("the mock Company refuses each thing wrong with an assertion, naming it
       const assertion = await clientAssertion(signing, identity.clientId, endpoint);
       expect((await attempt(() => company.authenticateClient(form(assertion), endpoint))).ok).toBe(true);
       expect((await attempt(() => company.authenticateClient(form(assertion), endpoint))).ok).toBe(false);
-      expect(company.violations.map(violationId)).toEqual(["client-assertion.jti-reused"]);
+      expect(company.recorded.map(violationId)).toEqual(["client-assertion.jti-reused"]);
     })
   );
 });
@@ -315,7 +315,7 @@ describe("the mock Company refuses each thing wrong with a Session assertion, na
       const assertion = await wrongAssertion(wrong.mutation, { iss: identity.clientId, sub: randomId("usr_"), aud: company.hosts.tokenEndpoint, iat: now, exp: now + 60, jti: jtis() });
       const result = await attempt(() => company.verifySessionAssertion(client, assertion));
       expect(result.ok).toBe(wrong.recordedOnly === true);
-      expect(company.violations.map(violationId)).toEqual([config.strictAssertions ? wrong.violation : (wrong.lenient ?? wrong.violation)]);
+      expect(company.recorded.map(violationId)).toEqual([config.strictAssertions ? wrong.violation : (wrong.lenient ?? wrong.violation)]);
     })
   );
 });
@@ -348,7 +348,7 @@ describe("the mock Company refuses each thing wrong with a DPoP proof, naming it
       else if (!("header" in mutation && mutation.header === "missing")) headers.DPoP = await build(mutation as Mutation);
       const result = await attempt(() => company.verifyDpop(inbound(method, url, headers), token));
       expect(result.ok).toBe(false);
-      expect(company.violations.map(violationId)).toEqual(violation === null ? [] : [violation]);
+      expect(company.recorded.map(violationId)).toEqual(violation === null ? [] : [violation]);
     })
   );
 
@@ -364,7 +364,7 @@ describe("the mock Company refuses each thing wrong with a DPoP proof, naming it
       const proof = await dpopProof(key, { method, url, accessToken: token, ...(nonce ? { nonce } : {}) });
       expect((await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: proof }), token))).ok).toBe(true);
       expect(await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: proof }), token))).toEqual({ ok: false, error: "invalid_dpop_proof" });
-      expect(company.violations.map(violationId)).toEqual(["dpop.jti-reused"]);
+      expect(company.recorded.map(violationId)).toEqual(["dpop.jti-reused"]);
     })
   );
 
@@ -383,7 +383,7 @@ describe("the mock Company refuses each thing wrong with a DPoP proof, naming it
         await new Promise((resolve) => setTimeout(resolve, 1000 - (Date.now() % 1000) + 5));
         const dropped = await dpopProof(key, { method, url, accessToken: token });
         expect(await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: dropped }), token))).toEqual({ ok: false, error: "use_dpop_nonce" });
-        expect(company.violations.map(violationId)).toEqual(["dpop.nonce-ignored"]);
+        expect(company.recorded.map(violationId)).toEqual(["dpop.nonce-ignored"]);
       },
       // Each case waits for the clock's next second, so a few cases by default, not a hundred; HEGEL_CASES still sets the count.
       { testCases: 3 }

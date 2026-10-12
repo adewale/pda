@@ -3,6 +3,7 @@
   "title": "Adversarial agent: reuse a rotated Account Token",
   "requirements": ["4.8"],
   "adversary": "agent",
+  "permitted_by": "N5",
   "needs": { "agent": ["arm", "attack"] },
   "steps": [
     { "agent": "arm", "params": { "attack": "YK" } },

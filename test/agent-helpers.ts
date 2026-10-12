@@ -111,9 +111,11 @@ export async function chat(
 /*
  * Poppy tests: mock Companies, agents driven through their Durable Object
  * stubs, and the violation check. After every test, every mock Company it
- * created with `company()` must have recorded no violations, unless the test
- * said which it expects (`expectViolations`). Every file that imports this
- * module gets the check.
+ * created with `company()` must have recorded no violations and no warnings
+ * (our own client is held to SHOULDs, the Guides and our readings too: the
+ * strict run of docs/conformance-levels.md), unless the test said which it
+ * expects (`expectViolations`, which matches either). Every file that
+ * imports this module gets the check.
  */
 
 export const testEnv = env as Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
@@ -141,8 +143,8 @@ export function compareViolations(violations: readonly string[], expected: reado
 afterEach(async () => {
   const mocks = created.splice(0);
   for (const { company: c, expected } of mocks) {
-    const violations = (await c.stub.state()).violations;
-    expect(compareViolations(violations, expected), `violations at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
+    const violations = (await c.stub.state()).recorded;
+    expect(compareViolations(violations, expected), `violations and warnings at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
   }
 });
 

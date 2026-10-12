@@ -266,8 +266,12 @@ export type MockRequest = {
 
 /** What a test can read back. JSON-safe and shallow. */
 export type MockState = {
-  /** `[id] detail`, ids from `VIOLATIONS`. */
+  /** Every check the Company recorded, `[id] detail` with ids from `VIOLATIONS`, in order. */
+  readonly recorded: string[];
+  /** The recorded checks that are failures (basis MUST, RFC or Rule; docs/conformance-levels.md). */
   readonly violations: string[];
+  /** The recorded checks that are warnings (basis SHOULD, Guides or Reading). */
+  readonly warnings: string[];
   readonly requests: MockRequest[];
   /** `token_type_hint` of each revocation request, or null when absent (RFC 7009 makes it optional). */
   readonly revocationHints: (string | null)[];

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { VIOLATION_IDS } from "../../test/mock-company/violations.ts";
+import { basisOf, VIOLATION_IDS, type ViolationId } from "../../test/mock-company/violations.ts";
 import {
   assertionChecks,
   authorizationResponseChecks,
@@ -34,11 +34,16 @@ describe("trace checks", () => {
     }
   });
 
+  it("rest on the mock's basis where they share its id, so the grid and the mock agree on each level", () => {
+    const disagree = Object.entries(TRACE_CHECKS).filter(([id, spec]) => spec.mock && basisOf(id as ViolationId) !== spec.basis);
+    expect(disagree.map(([id]) => id)).toEqual([]);
+  });
+
   it("finds nothing wrong with a correct Session start", () => {
     expect(traceChecks(recording(...DISCOVERY, sessionStart()))).toEqual([]);
   });
 
-  it("warns about an assertion without typ, and errors on one reused or too long", () => {
+  it("warns about an assertion without typ or living too long (readings), and errors on one reused (a rule)", () => {
     const reused = clientAssertion();
     const checks = assertionChecks(
       recording(
@@ -53,7 +58,7 @@ describe("trace checks", () => {
       "client-assertion.typ:warning",
       "client-assertion.jti-reused:error",
       "client-assertion.lifetime:warning",
-      "client-assertion.lifetime:error"
+      "client-assertion.lifetime:warning"
     ]);
   });
 
@@ -64,7 +69,7 @@ describe("trace checks", () => {
 
   it("checks a client assertion's iss, sub and aud form", () => {
     const client = clientAssertion({ payload: { sub: "someone", aud: [TOKEN] } });
-    expect(ids(assertionChecks(recording(sessionStart(0, { client }))))).toEqual(["client-assertion.aud-array:error", "client-assertion.iss-sub:error"]);
+    expect(ids(assertionChecks(recording(sessionStart(0, { client }))))).toEqual(["client-assertion.aud-array:warning", "client-assertion.iss-sub:error"]);
   });
 
   it("checks DPoP proofs: htm, htu, iat, typ, ath and jti", () => {
@@ -108,7 +113,7 @@ describe("trace checks", () => {
         { url: "https://elsewhere.company.interop.test/orders", headers: { authorization: "DPoP t" } }
       )
     );
-    expect(ids(checks)).toEqual(["redirect.credentials-followed:error"]);
+    expect(ids(checks)).toEqual(["redirect.credentials-followed:warning"]);
   });
 
   it("finds a request sent before Retry-After elapsed, allowing for the proxy's clock", () => {
@@ -127,7 +132,7 @@ describe("trace checks", () => {
         { url: TOKEN, form: { grant_type: "refresh_token" }, response: { access_token: "a", token_type: "DPoP" } }
       )
     );
-    expect(ids(checks)).toEqual(["company.www-authenticate:error", "company.retry-after:warning", "company.oauth-error-body:error", "company.token-response:error"]);
+    expect(ids(checks)).toEqual(["company.www-authenticate:error", "company.retry-after:error", "company.oauth-error-body:error", "company.token-response:error"]);
   });
 
   it("checks the shapes of events: JSON pages and streamed ids", () => {

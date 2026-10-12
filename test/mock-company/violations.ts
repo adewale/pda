@@ -6,7 +6,7 @@
  * firing fails a named row. The catalog test there also checks that every id
  * here is used in the mock's source and every id has a row.
  *
- * A recorded violation reads `[id] detail`.
+ * A recorded check reads `[id] detail`.
  *
  * Each description starts with what the check rests on, then the section
  * (spec sections bare, `Ops n` for the Operations extension, a Guides
@@ -23,13 +23,25 @@
  * - `Reading (S2):` our answer to an open question in
  *   docs/spec-issues.md, recorded in docs/readings.md.
  *
- * Every check runs in the conformance tests, which hold our own client to
- * all of them. The lenient reference Company in the interop grid
- * (`dpa-mock`) doesn't report the ids in `STRICT_ONLY`: their basis is only
- * a SHOULD or a Guides recommendation, and breaking them gives no one more
- * access. The S2 checks (`.typ`, `.kid`, the 60-second lifetime) are off in
- * it already (`strictAssertions: false`).
+ * The basis decides the level (src/validator/levels.ts,
+ * docs/conformance-levels.md): MUST, RFC and Rule are failures, which the
+ * mock records as violations; SHOULD and Guides are warnings, and Reading is
+ * tentative, which it records as warnings. Nothing rests on a MAY: an option
+ * is never held against the side that takes it. Whether a check also refuses
+ * the request is the mock's behaviour, not its verdict: it refuses where the
+ * draft gives it an error to send, and where a Guides recommendation or one
+ * of our readings guards against replay, forgery or a repeated write.
+ *
+ * Every check runs in the conformance tests, which hold our own client to all
+ * of them, warnings included (the strict run, as h2spec's `--strict`). Both
+ * Companies in the interop grid report every check with its basis and level;
+ * there a warning never fails a cell (docs/interop-spec.md section 9). The S2
+ * checks (`.typ`, `.kid`, the 60-second lifetime) are made only by the strict
+ * Company (`strictAssertions`), which applies that reading.
  */
+import { levelOf, type Basis, type Level } from "../../src/validator/levels.ts";
+
+export type { Basis, Level };
 
 /** The JWTs the mock checks a `jti` on, each with its own replay set. */
 export type JwtKind = "client-assertion" | "session-assertion" | "dpop" | "browser-assertion";
@@ -216,33 +228,23 @@ export type ViolationId = keyof typeof VIOLATIONS;
 /** Every id, for the catalog test. */
 export const VIOLATION_IDS = Object.keys(VIOLATIONS) as ViolationId[];
 
-/** What a check rests on: the word its description starts with (see the header). */
-export type Basis = "MUST" | "RFC" | "Rule" | "SHOULD" | "Guides" | "Reading";
-
-/** The basis of a check, from its description; MUST NOT counts as MUST and SHOULD NOT as SHOULD. */
+/** The basis of a check, from the word its description starts with; MUST NOT counts as MUST and SHOULD NOT as SHOULD. */
 export function basisOf(id: ViolationId): Basis {
-  const word = /^(MUST|RFC|Rule|SHOULD|Guides|Reading)\b/.exec(VIOLATIONS[id])?.[1];
+  const word = /^(MUST|RFC|Rule|SHOULD|Guides|Reading|MAY)\b/.exec(VIOLATIONS[id])?.[1];
   if (!word) throw new Error(`${id}: description doesn't start with its basis`);
   return word as Basis;
 }
 
-/**
- * Checks the lenient reference Company doesn't report in the interop grid:
- * a SHOULD or a Guides recommendation is their only basis, and an agent that
- * breaks them gains no access it shouldn't have. Guides-based checks that
- * guard against a repeated write, a leaked secret or a forged assertion
- * (`exchange.performed-twice`, `idempotency.key-reused`,
- * `secret.one-time-code`, `.alg`, `iat-future`, `nonce-ignored`) stay.
- */
-export const STRICT_ONLY: ReadonlySet<ViolationId> = new Set<ViolationId>([
-  "client-assertion.jti-weak",
-  "dpop.jti-weak",
-  "client-assertion.embedded-key",
-  "session-assertion.embedded-key",
-  "browser-assertion.embedded-key",
-  "client-metadata.key-without-kid",
-  "message.json-in-text"
-]);
+/** A check's level, from its basis: `failure` is recorded as a violation, the rest as warnings. */
+export function levelOfCheck(id: ViolationId): Level {
+  return levelOf(basisOf(id));
+}
+
+/** Whether a recorded `[id] detail` is a violation (a failure) rather than a warning. Unknown ids count as violations. */
+export function isViolation(recorded: string): boolean {
+  const id = violationId(recorded);
+  return !(id in VIOLATIONS) || levelOfCheck(id as ViolationId) === "failure";
+}
 
 /** The id of a recorded violation, `[id] detail`. */
 export function violationId(recorded: string): string {

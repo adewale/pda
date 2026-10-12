@@ -26,7 +26,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { attributeAll, staleKnown, unexpected } from "./attribution.ts";
+import { attributeAll, companyRecorded, levelCounts, staleKnown, unexpected, type RecordedViolation } from "./attribution.ts";
 import { runCell, toReply, type Driver, type Reply, type RunnerReply } from "./cell.ts";
 import { makeCertificates } from "./certs.ts";
 import { traceChecks } from "./checks.ts";
@@ -397,15 +397,10 @@ async function runOne(
     checks.push(...refusedReadingChecks(recorded, company.manifest?.readings ?? {}));
   }
   const violations = await control(company.target, "GET", "/violations").catch(() => ({ status: 0, body: null }));
-  const recordedViolations = (violations.body as { violations?: { id: string; detail: string }[] } | null)?.violations;
+  const recordedViolations = (violations.body as { violations?: RecordedViolation[] } | null)?.violations;
   if (violations.status === 200 && Array.isArray(recordedViolations)) {
-    // In an adversarial cell the bad request is the attack's (an injected fault, or the evil
-    // side's), so the Company catching it is expected: record such violations as warnings, not
-    // errors, and let the harm oracles and attribution rule 0 decide the cell (spec §9).
     const isSecurity = !!scenario.adversary || !!scenario.faults?.length || !!agent.entry.adversarial || !!company.entry.adversarial;
-    for (const violation of recordedViolations) {
-      checks.push({ id: violation.id, side: "agent", severity: isSecurity ? "warning" : "error", exchange: null, detail: violation.detail, source: `company:${company.entry.name}` });
-    }
+    for (const violation of recordedViolations) checks.push(companyRecorded(violation, company.entry.name, isSecurity));
   }
   cell.checks = checks;
   // In an adversarial cell the attacking side's own violations are expected (rule 0): don't fail
@@ -723,7 +718,9 @@ export async function main(argv: readonly string[]): Promise<number> {
     })),
     cells,
     flaky: cells.filter((cell) => cell.flaky).map(({ agent, company, scenario }) => ({ agent, company, scenario })),
-    staleKnown: stale
+    staleKnown: stale,
+    // Checks per level over the interop cells (docs/conformance-levels.md): failures fail cells; warnings and tentative readings don't.
+    levels: levelCounts(cells)
   };
   writeFileSync(path.join(runDir, "results.json"), `${JSON.stringify(summary, null, 2)}\n`);
   writeFileSync(path.join(runDir, "index.html"), renderReport({ ...summary, scenarios }));
@@ -731,6 +728,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   const bad = unexpected(cells);
   const counts = ["pass", "fail", "unsupported", "error"].map((outcome) => `${cells.filter((cell) => cell.outcome === outcome).length} ${outcome}`);
   log(`\n${counts.join(", ")}; ${cells.filter((cell) => cell.known).length} known failure(s).`);
+  log(`Checks: ${summary.levels.failure} failures, ${summary.levels.warning} warnings, ${summary.levels.tentative} tentative (our readings).`);
   for (const cell of cells.filter((c) => c.outcome === "fail" || c.outcome === "error")) {
     log(`  ${cell.scenario} ${cell.agent} × ${cell.company}: ${cell.outcome}, blame ${cell.blame ?? "none"} (${cell.rule ?? "no rule"})${cell.known ? `, known: ${cell.known.issue}` : ""}`);
   }

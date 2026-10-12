@@ -178,7 +178,7 @@ async function run(w: World, model: Model, command: Command, tc: Parameters<Para
 
 async function agrees(w: World, model: Model): Promise<void> {
   const state = await w.mock.state();
-  expect(state.violations).toEqual([]);
+  expect(state.recorded).toEqual([]);
   expect(state.performs).toBe(model.performs);
   expect(new Map(state.operations.map((op) => [op.id, op.state]))).toEqual(model.operations);
   for (const [id, expected] of model.operations) expect(operation(w.client, w.company.issuer, id)?.state, id).toBe(expected);

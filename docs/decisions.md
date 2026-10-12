@@ -33,6 +33,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 21. [CI scope](#21-ci-scope)
 22. [Security hardening](#22-security-hardening)
 23. [Compaction: a budget, our summarizer, the page](#23-compaction-a-budget-our-summarizer-the-page)
+24. [Conformance levels from each requirement's basis](#24-conformance-levels-from-each-requirements-basis)
 
 ## 1. A Worker and one Durable Object per person
 
@@ -253,3 +254,25 @@ Each of these closed a specific gap, and each has a test:
   - *Leaving the gateway entry as it is:* a demo-lane conversation could have failed for good after its first compaction.
 - **Consequences.** Summary calls don't appear in pi's own usage document (the hook makes them), though they are in the demo's ledger. The fix for preserved thinking depends on AI Gateway passing the `anthropic-beta` header and the body to Anthropic unchanged, which is untried until the demo gateway has credits ([deployment-tasks.md](deployment-tasks.md)). A summary is a model's account and can be wrong; what is open at Companies is in the `poppy_*` tables, never only in the transcript.
 - **When.** 12 October.
+
+## 24. Conformance levels from each requirement's basis
+
+- **Context.** The mock Company, the validator and the grid's attribution each graded findings in their own way. The mock recorded every check as a violation, and a hand-kept `STRICT_ONLY` list hid seven of them from the lenient reference Company. Most validator errors were "what our client refuses", and some of those rested only on the Guides or our readings. The runner made every Company-recorded check an error. [spec/grounding.md](../spec/grounding.md) left the owner four questions about this: keyword-less rules, Guides and readings in the mock; validator severities; grid attribution; and scenario YK.
+- **Decision.** One policy, [conformance-levels.md](conformance-levels.md), coded once in `src/validator/levels.ts`:
+  - **Failure.** MUST, an RFC's MUST, and normative statements without a key word (RFC 8174: normative text needn't use the key words). These are mock violations, validator errors and cell failures.
+  - **Warning.** SHOULD and the Guides ("a recommendation, in the sense of SHOULD"). These never fail anything.
+  - **Tentative.** Our readings, like WPT's `.tentative`. Reported as warnings; a failure they cause is the spec's.
+  - **Nothing.** MAY.
+  - **Strict runs.** Our own code is held to warnings too (h2spec's `--strict`): the conformance tests' `afterEach` and `poppy-validate --strict`.
+  - **Behaviour stays separate.** A refusal made for safety stays, but its verdict follows its basis. The validator's `refuses` flag says what our client refuses, apart from severity. YK is `permitted_by: N5`.
+- **Alternatives.**
+  - *Every SHOULD a failure, as WPT does.* This would fail other projects' cells over recommendations the draft says they may decline.
+  - *Don't check SHOULDs unless strict, as h2spec does.* We'd lose the warnings in the grid, where they are evidence for spec issues.
+  - *Keep hand lists.* They drift from the catalog. `STRICT_ONLY` was already an approximation of "SHOULD or Guides, refuses nothing".
+  - *Make the validator's errors mean "our client refuses".* That calls our hardening the draft's requirement, which is the confusion the grounding found.
+- **Consequences.**
+  - The mock's 144 checks: 117 violations and 27 warnings.
+  - The validator: 9 errors became warnings, and our client still refuses every one. 4 warnings or info messages became errors, and our client tolerates every one. 4 messages are new. Fetch limits now make a report indeterminate.
+  - The grid: 8 trace checks became warnings, `company.retry-after` became an error, and there is a new attribution rule, `warning`. `results.json` counts checks per level.
+  - The full grid hasn't been rerun under the policy.
+- **When.** 12 October 2026.
