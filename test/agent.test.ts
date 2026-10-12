@@ -577,6 +577,24 @@ describe("configuration", () => {
     expect(await response.text()).toContain("GOOGLE_CLIENT_ID");
   });
 
+  it("serves the privacy policy at /privacy, with the deployment's contact and Google's Limited Use statement", async () => {
+    const page = await fetchWorker(new Request(`${ORIGIN}/privacy`));
+    expect(page.status).toBe(200);
+    expect(page.headers.get("Content-Type")).toContain("text/html");
+    expect(page.headers.get("Content-Security-Policy")).toBeTruthy();
+    const html = await page.text();
+    expect(html).toContain('href="mailto:privacy@example.com"');
+    expect(html).toContain("only for the <code>openid</code> and <code>email</code> scopes");
+    expect(html).toContain("Google API Services User Data Policy</a>, including the Limited Use requirements");
+    expect(html).toContain("Attached photos are deleted after 30 days");
+    expect((await fetchWorker(new Request(`${ORIGIN}/privacy`, { method: "POST" }))).status).toBe(405);
+    const unset = await fetchWorker(new Request(`${ORIGIN}/privacy`), { PRIVACY_CONTACT: "" } as unknown as Partial<Env>);
+    expect(unset.status).toBe(500);
+    expect(await unset.text()).toContain("PRIVACY_CONTACT");
+    const tricky = await fetchWorker(new Request(`${ORIGIN}/privacy`), { PRIVACY_CONTACT: "https://example.com/a?b=<script>" } as unknown as Partial<Env>);
+    expect(await tricky.text()).not.toContain("<script>");
+  });
+
   it("offers only the sign-in providers SIGNIN_PROVIDERS lists, and says which", async () => {
     const githubOnly = { SIGNIN_PROVIDERS: ["github"] } as unknown as Partial<Env>;
     const options = await fetchWorker(new Request(`${ORIGIN}/api/sign-in-options`), githubOnly);

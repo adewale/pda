@@ -66,6 +66,11 @@ describe("sign-in page", () => {
     expect(window.location.search).toBe("");
   });
 
+  it("links the privacy policy from the sign-in page", async () => {
+    await openPage("");
+    expect(screen.getByRole("link", { name: "Privacy policy" }).getAttribute("href")).toBe("/privacy");
+  });
+
   it("shows only the sign-in buttons the deployment offers", async () => {
     signInProviders = ["github"];
     await openPage("");

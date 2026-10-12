@@ -77,7 +77,7 @@ npx wrangler secret put GITHUB_CLIENT_SECRET
 
 In the Google Cloud console's **Google Auth Platform** (https://console.cloud.google.com/auth/overview), in a project of its own:
 
-1. **Get started**: app name, support email, audience **External**, contact email.
+1. **Get started**: app name, support email, audience **External**, contact email. Under **Branding**, the application home page is `<origin>` and the privacy policy is `<origin>/privacy`, which the Worker renders from the template's text and your `PRIVACY_CONTACT` (an email address or an `https://` URL, in `deployment.local.json`). The policy promises to delete a person's data within 30 days of a request.
 2. Leave the logo empty (a logo triggers brand verification). The app asks only for `openid` and `email`, which need no Google verification.
 3. **Audience**: while the app is in *Testing*, only listed test users can sign in; **Publish app** to let anyone in.
 4. **Clients → Create client**, type *Web application*, authorized redirect URI `<origin>/auth/google/callback`. Copy the client secret when it is shown.

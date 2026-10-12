@@ -7,7 +7,7 @@
   "ai": { "binding": "AI", "remote": true },
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/ws", "/api/*", "/auth/*", "/logout", "/poppy/*", "/validator", "/validator/*"]
+    "run_worker_first": ["/ws", "/api/*", "/auth/*", "/logout", "/poppy/*", "/privacy", "/validator", "/validator/*"]
   },
   "durable_objects": {
     "bindings": [
@@ -62,6 +62,9 @@
     "DEMO_ALLOWLIST": { "emails": [], "domains": [], "github": {} },
     // The Poppy client_id lives on this origin forever; see the spec.
     "PUBLIC_ORIGIN": "",
+    // How people reach the operator about privacy (an email address or an
+    // https:// URL), shown on /privacy, the policy Google's consent screen links to.
+    "PRIVACY_CONTACT": "",
     "POPPY_LOGO_URI": ""
   },
   "observability": { "enabled": true }

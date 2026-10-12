@@ -94,6 +94,7 @@ The Worker turns a verified app session into the person's Durable Object and for
 | `ANTHROPIC_MODEL_ID`, `OPENAI_MODEL_ID` | var | The own-key lane's model per provider: `claude-sonnet-5-5`, `gpt-6.1-sol` |
 | `SIGNUP` | var | `allowlist` (committed) or `open` |
 | `SIGNIN_PROVIDERS` | var | The sign-in buttons the page offers: `["google", "github"]` committed. A provider left out has no button, and its `/auth/<provider>` routes answer 404; `GET /api/sign-in-options` tells the page which to show |
+| `PRIVACY_CONTACT` | deployer's var | How people reach the operator about privacy: an email address or an `https://` URL. `GET /privacy` renders the privacy policy (`src/privacy.ts`) with it; the deploy check refuses a build without one |
 | `POPPY_CLIENT_NAME` | var | Shown on Companies' consent pages |
 | `OWNERS` | deployer's var | The deployment's operators: always allowed in, always on the demo. Empty in the template, which then refuses every request |
 | `SIGNIN_ALLOWLIST`, `DEMO_ALLOWLIST` | deployer's var | Who may sign in with `SIGNUP=allowlist`; who the operator pays for |

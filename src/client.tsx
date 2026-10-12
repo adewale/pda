@@ -113,6 +113,9 @@ function SignedOut({ message, providers }: { message: string | null; providers: 
             </ActionLink>
           ) : null}
         </div>
+        <p className="mt-6 text-[13px] text-kumo-subtle">
+          <a href="/privacy" className="underline underline-offset-2 hover:text-kumo-default">Privacy policy</a>
+        </p>
       </div>
     </main>
   );

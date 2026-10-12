@@ -4,6 +4,7 @@ import { humanSize, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES } from "./attachment
 import { ConfigError, readSessionSecret, readSignInProviders } from "./config";
 import { checkDeployment } from "./deployment.ts";
 import { withPagePolicy } from "./csp";
+import { privacyPage } from "./privacy";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
 import { handleIdentityRoute } from "./poppy/routes";
 import { handleValidator } from "./validator/http.ts";
@@ -249,6 +250,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname === "/ws") return await handleWs(request, env);
     if (pathname === "/api/me") return await handleMe(request, env);
     if (pathname === "/api/sign-in-options") return handleSignInOptions(request, env);
+    if (pathname === "/privacy") return request.method === "GET" ? privacyPage(env) : text(405, "Method not allowed");
     if (pathname === "/api/entitlement") return await handleEntitlement(request, env);
     if (pathname === "/api/model-key") return await handleModelKey(request, env);
     if (pathname === "/api/attachments" || pathname.startsWith("/api/attachments/")) return await handleAttachments(request, env);

@@ -41,6 +41,7 @@
     "GITHUB_CLIENT_ID": "github-test-client",
     "GITHUB_CLIENT_SECRET": "github-test-secret",
     "PUBLIC_ORIGIN": "https://agent.test",
+    "PRIVACY_CONTACT": "privacy@example.com",
     "POPPY_CLIENT_NAME": "Test Personal Agent",
     "POPPY_LOGO_URI": "https://agent.test/logo.svg",
     "OWNERS": { "emails": ["owner@example.com"], "github": { "owner": 4141 } },
