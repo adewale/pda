@@ -17,6 +17,7 @@ import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { createAI } from "agents/models/pi-ai";
 import { budgetDomain, onDemo } from "./allowlist";
+import { budgetWindow } from "./compaction";
 import { nextUtcMidnight, utcDay, type Ledger } from "./budget";
 import { ConfigError, readModelConfig, readDemoCaps, type KeyProvider } from "./config";
 import {
@@ -115,7 +116,26 @@ export function demoCatalogModel(env: Env): Model<Api> {
 export function gatewayDemoLane(env: Env, route: DemoRoute): LaneModel {
   const config = readModelConfig(env);
   const ai = createAI({ binding: env.AI, id: config.demo.gatewayId, metadata: { u: route.u, d: route.d } });
-  return { provider: ai.provider, model: ai(config.demo.modelId) as Model<Api> };
+  return { provider: ai.provider, model: withVendorCompat(ai(config.demo.modelId) as Model<Api>, config.demo.modelId) };
+}
+
+/**
+ * A gateway model with the compat flags of the vendor's own catalog entry for
+ * the same model, so the demo lane sends Anthropic the request the own-key
+ * lane sends. pi-ai's gateway entry for Claude Sonnet 5.5 lacks
+ * `supportsMidConvoEffort`, and without it pi-ai doesn't ask Anthropic to
+ * drop thinking blocks whose prefix changed (`block_binding:
+ * { prefix_mismatch_behavior: "drop_block" }`), as a compacted history's do.
+ * Models of other vendors, and ones pi-ai's Anthropic catalog doesn't list,
+ * are left as they are.
+ */
+export function withVendorCompat(model: Model<Api>, specifier: string): Model<Api> {
+  const slash = specifier.indexOf("/");
+  if (slash === -1 || specifier.slice(0, slash) !== "anthropic" || model.api !== "anthropic-messages") return model;
+  const vendorId = specifier.slice(slash + 1);
+  const vendor = anthropicProvider().getModels().find((candidate) => candidate.id === vendorId);
+  if (!vendor?.compat) return model;
+  return { ...model, compat: { ...model.compat, ...vendor.compat } } as Model<Api>;
 }
 
 /** pi-ai's Anthropic and OpenAI providers: straight to each vendor, with the person's key. */
@@ -165,6 +185,21 @@ export class ModelAccess {
       this.#ownKeyModels = models;
     }
     return this.#ownKeyModels;
+  }
+
+  /**
+   * The context window of the model the next call would most likely use:
+   * the person's key's model, else the demo's. Read without deciding the
+   * lane (that needs the domain's budget); undefined if it can't be told.
+   */
+  contextWindow(): number | undefined {
+    try {
+      const key = this.#options.keys.info();
+      if (key?.status === "valid") return this.#ownKeyModel(key.provider).contextWindow;
+      return demoCatalogModel(this.#options.env).contextWindow;
+    } catch {
+      return undefined;
+    }
   }
 
   #ownKeyModel(provider: KeyProvider): Model<Api> {
@@ -299,9 +334,14 @@ export class ModelAccess {
 /** The one model pi sees; the router picks the real one per call. */
 export const ROUTER_MODEL = { provider: "personal-agent", id: "model" } as const;
 
-/** A pi-ai provider whose only model asks `access` for a lane at every call. `metadata` lends it limits. */
+/**
+ * A pi-ai provider whose only model asks `access` for a lane at every call.
+ * `metadata` lends it limits. Its context window is the compaction budget,
+ * or the lane model's own window when that is smaller (`compaction.ts`):
+ * pi-durable reads it before every request to decide when to summarise.
+ */
 export function routerProvider(access: ModelAccess, metadata: Model<Api>): Provider {
-  const model: Model<Api> = {
+  const base: Model<Api> = {
     ...metadata,
     id: ROUTER_MODEL.id,
     name: "Personal agent model",
@@ -309,15 +349,16 @@ export function routerProvider(access: ModelAccess, metadata: Model<Api>): Provi
     api: "personal-agent-router" as Api,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
   };
+  const model = (): Model<Api> => ({ ...base, contextWindow: budgetWindow(access.contextWindow() ?? metadata.contextWindow) });
   return {
     id: ROUTER_MODEL.provider,
     name: "Personal agent",
     auth: { apiKey: { name: "Personal agent (no key of its own)", resolve: async () => ({ auth: {} }) } },
-    getModels: () => [model],
+    getModels: () => [model()],
     stream: (_model, context: TranscriptContext, options?: StreamOptions) =>
-      access.route(model, (models, target) => models.stream(target, context, strip(options))),
+      access.route(model(), (models, target) => models.stream(target, context, strip(options))),
     streamSimple: (_model, context: TranscriptContext, options?: SimpleStreamOptions) =>
-      access.route(model, (models, target) => models.streamSimple(target, context, strip(options)))
+      access.route(model(), (models, target) => models.streamSimple(target, context, strip(options)))
   };
 }
 

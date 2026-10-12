@@ -107,7 +107,7 @@ export async function fakeModels(request: Request): Promise<Response | null> {
     if (url.pathname === "/v1/models" && request.method === "GET") {
       return keyState(request.headers.get("x-api-key"), "sk-ant-test-") === "refused"
         ? UNAUTHORIZED_ANTHROPIC()
-        : Response.json({ data: [{ id: "claude-opus-5-5", type: "model" }], has_more: false });
+        : Response.json({ data: [{ id: "claude-sonnet-5-5", type: "model" }], has_more: false });
     }
     if (url.pathname === "/v1/messages" && request.method === "POST") return anthropic(request);
     return Response.json({ type: "error", error: { type: "not_found_error" } }, { status: 404 });

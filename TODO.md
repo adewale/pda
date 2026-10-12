@@ -24,7 +24,7 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 
 ## Product
 
-- [ ] **Code. Give compaction a budget.** Pi already compacts automatically, but only near the model's 1M-token window, so every turn before that pays for the whole conversation. Proposed: a 180–200k budget, `poppy_status` listing everything open, the summary shown as a notice, and tests. Check live whether the demo lane rejects compacted histories (preserved thinking).
+- [x] **Code. Give compaction a budget.** Done: a summary from 150k tokens, a hard limit at 184k, our summarizer keeping Company text apart, `poppy_status` listing everything open, the summary shown as a notice ([decisions §23](docs/decisions.md#23-compaction-a-budget-our-summarizer-the-page)). What's left is the live check of a demo-lane turn after a compaction (preserved thinking), in [deployment-tasks §2](docs/deployment-tasks.md#2-live-checks).
 - [ ] **Code. "Delete my agent" and data export** (milestone 2): revoke every Account Token at its Company, then delete the Durable Object's storage. Also a short privacy statement about what each agent stores.
 - [ ] **Code. Memory, skills and the rest of milestone 2** ([spec, Build plan](durable-personal-agent-spec.md#build-plan)).
 - [ ] **Code. Hide Google sign-in while it isn't configured.** Today `/auth/google` answers a 500.

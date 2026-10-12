@@ -56,7 +56,7 @@ flowchart TB
     poppy["PoppyCapability<br/>client, durable jobs, cards"]
     web["FetchBrowser<br/>a cookie jar per Session, no JavaScript"]
   end
-  pi -- "demo lane, capped" --> gw["AI Gateway (demo gateway)<br/>Claude Opus 5.5, Unified Billing"]
+  pi -- "demo lane, capped" --> gw["AI Gateway (demo gateway)<br/>Claude Sonnet 5.5, Unified Billing"]
   pi -- "own key" --> vendor["Anthropic or OpenAI<br/>directly"]
   pi -- "demo spend per domain" --> budget["DomainBudget DO<br/>one per Workspace domain"]
   poppy -- "rate-limit state" --> limiter["CompanyLimiter DO<br/>one per Company issuer"]
@@ -77,7 +77,7 @@ The Worker turns a verified app session into the person's Durable Object and for
 | Workers + Static Assets | Worker and the Vite-built chat page | `assets`, `run_worker_first` for `/ws`, `/api/*`, `/auth/*`, `/logout`, `/poppy/*`, `/validator`, `/validator/*` |
 | Durable Objects (SQLite) | `PersonalAgent` per person; `CompanyLimiter` per Company issuer; `DomainBudget` per demo budget domain | migrations `v1`, `v2` and `v3` |
 | Agents SDK | `PiHarness`, `Lifecycle` (capabilities and durable jobs), `WebSockets`, Pi AI provider, `useAgent` | `agents` |
-| AI binding → AI Gateway | The demo lane: Claude Opus 5.5 on Unified Billing | `ai` binding `AI`; `DEMO_GATEWAY_ID` |
+| AI binding → AI Gateway | The demo lane: Claude Sonnet 5.5 on Unified Billing | `ai` binding `AI`; `DEMO_GATEWAY_ID` |
 | Workers Rate Limiting | The public validator's URL checks: 20 a minute per client address | `ratelimits` binding `VALIDATOR_LIMITER` |
 | Workers Logs | Logs, with secrets redacted | `observability` |
 
@@ -86,9 +86,9 @@ The Worker turns a verified app session into the person's Durable Object and for
 | Name | Kind | Purpose |
 | --- | --- | --- |
 | `THINKING_LEVEL` | var | `medium` |
-| `DEMO_GATEWAY_ID`, `DEMO_MODEL_ID` | var | The demo lane: gateway `demo`, `anthropic/claude-opus-5-5` from pi-ai's gateway catalog (it must have a price, or the caps can't work) |
+| `DEMO_GATEWAY_ID`, `DEMO_MODEL_ID` | var | The demo lane: gateway `demo`, `anthropic/claude-sonnet-5-5` from pi-ai's gateway catalog (it must have a price, or the caps can't work) |
 | `DEMO_DAILY_USD_PER_USER`, `DEMO_DAILY_USD_PER_DOMAIN` | var | Daily demo caps in US dollars, per UTC day: `2` and `10`. `0` turns the demo off |
-| `ANTHROPIC_MODEL_ID`, `OPENAI_MODEL_ID` | var | The own-key lane's model per provider: `claude-opus-5-5`, `gpt-6.1-sol` |
+| `ANTHROPIC_MODEL_ID`, `OPENAI_MODEL_ID` | var | The own-key lane's model per provider: `claude-sonnet-5-5`, `gpt-6.1-sol` |
 | `SIGNUP` | var | `allowlist` (committed) or `open` |
 | `POPPY_CLIENT_NAME` | var | Shown on Companies' consent pages |
 | `OWNERS` | deployer's var | The deployment's operators: always allowed in, always on the demo. Empty in the template, which then refuses every request |
@@ -150,13 +150,25 @@ App sign-in is the Worker's own Google and GitHub OAuth. It is separate from Pop
 
 ## The agent
 
-`PersonalAgent` is a plain `DurableObject`, composed as Cloudflare's Pi example composes its agent: `Lifecycle.install(this).use(poppy).use(webSockets).use(harness)`. Pi's root session (`"1"`) is the person's single conversation. `PoppyCapability` comes first, so it sees `poppy.*` frames before the chat socket does.
+`PersonalAgent` is a plain `DurableObject`, composed as Cloudflare's Pi example composes its agent: `Lifecycle.install(this).use(poppy).use(history).use(webSockets).use(harness)`. Pi's root session (`"1"`) is the person's single conversation. `PoppyCapability` and `TranscriptHistory` come first, so they see their frames (`poppy.*`, `history.before`) before the chat socket does.
 
 **Harness configuration**
 
 - **Model.** One pi model, `personal-agent/model`, whose provider picks the lane at every call (see Model access). Sessions created before it existed are pointed at it on start.
 - **Thinking.** `THINKING_LEVEL`; Pi's levels are minimal, low, medium, high, xhigh and max.
 - **Retries.** 5 retries from 1 s, doubling.
+- **Compaction.** A context budget, below.
+
+**Compaction**
+
+The conversation never ends, so the model sees a summary of its older part. pi-durable compacts by itself; `src/compaction.ts` gives it a budget and writes the summary.
+
+- **When.** pi judges each request against the router model's context window, which the router reports as `min(200k, the lane model's own window)`, so a model with a smaller window is judged by its own. With `reserveTokens` 16,000, `backgroundTokens` 34,000 and `keepRecentTokens` 30,000 (pi's defaults are 16,384, 32,768 and 20,000, which with Claude's 1M window meant compacting near 950k): over 150k tokens a summary starts in the background while the conversation carries on; over 184k the request waits for one; the newest ~30k tokens stay verbatim. When a provider says a request is too long, pi summarises once and tries the request once more.
+- **Who summarises.** Our `beforeCompact` hook, not pi's built-in prompt. The hook can only decline a compaction or hand pi the summary text, so it asks the model itself, through the router, with a prompt that keeps the User's words apart from Company messages, tool results and the agent's own notices, never records an approval, and never writes down a secret. The summary is kept with pi's task, so a replay doesn't ask again. If the call fails the hook declines: nothing is summarised and nothing is lost, and the next request over the threshold tries again.
+- **Spend.** The summary call goes through the router like any other call, so on the demo lane it is checked against both caps first and its cost goes into the ledger and the domain's budget.
+- **What is kept.** Only the model's view changes: every entry stays in the person's SQLite. Open operations, approvals, sign-ins and conversations live in `poppy_*` tables, not the transcript, so their cards, Activity and `poppy_status` are unchanged. The Poppy prompt tells the model to call `poppy_status` with no domain after a summary.
+- **On the page.** The summary shows as a notice, "Earlier conversation summarised", with the summary behind a disclosure. pi's snapshot starts at the summary, so after a reload the page asks for the entries before it (`history.before`) and shows them above it.
+- **Preserved thinking.** The demo model is given the compat flags of pi-ai's own Anthropic catalog entry, so the demo lane sends Anthropic what the own-key lane sends, including `block_binding: { prefix_mismatch_behavior: "drop_block" }`: thinking blocks whose earlier context a summary replaced are dropped rather than refused. Not yet tried live (Model access, "Check live").
 
 **Extensions on the registry**
 
@@ -223,7 +235,8 @@ Who pays for a model call is decided before every call, in `src/model-router.ts`
 **Check live.** These are faked in the tests and not yet run against the real services; each is an item in [`docs/deployment-tasks.md`](docs/deployment-tasks.md):
 
 - pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key.
-- Claude Opus 5.5 (and any other demo model) on Unified Billing through the binding.
+- Claude Sonnet 5.5 (and any other demo model) on Unified Billing through the binding.
+- A demo-lane turn after a compaction: that the gateway passes the `anthropic-beta` header and the body on unchanged, and Anthropic answers rather than refusing the kept thinking blocks (preserved thinking; see Compaction).
 - That `createAI` metadata reaches the gateway's spend rules, the 429s they return, and how far bursts overshoot.
 - The free key checks (`GET /v1/models`) at each vendor.
 - How the Deploy to Cloudflare button handles the deployer's vars.
@@ -247,6 +260,8 @@ The wire protocol and chat UI come from Cloudflare's Pi harness example (`cloudf
 | agent → page | `poppy.settings` | Connected accounts and standing permissions |
 | agent → page | `poppy.direct` | A Direct Conversation's messages, state, and `text-delta` pieces for display |
 | agent → page | `poppy.activity` | What the agent is doing and has done at Companies: tasks in progress (each with the frame that stops it) and a log, newest first, up to 200 entries. Built in `src/poppy/activity.ts` from the operations, approvals, sign-ins, conversations, messages and inbox tables, naming only the columns it shows, so it never holds a secret, token, state hash or stored request; kept beyond the cards' hour |
+| page → agent | `history.before` | After a reload whose snapshot starts with a summary: the entries before the summary, from `src/history.ts` |
+| agent → page | `history` | Up to 500 of those entries, oldest first, back to the newest reset, without the prompt entries; `more` while older ones remain |
 
 **What the page shows**
 
@@ -258,6 +273,7 @@ The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line 
   - **Receipts.** A resolved card becomes a one-line receipt.
   - **Readable tool lines.** Poppy tool calls read as one line ("Read your orders at Manzanita · API · view access"), with the raw arguments behind Details.
   - **One status line** while the agent works.
+  - **A notice where earlier conversation was summarised** ("Earlier conversation summarised", the summary behind a disclosure), with the messages before it still above it after a reload (see Compaction).
   - **An empty state** that says what the agent does.
 - **Cards** in the tray:
   - **Sign-in:** a link to the Company's page, a QR code with its user code, a credentials form, or a one-time-code form. Links are shown only when HTTPS.
@@ -639,7 +655,7 @@ Tools take a `domain`, resolved to its issuer, and optionally a `session` label 
 | --- | --- | --- |
 | `poppy_discover(domain)` | Discovery: organization, sign-in types and scopes, APIs, Company Agent, website, extensions | safe |
 | `poppy_sign_in(domain, scopes, reason, account?)` | Uses a covering Account Token, or shows the preferred sign-in card and returns "waiting for the User" | safe |
-| `poppy_status(domain)` | Sessions, accounts and scopes, open conversations | safe |
+| `poppy_status(domain?)` | With a domain: Sessions, accounts and scopes, open conversations. Without: everything open at every Company (operations not final, approvals not decided, sign-ins under way, open conversations) and the accounts signed in, built like the Activity view from named columns only | safe |
 | `poppy_message(domain, text?, data?, conversation?)` | Starts or continues a conversation; waits up to 10 s for a reply | safe: the message id is fixed per call |
 | `poppy_read(conversation)` | Recent messages received by the background reader | safe |
 | `poppy_handoff(conversation, summary)` | A summary message, then a handoff | safe |
@@ -690,6 +706,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | `test/activity.test.ts` | The Activity frame: what it logs, and that it never carries a token, code, credential or sign-in secret |
 | `test/allowlist.test.ts` | Reading and matching the allowlists and `OWNERS`; `SIGNUP` |
 | `test/model-access.test.ts` | Own keys (Anthropic and OpenAI only), sealing, the demo's caps, background turns, refused keys, `SIGNUP`, against fake vendors |
+| `test/compaction.test.ts` | Compaction: the budget's thresholds, the summary in the next request, overflow summarised and retried once, a failed summary losing nothing, summaries counted against the demo's caps, an open approval and Activity unchanged, `poppy_status` with no domain, the page's earlier messages, and the demo request's thinking settings |
 | `test/template.test.ts` | No committed file but docs names the deployer's identities or hosts (read from the untracked `deployment.local.json`), and the template fails closed |
 | `test/properties/json.test.ts` | Both JSON parsers against `JSON.parse`, property-based: duplicates, depth, garbage |
 | `test/properties/discovery.test.ts` | Discovery and the validator: every generated valid Company is discovered as its documents say; each broken MUST refuses it; no document, however broken, makes either throw anything but a DiscoveryError |
@@ -703,10 +720,10 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | `test/prompt-injection.test.ts` | Prompt injection, model lane: a Company's message, operation summary or MCP tool description tells the model to approve an operation or send a secret, and the faux model obeys; nothing is confirmed, nothing is sent as the User, no credential leaves |
 | `test/durability/crash.test.ts` | The conversation after a crash |
 | `test/fetch-browser.test.ts` | The production browser's own rules, with stub fetchers: the cookie jar, HTTPS and public hosts only, every redirect checked, timeouts, the size limit, no headers of ours, pages that need JavaScript |
-| `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page |
+| `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, a summary shown as a notice with the messages before it |
 
 - **Fakes.**
-  - The demo lane's model is Pi AI's faux provider. It echoes the latest user message, and obeys any `@@obey <tool> <arguments>` line it has just read, standing in for a model that follows instructions injected into Company text. It is counted, and priced by a `[cost N]` marker in the prompt.
+  - The demo lane's model is Pi AI's faux provider. It echoes the latest user message, and obeys any `@@obey <tool> <arguments>` line it has just read, standing in for a model that follows instructions injected into Company text. It is counted, and priced by a `[cost N]` marker in the prompt. For compaction, `[context N]` makes an answer report N tokens of context, `[too long]` makes it refuse a request as too long until the request carries a summary, and it answers our summarizer with a short summary, which `[summary fails]` makes fail and `[summary cost N]` prices.
   - Anthropic and OpenAI are faked in `test/fake-models.ts`, in each vendor's streaming format. Whether a key works is in its text; a request carrying AI Gateway credentials is refused.
   - Google and GitHub are faked in `test/fake-providers.ts`. A test plays the consent page, and the fakes check the client, the redirect URI and the PKCE verifier. Each code can make them refuse or misbehave: a wrong `aud`, `iss` or `exp`, an unverified email, a GitHub profile with no id.
   - Fresh Poppy signing keys and a token key are generated for each run.
@@ -767,7 +784,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 - [x] **Gaps the crawl found in our own client and mock**, listed in [`docs/poppy-issues.md`](docs/poppy-issues.md) under "This project". The client's are closed, and so are the mock's.
 - [x] **M×N interop testing** with the other implementations: built ([`docs/interop-testing.md`](docs/interop-testing.md), [`docs/interop-spec.md`](docs/interop-spec.md), [`interop/`](interop/README.md)), and so are the adversarial adapters and the fault-injection proxy, run only against our own implementations. What's left is the "Not yet" rows of [`docs/adversarial-interop.md`](docs/adversarial-interop.md), and the live lane and everruns' adapters, which stay unrun until our agent is verified against a real Company ([`docs/deployment-tasks.md`](docs/deployment-tasks.md)).
 - [ ] **Eviction.** In tests, `evictDurableObject()` timed out after a completed Pi run. If idle agents stay resident, DPoP keys live longer than assumed (harmless); if evictions are frequent, token requests increase.
-- [ ] **Compaction** of the never-ending conversation.
+- [x] **Compaction** of the never-ending conversation: a 150k/184k budget, our summarizer, the summary as a notice (The agent, Compaction). Open: a demo-lane turn after a compaction, live.
 - [ ] **Push notifications** are an open topic, so the agent polls.
 
 * **Risk:** Poppy is Draft 0.1 and "can change before a stable version, including in ways that aren't backward compatible". Appendix A cites section numbers so changes can be compared.

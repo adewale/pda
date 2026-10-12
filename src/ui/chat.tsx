@@ -205,7 +205,7 @@ export function ChatPage({
         <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl space-y-5 px-4 py-6 sm:px-6">
             {empty ? <Welcome /> : null}
-            <Transcript messages={messages} live={live} runningTools={runningTools} onRetry={(text) => session.submit(text)} />
+            <Transcript messages={messages} live={live} runningTools={runningTools} onRetry={(text) => session.submit(text)} summaries={session.summaries} />
             <Working session={session} />
             <Receipts view={poppy} send={sendPoppy} />
             {error ? (

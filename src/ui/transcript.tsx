@@ -15,6 +15,7 @@ import { useId, useMemo, useState, type ComponentProps, type ReactNode } from "r
 import { Streamdown } from "streamdown";
 import type { TranscriptMessage, TranscriptPart } from "../protocol";
 import { Action } from "./controls";
+import { SUMMARY_NOTICE } from "./history";
 import { companyNames, describeToolCall, type ToolHow, type ToolLine, type ToolOutcome } from "./tool-line";
 
 /** An image the page may load: `data:`, or this origin's own. */
@@ -191,21 +192,51 @@ function Notice({ message }: { message: TranscriptMessage }) {
   return text ? <p className="text-center text-[13px] text-kumo-subtle">{text}</p> : null;
 }
 
+/** pi's summary, without the wrapper pi puts round it for the model. */
+function summaryText(message: TranscriptMessage): string {
+  const text = message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
+  const inner = /<summary>\n?([\s\S]*?)\n?<\/summary>\s*$/.exec(text);
+  return (inner ? inner[1]! : text).trim();
+}
+
+/**
+ * Where the agent's earlier conversation was summarised: a notice, not a
+ * message from the person, though pi gives the model the summary as one.
+ * The messages before it stay above it; the summary is behind a disclosure.
+ */
+function SummaryNotice({ message }: { message: TranscriptMessage }) {
+  const text = summaryText(message);
+  return (
+    <div className="text-center text-[13px] text-kumo-subtle" data-summary>
+      <p>{SUMMARY_NOTICE}</p>
+      {text ? (
+        <details className="mx-auto max-w-[70ch] text-left">
+          <summary className="inline-flex min-h-10 cursor-pointer items-center rounded-md font-medium">What your agent kept</summary>
+          <p className="mt-1 whitespace-pre-wrap">{text}</p>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * The conversation: the person's messages, the agent's answers, and one line
  * per thing the agent did at a Company. Tool calls are paired with their
  * results by id, so each call is one line wherever its result arrives.
+ * `summaries` names the messages that are summaries of earlier conversation.
  */
 export function Transcript({
   messages,
   live,
   runningTools,
-  onRetry
+  onRetry,
+  summaries
 }: {
   messages: readonly TranscriptMessage[];
   live: TranscriptMessage | null;
   runningTools: readonly string[];
   onRetry?: (text: string) => void;
+  summaries?: ReadonlySet<string>;
 }) {
   const all = useMemo(() => (live ? [...messages, live] : messages), [messages, live]);
   const { results, called, companies } = useMemo(() => {
@@ -226,6 +257,7 @@ export function Transcript({
       {all.map((message) => {
         switch (message.role) {
           case "user":
+            if (summaries?.has(message.id)) return <SummaryNotice key={message.id} message={message} />;
             lastUserText = message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
             return <UserMessage key={message.id} message={message} />;
           case "notice":

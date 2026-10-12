@@ -1,11 +1,15 @@
 import { useAgent } from "agents/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { HistoryFrame, HistoryRequest } from "./history";
+import { projectEntries } from "./transcript";
+import { historyFromEvents, summaryIds, withEarlier } from "./ui/history";
 import { EMPTY_VIEW, reduceEvents } from "./view";
 import type {
   ClientMessage,
   ServerMessage,
   SessionView,
-  ToolInfo
+  ToolInfo,
+  TranscriptMessage
 } from "./protocol";
 import type {
   ActivityEntry,
@@ -40,13 +44,19 @@ type State = SessionView & {
   /** Every registered tool, from the server's hello. */
   readonly catalog: readonly ToolInfo[];
   readonly poppy: PoppyView;
+  /** Messages before a summary, which pi's snapshot leaves out, fetched from the agent. */
+  readonly earlier: readonly TranscriptMessage[];
+  /** Ids of the messages that are summaries of earlier conversation, shown as notices. */
+  readonly summaries: readonly string[];
 };
 
 const INITIAL_STATE: State = {
   ...EMPTY_VIEW,
   status: "connecting",
   catalog: [],
-  poppy: { cards: [], accounts: [], permissions: [], direct: {}, activity: null }
+  poppy: { cards: [], accounts: [], permissions: [], direct: {}, activity: null },
+  earlier: [],
+  summaries: []
 };
 
 export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView {
@@ -82,6 +92,14 @@ const PRESENCE_EVERY_MS = 2 * 60_000;
 export function usePiSession() {
   const [state, setState] = useState<State>(INITIAL_STATE);
   const agentRef = useRef<{ send(data: string): void } | null>(null);
+  /** The `history.before` the page is waiting for, so an answer a newer snapshot overtook is dropped. */
+  const historyRef = useRef<number | null>(null);
+  const askHistory = (before: number | null) => {
+    historyRef.current = before;
+    if (before === null) return;
+    const frame: HistoryRequest = { type: "history.before", before };
+    agentRef.current?.send(JSON.stringify(frame));
+  };
 
   const agent = useAgent({
     agent: "personal-agent",
@@ -105,6 +123,18 @@ export function usePiSession() {
         return;
       }
       const type = (message as { type?: string }).type;
+      if (type === "history") {
+        const frame = message as unknown as HistoryFrame;
+        if (frame.before !== historyRef.current) return;
+        const entries = frame.entries;
+        setState((current) => ({
+          ...current,
+          earlier: [...projectEntries(entries), ...current.earlier],
+          summaries: [...current.summaries, ...summaryIds(entries)]
+        }));
+        askHistory(frame.more && entries.length > 0 ? Number(entries[0]!.id) : null);
+        return;
+      }
       if (typeof type === "string" && type.startsWith("poppy.")) {
         const frame = message as unknown as PoppyServerFrame;
         setState((current) => ({ ...current, poppy: reducePoppy(current.poppy, frame) }));
@@ -114,12 +144,17 @@ export function usePiSession() {
         case "hello":
           setState((current) => ({ ...current, catalog: message.tools }));
           return;
-        case "events":
+        case "events": {
+          const history = historyFromEvents(message.events);
           setState((current) => ({
             ...current,
-            ...reduceEvents(current, message.events)
+            ...reduceEvents(current, message.events),
+            earlier: history.clear ? [] : current.earlier,
+            summaries: [...(history.clear ? [] : current.summaries), ...history.summaries]
           }));
+          if (history.clear) askHistory(history.askBefore);
           return;
+        }
         case "error":
           setState((current) => ({ ...current, error: message.message }));
           return;
@@ -181,7 +216,10 @@ export function usePiSession() {
     };
   }, [sendPoppy]);
 
-  return { ...state, submit, abort, reset, sendPoppy };
+  const messages = useMemo(() => withEarlier(state.earlier, state.messages), [state.earlier, state.messages]);
+  const summaries = useMemo(() => new Set(state.summaries), [state.summaries]);
+
+  return { ...state, messages, summaries, submit, abort, reset, sendPoppy };
 }
 
 /** Everything the page gets from its agent, as `usePiSession` returns it. */

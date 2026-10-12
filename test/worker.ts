@@ -12,8 +12,9 @@ import {
 } from "@earendil-works/pi-ai";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { PersonalAgent as ProductionAgent } from "../src/agent";
+import { SUMMARY_MESSAGE_PREFIX, SUMMARY_SYSTEM_PROMPT } from "../src/compaction";
 import worker from "../src/index";
-import { gatewayDemoLane, type DemoRoute, type LaneModel } from "../src/model-router";
+import { demoCatalogModel, gatewayDemoLane, routerProvider, type DemoRoute, type LaneModel } from "../src/model-router";
 import { POPPY_TIMEOUTS, type Fetcher, type PoppyTimeouts } from "../src/poppy/fetch";
 import { buildActivity } from "../src/poppy/activity";
 import { readConversation } from "../src/poppy/conversations";
@@ -215,13 +216,47 @@ function obeyed(context: TranscriptContext) {
  * First, it obeys any `@@obey` directive it has just read.
  */
 function script(context: TranscriptContext): AssistantMessage {
+  if (isSummaryRequest(context)) return summaryScript(context);
   const calls = obeyed(context);
   if (calls.length) return fauxAssistantMessage(calls, { stopReason: "toolUse" });
   const users = context.messages.filter((m) => m.role === "user");
   const prompt = textOf(users.at(-1)?.content);
+  // `[too long]`: the provider says the request is too long, until a summary has made it shorter (with `[always]`, even then).
+  if (prompt.includes("[too long]") && (!carriesSummary(context) || prompt.includes("[always]"))) {
+    return fauxAssistantMessage([], { stopReason: "error", errorMessage: "prompt is too long: 250000 tokens > 200000 maximum" });
+  }
+  // A long prompt (one that fills the context) is echoed in part, so the faux model doesn't stream it all back.
+  const echoed = prompt.length > 2000 ? `${prompt.slice(0, 200)}… (${prompt.length} characters)` : prompt;
   return fauxAssistantMessage([
-    fauxText(`echo: ${prompt} (turn ${users.length})`)
+    fauxText(`echo: ${echoed} (turn ${users.length})`)
   ]);
+}
+
+/** Our summarizer's request (src/compaction.ts), told by its system prompt. */
+function isSummaryRequest(context: TranscriptContext): boolean {
+  const first = context.messages[0];
+  return first?.role === "system" && textOf(first.content as Message["content"]) === SUMMARY_SYSTEM_PROMPT;
+}
+
+/** Whether a request carries a summary of earlier conversation, as pi-durable gives it to the model. */
+function carriesSummary(context: TranscriptContext): boolean {
+  return context.messages.some((m) => m.role === "user" && textOf(m.content as Message["content"]).startsWith(SUMMARY_MESSAGE_PREFIX));
+}
+
+/**
+ * The faux summarizer: a short summary naming how many lines it read. It
+ * fails if what it summarises says `[summary fails]`, and is priced by a
+ * `[summary cost N]` marker there, as `[cost N]` prices an answer.
+ */
+function summaryScript(context: TranscriptContext): AssistantMessage {
+  const source = textOf(context.messages.at(-1)?.content as Message["content"]);
+  if (source.includes("[summary fails]")) {
+    return fauxAssistantMessage([], { stopReason: "error", errorMessage: "The summarizer is down (a test fault)" });
+  }
+  const conversation = /<conversation>\n([\s\S]*)\n<\/conversation>/.exec(source)?.[1] ?? "";
+  const lines = conversation.split("\n\n").filter(Boolean).length;
+  const cost = /\[summary cost ([\d.]+)\]/.exec(source)?.[1];
+  return fauxAssistantMessage([fauxText(`Faux summary of ${lines} lines.${cost ? ` [cost ${cost}]` : ""}`)]);
 }
 
 /** A request for a host that is neither ours nor a mock Company's, which tests never answer. */
@@ -496,8 +531,14 @@ export class PersonalAgent extends ProductionAgent {
       name: inner.name,
       auth: inner.auth,
       getModels: () => inner.getModels(),
-      stream: (model, context, options) => counted(inner.stream(model, context, options), price),
-      streamSimple: (model, context, options) => counted(inner.streamSimple(model, context, options), price)
+      stream: (model, context, options) => {
+        recordRequest(id, context);
+        return counted(inner.stream(model, context, options), price);
+      },
+      streamSimple: (model, context, options) => {
+        recordRequest(id, context);
+        return counted(inner.streamSimple(model, context, options), price);
+      }
     });
     const usage = gatewayUsage.get(id);
     if (usage) {
@@ -533,6 +574,26 @@ export class PersonalAgent extends ProductionAgent {
     return demoCalls.get(this.ctx.id.toString()) ?? 0;
   }
 
+  /** Every demo-lane request this agent made, oldest first: what it was and what it carried. */
+  async demoRequests(): Promise<DemoRequest[]> {
+    return demoRequests.get(this.ctx.id.toString()) ?? [];
+  }
+
+  /** The context window pi judges this agent's requests against: the router model's, as pi reads it. */
+  async routerWindow(): Promise<number> {
+    return routerProvider(this.access, demoCatalogModel(this.env)).getModels()[0]!.contextWindow;
+  }
+
+  /** The model's active context, as pi's entries: kind, id, the summary's `head`, and each message's role and text, clipped. */
+  async activeEntries(): Promise<Array<{ id: number; kind: string; head: number | null; role: string | null; text: string }>> {
+    const entries = await this.harness.messages();
+    return entries.map((entry) => {
+      const message = entry.model?.[0];
+      const content = message && "content" in message ? (message.content as Message["content"]) : undefined;
+      return { id: Number(entry.id), kind: entry.kind, head: entry.head === undefined ? null : Number(entry.head), role: message?.role ?? null, text: textOf(content).slice(0, 200) };
+    });
+  }
+
   /** The newest assistant message in the transcript: its text and pi's recorded error, if any. */
   async lastAssistant(): Promise<{ text: string; error: string | null }> {
     const entries = (await this.harness.messages()) as Array<{ model?: Array<{ role?: string; content?: Message["content"]; errorMessage?: string }> }>;
@@ -548,6 +609,24 @@ export class PersonalAgent extends ProductionAgent {
 
 /** Demo-lane calls per agent, by Durable Object id. */
 const demoCalls = new Map<string, number>();
+
+/** One demo-lane request: a summary or a turn, whether it carried a summary, and its latest user text (a turn's clipped, a summary's whole). */
+export type DemoRequest = { readonly summary: boolean; readonly carriesSummary: boolean; readonly last: string; readonly messages: number };
+const demoRequests = new Map<string, DemoRequest[]>();
+
+function recordRequest(id: string, context: TranscriptContext): void {
+  const list = demoRequests.get(id) ?? [];
+  demoRequests.set(id, list);
+  const users = context.messages.filter((m) => m.role === "user");
+  const summary = isSummaryRequest(context);
+  const last = textOf(users.at(-1)?.content as Message["content"]);
+  list.push({
+    summary,
+    carriesSummary: carriesSummary(context),
+    last: summary ? last : last.slice(0, 200),
+    messages: context.messages.length
+  });
+}
 
 /** The demo lane's day in tests: noon UTC, so a test never straddles midnight. */
 const DEMO_NOON = Date.UTC(2026, 9, 11, 12);
@@ -565,7 +644,7 @@ const gatewayUsage = new Map<string, GatewayUsage>();
  */
 function fakeGateway(usage: GatewayUsage): Ai {
   const events: Array<[string, unknown]> = [
-    ["message_start", { type: "message_start", message: { id: "msg_gw", type: "message", role: "assistant", content: [], model: "claude-opus-5-5", stop_reason: null, stop_sequence: null, usage: { input_tokens: usage.input_tokens, output_tokens: 1 } } }],
+    ["message_start", { type: "message_start", message: { id: "msg_gw", type: "message", role: "assistant", content: [], model: "claude-sonnet-5-5", stop_reason: null, stop_sequence: null, usage: { input_tokens: usage.input_tokens, output_tokens: 1 } } }],
     ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
     ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "metered answer" } }],
     ["content_block_stop", { type: "content_block_stop", index: 0 }],
@@ -584,8 +663,12 @@ function fakeGateway(usage: GatewayUsage): Ai {
 function priced(message: AssistantMessage): AssistantMessage {
   const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
   const cost = Number(/\[cost ([\d.]+)\]/.exec(text)?.[1] ?? 0);
-  if (!cost) return message;
-  return { ...message, usage: { ...message.usage, cost: { ...message.usage.cost, total: cost } } };
+  // `[context N]`: the answer reports a context of N tokens, as a provider's usage would, so pi measures the conversation at N.
+  const context = Number(/\[context (\d+)\]/.exec(text)?.[1] ?? 0);
+  let usage = message.usage;
+  if (context) usage = { ...usage, input: context, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: context };
+  if (cost) usage = { ...usage, cost: { ...usage.cost, total: cost } };
+  return usage === message.usage ? message : { ...message, usage };
 }
 
 export { CompanyLimiter, DomainBudget } from "../src/index";

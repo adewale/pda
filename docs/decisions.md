@@ -32,6 +32,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 20. [What we deliberately didn't do](#20-what-we-deliberately-didnt-do)
 21. [CI scope](#21-ci-scope)
 22. [Security hardening](#22-security-hardening)
+23. [Compaction: a budget, our summarizer, the page](#23-compaction-a-budget-our-summarizer-the-page)
 
 ## 1. A Worker and one Durable Object per person
 
@@ -151,7 +152,8 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
   The demo's primary limit is ours: each call's pi-ai cost goes into the agent's own ledger and the domain's `DomainBudget`, and both caps are checked before the call. The gateway's spend rules, split by `metadata.u` and `metadata.d` with a pooled daily cap, are set in the dashboard as a backstop only.
 - **Alternatives.** *Gateway spend rules as the only limit:* they are eventually consistent, work only for priced models, and answer after the fact, so a cap couldn't be shown in Settings or enforced before a background turn. *Caps in the Worker:* it has no durable place for a running total.
 - **Consequences.** A cap can be overshot by the calls already in flight, one per agent; costs are pi-ai's catalog prices, an estimate before Unified Billing's fee. Nothing here is tried live yet: the spec's "Check live" list and [deployment-tasks.md](deployment-tasks.md).
-- **When.** 11 October (`e5b0818`; Settings `83d4d81`).
+- **The model: Claude Sonnet 5.5.** `DEMO_MODEL_ID` is `anthropic/claude-sonnet-5-5` and `ANTHROPIC_MODEL_ID` `claude-sonnet-5-5` (OpenAI's is unchanged). In pi-ai's catalog Sonnet 5.5 costs half what Opus 5.5 does per input, output and cache-write token ($2, $10 and $2.50 a million, against $4, $20 and $5; cache reads are $0.20 for both), with the same 1M-token window, so the same demo caps go twice as far. Opus stays one var change away: set either var back to Opus 5.5's id. *Alternative: Opus 5.5,* the first choice; it halves what each cap buys.
+- **When.** 11 October (`e5b0818`; Settings `83d4d81`); Sonnet 5.5, 12 October.
 
 ## 14. Own keys: pasted, sent straight to the vendor
 
@@ -234,3 +236,20 @@ Each of these closed a specific gap, and each has a test:
 - **Private-host checks** on everything a Company controls: IP literals, `localhost` and single-label names are refused, written with or without the root's trailing dot, directly or by redirect, in the client and the validator alike (a property checks they agree).
 - **Sealing with versioned keys.** Account Tokens, pending sign-in secrets and model keys are AES-GCM sealed under `TOKEN_ENC_KEY`, bound to their row or agent and provider by additional data, written as `v1.…`. `TOKEN_ENC_KEY_PREVIOUS` lets a key rotate: old values still open and are sealed again when used (`e5b0818`).
 - **Tokens only to the Company's hosts:** a Session Token goes only to a host `poppy.json` lists or under the Company's domains; an OpenAPI server elsewhere is refused before any request ([N10](spec-issues.md#n10)).
+
+## 23. Compaction: a budget, our summarizer, the page
+
+- **Context.** The conversation never ends. pi-durable compacts it by itself, but relative to the model's window: with Claude's 1M tokens and pi's defaults, a summary started near 950k tokens and blocked near 984k, so every turn before that paid for the whole conversation, and the router lent every lane the demo model's 1M window, misjudging OpenAI's 272k. pi's own summary prompt reads the transcript as "[User]" and "[Assistant]", and the Poppy client's notices (a Company's message, an operation proposed) reach the model as user messages, so a summary could turn a Company's words into the User's wishes. pi keeps every entry, but its snapshot starts at the summary, so a reloaded page lost the messages before it, and showed the summary as something the person said.
+- **Decision.** In `src/compaction.ts`:
+  - **A budget** for every lane: the router reports `min(200k, the lane model's window)` as its window, and pi's settings are `reserveTokens` 16,000, `backgroundTokens` 34,000 and `keepRecentTokens` 30,000. A summary starts in the background over 150k tokens, a request waits for one over 184k, and the newest ~30k stay verbatim. pi's own fallback stays: a request the provider calls too long is summarised and tried once more.
+  - **Our summarizer**, on pi's `beforeCompact` hook. The hook can only decline or supply the summary text; it can't change pi's prompt or its input. So it asks the model itself, through the router (so a summary on the demo lane is capped and metered like any call), with a prompt that labels the User's words, Company messages, tool results and the agent's own notices apart, keeps Company text attributed, and never records an approval or a secret. The summary is memoized on pi's task, so a replay doesn't pay twice. A failed call declines: nothing is summarised, nothing lost.
+  - **`poppy_status` with no domain** lists everything open at every Company, and the Poppy prompt tells the model to call it after a summary. Approvals stay on cards; a summary can't carry one.
+  - **The page** shows a summary as a notice and, after a reload, asks the agent (`history.before`, `src/history.ts`) for the entries before it. All of this is in our code; the four files copied from Cloudflare's example are untouched.
+  - **Preserved thinking.** pi-ai's Anthropic catalog marks Sonnet 5.5 `supportsMidConvoEffort`, and for such models pi-ai asks Anthropic to drop a thinking block whose earlier context changed (`block_binding: { prefix_mismatch_behavior: "drop_block" }`, with the `thinking-binding-controls-2026-08-01` beta) instead of refusing the request. Its Cloudflare AI Gateway entry for the same model lacks the flag, so after a compaction a demo-lane request carrying kept thinking blocks could have been refused with a 400, again on every turn. The demo model now takes the compat flags of the vendor's own entry (`withVendorCompat` in `src/model-router.ts`), so the demo lane sends what the own-key lane sends.
+- **Alternatives.**
+  - *pi's defaults:* compaction near 950k tokens, at the price of a near-1M-token request on every turn before it.
+  - *pi's built-in summarizer:* no way to keep Company text apart, short of matching its prompt in the router.
+  - *A cheaper model for summaries:* pi-durable's built-in summarizer always uses the conversation's own model, but our hook chooses its model, so a cheaper one is a small change once a second lane model exists. Not done: the router has one model per lane, and the demo caps already meter summaries.
+  - *Leaving the gateway entry as it is:* a demo-lane conversation could have failed for good after its first compaction.
+- **Consequences.** Summary calls don't appear in pi's own usage document (the hook makes them), though they are in the demo's ledger. The fix for preserved thinking depends on AI Gateway passing the `anthropic-beta` header and the body to Anthropic unchanged, which is untried until the demo gateway has credits ([deployment-tasks.md](deployment-tasks.md)). A summary is a model's account and can be wrong; what is open at Companies is in the `poppy_*` tables, never only in the transcript.
+- **When.** 12 October.

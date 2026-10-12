@@ -86,6 +86,99 @@ const SIGN_IN_WAY: Record<string, string> = {
   mediated: "through this page"
 };
 
+/**
+ * Everything still open at every Company, for the model (`poppy_status` with
+ * no domain): operations not final, approvals not decided or not finished,
+ * sign-ins under way, open conversations, and the accounts signed in. From
+ * the same tables as the Activity view, naming only the columns it shows, so
+ * it never holds a token, key, code, state hash or stored request. The
+ * Company's own words are labelled as the Company's.
+ */
+export function openAtCompanies(client: PoppyClient, now = Date.now()) {
+  const sql = client.sql;
+  const known = new Map<string, { company: string; domain: string | null }>();
+  const where = (issuer: string) => {
+    let found = known.get(issuer);
+    if (!found) {
+      try {
+        const company = client.companyByIssuer(issuer);
+        found = { company: company.name, domain: company.domain };
+      } catch {
+        found = { company: URL.canParse(issuer) ? new URL(issuer).host : issuer, domain: null };
+      }
+      known.set(issuer, found);
+    }
+    return found;
+  };
+
+  const operations = rows<OperationRow>(
+    sql,
+    "SELECT issuer, operation_id, account, operation, approved_revision, approved_by, confirmed, updated_at FROM poppy_operations ORDER BY updated_at DESC"
+  ).flatMap((row) => {
+    const operation = JSON.parse(row.operation) as Operation;
+    if (operation.state !== "proposed" && operation.state !== "in_progress") return [];
+    const approved = row.approved_revision !== null && row.approved_revision === operation.revision;
+    return [
+      {
+        ...where(row.issuer),
+        operation: row.operation_id,
+        revision: operation.revision,
+        state: operation.state,
+        companySays: operation.summary,
+        decision:
+          operation.state === "in_progress"
+            ? "approved; the company is carrying it out"
+            : approved
+              ? "approved by the User; confirming"
+              : "waiting for the User, on a card on their page"
+      }
+    ];
+  });
+
+  const approvals = rows<{ id: string; issuer: string; summary: string; status: string; created_at: number }>(
+    sql,
+    "SELECT id, issuer, summary, status, created_at FROM poppy_approvals WHERE status IN ('pending', 'executing') ORDER BY created_at DESC"
+  ).map((row) => ({
+    ...where(row.issuer),
+    approval: row.id,
+    action: row.summary,
+    state: row.status === "pending" ? "waiting for the User, on a card on their page" : "approved by the User; being carried out"
+  }));
+
+  const signIns = rows<{ id: string; type: string; issuer: string; account: string; scopes: string; status: string; expires_at: number }>(
+    sql,
+    "SELECT id, type, issuer, account, scopes, status, expires_at FROM poppy_signins WHERE status NOT IN ('done', 'failed', 'expired') ORDER BY created_at DESC"
+  )
+    .filter((row) => !((row.status === "pending" || row.status === "code") && row.expires_at <= now))
+    .map((row) => ({
+      ...where(row.issuer),
+      signIn: row.type,
+      account: row.account === "default" ? null : row.account,
+      scopes: row.scopes,
+      state: row.status === "pending" || row.status === "code" ? "waiting for the User" : "finishing",
+      until: row.expires_at
+    }));
+
+  const conversations = rows<{ id: string; issuer: string; direct: number; status: string; responder: string }>(
+    sql,
+    "SELECT id, issuer, direct, status, responder FROM poppy_conversations WHERE status != 'closed' ORDER BY last_event_at DESC"
+  ).map((row) => ({
+    ...where(row.issuer),
+    conversation: row.id,
+    status: row.status,
+    responder: row.responder,
+    direct: !!row.direct
+  }));
+
+  const accounts = rows<{ issuer: string; account: string; scope: string; expires_at: number | null }>(
+    sql,
+    "SELECT issuer, account, scope, expires_at FROM poppy_accounts WHERE expires_at IS NULL OR expires_at > ?",
+    now
+  ).map((row) => ({ ...where(row.issuer), account: row.account, scope: row.scope, expiresAt: row.expires_at }));
+
+  return { operations, approvals, signIns, conversations, accounts };
+}
+
 export function buildActivity(client: PoppyClient, now = Date.now()): Extract<PoppyServerFrame, { type: "poppy.activity" }> {
   const sql = client.sql;
   const names = new Map<string, string>();

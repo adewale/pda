@@ -37,11 +37,11 @@
     // Gateway (Unified Billing), capped per person and per Google Workspace
     // domain each UTC day. A cap of 0 turns the demo off.
     "DEMO_GATEWAY_ID": "demo",
-    "DEMO_MODEL_ID": "anthropic/claude-opus-5-5",
+    "DEMO_MODEL_ID": "anthropic/claude-sonnet-5-5",
     "DEMO_DAILY_USD_PER_USER": 2,
     "DEMO_DAILY_USD_PER_DOMAIN": 10,
     // The own-key lane: each provider's model, from pi-ai's catalogs.
-    "ANTHROPIC_MODEL_ID": "claude-opus-5-5",
+    "ANTHROPIC_MODEL_ID": "claude-sonnet-5-5",
     "OPENAI_MODEL_ID": "gpt-6.1-sol",
     // `allowlist`: only OWNERS and SIGNIN_ALLOWLIST sign in. `open`: anyone
     // with a Google or GitHub account (they need their own key or the demo).
