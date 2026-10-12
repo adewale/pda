@@ -13,7 +13,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 - Sign in with Google or GitHub, land in a chat with *your* agent.
 - The agent's memory and in-flight work survive refreshes, deploys, crashes and closed tabs.
 - **Complete Poppy coverage on the Personal Agent side**: discovery, agent identity, Sessions, DPoP, all three sign-in types, Account Tokens and sign-out, web browsing, OpenAPI and MCP APIs, conversations (including streaming, handoff and Direct Conversations), extensions, and the Operations extension.
-- **Exemplary, not just compliant**: every MUST and MUST NOT for Personal Agents is mapped to code and a test (Appendix A), and the Guides' recommendations are followed unless this document says why not.
+- Every MUST and MUST NOT for Personal Agents mapped to code and a test (Appendix A), and the Guides' recommendations followed unless this document says why not.
 - Smallest possible surface: one Worker, a few Durable Object classes, no separate database, the chat UI reused from Cloudflare's Pi example.
 
 **Non-goals**
@@ -34,7 +34,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | App sign-in with Google and GitHub | Built and tested against fake providers that check PKCE and can refuse. GitHub's OAuth client is configured (the live redirect to GitHub checks out); Google's isn't registered yet, so Google sign-in fails with a 500 naming the missing setting |
 | Model access: own keys (Anthropic, OpenAI) and the operator-paid demo lane with daily caps | Built and tested against fake vendors and pi's fake model. Not yet run live: see Model access, "Check live" |
 | Claude through AI Gateway (the demo lane) | Built; a live call fails with `x-api-key header is required` until the demo gateway has Unified Billing credits |
-| Poppy client: every part in this spec | Built; passes the conformance tests against a strict mock Company, under six readings of the draft's open questions. In the [interop grid](docs/interop-results/README.md) (a snapshot of the 11 October run) it passes every scenario it shares with the Companies of six other projects. Not yet tried against a production Company, because none has published `poppy.json` |
+| Poppy client: every part in this spec | Built; passes the conformance tests against a strict mock Company, under six readings of the draft's open questions. In the [interop grid](docs/interop-results/README.md) (a snapshot of a 12 October run) it passes every scenario it shares with the Companies of seven other projects: Datalayer, pi-poppy, poppy-demo, poppyseed, Ilmer, print-with-poppy and adonis-agora. Not yet run against a live Company: Spot, a small deployed product, publishes valid discovery but isn't in the grid ([implementations.md](docs/implementations.md)) |
 | Poppy identity (`/poppy/client.json`, `/poppy/jwks.json`) | Live, with production signing keys |
 | Web browsing | Built on a fetch-based browser in the Durable Object, with no JavaScript; the production browser is tested against the mock Company's website. Not yet tried on a real Company's site |
 | Chat, Activity, Companies and Settings pages | Built; tested in happy-dom and checked in headless Chrome (light, dark, phone width). Not yet used with a real Company |
@@ -44,6 +44,8 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Memory, skills (milestone 2) | Not started |
 
 With `SIGNUP=allowlist` (the committed value) only `OWNERS` and people on `SIGNIN_ALLOWLIST` can sign in. The operator pays only for `OWNERS` and `DEMO_ALLOWLIST`, up to the daily caps; everyone else needs their own key.
+
+**Known defects** are listed in [TODO.md](TODO.md). One is in the Poppy client: a sign-in that recovery finishes (an interrupted code exchange; see Direct Sign-In) doesn't run the after-sign-in step, so an operation approved while it waited isn't confirmed until the next sign-in.
 
 ## Architecture
 
@@ -279,7 +281,7 @@ The wire protocol and chat UI come from Cloudflare's Pi harness example (`cloudf
 
 **What the page shows**
 
-The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line mapping, Activity, Companies, Settings) and `src/poppy-ui.tsx` (cards, the tray, receipts, the Direct Conversation sheet). It follows a spartan house style: neutral surfaces, color only for state, no decorative motion, and every action labelled with where, how, what access and who decided.
+The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line mapping, Activity, Companies, Settings) and `src/poppy-ui.tsx` (cards, the tray, receipts, the Direct Conversation sheet). It follows a spartan house style: neutral surfaces, colour only for state, no decorative motion, and every action labelled with where, how, what access and who decided.
 
 - **Four places** in a rail that becomes a top bar and sheet on phones. Each has its own path (`/`, `/activity`, `/companies`, `/settings`), and the back button works.
 - **Chat.**
@@ -340,10 +342,11 @@ The client targets **Draft 0.1** exactly, and treats the document's `protocol_ve
 
 For a domain the User or the model names, the client calls `validateCompany` in `src/validator/` (see Discovery document validator) and uses the Company only if the outcome is `valid`. Any error, or a document that couldn't be fetched, refuses it, and the error text goes to the model. The validator does steps 1 to 3:
 
-1. **Fetch the document.** `GET https://{domain}/.well-known/poppy.json` with `redirect: "manual"`, following at most 3 redirects, each of which MUST be HTTPS. The fetch is safe by construction:
+1. **Fetch the document.** `GET https://{domain}/.well-known/poppy.json` with `redirect: "manual"`, following at most 3 redirects, each of which MUST be HTTPS. The fetch is bounded:
    - **Limits:** a 100 KB size cap and a 5 s timeout.
    - **No credentials:** no cookies, tokens or credentials are sent.
-   - **No private hosts:** refuse, by name, IP literals, single-label hosts, and special-use and private-use names (`localhost`, `.local`, `.internal`, `.home.arpa` and the rest of `.arpa`, `.invalid`, `.onion`, `.alt`, and RFC 6762's `.lan`, `.home`, `.corp`, `.private`, `.intranet`: `NON_PUBLIC_SUFFIXES` in `src/validator/fetch.ts`). A name can still resolve to a private address (`127.0.0.1.nip.io`), and the "address you actually connect to" check depends on the runtime. Workers refuse connections to private destinations themselves, which covers our client and the hosted validator. The Node CLI (`scripts/poppy-validate.ts`) resolves each name itself, refuses loopback, RFC 1918, link-local, CGNAT, ULA, IPv4-mapped forms of those, unspecified and multicast addresses (`http-non-public-address`), and connects only to the address it checked (`scripts/node-fetcher.ts`, with `pinnedLookup` from `src/validator/address.ts`). The library alone checks names only: a caller in any other runtime must supply a fetcher that checks addresses.
+   - **No private hosts, by name:** IP literals, single-label hosts, and special-use and private-use names are refused (`localhost`, `.local`, `.internal`, `.home.arpa` and the rest of `.arpa`, `.invalid`, `.onion`, `.alt`, and RFC 6762's `.lan`, `.home`, `.corp`, `.private`, `.intranet`: `NON_PUBLIC_SUFFIXES` in `src/validator/fetch.ts`).
+   - **Private addresses, by runtime.** A public-looking name can still resolve to a private address (`127.0.0.1.nip.io`), so the Guides' "address you actually connect to" check depends on where the code runs. Workers refuse connections to private destinations themselves, which covers our client and the hosted validator. The Node CLI (`scripts/poppy-validate.ts`) resolves each name itself and refuses it (`http-non-public-address`) if any address is loopback, RFC 1918, link-local, CGNAT, ULA, unspecified, multicast, an IPv4-mapped form of one of those, or in another range that isn't globally reachable; it then connects only to the address it checked (`scripts/node-fetcher.ts`, with `pinnedLookup` from `src/validator/address.ts`). The library alone checks names only, so a caller in any other runtime must supply a fetcher that checks addresses.
    - **Strict JSON:** a UTF-8 parser that rejects duplicate member names (Guides).
 2. **Check the document.**
    - Refuse a document whose `protocol_version` major isn't `0`.
@@ -507,9 +510,9 @@ A document without `auth` can only be browsed as an ordinary website (§3.1), an
 
 **Signing out (§4.9).**
 
-- **Sign out.** The "Connected companies" page revokes an Account Token at `revocation_endpoint`, with `token_type_hint=refresh_token` and the client assertion.
+- **Sign out.** The Companies page revokes an Account Token at `revocation_endpoint`, with `token_type_hint=refresh_token` and the client assertion.
 - **What follows.** Sessions continue signed out: renew them with the assertion, or start new ones on `invalid_session`.
-- **Ending a Session** means simply stopping use of it.
+- **Ending a Session** means no longer using it.
 - **Disconnect from the Company's side** surfaces as `invalid_token`, `sign_in_required` or `invalid_grant`, and is handled the same way.
 
 ### Web browsing (§5)
@@ -634,7 +637,7 @@ We list `operations` version `1` in the client metadata document, so Companies t
 
 All four go to one handler. It stores the operation and its revision, and pushes an **approval card**. A message never confirms an operation, whatever it says.
 
-- **Operation ids.** `operation_id` "MAY be the ID of the Company's own record" (Ops 3), so any 1 to 256 characters are taken, with no control character, no space at either end, and not `.` or `..`; it is percent-encoded in the operations endpoint's URLs.
+- **Operation ids.** `operation_id` "MAY be the ID of the Company's own record" (Ops 3), so any well-formed text of 1 to 256 characters is taken, with no control character, no space at either end, and not `.` or `..`; it is percent-encoded in the operations endpoint's URLs.
 - **A proposal we can't use.** One we can't read (a bad id, revision, state or summary), or one from a Company whose `poppy.json` doesn't list the extension, gets a closed notice card saying nothing was done and there is nothing to approve, and the model is told so, once. The tool result says so too, rather than handing the model the raw answer.
 
 **The approval card (Ops §5.1).**
@@ -644,15 +647,15 @@ All four go to one handler. It stores the operation and its revision, and pushes
   - The revision's `summary`, **verbatim**.
   - Any cost, date or condition from `terms`, and whether the action can be undone.
   - For a new revision, what changed since the last one.
-- **How the answer arrives.** The decision comes only through the card's buttons, as `poppy.approve` or `poppy.decline`. The model can't approve, and Company text is never approval.
+- **How the answer arrives.** The decision comes only through the card's buttons, as a `poppy.operation` frame. The model can't approve, and Company text is never approval.
 
 **Standing permissions.**
 
-- **Who creates them.** The User creates them on the Standing permissions page, never the model.
+- **Who creates them.** The User, on the Company's page in Companies; never the model.
 - **What each one holds:** the Company issuer, the account, the action, an optional maximum amount and currency, an optional number of uses, and an optional expiry.
 - **Matching the action.** Operations carry no standard action field, and `terms` keys are the Company's own. So the action is a word or phrase the Company's `summary` must begin with, word for word, such as "exchange" for "Exchange the Stormline Jacket…"; a negation right after it ("Exchange nothing: …") doesn't match. Anywhere else in the summary isn't enough: "Not an exchange: delete all saved addresses" contains the word. This is our reading; see Open questions.
 - **Every term.** `terms` must be a non-empty object, and every member one of:
-  - a money term, an object of exactly `amount` (a decimal) and `currency` (three letters), in the permission's currency and within its maximum when it has one;
+  - a money term, an object of exactly `amount` (a decimal) and `currency` (three capital letters); when the permission has a maximum, the term must be in the permission's currency and within it;
   - a date or time: a key that names one (`date`, `_at`, `_on`, `time`, `deadline`, `until`, never a renewal, repeat, trial, charge or billing period) with an ISO 8601 value;
   - `order_id`, `item_id` or `replacement_sku` as a string: which record the action is on, the keys of the draft's own example (Ops 3).
 
@@ -714,7 +717,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 
 - **Approval for writes.**
   - At Companies with the Operations extension, a write the Company says proposes (APIs, Writes and approvals) gets the extension's approval: a card, or a standing permission.
-  - Every other OpenAPI write, MCP tools without `readOnlyHint: true`, and website form submits wait on our own approval card, at every Company. The exact request is stored; only the card's Approve makes it, once. The row is marked `executing` before the call, so if the object dies mid-call it is reported as an unknown outcome on restart and never retried.
+  - Every other write waits on our own approval card, at every Company: an OpenAPI write, an MCP tool without `readOnlyHint: true`, and a website form submit. An upload of the User's photo always does, even to an endpoint that proposes. The exact request is stored; only the card's Approve makes it, once. The row is marked `executing` before the call, so if the object dies mid-call it is reported as an unknown outcome on restart and never retried.
   - Conversation messages aren't gated: under Poppy a message never authorizes an account action (§7.11), and the Company enforces scopes.
 - **Replay.** Tools are `replay: "safe"` only where a repeat is harmless: reads, message sends with a fixed id, writes with a fixed `Idempotency-Key`, writes with no key that a replay refuses to send again, and writes that only create an approval card, fixed per call. After a crash Pi gives the model an interrupted result for the rest instead of repeating them.
 - **Secrets** (Guides, "Handling secrets").
@@ -812,7 +815,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 6. **Reference release.** Next (the owner's steps, in order, are in [`docs/deployment-tasks.md`](docs/deployment-tasks.md)):
    - close the "not yet" rows in Appendix A;
    - choose the final domain and move `PUBLIC_ORIGIN` to it;
-   - try the agent against the first real Company to publish `poppy.json`;
+   - try the agent against a live Company;
    - publish the interop harness, with the mock Company as its reference, for other implementations (built; this repository is still private);
    - send our readings of the draft (Open questions) to its maintainers.
 
@@ -821,11 +824,11 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 - [x] **Claude billing:** Unified Billing on a separate demo gateway with no stored keys; people's own keys never touch it (Model access). Its "Check live" list is open.
 - [ ] **Final domain** for `client_id`, before registering anywhere. Will Companies accept a `workers.dev` host?
 - [x] **Browser Rendering:** cost and limits for one context per Session. Resolved by removing it: browsing runs on a fetch-based browser in the Durable Object, at no extra cost. Revisit if a Company's site needs JavaScript.
-- [ ] **Standing permissions and actions.** Ops 5.1 requires a permission to cover "the action" and "every term", but operations have no standard action field and `terms` keys are the Company's own. We require the summary to begin with the permission's words, and every term to be money we can check against its limit, a date, or one of the draft's example ids (`order_id`, `item_id`, `replacement_sku`); anything else goes to the User. That still trusts the summary's first words for the action. The draft should define something checkable: an action field, and a list of term types.
+- [ ] **Standing permissions and actions.** Ops 5.1 requires a permission to cover "the action" and "every term", but operations have no standard action field and `terms` keys are the Company's own. We require the summary to begin with the permission's words, and every term to be money (checked against the permission's limit when it has one), a date, or one of the draft's example ids (`order_id`, `item_id`, `replacement_sku`); anything else goes to the User. That still trusts the summary's first words for the action. The draft should define something checkable: an action field, and a list of term types.
 - [ ] **DPoP nonces per server.** The Guides say to keep a nonce "for that server". We key nonces by origin, so a Company's token endpoint and API can each require their own. Is that the intended reading?
 - [ ] **Writes at Companies with the Operations extension.** A Company may use operations for some actions and not others, so we send a write straight through only when its description says it proposes (a `202` with `operation`, `x-poppy-operation`, or an MCP `outputSchema` with `operation`); any other write gets our own card first, which at a Company that then proposes means two approvals. Ops 4.1 asks Companies to say which endpoints return operations but defines no marker (S22): the draft should define one, for OpenAPI and MCP.
 - [ ] **Local Personal Agents.** §4.1 needs an HTTPS `client_id` on the same domain as the redirect URIs, so an agent on someone's laptop needs a hosted identity or Device Sign-In. A short note in the draft would help.
-- [ ] **Spec problems.** [`docs/spec-issues.md`](docs/spec-issues.md) lists 62, from comparing implementations (S1 to S23), a full crawl of the site (N1 to N33), the mock's new checks (N34, N35), the interop grid (N39 to N42) and later work (N43 to N45: website submissions with no approval step, when to fetch discovery documents again, and a lost code exchange orphaning an Account Token), each with a suggested fix and what we do. Six more (S6, S15, S21, N36, N37, N38) were our misreadings and are withdrawn. The most important: sign-in not bound to the Session until the code exchange (N2), step-up revocation signing out other Sessions (N4), non-HTTPS URLs in `poppy.json` (N9), which hosts receive Session Tokens (N10), a shared issuer merging Companies (N11), and the client assertion's `aud` (S1).
+- [ ] **Spec problems.** [`docs/spec-issues.md`](docs/spec-issues.md) lists 62, from comparing implementations (S1 to S23), a full crawl of the site (N1 to N33), the mock's new checks (N34, N35), the interop grid (N39 to N42) and later work (N43 to N45: website submissions with no approval step, when to fetch discovery documents again, and a lost code exchange orphaning an Account Token), each with a suggested fix and what we do. Six more (S6, S15, S21, N36, N37, N38) were our misreadings and are withdrawn. The ones with the widest effect: sign-in not bound to the Session until the code exchange (N2), step-up revocation signing out other Sessions (N4), non-HTTPS URLs in `poppy.json` (N9), which hosts receive Session Tokens (N10), a shared issuer merging Companies (N11), and the client assertion's `aud` (S1).
 - [x] **Gaps the crawl found in our own client and mock**, listed in [`docs/poppy-issues.md`](docs/poppy-issues.md) under "This project". The client's are closed, and so are the mock's.
 - [x] **M×N interop testing** with the other implementations: built ([`docs/interop-testing.md`](docs/interop-testing.md), [`docs/interop-spec.md`](docs/interop-spec.md), [`interop/`](interop/README.md)), and so are the adversarial adapters and the fault-injection proxy, run only against our own implementations. What's left is the "Not yet" rows of [`docs/adversarial-interop.md`](docs/adversarial-interop.md), and the live lane and everruns' adapters, which stay unrun until our agent is verified against a real Company ([`docs/deployment-tasks.md`](docs/deployment-tasks.md)).
 - [ ] **Eviction.** In tests, `evictDurableObject()` timed out after a completed Pi run. If idle agents stay resident, DPoP keys live longer than assumed (harmless); if evictions are frequent, token requests increase.
@@ -937,7 +940,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | § | Requirement | Where | Checked by |
 | --- | --- | --- | --- |
 | 2 | List `operations` version `1` in client metadata | `routes.ts` | Test: "serves the client metadata document…" |
-| 3 | `operation_id` MAY be the Company's own record's id: any 1 to 256 characters without control characters, percent-encoded in URLs; a proposal we can't read is reported to the User and the model, never dropped silently | `operations.ts` | Test: "takes an operation id like booking:…", "…like booking/…", "…like BK.2026.…", "…like ord#…", "tells the User and the model when a proposal's id has…" |
+| 3 | `operation_id` MAY be the Company's own record's id: 1 to 256 characters, without control characters, a space at either end or a whole id of `.` or `..`, percent-encoded in URLs; a proposal we can't read is reported to the User and the model, never dropped silently | `operations.ts` | Test: "takes an operation id like booking:…", "…like booking/…", "…like BK.2026.…", "…like ord#…", "tells the User and the model when a proposal's id has…" |
 | 3.2 | An operation proposed in a signed-out Session is used only in that Session; `operation_not_found` once it has ended makes it final for us, saying whether it may have happened (our reading of N19), in Activity and `poppy_status` too | `operations.ts`, `activity.ts` | Test: "stops at an operation whose signed-out Session ended…", "tells the User an order may have happened when its signed-out Session ended…" |
 | 4 | Accept proposals from OpenAPI, MCP and conversations; a message never confirms | `apis.ts`, `conversations.ts` | Test: OpenAPI ("gets a proposal…"), MCP ("doesn't ask an MCP tool for a new proposal…") and conversations ("handles an authorization event…"); a message never confirms: "never confirms an operation, or speaks as the User, when a Company message says the User approved" |
 | 1, 4.1 | A Company may use operations for some actions only: a write goes straight through only when its description says it proposes; any other gets our own card | `apis.ts` | Test: "asks the User on its own card before a write at a Company with operations whose description doesn't say it proposes", "sends a write that proposes straight to a Company with operations…", "asks the User before an MCP tool at a Company with operations unless its output schema says it proposes", "never sends a write that takes no Idempotency-Key twice when its tool call is replayed" |
@@ -946,7 +949,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 5.1 | MUST have the User's approval for the exact revision | `operations.ts` | Test: "needs a new approval when the terms change" |
 | 5.1 | MUST show the Company's name and `summary`, and take the answer through our own interface; we show its verified domain too (N14) | `operations.ts`, page | Test: "shows the Company's summary verbatim…", "approves exactly this operation and revision", "shows the verified domain under the name the Company chose…" |
 | 5.1 | MUST NOT treat Company text as approval | `capability.ts`; `discovery.ts` `protocolEndpoint`, `apis.ts` | Design: only page frames and standing permissions confirm, and no API tool reaches a Poppy endpoint. Test (a faux model that obeys injected instructions): "never confirms an operation, or speaks as the User, when a Company message says the User approved", "never confirms an operation when another operation's summary tells it to", "never confirms an operation when an MCP tool's description tells it to", "refuses an OpenAPI operation that would reach a Poppy endpoint…" |
-| 5.1 | A standing permission MUST cover the Company, account, action and every term, and still be in effect; never when `user_approval_required`. We check: the summary begins with its action (no negation after it); every term is money in its currency within its limit, a date, or `order_id`, `item_id`, `replacement_sku`; anything else asks the User | `operations.ts` | Test: "confirms under a standing permission…", "confirms any amount under a standing permission set with no limit…", "asks the User when a standing permission doesn't cover…" (a negated or misplaced action, a recurrence, a renewal flag, a flag, a charge with no currency, other money shapes, no terms), "matches a standing permission's action only at the start of the summary…", "asks the User when… exceeded", "asks the User once a standing permission's uses are spent", "asks the User when a standing permission's currency differs", "never uses a standing permission when…"; Mock |
+| 5.1 | A standing permission MUST cover the Company, account, action and every term, and still be in effect; never when `user_approval_required`. We check: the summary begins with its action (no negation after it); every term is money (in its currency and within its limit, when it has one), a date, or `order_id`, `item_id`, `replacement_sku`; anything else asks the User | `operations.ts` | Test: "confirms under a standing permission…", "confirms any amount under a standing permission set with no limit…", "asks the User when a standing permission doesn't cover…" (a negated or misplaced action, a recurrence, a renewal flag, a flag, a charge with no currency, other money shapes, no terms), "matches a standing permission's action only at the start of the summary…", "asks the User when… exceeded", "asks the User once a standing permission's uses are spent", "asks the User when a standing permission's currency differs", "never uses a standing permission when…"; Mock |
 | 5.2 | Confirm with `revision` and `approved_by`; handle `terms_changed`, `user_approval_required`, scope errors | `operations.ts` | Test: "needs a new approval when the terms change"; Mock |
 | 6 | Retry or read with the same id; MUST NOT ask for a new proposal of the same action until final (said of a failed or timed-out confirm; N34) | `operations.ts`, `apis.ts` | Test: "tracks a slow operation…", "shows the Company's summary… confirms once…", "doesn't ask for a new proposal while a confirmed operation isn't final (Ops 6)", "doesn't ask an MCP tool for a new proposal…", "reads an operation whose confirm answer was lost…", "checks on a confirm that a restart interrupted, then confirms nothing more", "confirms the same revision again when the confirm never reached the Company"; Mock |
 | 6 | Present `result.summary` as the Company's account | `operations.ts` | Test: "shows the Company's summary verbatim…" |
@@ -986,7 +989,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 - **Browsing.** A separate context, with its own host-only cookie jar, per Session of each User; never a credential typed into a site; a new assertion when the site loses the Session; HTTPS on the Company's domain only, redirects included; at most 1 MB, 15 s and 5 redirects a page; forms sent only as the User approved them.
 - **Conversations.** Long `wait` or streaming; a summary before handoff; writing for a person when one is present; closing when done.
 - **Interfaces.** APIs and the Company Agent before the website.
-- **Operations.** The summary shown verbatim with the Company and account; costs, dates and conditions pointed out; changes between revisions shown; standing permissions applied only when the summary begins with their action and every term is one we can check (money within the limit, a date, the draft's example ids), with uses reserved before confirming.
+- **Operations.** The summary shown verbatim with the Company and account; costs, dates and conditions pointed out; changes between revisions shown; standing permissions applied only when the summary begins with their action and every term is one we can check (money, within the limit when there is one; a date; the draft's example ids), with uses reserved before confirming.
 
 ## Sources
 
