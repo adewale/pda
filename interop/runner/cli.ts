@@ -5,11 +5,14 @@
  *   npm run interop -- [--agents a,b] [--companies x,y] [--scenarios D,SD]
  *                      [--lane local|live] [--no-build] [--keep] [--no-retry]
  *                      [--min-free-gb n] [--set name:KEY=VALUE]... [--out dir]
+ *                      [--image-tag tag]
  *
  * Local lane: builds every selected implementation's image, makes a CA and
- * certificate for the run, starts a Docker network with the recording
- * proxy and each implementation, waits on /healthz, reads /manifest, then
- * runs each scenario × agent × Company cell, resetting both adapters first.
+ * certificate for the run, starts an --internal Docker network (no way out,
+ * proven by an egress probe before any implementation starts) with the
+ * recording proxy, a control relay and each implementation, waits on
+ * /healthz, reads /manifest, then runs each scenario × agent × Company
+ * cell, resetting both adapters first.
  * A cell that fails or errors runs once more; one that then passes is flaky.
  * Writes interop/results/<run>/results.json, a HAR per cell and index.html.
  * Exits 1 when a cell fails or errors and isn't in known-failures.json, or
@@ -31,6 +34,19 @@ import { dockerFreeGb, labelArgs, lowDisk, removeRun } from "./cleanup.ts";
 import { docker, dockerAsync, proxyAliases } from "./docker.ts";
 import { documentChecks } from "./documents.ts";
 import { exchanges, PROBE_HEADER, type Har } from "./har.ts";
+import {
+  CONTROL_PORT,
+  controlNetworkArgs,
+  egressProbeArgs,
+  egressRefusal,
+  implementationCreateArgs,
+  INTERNAL_FORMAT,
+  isolatedNetworkArgs,
+  localNames,
+  proxyCreateArgs,
+  relayConnectArgs,
+  relayCreateArgs
+} from "./network.ts";
 import { readingChecks, refusedReadingChecks } from "./readings.ts";
 import { cellId, renderReport } from "./report.ts";
 import { runWithRetry } from "./retry.ts";
@@ -478,7 +494,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   if (tooFull) throw new Error(tooFull);
   mkdirSync(logs, { recursive: true });
   const secret = randomBytes(24).toString("hex");
-  const network = `poppy-interop-${tag}`;
+  const names = localNames(tag);
   const label = labelArgs(tag);
   const containers: string[] = [];
   log(`run ${run} (${options.lane} lane, label interop.run=${tag}) → ${path.relative(process.cwd(), runDir) || "."}`);
@@ -493,6 +509,8 @@ export async function main(argv: readonly string[]): Promise<number> {
   }));
   const liveAgents = options.lane === "live";
   let cells: Cell[] = [];
+  /** The local lane's proof of isolation: the network is internal and the egress probe got nowhere. */
+  let isolation: { network: string; internal: true; probe: Record<string, string> } | null = null;
   const certs = mkdtempSync(path.join(tmpdir(), "poppy-interop-"));
   // Everything this run made on Docker goes with it, however it ends (unless --keep).
   const cleanUp = () => {
@@ -515,7 +533,8 @@ export async function main(argv: readonly string[]): Promise<number> {
 
     let control: Control;
     let proxy: Proxy | null = null;
-    if (!liveAgents) {
+    if (options.lane === "local") {
+      // The local lane: an --internal network with no way out (spec §3, Isolation; network.ts).
       const { ca } = makeCertificates(certs, run, companies.map((entry) => entry.name));
       const trust = path.join(certs, "trust");
       mkdirSync(trust);
@@ -523,26 +542,43 @@ export async function main(argv: readonly string[]): Promise<number> {
       const proxyCerts = path.join(certs, "proxy");
       mkdirSync(proxyCerts);
       for (const file of ["ca.pem", "proxy.pem", "proxy.key"]) writeFileSync(path.join(proxyCerts, file), readFileSync(path.join(certs, file)));
-      docker(["network", "create", ...label, network], { quiet: true });
+      // Isolation (spec §3): the internal network first, proven to have no way out before any
+      // implementation starts on it. Nothing here can turn --internal off.
+      docker(isolatedNetworkArgs(tag), { quiet: true });
+      if (docker(["network", "inspect", "--format", INTERNAL_FORMAT, names.network], { quiet: true }) !== "true") {
+        throw new Error(`The run's network ${names.network} isn't internal; refusing to run implementations on it`);
+      }
+      docker(controlNetworkArgs(tag), { quiet: true });
 
-      const proxyName = `${network}-proxy`;
       const aliases = proxyAliases(
         agents.map((entry) => entry.name),
         companies.map((entry) => ({ name: entry.name, ...(entry.subdomains ? { subdomains: entry.subdomains } : {}) }))
       );
-      docker(["create", "--name", proxyName, ...label, "--network", network, ...aliases.flatMap((alias) => ["--network-alias", alias]), "-p", "127.0.0.1::8082", `poppy-interop/proxy:${options.imageTag}`], { quiet: true });
-      containers.push(proxyName);
-      docker(["cp", proxyCerts, `${proxyName}:/interop`], { quiet: true });
-      docker(["start", proxyName], { quiet: true });
-      const port = Number(docker(["port", proxyName, "8082/tcp"], { quiet: true }).split("\n")[0]!.split(":").at(-1));
+      const proxyImage = `poppy-interop/proxy:${options.imageTag}`;
+      docker(proxyCreateArgs(tag, aliases, proxyImage), { quiet: true });
+      containers.push(names.proxy);
+      docker(["cp", proxyCerts, `${names.proxy}:/interop`], { quiet: true });
+      docker(["start", names.proxy], { quiet: true });
+      const probe = docker(egressProbeArgs(names.proxy), { quiet: true });
+      const egress = egressRefusal(probe);
+      if (egress) throw new Error(`Isolation: ${egress}`);
+      const verdict = probe.trim().split("\n").at(-1)!;
+      isolation = { network: names.network, internal: true, probe: JSON.parse(verdict) as Record<string, string> };
+      log(`isolation: ${names.network} is internal; egress probe from inside it: ${verdict}`);
+
+      docker(relayCreateArgs(tag, proxyImage), { quiet: true });
+      containers.push(names.relay);
+      docker(relayConnectArgs(tag), { quiet: true });
+      docker(["start", names.relay], { quiet: true });
+      const port = Number(docker(["port", names.relay, `${CONTROL_PORT}/tcp`], { quiet: true }).split("\n")[0]!.split(":").at(-1));
       proxy = new Proxy(port);
       const up = await waitFor(async () => (await fetch(`${proxy!.base}/healthz`)).ok, 30_000);
-      if (!up) throw new Error(`The proxy didn't come up on port ${port}`);
+      if (!up) throw new Error(`The proxy didn't come up through the relay on port ${port}`);
       control = proxy.control(secret);
 
       for (const impl of implementations) {
         if (impl.broken) continue;
-        const name = `${network}-${impl.target}`;
+        const name = `${names.network}-${impl.target}`;
         const env = {
           INTEROP_SECRET: secret,
           INTEROP_NAME: impl.entry.name,
@@ -556,16 +592,19 @@ export async function main(argv: readonly string[]): Promise<number> {
           ...(impl.entry.env ?? {}),
           ...(options.set.get(impl.entry.name) ?? {})
         };
-        docker(["create", "--name", name, ...label, "--network", network, "--network-alias", impl.target, ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry, registry, options.imageTag)], { quiet: true });
+        docker(implementationCreateArgs(tag, name, impl.target, env, imageOf(impl.entry, registry, options.imageTag)), { quiet: true });
         containers.push(name);
         docker(["cp", trust, `${name}:/interop`], { quiet: true });
         docker(["start", name], { quiet: true });
       }
     } else {
-      // Live lane: our agent container with its control port published; Companies are public deployments.
+      // The live lane (spec §10), which needs the internet by definition: our agent alone, on
+      // Docker's default bridge with its control port published; Companies are public deployments.
+      // It never creates the local lane's network or runs a third-party image, and the local lane
+      // never comes here: no option gives the local lane egress.
       const ports = new Map<string, number>();
       for (const impl of implementations.filter((item) => item.entry.role === "agent" && !item.broken)) {
-        const name = `${network}-${impl.target}`;
+        const name = `${names.network}-${impl.target}`;
         const env = { INTEROP_SECRET: secret, INTEROP_NAME: impl.entry.name, INTEROP_COMMIT: commitOf(impl.entry), INTEROP_PACE_MS: "1000", ...(options.set.get(impl.entry.name) ?? {}) };
         docker(["run", "-d", "--name", name, ...label, "-p", "127.0.0.1::8081", ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry, registry, options.imageTag)], { quiet: true });
         containers.push(name);
@@ -622,7 +661,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   } finally {
     for (const name of containers) {
       try {
-        writeFileSync(path.join(logs, `${name.replace(`${network}-`, "")}.log`), docker(["logs", name], { quiet: true }));
+        writeFileSync(path.join(logs, `${name.replace(`${names.network}-`, "")}.log`), docker(["logs", name], { quiet: true }));
       } catch {
         // No logs.
       }
@@ -651,6 +690,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     run,
     spec: SPEC,
     lane: options.lane,
+    ...(isolation ? { isolation } : {}),
     implementations: implementations.map((impl) => ({
       name: impl.entry.name,
       role: impl.entry.role,

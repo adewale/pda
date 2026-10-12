@@ -11,7 +11,8 @@
  * in the HAR, and the checks skip injected exchanges so they are never blamed
  * on an honest side.
  *
- * A control server on port 8082 (plain HTTP, reached only by the runner):
+ * A control server on port 8082 (plain HTTP, reached only by the runner, through
+ * the control relay in relay.mjs, since the run's network is internal):
  *   GET  /healthz            200 once both servers listen
  *   POST /cell {id, faults?} start a new cell: forget earlier entries, set faults
  *   GET  /har                the current cell's HAR

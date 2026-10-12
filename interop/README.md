@@ -18,14 +18,14 @@ npm run interop -- --set dpa:INTEROP_FAULT=assertion-typ --scenarios S0   # a de
 | --- | --- |
 | `--agents a,b`, `--companies x,y` | Implementations by registry name; all of each role by default. |
 | `--scenarios D,SD` | Scenario ids; all by default. |
-| `--lane local\|live` | `local` (default): containers on a private network. `live`: our agent against registry entries with a `url`, signed-out scenarios only, one request a second. |
+| `--lane local\|live` | `local` (default): containers on a private network with no internet access ([Isolation](#isolation)). `live`: our agent against registry entries with a `url`, signed-out scenarios only, one request a second. |
 | `--no-build` | Use the images already built. |
 | `--keep` | Leave the containers and network running afterwards, for debugging. |
 | `--no-retry` | Don't run a failed or errored cell a second time. |
 | `--min-free-gb n` | Refuse to start with less than `n` GB free on Docker's data disk (default 2). |
 | `--set name:KEY=VALUE` | Extra environment for one implementation's container. |
 | `--out dir` | Where to write results, instead of `interop/results/<run>/`. |
-| `--image-tag tag` | Build and run under a Docker tag (default `latest`); `--image-tag adv` keeps a full grid run's `:latest` images untouched. |
+| `--image-tag tag` | Build and run under a Docker tag (default `latest`); `--image-tag adv` keeps a full grid run's `:latest` images untouched. The only way to keep a side build of our images: don't `docker tag` them by hand, and `docker image rm poppy-interop/<image>:<tag>` a side tag when you're done with it (the runner never removes images). |
 
 **Adversarial cells** (the malicious `evil-agent`/`evil-company` and the fault-injection proxy; [`docs/adversarial-interop.md`](../docs/adversarial-interop.md)) run only against our own `owner: "self"` implementations, on the local lane, never live. No flag lifts this — see [`SECURITY.md`](../SECURITY.md) and [`docs/interop-spec.md`](../docs/interop-spec.md) §13. They appear in a separate security grid in `index.html` and never count toward the interop pass rates.
 
@@ -46,9 +46,18 @@ A cell that fails or errors runs once more, with both adapters reset again; its 
 
 The runner exits 1 when a cell fails or errors and isn't in `known-failures.json`, or when a known failure is stale: it matched no failed cell though the run could judge it (each name it gives ran, and each `*` spans every agent, Company or scenario of the lane), so it is fixed or wrong. A partial run never judges an entry for cells it didn't run.
 
+### Isolation
+
+The local lane never touches a real system. Its network is created `--internal`: no container on it, ours or a third party's, has a route out, and Docker's resolver answers only the run's names. Nothing turns this off; there is no flag for it.
+
+- **Proof, every run.** Before any implementation starts, the runner checks that Docker reports the network internal, then runs a probe with `docker exec` in the proxy (on the internal network only, like every implementation): TCP to `1.1.1.1:443` and `8.8.8.8:53`, and a DNS lookup of `example.com`. All three must fail, or the run stops. The console prints the outcome (`isolation: … {"tcp 1.1.1.1:443":"ENETUNREACH","tcp 8.8.8.8:53":"ENETUNREACH","dns example.com":"EAI_AGAIN"}`), and `results.json` keeps it as `isolation`.
+- **How the runner still reaches its containers.** An internal network can't publish ports, so the proxy's control port is reached through a relay: a second container of the proxy image (`proxy/relay.mjs`) on both the internal network and an ordinary per-run one, which publishes only its own port on `127.0.0.1` and forwards to the proxy's control port and nowhere else. Adapters' control calls go through the proxy's `/control` as before; the HAR recording is unchanged.
+- **An implementation that needs the internet at runtime** fails its cells. That is a finding: record it in `known-failures.json` with what it tried to reach (from its log in `logs/`). Never open the network for it. Fetch what an image needs when it is built.
+- **The live lane** (`--lane live`, never run) needs the internet by definition, and is kept apart: it creates no network, runs only our agent on Docker's default bridge, and no third-party image.
+
 ### Docker hygiene
 
-Everything a run creates on Docker, its containers, network and any volumes, carries the label `interop.run=<tag>`, where the tag is the run's random one (printed at the start, and in container names, `poppy-interop-<tag>-...`). The runner removes exactly those when it exits, when it fails and on Ctrl-C or SIGTERM, unless `--keep`. It never removes images (the next run reuses them), never touches the build cache, and never removes anything without its own run's label. To clear a run left by `--keep` or a killed runner: `docker rm -f -v $(docker ps -aq --filter label=interop.run=<tag>)`, then `docker network rm $(docker network ls -q --filter label=interop.run=<tag>)`.
+Everything a run creates on Docker, its containers, two networks (the internal one and the relay's) and any volumes, carries the label `interop.run=<tag>`, where the tag is the run's random one (printed at the start, and in container names, `poppy-interop-<tag>-...`). The runner removes exactly those when it exits, when it fails and on Ctrl-C or SIGTERM, unless `--keep`. It never removes images (the next run reuses them), never touches the build cache, and never removes anything without its own run's label. To clear a run left by `--keep` or a killed runner: `docker rm -f -v $(docker ps -aq --filter label=interop.run=<tag>)`, then `docker network rm $(docker network ls -q --filter label=interop.run=<tag>)`.
 
 Before it starts, the runner checks free space on Docker's data disk, running `df -Pk /` in a short-lived container of the proxy image, and refuses to start below `--min-free-gb` (2 GB by default), saying how much there is. A first run, before the proxy image is built, skips the check.
 
@@ -69,7 +78,7 @@ registry.json        Implementations: name, role, pinned commit, where to build
 known-failures.json  Failures with an issue link and a reason; they don't fail the run, but a stale one does. "*" matches any agent, Company or scenario
 scenarios/           One JSON file per scenario (spec section 6)
 runner/              The CLI, cell runner, checks, attribution and report
-proxy/               The recording TLS proxy (Node, no dependencies)
+proxy/               The recording TLS proxy and the control relay (Node, no dependencies)
 impls/dpa-agent/     Our agent: src/poppy in Node, no model
 impls/dpa-mock/      Our mock Company (test/mock-company) behind the hooks API, as dpa-mock (lenient) and dpa-mock-strict
 impls/shared/        What our two adapters share: the HTTP shim, the esbuild bundle, and the mock's hooks (mock-hooks.ts, also used by test/hypothesis)
