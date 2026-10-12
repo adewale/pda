@@ -147,6 +147,63 @@ describe("trace checks", () => {
     expect(ids(checks)).toEqual(["company.events-shape:error", "company.sse-event-id:error"]);
   });
 
+  describe("every read includes cursor, has_more, status and responder (7.5's MUST)", () => {
+    const events = `${API}/poppy/conversations/c1/events`;
+    const complete = { conversation_id: "c1", events: [], cursor: "e1", has_more: false, status: "idle", responder: "agent" };
+    const event = { id: "e2", type: "message", created_at: "2026-10-12T00:00:00Z" };
+    const checksOf = (url: string, response: unknown) => companyChecks(recording({ url, response }));
+
+    it("fails a read with only an empty events list", () => {
+      const checks = checksOf(`${events}?cursor=e1`, { events: [] });
+      expect(ids(checks)).toEqual(["company.events-shape:error"]);
+      expect(checks[0]!.basis).toBe("MUST");
+      expect(checks[0]!.detail).toContain("no has_more; no status; no responder; no cursor");
+    });
+
+    it("fails a read with events and a cursor but no has_more, status or responder", () => {
+      const checks = checksOf(`${events}?cursor=e1`, { events: [event], cursor: "e2" });
+      expect(ids(checks)).toEqual(["company.events-shape:error"]);
+      expect(checks[0]!.detail).toMatch(/^no has_more; no status; no responder: /);
+    });
+
+    it("passes a complete read, with or without events", () => {
+      expect(checksOf(`${events}?cursor=e1`, complete)).toEqual([]);
+      expect(checksOf(`${events}?cursor=e1`, { ...complete, events: [event], cursor: "e2", has_more: true })).toEqual([]);
+    });
+
+    it("fails wrong types: has_more, status, responder", () => {
+      const checks = checksOf(`${events}?cursor=e1`, { ...complete, has_more: "false", status: 1, responder: null });
+      expect(ids(checks)).toEqual(["company.events-shape:error"]);
+      expect(checks[0]!.detail).toContain("has_more isn't a boolean; status isn't a string; responder isn't a string");
+    });
+
+    it("needs a string cursor after a request with a cursor, or with events returned", () => {
+      expect(ids(checksOf(`${events}?cursor=e1`, { ...complete, cursor: null }))).toEqual(["company.events-shape:error"]);
+      expect(ids(checksOf(events, { ...complete, events: [event], cursor: null }))).toEqual(["company.events-shape:error"]);
+    });
+
+    it("takes a null or string cursor on a first read with no events (S10, our reading), and warns on anything else", () => {
+      expect(checksOf(events, { ...complete, cursor: null })).toEqual([]);
+      expect(checksOf(events, { ...complete, cursor: "" })).toEqual([]);
+      const checks = checksOf(events, { ...complete, cursor: 0 });
+      expect(ids(checks)).toEqual(["company.events-cursor:warning"]);
+      expect(checks[0]!.basis).toBe("Reading");
+    });
+
+    it("holds a send with wait to the same fields (7.3: it responds as a read would), and a send without wait to none", () => {
+      const send = `${API}/poppy/conversations`;
+      const later = `${API}/poppy/conversations/c1/messages`;
+      const plain = { conversation_id: "c1", status: "working", responder: "agent" };
+      const post = (url: string, status: number, response: unknown) => companyChecks(recording({ method: "POST", url, body: "{}", status, response }));
+      expect(ids(post(`${send}?wait=10`, 201, plain))).toEqual(["company.wait-reply-shape:error"]);
+      expect(ids(post(`${later}?cursor=e1&wait=10`, 202, { events: [] }))).toEqual(["company.wait-reply-shape:error"]);
+      expect(post(`${later}?cursor=e1&wait=10`, 202, complete)).toEqual([]);
+      expect(post(`${send}?wait=10`, 201, { ...complete, cursor: null })).toEqual([]);
+      expect(post(send, 201, plain)).toEqual([]);
+      expect(post(later, 202, plain)).toEqual([]);
+    });
+  });
+
   it("needs iss on every authorization response", () => {
     const checks = authorizationResponseChecks(
       ["https://dpa.agent.interop.test/poppy/callback?code=c&state=s&iss=https%3A%2F%2Fauth.acme", "https://dpa.agent.interop.test/poppy/callback?error=access_denied&state=s"],
