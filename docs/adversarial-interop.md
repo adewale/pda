@@ -5,7 +5,7 @@
 1. **Adversarial interoperability, or competitive compatibility.** In Cory Doctorow's and the EFF's sense, this is building something that works with an incumbent's product *without its permission*. Poppy is about Personal Agents working with Companies, so who grants access, and on what terms, is the protocol's central question.
 2. **Adversarial interoperability testing.** This is the security sense: running honest implementations against peers that misbehave on purpose (malicious servers and clients, fuzzers, attacker models) to check that the honest side refuses safely.
 
-This document explains both. It sets out what the first means for a fair protocol, and how to add the second to our harness ([interop-spec.md](interop-spec.md)). It ends with a prioritised plan. Sources are linked inline and listed at the end; *(unverified)* marks what we couldn't confirm.
+This document covers both: what the first means for a fair protocol, and how our harness ([interop-spec.md](interop-spec.md)) does the second, ending with a prioritised plan and how far it has got. Sources are linked inline and listed at the end; *(unverified)* marks what we couldn't confirm.
 
 ## Part A. Competitive compatibility
 
@@ -37,7 +37,7 @@ Poppy is the sanctioned path. It moves agents from impersonation to a declared, 
 - **Leaves the unpermitted case open.** Section 5: "On a website without the endpoint, the Personal Agent browses as an ordinary signed-out visitor."
   - The draft doesn't say whether the agent must identify itself there, or what it may do after a Company refuses its `client_id`. That is the Amazon–Perplexity question.
   - PSD2's answer is a fallback to the human interface with the third party identified. Web Bot Auth could be the identification mechanism.
-- **Gives Users no right to an agent.** The User's consent governs scope (4.5, 4.6), but nothing gives a User any right to use the agent of their choice. That is policy, not protocol. Still, the protocol decides whether such a policy could be checked.
+- **Gives Users no right to an agent.** The User's consent governs scope (4.5, 4.6), but nothing gives a User any right to use the agent of their choice. That is a matter for policy, though the protocol decides whether such a policy could be checked.
 
 **What a fair protocol needs.** This is our view, offered to the spec's authors:
 
@@ -48,7 +48,7 @@ Poppy is the sanctioned path. It moves agents from impersonation to a declared, 
 3. **No agent lock-in.** Any conforming agent works with any conforming Company unless the Company declares otherwise. The M×N grid measures exactly this, which is why it should be published as being about the spec, not about projects ([risks](interop-testing.md#risks)).
 4. **Fair limits.** Rate limits are signalled with `Retry-After` (4.3), and Companies honour revocation and sign-out (S8, N16) so Users can leave.
 
-Our harness can test 1 and 4 today. A Company hook `block_agent` and a scenario `BX` (refused agent): the Company answers with an OAuth error, the agent reports `poppy_error` to the User, and the trace shows no further requests to that Company's hosts. Scenario `RL` already covers 4. Point 2 needs spec text first.
+Our harness tests 1 and 4. In scenario `BX` (refused agent) the Company admits no `client_id`, and the agent must report the refusal as a `poppy_error`. Scenario `RL` covers 4. Point 2 needs spec text first.
 
 ## Part B. Adversarial testing
 
@@ -92,7 +92,7 @@ Our harness can test 1 and 4 today. A Company hook `block_agent` and a scenario 
 
 ### Adversarial adapters for our harness
 
-Our harness assumes both sides are trying. To test refusals, add implementations that aren't:
+The honest grid assumes both sides are trying. To test refusals, the harness adds implementations that aren't:
 
 - **`evil-company`** (role `company`): our mock Company with an attack switch, so the attack is the only deviation from a strict, correct Company.
 - **`evil-agent`** (role `agent`): our client with an attack switch, reusing the mock's `TAMPERS` rows as the attack catalogue.
@@ -111,7 +111,7 @@ Our harness assumes both sides are trying. To test refusals, add implementations
 
 #### Attribution for adversarial cells
 
-1. **Rule 0, adversarial (new, applied first).** In a cell with an adversarial side, that side's violations are expected and don't count against it.
+1. **Rule 0, adversarial (applied first).** In a cell with an adversarial side, that side's violations are expected and don't count against it.
    - The cell **passes when the honest side refuses**: the expected `poppy_error`, or status 0 for the agent's own refusal, and no harm oracle fires.
    - A failure is blamed on the honest side, with rule `adversarial`. If the scenario names `permitted_by` and the draft has no MUST against the attack, blame `spec` (N10 and N14 today).
 2. **Rule 2, grid,** ignores adversarial implementations, which are never reference cells. `dpa-mock` stays the honest reference.
@@ -155,9 +155,9 @@ Most of these are already rows in `TAMPERS` (`test/mock-company.test.ts`) agains
 
 #### The fault-injection proxy
 
-A `faults` list on a scenario lets the proxy act as the network adversary and as Jepsen's nemesis, with no new adapter, against any pair:
+A `faults` list on a scenario lets the proxy act as the network adversary and as Jepsen's nemesis, with no new adapter, against any pair of our own implementations:
 
-- **`replay`**: resend an honest request verbatim, later, from the proxy. This tests every Company's `jti` and DPoP replay defences against honest agents (A5-style).
+- **`replay`**: resend an honest request verbatim, later, from the proxy. This tests a Company's `jti` and DPoP replay defences against an honest agent (A5-style).
 - **`drop_response`**: drop the response to a token request. N5: the agent retries with the old Account Token. Does a Company with reuse detection sign the User out?
 - **`duplicate`**: send a POST twice. This tests message-id and confirm idempotency (S9, Ops `O2`).
 - **`delay`, `truncate`, `reset`, `status:503`**: test SSE resume (N30), `Retry-After`, and that the agent gives up cleanly.
@@ -168,18 +168,18 @@ Injected exchanges are marked in the HAR (`_interop.injected`), and checks skip 
 
 Restricted to our own project: the adversarial sides (`evil-agent`, `evil-company`) and the fault proxy run only against our `owner: "self"` implementations, on the local lane, never live. No flag lifts this; see [`SECURITY.md`](../SECURITY.md) and [`interop-spec.md`](interop-spec.md) §13.
 
-1. **Proxy `replay` and `duplicate`** against the existing grid (scenarios `N`, `C`, `CI`, `O`). No new adapter. — **Done:** scenarios `NREP` (replay), `CDUP`/`CIDUP`/`ODUP` (duplicate), `adversary: "network"`, injected exchanges marked and skipped.
-2. **The contract and attribution changes:** the `adversarial` registry flag, `arm`, `faults`, `permitted_by`, harm oracles, the attack-observed precondition, rule 0, the security grid page, and live-lane exclusion. — **Done:** registry `owner`/`adversarial`, manifest `attacks`, `arm`/`attack` ops and the `arm` hook, harm-oracle `assert_trace` predicates, rule 0, the security grid, the own-project refusal and `--image-tag`; unit-tested in `interop/test/adversarial.test.ts`.
-3. **`evil-agent` from `TAMPERS`:** YR, YD, YA, YT, YS and YK first; then YO (S8), YU (S17) and YF (N2). — **Done:** `YR`, `YD`, `YA`, `YT`, `YS`, `YK`, `YU` (with a new `conversation.cross-user` mock check and TAMPERS row); YO handled by fixing the mock's `start()` ownership gate (Workers test). **Not yet:** YF (two-User Direct Sign-In), YM (repeated confirms over the wire).
-4. **`evil-company` core:** XM, XI, XH (N10), XB and XN. — **Done:** `XH` (N10) and `XI`. **Dropped:** `XK`, which our client never observes because it caches the validated documents (N44). **Not yet:** XM (two Companies in one cell), XB/XN (mock oversized/nonce-loop options). XS needs the N42 "private" suffix.
-5. **Operations and consent:** XO, XP and YC (N14), adding a `display` op for agents and a consent-page reader for Companies. — **Not yet.**
-6. **Injected text:** XJ, then a model lane for N15. — **Done in the Workers suite:** `test/prompt-injection.test.ts` injects instructions through a Company message, an operation summary and an MCP tool description, and a faux model obeys them; nothing is confirmed or sent as the User. **Not yet in the interop harness**, which has no model lane (the `no_secret_in` harm oracle is built).
-7. **Fairness:** the `block_agent` hook and the `BX` refused-agent scenario. — **Done:** the `arm block` hook and scenario `BX`. Spec text for refusal reasons and honest fallback browsing still needs the draft's authors.
-8. **Disclosure process** before any adversarial result is committed. — **Done:** [`SECURITY.md`](../SECURITY.md); spec-permitted attacks go to the authors as N-numbered issues in [`spec-issues.md`](spec-issues.md).
+1. **Proxy `replay` and `duplicate`** against the existing grid (scenarios `N`, `C`, `CI`, `O`). No new adapter. **Done:** scenarios `NREP` (replay), `CDUP`/`CIDUP`/`ODUP` (duplicate), `adversary: "network"`, injected exchanges marked and skipped.
+2. **The contract and attribution changes:** the `adversarial` registry flag, `arm`, `faults`, `permitted_by`, harm oracles, the attack-observed precondition, rule 0, the security grid page, and live-lane exclusion. **Done:** registry `owner`/`adversarial`, manifest `attacks`, `arm`/`attack` ops and the `arm` hook, harm-oracle `assert_trace` predicates, rule 0, the security grid, the own-project refusal and `--image-tag`; unit-tested in `interop/test/adversarial.test.ts`.
+3. **`evil-agent` from `TAMPERS`:** YR, YD, YA, YT, YS and YK first; then YO (S8), YU (S17) and YF (N2). **Done:** `YR`, `YD`, `YA`, `YT`, `YS`, `YK`, `YU` (with a new `conversation.cross-user` mock check and TAMPERS row); YO handled by fixing the mock's `start()` ownership gate (Workers test). **Not yet:** YF (two-User Direct Sign-In), YM (repeated confirms over the wire).
+4. **`evil-company` core:** XM, XI, XH (N10), XB and XN. **Done:** `XH` (N10) and `XI`. **Dropped:** `XK`, which our client never observes because it caches the validated documents (N44). **Not yet:** XM (two Companies in one cell), XB/XN (mock oversized/nonce-loop options). XS needs the N42 "private" suffix.
+5. **Operations and consent:** XO, XP and YC (N14), adding a `display` op for agents and a consent-page reader for Companies. **Not yet.**
+6. **Injected text:** XJ, then a model lane for N15. **Done in the Workers suite:** `test/prompt-injection.test.ts` injects instructions through a Company message, an operation summary and an MCP tool description, and a faux model obeys them; nothing is confirmed or sent as the User. **Not yet in the interop harness**, which has no model lane (the `no_secret_in` harm oracle is built).
+7. **Fairness:** the `block_agent` hook and the `BX` refused-agent scenario. **Done:** the `arm block` hook and scenario `BX`. Spec text for refusal reasons and honest fallback browsing still needs the draft's authors.
+8. **Disclosure process** before any adversarial result is committed. **Done:** [`SECURITY.md`](../SECURITY.md); spec-permitted attacks go to the authors as N-numbered issues in [`spec-issues.md`](spec-issues.md).
 
 ## What our own project can and can't test
 
-Adversarial testing restricted to our own project covers a lot and misses some by design:
+What adversarial testing restricted to our own project covers, and what it misses by design:
 
 - **Can test, over the wire:** our client's refusals of a malicious Company (`evil-company`: XH/N10, XI), our mock's refusals of a malicious agent (`evil-agent`: YR, YD, YA, YT, YS, YK, YU), both sides' resilience to a network adversary (the fault proxy: replay, duplicate, and the timing faults), and fairness (BX). The harm oracles (`token_not_sent_to`, `no_request_to`, `no_2xx_after`, `no_secret_in`, `performed_at_most_once`) judge the trace, not either side's opinion.
 - **Can't test here:**
