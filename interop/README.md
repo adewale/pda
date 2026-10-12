@@ -85,6 +85,7 @@ impls/dpa-agent/     Our agent: src/poppy in Node, no model
 impls/dpa-mock/      Our mock Company (test/mock-company) behind the hooks API, as dpa-mock (lenient) and dpa-mock-strict
 impls/shared/        What our two adapters share: the HTTP shim, the esbuild bundle, and the mock's hooks (mock-hooks.ts, also used by test/hypothesis)
 vectors/datalayer/  Runs Datalayer's conformance cases against src/poppy and src/validator (spec section 11)
+vectors/validators/ Our validator against poppy-validator and poppy-sidecar on the same documents
 test/                Unit tests for the runner, in Node (interop/vitest.config.ts, part of npm test)
 ```
 
@@ -120,4 +121,4 @@ Check that `MediaType` is an image index (`…image.index…` or `…manifest.li
 
 ## Vectors
 
-`vectors/datalayer/run.mjs` runs Datalayer's language-neutral conformance cases against our client and validator ([its README](vectors/datalayer/README.md)). We used to export our own validator fixtures and the mock's tamper rows the same way, as `vectors/validator.json` and `vectors/mock-company.json`; they were removed because nothing consumed them, and the shared vectors repository they were meant to seed was never made. The fixtures and rows themselves are still the tests in `test/validator.test.ts` and `test/mock-company.test.ts`.
+`vectors/datalayer/run.mjs` runs Datalayer's language-neutral conformance cases against our client and validator ([its README](vectors/datalayer/README.md)). We used to export our own validator fixtures and the mock's tamper rows the same way, as `vectors/validator.json` and `vectors/mock-company.json`; they were removed because nothing consumed them, and the shared vectors repository they were meant to seed was never made. The fixtures and rows themselves are still the tests in `test/validator.test.ts` and `test/mock-company.test.ts`. `vectors/validators/run.mjs` runs our validator and two independent ones over the same documents, the other two in Docker with no network ([its README](vectors/validators/README.md)).
