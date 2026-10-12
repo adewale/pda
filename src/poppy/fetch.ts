@@ -37,7 +37,7 @@ export type PoppyTimeouts = { readonly oauthMs: number; readonly requestMs: numb
 
 export const POPPY_TIMEOUTS: PoppyTimeouts = { oauthMs: 15_000, requestMs: 30_000, bodyMs: 30_000 };
 
-/** Hosts we never fetch: IP literals, localhost and single-label names. */
+/** Hosts we never fetch: IP literals, single-label names, and special-use and private-use names (`isPublicHost`). Workers refuse private addresses a public name resolves to. */
 export function assertPublicHost(url: URL): void {
   if (!isPublicHost(url)) {
     throw new PoppyFetchError(`Refusing to fetch non-public host ${url.hostname.toLowerCase().replace(/\.$/, "")}`);

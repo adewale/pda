@@ -55,7 +55,7 @@ export type Report = {
 };
 
 /** Messages after which the document wasn't fetched or read, so nothing in it was checked. */
-const UNREACHABLE = new Set(["http-failed", "http-status", "http-non-public-host", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large"]);
+const UNREACHABLE = new Set(["http-failed", "http-status", "http-non-public-host", "http-non-public-address", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large"]);
 
 function report(profile: Profile, documents: DocumentResult[], checkers: Checker[], skipped: Skipped[]): Report {
   const messages = checkers.flatMap((c) => c.messages);

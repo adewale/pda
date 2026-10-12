@@ -13,7 +13,8 @@ import {
   type MessageId,
   type Report
 } from "../src/validator/index.ts";
-import { LIMITS } from "../src/validator/fetch.ts";
+import { isPublicAddress, NonPublicAddressError, parseIPv6, pinnedLookup } from "../src/validator/address.ts";
+import { isPublicHost, LIMITS } from "../src/validator/fetch.ts";
 import { handleValidator } from "../src/validator/http.ts";
 import type { MockCompany, MockConfig } from "./mock-company";
 import worker, { testFetcher } from "./worker";
@@ -693,6 +694,28 @@ const FETCHING: readonly Fixture[] = [
     outcome: "indeterminate"
   },
   {
+    name: "refuses special-use and private-use names, such as .internal and .home.arpa",
+    run: () => validateClient(network({}), "https://metadata.google.internal/agent.json"),
+    ids: ["http-non-public-host"],
+    outcome: "indeterminate"
+  },
+  {
+    // The CLI's fetcher (scripts/node-fetcher.ts) throws this when a public-looking name resolves to a private address.
+    name: "refuses a name a fetcher found resolves to a private address",
+    run: () =>
+      validateCompany(async (request) => {
+        throw new NonPublicAddressError(new URL(request.url).hostname, "169.254.169.254");
+      }, "169.254.169.254.nip.io"),
+    ids: ["http-non-public-address"],
+    outcome: "indeterminate",
+    also: (report) => {
+      expect(report.refused).toBe(true);
+      expect(report.messages[0]!.text).toBe(
+        "169.254.169.254.nip.io resolves to 169.254.169.254, which isn't a public address, so https://169.254.169.254.nip.io/.well-known/poppy.json wasn't fetched."
+      );
+    }
+  },
+  {
     name: "refuses non-domains",
     run: () => validateCompany(network({}), "not a domain"),
     ids: ["domain-invalid"]
@@ -731,6 +754,138 @@ describe("fetching", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("which hosts and addresses are public (Guides, 'Fetching metadata safely')", () => {
+  it("refuses by name: IP literals, single labels, and special-use and private-use names", () => {
+    const refused = [
+      "127.0.0.1",
+      "[::1]",
+      "localhost",
+      "intranet",
+      "foo.localhost",
+      "printer.local",
+      "printer.local.",
+      "router.home.arpa",
+      "1.0.0.127.in-addr.arpa",
+      "ipv4only.arpa",
+      "metadata.google.internal",
+      "INTERNAL.Example.internal",
+      "x.invalid",
+      "abc.onion",
+      "x.alt",
+      "nas.lan",
+      "mail.corp",
+      "box.home",
+      "wiki.intranet",
+      "db.private"
+    ];
+    for (const host of refused) expect(isPublicHost(new URL(`https://${host}/`)), host).toBe(false);
+    // Names alone can't tell where these resolve: the address check is the fetcher's (below).
+    const byName = ["example.com", "localtest.me", "127.0.0.1.nip.io", "169.254.169.254.nip.io", "company.interop.test", "local.example.com", "internal.example.com", "arpa.example"];
+    for (const host of byName) expect(isPublicHost(new URL(`https://${host}/`)), host).toBe(true);
+  });
+
+  it("classifies resolved addresses: loopback, RFC 1918, link-local, CGNAT, ULA, mapped, unspecified and multicast are not public", () => {
+    const notPublic = [
+      "127.0.0.1",
+      "127.255.255.254",
+      "10.0.0.1",
+      "172.16.0.1",
+      "172.31.255.255",
+      "192.168.1.1",
+      "169.254.169.254",
+      "100.64.0.1",
+      "100.127.255.255",
+      "0.0.0.0",
+      "224.0.0.1",
+      "239.255.255.250",
+      "255.255.255.255",
+      "192.0.0.170",
+      "::",
+      "::1",
+      "fc00::1",
+      "fd12:3456::1",
+      "fe80::1",
+      "fe80::1%en0",
+      "ff02::1",
+      "::ffff:127.0.0.1",
+      "::ffff:7f00:1",
+      "::ffff:10.1.2.3",
+      "::ffff:169.254.169.254",
+      "::ffff:100.64.0.1",
+      "64:ff9b::192.168.0.1",
+      "2002:c0a8:0101::1",
+      "::127.0.0.1",
+      "2001:db8::1",
+      "not an address",
+      "1.2.3",
+      "256.1.1.1"
+    ];
+    for (const address of notPublic) expect(isPublicAddress(address), address).toBe(false);
+    const isPublic = ["1.1.1.1", "8.8.8.8", "100.63.255.255", "100.128.0.0", "172.15.255.255", "172.32.0.0", "169.253.0.1", "2606:4700::1111", "2001:4860:4860::8888", "::ffff:1.1.1.1", "64:ff9b::808:808"];
+    for (const address of isPublic) expect(isPublicAddress(address), address).toBe(true);
+  });
+
+  it("reads IPv6 in its short, full and mixed forms alike", () => {
+    expect(parseIPv6("::ffff:127.0.0.1")).toEqual([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1]);
+    expect(parseIPv6("0:0:0:0:0:ffff:7f00:1")).toEqual([0, 0, 0, 0, 0, 0xffff, 0x7f00, 1]);
+    expect(parseIPv6("[fe80::1]")).toEqual([0xfe80, 0, 0, 0, 0, 0, 0, 1]);
+    for (const bad of ["1::2::3", "1:2:3:4:5:6:7:8:9", "12345::", "::ffff:300.0.0.1", "1:2:3:4:5:6:7"]) expect(parseIPv6(bad), bad).toBeNull();
+  });
+
+  // The CLI's fetcher (scripts/node-fetcher.ts) hands this lookup to Node's https.request, with the system resolver in place of `resolve`.
+  describe("the CLI's pinned lookup", () => {
+    const lookupOf = (answers: Record<string, readonly { address: string; family: 4 | 6 }[]>) => {
+      const asked: string[] = [];
+      const lookup = pinnedLookup(async (hostname) => {
+        asked.push(hostname);
+        return answers[hostname] ?? [];
+      });
+      const run = (hostname: string, options: { all?: boolean } = {}) =>
+        new Promise<{ error: Error | null; address: unknown; family?: number }>((resolve) => lookup(hostname, options, (error, address, family) => resolve({ error, address, family })));
+      return { run, asked };
+    };
+
+    it("refuses a public-looking name that resolves to a private address, before any connection", async () => {
+      const { run } = lookupOf({ "127.0.0.1.nip.io": [{ address: "127.0.0.1", family: 4 }], "169.254.169.254.nip.io": [{ address: "169.254.169.254", family: 4 }] });
+      for (const host of ["127.0.0.1.nip.io", "169.254.169.254.nip.io"]) {
+        const { error } = await run(host);
+        expect(error, host).toBeInstanceOf(NonPublicAddressError);
+        expect((error as NonPublicAddressError).hostname).toBe(host);
+      }
+    });
+
+    it("refuses a name when any of its addresses isn't public, so a mixed answer can't pick the private one", async () => {
+      const { run } = lookupOf({ "mixed.example": [{ address: "93.184.216.34", family: 4 }, { address: "::ffff:10.0.0.1", family: 6 }] });
+      const { error } = await run("mixed.example");
+      expect((error as NonPublicAddressError).address).toBe("::ffff:10.0.0.1");
+    });
+
+    it("hands the connection exactly the addresses it checked, resolving once per connection", async () => {
+      const { run, asked } = lookupOf({ "public.example": [{ address: "93.184.216.34", family: 4 }, { address: "2606:2800:220:1::1", family: 6 }] });
+      expect(await run("public.example")).toEqual({ error: null, address: "93.184.216.34", family: 4 });
+      expect(await run("public.example", { all: true })).toEqual({
+        error: null,
+        address: [
+          { address: "93.184.216.34", family: 4 },
+          { address: "2606:2800:220:1::1", family: 6 }
+        ],
+        family: undefined
+      });
+      expect(asked).toEqual(["public.example", "public.example"]);
+    });
+
+    it("fails a name with no address, or whose lookup fails", async () => {
+      const { run } = lookupOf({});
+      expect((await run("nowhere.example")).error?.message).toBe("nowhere.example has no address");
+      const failing = pinnedLookup(async () => {
+        throw new Error("SERVFAIL");
+      });
+      const error = await new Promise<Error | null>((resolve) => failing("x.example", {}, (e) => resolve(e)));
+      expect(error?.message).toBe("SERVFAIL");
+    });
   });
 });
 
@@ -816,6 +971,7 @@ describe("the message catalog", () => {
     const refusedWarnings = entries.filter(([, m]) => m.severity !== "error" && m.refuses);
     expect(refusedWarnings.map(([id]) => id)).toEqual([
       "http-non-public-host",
+      "http-non-public-address",
       "http-too-many-redirects",
       "http-redirect-not-allowed",
       "http-failed",
