@@ -14,6 +14,7 @@ Alpha. Poppy is Draft 0.1, published 9 October 2026, and may change incompatibly
 - **Sign-in:** GitHub is configured; Google isn't registered yet. The demo lane's gateway has no credits yet, so model calls need your own key until it does.
 - **Tested** against fakes, a strict mock Company, and other projects' implementations in containers; **not yet** against a production Company, because none has published `poppy.json`.
 - **What's left** to deploy and check is in [`docs/deployment-tasks.md`](docs/deployment-tasks.md).
+- **Everything else still open** is in [`TODO.md`](TODO.md).
 
 ## Read next
 
