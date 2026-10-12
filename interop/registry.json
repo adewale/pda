@@ -135,6 +135,14 @@
       "notes": "Signed-out only; wrangler dev without Workers AI, so replies are a fixed apology."
     },
     {
+      "name": "print-with-poppy",
+      "role": "company",
+      "source": "https://github.com/spenciefy/print-with-poppy",
+      "commit": "7ef69bef9ca9e485386b28a679c532ed7cbee739",
+      "build": "interop/impls/print-with-poppy-company",
+      "notes": "Agent-first photo-print store in APP_MODE=demo (payments, prints and email simulated); signed-out only, OpenAPI and Operations v1; the grid's agents on its AGENT_CLIENT_IDS allowlist. Patch: ALLOW_COMPAT_AGENT_SESSIONS=false turns its non-Poppy Bearer path off in demo mode. No licence declared."
+    },
+    {
       "name": "adonis-agora",
       "role": "company",
       "source": "https://github.com/DavideCarvalho/adonis-agora-authkit",
