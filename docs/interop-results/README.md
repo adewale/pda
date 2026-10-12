@@ -86,16 +86,16 @@ The run's network is `--internal`, so a container that calls out fails instead o
 The adversarial cells ([`docs/adversarial-interop.md`](../adversarial-interop.md)) ran separately, against our own implementations only (interop spec section 13), with `--no-build` on the same images and the same isolation (each run's egress probe got nowhere):
 
 ```sh
-npm run interop -- --no-build --agents evil-agent --companies dpa-mock,dpa-mock-strict --scenarios YR,YD,YA,YT,YS,YK,YU
-npm run interop -- --no-build --agents dpa --companies evil-company --scenarios XH,XI,BX
+npm run interop -- --no-build --agents evil-agent --companies dpa-mock,dpa-mock-strict --scenarios YR,YD,YA,YT,YS,YK,YU,YM
+npm run interop -- --no-build --agents dpa --companies evil-company --scenarios XH,XI,BX,XB,XN,XO,XP,XE
 npm run interop -- --no-build --agents dpa --companies dpa-mock,dpa-mock-strict --scenarios NREP,CDUP,CIDUP,ODUP
 ```
 
 | Attacker | Scenarios | Honest side | Pass / fail |
 | --- | --- | --- | --- |
-| `evil-agent` | YR, YD, YA, YT, YS, YK, YU | `dpa-mock`; `dpa-mock-strict` | 7 / 0; 7 / 0 |
-| `evil-company` | XH, XI, BX | `dpa` | 3 / 0 |
+| `evil-agent` | YR, YD, YA, YT, YS, YK, YU, YM | `dpa-mock`; `dpa-mock-strict` | 8 / 0; 8 / 0 |
+| `evil-company` | XH, XI, BX, XB, XN, XO, XP, XE | `dpa` | 8 / 0 |
 | the network (proxy faults) | NREP, CDUP, CIDUP, ODUP | `dpa` × `dpa-mock`; × `dpa-mock-strict` | 4 / 0; 4 / 0 |
 
-25 cells, all pass: the honest side refused every attack and no harm oracle fired.
+32 cells, all pass: the honest side refused or safely withstood every attack and no harm oracle fired. The `evil-agent` and `evil-company` rows were rerun on 12 October 2026 after the malicious-Company attacks `XB` (oversized `poppy.json`), `XN` (DPoP nonce loop), `XO` (operation terms swapped under their id), `XP` (consent spoofing) and `XE` (a forged message from the User), and the malicious-agent attack `YM` (confirm without approval), were added; the network row is unchanged. Still listed, not yet built: `XM` (a mix-up needs two Companies in one cell), `XS` (needs the N42 "private" test suffix), `YF` (a code only returns through the consent hook) and `YC` (needs a consent-page reader) — see [`docs/adversarial-interop.md`](../adversarial-interop.md).
 

@@ -63,7 +63,7 @@ const MANIFEST = {
     : [
         "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
         // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
-        "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX"
+        "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE"
       ],
   // S1 "endpoint": every client assertion's aud is the endpoint it is sent to (src/poppy/client.ts oauthRequest).
   readings: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
@@ -577,6 +577,18 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     const result = await runAttack(ctx, c, armed.attack, { ...armed.params, ...params });
     if (result.poppy_error) throw new PoppyStepError(result.poppy_error, result.status, result.detail ?? `${armed.attack} refused`);
     return { status: result.status, body: result.body };
+  },
+
+  /**
+   * What the agent would show the User to identify a Company (XP, N14): the
+   * verified `organization.domain` and issuer, and the unverified
+   * `organization.name`. A misleading name can't impersonate another Company
+   * because the agent anchors on the domain, which is verified against the
+   * host the document was served for.
+   */
+  async display(domain) {
+    const c = await company(domain);
+    return { name: c.name, domain: c.domain, issuer: c.issuer };
   },
 
   async state() {

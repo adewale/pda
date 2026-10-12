@@ -1,0 +1,14 @@
+{
+  "id": "XB",
+  "title": "Adversarial Company: an oversized discovery document",
+  "requirements": ["4.3", "7.6"],
+  "adversary": "company",
+  "needs": { "agent": ["discover"], "company": ["arm"] },
+  "steps": [
+    { "company": "arm", "params": { "attack": "XB" } },
+    { "agent": "discover", "save": "r" },
+    { "expect": { "step": "r", "poppy_error": "discovery_failed" } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "poppy.json", "body_contains": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" } },
+    { "runner": "assert_trace", "params": { "check": "bounded_requests", "path": "poppy.json", "max": 4 } }
+  ]
+}

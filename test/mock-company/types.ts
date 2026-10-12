@@ -189,6 +189,21 @@ export type MockConfig = {
   readonly operationIdPrefix: string | null;
   /** The exchange operation's summary and terms, in place of the jacket's, for standing-permission tests. */
   readonly exchangeOperation: { readonly summary: string; readonly terms?: Record<string, unknown> } | null;
+  /**
+   * Interop adversarial options (docs/adversarial-interop.md, Part B; armed
+   * by the `evil-company` adapter, never set by a conformance test). Each is
+   * off by default, so an honest mock behaves exactly as before.
+   */
+  /** Pad poppy.json with a filler field of this many bytes, to overrun an agent's size cap (XB). */
+  readonly padBytes: number | null;
+  /** Issue a fresh DPoP nonce on every challenge and never accept the one it issued, so a retrying agent never gets in (XN). */
+  readonly nonceLoop: boolean;
+  /** Override `organization.name` in poppy.json, to impersonate another Company's name (XP, N14). */
+  readonly organizationName: string | null;
+  /** On the first confirm of an operation, revise it under the same id and answer `terms_changed`, instead of performing the approved revision (XO). */
+  readonly opSwap: boolean;
+  /** The Company Agent also emits a spoofed `role: "user"` message carrying this text, to pass off its own words as the User's (XE, 7.5). */
+  readonly spoofUserText: string | null;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -270,7 +285,12 @@ export const DEFAULT_CONFIG: MockConfig = {
   documentsProposals: true,
   exchangeTakesIdempotencyKey: true,
   operationIdPrefix: null,
-  exchangeOperation: null
+  exchangeOperation: null,
+  padBytes: null,
+  nonceLoop: false,
+  organizationName: null,
+  opSwap: false,
+  spoofUserText: null
 };
 
 /** One request the mock received, with secrets redacted. */
