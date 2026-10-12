@@ -249,7 +249,7 @@ function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange
             onChange={(event) => setWorkspace(event.target.value)}
           />
           <p id={ids.workspaceHint} className="mt-1 text-[13px] text-kumo-subtle text-pretty">
-            Only for a key that belongs to your whole organization rather than one workspace. Anthropic then needs to know which workspace to bill.
+            Only for a key that belongs to your whole organisation rather than one workspace. Anthropic then needs to know which workspace to bill.
           </p>
         </div>
       ) : null}
@@ -287,7 +287,7 @@ export function ModelSettings({ entitlement, onChange }: { entitlement: Entitlem
       <KeyForm entitlement={current} onChange={(next) => onChange(next)} />
       <p className="text-[13px] text-pretty text-kumo-subtle">
         Your key is checked with the provider, then encrypted and kept in your agent. It's never shown again, here or anywhere. Whoever runs this
-        deployment can technically read it, so set a spending limit on the key with your provider before you paste it, and revoke it there if you
+        deployment could read it, so set a spending limit on the key with your provider before you paste it, and revoke it there if you
         stop using this agent.
       </p>
     </div>

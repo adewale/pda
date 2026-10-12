@@ -206,7 +206,7 @@ export type ProtocolOutcome = "ok" | "error" | "retry" | "failed" | "refused" | 
 /**
  * One line of a Company's protocol log (src/poppy/protocol-log.ts): a Poppy
  * request the agent made, or a protocol state change, with the spec section
- * it follows. Built from a whitelist of fields: never a header, body, token,
+ * it follows. Built from an allowlist of fields: never a header, body, token,
  * assertion, proof, key, code, `state`, verifier, sign-in value or query.
  */
 export type ProtocolEntry = {

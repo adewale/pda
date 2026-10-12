@@ -33,7 +33,7 @@ export type KeyInfo = {
   /** Pasted in Settings: the only way a key arrives. */
   readonly source: "pasted";
   readonly addedAt: number;
-  /** An Anthropic workspace ID, for a key that belongs to an organization rather than one workspace. Not a secret. */
+  /** An Anthropic workspace ID, for a key that belongs to an organisation rather than one workspace. Not a secret. */
   readonly workspace: string | null;
 };
 
@@ -191,7 +191,7 @@ export function keyFormatProblem(provider: KeyProvider, key: string): string | n
 /**
  * Anthropic's header naming the workspace a request is billed to. A key
  * created inside a workspace needs none; a key that belongs to the whole
- * organization is refused (400) without it.
+ * organisation is refused (400) without it.
  */
 export const ANTHROPIC_WORKSPACE_HEADER = "anthropic-workspace-id";
 
@@ -277,7 +277,7 @@ export async function checkKey(
   if (provider === "anthropic" && !workspace && reason?.includes(ANTHROPIC_WORKSPACE_HEADER)) {
     said += " Add the key's workspace ID from the Anthropic Console, or use a key created inside a workspace.";
   }
-  // Throttling and the provider's own failures pass; another 4xx is its answer about this key or account.
+  // Throttling and the provider's own failures may clear on a retry; another 4xx is its answer about this key or account.
   const transient = response.status === 408 || response.status === 429 || response.status >= 500;
   return transient ? { ok: false, status: 502, error: `${said} Try again.` } : { ok: false, status: 400, error: said };
 }

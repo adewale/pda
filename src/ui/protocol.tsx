@@ -43,7 +43,7 @@ function clock(at: number): string {
 }
 
 /**
- * A Company's log as plain text, oldest first: the same whitelisted fields
+ * A Company's log as plain text, oldest first: the same allowlisted fields
  * the page shows, one exchange per line, with UTC times, for an interop report.
  */
 export function protocolText(log: ProtocolLogView, exportedAt = Date.now()): string {
@@ -199,7 +199,7 @@ export function ProtocolList({ protocol, send }: { protocol: ProtocolView; send:
   if (protocol.companies.length === 0) {
     return (
       <EmptyState icon={<TreeStructureIcon size={20} />} title="No exchanges yet">
-        Every Poppy request your agent makes to a Company is listed here, with its spec section and result, once it has found one.
+        Once your agent finds a Company, every Poppy request it makes there is listed here, with its spec section and result.
       </EmptyState>
     );
   }

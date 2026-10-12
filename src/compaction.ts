@@ -44,7 +44,7 @@ export function budgetWindow(modelWindow: number | undefined): number {
 /** The longest summary we ask for: pi's own rule, 80% of the reserve. */
 export const SUMMARY_MAX_TOKENS = Math.floor(0.8 * CONTEXT_BUDGET.reserveTokens);
 
-/** Longest tool result a summary's source keeps, as pi's own summarizer does. */
+/** Longest tool result a summary's source keeps, as pi's own summariser does. */
 const TOOL_RESULT_MAX_CHARS = 2000;
 
 /** How pi-durable begins the message that carries a summary to the model. */
@@ -99,7 +99,7 @@ function clip(text: string, max: number): string {
 /**
  * The messages a summary replaces, as a labelled transcript: the User's own
  * words apart from what companies wrote and tools returned, so the
- * summarizer can keep the difference. Thinking is left out.
+ * summariser can keep the difference. Thinking is left out.
  */
 export function serializeForSummary(messages: readonly Message[]): string {
   const parts: string[] = [];
@@ -126,7 +126,7 @@ export function serializeForSummary(messages: readonly Message[]): string {
   return parts.join("\n\n");
 }
 
-/** The summarizer's request. */
+/** The summariser's request. */
 export function summaryRequest(messages: readonly Message[], now = Date.now()): { messages: Message[] } {
   return {
     messages: [
@@ -151,9 +151,9 @@ export function summaryOf(message: AssistantMessage): string | undefined {
 const SUMMARY_MEMO = "dpa.summary";
 
 /**
- * Our summarizer, on pi-durable's `beforeCompact` hook. The hook can only
+ * Our summariser, on pi-durable's `beforeCompact` hook. The hook can only
  * decline a compaction or hand pi the summary text; it can't change pi's own
- * summarizer prompt. So this asks the model itself, with the prompt above,
+ * summariser prompt. So this asks the model itself, with the prompt above,
  * through `model` (the router: the lane is decided, capped and metered like
  * any other call). If the call fails, it declines: nothing is summarised,
  * nothing is lost, and the next turn over the threshold tries again.

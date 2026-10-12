@@ -388,9 +388,11 @@ function ApprovalCard({ card, send }: { card: Extract<Card, { kind: "approval" }
       icon={<HandIcon size={16} />}
       title={photos.length ? `Send ${photos.length === 1 ? "this photo" : "these photos"} to ${card.company}?` : `Approve this at ${card.company}?`}
       meta={
-        photos.length
+        photos.length === 1
           ? "Your photo leaves your agent only if you approve, and goes only to this Company"
-          : "View and change · Nothing happens unless you approve"
+          : photos.length
+            ? "Your photos leave your agent only if you approve, and go only to this Company"
+            : "View and change · Nothing happens unless you approve"
       }
       actions={
         <>

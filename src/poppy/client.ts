@@ -959,7 +959,7 @@ export class PoppyClient {
       body?: Json;
       /**
        * A `multipart/form-data` body instead of JSON (an OpenAPI upload). The
-       * runtime writes its `Content-Type` with the boundary, and serializes it
+       * runtime writes its `Content-Type` with the boundary, and serialises it
        * again for each retry.
        */
       form?: FormData;

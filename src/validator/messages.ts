@@ -289,7 +289,7 @@ export const MESSAGES = define({
     note: true,
     title: "Newer minor version",
     explain:
-      "A newer minor version doesn't break older agents: they use the document and ignore fields they don't recognize. It was checked against the newest rules this validator knows.",
+      "A newer minor version doesn't break older agents: they use the document and ignore fields they don't recognise. It was checked against the newest rules this validator knows.",
     fix: "Nothing to do.",
     ref: spec("3.1", "fields")
   },
@@ -456,7 +456,7 @@ export const MESSAGES = define({
     refuses: false,
     title: "API type not defined in this version",
     explain:
-      "Draft 0.1 says each API's type MUST be openapi or mcp, so in a document that declares a version this validator knows, another type is an error. The draft also says agents SHOULD skip types they don't recognize, and ours does: it skips the API and still uses the Company.",
+      "Draft 0.1 says each API's type MUST be openapi or mcp, so in a document that declares a version this validator knows, another type is an error. The draft also says agents SHOULD skip types they don't recognise, and ours does: it skips the API and still uses the Company.",
     fix: "Use openapi or mcp, or leave the API out until a version of the protocol defines its type.",
     ref: spec("6", "apis")
   },
@@ -513,7 +513,7 @@ export const MESSAGES = define({
     basis: "Reading",
     title: "Extension version is a number",
     explain:
-      "\"Each entry has a version, the extension's major version\" (3.3), but the draft doesn't give its JSON type (spec-issues N22); every example is a string, such as \"1\". Our reading is a string, so a number is a warning. Agents that compare it as a string, ours included, don't recognize the version and ignore the extension.",
+      "\"Each entry has a version, the extension's major version\" (3.3), but the draft doesn't give its JSON type (spec-issues N22); every example is a string, such as \"1\". Our reading is a string, so a number is a warning. Agents that compare it as a string, ours included, don't recognise the version and ignore the extension.",
     fix: "Write the version as a string, such as \"1\".",
     ref: spec("3.3", "extensions")
   },
@@ -544,7 +544,7 @@ export const MESSAGES = define({
   "metadata-signing-alg": {
     basis: "Guides",
     title: "No supported algorithm for client assertions",
-    explain: "Agents sign client assertions with ES256, or RS256. token_endpoint_auth_signing_alg_values_supported lists neither.",
+    explain: "Agents sign client assertions with ES256 or RS256. token_endpoint_auth_signing_alg_values_supported lists neither.",
     fix: "Add ES256, and RS256 if you can.",
     ref: rfc(8414, "2")
   },

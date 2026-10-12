@@ -90,7 +90,7 @@ export function formPage(origin: string): string {
   return page(
     "Poppy Validator",
     `<h1>Poppy Validator</h1>
-<p class="lede">Checks Personal Agent Protocol discovery documents against the specification (${versions}), so Companies and Personal Agents can find problems before anyone else does. <a href="/validator/messages">What each message means</a>.</p>
+<p class="lede">Checks Personal Agent Protocol discovery documents against the specification (${versions}), so a Company or a Personal Agent can find a problem before the other side runs into it. <a href="/validator/messages">What each message means</a>.</p>
 ${forms()}
 <h2>Use it from code</h2>
 <pre>curl -s ${escape(origin)}/validator/api -H 'Content-Type: application/json' \\

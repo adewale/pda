@@ -117,7 +117,7 @@ export class PersonalAgent extends DurableObject<Env> {
         );
         // The User's attached photos, shown to the model as images in the messages that name them.
         this.registry.install(attachmentsExtension(() => this.ctx.storage.sql));
-        // Our summarizer for pi's compaction: Company text stays labelled as the Company's (compaction.ts).
+        // Our summariser for pi's compaction: Company text stays labelled as the Company's (compaction.ts).
         this.registry.install(compactionExtension(ROUTER_MODEL));
         // One provider, the router: it picks the lane at every call (model-router.ts).
         const models = createModels({ authContext: NO_AMBIENT_AUTH });

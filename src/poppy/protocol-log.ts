@@ -9,7 +9,7 @@ import { PROTOCOL_LOG_LIMIT, type PoppyServerFrame, type ProtocolCompany, type P
  * client (`client.ts`) and discovery, and by triggers on the sign-in,
  * conversation and operation tables for state changes no request makes.
  *
- * Every value is built here, from a whitelist: a step, a method, a URL's
+ * Every value is built here, from an allowlist: a step, a method, a URL's
  * origin and path, a status, an error code, and one-line summaries put
  * together from fields named below. Headers, bodies, tokens, assertions,
  * DPoP proofs, keys, codes, `state`, PKCE verifiers, device codes, sign-in
@@ -159,7 +159,7 @@ export function migrateProtocolLog(sql: Sql): void {
   }
 }
 
-// ---------------------------------------------------------------- Whitelisted values
+// ---------------------------------------------------------------- Allowlisted values
 
 /** A URL as origin and path: no credentials, query or fragment. Null if it isn't one. */
 export function bareUrl(value: string | URL | null | undefined): string | null {

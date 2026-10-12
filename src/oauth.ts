@@ -27,7 +27,7 @@ type Flow = {
   readonly exp: number;
 };
 
-/** The provider said no, or answered with something we cannot use. */
+/** Why a sign-in stopped: `code` goes to the page as `?signin_error=`, `message` only to the log. */
 class SignInError extends Error {
   override name = "SignInError";
   constructor(readonly code: string, message: string) {
