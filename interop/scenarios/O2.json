@@ -1,0 +1,21 @@
+{
+  "id": "O2",
+  "title": "Operation: confirmed twice, performed once",
+  "requirements": ["Operations 5.2", "Operations 6"],
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue", "send", "read", "approve_op", "confirm_again"], "company": ["approve_authorization", "propose_operation"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.write}" }, "save": "pending" },
+    { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
+    { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" } },
+    { "agent": "send", "params": { "text": "${fixture.prompts.operation}", "wait": 2 }, "save": "m" },
+    { "company": "propose_operation", "params": { "conversation": "${m.conversation}" }, "save": "p" },
+    { "agent": "read", "params": { "conversation": "${m.conversation}" } },
+    { "agent": "approve_op", "params": { "operation": "${p.operation}", "decision": "approve" }, "save": "a" },
+    { "expect": { "${a.status}": { "$in": ["succeeded", "in_progress"] } } },
+    { "agent": "confirm_again", "params": { "operation": "${p.operation}" }, "save": "again", "note": "The same confirm again, as an agent sends it after losing the first answer (Ops 6); the Company returns the operation as it is (Ops 5.2)." },
+    { "expect": { "${again.status}": { "$in": ["succeeded", "in_progress"] } } },
+    { "runner": "assert_trace", "params": { "check": "confirm_repeated" }, "note": "Both confirms answered alike, with the same confirmation: performed once (company.confirm-repeated)." }
+  ]
+}

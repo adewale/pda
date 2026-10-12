@@ -31,7 +31,7 @@ The adapter starts `wrangler dev --local-upstream $COMPANY_HOST --upstream-proto
 - Hook bodies are the bare params and results the bare object, as the runner calls them.
 - Unsupported: `require_nonce`, `rate_limit`, `expire_tokens` (no such settings in Northstar), `approve_device`, `deny_device`, `mediated_answers`, `last_one_time_code` (Northstar has only Direct Sign-In), `end_sessions` (no admin path; Sessions end only after 24 h), `staff_join`, `staff_reply` (no staffed desk; handoff returns to the store assistant at once), `propose_operation`, `settle_operation` (no Operations extension).
 
-Scenarios claimed: `D`, `S0`, `SD`, `SX`, `SO`, `C`, `CI`, `CA`, `AO`, `AS`. Not `N` (Northstar never sends a DPoP nonce), `R` (the refresh grant doesn't rotate the Account Token), `CS` (no SSE), `SV`, `SM`, `O`, `W`.
+Scenarios claimed: `D`, `S0`, `SD`, `SX`, `SO`, `C`, `CI`, `CA`, `AO`, `AS`, `DC`, `CM`. Not `N` (Northstar never sends a DPoP nonce), `R` (the refresh grant doesn't rotate the Account Token), `CS` (no SSE), `SV`, `SM`, `O`, `O2`, `W` (no browser-session endpoint), `H` (its handoff answers that no one is available, and nothing can bring a person in).
 
 Readings: `S1` `endpoint` (assertion `aud` must equal the endpoint it is sent to, exactly), `S2` `jwt-60s` (`typ: JWT`, `exp - iat ≤ 60`), `S4` `omit` (a signed-out Session request carrying `scope` gets `invalid_scope`).
 

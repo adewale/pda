@@ -336,8 +336,10 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 		if (typeof params.text === "string") message.text = params.text;
 		if (params.data && typeof params.data === "object") message.data = params.data;
 		if (params.context && typeof params.context === "object") message.context = params.context;
-		// pi-poppy's extension sends with wait=2 and no cursor.
-		const sent = await world.agent.sendMessage(live, message, { wait: params.wait ?? 2 });
+		// pi-poppy's extension sends with wait=2 and no cursor. `parent_conversation` starts a
+		// Direct Conversation (7.10) through sendMessage's own parentId option.
+		const parentId = typeof params.parent_conversation === "string" ? params.parent_conversation : undefined;
+		const sent = await world.agent.sendMessage(live, message, { wait: params.wait ?? 2, ...(parentId ? { parentId } : {}) });
 		return {
 			conversation: sent.conversationId,
 			message_id: messageId,
@@ -453,6 +455,38 @@ const steps: Record<string, (company: string, params: Params) => Promise<unknown
 		return { joined: Boolean(live.browserJoined) };
 	},
 
+	/** Ask for a person (7.9): pi-poppy's handoff(session), on the conversation named. */
+	async handoff(company, params) {
+		const live = await ensureSession(company, params.label);
+		if (typeof params.conversation !== "string") throw new StepError(400, "bad_request", "conversation is required");
+		useConversation(live, params.conversation);
+		const answer = await world.agent.handoff(live);
+		return { status: answer.status, responder: answer.responder };
+	},
+
+	/** Close a conversation (7.12): pi-poppy's closeConversation(session). */
+	async close(company, params) {
+		const live = await ensureSession(company, params.label);
+		if (typeof params.conversation !== "string") throw new StepError(400, "bad_request", "conversation is required");
+		useConversation(live, params.conversation);
+		const answer = await world.agent.closeConversation(live);
+		return { status: answer.status, responder: answer.responder };
+	},
+
+	/**
+	 * Confirm again (Ops 5.2, 6): pi-poppy keeps no record of a confirm it sent, so its
+	 * confirmOperation, called again with the User's approval as approve_op gives it, sends
+	 * the same confirm a second time. The answer is the operation as the Company returned it.
+	 */
+	async confirm_again(company, params) {
+		const live = await ensureSession(company, params.label);
+		const operation = await world.agent.readOperation(live, params.operation);
+		const companyName = live.discovery.document.organization.name;
+		const approval = userApproval({ accepted: true, companyName, summary: operation.summary, operation });
+		const confirmed = await world.agent.confirmOperation(live, operation, approval);
+		return { status: confirmed.state, operation: confirmed };
+	},
+
 	async approve_op(company, params) {
 		const live = await ensureSession(company, params.label);
 		const operation = await world.agent.readOperation(live, params.operation);
@@ -505,7 +539,7 @@ const manifest = {
 	commit: COMMIT,
 	poppy: ["0.1"],
 	extensions: ["operations"],
-	scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "SO", "SE", "R", "C", "CI", "CA", "AO", "AM", "AS", "RL", "O", "OX"],
+	scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "SO", "SE", "R", "C", "CI", "CA", "AO", "AM", "AS", "RL", "O", "OX", "H", "DC", "W", "O2", "CM"],
 	readings: { S1: "endpoint", S2: "any", S3: "append", S4: "omit", S23: "per-origin" },
 	relaxations: [
 		"PI_POPPY_INTEROP_PRIVATE_SUFFIX=.interop.test (patches/0001): host names under .interop.test may resolve to private addresses; unset by default, loopback still refused",

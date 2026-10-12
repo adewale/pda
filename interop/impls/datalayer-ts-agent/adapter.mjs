@@ -13,7 +13,9 @@ import { exportJWK, generateKeyPair } from "jose";
 import {
   AccountTokenClient,
   AuthorizationStateStores,
+  BrowserFormPosts,
   BrowserHandoffs,
+  BrowserSessionClient,
   ConversationClient,
   DeviceSignInClient,
   DirectSignInClient,
@@ -49,7 +51,7 @@ const MANIFEST = {
   commit: UPSTREAM_COMMIT,
   poppy: ["0.1"],
   extensions: ["operations"],
-  scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SXV", "SM", "SMC", "SX", "SE", "SO", "R", "RL", "C", "CI", "CS", "CA", "AO", "AS", "AM", "O", "OX"],
+  scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SXV", "SM", "SMC", "SX", "SE", "SO", "R", "RL", "C", "CI", "CS", "CA", "AO", "AS", "AM", "O", "OX", "H", "DC", "W", "O2", "CM"],
   readings: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit" },
   relaxations: [],
 };
@@ -90,6 +92,23 @@ async function buildWorld() {
     },
   };
   const fetch = globalThis.fetch;
+  // The host's browser for a browser Session join (spec 5): the SDK signs the assertion and
+  // hands it here to POST as a form, as a page that submits itself makes a browser do. It
+  // keeps the Company's answer (a 303 and its cookie) for web_join to report.
+  const poster = {
+    last: undefined,
+    async post(endpoint, fields) {
+      const body = new URLSearchParams(Object.entries(fields).map(([name, value]) => [name, value.reveal()]));
+      const response = await fetch(endpoint.href, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+        redirect: "manual",
+      });
+      await response.arrayBuffer().catch(() => undefined);
+      poster.last = { status: response.status, location: response.headers.get("location"), cookies: response.headers.getSetCookie() };
+    },
+  };
   const reactor = buildPapReactor({ fetch }, [
     {
       name: "interop-host",
@@ -130,6 +149,7 @@ async function buildWorld() {
           options: { id: "vault" },
         },
         { point: BrowserHandoffs, value: browser, options: { id: "browser" } },
+        { point: BrowserFormPosts, value: poster, options: { id: "browser-form" } },
         { point: ProtectedInputs, value: input, options: { id: "trusted-input" } },
       ],
     },
@@ -143,6 +163,7 @@ async function buildWorld() {
     fetch,
     transport,
     browser,
+    poster,
     input,
     conversations: new ConversationClient({ reactor, transport }),
     companies: new Map(),
@@ -305,7 +326,7 @@ function messagesOf(page) {
   const out = [];
   for (const event of page?.events ?? []) {
     if (event.type === "message" && event.message) {
-      out.push({ role: event.message.role ?? event.message.sender, text: event.message.text ?? "" });
+      out.push({ role: event.message.role ?? event.message.sender, sender: event.message.sender ?? null, text: event.message.text ?? "" });
     }
   }
   return out;
@@ -341,7 +362,11 @@ async function sendOnce(c, endpoint, token, message, conversation, params) {
         ...options,
         ...(previous?.cursor ? { cursor: previous.cursor } : {}),
       })
-    : await world.conversations.start(endpoint, message, options);
+    : await world.conversations.start(endpoint, message, {
+        ...options,
+        // A Direct Conversation (7.10): the SDK's start with parentConversationId.
+        ...(params.parent_conversation ? { parentConversationId: params.parent_conversation } : {}),
+      });
   if (response.events === undefined) {
     // A bare receipt: read what has happened since our last cursor.
     response = {
@@ -681,7 +706,7 @@ const ops = {
     // which Companies disagree about (spec issue S9).
     const key = params.message_id;
     const retried = key === undefined ? undefined : c.retryKeys?.get(key);
-    const message = retried?.message ?? { id: world.conversations.generateMessageId(), sender: "human", text: params.text };
+    const message = retried?.message ?? { id: world.conversations.generateMessageId(), sender: params.sender ?? "human", text: params.text };
     const conversation = params.conversation ?? retried?.conversation;
     const result = await withSession(c, (token) => sendOnce(c, endpoint, token, message, conversation, params));
     if (key !== undefined && !retried) (c.retryKeys ??= new Map()).set(key, { message, conversation });
@@ -750,8 +775,56 @@ const ops = {
     return { sessions, accounts };
   },
 
-  async web_join() {
-    throw new StepError(501, "unsupported", "browser Session join needs a browser");
+  /** Browser Session join (spec 5): the SDK's BrowserSessionClient, posting through the host's poster. */
+  async web_join(c, params) {
+    await discovered(c);
+    const endpoint = c.discovered.document.web?.browser_session_endpoint;
+    if (!endpoint) throw new Refusal("no_browser_sessions", 0, "the Company declares no browser_session_endpoint");
+    world.poster.last = undefined;
+    await withSession(c, (token) =>
+      new BrowserSessionClient({ reactor: world.reactor }).join({
+        clientId: world.clientId,
+        pairwiseUserId: c.pairwise,
+        browserSessionEndpoint: endpoint,
+        sessionId: token.sessionId,
+        returnTo: params.url ?? `https://${c.discovered.document.organization.domain}/`,
+        companyDomain: c.discovered.document.organization.domain,
+      }),
+    );
+    const last = world.poster.last;
+    return { joined: !!last && last.status >= 300 && last.status < 400 && last.cookies.length > 0, status: last?.status ?? null, location: last?.location ?? null };
+  },
+
+  /** Ask for a person (7.9): the SDK's ConversationClient.handoff. */
+  async handoff(c, params) {
+    await ensureSession(c);
+    const endpoint = conversationEndpoint(c);
+    const receipt = await withSession(c, (token) => world.conversations.handoff(endpoint, params.conversation, { token, ...who(c) }));
+    return { status: receipt.status, responder: receipt.responder };
+  },
+
+  /** Close a conversation (7.12): the SDK's ConversationClient.close. */
+  async close(c, params) {
+    await ensureSession(c);
+    const endpoint = conversationEndpoint(c);
+    const receipt = await withSession(c, (token) => world.conversations.close(endpoint, params.conversation, { token, ...who(c) }));
+    return { status: receipt.status, responder: receipt.responder };
+  },
+
+  /**
+   * Confirm again (Ops 5.2, 6): the SDK's OperationsClient.confirm with the proposal as the
+   * agent first saw it, as a host retries after losing the first answer. The SDK refuses
+   * locally only an operation it is handed in another state.
+   */
+  async confirm_again(c, params) {
+    const token = await ensureSession(c);
+    const operation = c.operations.get(params.operation);
+    if (!operation) throw new StepError(404, "unknown_operation", "no proposal with that id has been seen");
+    const endpoint = operationsEndpoint(c.discovered.document, parseClientMetadata(world.metadata));
+    if (!endpoint) throw new StepError(409, "no_operations", "the Company doesn't offer Operations v1");
+    const client = new OperationsClient({ reactor: world.reactor, transport: world.transport });
+    const outcome = await client.confirm(endpoint, operation, { token, ...who(c), approval: await approve(operation) });
+    return { status: outcome.operation?.state ?? outcome.status, outcome: outcome.status, operation: outcome.operation ?? null };
   },
 };
 

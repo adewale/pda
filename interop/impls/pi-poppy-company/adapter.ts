@@ -257,7 +257,7 @@ const manifest = {
 	commit: COMMIT,
 	poppy: ["0.1"],
 	extensions: ["operations"],
-	scenarios: ["D", "S0", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "SO", "SE", "C", "CI", "CS", "CA", "AM", "AS", "O", "OX"],
+	scenarios: ["D", "S0", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "SO", "SE", "C", "CI", "CS", "CA", "AM", "AS", "O", "OX", "H", "DC", "W", "O2", "CM"],
 	readings: { S1: "endpoint", S2: "any", S3: "either", S4: "either", S23: "per-company" },
 	relaxations: [
 		"PI_POPPY_INTEROP_PRIVATE_SUFFIX=.interop.test (patches/0001): client_id and jwks_uri under .interop.test may resolve to private addresses; unset by default, loopback still refused",

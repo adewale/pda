@@ -30,9 +30,11 @@ The SDK leaves some decisions to its host, so the adapter makes them, as a host 
 | `approve_op` | yes | `approve` confirms with the user's approval; `decline` cancels. |
 | `signout` | yes | Revokes the Account Token. |
 | `state` | yes | No token values. |
-| `web_join` | 501 | Needs a browser. |
+| `web_join` | yes | `BrowserSessionClient.join`, with the adapter as the host's `BrowserFormPosts`: it POSTs the signed assertion as a form and keeps the answer; `joined` is a 3xx with a cookie. |
+| `handoff`, `close` | yes | `ConversationClient.handoff` and `.close`. `send` takes `parent_conversation` (`start` with `parentConversationId`, 7.10) and `sender`, whose default stays `human`. Messages carry `sender`. |
+| `confirm_again` | yes | `OperationsClient.confirm` again with the proposal as first seen; the SDK refuses locally only an operation handed to it in another state. |
 
-**Manifest:** scenarios `D S0 N SD SV SVN SXV SM SMC SX SE SO R RL C CI CS CA AO AS AM O OX`. Readings: `S1: endpoint` (each client assertion's `aud` is the endpoint it is sent to), `S2: jwt-60s` (`typ: JWT`, `exp = iat + 60`, a 22-character `jti`), `S3: insertion`, `S4: omit`. `S23` is not declared: the SDK keeps no nonce between requests; it answers each `use_dpop_nonce` challenge once, with that response's nonce.
+**Manifest:** scenarios `D S0 N SD SV SVN SXV SM SMC SX SE SO R RL C CI CS CA AO AS AM O OX H DC W O2 CM`. Readings: `S1: endpoint` (each client assertion's `aud` is the endpoint it is sent to), `S2: jwt-60s` (`typ: JWT`, `exp = iat + 60`, a 22-character `jti`), `S3: insertion`, `S4: omit`. `S23` is not declared: the SDK keeps no nonce between requests; it answers each `use_dpop_nonce` challenge once, with that response's nonce.
 
 ## Moving from v0.6.0 to v0.10.0
 

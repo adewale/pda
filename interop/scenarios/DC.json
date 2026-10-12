@@ -1,0 +1,22 @@
+{
+  "id": "DC",
+  "title": "Direct Conversation: the User talks with the Company, then the parent takes messages again",
+  "requirements": ["7.3", "7.8", "7.10", "7.12"],
+  "needs": { "agent": ["discover", "send", "read", "close"] },
+  "steps": [
+    { "agent": "discover", "save": "d" },
+    { "expect": { "${d.conversations}": true } },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}", "wait": 2 }, "save": "m" },
+    { "agent": "send", "params": { "parent_conversation": "${m.conversation}", "sender": "human", "text": "Hi, I'd like to talk with you myself.", "wait": 2 }, "save": "direct", "note": "A Direct Conversation: a new conversation with parent_conversation_id, carrying the User's own words as sender human (7.10, 7.8)." },
+    { "expect": { "${direct.conversation}": { "$exists": true, "$ne": "${m.conversation}" } } },
+    { "agent": "read", "params": { "conversation": "${direct.conversation}", "wait": 2 }, "save": "dr" },
+    { "expect": { "${dr.messages}": { "$some": { "role": "company" } } } },
+    { "agent": "send", "params": { "conversation": "${m.conversation}", "text": "Is anyone there?" }, "save": "blocked", "note": "While the Direct Conversation is open, the parent takes no messages (7.10)." },
+    { "expect": { "step": "blocked", "poppy_error": "direct_conversation_open" } },
+    { "agent": "send", "params": { "conversation": "${direct.conversation}", "sender": "human", "text": "Thanks, that's all." } },
+    { "agent": "close", "params": { "conversation": "${direct.conversation}" }, "save": "c" },
+    { "expect": { "${c.status}": "closed" } },
+    { "agent": "send", "params": { "conversation": "${m.conversation}", "text": "${fixture.prompts.hello}" }, "save": "after", "note": "Once the Direct Conversation closes, the parent takes messages again (7.10)." },
+    { "expect": { "${after.conversation}": "${m.conversation}" } }
+  ]
+}

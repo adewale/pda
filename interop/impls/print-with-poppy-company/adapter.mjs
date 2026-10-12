@@ -47,7 +47,7 @@ const MANIFEST = {
   // conversations (C, CI, CS), no DPoP nonces (N), no Account Tokens (SO, R, SE). OU is its
   // own path: a multipart photo upload, then POST /api/orders proposes an operation in the
   // signed-out Session, which the agent confirms once its User approves.
-  scenarios: ['D', 'S0', 'OU'],
+  scenarios: ['D', 'S0', 'OU', 'CM'],
   readings: {
     // A client assertion's aud must be exactly the endpoint it is sent to: the token
     // endpoint at /oauth/token, the revocation endpoint at /oauth/revoke (a string, not an array).

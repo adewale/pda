@@ -30,6 +30,8 @@ One Python process (`adapter.py`, Python 3.12):
 | `approve_op` | `OperationsClient.read`, then `confirm` with `approve(operation)`, or `cancel` | `status` is the operation's state afterwards. |
 | `signout` | `AccountTokenClient.revoke` | |
 | `web_join` | `BrowserSessionClient.join` | `joined` is a 302 or 303 with `Set-Cookie` from the browser-session endpoint. |
+| `handoff`, `close` | `ConversationClient.handoff`, `.close` | `send` takes `parent_conversation` (`start(parent_conversation_id=)`, 7.10). Messages carry `sender`. |
+| `confirm_again` | `OperationsClient.confirm` with the proposal as first seen | The SDK refuses locally only an operation handed to it in another state, so the cached proposal sends the confirm again. |
 | `state` | | No token values. |
 
 A refusal the Company sent is `{"ok": false, "poppy_error", "status"}`. The agent's own refusals (a denied sign-in's `access_denied`, a malformed answer the SDK rejects, a document it won't use) have status 0.

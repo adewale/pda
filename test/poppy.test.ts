@@ -4,7 +4,8 @@ import { openApi, proposesOperation } from "../src/poppy/apis";
 import type { Json } from "../src/poppy/json";
 import { summaryStartsWithAction, termsCovered } from "../src/poppy/operations";
 import type { PoppyClient } from "../src/poppy/client";
-import { tokenHostAllowed } from "../src/poppy/discovery";
+import { tokenHostAllowed, type Company as PoppyCompany } from "../src/poppy/discovery";
+import { isSignInPage } from "../src/poppy/browser";
 import { assertPublicHost, fetchJson, PoppyFetchError, type Fetcher } from "../src/poppy/fetch";
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
@@ -862,6 +863,15 @@ describe("5 web browsing", () => {
     }
   });
 
+  it("counts a join the Company redirected as joined, even when the page it returns to is missing", async () => {
+    const c = await company();
+    const a = await agent();
+    const page = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/no-such-page" });
+    expect(page.isError).toBe(false);
+    expect(JSON.parse(page.text)).toMatchObject({ status: 404 });
+    expect((await c.stub.state()).browserJoins).toBe(1);
+  });
+
   it("keeps each User's and each Session's browser cookies apart", async () => {
     const c = await company();
     const ada = await agent();
@@ -1021,6 +1031,25 @@ describe("5 web browsing", () => {
     const result = await tool(await agent(), "poppy_browse", { domain: c.domain, action: "open", url: `${c.hosts.issuer}/oauth/authorize` });
     expect(result.isError).toBe(true);
     expect(result.text).toContain("sign-in pages");
+  });
+
+  it("keeps a website browsable whose issuer is its own origin, but not its sign-in endpoints", () => {
+    const at = (issuer: string, auth: string) =>
+      ({
+        domain: "shop.example",
+        issuer,
+        endpoints: { token: `${auth}/oauth/token`, revocation: `${auth}/oauth/revoke`, authorization: `${auth}/oauth/authorize`, deviceAuthorization: `${auth}/oauth/device` },
+        signIn: { mediated: { endpoint: `${auth}/poppy/sign-in`, fields: [], scopes: [] } }
+      }) as unknown as PoppyCompany;
+    const onSite = at("https://shop.example/poppy", "https://shop.example");
+    expect(isSignInPage(onSite, new URL("https://shop.example/"))).toBe(false);
+    expect(isSignInPage(onSite, new URL("https://shop.example/orders"))).toBe(false);
+    expect(isSignInPage(onSite, new URL("https://shop.example/oauth/authorize?client_id=x"))).toBe(true);
+    expect(isSignInPage(onSite, new URL("https://shop.example/oauth/device"))).toBe(true);
+    expect(isSignInPage(onSite, new URL("https://shop.example/poppy/sign-in/abc"))).toBe(true);
+    const ownHost = at("https://auth.shop.example", "https://auth.shop.example");
+    expect(isSignInPage(ownHost, new URL("https://auth.shop.example/account"))).toBe(true);
+    expect(isSignInPage(ownHost, new URL("https://shop.example/"))).toBe(false);
   });
 
   it("never types credentials into a website", async () => {

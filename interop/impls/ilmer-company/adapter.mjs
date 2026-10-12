@@ -27,7 +27,7 @@ const MANIFEST = {
   poppy: ['0.1'],
   extensions: [],
   // Signed out only. No nonce challenges (no N), no Account Tokens to revoke (no SO).
-  scenarios: ['D', 'S0', 'C', 'CI'],
+  scenarios: ['D', 'S0', 'C', 'CI', 'CM'],
   readings: {
     // Each client assertion's aud is the endpoint it is sent to (token or revocation).
     S1: 'token-endpoint',

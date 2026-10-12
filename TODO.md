@@ -48,7 +48,7 @@ Built and passing in the grid (scenario OU, against the store at its pinned comm
 
 - [x] **Grounding questions decided by a policy**, [docs/conformance-levels.md](docs/conformance-levels.md): a check's basis sets its level in the mock, the validator and the grid; YK is `permitted_by: N5`. **Owner:** review its judgement calls. The full grid ran again under it on 12 October with every cell's outcome unchanged ([interop-results](docs/interop-results/README.md)).
 - [ ] **Owner. Re-check the spec** with `node scripts/spec-snapshot.mjs` before sending issues to its authors or submitting the proposals.
-- [ ] **Code. Scenarios not yet written:** `H`, `DC`, `W`, `O2`, `CM` ([interop-testing.md](docs/interop-testing.md)).
+- [x] **Code. Scenarios `H`, `DC`, `W`, `O2`, `CM`:** written and run on 12 October, each derived from the draft section it targets; results and the two bugs they found in our browser in [interop-testing.md](docs/interop-testing.md#h-dc-w-o2-and-cm-12-october).
 - [ ] **Code. Attacks not yet built:** `XM` (needs a two-Company cell), `XS` (needs N42's private test suffix), `YF` (a code only returns through the consent hook) and `YC` (needs a consent-page reader). Built: `XB`, `XN`, `XO`, `XP`, `XE`, `YM` ([adversarial-interop.md](docs/adversarial-interop.md)).
 - [ ] **Code. The Hypothesis client's gaps:** the Operations extension, MCP, browsing, handoff and Direct Conversations, rate limits, Device Sign-In polling ([test/hypothesis/README.md](test/hypothesis/README.md)).
 - [ ] **Owner then Code. The adapters not yet run:** everruns (needs Docker disk), typo3 (needs the private extension), and the live lane, kept until our own side is verified ([deployment-tasks](docs/deployment-tasks.md#3-then)).

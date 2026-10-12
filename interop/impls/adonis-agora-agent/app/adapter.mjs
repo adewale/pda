@@ -41,7 +41,7 @@ const MANIFEST = {
   poppy: ['0.1'],
   extensions: [],
   // No O/OX: the client has no Operations extension.
-  scenarios: ['D', 'CM', 'S0', 'N', 'SD', 'SV', 'SXV', 'SM', 'SMC', 'SX', 'R', 'SE', 'SO', 'C', 'CI', 'CS', 'CA', 'AO', 'AM', 'AS', 'RL', 'W'],
+  scenarios: ['D', 'CM', 'S0', 'N', 'SD', 'SV', 'SXV', 'SM', 'SMC', 'SX', 'R', 'SE', 'SO', 'C', 'CI', 'CS', 'CA', 'H', 'DC', 'AO', 'AM', 'AS', 'RL', 'W'],
   readings: { S1: 'token-endpoint', S2: 'any', S3: 'insertion', S4: 'omit', S23: 'per-origin' },
   relaxations: ['Container trusts the run CA (/interop/ca.pem) through NODE_EXTRA_CA_CERTS and the system store'],
   notes:
@@ -235,6 +235,19 @@ const ops = {
       status = d.page.status;
     }
     return { conversation: id, message_id: message.id, status, messages: messagesOf(events), events };
+  },
+
+  // Handoff (7.9) and close (7.12): the library's ConversationClient.handoff and .close.
+  async handoff({ company: host, params }) {
+    const c = await company(host);
+    const state = await new ConversationClient(c).handoff(params.conversation);
+    return { status: state.status, responder: state.responder };
+  },
+
+  async close({ company: host, params }) {
+    const c = await company(host);
+    const state = await new ConversationClient(c).close(params.conversation);
+    return { status: state.status, responder: state.responder };
   },
 
   async read({ company: host, params }) {

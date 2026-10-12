@@ -104,7 +104,7 @@ MANIFEST = {
     # no rate limits and no staff.
     "scenarios": [
         "D", "S0", "SD", "SV", "SMC", "SX", "SXV", "R", "SE", "SO",
-        "C", "CI", "CS", "CA", "AO", "AS", "O", "OX",
+        "C", "CI", "CS", "CA", "AO", "AS", "O", "OX", "DC", "W", "O2", "CM",
     ],
     # S1: a client assertion's aud may be the issuer, the token endpoint or the endpoint
     # called, at the token, device and revocation endpoints alike (service.py `_client`).

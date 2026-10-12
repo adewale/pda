@@ -1,0 +1,13 @@
+{
+  "id": "W",
+  "title": "Browser Session join",
+  "requirements": ["4.2", "5"],
+  "needs": { "agent": ["discover", "session", "web_join"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session", "save": "s" },
+    { "agent": "web_join", "params": { "url": "${fixture.web_page}" }, "save": "j", "note": "The agent's browser posts a browser assertion for the Session as a form, and the Company sets its cookie (5). web_page is the Company's, or its home page." },
+    { "expect": { "${j.joined}": true } },
+    { "runner": "assert_trace", "params": { "check": "browser_joined" }, "note": "The trace shows the join: a 303 to return_to with a cookie. The assertion's claims and the cookie's attributes are trace checks (browser-assertion.*, company.browser-*)." }
+  ]
+}

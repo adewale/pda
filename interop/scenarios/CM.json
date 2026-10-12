@@ -1,0 +1,13 @@
+{
+  "id": "CM",
+  "title": "The Company fetches the agent's client_id and keys",
+  "requirements": ["4.1", "4.2"],
+  "readings": ["S1", "S2", "S4"],
+  "needs": { "agent": ["discover", "session"] },
+  "steps": [
+    { "agent": "discover" },
+    { "agent": "session", "save": "s" },
+    { "expect": { "${s.session_id}": { "$exists": true } } },
+    { "runner": "assert_trace", "params": { "check": "client_fetched" }, "note": "Before granting the Session, the Company fetched the client_id document and the jwks_uri holding the key that signed the assertion: the agent's keys are new in every cell. Without credentials (company.metadata-fetch-credentials, Guides)." }
+  ]
+}

@@ -57,6 +57,8 @@ docker run --network <net> -e INTEROP_SECRET=<secret> -e INTEROP_ORIGIN=https://
 
 Hook bodies are the bare params, and replies are the bare result.
 
+Scenarios `CM` and `H` were claimed before they were written; since 12 October `DC` (Direct Conversations and close in `@adonis-agora/agent`) and `W` (AuthKit's browser-session endpoint, on by default; its cookie is the host's session cookie, `Secure`, `HttpOnly`, `SameSite=Lax`) are too.
+
 `/reset` does four things; accounts and passwords survive it:
 - empties AuthKit's Poppy tables and grants;
 - replaces the conversation and agent stores;

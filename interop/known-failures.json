@@ -314,6 +314,50 @@
       ],
       "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
       "reason": "Reading S1, as in SV: the revocation request's client assertion names the token endpoint, and Companies reading S1 endpoint answer invalid_client, so sign-out fails."
+    },
+    {
+      "agent": "datalayer-ts",
+      "company": "dpa-mock",
+      "scenario": "*",
+      "blame": null,
+      "errors": [
+        "invalid_response"
+      ],
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/conversations.ts#L650-L663",
+      "reason": "Datalayer's TypeScript ConversationClient reads the answer to a handoff (7.9) or a close (7.12) as a receipt that must carry conversation_id (#control, parseConversationResponse), and refuses it as invalid_response without one. The draft has the Company return \"HTTP 202 with status and responder\" (7.9) and \"HTTP 200 with status and responder\" (7.12), which is all our mocks send; Datalayer's own Companies, pi-poppy, poppyseed and adonis-agora add conversation_id, so H and DC pass there."
+    },
+    {
+      "agent": "datalayer-ts",
+      "company": "dpa-mock-strict",
+      "scenario": "*",
+      "blame": null,
+      "errors": [
+        "invalid_response"
+      ],
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/conversations.ts#L650-L663",
+      "reason": "Datalayer's TypeScript ConversationClient reads the answer to a handoff (7.9) or a close (7.12) as a receipt that must carry conversation_id (#control, parseConversationResponse), and refuses it as invalid_response without one. The draft has the Company return \"HTTP 202 with status and responder\" (7.9) and \"HTTP 200 with status and responder\" (7.12), which is all our mocks send; Datalayer's own Companies, pi-poppy, poppyseed and adonis-agora add conversation_id, so H and DC pass there."
+    },
+    {
+      "agent": "datalayer-py",
+      "company": "dpa-mock",
+      "scenario": "*",
+      "blame": null,
+      "errors": [
+        "invalid_response"
+      ],
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/conversations.py#L29-L33",
+      "reason": "Datalayer's Python ConversationClient validates the answer to a handoff (7.9) or a close (7.12) as a ConversationReceipt, whose conversation_id is required, and refuses it as invalid_response without one (_control, conversations.py L495-L506). The draft has the Company return \"HTTP 202 with status and responder\" (7.9) and \"HTTP 200 with status and responder\" (7.12), which is all our mocks send; Datalayer's own Companies, pi-poppy, poppyseed and adonis-agora add conversation_id, so H and DC pass there."
+    },
+    {
+      "agent": "datalayer-py",
+      "company": "dpa-mock-strict",
+      "scenario": "*",
+      "blame": null,
+      "errors": [
+        "invalid_response"
+      ],
+      "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/conversations.py#L29-L33",
+      "reason": "Datalayer's Python ConversationClient validates the answer to a handoff (7.9) or a close (7.12) as a ConversationReceipt, whose conversation_id is required, and refuses it as invalid_response without one (_control, conversations.py L495-L506). The draft has the Company return \"HTTP 202 with status and responder\" (7.9) and \"HTTP 200 with status and responder\" (7.12), which is all our mocks send; Datalayer's own Companies, pi-poppy, poppyseed and adonis-agora add conversation_id, so H and DC pass there."
     }
   ]
 }

@@ -63,6 +63,16 @@ export function withScopes(fixture: unknown): Record<string, unknown> {
   };
 }
 
+/**
+ * The fixture's `web_page`, the page a browser join returns to (scenario
+ * W): the Company's own, or its home page, `https://<domain>/` (spec 5:
+ * `return_to` is HTTPS on the Company's domain).
+ */
+export function withWebPage(fixture: unknown, domain: string): Record<string, unknown> {
+  const base = fixture !== null && typeof fixture === "object" && !Array.isArray(fixture) ? (fixture as Record<string, unknown>) : {};
+  return typeof base.web_page === "string" ? base : { ...base, web_page: `https://${domain}/` };
+}
+
 export async function runCell(scenario: Scenario, fixture: unknown, driver: Driver): Promise<CellRun> {
   const saved: Saved = { fixture: withScopes(fixture) };
   const steps: StepRecord[] = [];

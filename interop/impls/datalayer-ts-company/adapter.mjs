@@ -52,7 +52,7 @@ const MANIFEST = {
   commit: UPSTREAM_COMMIT,
   poppy: ["0.1"],
   extensions: ["operations"],
-  scenarios: ["D", "S0", "SD", "SV", "SXV", "SMC", "SX", "SE", "SO", "R", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX"],
+  scenarios: ["D", "S0", "SD", "SV", "SXV", "SMC", "SX", "SE", "SO", "R", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX", "DC", "W", "O2", "CM"],
   // S1: a client assertion's aud may be the issuer, the token endpoint or the endpoint it
   // is sent to, at every endpoint (0.10.0). S2: typ absent or "JWT", at most 120 s (and a
   // jti of 16 to 256 characters): lenient-120s.
