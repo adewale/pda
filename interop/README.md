@@ -46,7 +46,7 @@ Each run writes:
 
 A cell that fails or errors runs once more, with both adapters reset again; its first run's HAR is kept beside the second's (`<agent>__<company>.attempt2.har`) and `attempts` in `results.json` records both. A cell that passes the second time is **flaky**: it counts as a pass, is listed apart in the console and the report, and never matches a known failure.
 
-The runner exits 1 when a cell fails or errors and isn't in `known-failures.json`, or when a known failure is stale: it matched no failed cell though the run could judge it (each name it gives ran, and each `*` spans every agent, Company or scenario of the lane, leaving aside the adversarial ones, which run apart), so it is fixed or wrong. A partial run never judges an entry for cells it didn't run.
+The runner exits 1 when a cell fails or errors and doesn't match an entry of `known-failures.json` (its cell, and the blame, error checks and failed step's code the entry expects, so a different failure in the same cell is unexpected), or when a known failure is stale: it matched no failed cell though the run could judge it (each name it gives ran, and each `*` spans every agent, Company or scenario of the lane, leaving aside the adversarial ones, which run apart), so it is fixed or wrong. A partial run never judges an entry for cells it didn't run.
 
 ### Isolation
 
@@ -77,7 +77,7 @@ Results aren't committed. A summary of the last full grid, for readers who don't
 
 ```text
 registry.json        Implementations: name, role, pinned commit, where to build
-known-failures.json  Failures with an issue link and a reason; they don't fail the run, but a stale one does. "*" matches any agent, Company or scenario
+known-failures.json  Failures with an issue link, a reason, and what they look like (blame, error checks, step error); they don't fail the run, but a stale one does. "*" matches any agent, Company or scenario
 scenarios/           One JSON file per scenario (spec section 6)
 runner/              The CLI, cell runner, checks, attribution and report
 proxy/               The recording TLS proxy and the control relay (Node, no dependencies)
@@ -98,7 +98,7 @@ test/                Unit tests for the runner, in Node (interop/vitest.config.t
 2. Build URLs from `INTEROP_ORIGIN`, trust `/interop/ca.pem`, and authenticate control calls with `INTEROP_SECRET`. Any relaxation the implementation needs (accepting `*.interop.test`, a private CA, an unknown peer) must be a setting that is off by default, listed in the manifest's `relaxations`.
 3. Add an entry to `registry.json` with a pinned `commit`. A Company that serves subdomains beyond the defaults lists them in `subdomains`.
 4. Run `npm run interop -- --agents dpa --companies <name>` (or the converse) and look at `index.html`.
-5. A failure that is real and reported upstream can go in `known-failures.json` with its issue link and a reason. One root cause is one entry: use `"*"` for the agent, Company or scenario it spans (`{"agent": "pi-poppy", "company": "*", "scenario": "SE"}`). The most specific matching entry wins; an entry that matched no failure in a run that could judge it is stale and fails the run, so remove it once the failure is fixed.
+5. A failure that is real and reported upstream can go in `known-failures.json` with its issue link and a reason. One root cause is one entry: use `"*"` for the agent, Company or scenario it spans (`{"agent": "pi-poppy", "company": "*", "scenario": "SE", "blame": "agent", "errors": ["invalid_session"]}`). Copy what the failure looks like from `results.json`: `blame` (required; `null` when unattributed), `checks` (the cell's error check ids) and `errors` (its first failed step's code: a refusal's Poppy error, `expect <path>`, or `error`; [interop spec](../docs/interop-spec.md) section 9). A cell in the entry's span that fails some other way is unexpected, and its reason says what differed. The most specific matching entry wins; an entry that matched no failure in a run that could judge it is stale and fails the run, so remove it once the failure is fixed, or correct it once the failure changes.
 
 ## Our adapters
 

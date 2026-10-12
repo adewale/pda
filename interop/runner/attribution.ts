@@ -221,22 +221,72 @@ export function attributeAll(
     cell.blame = verdict.blame;
     cell.rule = verdict.rule;
     if (verdict.detail) cell.reason = cell.reason ? `${cell.reason} [${verdict.detail}]` : verdict.detail;
+    if (cell.outcome !== "fail" && cell.outcome !== "error") continue;
     const known = knownFailure(cell, context.known ?? []);
-    if (known && (cell.outcome === "fail" || cell.outcome === "error")) {
-      cell.known = { issue: known.issue, ...(known.reason ? { reason: known.reason } : {}) };
+    if (known) cell.known = { issue: known.issue, ...(known.reason ? { reason: known.reason } : {}) };
+    else {
+      // A known failure for this cell that expected another failure: say so, so the difference is easy to see.
+      const other = (context.known ?? []).find((entry) => knownCovers(entry, cell));
+      if (other) {
+        const seen = failureSignature(cell);
+        const note = `not the known failure ${other.issue}: it expects blame ${blamesOf(other).join(" or ")}, checks [${(other.checks ?? []).join(", ")}], errors [${(other.errors ?? []).join(", ")}]; this cell has blame ${seen.blame}, checks [${seen.checks.join(", ")}], error ${seen.error ?? "none"}`;
+        cell.reason = cell.reason ? `${cell.reason} [${note}]` : note;
+      }
     }
   }
 }
 
 const FIELDS = ["agent", "company", "scenario"] as const;
 
-/** A known failure's `agent`, `company` or `scenario` names one, or `"*"` for any. */
-export function knownMatches(entry: KnownFailure, cell: Pick<Cell, "agent" | "company" | "scenario">): boolean {
+/** Where a known failure may happen: its `agent`, `company` and `scenario` each name the cell's, or are `"*"` for any. */
+export function knownCovers(entry: KnownFailure, cell: Pick<Cell, "agent" | "company" | "scenario">): boolean {
   return FIELDS.every((field) => entry[field] === "*" || entry[field] === cell[field]);
 }
 
-/** The known failure that covers a cell: the most specific match (fewest wildcards), first in the file on a tie. */
-export function knownFailure(cell: Pick<Cell, "agent" | "company" | "scenario">, known: readonly KnownFailure[]): KnownFailure | undefined {
+/**
+ * The first failed step's code: the Poppy error a refusal named
+ * (`poppy_error invalid_grant: …` gives `invalid_grant`), `expect <path>`
+ * for an expectation that didn't hold, or the text before the first colon of
+ * any other step error. A cell that errored before any step gives `error`;
+ * one that failed only on its checks gives `null`.
+ */
+export function failureCode(cell: Pick<Cell, "steps" | "outcome">): string | null {
+  const step = cell.steps.find((s) => !s.ok && !(s.error ?? "").startsWith("unsupported:"));
+  if (!step) return cell.outcome === "error" ? "error" : null;
+  const text = step.error ?? "";
+  if (step.actor === "expect") return `expect ${text.split(":")[0]!.trim()}`;
+  return text.replace(/^poppy_error /, "").split(":")[0]!.trim() || `${step.actor} ${step.op}`;
+}
+
+/** What a failed cell shows: its blame, its error checks, and its first failed step's code. */
+export type FailureSignature = { readonly blame: Blame; readonly checks: readonly string[]; readonly error: string | null };
+
+export function failureSignature(cell: Pick<Cell, "blame" | "checks" | "steps" | "outcome">): FailureSignature {
+  const checks = [...new Set(cell.checks.filter((check) => check.severity === "error").map((check) => check.id))].sort();
+  return { blame: cell.blame, checks, error: failureCode(cell) };
+}
+
+/**
+ * A known failure matches a failed cell when it covers the cell, names the
+ * cell's blame, lists every error check the cell shows, and lists its first
+ * failed step's code (where a step failed). Anything else in the cell is a
+ * different failure, and unexpected.
+ */
+export function knownMatches(entry: KnownFailure, cell: Pick<Cell, "agent" | "company" | "scenario" | "blame" | "checks" | "steps" | "outcome">): boolean {
+  if (!knownCovers(entry, cell)) return false;
+  const seen = failureSignature(cell);
+  return (
+    blamesOf(entry).includes(seen.blame) &&
+    seen.checks.every((id) => (entry.checks ?? []).includes(id)) &&
+    (seen.error === null || (entry.errors ?? []).includes(seen.error))
+  );
+}
+
+/** The blames a known failure allows. */
+export const blamesOf = (entry: Pick<KnownFailure, "blame">): readonly Blame[] => (Array.isArray(entry.blame) ? entry.blame : [entry.blame as Blame]);
+
+/** The known failure that matches a failed cell: the most specific (fewest wildcards), first in the file on a tie. */
+export function knownFailure(cell: Pick<Cell, "agent" | "company" | "scenario" | "blame" | "checks" | "steps" | "outcome">, known: readonly KnownFailure[]): KnownFailure | undefined {
   const wildcards = (entry: KnownFailure) => FIELDS.filter((field) => entry[field] === "*").length;
   let best: KnownFailure | undefined;
   for (const entry of known) {
@@ -250,7 +300,8 @@ export type Coverage = Readonly<Record<(typeof FIELDS)[number], boolean>>;
 
 /**
  * Stale known failures: entries this run could judge that matched no failed
- * or errored cell, so the failure is fixed or the entry is wrong. An entry is
+ * or errored cell (`knownMatches`: the same blame, checks and step error), so
+ * the failure is fixed, has changed, or the entry is wrong. An entry is
  * judged only when each field it names matched a cell that ran, and each `*`
  * spans a dimension the run covered whole: a run of some scenarios, or some
  * Companies, can't say a wildcard's failure has gone from the rest. A
@@ -261,7 +312,7 @@ export function staleKnown(cells: readonly Cell[], known: readonly KnownFailure[
   const failed = cells.filter((cell) => cell.outcome === "fail" || cell.outcome === "error");
   return known.filter(
     (entry) =>
-      cells.some((cell) => knownMatches(entry, cell)) &&
+      cells.some((cell) => knownCovers(entry, cell)) &&
       FIELDS.every((field) => entry[field] !== "*" || coverage[field]) &&
       !failed.some((cell) => knownMatches(entry, cell))
   );
