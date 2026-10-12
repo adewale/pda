@@ -1,10 +1,11 @@
 /**
- * One readable line for each Poppy tool call in the transcript: what the
- * agent did, where, how and with what access, in the words the rest of the
- * page uses. Pure, so it is tested on its own (test/ui/tool-line.test.ts).
+ * One readable line for each Poppy tool call and each general tool call
+ * (read_url, memory, time and maths) in the transcript: what the agent did,
+ * where, how and with what access, in the words the rest of the page uses.
+ * Pure, so it is tested on its own (test/ui/tool-line.test.ts).
  */
 
-export type ToolHow = "API" | "their agent" | "website" | "sign-in";
+export type ToolHow = "API" | "their agent" | "website" | "sign-in" | "web page" | "memory" | "clock" | "calculator";
 export type ToolAccess = "view" | "view and change";
 export type ToolState = "running" | "done" | "failed" | "waiting";
 
@@ -87,9 +88,69 @@ function pageOf(url: string | undefined): string | undefined {
   return url.startsWith("/") ? url.split(/[?#]/)[0] : undefined;
 }
 
+/** A short address for a page: host and path, without the scheme or query. */
+function shortUrl(url: string | undefined): string {
+  if (!url) return "a web page";
+  if (!URL.canParse(url)) return clip(url, 60);
+  const parsed = new URL(url);
+  return clip(`${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`, 60);
+}
+
+function size(bytes: number): string {
+  if (bytes < 1000) return `${bytes} bytes`;
+  if (bytes < 1_000_000) return `${Math.round(bytes / 1000)} KB`;
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
+/** The lines for the general tools (src/tools/): read_url, memory, time and maths. Null for any other name. */
+function generalLine(name: string, a: Args, outcome: ToolOutcome | undefined): ToolLine | null {
+  const state = stateOf(outcome);
+  const details = isRecord(outcome?.details) ? outcome.details : {};
+  const line = (text: string, how: ToolHow, quote?: string): ToolLine => ({ text, ...(quote ? { quote } : {}), how, access: null, state });
+  switch (name) {
+    case "read_url": {
+      const page = shortUrl(str(a.url));
+      if (state === "failed") return line(`Couldn't read ${page}`, "web page");
+      if (state === "running") return line(`Reading ${page}`, "web page");
+      // Where it was read from, its status and its size: never what it says.
+      const status = typeof details.status === "number" ? details.status : null;
+      const bytes = typeof details.bytes === "number" ? details.bytes : null;
+      const facts = [status !== null ? `HTTP ${status}` : null, bytes !== null ? size(bytes) : null, details.truncated === true ? "cut short" : null].filter(Boolean);
+      return line(`Read ${page}${facts.length ? ` (${facts.join(", ")})` : ""}`, "web page");
+    }
+    case "remember": {
+      const text = str(a.text);
+      if (state === "failed") return line("Didn't save a note", "memory", text ? clip(text) : undefined);
+      return line(details.saved === "already saved" ? "Already had this note" : "Saved a note", "memory", text ? clip(text) : undefined);
+    }
+    case "recall": {
+      const query = str(a.query);
+      return line(query ? "Looked through its notes for" : "Looked through its notes", "memory", query ? clip(query) : undefined);
+    }
+    case "forget":
+      return line(typeof a.id === "number" ? `Forgot note ${a.id}` : "Forgot a note", "memory");
+    case "now":
+      return line(str(a.time_zone) ? `Checked the time in ${clip(str(a.time_zone)!, 40)}` : "Checked the date and time", "clock");
+    case "date_math": {
+      const result = isRecord(details.result) ? details.result : isRecord(details.until) ? details.until : null;
+      const date = result && typeof result.date === "string" ? result.date : null;
+      const weekday = result && typeof result.weekday === "string" ? result.weekday : null;
+      return line(date && state === "done" ? `Worked out a date: ${weekday ? `${weekday} ` : ""}${date}` : "Worked out a date", "clock");
+    }
+    case "calculate": {
+      const expression = str(a.expression);
+      const result = typeof details.result === "string" ? details.result : null;
+      if (expression && result && state === "done") return line(`Calculated ${clip(expression, 60)} = ${clip(result, 40)}`, "calculator");
+      return line("Did a calculation", "calculator", expression ? clip(expression) : undefined);
+    }
+    default:
+      return null;
+  }
+}
+
 /**
- * The line for one tool call, or null for tools that aren't Poppy's, which
- * keep their compact card. `companies` maps a domain to the Company's name,
+ * The line for one tool call, or null for tools that are neither Poppy's
+ * nor the general tools, which keep their compact card. `companies` maps a domain to the Company's name,
  * where the transcript has seen it.
  */
 export function describeToolCall(
@@ -98,7 +159,7 @@ export function describeToolCall(
   outcome?: ToolOutcome,
   companies: ReadonlyMap<string, string> = new Map()
 ): ToolLine | null {
-  if (!name.startsWith("poppy_")) return null;
+  if (!name.startsWith("poppy_")) return generalLine(name, isRecord(args) ? args : {}, outcome);
   const a: Args = isRecord(args) ? args : {};
   const domain = str(a.domain);
   const company = domain ? (companies.get(domain.toLowerCase()) ?? domain) : "the Company";

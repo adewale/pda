@@ -2,6 +2,7 @@ import { SignOutIcon } from "@phosphor-icons/react";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { Entitlement } from "../model-router";
 import { Action, PageHeader, Section } from "./controls";
+import { MemorySettings } from "./memory";
 import { ModelSettings, type EntitlementState } from "./model";
 
 export type Identity = { readonly email: string | null; readonly provider: "google" | "github" };
@@ -108,7 +109,7 @@ const THEMES: { value: Theme; label: string }[] = [
   { value: "dark", label: "Dark" }
 ];
 
-/** Settings: who is signed in, how the agent pays for its model, how the page looks, and which agent this is. */
+/** Settings: who is signed in, how the agent pays for its model, what it remembers, how the page looks, and which agent this is. */
 export function SettingsPage({
   identity,
   entitlement,
@@ -140,6 +141,10 @@ export function SettingsPage({
 
       <Section title="Model" description="Who pays for your agent's model calls: your own key, or this deployment's demo while it lasts.">
         <ModelSettings entitlement={entitlement} onChange={onEntitlement} />
+      </Section>
+
+      <Section title="Memory" description="Short notes your agent has saved about you. It sees the newest 50 with every message, even after older messages are summarised, and can search the rest. Delete any you don't want it to keep.">
+        <MemorySettings />
       </Section>
 
       <Section title="Appearance">

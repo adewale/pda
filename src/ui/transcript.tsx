@@ -1,9 +1,13 @@
 import { cn } from "@cloudflare/kumo";
 import {
   ArrowClockwiseIcon,
+  CalculatorIcon,
   ChatsIcon,
+  ClockIcon,
+  FileTextIcon,
   GlobeIcon,
   HourglassIcon,
+  NotebookIcon,
   PlugsConnectedIcon,
   SignInIcon,
   StorefrontIcon,
@@ -82,7 +86,11 @@ const HOW_ICON: Record<ToolHow, ReactNode> = {
   API: <PlugsConnectedIcon size={16} />,
   "their agent": <ChatsIcon size={16} />,
   website: <GlobeIcon size={16} />,
-  "sign-in": <SignInIcon size={16} />
+  "sign-in": <SignInIcon size={16} />,
+  "web page": <FileTextIcon size={16} />,
+  memory: <NotebookIcon size={16} />,
+  clock: <ClockIcon size={16} />,
+  calculator: <CalculatorIcon size={16} />
 };
 
 const STATE_WORDS: Record<ToolLine["state"], string | null> = {

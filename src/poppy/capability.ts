@@ -105,6 +105,11 @@ export class PoppyCapability extends LifecycleCapability {
     this.#client = undefined;
   }
 
+  /** The User's IANA time zone, as their page last reported it (`poppy.context`); undefined until a page connects. */
+  get timeZone(): string | undefined {
+    return this.#context.time_zone;
+  }
+
   get browser(): PoppyBrowser {
     return this.#options.browser();
   }

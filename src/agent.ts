@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Provider } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import { createRegistry, Harness, type Extension } from "@earendil-works/pi-durable";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
@@ -33,6 +33,9 @@ import type { Fetcher, PoppyTimeouts } from "./poppy/fetch";
 import { FetchBrowser } from "./poppy/fetch-browser";
 import { poppyExtension } from "./poppy/tools";
 import { PiSessionSockets } from "./sockets";
+import { memoryExtension, timeExtension, webExtension } from "./tools/extensions";
+import { MAX_MEMORIES, MemoryStore, type Memory } from "./tools/memory-store";
+import { ReadLimiter, type Fetcher as WebFetcher } from "./tools/web";
 
 const PREAMBLE =
   "You are the user's personal agent, in one long-running conversation with the person who owns you. Earlier turns are your memory of them, so use what they have told you. Be direct and brief, and say plainly when you do not know something.";
@@ -71,11 +74,20 @@ export class PersonalAgent extends DurableObject<Env> {
   readonly lifecycle: Lifecycle;
   readonly keys: ModelKeys;
   readonly access: ModelAccess;
+  /** The agent's notes about the User (src/tools/memory-store.ts). */
+  readonly memories: MemoryStore;
+  /**
+   * The general tools, outside Poppy: read_url, memory, time and maths
+   * (src/tools/). Built once, so their state (read_url's rate limit, whose
+   * turn is running) is the agent's.
+   */
+  readonly generalTools: readonly Extension[];
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     for (const statement of SCHEMA) ctx.storage.sql.exec(statement);
     migrateAttachments(ctx.storage.sql);
+    this.memories = new MemoryStore(ctx.storage.sql);
     const config = readModelConfig(env);
     let sealer: Sealer | undefined;
     this.keys = new ModelKeys(ctx.storage.sql, () => (sealer ??= new Sealer(env)), ctx.id.toString());
@@ -102,6 +114,12 @@ export class PersonalAgent extends DurableObject<Env> {
       notifyModel: (text, operationId) => this.poppyNotify(text, operationId),
       ...this.poppySettings()
     });
+    this.generalTools = [
+      // Its own fetcher, never the Poppy client's: no Session, cookie or token can reach it.
+      webExtension({ fetcher: () => this.webFetcher(), limiter: new ReadLimiter() }),
+      memoryExtension(() => this.memories),
+      timeExtension({ userTimeZone: () => this.poppy.timeZone, now: () => this.clockNow() })
+    ];
     this.harness = new PiHarness({
       harness: async ({ storage, context }) => {
         this.registry.install({
@@ -115,6 +133,8 @@ export class PersonalAgent extends DurableObject<Env> {
             () => this.poppy.browser
           )
         );
+        // read_url, memory, time and maths: useful outside Poppy, and kept apart from it.
+        for (const extension of this.generalTools) this.registry.install(extension);
         // The User's attached photos, shown to the model as images in the messages that name them.
         this.registry.install(attachmentsExtension(() => this.ctx.storage.sql));
         // Our summariser for pi's compaction: Company text stays labelled as the Company's (compaction.ts).
@@ -177,6 +197,16 @@ export class PersonalAgent extends DurableObject<Env> {
   /** Where Poppy requests go; tests route them to the mock Company. */
   protected poppyFetcher(): Fetcher {
     return (request) => fetch(request);
+  }
+
+  /** Where read_url's requests go: the open web, never the Poppy fetcher. Tests serve fake pages. */
+  protected webFetcher(): WebFetcher {
+    return (request) => fetch(request);
+  }
+
+  /** Now, for the now and date_math tools. */
+  protected clockNow(): number {
+    return Date.now();
   }
 
   /** The browser for Poppy web browsing: plain HTTPS through the Poppy fetcher, no JavaScript. */
@@ -309,6 +339,26 @@ export class PersonalAgent extends DurableObject<Env> {
     await this.recordIdentity(identity);
     if (!attachmentInfo(this.ctx.storage.sql, id)) return false;
     return deleteAttachment(this.ctx.storage.sql, id);
+  }
+
+  // ---------------------------------------------------------------- Memory (src/tools/memory-store.ts)
+
+  /** Every note, newest first, for Settings. */
+  async listMemories(identity: Profile): Promise<{ memories: Memory[]; limit: number }> {
+    await this.recordIdentity(identity);
+    return { memories: this.memories.all(), limit: MAX_MEMORIES };
+  }
+
+  /** Forget one note, as Settings' delete button does. */
+  async forgetMemory(identity: Profile, id: number): Promise<boolean> {
+    await this.recordIdentity(identity);
+    return this.memories.forget(id);
+  }
+
+  /** Forget every note: Settings' "Forget everything". */
+  async forgetAllMemories(identity: Profile): Promise<number> {
+    await this.recordIdentity(identity);
+    return this.memories.forgetAll();
   }
 
   async removeModelKey(identity: Profile): Promise<Entitlement> {
