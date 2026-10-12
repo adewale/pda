@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Personal agent</title>
+    <!-- So the app can be added to a home screen: iOS delivers Web Push only to an installed web app. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
     <!-- The theme before the page draws; a file, since the CSP allows no inline script (src/csp.ts). -->
     <script src="/theme.js"></script>
   </head>

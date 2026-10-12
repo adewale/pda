@@ -13,6 +13,8 @@ interface SignInSecrets {
   TOKEN_ENC_KEY: string;
   /** Only while rotating `TOKEN_ENC_KEY`: the old key, so values it sealed still open (and are sealed again). */
   TOKEN_ENC_KEY_PREVIOUS?: string;
+  /** A P-256 private JWK: the VAPID key for Web Push (src/web-push.ts). Without it, notifications are off. */
+  WEB_PUSH_VAPID_JWK?: string;
 }
 
 interface Env extends SignInSecrets {}

@@ -23,6 +23,8 @@ import type { ProtocolCompany, ProtocolEntry } from "../src/poppy/wire";
 import { Sealer } from "../src/poppy/store";
 import { poppyExtension } from "../src/poppy/tools";
 import type { Fetcher as WebFetcher } from "../src/tools/web";
+import { base64url } from "../src/base64url";
+import type { PushFetcher } from "../src/web-push";
 import { CLOCK_HEADER, companyIdFromHost, type MockCompany } from "./mock-company";
 
 type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
@@ -822,6 +824,26 @@ export class PersonalAgent extends ProductionAgent {
     }
   }
 
+  /** Web Push: this agent's fake push services, never the network. Every endpoint answers 201 unless `pushServe` said otherwise. */
+  protected override pushFetcher(): PushFetcher {
+    const pushes = pushesOf(this.ctx.id.toString());
+    return async (request) => {
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      pushes.requests.push({ url: request.url, headers: Object.fromEntries(request.headers), body: base64url(bytes) });
+      return new Response(null, { status: pushes.statuses.get(request.url) ?? 201 });
+    };
+  }
+
+  /** The fake push service answers `status` for `endpoint` from now on. */
+  async pushServe(endpoint: string, status: number): Promise<void> {
+    pushesOf(this.ctx.id.toString()).statuses.set(endpoint, status);
+  }
+
+  /** Every push this agent sent, oldest first: the URL, headers and encrypted body (base64url). */
+  async pushRequests(): Promise<PushRequest[]> {
+    return pushesOf(this.ctx.id.toString()).requests;
+  }
+
   /** Wait until every scheduled task's turn this agent is waiting on has been recorded. */
   async scheduleSettled(): Promise<void> {
     await this.schedules.settledForTests();
@@ -831,6 +853,18 @@ export class PersonalAgent extends ProductionAgent {
   async backgroundTurn(text: string, operationId: string): Promise<void> {
     await this.poppyNotify(text, operationId);
   }
+}
+
+/** One Web Push request a test agent sent to its fake push service. */
+export type PushRequest = { readonly url: string; readonly headers: Record<string, string>; readonly body: string };
+
+/** Each agent's fake push services, by Durable Object id: statuses by endpoint, and the requests that reached them. */
+const pushServices = new Map<string, { statuses: Map<string, number>; requests: PushRequest[] }>();
+
+function pushesOf(id: string) {
+  let found = pushServices.get(id);
+  if (!found) pushServices.set(id, (found = { statuses: new Map(), requests: [] }));
+  return found;
 }
 
 /** Every URL each agent's Poppy client asked for. */

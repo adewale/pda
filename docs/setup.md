@@ -41,7 +41,10 @@ Run these in your own terminal, so the values are never shown or logged anywhere
 openssl rand -base64 48 | npx wrangler secret put SESSION_SECRET
 node scripts/poppy-secrets.mjs signing-keys | npx wrangler secret put POPPY_SIGNING_JWKS
 node scripts/poppy-secrets.mjs token-key    | npx wrangler secret put TOKEN_ENC_KEY
+node scripts/poppy-secrets.mjs vapid-key    | npx wrangler secret put WEB_PUSH_VAPID_JWK
 ```
+
+`WEB_PUSH_VAPID_JWK` is optional: it turns on notifications for reminders and scheduled tasks (Web Push). It is a P-256 private key as a JWK; the Worker derives the public key browsers subscribe with, and the VAPID contact is your `PRIVACY_CONTACT`. Without it, Settings doesn't offer notifications and everything else works. Replacing it ends every device's subscription, so each person turns notifications on again; there is nothing to rotate on a schedule.
 
 `TOKEN_ENC_KEY` seals Account Tokens and people's model keys. To rotate it, put the old value in `TOKEN_ENC_KEY_PREVIOUS` and a new one in `TOKEN_ENC_KEY`; values are sealed again under the new key as they are used. Rotating without the previous key means everyone pastes their model key again and signs in to Companies again.
 

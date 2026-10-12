@@ -14,9 +14,13 @@ async function poppySecrets() {
     const { privateKey } = await generateKeyPair("ES256", { extractable: true });
     keys.push({ ...(await exportJWK(privateKey)), kid, alg: "ES256", use: "sig" });
   }
+  // The Web Push VAPID key: a P-256 private JWK, as `poppy-secrets.mjs vapid-key` prints one.
+  const { privateKey: vapid } = await generateKeyPair("ES256", { extractable: true });
+  const { kty, crv, x, y, d } = await exportJWK(vapid);
   return {
     POPPY_SIGNING_JWKS: JSON.stringify(keys),
-    TOKEN_ENC_KEY: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
+    TOKEN_ENC_KEY: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"),
+    WEB_PUSH_VAPID_JWK: JSON.stringify({ kty, crv, x, y, d })
   };
 }
 

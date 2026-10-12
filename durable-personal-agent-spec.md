@@ -19,7 +19,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 **Non-goals**
 
 - Multiple chats per user, sharing, teams, or a mobile app.
-- The protocol's open topics: payments, push notifications and attachments are not in Draft 0.1, so they are not implemented beyond what the protocol already allows (for example, polling instead of push). A photo the User attaches reaches a Company only as a file in an upload to its own OpenAPI API, which section 6 already allows, never in a conversation message.
+- The protocol's open topics: payments, push notifications and attachments are not in Draft 0.1, so they are not implemented beyond what the protocol already allows (for example, polling a Company instead of being pushed to). Web Push to the User's own devices, for reminders and scheduled tasks, is ours and not part of Poppy. A photo the User attaches reaches a Company only as a file in an upload to its own OpenAPI API, which section 6 already allows, never in a conversation message.
 - Browsing websites that don't publish a `poppy.json`. Web browsing exists only to use a Company's site within a Poppy Session. `read_url` (General tools) reads one public page as text, signed out, and can't follow a form, sign in or keep a cookie.
 - A model picker: each lane has one model, set when the agent is deployed (see Model access).
 - The Company side of the protocol, except the mock Company used for tests (see Testing and conformance).
@@ -42,6 +42,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Sign-in allowlist (emails, Google Workspace domains, GitHub accounts), `OWNERS`, `SIGNUP` | Built and tested; set in the deployer's untracked `deployment.local.json`, changed by redeploying |
 | Discovery document validator (library, CLI, JSON API, form) | Built and tested; live at `/validator`; the client's discovery uses it as its ingestion gate |
 | General tools: `read_url`, memory (`remember`, `recall`, `forget`), `now`, `date_math`, `calculate` | Built and tested against a fake web, the faux model and property tests (General tools). Settings lists and deletes the notes |
+| Reminders and scheduled tasks, with Web Push notifications | Built and tested with the faux model, a fake push service and RFC 8291's own example; Settings lists and cancels them. Not yet run live; notifications need `WEB_PUSH_VAPID_JWK` set ([deployment-tasks.md](docs/deployment-tasks.md)) |
 | Skills (milestone 2) | Not started |
 
 With `SIGNUP=allowlist` (the committed value) only `OWNERS` and people on `SIGNIN_ALLOWLIST` can sign in. The operator pays only for `OWNERS` and `DEMO_ALLOWLIST`, up to the daily caps; everyone else needs their own key.
@@ -82,7 +83,7 @@ The Worker turns a verified app session into the person's Durable Object and for
 | --- | --- | --- |
 | Workers + Static Assets | Worker and the Vite-built chat page | `assets`, `run_worker_first` for `/ws`, `/api/*`, `/auth/*`, `/logout`, `/poppy/*`, `/validator`, `/validator/*` |
 | Durable Objects (SQLite) | `PersonalAgent` per person; `CompanyLimiter` per Company issuer; `DomainBudget` per demo budget domain | migrations `v1`, `v2` and `v3` |
-| Agents SDK | `PiHarness`, `Lifecycle` (capabilities and durable jobs), `WebSockets`, Pi AI provider, `useAgent` | `agents` |
+| Agents SDK | `PiHarness`, `Lifecycle` (capabilities and durable jobs on the object's alarm: Poppy's, pi's, reminders' and tasks'), `WebSockets`, Pi AI provider, `useAgent` | `agents` |
 | AI binding → AI Gateway | The demo lane: Claude Sonnet 5.5 on Unified Billing | `ai` binding `AI`; `DEMO_GATEWAY_ID` |
 | Workers Rate Limiting | The public validator's URL checks: 20 a minute per client address | `ratelimits` binding `VALIDATOR_LIMITER` |
 | Workers Logs | Logs, with secrets redacted | `observability` |
@@ -106,13 +107,14 @@ The Worker turns a verified app session into the person's Durable Object and for
 | `SESSION_SECRET` | secret, set | HMAC key for the app's session cookie |
 | `POPPY_SIGNING_JWKS` | secret, set | JSON array of private ES256 JWKs with `kid`s; the first signs |
 | `TOKEN_ENC_KEY` | secret, set | 32 random bytes, base64: AES-GCM key for Account Tokens, pending sign-in secrets and model keys |
+| `WEB_PUSH_VAPID_JWK` | secret, optional | A P-256 private JWK: the VAPID key for Web Push. The Worker derives the public key the page subscribes with. Without it, notifications are off and Settings doesn't offer them; replacing it ends every device's subscription |
 | `TOKEN_ENC_KEY_PREVIOUS` | secret, optional | Only while rotating `TOKEN_ENC_KEY`: the old key. Values it sealed still open, and are sealed again under the new one when used |
 | `GITHUB_CLIENT_ID/SECRET` | secret, set | App sign-in with GitHub |
 | `GOOGLE_CLIENT_ID/SECRET` | secret, not set | App sign-in with Google: until they are set, Google sign-in answers a 500 naming the missing setting |
 
 "Deployer's var" means the committed `wrangler.jsonc` holds an empty placeholder, and each deployer keeps their real value in an untracked `deployment.local.json` (shape in `deployment.example.json`). `vite.config.ts` lays that file over the template's vars for `vite dev` and `vite build`, refusing names the template doesn't declare. `npm run deploy` runs `scripts/check-deployment.ts` between the build and `wrangler deploy`: it reads the config the build wrote and stops if it still says nobody owns the deployment, so a missing file can't replace production values with empty ones. `secrets.required` isn't used: with it, Wrangler drops every `.dev.vars` secret not listed, and listing the OAuth secrets would fail the deploy of a deployment that has only one provider set up.
 
-`scripts/poppy-secrets.mjs signing-keys` and `token-key` print new values for piping into `wrangler secret put`, so they never appear on screen.
+`scripts/poppy-secrets.mjs signing-keys`, `token-key` and `vapid-key` print new values for piping into `wrangler secret put`, so they never appear on screen.
 
 **npm packages**
 
@@ -120,7 +122,7 @@ The Worker turns a verified app session into the person's Durable Object and for
 | --- | --- | --- |
 | `agents` | 0.28.0 | Harness, Lifecycle, WebSockets, Pi AI provider, `useAgent` |
 | `@earendil-works/pi-durable`, `pi-ai`, `chord`, `pi-telemetry` | ^1.1.0 | Pi |
-| `jose` | ^6 | Session cookie claims, ID tokens, every Poppy JWT and JWK |
+| `jose` | ^6 | Session cookie claims, ID tokens, every Poppy JWT and JWK, the VAPID JWT |
 | `qrcode-generator` | 1.4.4 | QR code on the Device Sign-In card |
 | `react`, `react-dom`, `@cloudflare/kumo`, `streamdown`, `@streamdown/code`, `@phosphor-icons/react` | as in the example | Chat page |
 | `vite`, `@cloudflare/vite-plugin`, `@vitejs/plugin-react`, `tailwindcss`, `@tailwindcss/vite`, `wrangler`, `typescript`, `vitest`, `@cloudflare/vitest-plugin` (dev) | as installed | Build and test |
@@ -151,6 +153,8 @@ App sign-in is the Worker's own Google and GitHub OAuth. It is separate from Pop
 | `GET /api/entitlement` | The model lane, today's demo spend against its cap, the key's provider and state (never the key) | Built |
 | `POST`/`DELETE /api/model-key` | Same origin only. Check a pasted Anthropic or OpenAI key with a free vendor call, then seal it; or remove it | Built |
 | `GET /api/memories`, `DELETE /api/memories`, `DELETE /api/memories/<id>` | Same origin only for `DELETE`. The agent's notes about its User, newest first, for Settings; forget one, or all | Built |
+| `GET /api/push/key` | The VAPID public key the page subscribes with, or `null` when the deployment has none | Built |
+| `POST`/`DELETE /api/push/subscription` | Same origin only. Keep this browser's push subscription (a known push service's endpoint, its `p256dh` and `auth`), or forget it by `endpoint` | Built |
 | `GET /api/schedules`, `DELETE /api/schedules/<id>` | Same origin only for `DELETE`. Reminders and scheduled tasks waiting or paused, soonest first, for Settings; cancel one | Built |
 | `POST /api/attachments`, `GET`/`DELETE /api/attachments/<id>` | Same origin only for `POST` and `DELETE`. Keep a photo the User attached (`multipart/form-data`: `file`, and the page's smaller `preview` for the model), answering its id, name, type and size; serve it back to its owner's page (`nosniff`, a sandboxing CSP); delete it. See Photos the User attaches | Built |
 | `GET /auth/{provider}`, `GET /auth/{provider}/callback`, `POST /logout` | App sign-in | v0 |
@@ -230,6 +234,7 @@ pi-durable and the Agents SDK add no tools of their own: the model is offered ex
 | `memories` | The agent's notes about its User: text (at most 500 characters), whose (`user` or `agent`), when; at most 200 (General tools) |
 | `user_context` | The locale and IANA time zone the User's page last sent in `poppy.context`, one row |
 | `schedules` | Reminders and scheduled tasks: id, kind (`reminder` or `task`), the User's text verbatim, next run (UTC ms), how it repeats (`none`, `daily`, `weekdays`, `weekly` with a weekday, at a local time), the zone it was set in, when and from which tool call it was made, status (`active`, `paused`, `done`, `cancelled`), failed runs in a row, last run and outcome. At most 20 active; the newest 100 finished kept (General tools) |
+| `push_subscriptions` | Browsers that turned notifications on: endpoint, `p256dh`, `auth`, when added, the push service's last status; at most 10, the oldest dropped |
 | `schedule_runs` | Each time one ran: when it was due and ran, the outcome (`reminded`, `started`, `done`, `failed`) and why it failed; the newest 200, for Activity |
 
 Session Tokens and DPoP private keys are never written to storage.
@@ -321,7 +326,7 @@ The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line 
 - **Companies.**
   - **A table:** each Company's account, access in words with the raw scope, until when, and its standing permissions.
   - **A page per Company:** sign out, standing permissions with uses left and an add form, and its open conversations.
-- **Settings:** the signed-in account; the model: whose key or the demo, today's demo spend as a meter, a key panel (paste an Anthropic or OpenAI key, or remove it) that says the operator can read keys and advises a spending limit at the provider; Memory: every note the agent keeps, whose it is and when, a Delete button on each, and "Forget everything" behind a second click; Scheduled: each reminder and task waiting or paused, with Cancel; the theme; and the agent's public identity. While the agent can't call a model, a banner above every place says why and leads here.
+- **Settings:** the signed-in account; the model: whose key or the demo, today's demo spend as a meter, a key panel (paste an Anthropic or OpenAI key, or remove it) that says the operator can read keys and advises a spending limit at the provider; Memory: every note the agent keeps, whose it is and when, a Delete button on each, and "Forget everything" behind a second click; Scheduled: each reminder and task waiting or paused, with Cancel; Notifications on this device, when the deployment has a VAPID key; the theme; and the agent's public identity. While the agent can't call a model, a banner above every place says why and leads here.
 
 ## Poppy client
 
@@ -778,7 +783,9 @@ Four extensions in `src/tools/`, beside `poppy`, so the agent is useful away fro
 - **A task** starts a background turn through the harness, as a Company message does, with operation id `schedule:<id>:<due time>` and the text `[scheduled task you set on <date>] <the User's words>`. It starts with `[`, so the turn can't save a note as the User's, show the model a photo, or set or cancel another reminder or task. The turn has no new powers: an operation still needs its card or a standing permission, and an API write our approval card. The router meters it like every call. When the model can't be called (no key, a refused key, a demo cap), the run fails at once, with the model notice, and nothing is held for later. Otherwise the agent waits for the turn to settle (`harness.wait`) and records `done` with a closed "Your scheduled task ran" notice and a notification, or `failed` if it ended unanswered. Three failures in a row pause the task, cancel its job, and leave an open notice and a notification.
 - **Who sets one.** Only the User's own message. The extension's `beforeRequest` hook reads whether the running turn began with the User's message, as memory's does; in a turn a Company message, a notice or a task's run started, `remind_me`, `schedule_task` and `cancel_scheduled` refuse and say why. The words are stored as given (at most 1,000 characters), and text that looks like a password, code, key or card number is refused.
 - **Limits.** 20 active rows per agent; the newest 100 finished rows and 200 runs are kept.
-- **On the page.** Settings' Scheduled section lists each reminder and task waiting or paused (what, when next in its zone, how it repeats, status) with Cancel, through `/api/schedules`. Activity's log has a line for each run, "Reminded you" or "Ran your scheduled task", with the User's words and the outcome.
+- **Notifications** (Web Push, `src/web-push.ts`). Built in the Worker with WebCrypto and `jose`: the message to the push service (RFC 8030), VAPID (RFC 8292: an ES256 JWT for the push service's origin, 12 hours long, `sub` the deployment's `PRIVACY_CONTACT` as `mailto:` or https, with `k` the public key), and the payload encrypted for that browser (RFC 8291, `aes128gcm`, one record). A message goes only to a known push service's host over https on the standard port: `fcm.googleapis.com`, `*.push.services.mozilla.com`, `web.push.apple.com` and `*.push.apple.com`, `*.notify.windows.com`, never an arbitrary URL; redirects aren't followed. It carries a title and a body ("Reminder" and the reminder's words; "A scheduled task ran" or "A scheduled task was paused" and the instruction, cut at 140 characters) and a tag, nothing else, with a TTL of a day. A 404 or 410 from the push service deletes that subscription. A failed push never fails a run.
+- **The service worker.** `/sw.js`, a static asset, only shows notifications and opens or focuses the app when one is clicked; it caches nothing and handles no fetches. When the browser replaces a subscription it hands the new one to the agent. `/manifest.webmanifest` lets the app be added to a home screen, which iOS and iPadOS require before they deliver Web Push; Settings says so.
+- **On the page.** Settings' Scheduled section lists each reminder and task waiting or paused (what, when next in its zone, how it repeats, status) with Cancel, through `/api/schedules`. Its Notifications section, shown only when the deployment has a VAPID key, has "Notifications on this device": turning it on asks the browser's permission, registers `/sw.js`, subscribes with the key from `/api/push/key`, and posts the subscription to the agent; turning it off unsubscribes and tells the agent to forget it. Activity's log has a line for each run, "Reminded you" or "Ran your scheduled task", with the User's words and the outcome.
 
 ## Safety
 
@@ -797,6 +804,7 @@ Four extensions in `src/tools/`, beside `poppy`, so the agent is useful away fro
 - **The User's photos.** Kept in their agent's SQLite only, at most 10 MiB each and 100 MiB in all, deleted after 30 days and with the agent. Served back only to their owner's page. The model sees a preview as an image in the User's own message that names it, and never in a Company's message or a notice; tools name a photo by its id, never its bytes. A photo goes to a Company only in an upload the User approved on a card showing it, to the Company's own hosts. Nothing logs them.
 - **Untrusted content.** Company text and data are presented to the model as information, never instructions, and never the User's approval. That is structural, not left to the model: no tool confirms or cancels an operation, and `poppy_api_call` refuses any URL at or under a Poppy endpoint (token, sign-in, conversation, operations, browser-session), even when a Company's OpenAPI description lists it, so a model that obeys injected text can't confirm an operation or send a message as the User. A page `read_url` reads is the same: labelled untrusted, and unable to do anything a Company's text can't.
 - **Notes about the User.** Kept in their agent only, never a secret (`remember` refuses them), each labelled with whose it is, all listed and deletable in Settings.
+- **Notifications.** Sent only to a known push service, encrypted for the one browser, carrying a short title and the User's own words and nothing from a Company. The endpoint isn't logged.
 - **Reminders and scheduled tasks.** Only the User's own message sets or cancels one; a turn that began with a Company message, a notice or a task's run can't. A task's run is a background turn with no extra powers: it confirms nothing, and its model calls count against the demo's caps like any other.
 - **Spend.** The operator pays only for the demo lane: `OWNERS` and `DEMO_ALLOWLIST`, capped per person and per domain each day before every call, with gateway spend limits behind. A scheduled task's run is one more background turn under the same caps; at most 20 can wait per agent, none more often than daily. Everyone else uses their own key or makes no calls. Open sign-up still costs the operator storage for every agent created.
 - **Forks.** The committed template names nobody and points at no host; until its deployer sets `OWNERS` and `PUBLIC_ORIGIN` every route answers with a config error.
@@ -837,13 +845,15 @@ Four extensions in `src/tools/`, beside `poppy`, so the agent is useful away fro
 | `test/prompt-injection.test.ts` | Prompt injection, model lane: a Company's message, operation summary or MCP tool description, or a web page read with `read_url`, tells the model to approve an operation or send a secret, and the faux model obeys; nothing is confirmed, nothing is sent as the User, no credential leaves |
 | `test/general-tools.test.ts` | The general tools against a fake web: `read_url`'s readable text, its headers, every refused URL and redirect, content types, the size, text and time limits, the rate limit, a replay that doesn't fetch again, no Poppy request; memory's notes, refused secrets, limits, whose a note is (a Company's message can't save one as the User's), the notes in the prompt after a summary, and `/api/memories`; `now`, `date_math` and `calculate`; and the exact list of tools the model is offered |
 | `test/schedules.test.ts` | The User's stored time zone through an eviction; reminders firing once at their time and not before, with a card, an Activity line and no model call; refused times and secrets; refusal in a turn a Company message started; a daily task across the October clock change in Europe/London; cancelling from Settings (owner and origin checked); the 20 cap; a task failing with no key and pausing after three; a task refused by the demo cap; a task's run that tries to confirm an operation and confirms nothing |
+| `test/web-push.test.ts` | Web Push: RFC 8291's example encrypted to the exact bytes in its section 5, and read back by an independent decryption; a new key and salt per message; the VAPID JWT's header, claims, lifetime and signature; the push-service allowlist; `/api/push/key` with and without the secret; subscribing and unsubscribing (signed in, same origin, known services and well-formed keys only), the cap of 10; a due reminder pushed once to each device and decrypted there, a 410 deleting that subscription; a task's run notified |
 | `test/properties/tools.test.ts` | `calculate` agrees exactly with an independent fraction evaluator on generated expressions, is exact on money, rounds half away from zero, and refuses anything else only with a CalcError; dates number every day once, adding and subtracting days, weeks, months (to day 28) and time round-trip, a difference added back gives the end date, every shown wall-clock time reads back, durations parse, and bad input is refused only with a TimeError |
 | `test/durability/crash.test.ts` | The conversation after a crash |
 | `test/fetch-browser.test.ts` | The production browser's own rules, with stub fetchers: the cookie jar, HTTPS and public hosts only, every redirect checked, timeouts, the size limit, no headers of ours, pages that need JavaScript |
-| `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, a summary shown as a notice with the messages before it, the protocol view (a log asked for only when opened, copy and download as text), Settings' Memory and Scheduled sections |
+| `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, a summary shown as a notice with the messages before it, the protocol view (a log asked for only when opened, copy and download as text), Settings' Memory, Scheduled and Notifications sections (the toggle asks permission, subscribes with the deployment's key and posts the subscription; off unsubscribes; hidden without a key; the iPhone note where the browser can't) |
 
 - **Fakes.**
   - The demo lane's model is Pi AI's faux provider. It echoes the latest user message, and obeys any `@@obey <tool> <arguments>` line it has just read, standing in for a model that follows instructions injected into Company text. It is counted, and priced by a `[cost N]` marker in the prompt. For compaction, `[context N]` makes an answer report N tokens of context, `[too long]` makes it refuse a request as too long until the request carries a summary, and it answers our summarizer with a short summary, which `[summary fails]` makes fail and `[summary cost N]` prices.
+  - Push services, for Web Push, are a fake per test agent (`pushServe`, `pushRequests` in `test/worker.ts`): every endpoint answers 201 unless a test sets another status, and the test decrypts what arrived with the browser's own key. The test runtime gets a fresh VAPID key per run.
   - The open web, for `read_url`, is a fake per test agent (`webServe` in `test/worker.ts`): it records every request and answers 502 for a URL nobody served.
   - Anthropic and OpenAI are faked in `test/fake-models.ts`, in each vendor's streaming format. Whether a key works is in its text; a request carrying AI Gateway credentials is refused.
   - Google and GitHub are faked in `test/fake-providers.ts`. A test plays the consent page, and the fakes check the client, the redirect URI and the PKCE verifier. Each code can make them refuse or misbehave: a wrong `aud`, `iss` or `exp`, an unverified email, a GitHub profile with no id.
@@ -882,7 +892,7 @@ Four extensions in `src/tools/`, beside `poppy`, so the agent is useful away fro
 ## Build plan
 
 1. **Chat demo.** Built. Remaining: register Google's OAuth client (GitHub's is configured), and create and fund the demo gateway ([`docs/deployment-tasks.md`](docs/deployment-tasks.md)).
-2. **Personal.** The sign-in allowlist, own model keys, the demo's daily caps, memory and the other general tools (`read_url`, time and maths) are built. Not started: skills. Memory's own test is "remember I'm vegetarian" surviving a week and a redeploy; the notes are in the agent's SQLite and in every prompt, so it should, but it hasn't been tried live.
+2. **Personal.** The sign-in allowlist, own model keys, the demo's daily caps, memory and the other general tools (`read_url`, time and maths), and reminders and scheduled tasks with Web Push, are built. Not started: skills. Memory's own test is "remember I'm vegetarian" surviving a week and a redeploy; the notes are in the agent's SQLite and in every prompt, so it should, but it hasn't been tried live.
 3. **Poppy core.** Built and passing against the mock: identity routes, discovery, User IDs, Sessions and DPoP, all three sign-in types, Account Tokens and sign-out, conversations with handoff and Direct Conversations, `CompanyLimiter`.
 4. **APIs and operations.** Built and passing against the mock: OpenAPI and MCP clients, the Operations extension, standing permissions, the local approval gate.
 5. **Mediated Sign-In and browsing.** Built; browsing runs on the fetch-based browser, tested against the mock Company. Next: try it on the first real Company's website.

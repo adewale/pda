@@ -18,8 +18,9 @@ import type { Card } from "./poppy/wire";
 import { formatDate, wallAt } from "./tools/clock";
 import { PAUSE_AFTER_FAILURES, ScheduleError, ScheduleStore, type NewSchedule, type Schedule } from "./tools/schedule-store";
 
-/** What a notification says: a short title and body, nothing else. */
-export type PushMessage = { readonly title: string; readonly body: string; readonly tag: string };
+import type { PushMessage } from "./web-push";
+
+export type { PushMessage };
 
 /** A task's turn: started, or refused before any model call, with why. */
 export type TaskStart = { readonly ok: true } | { readonly ok: false; readonly reason: string };
@@ -127,7 +128,10 @@ export class Scheduler extends LifecycleCapability {
     }
     this.#options.changed();
     const after = this.store.get(schedule.id);
-    return after && after.status === "active" && after.nextRun !== null ? { rescheduleAt: this.#options.jobTime(after.nextRun) } : undefined;
+    if (!after || after.status !== "active" || after.nextRun === null) return;
+    // A run that failed before the row moved on would wake again at once, and again: end the job instead (onStart re-arms it).
+    if (after.nextRun <= schedule.nextRun) return;
+    return { rescheduleAt: this.#options.jobTime(after.nextRun) };
   }
 
   async #run(schedule: Schedule): Promise<void> {

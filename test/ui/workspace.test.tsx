@@ -749,3 +749,128 @@ describe("scheduled settings", () => {
     expect(await screen.findByText(/Nothing scheduled\. Ask your agent, for example “Remind me at 5pm to call the bank”/)).toBeTruthy();
   });
 });
+
+describe("notification settings", () => {
+  const KEY = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
+  const SUBSCRIPTION = { endpoint: "https://fcm.googleapis.com/fcm/send/device", expirationTime: null, keys: { p256dh: "BCVx", auth: "BTBZ" } };
+
+  /**
+   * A browser that can take push messages: its service worker container, push
+   * manager and notification permission, recording what the page asks of each.
+   */
+  function stubBrowser(permissionAfterAsking: NotificationPermission = "granted") {
+    const log: string[] = [];
+    let current: { endpoint: string; toJSON(): unknown; unsubscribe(): Promise<boolean> } | null = null;
+    let permission: NotificationPermission = "default";
+    const registration = {
+      pushManager: {
+        getSubscription: async () => current,
+        subscribe: async (options: { userVisibleOnly: boolean; applicationServerKey: Uint8Array }) => {
+          log.push(`subscribe userVisibleOnly=${options.userVisibleOnly} key=${options.applicationServerKey.length} bytes`);
+          current = {
+            endpoint: SUBSCRIPTION.endpoint,
+            toJSON: () => SUBSCRIPTION,
+            unsubscribe: async () => {
+              log.push("unsubscribe");
+              current = null;
+              return true;
+            }
+          };
+          return current;
+        }
+      }
+    };
+    Object.defineProperty(window.navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        getRegistration: async () => registration,
+        register: async (url: string, options: { scope: string }) => {
+          log.push(`register ${url} scope ${options.scope}`);
+          return registration;
+        },
+        ready: Promise.resolve(registration)
+      }
+    });
+    vi.stubGlobal("PushManager", class {});
+    vi.stubGlobal("Notification", {
+      get permission() {
+        return permission;
+      },
+      requestPermission: async () => {
+        log.push("ask permission");
+        permission = permissionAfterAsking;
+        return permission;
+      }
+    });
+    return log;
+  }
+
+  /** `/api/push/key` answering `key`, and the subscription routes, recording each call and body. */
+  function stubPushApi(key: string | null = KEY) {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/entitlement") return Response.json(DEMO);
+        if (url === "/api/push/key") return Response.json({ publicKey: key });
+        if (url !== "/api/push/subscription") return new Response("Not found", { status: 404 });
+        calls.push(`${init?.method} ${url} ${String(init?.body)}`);
+        return new Response(null, { status: init?.method === "POST" ? 201 : 204 });
+      })
+    );
+    return calls;
+  }
+
+  afterEach(() => {
+    delete (window.navigator as { serviceWorker?: unknown }).serviceWorker;
+  });
+
+  it("turns notifications on: asks permission, subscribes with the deployment's key and hands the subscription to the agent; off unsubscribes and forgets it", async () => {
+    const log = stubBrowser();
+    const calls = stubPushApi();
+    open("/settings");
+    const toggle = (await screen.findByRole("switch", { name: "Notifications on this device" })) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByText(/Add to Home Screen/)).toBeTruthy();
+    expect(calls).toEqual([]);
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.checked).toBe(true));
+    expect(log).toEqual(["ask permission", "register /sw.js scope /", "subscribe userVisibleOnly=true key=65 bytes"]);
+    expect(calls).toEqual([`POST /api/push/subscription ${JSON.stringify(SUBSCRIPTION)}`]);
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.checked).toBe(false));
+    expect(calls.at(-1)).toBe(`DELETE /api/push/subscription ${JSON.stringify({ endpoint: SUBSCRIPTION.endpoint })}`);
+    expect(log.at(-1)).toBe("unsubscribe");
+  });
+
+  it("subscribes nothing when the browser's permission is refused, and says how to allow it", async () => {
+    const log = stubBrowser("denied");
+    const calls = stubPushApi();
+    open("/settings");
+    fireEvent.click(await screen.findByRole("switch", { name: "Notifications on this device" }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/^This browser blocks notifications from your agent/);
+    expect(log).toEqual(["ask permission"]);
+    expect(calls).toEqual([]);
+  });
+
+  it("hides the option when the deployment has no VAPID key", async () => {
+    stubBrowser();
+    stubPushApi(null);
+    open("/settings");
+    // The key request has answered once the other sections have loaded from theirs; then nothing appeared.
+    await screen.findByText(/Your reminders and tasks couldn't be loaded/);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByRole("switch", { name: "Notifications on this device" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Notifications" })).toBeNull();
+  });
+
+  it("says how to get them on an iPhone when this browser can't take push messages", async () => {
+    stubPushApi();
+    open("/settings");
+    expect(await screen.findByText(/This browser can't show notifications from your agent\. On iPhone and iPad, notifications reach only the app added to your Home Screen/)).toBeTruthy();
+    expect(screen.queryByRole("switch")).toBeNull();
+  });
+});

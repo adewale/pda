@@ -33,6 +33,7 @@ import type { Fetcher, PoppyTimeouts } from "./poppy/fetch";
 import { FetchBrowser } from "./poppy/fetch-browser";
 import { poppyExtension } from "./poppy/tools";
 import { Scheduler, type PushMessage, type TaskStart } from "./schedules";
+import { PushSubscriptions, readVapidKey, sendPush, vapidSubject, type PushFetcher, type Subscription } from "./web-push";
 import { PiSessionSockets } from "./sockets";
 import { memoryExtension, timeExtension, webExtension } from "./tools/extensions";
 import { MAX_MEMORIES, MemoryStore, type Memory } from "./tools/memory-store";
@@ -110,6 +111,8 @@ export class PersonalAgent extends DurableObject<Env> {
   readonly memories: MemoryStore;
   /** Reminders and scheduled tasks, on the Durable Object's alarm (src/schedules.ts). */
   readonly schedules: Scheduler;
+  /** The browsers that turned notifications on (src/web-push.ts). */
+  readonly pushSubscriptions: PushSubscriptions;
   /**
    * The general tools, outside Poppy: read_url, memory, time and maths
    * (src/tools/). Built once, so their state (read_url's rate limit, whose
@@ -122,6 +125,7 @@ export class PersonalAgent extends DurableObject<Env> {
     for (const statement of SCHEMA) ctx.storage.sql.exec(statement);
     migrateAttachments(ctx.storage.sql);
     this.memories = new MemoryStore(ctx.storage.sql);
+    this.pushSubscriptions = new PushSubscriptions(ctx.storage.sql);
     const config = readModelConfig(env);
     let sealer: Sealer | undefined;
     this.keys = new ModelKeys(ctx.storage.sql, () => (sealer ??= new Sealer(env)), ctx.id.toString());
@@ -279,8 +283,47 @@ export class PersonalAgent extends DurableObject<Env> {
     return { ok: true };
   }
 
-  /** Tell the User's devices that turned notifications on (Web Push); nothing yet without them. */
-  protected async pushToDevices(_message: PushMessage): Promise<void> {}
+  /** Where Web Push messages go: the push services' own hosts, checked in `sendPush`. Tests fake them. */
+  protected pushFetcher(): PushFetcher {
+    return (request) => fetch(request);
+  }
+
+  /**
+   * Tell each device that turned notifications on (Web Push), at once. A
+   * push service that says the subscription is gone (404, 410) has it
+   * deleted. Nothing happens without the deployment's VAPID key.
+   */
+  protected async pushToDevices(message: PushMessage): Promise<void> {
+    const key = await readVapidKey(this.env);
+    if (!key) return;
+    const subject = vapidSubject(this.env);
+    await Promise.all(
+      this.pushSubscriptions.all().map(async (subscription) => {
+        try {
+          const status = await sendPush(this.pushFetcher(), subscription, message, key, subject);
+          if (status === 404 || status === 410) this.pushSubscriptions.remove(subscription.endpoint);
+          else this.pushSubscriptions.sent(subscription.endpoint, status);
+        } catch (error) {
+          // Never the endpoint, which is a capability URL for that browser.
+          console.warn("push not sent", error instanceof Error ? error.name : "unknown");
+        }
+      })
+    );
+  }
+
+  // ---------------------------------------------------------------- Notifications (src/web-push.ts)
+
+  /** Keep this browser's push subscription, from Settings' "Notifications on this device". */
+  async addPushSubscription(identity: Profile, subscription: Subscription): Promise<void> {
+    await this.recordIdentity(identity);
+    this.pushSubscriptions.add(subscription);
+  }
+
+  /** Forget one browser's push subscription; false if it wasn't kept. */
+  async removePushSubscription(identity: Profile, endpoint: string): Promise<boolean> {
+    await this.recordIdentity(identity);
+    return this.pushSubscriptions.remove(endpoint);
+  }
 
   /** The browser for Poppy web browsing: plain HTTPS through the Poppy fetcher, no JavaScript. */
   protected poppyBrowser(): PoppyBrowser {
