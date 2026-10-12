@@ -38,7 +38,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 | adonis-agora agent | `poppy-client`, `poppy-agent` bin and "connections" in an AdonisJS agent library | TypeScript, MIT | Yes | [DavideCarvalho/adonis-agora-agent](https://github.com/DavideCarvalho/adonis-agora-agent) | 12 Oct |
 | nestjs-agent | `@dudousxd/nestjs-agent-poppy` (0.1.1 in the repository, not on npm): a NestJS port of the adonis-agora agent. Its client is a verbatim copy of adonis-agora's `poppy-client`, plus connections and a `poppy-agent` CLI | TypeScript, MIT | No | [DavideCarvalho/nestjs-agent](https://github.com/DavideCarvalho/nestjs-agent) | 12 Oct |
 | poppy-demo caller | A demo caller Worker | TypeScript, none declared | Yes | [irvinebroque/poppy-demo](https://github.com/irvinebroque/poppy-demo) | 12 Oct (no commits since 9 Oct) |
-| everruns `poppy_client` | A capability of a production agent platform; since [#4577](https://github.com/everruns/everruns/pull/4577) (11 Oct) also for apps built on its framework. Still no sign-in. | Rust, MIT | Adapter written, not run | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct |
+| everruns `poppy_client` | A capability of a production agent platform; since [#4577](https://github.com/everruns/everruns/pull/4577) (11 Oct) also for apps built on its framework. Still no sign-in. | Rust, MIT | Yes, pinned at `f470ad7` (12 Oct; first run that day) | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct |
 | Atlas (introspection-js-sdk) | A scripted demo agent in an open pull request | TypeScript, Apache-2.0 | No | [PR #441](https://github.com/introspection-org/introspection-js-sdk/pull/441) | 12 Oct (still open) |
 | print-with-poppy's `scripts/agent.ts` | A reference client for that store, demo identity only | TypeScript, none declared | No | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 12 Oct |
 
@@ -53,7 +53,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 | pi-poppy test Company | A test peer in the pi-poppy repository | TypeScript, MIT | Yes | [richardanaya/pi-poppy](https://github.com/richardanaya/pi-poppy) | 12 Oct |
 | poppy-demo Northstar | A demo retailer Worker that accepts only its own agent | TypeScript, none declared | Yes, patched | [irvinebroque/poppy-demo](https://github.com/irvinebroque/poppy-demo) | 12 Oct |
 | Ilmer.org | A local-history archive assistant, signed-out only | TypeScript, MIT | Yes | [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org) | 12 Oct |
-| everruns `poppy` channel | Hosts a Company's Poppy endpoints, signed-out only | Rust, MIT | Adapter written, not run | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct |
+| everruns `poppy` channel | Hosts a Company's Poppy endpoints, signed-out only | Rust, MIT | Yes, pinned at `f470ad7` (12 Oct; first run that day) | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct |
 | Spot | A cart-approval and payment service | JavaScript, none declared | No | [futurebasicsrepo/…-client-hub-api](https://github.com/futurebasicsrepo/futurebasicsrepo-client-hub-api) | 12 Oct (active) |
 | print-with-poppy | An agent-first photo-printing store: signed-out Sessions, OpenAPI, Operations v1 required for orders; agents on an allowlist | TypeScript (Express, SQLite), none declared | Yes: D and S0, and OU with dpa only; patched ([`interop/impls/print-with-poppy-company`](../interop/impls/print-with-poppy-company)) | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 12 Oct |
 | Flight Sector (introspection-js-sdk) | The demo Company in PR #441 | TypeScript, Apache-2.0 | No | [PR #441](https://github.com/introspection-org/introspection-js-sdk/pull/441) | 12 Oct |
@@ -115,7 +115,7 @@ False positives in searches are listed in [implementations.md](implementations.m
 
 ## How they work together
 
-Our [interop grid](interop-results/README.md) ran six Personal Agents against ten Companies (our two mocks included) on 12 October, over 24 scenarios, on a network with no internet access: **1,440 cells, 683 pass, 137 fail, 620 unsupported, 0 errors**. Every failure is a known upstream or spec failure. The separate security grid, which runs only against our own implementations, passed **25 of 25**. Datalayer is at 0.10.0 (`0c048aa`); every other project is at the commit in [`interop/registry.json`](../interop/registry.json).
+Our [interop grid](interop-results/README.md) ran six Personal Agents against ten Companies (our two mocks included) on 12 October, over 24 scenarios, on a network with no internet access: **1,440 cells, 683 pass, 137 fail, 620 unsupported, 0 errors**. Every failure is a known upstream or spec failure. The separate security grid, which runs only against our own implementations, passed **25 of 25**. Datalayer is at 0.10.0 (`0c048aa`); every other project is at the commit in [`interop/registry.json`](../interop/registry.json). everruns joined later that day, in two separate runs of its own row and column ([below](#everruns-run-apart)); the totals and tables here leave those cells out.
 
 ### Scorecard
 
@@ -146,7 +146,18 @@ Each implementation's cells, as pass / fail / unsupported, summed over the grid'
 | Ilmer | 14 / 9 / 121 | 61% of 23 | It refuses assertions without `typ` (S2), and poppy-demo's crash. Signed-out only. |
 | dpa-mock-strict | 69 / 52 / 23 | 57% of 121 | It refuses assertions without `typ`, our strict reading of S2, so pi-poppy and adonis-agora fail almost every cell. |
 
-Not in the grid: everruns (adapters written, never run), nestjs-agent (its Company needs adonis-agora's AuthKit, which the grid already runs), Spot (it publishes valid discovery, but has no adapter), the TYPO3 lab (private), and Atlas and Flight Sector (an open pull request). [interop-testing.md](interop-testing.md#candidates-from-the-12-october-survey) says what the 12 October candidates would need.
+Not in the grid: nestjs-agent (its Company needs adonis-agora's AuthKit, which the grid already runs), Spot (it publishes valid discovery, but has no adapter), the TYPO3 lab (private), and Atlas and Flight Sector (an open pull request). [interop-testing.md](interop-testing.md#candidates-from-the-12-october-survey) says what the 12 October candidates would need.
+
+#### everruns, run apart
+
+everruns' agent and Company joined the registry on 12 October, after the grid above, and ran in two runs of their own over the same 25 scenarios (its agent against all eleven Companies, everruns' own included; the six other agents against its Company; [interop-testing.md](interop-testing.md#everruns-joins-the-grid)). Their cells are not in the totals or percentages above; adding them would change those rows only by the everruns column or row.
+
+| everruns as | Pass / fail / unsupported | Passes where run | What its failures are |
+| --- | --- | --- | --- |
+| Personal Agent (against eleven Companies) | 32 / 11 / 232 | 74% of 43 | Its Session assertion has no `typ`, which three Companies refuse ([S2](spec-issues.md#s2), the spec's); it fetches metadata only at the appended location, so DP fails at both our mocks ([S3](spec-issues.md#s3)). Signed-out only, with conversations and no APIs, so 21 of 25 scenarios don't apply at most Companies. |
+| Company (against seven agents) | 24 / 3 / 148 | 89% of 27 | poppy-demo's issuer-origin rule (D, S0, C). Every other agent passes D, S0, C and CI. |
+
+The other agents' cells against everruns' Company: dpa, Datalayer TS and Python, pi-poppy and adonis-agora each 4 / 0 / 21; poppy-demo 0 / 3 / 22.
 
 An edge below means no cell between that pair failed; a missing edge means at least one did. Unsupported cells count for nothing either way, so an edge between two small implementations can rest on a few cells: each signed-out Company's edges rest on two to four.
 
@@ -159,6 +170,7 @@ flowchart LR
     pi[pi-poppy]
     demo[poppy-demo caller]
     adonis[adonis-agora agent]
+    evag[everruns agent]
   end
   subgraph Companies
     mock[dpa-mock]
@@ -171,6 +183,7 @@ flowchart LR
     ilmer[Ilmer]
     pwp[print-with-poppy]
     authkit[adonis-agora AuthKit]
+    evco[everruns channel]
   end
   dpa --> mock & strict & mts & mpy & pico & north & seed & ilmer & pwp & authkit
   dlts --> north & seed & ilmer & pwp & authkit
@@ -178,7 +191,11 @@ flowchart LR
   pi --> pwp
   demo --> pico & north
   adonis --> mock & pwp & authkit
+  evag --> mts & mpy & pico & seed & pwp & authkit & evco
+  dpa & dlts & dlpy & pi & adonis --> evco
 ```
+
+The everruns edges come from its own runs. At print-with-poppy only D ran (everruns starts a Session only for a conversation); at dpa-mock everything but DP passed.
 
 pi-poppy's only clean pair is print-with-poppy, where just two signed-out scenarios run. At every other Company one of three habits fails a cell: it resends the Session assertion on a nonce retry, gives up when a Session ends, and sends no `typ`.
 

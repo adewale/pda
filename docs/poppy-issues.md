@@ -113,7 +113,7 @@ A Company OAuth server (`@adonis-agora/authkit-server`), and Company conversatio
 
 ## everruns (everruns/everruns)
 
-Rust, both sides, signed-out only (PRs #4479, #4531, #4549, #4558).
+Rust, both sides, signed-out only (PRs #4479, #4531, #4549, #4558; the client moved to `crates/capabilities/src/capabilities/poppy_client/` in #4577). Line numbers are at `b09c922` unless they say otherwise; the grid runs `f470ad7` (12 October), where the agent rows below still hold (`protocol.rs` lines 298 and 416 to 424 there).
 
 | Issue | Where | Section | Severity |
 | --- | --- | --- | --- |
@@ -125,7 +125,8 @@ Rust, both sides, signed-out only (PRs #4479, #4531, #4549, #4558).
 | `jti` is a UUIDv4 (122 random bits). | `protocol.rs:122` | 4.2 | Low |
 | Message ids come from model tool-call ids. | `poppy_client.rs:261` | 7.3, Guides | Low |
 | 429 `Retry-After` isn't enforced; `cursor: null`; any `evt_N` cursor accepted. | | 4.3, 7.5 | Low |
-| Grid: two migrations share the number 218, which breaks any fresh database. | migrations | | High (deployment) |
+| Grid: two migrations share the number 218, which breaks any fresh database. *Fixed upstream* in #4560 (11 Oct), then every migration squashed into one baseline (#4581). | migrations | | High (deployment) |
+| Grid, 12 Oct: the Session assertion has no `typ`, so dpa-mock-strict, Northstar and Ilmer refuse it ([S2](spec-issues.md#s2)); the S3 append location fails DP at our mocks. Both are known failures. | `protocol.rs:416`, `:298` at `f470ad7` | 4.2, 3.2 | Medium |
 
 **Worth copying:** cross-implementation interop in CI against a pinned pi-poppy, in both directions, with nonces required.
 

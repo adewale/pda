@@ -47,7 +47,7 @@ From the spec's Model access, "Check live", and the parts tested only in fakes o
 - [ ] **Owner. Try the agent against a live Company Agent.** It hasn't run against one yet; Spot publishes valid discovery but isn't in the grid ([ecosystem.md](ecosystem.md#companies-you-can-reach)). Check discovery, a Session, sign-in, a conversation, and the website through the fetch-based browser. Anything it finds is **Code**.
 - [ ] **Owner. Update and submit the OpenClaw and Hermes proposals**, after that check ([proposals/README.md](proposals/README.md) lists what to fold in first). Nothing is posted without the owner.
 - [ ] **Owner. Run the live lane**: `npm run interop -- --lane live` (our agent against `ilmer-live` and `poppyseed-live`, signed-out scenarios only, one request a second).
-- [ ] **Code. The adapters not yet run:** build `everruns-agent` and `everruns-company` (they need more Docker disk; see Environment cleanup), then add them to `interop/registry.json`; `typo3-dirnbauer-company` needs the private extension first.
+- [ ] **Code. The adapters not yet run:** `typo3-dirnbauer-company` needs the private extension first. (`everruns-agent` and `everruns-company` were built, registered and run on 12 October; their builds need the swap file below.)
 
 ## 4. Environment cleanup
 
@@ -55,4 +55,4 @@ On the machine that ran the interop grid. **Owner**; check `docker images` befor
 
 - [ ] Remove the Docker images that are ours to remove: those named `ib-*`, and the `:adv` and `:audit` tags of `poppy-interop/*`. For example `docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^ib-|:(adv|audit)$' | xargs docker rmi`. The runner never removes images itself.
 - [ ] Grow colima's disk, which filled during the grid and kept everruns out: `colima stop`, then `colima start --disk <GiB>` with a larger size (colima grows a disk, it doesn't shrink one).
-- [ ] Remove the swap file added to the colima VM for everruns' build: `colima ssh -- sudo sh -c 'swapoff /swapfile-interop && rm /swapfile-interop'`.
+- [ ] Decide about the swap file in the colima VM, `/swapfile-interop` (6 GB). Compiling everruns-server is OOM-killed without it (12 October, at one job and at two), so the everruns images can't be rebuilt without it: `colima ssh -- sudo swapon /swapfile-interop` before a build that rebuilds them (a VM restart turns it off), `colima ssh -- sudo sh -c 'swapoff /swapfile-interop && rm /swapfile-interop'` to remove it.

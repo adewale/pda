@@ -1,0 +1,18 @@
+Visibility only, no behaviour change: make the deployment's signing key loader
+public, so the adapter's `discover` op can build the same PoppyAgent that
+worker_poppy_call builds and call PoppyAgent::discover directly. everruns'
+`poppy_discover` tool answer leaves out the issuer, which the interop
+`discover` result needs. (The protocol module itself is public at this commit.)
+
+diff --git a/crates/server/src/domains/poppy_agent/mod.rs b/crates/server/src/domains/poppy_agent/mod.rs
+--- a/crates/server/src/domains/poppy_agent/mod.rs
++++ b/crates/server/src/domains/poppy_agent/mod.rs
+@@ -101,7 +101,7 @@ pub(crate) fn key_from_row(
+ }
+
+ /// The deployment's signing key, generated and stored on first use.
+-pub(crate) async fn signing_key(
++pub async fn signing_key(
+     db: &StorageBackend,
+     encryption: Option<&Arc<EncryptionService>>,
+ ) -> anyhow::Result<PoppyKey> {

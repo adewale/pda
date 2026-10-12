@@ -5,7 +5,7 @@
 # The cargo caches are shared with interop/impls/everruns-agent (same id), so the
 # second image only builds its own test target.
 
-ARG EVERRUNS_COMMIT=b09c922cc305e88be93b6f10768ef3855531571f
+ARG EVERRUNS_COMMIT=f470ad7098863b92232f65a8890dedf8da2981c8
 
 FROM rust:1.96-slim-bookworm@sha256:e18a79fc84dfcfc3ab5ba72290398a644c135c97eaa881447fddc354ee4701a3 AS build
 ARG EVERRUNS_COMMIT
