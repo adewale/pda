@@ -1,7 +1,9 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import {
+  levelOf,
   MESSAGES,
+  severityOf,
   validateClient,
   validateCompany,
   validateTarget,
@@ -13,7 +15,7 @@ import {
 } from "../src/validator/index.ts";
 import { LIMITS } from "../src/validator/fetch.ts";
 import { handleValidator } from "../src/validator/http.ts";
-import type { MockCompany } from "./mock-company";
+import type { MockCompany, MockConfig } from "./mock-company";
 import worker, { testFetcher } from "./worker";
 
 /**
@@ -152,9 +154,9 @@ const withPoppy = (change: (doc: Record<string, any>) => void) => {
 };
 
 /** A fresh mock Company, whose documents the conformance tests rely on. */
-async function mockCompany(): Promise<string> {
+async function mockCompany(config: Partial<MockConfig> = {}): Promise<string> {
   const id = `v${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
-  await (env as Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> }).MOCK_COMPANY.getByName(id).configure({});
+  await (env as Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> }).MOCK_COMPANY.getByName(id).configure(config);
   return `${id}.shop.test`;
 }
 
@@ -214,12 +216,25 @@ const VALID: readonly Fixture[] = [
     outcome: "valid"
   },
   {
-    // Its deliberately unknown API, protocol, extension and field are reported as info only.
-    name: "accepts the mock Company's documents, which the conformance tests rely on",
-    run: async () => validateCompany(testFetcher(env), await mockCompany()),
-    ids: { contains: ["api-type-unknown", "protocol-type-unknown", "unknown-member"] },
+    // As the interop grid serves it (MOCK_BASE: no unknown API type). Its deliberately unknown
+    // protocol, extension and field are reported as info only.
+    name: "accepts the mock Company's documents, as the reference Company in the grid serves them",
+    run: async () => validateCompany(testFetcher(env), await mockCompany({ unknownApi: false })),
+    ids: { contains: ["protocol-type-unknown", "unknown-member"] },
     outcome: "valid",
     also: noErrorsOrWarnings
+  },
+  {
+    // The conformance tests' default lists a graphql API on purpose, to check that agents skip
+    // it (6: SHOULD skip). That breaks 6's MUST, so it's an error, which our client tolerates.
+    name: "finds the one error the conformance tests' mock makes on purpose, which our client tolerates",
+    run: async () => validateCompany(testFetcher(env), await mockCompany()),
+    ids: { contains: ["api-type-unknown", "protocol-type-unknown", "unknown-member"] },
+    outcome: "invalid",
+    also: (report) => {
+      expect(report.messages.filter((m) => m.severity !== "info").map((m) => m.id)).toEqual(["api-type-unknown"]);
+      expect(report.refused).toBe(false);
+    }
   },
   {
     name: "accepts our own client metadata and keys",
@@ -340,6 +355,32 @@ const POPPY_JSON: readonly Fixture[] = [
     ids: ["url-has-fragment"]
   },
   {
+    name: "checks the issuer: a URL with no usable host",
+    run: () => text("poppy", withPoppy((d) => (d.auth.issuer = "https://."))),
+    ids: ["not-a-url"],
+    outcome: "invalid"
+  },
+  {
+    name: "takes an API type from a newer minor version as information",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.protocol_version = "0.2";
+        d.apis = [{ type: "graphql", url: "https://api.example.com/graphql", description: "Everything" }];
+      })),
+    ids: ["version-newer-minor", "api-type-newer"],
+    outcome: "valid"
+  },
+  {
+    name: "warns of an extension version written as a number, whose type the draft doesn't give (N22)",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.extensions = { operations: { version: 1, endpoint: "https://api.example.com/poppy/operations" } };
+      })),
+    ids: ["extension-version-number"],
+    outcome: "valid",
+    also: (report) => expect(report.refused).toBe(false)
+  },
+  {
     name: "checks the issuer: not a URL",
     run: () => text("poppy", withPoppy((d) => (d.auth.issuer = "auth.example.com"))),
     ids: ["not-a-url"]
@@ -410,7 +451,37 @@ const POPPY_JSON: readonly Fixture[] = [
           { type: "mcp", url: "https://mcp.example.com/mcp", description: "Search", resource: "https://mcp.example.com/" }
         ];
       })),
-    ids: ["api-type-unknown", "api-description-missing", "mcp-resource-mismatch"]
+    ids: ["api-type-unknown", "api-description-missing", "mcp-resource-mismatch"],
+    // A normative statement without a key word ("a short description") is an error, but one
+    // our client tolerates: it still uses the Company.
+    outcome: "invalid",
+    also: (report) => {
+      expect(report.messages.find((m) => m.id === "api-description-missing")).toMatchObject({ basis: "Rule", severity: "error", refuses: false });
+      expect(report.refused).toBe(false);
+    }
+  },
+  {
+    name: "warns of an http API URL, where the draft doesn't ask for HTTPS, and our client still refuses it (N9)",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.apis = [{ type: "openapi", url: "http://api.example.com/openapi.json", description: "Orders" }];
+      })),
+    ids: ["not-https-url-unstated"],
+    outcome: "valid",
+    also: (report) => {
+      expect(report.messages[0]).toMatchObject({ basis: "Reading", severity: "warning", refuses: true });
+      expect(report.refused).toBe(true);
+    }
+  },
+  {
+    name: "warns of a fragment in the Mediated Sign-In endpoint, where no rule forbids one, and our client refuses it",
+    run: () =>
+      text("poppy", withPoppy((d) => {
+        d.auth.mediated = { endpoint: "https://auth.example.com/signin#x", fields: [{ name: "email", label: "Email", secret: false }], scopes: ["poppy:read"] };
+      })),
+    ids: ["url-has-fragment-unstated"],
+    outcome: "valid",
+    also: (report) => expect(report.refused).toBe(true)
   },
   {
     name: "checks extensions: names and versions",
@@ -572,7 +643,10 @@ const FETCHING: readonly Fixture[] = [
   {
     name: "follows redirects, but not too many",
     run: () => fetchOne(() => new Response(null, { status: 302, headers: { Location: wellKnown } })),
-    ids: ["http-too-many-redirects"]
+    ids: ["http-too-many-redirects"],
+    // A Guides limit: a warning, but the document wasn't fetched, so nothing was checked, and our client refuses it.
+    outcome: "indeterminate",
+    also: (report) => expect(report.refused).toBe(true)
   },
   {
     name: "calls a missing document indeterminate, not invalid",
@@ -589,7 +663,8 @@ const FETCHING: readonly Fixture[] = [
   {
     name: "checks size",
     run: () => fetchOne(jsonResponse("x".repeat(100_001))),
-    ids: ["http-too-large"]
+    ids: ["http-too-large"],
+    outcome: "indeterminate"
   },
   {
     name: "checks encoding",
@@ -614,7 +689,8 @@ const FETCHING: readonly Fixture[] = [
   {
     name: "refuses private hosts",
     run: () => validateClient(network({}), "https://localhost/agent.json"),
-    ids: ["http-non-public-host"]
+    ids: ["http-non-public-host"],
+    outcome: "indeterminate"
   },
   {
     name: "refuses non-domains",
@@ -700,7 +776,7 @@ describe("over HTTP", () => {
   });
 
   it("checks a URL, within the caller's rate limit", async () => {
-    const host = await mockCompany();
+    const host = await mockCompany({ unknownApi: false });
     const request = () => new Request(`https://agent.test/validator/api?url=${host}`);
     const allowed = await handleValidator(request(), { fetcher: testFetcher(env), allowFetch: async () => true });
     expect(((await allowed!.json()) as Report).outcome).toBe("valid");
@@ -721,5 +797,34 @@ describe("the message catalog", () => {
   it("has fixtures with distinct names", () => {
     const names = fixtures.map((fixture) => fixture.name);
     expect(names.filter((name, index) => names.indexOf(name) !== index)).toEqual([]);
+  });
+
+  // docs/conformance-levels.md: a MUST, an RFC's MUST or a keyword-less rule is an error; a
+  // SHOULD, the Guides or our reading a warning; a message reporting a fact (note) is info.
+  it("derives each message's severity from its basis", () => {
+    const entries = Object.entries(MESSAGES) as [MessageId, (typeof MESSAGES)[MessageId]][];
+    const wrong = entries.filter(([, m]) => m.severity !== ("note" in m && m.note ? "info" : severityOf(levelOf(m.basis))));
+    expect(wrong.map(([id]) => id)).toEqual([]);
+    // Nothing optional is reported against the document that takes the option.
+    expect(entries.filter(([, m]) => (m.basis as string) === "MAY").map(([id]) => id)).toEqual([]);
+  });
+
+  it("refuses over every error but those a reader is told to tolerate, and names the warnings it refuses", () => {
+    const entries = Object.entries(MESSAGES) as [MessageId, (typeof MESSAGES)[MessageId]][];
+    expect(entries.filter(([, m]) => m.severity === "error" && !m.refuses).map(([id]) => id)).toEqual(["json-bom", "organization-name-missing", "api-type-unknown", "api-description-missing"]);
+    // Refused warnings guard against a hostile or unusable document; each says so in its explanation.
+    const refusedWarnings = entries.filter(([, m]) => m.severity !== "error" && m.refuses);
+    expect(refusedWarnings.map(([id]) => id)).toEqual([
+      "http-non-public-host",
+      "http-too-many-redirects",
+      "http-redirect-not-allowed",
+      "http-failed",
+      "http-too-large",
+      "json-duplicate-member",
+      "not-https-url-unstated",
+      "url-has-fragment-unstated",
+      "mediated-fields-empty"
+    ]);
+    for (const [id, m] of refusedWarnings) expect(m.explain, id).toMatch(/our client|nothing was checked/i);
   });
 });

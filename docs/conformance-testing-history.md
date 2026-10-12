@@ -141,6 +141,7 @@ Certification needs a stable spec. Grids suit drafts. WPT's move from per-browse
 | Testing the tests | `TAMPERS` and the catalog test; `INTEROP_FAULT=assertion-typ` to check attribution |
 | Six readings of open questions | The `PROFILES` in `test/poppy.test.ts` |
 | Ledger | Appendix A of the spec and `npm run check:docs`, kept by hand |
+| Grading by requirement level | [conformance-levels.md](conformance-levels.md): a check's basis (MUST, RFC, Rule, SHOULD, Guides, Reading) sets its level in the mock, the validator and the grid; warnings never fail, readings are tentative, and only our own strict runs fail on warnings |
 | Known failures linked to issues | [`known-failures.json`](../interop/known-failures.json), with wildcards, one entry per root cause; an entry that matched no failed cell in a run that could judge it is stale and fails the run |
 
 ### What to add, in priority order

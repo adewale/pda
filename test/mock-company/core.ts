@@ -18,7 +18,7 @@ import {
   type MockConfig,
   type MockRequest
 } from "./types";
-import type { JwtKind, SignedKind, ViolationId } from "./violations";
+import { isViolation, type JwtKind, type SignedKind, type ViolationId } from "./violations";
 
 export const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 export const DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code";
@@ -187,7 +187,8 @@ export { sha256b64 };
 export class Company {
   #config: MockConfig = DEFAULT_CONFIG;
   hosts: Hosts;
-  readonly violations: string[] = [];
+  /** Every check the Company recorded, `[id] detail`, in order: violations and warnings (violations.ts). */
+  readonly recorded: string[] = [];
   readonly requests: { -readonly [K in keyof MockRequest]: MockRequest[K] }[] = [];
   readonly revocationHints: (string | null)[] = [];
   /** Documents tests serve in place of a client's metadata or JWKS, by URL. */
@@ -251,9 +252,23 @@ export class Company {
     return this.#stampedNow ?? Date.now();
   }
 
-  /** Record a violation; `id` names the check (see `violations.ts`). */
+  /**
+   * Record a check; `id` names it (see `violations.ts`). Its basis decides
+   * whether it's a violation or a warning; whether the request is also
+   * refused is up to the caller.
+   */
   violation(id: ViolationId, detail: string): void {
-    this.violations.push(`[${id}] ${detail}`);
+    this.recorded.push(`[${id}] ${detail}`);
+  }
+
+  /** The recorded checks that are failures: a MUST, an RFC's MUST or a keyword-less rule broken. */
+  get violations(): string[] {
+    return this.recorded.filter(isViolation);
+  }
+
+  /** The recorded checks that are warnings: a SHOULD, the Guides or our reading. */
+  get warnings(): string[] {
+    return this.recorded.filter((entry) => !isViolation(entry));
   }
 
   /** Log a request as it arrives; the response fills in `status` and `error`. */

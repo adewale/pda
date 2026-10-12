@@ -289,6 +289,13 @@ Every Personal Agent MUST and MUST NOT in spec.md and operations.md has a row, w
 
 ### For the owner
 
+**Resolved** on 12 October 2026 by [docs/conformance-levels.md](../docs/conformance-levels.md):
+
+- `session.account-mismatch-reused` rests on a normative statement without a key word (a Rule). Under RFC 8174 that is still normative, so it stays a violation in both profiles.
+- `message.json-in-text` rests on a SHOULD NOT, so it is a warning: recorded, never a cell failure. Our own client is still held to it by the strict conformance tests.
+
+The questions as asked:
+
 - Should `session.account-mismatch-reused` stay a violation in both profiles, or move to the strict profile only, or become a recorded note, given that the text has no keyword? The behaviour is what the text describes, and our client follows it either way.
 - `message.json-in-text` enforces a SHOULD NOT as a violation; same question.
 
@@ -471,6 +478,17 @@ The old catalog claimed, in its header and in the CLAUDE.md wording, that every 
 
 ### For the owner
 
+**Resolved** on 12 October 2026 by [docs/conformance-levels.md](../docs/conformance-levels.md). The basis now sets the level, and `STRICT_ONLY` is gone:
+
+- **Violations.** 117 checks rest on MUST, RFC or Rule.
+- **Warnings.** 17 checks rest on SHOULD or the Guides.
+- **Tentative.** 10 checks rest on our readings. They are recorded as warnings.
+- **Refusals stay.** The Guides-only refusals and the readings that refuse in both profiles keep refusing, because that is the mock's own protection. Their records are warnings, and in the grid a failure they cause is blamed at warning level (rule `warning`, or the spec for a reading), never as a violation.
+- **The runner** now derives each Company-recorded check's severity from its `basis`.
+- **The ids stay as they are.**
+
+The questions as asked:
+
 - **Guides-only refusals in both profiles.** These refuse the request, not just record it, so the lenient filter can't help: `client-assertion.jti-missing` (RFC 7523 makes jti optional; OIDC Core 9's private_key_jwt requires it), `client-assertion.alg`, `session-assertion.alg`, `dpop.alg`, `browser-assertion.alg` (ES256/RS256 only; an ES384 agent is conforming), `browser-assertion.iat-future`, and `client-assertion.iat-exp-missing`'s `iat` half (RFC 7523 requires only `exp`). Decide whether the lenient profile should accept them.
 - **Readings that refuse in both profiles.** `client-assertion.aud-array` (RFC 7519 allows an array; the single-string rule is 4.2's, for the Session assertion), and the S2 lenient 300 s cap (`.lifetime`), which readings.md declares. Fine as declared readings; listed so they're a choice, not an accident.
 - **Kept in both profiles though Guides-only, as security-relevant** (readings.md's rule): `exchange.performed-twice` (a harm oracle), `idempotency.key-reused`, `secret.one-time-code`, `dpop.nonce-ignored` (only with `requireNonce`). Say if any should join `STRICT_ONLY`.
@@ -593,6 +611,16 @@ Anchors: every `ref` the validator emits (`spec#discovery`, `#fields`, `#oauth-s
 No behaviour in `src/poppy` contradicts an unambiguous MUST; no behaviour was changed. Validator severities were left as they were, since each error feeds our client's ingest decision (`discover` refuses a Company on any error).
 
 ### For the owner
+
+**Resolved** on 12 October 2026 by [docs/conformance-levels.md](../docs/conformance-levels.md). Every message names its basis, and its severity follows from it, so "invalid" means "breaks Draft 0.1 or an RFC it builds on". A separate `refuses` flag, and the report's `refused`, say what our client refuses. Our client therefore refuses the same documents as before, apart from the two changes listed in the policy.
+
+- **The Guides and reading errors** became warnings that our client still refuses. For the N9 members, `not-https-url-unstated` is now a separate message.
+- **`api-type-unknown`** is an error in a document whose minor version the validator knows; our client tolerates it and skips the API. In a newer minor version it is information, `api-type-newer`.
+- **Runner severities.** `token.unlisted-host` and `redirect.credentials-followed` are warnings.
+- **The runner checks on readings** are warnings, and a failure they cause is the spec's: `client-assertion.lifetime`, `.alg`, `.aud-array` and `.jti-missing`.
+- **YK** is `permitted_by: N5`.
+
+The questions as asked:
 
 - Severity of the Guides- or reading-based validator errors (item 2 and 3 above): keep them as errors (our client refuses such documents, which is a deliberate hardening), or make them warnings so the report's "invalid" means "breaks Draft 0.1". `not-https-url` for the N9 members is the security-relevant one; I'd keep it an error and say so on the messages page (done).
 - `api-type-unknown`: info today; the text makes it a Company MUST, but agents SHOULD skip it. A warning would be more faithful without changing what our client ingests.

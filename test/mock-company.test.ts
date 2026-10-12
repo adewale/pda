@@ -13,7 +13,8 @@ import {
   basisOf,
   CLOCK_HEADER,
   hostsFor,
-  STRICT_ONLY,
+  isViolation,
+  levelOfCheck,
   VIOLATION_IDS,
   VIOLATIONS,
   violationId,
@@ -751,7 +752,7 @@ const TAMPERS: readonly Tamper[] = [
       for (const sub of ["usr_rTcRuOEIIRADAIQTZPEmrA", "usr_hB1U-xQz3FnJ1q7J8u_adA"]) {
         const random = await startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub } }) });
         expect(random.status).toBe(200);
-        expect((await c.stub.state()).violations, sub).toEqual([]);
+        expect((await c.stub.state()).recorded, sub).toEqual([]);
       }
       return startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub: "usr_ada_7" } }) });
     }
@@ -954,7 +955,7 @@ const TAMPERS: readonly Tamper[] = [
       // Made in the same second, it may have been in flight before the nonce arrived: excused.
       const racing = await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { iat: now } });
       expect((await startSession(c, key, { dpop: racing })).status).toBe(400);
-      expect((await c.stub.state()).violations).toEqual([]);
+      expect((await c.stub.state()).recorded).toEqual([]);
       return startSession(c, key, { dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { iat: now + 1 } }) });
     }
   },
@@ -1752,8 +1753,13 @@ describe("each check the mock Company makes", () => {
     if (row.config) await c.stub.configure(row.config);
     const response = await row.run(c);
     if (response instanceof Response) await response.body?.cancel();
-    const violations = (await c.stub.state()).violations;
+    const state = await c.stub.state();
+    const violations = state.recorded;
     expect(violations.map(violationId)).toEqual(row.ids ?? [row.id]);
+    // Its basis files it: a failure under violations, a SHOULD, Guides or reading under warnings.
+    expect(state.violations.map(violationId)).toEqual(violations.filter(isViolation).map(violationId));
+    expect(state.warnings.map(violationId)).toEqual(violations.filter((entry) => !isViolation(entry)).map(violationId));
+    expect(levelOfCheck(row.id) === "failure" ? state.violations : state.warnings).toContain(violations.find((entry) => violationId(entry) === row.id));
     const detail = typeof row.detail === "function" ? row.detail(c) : row.detail;
     const recorded = violations.find((violation) => violationId(violation) === row.id)!;
     if (typeof detail === "string") expect(recorded).toBe(detail);
@@ -1783,13 +1789,17 @@ describe("each check the mock Company makes", () => {
     expect(source.match(/\bviolation\(\s*`[^`$]*`/g) ?? []).toEqual([]);
   });
 
-  it("says what each check rests on, and leaves out of the lenient profile only SHOULDs and Guides", () => {
+  it("says what each check rests on, and files it as a violation or a warning by that basis", () => {
     // "MUST (4.3): …", "RFC (RFC 9449 4.2): …", "Guides (Retries): …": the basis, where, then what.
     const malformed = VIOLATION_IDS.filter(
       (id) => !/^(?:MUST(?: NOT)?|RFC|Rule|SHOULD(?: NOT)?|Guides|Reading) \([^)]+\)(?:, strict Company only)?: \S/.test(VIOLATIONS[id])
     );
     expect(malformed).toEqual([]);
-    expect([...STRICT_ONLY].filter((id) => !["SHOULD", "Guides"].includes(basisOf(id)))).toEqual([]);
+    // docs/conformance-levels.md: MUST, RFC and Rule are failures; SHOULD and Guides warnings;
+    // readings tentative. Nothing rests on a MAY.
+    const expected = { MUST: "failure", RFC: "failure", Rule: "failure", SHOULD: "warning", Guides: "warning", Reading: "tentative" } as const;
+    expect(VIOLATION_IDS.filter((id) => levelOfCheck(id) !== expected[basisOf(id) as keyof typeof expected])).toEqual([]);
+    expect(VIOLATION_IDS.filter((id) => isViolation(`[${id}] x`) !== (levelOfCheck(id) === "failure"))).toEqual([]);
     // The S2 checks are already off in the lenient profile (strictAssertions: false), and say so.
     for (const id of VIOLATION_IDS.filter((id) => /\.(?:typ|kid)$/.test(id) && basisOf(id) === "Reading")) {
       expect(VIOLATIONS[id], id).toMatch(/strict Company only/);
@@ -1832,7 +1842,7 @@ describe("the mock Company", () => {
     expect(body).not.toContain(conversation_id);
     expect(body).not.toContain("ord_7Hk2");
     // The same User retried their own message: no cross-user violation.
-    expect((await c.stub.state()).violations).toEqual([]);
+    expect((await c.stub.state()).recorded).toEqual([]);
   });
 
   it("publishes poppy.json and OAuth server metadata that check out", async () => {
@@ -1903,7 +1913,7 @@ describe("the mock Company", () => {
       const response = await startSession(c, await dpopKey(), { client: await assertion(c.hosts.tokenEndpoint, CLIENT_ID, {}, shape) });
       expect(response.status).toBe(401);
       expect(await response.json()).toMatchObject({ error: "invalid_client" });
-      const violations = (await c.stub.state()).violations;
+      const violations = (await c.stub.state()).recorded;
       expect(violations).toHaveLength(1);
       expect(violations[0]).toContain(expected);
     }
@@ -1918,7 +1928,7 @@ describe("the mock Company", () => {
       client: await assertion(c.hosts.tokenEndpoint, CLIENT_ID, {}, { typ: null, lifetime: 120 })
     });
     expect(response.status).toBe(200);
-    expect((await c.stub.state()).violations).toEqual([]);
+    expect((await c.stub.state()).recorded).toEqual([]);
   });
 
   it("accepts a client assertion for the token endpoint or issuer unless aud must be exact (S1)", async () => {
@@ -1926,12 +1936,12 @@ describe("the mock Company", () => {
       const c = company();
       const response = await form(c, c.hosts.revocationEndpoint, { token: "pat_unknown" }, null, { client: await clientAssertion(c.hosts[aud]) });
       expect(response.status).toBe(200);
-      expect((await c.stub.state()).violations).toEqual([]);
+      expect((await c.stub.state()).recorded).toEqual([]);
     }
     const exact = company();
     await exact.stub.configure({ clientAssertionAud: "exact" });
     expect((await form(exact, exact.hosts.revocationEndpoint, { token: "pat_unknown" }, null)).status).toBe(200);
-    expect((await exact.stub.state()).violations).toEqual([]);
+    expect((await exact.stub.state()).recorded).toEqual([]);
   });
 
   it("starts a signed-out Session for a correct request, with no violations", async () => {
@@ -1943,7 +1953,7 @@ describe("the mock Company", () => {
     expect(token).toMatchObject({ token_type: "DPoP", signed_in: false, scope: "" });
     expect(token.session_id).toMatch(/^ses_/);
     const state = await c.stub.state();
-    expect(state.violations).toEqual([]);
+    expect(state.recorded).toEqual([]);
     expect(state.userIds).toEqual([USER_ID]);
     expect(state.requests).toEqual([
       expect.objectContaining({ method: "POST", url: c.hosts.tokenEndpoint, grant: JWT_BEARER, status: 200, error: null, proofNonce: null })
@@ -1972,7 +1982,7 @@ describe("the mock Company", () => {
         expect(apiNonce).not.toBe(authNonce);
         expect((await call(c, s, "GET", `${c.hosts.api}/products`, { proof: { nonce: apiNonce } })).status).toBe(200);
       }
-      expect((await c.stub.state()).violations).toEqual([]);
+      expect((await c.stub.state()).recorded).toEqual([]);
     }
   });
 
@@ -2027,7 +2037,7 @@ describe("the mock Company", () => {
 
     const state = await c.stub.state();
     expect(state.performs).toBe(1);
-    expect(state.violations).toEqual([]);
+    expect(state.recorded).toEqual([]);
   });
 });
 
@@ -2043,7 +2053,7 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     const retry = await converse(c, s, { data: { colour: "blue", size: "M" }, text: first.text, sender: first.sender, id: first.id });
     expect(retry.status).toBe(201);
     expect(((await retry.json()) as { conversation_id: string }).conversation_id).toBe(conversation_id);
-    expect((await c.stub.state()).violations).toEqual([]);
+    expect((await c.stub.state()).recorded).toEqual([]);
   });
 
   it("accepts every well-formed RFC 5646 locale and IANA time zone name in context (7.4)", async () => {
@@ -2054,7 +2064,7 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     for (const context of [...locales.map((locale) => ({ locale })), ...zones.map((time_zone) => ({ time_zone }))]) {
       expect((await converse(c, s, message({ context }))).status).toBe(201);
     }
-    expect((await c.stub.state()).violations).toEqual([]);
+    expect((await c.stub.state()).recorded).toEqual([]);
   });
 
   it("signs out only the Sessions signed in with the revoked Account Token or one it rotated from (4.9)", async () => {
@@ -2078,7 +2088,7 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     expect((await orders(second)).status).toBe(200);
     const state = await c.stub.state();
     expect(state.sessions.map((session) => session.signedIn)).toEqual([false, true]);
-    expect(state.violations).toEqual([]);
+    expect(state.recorded).toEqual([]);
   });
 
   it("revokes only the reused token's own sign-in when it detects reuse (RFC 9700 4.14.2)", async () => {
@@ -2093,7 +2103,7 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     expect((await call(c, second, "GET", `${c.hosts.api}/orders`)).status).toBe(200);
     const state = await c.stub.state();
     expect(state.accountTokens).toBe(1);
-    expect(state.violations.map(violationId)).toEqual(["account-token.rotated-reused"]);
+    expect(state.recorded.map(violationId)).toEqual(["account-token.rotated-reused"]);
   });
 });
 
@@ -2126,7 +2136,7 @@ describe("the mock Company's other surfaces", () => {
     });
     const tools = (await mcp.json()) as { result: { tools: { name: string }[] } };
     expect(tools.result.tools.map((tool) => tool.name)).toEqual(["search_products", "exchange_item"]);
-    expect((await c.stub.state()).violations).toEqual([]);
+    expect((await c.stub.state()).recorded).toEqual([]);
   });
 
   it("signs in with Mediated Sign-In and a one-time code", async () => {
@@ -2134,7 +2144,7 @@ describe("the mock Company's other surfaces", () => {
     const { s, signInId, code } = await oneTimeCode(c);
     const done = (await (await call(c, s, "POST", `${c.hosts.mediatedEndpoint}/${signInId}`, { body: { code } })).json()) as Record<string, unknown>;
     expect(done).toMatchObject({ status: "complete", signed_in: true, scope: "poppy:read" });
-    expect((await c.stub.state()).violations).toEqual([]);
+    expect((await c.stub.state()).recorded).toEqual([]);
   });
 
   it("streams events with text-delta and joins a browser", async () => {
@@ -2150,7 +2160,7 @@ describe("the mock Company's other surfaces", () => {
     const join = await joinBrowser(c, await browserAssertion(c, s));
     expect(join.status).toBe(303);
     expect(join.headers.get("Set-Cookie")).toMatch(/Secure; HttpOnly; SameSite=Lax/);
-    expect((await c.stub.state()).violations).toEqual([]);
+    expect((await c.stub.state()).recorded).toEqual([]);
   });
 
   it("revokes an Account Token, with or without token_type_hint, and leaves the Session signed out", async () => {
@@ -2167,7 +2177,7 @@ describe("the mock Company's other surfaces", () => {
       const after = await call(c, s, "GET", `${c.hosts.api}/orders`);
       expect(after.status).toBe(403);
       expect(after.headers.get("WWW-Authenticate")).toContain("sign_in_required");
-      expect(state.violations).toEqual([]);
+      expect(state.recorded).toEqual([]);
     }
   });
 });

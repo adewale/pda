@@ -34,7 +34,7 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 
 ## Testing and interop
 
-- [ ] **Owner. Decide the grounding questions** in [spec/grounding.md](spec/grounding.md): which mock checks resting only on a keyword-less rule, the Guides or our readings stay violations in each profile; whether validator errors resting on the Guides or readings become warnings; whether grid attribution treats SHOULD, Guides and reading violations as warnings; and marking scenario YK `permitted_by: N5`.
+- [x] **Grounding questions decided by a policy**, [docs/conformance-levels.md](docs/conformance-levels.md): a check's basis sets its level in the mock, the validator and the grid; YK is `permitted_by: N5`. **Owner:** review its judgement calls, and rerun the full grid under it (some third-party cells may change rule, or newly fail on validator errors that were warnings).
 - [ ] **Owner. Re-check the spec** with `node scripts/spec-snapshot.mjs` before sending issues to its authors or submitting the proposals.
 - [ ] **Code. Scenarios not yet written:** `H`, `DC`, `W`, `O2`, `CM` ([interop-testing.md](docs/interop-testing.md)).
 - [ ] **Code. Attacks not yet built:** `XM`, `XS` (needs N42's private test suffix), `XB`, `XN`, `XO`, `XE`, `XP`, `YF`, `YC`, `YM` ([adversarial-interop.md](docs/adversarial-interop.md)).

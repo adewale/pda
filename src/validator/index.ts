@@ -9,4 +9,5 @@ export type { Report, CompanyReport, DocumentResult, Outcome, Skipped, TextOptio
 export type { Message, DocumentKind } from "./primitives.ts";
 export type { Fetcher } from "./fetch.ts";
 export { MESSAGES, type MessageId, type Severity } from "./messages.ts";
+export { BASES, LEVELS, levelOf, severityOf, isBasis, type Basis, type Level } from "./levels.ts";
 export { PROFILES, LATEST } from "./profiles/index.ts";

@@ -69,7 +69,7 @@ export function compatible(question: string, agent: string | undefined, company:
 }
 
 function warning(id: QuestionId, x: Exchange, detail: string): Check {
-  return { id: `reading.${id}`, side: "agent", severity: "warning", exchange: x.index, detail, source: "trace" };
+  return { id: `reading.${id}`, side: "agent", severity: "warning", basis: "Reading", exchange: x.index, detail, source: "trace" };
 }
 
 /** The OAuth endpoints a client assertion goes to, in a Company's server metadata (RFC 8414). */
@@ -178,6 +178,7 @@ export function refusedReadingChecks(all: readonly Exchange[], companyReadings: 
     id: `reading.${id}.refused`,
     side: "agent",
     severity: "warning",
+    basis: "Reading",
     exchange: x.index,
     detail,
     source: "trace"

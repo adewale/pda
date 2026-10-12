@@ -4,74 +4,75 @@
  * the mock Company's violation id (test/mock-company/violations.ts) where one
  * fits; Company-side checks are prefixed `company.`.
  *
- * Severity follows the draft: a MUST broken is an error; behaviour the draft
- * leaves open but strict Companies enforce (S2: assertion `typ` and a 60 s
- * lifetime) is a warning, so a lenient pair isn't failed for it. Two errors
- * rest on less than a MUST and say so in `what`: `token.unlisted-host` (our
- * reading of which hosts receive tokens, spec-issues N10) and
- * `redirect.credentials-followed` (the Guides).
+ * Each check names its basis, and its severity follows from it
+ * (docs/conformance-levels.md): a MUST, an RFC's MUST or a keyword-less rule
+ * broken is an error, which fails the cell; a SHOULD, the Guides or our
+ * reading (S2's `typ`, `kid` and lifetime; S1's `aud` array; which hosts
+ * receive tokens, N10) is a warning, which doesn't. A mock id's basis is the
+ * mock's (test/mock-company/violations.ts), and the tests check they agree.
  */
 import { createHash } from "node:crypto";
+import { levelOf, severityOf, type Basis } from "../../src/validator/levels.ts";
 import { authorization, decodeJwt, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
-import type { Check, Severity, Side } from "./types.ts";
+import type { Check, Side } from "./types.ts";
 
 export type CheckSpec = {
   readonly side: Side;
-  readonly severity: Severity;
+  readonly basis: Basis;
   /** The id is one of the mock Company's violation ids. */
   readonly mock: boolean;
   readonly what: string;
 };
 
 export const TRACE_CHECKS = {
-  "client-assertion.typ": { side: "agent", severity: "warning", mock: true, what: "Client assertion header typ isn't \"JWT\" (S2)" },
-  "client-assertion.kid": { side: "agent", severity: "warning", mock: true, what: "Client assertion has no kid (S2)" },
-  "client-assertion.alg": { side: "agent", severity: "error", mock: true, what: "Client assertion alg isn't ES256 or RS256" },
-  "client-assertion.iat-exp-missing": { side: "agent", severity: "error", mock: true, what: "Client assertion without iat or exp" },
-  "client-assertion.lifetime": { side: "agent", severity: "error", mock: true, what: "Client assertion lifetime over 300 seconds (warning over 60, S2)" },
-  "client-assertion.jti-missing": { side: "agent", severity: "error", mock: true, what: "Client assertion without a jti" },
-  "client-assertion.jti-reused": { side: "agent", severity: "error", mock: true, what: "Client assertion jti used twice" },
-  "client-assertion.aud-array": { side: "agent", severity: "error", mock: true, what: "Client assertion aud is an array" },
-  "client-assertion.iss-sub": { side: "agent", severity: "error", mock: true, what: "Client assertion iss and sub aren't both the client_id" },
-  "client-assertion.not-jwt": { side: "agent", severity: "error", mock: true, what: "Client assertion is not a JWT" },
-  "session-assertion.typ": { side: "agent", severity: "warning", mock: true, what: "Session assertion header typ isn't \"JWT\" (S2)" },
-  "session-assertion.kid": { side: "agent", severity: "warning", mock: true, what: "Session assertion has no kid (S2)" },
-  "session-assertion.alg": { side: "agent", severity: "error", mock: true, what: "Session assertion alg isn't ES256 or RS256" },
-  "session-assertion.iat-exp-missing": { side: "agent", severity: "error", mock: true, what: "Session assertion without iat or exp" },
-  "session-assertion.lifetime": { side: "agent", severity: "error", mock: true, what: "Session assertion lifetime over 300 seconds (warning over 60, S2)" },
-  "session-assertion.jti-missing": { side: "agent", severity: "error", mock: true, what: "Session assertion without a jti" },
-  "session-assertion.jti-reused": { side: "agent", severity: "error", mock: true, what: "Session assertion jti used twice" },
-  "session-assertion.aud": { side: "agent", severity: "error", mock: true, what: "Session assertion aud isn't the token endpoint as a single string" },
-  "session-assertion.iss": { side: "agent", severity: "error", mock: true, what: "Session assertion iss isn't the client_id" },
-  "session-assertion.not-jwt": { side: "agent", severity: "error", mock: true, what: "Session assertion is not a JWT" },
-  "dpop.not-jwt": { side: "agent", severity: "error", mock: true, what: "DPoP proof is not a JWT" },
-  "dpop.typ": { side: "agent", severity: "error", mock: true, what: "DPoP proof typ isn't dpop+jwt" },
-  "dpop.no-jwk": { side: "agent", severity: "error", mock: true, what: "DPoP proof has no jwk in its header" },
-  "dpop.htm": { side: "agent", severity: "error", mock: true, what: "DPoP proof htm isn't the request method" },
-  "dpop.htu": { side: "agent", severity: "error", mock: true, what: "DPoP proof htu isn't the request URL without query or fragment" },
-  "dpop.iat": { side: "agent", severity: "error", mock: true, what: "DPoP proof iat is outside the acceptance window" },
-  "dpop.jti-missing": { side: "agent", severity: "error", mock: true, what: "DPoP proof without a jti" },
-  "dpop.jti-reused": { side: "agent", severity: "error", mock: true, what: "DPoP proof jti used twice" },
-  "dpop.ath": { side: "agent", severity: "error", mock: true, what: "DPoP proof ath isn't the hash of the token sent" },
-  "dpop.ath-at-token-endpoint": { side: "agent", severity: "error", mock: true, what: "DPoP proof at the token endpoint carries ath" },
-  "secret.token-in-url": { side: "agent", severity: "error", mock: true, what: "A token sent in a URL" },
-  "rate-limit.retry-after-ignored": { side: "agent", severity: "error", mock: true, what: "Request sent before an earlier Retry-After elapsed" },
-  "token.unlisted-host": { side: "agent", severity: "error", mock: false, what: "A Session Token sent to a host the Company's documents don't list (our reading, N10)" },
-  "redirect.credentials-followed": { side: "agent", severity: "error", mock: false, what: "A redirect followed with the token or proof of the request that got it (Guides, not a MUST)" },
-  "company.www-authenticate": { side: "company", severity: "error", mock: false, what: "401 to a request with a token, without WWW-Authenticate (RFC 6750, RFC 9449)" },
-  "company.retry-after": { side: "company", severity: "warning", mock: false, what: "429 without Retry-After" },
-  "company.oauth-error-body": { side: "company", severity: "error", mock: false, what: "OAuth endpoint error that isn't JSON with a string error (RFC 6749 5.2)" },
-  "company.token-response": { side: "company", severity: "error", mock: false, what: "Token response without access_token, token_type, expires_in or session_id (4.2)" },
-  "company.iss-missing": { side: "company", severity: "error", mock: false, what: "Authorization response without iss (RFC 9207, spec 4.5)" },
-  "company.events-shape": { side: "company", severity: "error", mock: false, what: "Events response without an events array, string cursor or boolean has_more (7.5)" },
-  "company.sse-event-id": { side: "company", severity: "error", mock: false, what: "A streamed event without an id (7.6)" }
+  "client-assertion.typ": { side: "agent", basis: "Reading", mock: true, what: "Client assertion header typ isn't \"JWT\" (S2)" },
+  "client-assertion.kid": { side: "agent", basis: "Reading", mock: true, what: "Client assertion has no kid (S2)" },
+  "client-assertion.alg": { side: "agent", basis: "Guides", mock: true, what: "Client assertion alg isn't ES256 or RS256" },
+  "client-assertion.iat-exp-missing": { side: "agent", basis: "RFC", mock: true, what: "Client assertion without iat or exp" },
+  "client-assertion.lifetime": { side: "agent", basis: "Reading", mock: true, what: "Client assertion lifetime over 60 seconds (S2; the detail says if over 300)" },
+  "client-assertion.jti-missing": { side: "agent", basis: "Guides", mock: true, what: "Client assertion without a jti" },
+  "client-assertion.jti-reused": { side: "agent", basis: "Rule", mock: true, what: "Client assertion jti used twice" },
+  "client-assertion.aud-array": { side: "agent", basis: "Reading", mock: true, what: "Client assertion aud is an array" },
+  "client-assertion.iss-sub": { side: "agent", basis: "RFC", mock: true, what: "Client assertion iss and sub aren't both the client_id" },
+  "client-assertion.not-jwt": { side: "agent", basis: "RFC", mock: true, what: "Client assertion is not a JWT" },
+  "session-assertion.typ": { side: "agent", basis: "Reading", mock: true, what: "Session assertion header typ isn't \"JWT\" (S2)" },
+  "session-assertion.kid": { side: "agent", basis: "Reading", mock: true, what: "Session assertion has no kid (S2)" },
+  "session-assertion.alg": { side: "agent", basis: "Guides", mock: true, what: "Session assertion alg isn't ES256 or RS256" },
+  "session-assertion.iat-exp-missing": { side: "agent", basis: "Rule", mock: true, what: "Session assertion without iat or exp" },
+  "session-assertion.lifetime": { side: "agent", basis: "Reading", mock: true, what: "Session assertion lifetime over 60 seconds (S2; the detail says if over 300)" },
+  "session-assertion.jti-missing": { side: "agent", basis: "Rule", mock: true, what: "Session assertion without a jti" },
+  "session-assertion.jti-reused": { side: "agent", basis: "Rule", mock: true, what: "Session assertion jti used twice" },
+  "session-assertion.aud": { side: "agent", basis: "Rule", mock: true, what: "Session assertion aud isn't the token endpoint as a single string" },
+  "session-assertion.iss": { side: "agent", basis: "Rule", mock: true, what: "Session assertion iss isn't the client_id" },
+  "session-assertion.not-jwt": { side: "agent", basis: "RFC", mock: true, what: "Session assertion is not a JWT" },
+  "dpop.not-jwt": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof is not a JWT" },
+  "dpop.typ": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof typ isn't dpop+jwt" },
+  "dpop.no-jwk": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof has no jwk in its header" },
+  "dpop.htm": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof htm isn't the request method" },
+  "dpop.htu": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof htu isn't the request URL without query or fragment" },
+  "dpop.iat": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof iat is outside the acceptance window" },
+  "dpop.jti-missing": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof without a jti" },
+  "dpop.jti-reused": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof jti used twice" },
+  "dpop.ath": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof ath isn't the hash of the token sent" },
+  "dpop.ath-at-token-endpoint": { side: "agent", basis: "Rule", mock: true, what: "DPoP proof at the token endpoint carries ath" },
+  "secret.token-in-url": { side: "agent", basis: "MUST", mock: true, what: "A token sent in a URL" },
+  "rate-limit.retry-after-ignored": { side: "agent", basis: "MUST", mock: true, what: "Request sent before an earlier Retry-After elapsed" },
+  "token.unlisted-host": { side: "agent", basis: "Reading", mock: false, what: "A Session Token sent to a host the Company's documents don't list (our reading, N10)" },
+  "redirect.credentials-followed": { side: "agent", basis: "Guides", mock: false, what: "A redirect followed with the token or proof of the request that got it (Guides)" },
+  "company.www-authenticate": { side: "company", basis: "RFC", mock: false, what: "401 to a request with a token, without WWW-Authenticate (RFC 6750, RFC 9449)" },
+  "company.retry-after": { side: "company", basis: "Rule", mock: false, what: "429 without Retry-After" },
+  "company.oauth-error-body": { side: "company", basis: "RFC", mock: false, what: "OAuth endpoint error that isn't JSON with a string error (RFC 6749 5.2)" },
+  "company.token-response": { side: "company", basis: "Rule", mock: false, what: "Token response without access_token, token_type, expires_in or session_id (4.2)" },
+  "company.iss-missing": { side: "company", basis: "RFC", mock: false, what: "Authorization response without iss (RFC 9207, spec 4.5)" },
+  "company.events-shape": { side: "company", basis: "Rule", mock: false, what: "Events response without an events array, string cursor or boolean has_more (7.5)" },
+  "company.sse-event-id": { side: "company", basis: "Rule", mock: false, what: "A streamed event without an id (7.6)" }
 } as const satisfies Record<string, CheckSpec>;
 
 export type TraceCheckId = keyof typeof TRACE_CHECKS;
 
-function check(id: TraceCheckId, exchange: Exchange | null, detail: string, severity?: Severity): Check {
-  const spec = TRACE_CHECKS[id];
-  return { id, side: spec.side, severity: severity ?? spec.severity, exchange: exchange?.index ?? null, detail, source: "trace" };
+function check(id: TraceCheckId, exchange: Exchange | null, detail: string): Check {
+  const spec: CheckSpec = TRACE_CHECKS[id];
+  return { id, side: spec.side, severity: severityOf(levelOf(spec.basis)) === "error" ? "error" : "warning", basis: spec.basis, exchange: exchange?.index ?? null, detail, source: "trace" };
 }
 
 const SIGNING = new Set(["ES256", "RS256"]);
@@ -111,8 +112,8 @@ export function assertionChecks(all: readonly Exchange[]): Check[] {
         found.push(check(`${kind}.iat-exp-missing`, x, "no numeric iat and exp"));
       } else {
         const lifetime = payload.exp - payload.iat;
-        if (lifetime > 300) found.push(check(`${kind}.lifetime`, x, `lifetime ${lifetime} s`));
-        else if (lifetime > 60) found.push(check(`${kind}.lifetime`, x, `lifetime ${lifetime} s, over the 60 strict Companies allow`, "warning"));
+        if (lifetime > 300) found.push(check(`${kind}.lifetime`, x, `lifetime ${lifetime} s, over the 300 even lenient Companies allow`));
+        else if (lifetime > 60) found.push(check(`${kind}.lifetime`, x, `lifetime ${lifetime} s, over the 60 strict Companies allow`));
       }
       if (typeof payload.jti !== "string" || payload.jti === "") found.push(check(`${kind}.jti-missing`, x, "no jti"));
       else if (seen[kind].has(payload.jti)) found.push(check(`${kind}.jti-reused`, x, `jti ${payload.jti} again`));

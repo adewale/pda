@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { attribute, attributeAll, knownFailure, staleKnown, unexpected } from "../runner/attribution.ts";
+import { attribute, attributeAll, checkLevel, companyRecorded, knownFailure, levelCounts, staleKnown, unexpected } from "../runner/attribution.ts";
 import { compatible, QUESTIONS, readingChecks, refusedReadingChecks } from "../runner/readings.ts";
 import { jwt, NOW, recording } from "./helpers.ts";
 import type { Cell, Check, Outcome, Scenario } from "../runner/types.ts";
 
 const error = (side: "agent" | "company"): Check => ({ id: "x", side, severity: "error", exchange: null, detail: "", source: "trace" });
 /** The trace's evidence that a Company refused what its reading of `question` doesn't accept. */
-const refusal = (question: string): Check => ({ id: `reading.${question}.refused`, side: "agent", severity: "warning", exchange: 1, detail: "", source: "trace" });
+const refusal = (question: string): Check => ({ id: `reading.${question}.refused`, side: "agent", severity: "warning", basis: "Reading", exchange: 1, detail: "", source: "trace" });
 
 function cell(agent: string, company: string, outcome: Outcome, checks: Check[] = [], scenario = "SD"): Cell {
   return { agent, company, scenario, outcome, blame: null, rule: null, steps: [], checks, har: null };
@@ -82,20 +82,71 @@ describe("attribution", () => {
     expect(attribute(cell("adonis-agora", "adonis-agora", "fail", [refusal("S1")]), [], { readings, scenarios }).rule).toBe("unattributed");
   });
 
-  it("rule 3, before rule 1: a Company-recorded error that is exactly a declared reading difference", () => {
-    // A strict Company refuses a typ-less Session assertion; the agent declared S2 any.
-    const typ: Check = { id: "session-assertion.typ", side: "agent", severity: "error", exchange: null, detail: "typ", source: "company:dpa-mock-strict" };
+  it("rule 3: a Company-recorded reading of ours that is exactly a declared reading difference", () => {
+    // A strict Company refuses a typ-less Session assertion (Reading S2: a tentative warning); the agent declared S2 any.
+    const typ = companyRecorded({ id: "session-assertion.typ", basis: "Reading", level: "tentative", detail: "typ" }, "dpa-mock-strict", false);
+    expect(typ).toMatchObject({ severity: "warning", basis: "Reading" });
     const readings = { agent: { "pi-poppy": { S2: "any" } }, company: { "dpa-mock-strict": { S2: "jwt-60s" }, "dpa-mock": { S2: "any" } } };
     const strict = cell("pi-poppy", "dpa-mock-strict", "fail", [typ], "C");
     expect(attribute(strict, [strict], { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S2: pi-poppy reads any, dpa-mock-strict reads jwt-60s" });
-    // An agent that declared jwt-60s and sent no typ broke its own word: a violation.
-    expect(attribute(strict, [strict], { readings: { ...readings, agent: { "pi-poppy": { S2: "jwt-60s" } } }, scenarios })).toEqual({ blame: "agent", rule: "violation" });
-    // Another error beside it is still a violation, by the side that made it.
+    // An agent that declared jwt-60s and sent no typ broke its own word: its departure, at warning level.
+    expect(attribute(strict, [strict], { readings: { ...readings, agent: { "pi-poppy": { S2: "jwt-60s" } } }, scenarios })).toMatchObject({ blame: "agent", rule: "warning" });
+    // An error beside it is a violation, by the side that made it: a failure outranks a reading.
     const both = cell("pi-poppy", "dpa-mock-strict", "fail", [typ, error("agent")], "C");
     expect(attribute(both, [both], { readings, scenarios })).toEqual({ blame: "agent", rule: "violation" });
-    // The runner's own trace check of the same id isn't a Company's refusal.
+    // The runner's own trace check of the same id isn't a Company's refusal, so it decides nothing.
     const traced = cell("pi-poppy", "dpa-mock-strict", "fail", [{ ...typ, source: "trace" }], "C");
-    expect(attribute(traced, [traced], { readings, scenarios })).toEqual({ blame: "agent", rule: "violation" });
+    expect(attribute(traced, [traced], { readings, scenarios })).toEqual({ blame: null, rule: "unattributed" });
+    // A Company that still sends an error for it (no basis) is read as before: the declared difference explains it.
+    const legacy: Check = { ...typ, severity: "error", basis: null };
+    const old = cell("pi-poppy", "dpa-mock-strict", "fail", [legacy], "C");
+    expect(attribute(old, [old], { readings, scenarios })).toMatchObject({ blame: "spec", rule: "reading" });
+  });
+
+  it("files what a Company records by its basis: a failure is an error, the rest warnings that never fail a cell", () => {
+    const at = (basis: unknown, security = false) => companyRecorded({ id: "x.y", basis, detail: "" }, "dpa-mock", security);
+    expect(["MUST", "RFC", "Rule"].map((basis) => at(basis).severity)).toEqual(["error", "error", "error"]);
+    expect(["SHOULD", "Guides", "Reading"].map((basis) => at(basis).severity)).toEqual(["warning", "warning", "warning"]);
+    // No basis, or one we don't know: a failure, as every record was before bases.
+    expect([at(null).severity, at("SOMETIMES").severity]).toEqual(["error", "error"]);
+    // In a security cell the bad request is the attack's: always a warning (rule 0 decides).
+    expect(at("MUST", true).severity).toBe("warning");
+    expect([at("MUST"), at("Guides"), at("Reading"), error("agent"), { ...error("agent"), severity: "warning" as const }].map(checkLevel)).toEqual([
+      "failure",
+      "warning",
+      "tentative",
+      "failure",
+      "warning"
+    ]);
+  });
+
+  it("rule warning: a SHOULD or Guides refusal on one side blames that side as a warning, not a violation", () => {
+    // dpa-mock refuses an ES384 Session assertion (Guides: support ES256 and RS256).
+    const alg = companyRecorded({ id: "session-assertion.alg", basis: "Guides", detail: "alg ES384" }, "dpa-mock", false);
+    const target = cell("a", "dpa-mock", "fail", [alg], "C");
+    expect(attribute(target, [target], none)).toEqual({ blame: "agent", rule: "warning", detail: "session-assertion.alg: a SHOULD or the Guides, not a requirement" });
+    // Any failure-level error decides first.
+    const withError = cell("a", "dpa-mock", "fail", [alg, error("company")], "C");
+    expect(attribute(withError, [withError], none)).toEqual({ blame: "company", rule: "violation" });
+    // Passive warnings (the runner's trace, the validator) aren't a Company's refusal and decide nothing.
+    const passive = cell("a", "c", "fail", [{ ...alg, source: "validator" }], "C");
+    expect(attribute(passive, [passive], none)).toEqual({ blame: null, rule: "unattributed" });
+  });
+
+  it("blames the spec for a failure our own reading of an open question explains, when no declared question covers it", () => {
+    // The mock refuses an array aud on a client assertion (Reading S1: 4.2 asks a single string only of the Session assertion).
+    const array = companyRecorded({ id: "client-assertion.aud-array", basis: "Reading", detail: "aud is an array" }, "dpa-mock", false);
+    const target = cell("a", "dpa-mock", "fail", [array], "C");
+    expect(attribute(target, [target], none)).toEqual({ blame: "spec", rule: "reading", detail: "client-assertion.aud-array: our reading, not a requirement of the draft" });
+  });
+
+  it("counts checks per level over the interop cells, leaving security cells out", () => {
+    const cells = [
+      cell("a", "c", "fail", [error("agent"), companyRecorded({ id: "x", basis: "Guides", detail: "" }, "c", false)]),
+      cell("a", "d", "pass", [companyRecorded({ id: "y", basis: "Reading", detail: "" }, "d", false), refusal("S2")]),
+      { ...cell("evil", "c", "pass", [error("agent")]), security: true }
+    ];
+    expect(levelCounts(cells)).toEqual({ failure: 1, warning: 1, tentative: 2 });
   });
 
   it("errors are the harness's, and passes and unsupported cells have no blame", () => {
@@ -320,12 +371,13 @@ describe("reading compatibility", () => {
     expect(sentBeyond("lenient-300s")).toEqual([2]);
     expect(sentBeyond("jwt-60s")).toEqual([1, 2]);
 
-    // The lenient mock recording a 301 s assertion is the open question with an `any` agent, the agent's own fault with a jwt-60s one.
-    const lifetime: Check = { id: "client-assertion.lifetime", side: "agent", severity: "error", exchange: 2, detail: "", source: "company:dpa-mock" };
+    // The lenient mock recording a 301 s assertion (our reading, so a warning) is the open question with an `any` agent, the agent's own departure from its declared jwt-60s otherwise.
+    const lifetime = companyRecorded({ id: "client-assertion.lifetime", basis: "Reading", detail: "" }, "dpa-mock", false);
     const target = cell("a", "dpa-mock", "fail", [lifetime], "SD");
     const declared = (agent: string) => ({ agent: { a: { S2: agent } }, company: { "dpa-mock": { S2: "lenient-300s" } } });
     expect(attribute(target, [target], { readings: declared("any"), scenarios })).toMatchObject({ blame: "spec", rule: "reading" });
-    expect(attribute(target, [target], { readings: declared("jwt-60s"), scenarios })).toEqual({ blame: "agent", rule: "violation" });
+    expect(lifetime.severity).toBe("warning");
+    expect(attribute(target, [target], { readings: declared("jwt-60s"), scenarios })).toMatchObject({ blame: "agent", rule: "warning" });
   });
 
   it("dpa-mock declares the S2 reading the mock enforces: lenient-300s, at the mock's 300 s, or jwt-60s when strict", () => {

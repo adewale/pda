@@ -32,6 +32,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 20. [What we deliberately didn't do](#20-what-we-deliberately-didnt-do)
 21. [CI scope](#21-ci-scope)
 22. [Security hardening](#22-security-hardening)
+23. [Conformance levels from each requirement's basis](#23-conformance-levels-from-each-requirements-basis)
 
 ## 1. A Worker and one Durable Object per person
 
@@ -234,3 +235,25 @@ Each of these closed a specific gap, and each has a test:
 - **Private-host checks** on everything a Company controls: IP literals, `localhost` and single-label names are refused, written with or without the root's trailing dot, directly or by redirect, in the client and the validator alike (a property checks they agree).
 - **Sealing with versioned keys.** Account Tokens, pending sign-in secrets and model keys are AES-GCM sealed under `TOKEN_ENC_KEY`, bound to their row or agent and provider by additional data, written as `v1.…`. `TOKEN_ENC_KEY_PREVIOUS` lets a key rotate: old values still open and are sealed again when used (`e5b0818`).
 - **Tokens only to the Company's hosts:** a Session Token goes only to a host `poppy.json` lists or under the Company's domains; an OpenAPI server elsewhere is refused before any request ([N10](spec-issues.md#n10)).
+
+## 23. Conformance levels from each requirement's basis
+
+- **Context.** The mock Company, the validator and the grid's attribution each graded findings in their own way. The mock recorded every check as a violation, and a hand-kept `STRICT_ONLY` list hid seven of them from the lenient reference Company. Most validator errors were "what our client refuses", and some of those rested only on the Guides or our readings. The runner made every Company-recorded check an error. [spec/grounding.md](../spec/grounding.md) left the owner four questions about this: keyword-less rules, Guides and readings in the mock; validator severities; grid attribution; and scenario YK.
+- **Decision.** One policy, [conformance-levels.md](conformance-levels.md), coded once in `src/validator/levels.ts`:
+  - **Failure.** MUST, an RFC's MUST, and normative statements without a key word (RFC 8174: normative text needn't use the key words). These are mock violations, validator errors and cell failures.
+  - **Warning.** SHOULD and the Guides ("a recommendation, in the sense of SHOULD"). These never fail anything.
+  - **Tentative.** Our readings, like WPT's `.tentative`. Reported as warnings; a failure they cause is the spec's.
+  - **Nothing.** MAY.
+  - **Strict runs.** Our own code is held to warnings too (h2spec's `--strict`): the conformance tests' `afterEach` and `poppy-validate --strict`.
+  - **Behaviour stays separate.** A refusal made for safety stays, but its verdict follows its basis. The validator's `refuses` flag says what our client refuses, apart from severity. YK is `permitted_by: N5`.
+- **Alternatives.**
+  - *Every SHOULD a failure, as WPT does.* This would fail other projects' cells over recommendations the draft says they may decline.
+  - *Don't check SHOULDs unless strict, as h2spec does.* We'd lose the warnings in the grid, where they are evidence for spec issues.
+  - *Keep hand lists.* They drift from the catalog. `STRICT_ONLY` was already an approximation of "SHOULD or Guides, refuses nothing".
+  - *Make the validator's errors mean "our client refuses".* That calls our hardening the draft's requirement, which is the confusion the grounding found.
+- **Consequences.**
+  - The mock's 144 checks: 117 violations and 27 warnings.
+  - The validator: 9 errors became warnings, and our client still refuses every one. 4 warnings or info messages became errors, and our client tolerates every one. 4 messages are new. Fetch limits now make a report indeterminate.
+  - The grid: 8 trace checks became warnings, `company.retry-after` became an error, and there is a new attribution rule, `warning`. `results.json` counts checks per level.
+  - The full grid hasn't been rerun under the policy.
+- **When.** 12 October 2026.

@@ -13,6 +13,7 @@ Back to [spec-issues.md](spec-issues.md) · [interop-spec.md §7](interop-spec.m
 - **What we send** takes the narrowest reading: the one every reading accepts, where there is one.
 - **What we accept** is strict where a wrong guess could widen access, mix up identities or let something replay: the mocks refuse it, or record a named violation (`test/mock-company/violations.ts`) when the draft gives a Company no error to send.
 - **What we accept** is lenient where the readings differ only in shape (an error's location, a cursor's spelling, a missing display name) and every reading leads to the same access.
+- **How it's graded** is a separate matter from what we do. A check that rests on a reading is tentative everywhere: a warning in the mock, the validator and the grid, and a failure it causes is the spec's ([conformance-levels.md](conformance-levels.md)). Being strict in behaviour never makes the other side's departure a violation.
 
 ## The three implementations
 
@@ -20,7 +21,7 @@ Back to [spec-issues.md](spec-issues.md) · [interop-spec.md §7](interop-spec.m
 | --- | --- | --- |
 | **Client** | `src/poppy/`, the Personal Agent; `dpa` in the [interop registry](../interop/registry.json) | One behaviour |
 | **Strict mock** | `test/mock-company/` with its defaults (`DEFAULT_CONFIG` in `types.ts`), as the conformance tests run it; `dpa-mock-strict` in the grid | `strictAssertions: true`, `clientAssertionAud: "lenient"`, `nonceScope: "company"` |
-| **Lenient mock** | The same mock with `strictAssertions: false`; `dpa-mock`, the grid's reference Company for attribution rule 2 | As the strict mock, except S2; and in the grid it doesn't report the checks in `STRICT_ONLY` (`test/mock-company/violations.ts`), which rest only on a SHOULD or the Guides and refuse nothing |
+| **Lenient mock** | The same mock with `strictAssertions: false`; `dpa-mock`, the grid's reference Company for attribution rule 2 | As the strict mock, except S2. Both report every check with its basis and level; a warning or reading never fails a cell ([conformance-levels.md](conformance-levels.md)) |
 
 The conformance tests also run sign-in, Sessions and sign-out under six other profiles (`PROFILES` in `test/poppy.test.ts`): exact `aud` (S1), a DPoP nonce per origin and per Company (S23), lenient assertions (S2), a trailing-slash issuer (S7), and an issuer with a path (S3). So the client is tested against both answers to S1, S2, S7 and S23, and against an issuer with a path, not only the mock's default.
 
@@ -86,7 +87,7 @@ These aren't declared in the grid's manifests, because they don't change what go
 | [S15](spec-issues.md#s15) `queued` on handoff | Doesn't depend on it | Says `queued`, as 7.9 describes (no keyword); `neverQueued` goes straight to `working` | **Lenient.** Cosmetic. |
 | [S16](spec-issues.md#s16) Approving zero scopes | Not exercised | A test can approve zero scopes; the mock then signs in with an empty scope | Undecided; no test covers it. |
 | [S17](spec-issues.md#s17) Another User ID on the same account | n/a | A conversation that used an account may be continued by any Session of the same `client_id` signed in to that account | Lenient, matching "belongs to that account" literally. The `client_id` check stays strict. |
-| [S18](spec-issues.md#s18) `web` without a URL, a missing `organization.name` | Shows the domain when the name is missing; `web: {}` means the site at `organization.domain` | Always publish a name | **Lenient.** Cosmetic; the validator warns. |
+| [S18](spec-issues.md#s18) `web` without a URL, a missing `organization.name` | Shows the domain when the name is missing; `web: {}` means the site at `organization.domain` | Always publish a name | **Lenient** in the client: a missing name is cosmetic. The validator reports a missing `organization.name` as an error, since the required `organization` is "Display name and domain" (3.1, a rule without a key word; [conformance-levels.md](conformance-levels.md)), but our client tolerates it. |
 | [S19](spec-issues.md#s19) Algorithms | Signs only ES256 | Accepts ES256 and RS256 for assertions and DPoP | Client strict in what it sends; mocks lenient. Both follow the Guides: "Support ES256 and RS256, and sign with ES256 when you can"; the spec names no algorithm. The validator warns when metadata offers neither. |
 | [S20](spec-issues.md#s20) What a standing permission covers | Covers an operation only at that account, if its summary contains the permission's action word, every amount is in its currency and within its limit, and it has uses left and hasn't expired; a limit the terms don't let it check means asking the User | n/a: a Company can't see the approval | **Strict**, as far as the draft allows: it spends money without asking. Still a heuristic; see the spec's open questions. |
 | [S21](spec-issues.md#s21) Local agents | Hosted identity only | Refuses a `client_id` that isn't `https` (`client-metadata.not-https`) | **Strict.** The identity is the `client_id`'s HTTPS origin. |

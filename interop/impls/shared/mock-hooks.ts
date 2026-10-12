@@ -8,7 +8,7 @@
  */
 import type { MockCompany } from "../../../test/mock-company/index.ts";
 import { DEFAULT_CONFIG, placeCompanies, type MockConfig } from "../../../test/mock-company/types.ts";
-import { basisOf, STRICT_ONLY, VIOLATION_IDS, violationId, type Basis, type ViolationId } from "../../../test/mock-company/violations.ts";
+import { basisOf, levelOfCheck, VIOLATION_IDS, violationId, type Basis, type Level, type ViolationId } from "../../../test/mock-company/violations.ts";
 
 export const COMPANY_SUFFIX = "company.interop.test";
 
@@ -26,8 +26,14 @@ export function placeInteropCompanies(): void {
   });
 }
 
-/** Settings every host starts from: rotating Account Tokens (scenario R), and devices polled every second so Device Sign-In doesn't wait five. */
-export const MOCK_BASE: Partial<MockConfig> = { rotateRefreshTokens: true, deviceInterval: 1 };
+/**
+ * Settings every host starts from: rotating Account Tokens (scenario R),
+ * devices polled every second so Device Sign-In doesn't wait five, and no
+ * API of an unknown type: the conformance tests list one on purpose to check
+ * agents skip it, but it breaks 6's MUST, and a reference Company keeps to
+ * every MUST (docs/conformance-levels.md).
+ */
+export const MOCK_BASE: Partial<MockConfig> = { rotateRefreshTokens: true, deviceInterval: 1, unknownApi: false };
 
 /** A hook's refusal: its HTTP status and error code. */
 export class HookError extends Error {
@@ -163,23 +169,23 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
 }
 
 /**
- * `GET /violations`: each violation the mock recorded, by id, with what the
- * check rests on (`basis`, test/mock-company/violations.ts) and its detail.
- * The lenient profile leaves out `STRICT_ONLY`: checks whose only basis is a
- * SHOULD or a Guides recommendation, which the reference Company mustn't
- * fail an agent for.
+ * `GET /violations`: every check the mock recorded, in order, by id, with
+ * what it rests on (`basis`, test/mock-company/violations.ts), its `level`
+ * (`failure`, `warning` or `tentative`; docs/conformance-levels.md) and its
+ * detail. Both profiles report everything: the runner makes a failure an
+ * error and the rest warnings, which never fail a cell, so nothing needs
+ * leaving out for the reference Company. (An unknown id has no basis and
+ * counts as a failure.)
  */
-export function violationsBody(
-  state: { readonly violations: readonly string[] },
-  profile: "strict" | "lenient" = "strict"
-): { violations: { id: string; basis: Basis | null; detail: string }[] } {
+export function violationsBody(state: { readonly recorded: readonly string[] }): {
+  violations: { id: string; basis: Basis | null; level: Level; detail: string }[];
+} {
   const known = (id: string): id is ViolationId => (VIOLATION_IDS as readonly string[]).includes(id);
   return {
-    violations: state.violations
-      .map((recorded) => {
-        const id = violationId(recorded);
-        return { id, basis: known(id) ? basisOf(id) : null, detail: recorded.replace(/^\[[^\]]+\]\s*/, "") };
-      })
-      .filter((violation) => profile === "strict" || !(known(violation.id) && STRICT_ONLY.has(violation.id)))
+    violations: state.recorded.map((recorded) => {
+      const id = violationId(recorded);
+      const detail = recorded.replace(/^\[[^\]]+\]\s*/, "");
+      return known(id) ? { id, basis: basisOf(id), level: levelOfCheck(id), detail } : { id, basis: null, level: "failure", detail };
+    })
   };
 }

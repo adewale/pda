@@ -3,6 +3,7 @@
  * Companies as columns, each cell linking to its steps, checks and HAR.
  * Plain HTML and a little CSS; no script, no framework.
  */
+import { checkLevel, levelCounts } from "./attribution.ts";
 import type { Cell, KnownFailure, Manifest, Scenario } from "./types.ts";
 
 export type RunSummary = {
@@ -61,10 +62,10 @@ function details(cell: Cell): string {
     )
     .join("\n");
   const checks = cell.checks.length
-    ? `<table><thead><tr><th>check</th><th>side</th><th>severity</th><th>source</th><th>exchange</th><th>detail</th></tr></thead><tbody>${cell.checks
+    ? `<table><thead><tr><th>check</th><th>side</th><th>severity</th><th>basis</th><th>source</th><th>exchange</th><th>detail</th></tr></thead><tbody>${cell.checks
         .map(
           (check) =>
-            `<tr class="${check.severity}"><td>${escape(check.id)}</td><td>${escape(check.side)}</td><td>${escape(check.severity)}</td><td>${escape(check.source)}</td><td>${check.exchange ?? ""}</td><td>${escape(check.detail)}</td></tr>`
+            `<tr class="${check.severity}"><td>${escape(check.id)}</td><td>${escape(check.side)}</td><td>${escape(check.severity)}</td><td>${escape(check.basis ? `${check.basis} (${checkLevel(check)})` : "")}</td><td>${escape(check.source)}</td><td>${check.exchange ?? ""}</td><td>${escape(check.detail)}</td></tr>`
         )
         .join("\n")}</tbody></table>`
     : "<p>No checks reported anything.</p>";
@@ -106,6 +107,7 @@ export function renderReport(summary: RunSummary): string {
   const interopCells = summary.cells.filter((cell) => !cell.security);
   const counts = new Map<string, number>();
   for (const cell of interopCells) counts.set(cell.outcome, (counts.get(cell.outcome) ?? 0) + 1);
+  const levels = levelCounts(summary.cells);
   const impls = summary.implementations
     .map(
       (impl) =>
@@ -138,7 +140,8 @@ code { font-size: 0.9em; }
 </style>
 <h1>Poppy interop run ${escape(summary.run)}</h1>
 <p>Lane ${escape(summary.lane)} · ${escape(summary.spec)} · ${[...counts].map(([outcome, n]) => `${n} ${escape(outcome)}`).join(", ")}.
-Each failed cell is blamed by the first rule that decides it: violation, grid, reading, or unattributed (docs/interop-spec.md, section 9).</p>
+Checks: ${levels.failure} failures, ${levels.warning} warnings, ${levels.tentative} tentative (our readings); only failures fail a cell (docs/conformance-levels.md).
+Each failed cell is blamed by the first rule that decides it: violation, warning, grid, reading, or unattributed (docs/interop-spec.md, section 9).</p>
 ${lists(summary)}
 <h2>Implementations</h2>
 <table><thead><tr><th>name</th><th>role</th><th>commit</th><th>readings</th><th>interop-only relaxations</th></tr></thead><tbody>${impls}</tbody></table>

@@ -4,14 +4,18 @@
  * changes only the rules that differ.
  */
 import { pointer, type Position } from "./json.ts";
-import { MESSAGES, type MessageId, type Ref, type Severity } from "./messages.ts";
+import { MESSAGES, type Basis, type MessageId, type Ref, type Severity } from "./messages.ts";
 
 /** Which document a message is about. */
 export type DocumentKind = "poppy" | "oauth-metadata" | "client-metadata" | "jwks";
 
 export type Message = {
   readonly id: MessageId;
+  /** What the message rests on (src/validator/levels.ts); the severity follows from it. */
+  readonly basis: Basis;
   readonly severity: Severity;
+  /** Whether our own client refuses a Company over it: every error it doesn't tolerate, and the warnings that guard against hostile documents. */
+  readonly refuses: boolean;
   readonly document: DocumentKind;
   /** JSON Pointer (RFC 6901) to the value; "" is the whole document. */
   readonly pointer: string;
@@ -48,7 +52,9 @@ export class Checker {
     const definition = MESSAGES[id];
     this.messages.push({
       id,
+      basis: definition.basis,
       severity: definition.severity,
+      refuses: definition.refuses,
       document: this.document,
       pointer: at,
       ...(position ? { line: position.line, column: position.column } : {}),
@@ -127,8 +133,14 @@ export function unknownMembers(c: Checker, value: Obj, at: string, known: readon
   }
 }
 
+/**
+ * Where a URL's HTTPS or no-fragment rule is our reading rather than the
+ * draft's or an RFC's (spec-issues N9): the `-unstated` messages, warnings.
+ */
+export type UrlRules = { readonly https?: "unstated"; readonly fragment?: "unstated" };
+
 /** An absolute HTTPS URL with no fragment, or undefined after reporting why not. */
-export function httpsUrl(c: Checker, value: unknown, at: string, ref?: Ref): URL | undefined {
+export function httpsUrl(c: Checker, value: unknown, at: string, ref?: Ref, rules: UrlRules = {}): URL | undefined {
   if (typeof value !== "string") {
     c.report("wrong-type", at, `${label(at)} must be a URL string, not ${typeName(value)}.`, ref);
     return undefined;
@@ -141,11 +153,17 @@ export function httpsUrl(c: Checker, value: unknown, at: string, ref?: Ref): URL
     return undefined;
   }
   if (url.protocol !== "https:") {
-    c.report("not-https-url", at, `${label(at)} must be an HTTPS URL, not ${url.protocol.replace(":", "")}: ${value}.`, ref);
+    c.report(rules.https === "unstated" ? "not-https-url-unstated" : "not-https-url", at, `${label(at)} must be an HTTPS URL, not ${url.protocol.replace(":", "")}: ${value}.`, ref);
+    return undefined;
+  }
+  // The URL parser accepts hosts such as "." (https://.) or "a..b", which name no server.
+  const host = url.hostname.replace(/\.$/, "");
+  if (host === "" || host.split(".").some((part) => part === "")) {
+    c.report("not-a-url", at, `${label(at)} has no usable host name: ${JSON.stringify(value)}.`, ref);
     return undefined;
   }
   if (value.includes("#")) {
-    c.report("url-has-fragment", at, `${label(at)} can't contain a #fragment: ${value}.`, ref);
+    c.report(rules.fragment === "unstated" ? "url-has-fragment-unstated" : "url-has-fragment", at, `${label(at)} can't contain a #fragment: ${value}.`, ref);
     return undefined;
   }
   return url;
@@ -158,7 +176,8 @@ export function httpsMember(
   parentAt: string,
   key: string,
   required: boolean | string,
-  ref?: Ref
+  ref?: Ref,
+  rules: UrlRules = {}
 ): URL | undefined {
   const at = pointer(parentAt, key);
   if (!(key in parent)) {
@@ -168,7 +187,7 @@ export function httpsMember(
     }
     return undefined;
   }
-  return httpsUrl(c, parent[key], at, ref);
+  return httpsUrl(c, parent[key], at, ref, rules);
 }
 
 /** An array whose items are all strings; bad items are reported and dropped. */

@@ -32,6 +32,7 @@ function toChecks(report: Report, side: Side, what: string): Check[] {
       id: `validator.${message.id}`,
       side,
       severity: message.severity as "error" | "warning",
+      basis: message.basis,
       exchange: null,
       detail: `${what}: ${message.text}`,
       source: "validator"

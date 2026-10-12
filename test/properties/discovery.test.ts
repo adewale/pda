@@ -174,9 +174,16 @@ describe("discovery refuses a Company whose documents break a MUST (3.1, 3.2)", 
       const result = await outcome({ ...company, ...changed });
       expect(result.ok).toBe(false);
       const report = await validateCompany(serving({ ...company, ...changed }).fetcher, company.requested);
-      expect(report.messages.filter((message) => message.id === "not-https-url").map((message) => [message.document, message.pointer])).toEqual([
-        [document === "poppy" ? "poppy" : "oauth-metadata", `/${path.join("/")}`]
+      // The draft requires HTTPS for the issuer, conversation endpoints and OAuth endpoints
+      // (not-https-url, an error); for the Mediated Sign-In, API, browser-session and extension
+      // endpoints it's our reading (N9: not-https-url-unstated, a warning our client refuses).
+      const unstated = document === "poppy" && ["mediated", "apis", "web", "extensions"].includes(String(path[0] === "auth" ? path[1] : path[0]));
+      const id = unstated ? "not-https-url-unstated" : "not-https-url";
+      const insecureMessages = report.messages.filter((message) => message.id === "not-https-url" || message.id === "not-https-url-unstated");
+      expect(insecureMessages.map((message) => [message.id, message.document, message.pointer])).toEqual([
+        [id, document === "poppy" ? "poppy" : "oauth-metadata", `/${path.join("/")}`]
       ]);
+      expect(report.refused).toBe(true);
     })
   );
 });

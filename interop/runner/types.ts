@@ -1,4 +1,5 @@
 /** The shapes docs/interop-spec.md defines, as the runner reads and writes them. */
+import type { Basis } from "../../src/validator/levels.ts";
 
 export type Role = "agent" | "company";
 
@@ -105,7 +106,10 @@ export type Side = "agent" | "company";
 export type Check = {
   readonly id: string;
   readonly side: Side;
+  /** `error` for a failure, `warning` for the rest; from `basis` where there is one (docs/conformance-levels.md). */
   readonly severity: Severity;
+  /** What the check rests on (src/validator/levels.ts): `Reading` makes a warning tentative. Absent or null: unknown, and the severity decides. */
+  readonly basis?: Basis | null;
   /** Index of the HAR entry, when one exchange shows it. */
   readonly exchange: number | null;
   readonly detail: string;
@@ -124,7 +128,7 @@ export type StepRecord = {
 
 export type Outcome = "pass" | "fail" | "unsupported" | "error";
 export type Blame = "agent" | "company" | "spec" | "harness" | null;
-export type Rule = "adversarial" | "violation" | "grid" | "reading" | "unattributed" | null;
+export type Rule = "adversarial" | "violation" | "warning" | "grid" | "reading" | "unattributed" | null;
 
 export type Cell = {
   readonly agent: string;

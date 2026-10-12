@@ -10,6 +10,13 @@
  *    one-sided errors whose trace shows a refusal the Company's declared
  *    reading explains (`reading.<id>.refused`: an assertion `aud` or `typ`
  *    its S1 or S2 reading doesn't accept), when the readings are incompatible.
+ * 1b. below a failure (docs/conformance-levels.md): with no error to decide
+ *    it, a check the Company recorded at a lower level. Our reading (basis
+ *    Reading) blames the spec (rule `reading`), unless both sides declared
+ *    compatible readings of its question and the agent sent otherwise
+ *    (rule `warning`, the agent). A SHOULD or the Guides, recorded on one
+ *    side, blames that side with rule `warning`: it departed from a
+ *    recommendation, which isn't a violation.
  * 2. grid: the agent passes the scenario against the reference Company but
  *    this Company fails it with every agent that ran it (blame the Company);
  *    or this agent fails it with every Company it ran against while this
@@ -21,10 +28,40 @@
  *    readings that differ, with no such evidence, decide nothing.
  * 4. unattributed.
  */
+import { isBasis, levelOf, type Level } from "../../src/validator/levels.ts";
 import { compatible, questionOf, REFUSED_READING } from "./readings.ts";
 import type { Blame, Cell, Check, KnownFailure, Rule, Scenario } from "./types.ts";
 
 export const REFERENCE_COMPANY = "dpa-mock";
+
+/** One entry of a Company adapter's `GET /violations` (interop/impls/shared/mock-hooks.ts). */
+export type RecordedViolation = { readonly id: string; readonly basis?: unknown; readonly level?: unknown; readonly detail: string };
+
+/**
+ * A check a Company recorded, as a cell check against the agent. Its basis
+ * decides the severity: a failure (MUST, RFC, Rule) is an error, which fails
+ * the cell; a SHOULD, the Guides or our reading a warning, which doesn't. A
+ * record without a known basis counts as a failure. In a security cell every
+ * record is a warning: the bad request is the attack's, and rule 0 decides.
+ */
+export function companyRecorded(violation: RecordedViolation, company: string, security: boolean): Check {
+  const basis = isBasis(violation.basis) ? violation.basis : null;
+  const failure = basis === null || levelOf(basis) === "failure";
+  return { id: violation.id, side: "agent", severity: failure && !security ? "error" : "warning", basis, exchange: null, detail: violation.detail, source: `company:${company}` };
+}
+
+/** A check's level: from its basis, or, without one, `failure` for an error and `warning` otherwise. */
+export function checkLevel(check: Check): Exclude<Level, "none"> {
+  const level = check.basis ? levelOf(check.basis) : check.severity === "error" ? "failure" : "warning";
+  return level === "none" ? "warning" : level;
+}
+
+/** Checks per level across the interop cells (security cells apart), for the results' `levels`. */
+export function levelCounts(cells: readonly Cell[]): Record<Exclude<Level, "none">, number> {
+  const counts = { failure: 0, warning: 0, tentative: 0 };
+  for (const cell of cells) if (!cell.security) for (const check of cell.checks) counts[checkLevel(check)]++;
+  return counts;
+}
 
 /**
  * Each implementation's declared readings, by role, then name: a project with
@@ -115,6 +152,31 @@ export function attribute(cell: Cell, grid: readonly Cell[], context: Attributio
   for (const question of refused) {
     const { agent, company } = readingOf(question);
     if (!compatible(question, agent, company)) return reading(question);
+  }
+
+  // Below a failure (docs/conformance-levels.md): what the Company recorded as a warning or a
+  // tentative reading, when no error decided the cell. These are the Company's own record of the
+  // request it refused (or let through), so they say why the cell failed; the runner's passive
+  // trace and validator warnings don't, and aren't counted here.
+  const recorded = cell.checks.filter((check) => check.source.startsWith("company:") && check.severity !== "error" && check.basis);
+  // A reading of ours (basis Reading): the spec's open question, unless both sides declared
+  // compatible readings of it and the agent sent otherwise, which is its own departure.
+  const tentative = recorded.find((found) => levelOf(found.basis!) === "tentative");
+  if (tentative) {
+    const question = questionOf(tentative.id);
+    if (!question) return { blame: "spec", rule: "reading", detail: `${tentative.id}: our reading, not a requirement of the draft` };
+    const { agent, company } = readingOf(question);
+    if (!agent || !company || !compatible(question, agent, company)) return reading(question);
+    const who = tentative.side === "agent" ? cell.agent : cell.company;
+    return { blame: tentative.side, rule: "warning", detail: `${tentative.id}: ${who} departs from its own declared reading of ${question}` };
+  }
+  // A SHOULD or the Guides: the side that departed from the recommendation, as a warning, not a
+  // violation: the draft lets it, and lets the other side refuse.
+  const warned = recorded.filter((found) => levelOf(found.basis!) === "warning");
+  const warnedSides = new Set(warned.map((check) => check.side));
+  if (warnedSides.size === 1) {
+    const [side] = warnedSides;
+    return { blame: side!, rule: "warning", detail: `${[...new Set(warned.map((check) => check.id))].join(", ")}: a SHOULD or the Guides, not a requirement` };
   }
 
   // 2. grid (adversarial implementations are never reference cells, spec §9 rule 2)

@@ -95,7 +95,7 @@ ${forms()}
 <h2>Use it from code</h2>
 <pre>curl -s ${escape(origin)}/validator/api -H 'Content-Type: application/json' \\
   -d '{"url": "example.com"}'</pre>
-<p>Or post a document: <code>{"document": "{…}", "kind": "poppy", "domain": "example.com"}</code>. The response is the JSON report described on <a href="/validator/messages#output">the messages page</a>. Errors are what our client refuses: mostly a MUST in the specification, otherwise a limit or reading each message's explanation names; warnings are SHOULDs and interoperability problems; info is worth knowing but harmless.</p>`
+<p>Or post a document: <code>{"document": "{…}", "kind": "poppy", "domain": "example.com"}</code>. The response is the JSON report described on <a href="/validator/messages#output">the messages page</a>. Errors break a requirement (a MUST, an RFC's MUST, or a normative rule without a key word); warnings depart from a recommendation (a SHOULD, the Guides) or our reading of an open question; info is worth knowing but harmless. Each message names its basis, and the report says separately whether our own agent refuses the documents.</p>`
   );
 }
 
@@ -114,8 +114,16 @@ function messageItem(message: Message, source: string | undefined): string {
   ]
     .filter(Boolean)
     .join(" · ");
-  return `<li><span class="sev ${message.severity}">${message.severity === "error" ? "Error" : message.severity === "warning" ? "Warning" : "Info"}</span> ${escape(message.text)}
-<div class="where">${where ? `${where} · ` : ""}<a href="${escape(message.ref.url)}">${escape(message.ref.label)}</a> · <a href="/validator/messages#${message.id}">${escape(message.id)}</a></div>${excerpt(source, message)}</li>`;
+  return `<li><span class="sev ${message.severity}">${SEVERITY_NAMES[message.severity]}</span> ${escape(message.text)}
+<div class="where">${where ? `${where} · ` : ""}${escape(basisLabel(message))} · <a href="${escape(message.ref.url)}">${escape(message.ref.label)}</a> · <a href="/validator/messages#${message.id}">${escape(message.id)}</a></div>${excerpt(source, message)}</li>`;
+}
+
+const SEVERITY_NAMES = { error: "Error", warning: "Warning", info: "Info" } as const;
+
+/** The basis, and whether our agent's decision differs from the severity's. */
+function basisLabel(m: { readonly basis: string; readonly severity: Message["severity"]; readonly refuses: boolean }): string {
+  const policy = m.refuses && m.severity !== "error" ? ", but our agent refuses it" : !m.refuses && m.severity === "error" ? ", but our agent tolerates it" : "";
+  return `Basis: ${m.basis}${policy}`;
 }
 
 export function resultPage(
@@ -125,20 +133,31 @@ export function resultPage(
   const { error, warning, info } = result.counts;
   const headline =
     result.outcome === "indeterminate"
-      ? "Couldn't check: a document couldn't be fetched"
+      ? "Couldn't check: a document couldn't be fetched within the limits"
       : result.outcome === "invalid"
         ? `Not valid: ${error} error${error === 1 ? "" : "s"}`
         : warning > 0
           ? "Valid, with recommendations"
           : "Valid";
-  const note =
+  const verdict =
     result.outcome === "invalid"
-      ? "Conforming Personal Agents refuse documents with errors."
+      ? "An error is a MUST, or a normative rule of the draft or an RFC it builds on, that the documents break."
       : result.outcome === "valid" && warning > 0
-        ? "Agents can use these documents, but the warnings below may stop some of them working well."
+        ? "Agents can use these documents, but the warnings below (a SHOULD, the Guides, or our reading of an open question) may stop some of them working well."
         : result.outcome === "valid"
           ? "Agents can use these documents."
           : "";
+  const ours =
+    result.outcome === "indeterminate"
+      ? ""
+      : result.refused
+        ? result.outcome === "invalid"
+          ? " Our Personal Agent refuses them."
+          : " Our Personal Agent still refuses them, for the warnings marked so below."
+        : result.outcome === "invalid"
+          ? " Our Personal Agent tolerates these errors, as the draft tells readers to, and would use them."
+          : "";
+  const note = `${verdict}${ours}`;
   const documents = result.documents
     .map((doc) => {
       const messages = result.messages.filter((m) => m.document === doc.kind);
@@ -169,21 +188,22 @@ export function messagesPage(): string {
   const entries = (Object.entries(MESSAGES) as [MessageId, (typeof MESSAGES)[MessageId]][])
     .map(
       ([id, m]) => `<section class="msg" id="${id}"><h3>${escape(m.title)}</h3>
-<p class="where"><code>${id}</code> · <span class="sev ${m.severity}">${m.severity === "error" ? "Error" : m.severity === "warning" ? "Warning" : "Info"}</span> · <a href="${escape(m.ref.url)}">${escape(m.ref.label)}</a></p>
+<p class="where"><code>${id}</code> · <span class="sev ${m.severity}">${SEVERITY_NAMES[m.severity]}</span> · ${escape(basisLabel(m))} · <a href="${escape(m.ref.url)}">${escape(m.ref.label)}</a></p>
 <p>${escape(m.explain)}</p><p><strong>Fix:</strong> ${escape(m.fix)}</p></section>`
     )
     .join("");
   return page(
     "Poppy Validator messages",
     `<h1>What the messages mean</h1>
-<p class="lede"><a href="/validator">Back to the validator</a>. Message ids are stable, so tools can key on them. An error is something our Personal Agent refuses the document for: mostly a MUST in the specification or an RFC it builds on, and otherwise a limit the Guides recommend or a rule the draft leaves open, which the message's explanation names. A warning is a SHOULD, or something that stops some agents working with it. Info is worth knowing but harmless, such as a field this version doesn't define (agents ignore those, so later versions can add fields).</p>
+<p class="lede"><a href="/validator">Back to the validator</a>. Message ids are stable, so tools can key on them. Each message names its basis, and its severity follows from it. An error breaks a requirement: a MUST in the specification (basis MUST), a MUST of an RFC it builds on (RFC), or a normative statement written without a key word (Rule). A warning departs from a recommendation: a SHOULD (SHOULD), the Guides, which call each item "a recommendation, in the sense of SHOULD" (Guides), or our answer to a question the draft leaves open (Reading). Info reports something worth knowing that breaks nothing, such as a field this version doesn't define (agents ignore those, so later versions can add fields). Only errors make documents invalid. What our own Personal Agent refuses is a separate choice, shown where it differs: it also refuses a few warnings that guard against hostile documents, and tolerates a few errors the draft tells readers to tolerate.</p>
 <h2 id="output">The JSON report</h2>
 <dl>
 <dt>outputVersion</dt><dd>1. Changes that break readers of the report get a new number.</dd>
-<dt>outcome</dt><dd>valid (no errors), invalid (an error), or indeterminate (a document couldn't be fetched, so it couldn't be checked).</dd>
+<dt>outcome</dt><dd>valid (no errors), invalid (an error), or indeterminate (a document couldn't be fetched, or not within the limits the Guides recommend, so it couldn't be checked).</dd>
+<dt>refused</dt><dd>Whether our Personal Agent refuses these documents: an error it doesn't tolerate, a warning it refuses, or a document it couldn't check.</dd>
 <dt>checkedAgainst</dt><dd>The protocol version whose rules were applied, chosen from poppy.json's protocol_version.</dd>
 <dt>documents</dt><dd>Each document checked: kind, url, finalUrl after redirects, status, contentType, maxAgeSeconds, and the parsed value.</dd>
-<dt>messages</dt><dd>id, severity, document, pointer (a JSON Pointer), line and column (1-based) when known, text, and ref (the section of the specification or RFC).</dd>
+<dt>messages</dt><dd>id, basis (MUST, RFC, Rule, SHOULD, Guides or Reading), severity, refuses (whether our agent refuses the documents over it), document, pointer (a JSON Pointer), line and column (1-based) when known, text, and ref (the section of the specification or RFC).</dd>
 <dt>skipped</dt><dd>Checks that needed something the input didn't give, such as the domain a pasted poppy.json was served from.</dd>
 </dl>
 <h2>Messages</h2>${entries}`
