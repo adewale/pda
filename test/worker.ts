@@ -22,7 +22,9 @@ import { protocolIndex, protocolLog } from "../src/poppy/protocol-log";
 import type { ProtocolCompany, ProtocolEntry } from "../src/poppy/wire";
 import { Sealer } from "../src/poppy/store";
 import { poppyExtension } from "../src/poppy/tools";
+import type { BrowserLauncher } from "../src/tools/render";
 import type { Fetcher as WebFetcher } from "../src/tools/web";
+import { fakeBrowserWeb, fakeLauncher, type FakeBrowserWeb, type FakeRender, type FakeRenderLog } from "./fake-browser";
 import { CLOCK_HEADER, companyIdFromHost, type MockCompany } from "./mock-company";
 
 type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
@@ -370,12 +372,16 @@ export type FakePage = {
 /** One request read_url made: everything it carried. */
 export type WebRequest = { readonly method: string; readonly url: string; readonly headers: Record<string, string>; readonly body: string };
 
-/** Each agent's fake web, by Durable Object id: pages by URL, and the requests that reached it. */
-const webs = new Map<string, { pages: Map<string, FakePage>; requests: WebRequest[] }>();
+/**
+ * Each agent's fake web, by Durable Object id: pages by URL, the requests
+ * that reached it, and its fake Browser Run (test/fake-browser.ts), with a
+ * switch standing for `BROWSER_RUN` off.
+ */
+const webs = new Map<string, { pages: Map<string, FakePage>; requests: WebRequest[]; browser: FakeBrowserWeb; renderOff: boolean }>();
 
 function webOf(id: string) {
   let web = webs.get(id);
-  if (!web) webs.set(id, (web = { pages: new Map(), requests: [] }));
+  if (!web) webs.set(id, (web = { pages: new Map(), requests: [], browser: fakeBrowserWeb(), renderOff: false }));
   return web;
 }
 
@@ -414,6 +420,28 @@ export class PersonalAgent extends ProductionAgent {
   /** Every request read_url sent, oldest first. */
   async webRequests(): Promise<WebRequest[]> {
     return webOf(this.ctx.id.toString()).requests;
+  }
+
+  /** read_url's renderer: the fake browser, never Browser Run; null while a test has switched rendering off. */
+  protected override browserRenderer(): BrowserLauncher | null {
+    const web = webOf(this.ctx.id.toString());
+    return web.renderOff ? null : fakeLauncher(web.browser);
+  }
+
+  /** What the fake browser does when it loads `url`. */
+  async webRender(url: string, render: FakeRender): Promise<void> {
+    webOf(this.ctx.id.toString()).browser.pages.set(url, render);
+  }
+
+  /** Every render, oldest first: each request's decision, the setup, and whether the browser was closed. */
+  async webRenders(): Promise<{ launches: number; logs: FakeRenderLog[] }> {
+    const { browser } = webOf(this.ctx.id.toString());
+    return { launches: browser.launches, logs: browser.logs };
+  }
+
+  /** As `BROWSER_RUN` on or off, or the binding missing, for this agent. */
+  async webRendering(on: boolean): Promise<void> {
+    webOf(this.ctx.id.toString()).renderOff = !on;
   }
 
   /** Every URL the Poppy client asked for, to any host. */

@@ -35,6 +35,7 @@ import { poppyExtension } from "./poppy/tools";
 import { PiSessionSockets } from "./sockets";
 import { memoryExtension, timeExtension, webExtension } from "./tools/extensions";
 import { MAX_MEMORIES, MemoryStore, type Memory } from "./tools/memory-store";
+import { puppeteerLauncher, renderAvailability, RenderLimiter, type BrowserLauncher } from "./tools/render";
 import { ReadLimiter, type Fetcher as WebFetcher } from "./tools/web";
 
 const PREAMBLE =
@@ -114,9 +115,15 @@ export class PersonalAgent extends DurableObject<Env> {
       notifyModel: (text, operationId) => this.poppyNotify(text, operationId),
       ...this.poppySettings()
     });
+    let renderLimiter: RenderLimiter | undefined;
     this.generalTools = [
       // Its own fetcher, never the Poppy client's: no Session, cookie or token can reach it.
-      webExtension({ fetcher: () => this.webFetcher(), limiter: new ReadLimiter() }),
+      webExtension({
+        fetcher: () => this.webFetcher(),
+        limiter: new ReadLimiter(),
+        renderer: () => this.browserRenderer(),
+        renderLimiter: () => (renderLimiter ??= new RenderLimiter(ctx.storage.sql, () => this.clockNow()))
+      }),
       memoryExtension(() => this.memories),
       timeExtension({ userTimeZone: () => this.poppy.timeZone, now: () => this.clockNow() })
     ];
@@ -204,7 +211,16 @@ export class PersonalAgent extends DurableObject<Env> {
     return (request) => fetch(request);
   }
 
-  /** Now, for the now and date_math tools. */
+  /**
+   * read_url's browser for pages that need JavaScript: a new Browser Run
+   * browser for each render, or null when `BROWSER_RUN` is off or the
+   * binding is missing. Tests hand in a fake browser; none reaches Browser Run.
+   */
+  protected browserRenderer(): BrowserLauncher | null {
+    return renderAvailability(this.env) === "on" ? puppeteerLauncher(this.env.BROWSER) : null;
+  }
+
+  /** Now, for the now and date_math tools, and read_url's render limit. */
   protected clockNow(): number {
     return Date.now();
   }

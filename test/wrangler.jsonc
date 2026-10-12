@@ -43,6 +43,10 @@
     "PUBLIC_ORIGIN": "https://agent.test",
     "PRIVACY_CONTACT": "privacy@example.com",
     "POPPY_CLIENT_NAME": "Test Personal Agent",
+    // On, but with no `browser` binding here: the test agent renders with a
+    // fake browser (test/fake-browser.ts), and a render that missed the fake
+    // would find no binding and fail closed, never reaching Browser Run.
+    "BROWSER_RUN": "on",
     "POPPY_LOGO_URI": "https://agent.test/logo.svg",
     "OWNERS": { "emails": ["owner@example.com"], "github": { "owner": 4141 } },
     // nokey.example signs in but isn't on the demo, so it needs its own key.

@@ -90,3 +90,9 @@ npx wrangler secret put GOOGLE_CLIENT_SECRET
 ```
 
 A deployment can run with only one provider: list the ones it offers in `SIGNIN_PROVIDERS`, for example `"SIGNIN_PROVIDERS": ["github"]` in `deployment.local.json`. A provider left out has no button on the sign-in page, and its routes answer 404. A provider listed without its client's secrets answers a 500 naming the missing setting.
+
+## 6. Browser Run (on by default)
+
+`read_url` renders pages that need JavaScript in Cloudflare Browser Run, through the `BROWSER` binding in `wrangler.jsonc`. There is nothing to create or set: the binding needs no API token, and Workers Paid includes 10 browser hours a month and 10 concurrent browsers (averaged over the month); beyond that Cloudflare charges $0.09 a browser hour and $2 a concurrent browser. Each agent renders at most 10 pages an hour, each in at most 20 seconds. On Workers Free, Browser Run allows 10 browser minutes a day, so renders fail once they are used up and `read_url` falls back to the plain read.
+
+To switch it off, set `"BROWSER_RUN": "off"` in `deployment.local.json` and redeploy. `read_url` then reads every page without JavaScript and tells the model when a page needed it. Usage shows in the dashboard under **Compute → Browser Run**. In `npm start` the binding is remote, so renders during development run in Browser Run and count against the same allowance.

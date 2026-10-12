@@ -589,6 +589,7 @@ describe("configuration", () => {
     expect(html).toContain("Attached photos are deleted after 30 days");
     expect(html).toContain("notes about you are kept in its storage until you delete them");
     expect(html).toContain("Nothing about you goes with it: no cookies, no sign-in, nothing but the page's address");
+    expect(html).toContain("in Cloudflare's Browser Run, which runs the page's own scripts, sends only requests that read, and is closed afterwards. It gets the page's address and nothing about you.");
     expect((await fetchWorker(new Request(`${ORIGIN}/privacy`, { method: "POST" }))).status).toBe(405);
     const unset = await fetchWorker(new Request(`${ORIGIN}/privacy`), { PRIVACY_CONTACT: "" } as unknown as Partial<Env>);
     expect(unset.status).toBe(500);

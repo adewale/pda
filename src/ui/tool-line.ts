@@ -115,7 +115,12 @@ function generalLine(name: string, a: Args, outcome: ToolOutcome | undefined): T
       // Where it was read from, its status and its size: never what it says.
       const status = typeof details.status === "number" ? details.status : null;
       const bytes = typeof details.bytes === "number" ? details.bytes : null;
-      const facts = [status !== null ? `HTTP ${status}` : null, bytes !== null ? size(bytes) : null, details.truncated === true ? "cut short" : null].filter(Boolean);
+      const facts = [
+        status !== null ? `HTTP ${status}` : null,
+        bytes !== null ? size(bytes) : null,
+        details.via === "browser" ? "rendered in Browser Run" : null,
+        details.truncated === true ? "cut short" : null
+      ].filter(Boolean);
       return line(`Read ${page}${facts.length ? ` (${facts.join(", ")})` : ""}`, "web page");
     }
     case "remember": {
