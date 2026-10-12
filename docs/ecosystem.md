@@ -1,27 +1,27 @@
 # The Poppy ecosystem
 
-A map of everything around [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/), as of **12 October 2026**, three days after Draft 0.1 was published. It is meant to be kept up to date: each row says where it comes from and when it was last checked, and [the last section](#how-to-update-this-map) says how to check again.
+A map of everything around [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/), as of **12 October 2026** (checked again that evening), three days after Draft 0.1 was published. It is meant to be kept up to date: each row says where it comes from and when it was last checked, and [the last section](#how-to-update-this-map) says how to check again.
 
 The detail lives elsewhere. Every implementation, with licences and maturity, is in [implementations.md](implementations.md); what we found in their code is in [poppy-issues.md](poppy-issues.md); the spec's problems are in [spec-issues.md](spec-issues.md), with our chosen readings in [readings.md](readings.md); how our harness pairs them is in [interop-testing.md](interop-testing.md), and its last run in [interop-results/](interop-results/README.md). This page is the index.
 
-**Method.** Read-only: GitHub (repositories, code, issues and pull requests), npm, PyPI, crates.io, web search, and the community lists. We read other projects' code at a pinned commit and run it only in Docker. We fetch no business's `poppy.json` beyond what [implementations.md](implementations.md) already records; the live Companies below come from those records and from public directories. Nothing is posted to other projects.
+**Method.** Read-only: GitHub (repositories, code, issues and pull requests), npm, PyPI, crates.io, web search, and the community lists. We read other projects' code at a pinned commit and run it only in Docker. We fetch a live Company's `poppy.json` and its issuer's metadata only with our validator CLI, once per host per survey, one host at a time; the hosts come from our records, public directories and other projects' pull requests. Nothing is posted to other projects.
 
 ## The spec
 
 | Item | State on 12 October | Source | Checked |
 | --- | --- | --- | --- |
-| Draft 0.1, "Updated Oct 9, 2026" | The only version. Nine pages: home (with walkthroughs), overview, spec, extensions, Operations extension v1, Guides, open topics, licence, contributions. | [personalagentprotocol.org](https://personalagentprotocol.org/) | 12 Oct, `node scripts/spec-snapshot.mjs`: no text changes since our snapshot |
+| Draft 0.1, "Updated Oct 9, 2026" | The only version. Nine pages: home (with walkthroughs), overview, spec, extensions, Operations extension v1, Guides, open topics, licence, contributions. | [personalagentprotocol.org](https://personalagentprotocol.org/) | 12 Oct, morning and evening, `node scripts/spec-snapshot.mjs`: no body or text changes since our snapshot |
 | Authors | Led by Sierra and Meta, with 35 named design partners (Sierra's post) | [sierra.ai/blog/poppy](https://sierra.ai/blog/poppy) | 12 Oct |
 | Licence | Apache 2.0 for the specification, documentation and examples; not the names, logo or site design. Feedback is licensed to all members and users. | [licence](https://personalagentprotocol.org/license), [contributions](https://personalagentprotocol.org/license/contributions) | 12 Oct |
-| Where it lives | Only on the website. No public source repository, issue tracker, changelog or `llms.txt`. A copy of the source is in poppyseed's `spec/`. | [spec-issues.md](spec-issues.md#how-we-found-them) | 12 Oct |
+| Where it lives | Only on the website. No public source repository, issue tracker, changelog or `llms.txt`; the site links to none, and a GitHub search on the evening of 12 Oct found none. A copy of the source is in poppyseed's `spec/`. | [spec-issues.md](spec-issues.md#how-we-found-them) | 12 Oct, evening |
 | Our copy | A dated snapshot of every page, for citing | [spec/draft-0.1-2026-10-09](../spec/draft-0.1-2026-10-09/README.md), [spec/grounding.md](../spec/grounding.md) | Snapshot taken 12 Oct |
-| Change tracking | `node scripts/spec-snapshot.mjs` compares the live site with the newest snapshot (read-only); `--save` stores a new dated one | [`scripts/spec-snapshot.mjs`](../scripts/spec-snapshot.mjs) | Run 12 Oct |
+| Change tracking | `node scripts/spec-snapshot.mjs` compares the live site with the newest snapshot (read-only); `--save` stores a new dated one | [`scripts/spec-snapshot.mjs`](../scripts/spec-snapshot.mjs) | Run 12 Oct, twice |
 
 ## Promised, not released
 
 | Item | State | Source | Checked |
 | --- | --- | --- | --- |
-| Sierra's reference implementation | Promised "over the next month", with design workshops. Not published. Sierra's GitHub organisation is [sierra-inc](https://github.com/sierra-inc) (7 public repositories, all SDKs and forks; none for Poppy). | [Sierra's post](https://sierra.ai/blog/poppy) | 12 Oct |
+| Sierra's reference implementation | Promised "over the next month", with design workshops. Not published. Sierra's GitHub organisation is [sierra-inc](https://github.com/sierra-inc) (7 public repositories, all SDKs and forks; none for Poppy). | [Sierra's post](https://sierra.ai/blog/poppy) | 12 Oct, evening |
 | Partner launches | None of the launch or design partners we know of serves a `poppy.json`: we checked Sierra and seven partners on 11 October ([implementations.md](implementations.md#not-found)), and PAP Checker's author checked them on 11 October too. | [dev.to article](https://dev.to/benjifisher/what-is-poppyjson-a-personal-agent-protocol-example-and-how-to-validate-yours-3d5m) | 12 Oct (no new fetch) |
 | Muse with Redfin and Rocket | A video demo; no code, no endpoints, no spec version | [video](https://x.com/SierraPlatform/status/2108245197440307584), via [poppy.md](https://poppy.md/implementations) | 11 Oct |
 | A shared conformance suite | None exists, and the draft doesn't mention one: its open topics are payments, push notifications and attachments. Datalayer's 124 JSON cases are the nearest thing. | [open topics](https://personalagentprotocol.org/docs/open-topics), [our copy](../spec/draft-0.1-2026-10-09/pages/open-topics.md) | 12 Oct |
@@ -33,13 +33,15 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 | Project | What | Language, licence | Grid | Source | Checked |
 | --- | --- | --- | --- | --- | --- |
 | This project (dpa) | A hosted Personal Agent per User, on Durable Objects. Beyond Poppy: general tools (reading a public page, rendering it in Browser Run when it needs JavaScript; notes about the User; dates and exact sums) and reminders and scheduled tasks, with Web Push | TypeScript, none chosen | Yes | [adewale/dpa](https://github.com/adewale/dpa) | 12 Oct |
-| Datalayer SDK | Client side of a both-sides SDK | Python, TypeScript; BSD-3-Clause | Yes, pinned at `0c048aa` (0.10.0; was `12d7187`, 0.6.0) | [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol) | 12 Oct |
+| Datalayer SDK | Client side of a both-sides SDK | Python, TypeScript; BSD-3-Clause | Yes, pinned at `0c048aa` (0.10.0; was `12d7187`, 0.6.0). Upstream reached 0.16.0 (`ab90426`) that evening, with no change to the wire behaviour the grid exercises | [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol) | 12 Oct, evening |
 | pi-poppy | An extension for the pi coding agent | TypeScript, MIT | Yes | [richardanaya/pi-poppy](https://github.com/richardanaya/pi-poppy) | 12 Oct (no commits since 10 Oct) |
 | adonis-agora agent | `poppy-client`, `poppy-agent` bin and "connections" in an AdonisJS agent library | TypeScript, MIT | Yes | [DavideCarvalho/adonis-agora-agent](https://github.com/DavideCarvalho/adonis-agora-agent) | 12 Oct |
-| nestjs-agent | `@dudousxd/nestjs-agent-poppy` (0.1.1 in the repository, not on npm): a NestJS port of the adonis-agora agent. Its client is a verbatim copy of adonis-agora's `poppy-client`, plus connections and a `poppy-agent` CLI | TypeScript, MIT | No | [DavideCarvalho/nestjs-agent](https://github.com/DavideCarvalho/nestjs-agent) | 12 Oct |
+| nestjs-agent | `@dudousxd/nestjs-agent-poppy` (0.1.1, on npm since 12 Oct): a NestJS port of the adonis-agora agent. Its client is a verbatim copy of adonis-agora's `poppy-client`, plus connections and a `poppy-agent` CLI | TypeScript, MIT | No | [DavideCarvalho/nestjs-agent](https://github.com/DavideCarvalho/nestjs-agent) | 12 Oct |
 | poppy-demo caller | A demo caller Worker | TypeScript, none declared | Yes | [irvinebroque/poppy-demo](https://github.com/irvinebroque/poppy-demo) | 12 Oct (no commits since 9 Oct) |
-| everruns `poppy_client` | A capability of a production agent platform; since [#4577](https://github.com/everruns/everruns/pull/4577) (11 Oct) also for apps built on its framework. Still no sign-in. | Rust, MIT | Yes, pinned at `f470ad7` (12 Oct; first run that day) | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct |
+| everruns `poppy_client` | A capability of a production agent platform; since [#4577](https://github.com/everruns/everruns/pull/4577) (11 Oct) also for apps built on its framework. Still no sign-in. | Rust, MIT | Yes, pinned at `f470ad7` (12 Oct; first run that day); upstream is 43 commits later, none in its Poppy code | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct, evening |
 | Atlas (introspection-js-sdk) | A scripted demo agent in an open pull request | TypeScript, Apache-2.0 | No | [PR #441](https://github.com/introspection-org/introspection-js-sdk/pull/441) | 12 Oct (still open) |
+| Tipping Co's agent (timothyohare) | A CLI Personal Agent with a callback host, from a learning demo: Direct Sign-In with PKCE, DPoP, an OpenAPI API; no conversations. No `typ` on its assertions; metadata by insertion | TypeScript, none declared | No ([candidate](interop-testing.md#candidates-from-the-12-october-survey)) | [timothyohare/personal-agent-protocol](https://github.com/timothyohare/personal-agent-protocol) | 12 Oct (new) |
+| Cloud Wallet pilot (Ekubo) | Only a public identity: client metadata, a JWKS and a sign-in callback page on GitHub Pages; the client itself isn't public | n/a | No | [EkuboProtocol/cloud-wallet-poppy-pilot-agent](https://github.com/EkuboProtocol/cloud-wallet-poppy-pilot-agent) | 12 Oct (new) |
 | print-with-poppy's `scripts/agent.ts` | A reference client for that store, demo identity only | TypeScript, MIT (since 12 Oct) | No | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 12 Oct |
 
 ## Companies and Company SDKs
@@ -48,21 +50,22 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 | --- | --- | --- | --- | --- | --- |
 | poppyseed | A Company library for Next.js, with a demo Company | TypeScript, MIT | Yes | [akshay5995/poppyseed](https://github.com/akshay5995/poppyseed) | 12 Oct (no commits since 11 Oct) |
 | Datalayer "Manzanita" | Reference Company on the SDK's Company side | Python, TypeScript; BSD-3-Clause | Yes | [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol) | 12 Oct |
-| adonis-agora AuthKit | Company OAuth server and conversation endpoint in an AdonisJS kit | TypeScript, MIT | Yes | [DavideCarvalho/adonis-agora-authkit](https://github.com/DavideCarvalho/adonis-agora-authkit) | 12 Oct |
+| adonis-agora AuthKit | Company OAuth server and conversation endpoint in an AdonisJS kit; 0.80.0 (12 Oct) adds a ready-made Mediated Sign-In by emailed code | TypeScript, MIT | Yes, pinned at 0.78.0 | [DavideCarvalho/adonis-agora-authkit](https://github.com/DavideCarvalho/adonis-agora-authkit) | 12 Oct |
 | nestjs-agent Company | The same package's conversation endpoint (section 7, with SSE, handoff and Direct Conversations). No `poppy.json` and no authorization server: it checks tokens through a resolver that adonis-agora AuthKit provides | TypeScript, MIT | No | [DavideCarvalho/nestjs-agent](https://github.com/DavideCarvalho/nestjs-agent) | 12 Oct |
 | pi-poppy test Company | A test peer in the pi-poppy repository | TypeScript, MIT | Yes | [richardanaya/pi-poppy](https://github.com/richardanaya/pi-poppy) | 12 Oct |
 | poppy-demo Northstar | A demo retailer Worker that accepts only its own agent | TypeScript, none declared | Yes, patched | [irvinebroque/poppy-demo](https://github.com/irvinebroque/poppy-demo) | 12 Oct |
-| Ilmer.org | A local-history archive assistant, signed-out only | TypeScript, MIT | Yes | [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org) | 12 Oct |
-| everruns `poppy` channel | Hosts a Company's Poppy endpoints, signed-out only | Rust, MIT | Yes, pinned at `f470ad7` (12 Oct; first run that day) | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct |
+| Ilmer.org | A local-history archive assistant, signed-out only. Since 12 Oct its main site, www.ilmer.org, also serves a `poppy.json` naming the same issuer | TypeScript, MIT | Yes, pinned at `4ca76e0`; upstream is 12 commits later | [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org) | 12 Oct, evening |
+| everruns `poppy` channel | Hosts a Company's Poppy endpoints, signed-out only | Rust, MIT | Yes, pinned at `f470ad7` (12 Oct; first run that day); upstream is 43 commits later, none in its Poppy code | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct, evening |
 | Spot | A cart-approval and payment service | JavaScript, none declared | No | [futurebasicsrepo/…-client-hub-api](https://github.com/futurebasicsrepo/futurebasicsrepo-client-hub-api) | 12 Oct (active) |
 | print-with-poppy | An agent-first photo-printing store: signed-out Sessions, OpenAPI, Operations v1 required for orders; agents on an allowlist. Since 12 Oct (`260dbb4`) optional accounts: Direct and Mediated Sign-In by an emailed code, `poppy:read` for order history, `poppy:write` to order into the account | TypeScript (Express, SQLite), MIT (since 12 Oct) | Yes, pinned at `260dbb4` (12 Oct; was `7ef69be`), unpatched: D, S0, CM, SD, SX, SMC, SO, AO, AS, R, and OU with dpa only ([`interop/impls/print-with-poppy-company`](../interop/impls/print-with-poppy-company)) | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 12 Oct |
+| Tipping Co (timothyohare) | A learning-demo Company for an NRL tipping service: signed-out and Direct Sign-In Sessions, DPoP, refresh and revocation, OpenAPI; in-memory stores. Requires the token endpoint as `aud`, at revocation too | TypeScript (Hono), none declared | No ([candidate](interop-testing.md#candidates-from-the-12-october-survey)) | [timothyohare/personal-agent-protocol](https://github.com/timothyohare/personal-agent-protocol) | 12 Oct (new) |
 | Flight Sector (introspection-js-sdk) | The demo Company in PR #441 | TypeScript, Apache-2.0 | No | [PR #441](https://github.com/introspection-org/introspection-js-sdk/pull/441) | 12 Oct |
 | TYPO3 lab | A signed-out "knowledge profile" in a private extension | PHP, private | README only | [dirnbauer/webconsulting-typo3-lab](https://github.com/dirnbauer/webconsulting-typo3-lab) | 12 Oct |
 | Fillthemat (planned) | A growth platform for martial-arts schools planning to make each School a Company: one issuer per School with a path (`https://auth.fillthemat.com/schools/<id>`), metadata by RFC 8414 insertion, signed-out Sessions first. Draft PR; nothing served from merged code | TypeScript, MIT | No | [fillthemat/fillthemat PR #200](https://github.com/fillthemat/fillthemat/pull/200) | 12 Oct |
 
 ## Both-sides SDKs
 
-Datalayer (Python and TypeScript, published as `personal-agent-protocol` on PyPI and `@datalayer/personal-agent-protocol` on npm, 0.10.0 on 12 October), adonis-agora (agent and AuthKit), nestjs-agent (a port of adonis-agora's code), everruns, and the two demos (poppy-demo, introspection's travel demo) each cover both sides. Only Datalayer is a standalone SDK; the others are inside a framework.
+Datalayer (Python and TypeScript, published as `personal-agent-protocol` on PyPI and `@datalayer/personal-agent-protocol` on npm, 0.16.0 on the evening of 12 October), adonis-agora (agent and AuthKit), nestjs-agent (a port of adonis-agora's code), everruns, and the three demos (poppy-demo, introspection's travel demo, timothyohare's Tipping Co) each cover both sides. Only Datalayer is a standalone SDK; the others are inside a framework.
 
 ## Checkers, validators and linters
 
@@ -71,8 +74,8 @@ Datalayer (Python and TypeScript, published as `personal-agent-protocol` on PyPI
 | Our validator | `poppy.json`, the issuer's metadata, client metadata and JWKS; 76 messages, each with an explanation, a fix and a reference | Yes (in this repo); live at [/validator](https://personal-agent.adewale-883.workers.dev/validator) | [`src/validator/`](../src/validator) | 12 Oct |
 | poppy-validator | A linter for `poppy.json` and the issuer's metadata: 64 rules, each with a spec section and a basis (MUST, field table, advisory, context), a JSON Schema, `--json` and `--strict` | Yes: Python, MIT, not on PyPI | [tusharck/poppy-validator](https://github.com/tusharck/poppy-validator) at `d2220bf` | 12 Oct |
 | poppy-sidecar | A `poppy.json` generator, a 25-check validator, and a "testbed" that checks an agent's self-reported action trace against granted scopes | Yes: Python, MIT; its README's PyPI badge points at a package that doesn't exist | [habib-analyst/poppy-sidecar](https://github.com/habib-analyst/poppy-sidecar) at `858db66` | 12 Oct |
-| PAP Checker | Checks a domain from outside (discovery, OAuth metadata, OpenAPI, MCP resource metadata), with a public directory of domains seen | No (closed); by Benji Fisher, who also runs UCP Checker | [papchecker.com](https://papchecker.com), [its directory](https://papchecker.com/sites) | 12 Oct |
-| Ora's poppy.ax and `ax` CLI | A guide and a domain checker; `ax generate-files` (0.9.0, 12 Oct) writes a starter `poppy.json` (`organization` and `web: {}` only) that Ora's API decides | Front end and CLI open (MIT); checks in Ora's closed API | [ora/poppy-ax](https://github.com/ora/poppy-ax), [ora/ax](https://github.com/ora/ax) | 12 Oct |
+| PAP Checker | Checks a domain from outside (discovery, OAuth metadata, OpenAPI, MCP resource metadata), with a public directory of domains seen | No (closed); by Benji Fisher, who also runs UCP Checker. On the evening of 12 Oct it said it had checked 18 domains; its directory listed 6 | [papchecker.com](https://papchecker.com), [its directory](https://papchecker.com/sites) | 12 Oct, evening |
+| Ora's poppy.ax and `ax` CLI | A guide and a domain checker; `ax generate-files` (0.9.0, 12 Oct; 0.9.1 the same day) writes a starter `poppy.json` (`organization` and `web: {}` only) that Ora's API decides | Front end and CLI open (MIT); checks in Ora's closed API | [ora/poppy-ax](https://github.com/ora/poppy-ax), [ora/ax](https://github.com/ora/ax) | 12 Oct |
 | Flow's checker | Readiness levels 0–3, plus a compliance checklist | No | [flow.engineer/poppy](https://flow.engineer/poppy) | 11 Oct |
 | poppyseed's check command; Datalayer's `pap company verify` | Each project's conformance runner for a Company | Yes | the projects above | 11 Oct |
 | Datalayer's conformance cases | 124 language-neutral JSON cases, unchanged in 0.10.0; we run them against our client and validator | Yes, BSD-3-Clause | [interop/vectors/datalayer](../interop/vectors/datalayer) | 12 Oct |
@@ -81,20 +84,22 @@ A committed script, [`interop/vectors/validators/`](../interop/vectors/validator
 
 ## Companies you can reach
 
-None is a large business. We list what is public; we don't probe these hosts, and a host listed by someone else's directory is not one we have fetched.
+None is a large business. Tilopay is a payment company; the rest are small businesses, demos and sandboxes. On the evening of 12 October we ran our validator CLI once against each host below except the TYPO3 lab: every one is valid, with no errors or warnings ([verdicts and info notes](implementations.md#live-companies-checked-on-12-october)). None of the three new ones offers sign-in.
 
 | Host | What it is | Sign-in | How we know | Checked |
 | --- | --- | --- | --- | --- |
-| [spotmeplease.com](https://spotmeplease.com/.well-known/poppy.json) | Spot, a small cart-approval product | Guest Sessions and Direct Sign-In | Fetched once, 11 Oct ([implementations.md](implementations.md)) | 11 Oct |
-| [withpoppyseed.dev](https://withpoppyseed.dev) | "Poppy Travel", poppyseed's demo | Not recorded; its `poppy.json` was valid | Fetched once, 11 Oct | 11 Oct |
-| [poppy-receiver.roundtrip.workers.dev](https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json) | Northstar Outfitters, poppy-demo's retailer | Direct Sign-In, its own caller only | Fetched once, 11 Oct | 11 Oct |
-| [poppy.ilmer.org](https://poppy.ilmer.org/.well-known/poppy.json) | Ilmer's local-history archive | Signed-out only | Fetched once, 11 Oct | 11 Oct |
-| TYPO3 lab `/poppy/demo` | A protocol playground | Behind a login | Its repository | 11 Oct |
-| flowers.papsandbox.com | "Northlight Flowers"; the name suggests a sandbox | Unknown | [PAP Checker's directory](https://papchecker.com/sites): 0 problems, first seen 11 Oct | Not fetched |
-| tilopay.shop, tilopay.tilopay.shop | Organisation "Tilopay"; whether it is the payment company's production site is unknown | Unknown | PAP Checker's directory: 1 problem each, first seen 12 Oct | Not fetched |
+| [spotmeplease.com](https://spotmeplease.com/.well-known/poppy.json) | Spot, a small cart-approval product | Guest Sessions and Direct Sign-In | Its repository; fetched 11 Oct ([implementations.md](implementations.md)) | 12 Oct: valid, no messages |
+| [withpoppyseed.dev](https://withpoppyseed.dev) | "Poppy Travel", poppyseed's demo | Direct, device and mediated (PAP Checker's directory) | Its repository | 12 Oct: valid, no messages |
+| [poppy-receiver.roundtrip.workers.dev](https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json) | Northstar Outfitters, poppy-demo's retailer | Direct Sign-In, its own caller only | Its repository | 12 Oct: valid, 1 info |
+| [poppy.ilmer.org](https://poppy.ilmer.org/.well-known/poppy.json), and ilmer.org through www.ilmer.org | Ilmer's local-history archive; since 12 Oct the main site's `poppy.json` names the same issuer | Signed-out only | Its repository | 12 Oct: valid, info only |
+| TYPO3 lab `/poppy/demo` | A protocol playground | Behind a login | Its repository | 11 Oct (not fetched) |
+| flowers.papsandbox.com | "Northlight Flowers"; the name suggests a sandbox | Direct Sign-In (PAP Checker's directory) | [PAP Checker's directory](https://papchecker.com/sites), first seen 11 Oct | 12 Oct: valid, no messages |
+| tilopay.shop, tilopay.tilopay.shop | Tilopay, a payment company: an MCP server for searching and buying from its merchants' stores, payment only on its own 3-D Secure page (extension `tilopay.com/hosted-checkout`). The issuer, `mcp.tilopay.com`, is shared by 14 domains, most of them stores ([N11](spec-issues.md#n11)) | Signed-out only | PAP Checker's directory, first seen 12 Oct | 12 Oct: valid, 1 info each (PAP Checker: 1 problem each) |
+| [salespeak.ai](https://salespeak.ai/agent-endpoint/) (new) | Salespeak, a vendor of AI sales agents for business websites. Its `poppy.json` redirects to a host under `agents.salespeak.ai` with an issuer of its own; customers can ask for the same on their domains | Signed-out conversations only | A Salespeak employee's [pull request](https://github.com/ora/standards/pull/6) to Ora's standards page | 12 Oct: valid, 1 info |
+| emorahealth.com (new) | Emora Health, a virtual mental-health service for children, teens and young adults. Its issuer has a path, `https://www.emorahealth.com/poppy`, with metadata only at the RFC 8414 inserted location ([S3](spec-issues.md#s3)) | Signed-out conversations only | PAP Checker's directory, first seen 12 Oct | 12 Oct: valid, 1 info |
 | [printwithpoppy.com](https://printwithpoppy.com) | Print with Poppy, the store above, live: real payments (Stripe Checkout) and prints (Prodigi) whenever `/api/catalog` says `mode: live`. Its hosted example was print-with-poppy.vercel.app, in demo mode | Guest Sessions for agents on an allowlist (ours is on it); accounts since 12 Oct. A non-Poppy "compatibility" path, documented apart from the Poppy description since 12 Oct | The owner's deployed agent, 12 Oct: discovery, a Session, the catalogue, and an upload's approval card ([poppy-issues.md](poppy-issues.md#print-with-poppy-spenciefyprint-with-poppy)) | 12 Oct |
 
-Ora's poppy.ax had seen only poppy-receiver.roundtrip.workers.dev on 10 October (its `fixtures/sites.json`). PAP Checker says it has checked 16 domains.
+Ora's poppy.ax had seen only poppy-receiver.roundtrip.workers.dev on 10 October (its `fixtures/sites.json`). On the evening of 12 October PAP Checker said it had checked 18 domains, and its directory listed 6. printwithpoppy.com, print-with-poppy's own domain, was valid with 3 info notes that evening.
 
 ## Adjacent and declined
 
@@ -107,9 +112,13 @@ Ora's poppy.ax had seen only poppy-receiver.roundtrip.workers.dev on 10 October 
 | mission-bound-authorization | Evaluates the draft and sketches a standing-permissions extension | [mcguinness/mission-bound-authorization#1189](https://github.com/mcguinness/mission-bound-authorization/pull/1189) | 11 Oct |
 | poppy-operations-findings | A literal sandbox of the Operations extension with five findings | [SmokeSol/poppy-operations-findings](https://github.com/SmokeSol/poppy-operations-findings) | 12 Oct (no commits since 9 Oct) |
 | IETF vCon | A charter pull request on linking a conversation to the order and payment an agent made | [draft-ietf-vcon-vcon-core#41](https://github.com/ietf-wg-vcon/draft-ietf-vcon-vcon-core/pull/41) | 12 Oct |
+| Service Handshake extension | A proposed extension, `dualcx.com/service-handshake`: declarations of what an agent may agree to, and a Company's allow, deny, hold or escalate decision bound to Operations. Schema and examples only | [neos-wave/service-handshake-pap-extension](https://github.com/neos-wave/service-handshake-pap-extension) | 12 Oct (new) |
+| EMILIA Gate | An Operations v1 reference with optional signed approval evidence, offline with synthetic tokens (open PR) | [emiliaprotocol/emilia-protocol#916](https://github.com/emiliaprotocol/emilia-protocol/pull/916) | 12 Oct (new) |
+| slicc-cdp | A browser-automation tool's planned `poppy.json` probe (open issue) | [ai-ecoverse/slicc-cdp#95](https://github.com/ai-ecoverse/slicc-cdp/issues/95) | 12 Oct (new) |
+| personal-budget | An app's open question whether Poppy applies to its MCP plans | [rmartz/personal-budget#540](https://github.com/rmartz/personal-budget/issues/540) | 12 Oct (new) |
 | PACT | A separate protocol (Decagon and Instinct), on A2A and OAuth | [openpactprotocol](https://github.com/openpactprotocol/openpactprotocol) | 11 Oct |
 | Pre-draft models | Cobus Greyling's sample, agent-ledger, trust_gateway: `/.well-known/personal-agent.json`, not Draft 0.1 | [implementations.md](implementations.md#related-but-not-implementations) | 11 Oct |
-| Lists and trackers | [awesome-poppy](https://github.com/JaviChulvi/awesome-poppy) (added PAP Checker on 11 Oct), [poppy.md](https://poppy.md/implementations) (last checked 11 Oct), [awesome-muse](https://github.com/cszach/awesome-muse) | as linked | 12 Oct |
+| Lists and trackers | [awesome-poppy](https://github.com/JaviChulvi/awesome-poppy) (added PAP Checker on 11 Oct and poppy-validator on 12 Oct), [poppy.md](https://poppy.md/implementations) (checked against its sources on 12 Oct; it now also lists poppyseed, PAP Checker and awesome-poppy, none of them new to us), [awesome-muse](https://github.com/cszach/awesome-muse) | as linked | 12 Oct, evening |
 
 False positives in searches are listed in [implementations.md](implementations.md#related-but-not-implementations).
 
@@ -146,7 +155,7 @@ Each implementation's cells, as pass / fail / unsupported, summed over the grid'
 | Ilmer | 17 / 12 / 151 | 59% of 29 | It refuses assertions without `typ` (S2), and poppy-demo's crash. Signed-out only. |
 | dpa-mock-strict | 81 / 68 / 31 | 54% of 149 | It refuses assertions without `typ`, our strict reading of S2, so pi-poppy and adonis-agora fail almost every cell. |
 
-Not in the grid: nestjs-agent (its Company needs adonis-agora's AuthKit, which the grid already runs), Spot (it publishes valid discovery, but has no adapter), the TYPO3 lab (private), and Atlas and Flight Sector (an open pull request). [interop-testing.md](interop-testing.md#candidates-from-the-12-october-survey) says what the 12 October candidates would need.
+Not in the grid: nestjs-agent (its Company needs adonis-agora's AuthKit, which the grid already runs), Spot (it publishes valid discovery, but has no adapter), the TYPO3 lab (private), Atlas and Flight Sector (an open pull request), timothyohare's Tipping Co (new on 12 Oct; a candidate), and the live Companies with no public code (Salespeak, Emora Health, Tilopay, Northlight Flowers). [interop-testing.md](interop-testing.md#candidates-from-the-12-october-survey) says what the 12 October candidates would need.
 
 #### everruns, run apart
 
@@ -220,6 +229,8 @@ Where the draft is ambiguous, implementations already disagree. The questions ar
 | print-with-poppy | endpoint called (token and revocation) | any `typ` except the browser one, 120 s | n/a (issuer is the origin) | `invalid_scope` (since `260dbb4`; it ignored it before) |
 | Fillthemat (planned) | this School's token endpoint, exactly | not stated | insertion (path issuers) | not stated |
 | nestjs-agent | token endpoint (as adonis-agora) | no `typ`, `kid`, 60 s | insertion | omits |
+| timothyohare agent / Company | token endpoint / token endpoint, at revocation too | no `typ`, `kid`, 60 s / any `typ`, ES256 only, up to 300 s after `iat` | insertion / n/a (issuer is the origin) | omits / ignores |
+| Emora Health (live) | not known | not known | insertion only: the appended location is 404 | not known |
 
 The others most often met: [S9](spec-issues.md#s9) (a retried first message), [S23](spec-issues.md#s23) (nonce scope), [N39](spec-issues.md#n39) (the error for an ended Session) and [N41](spec-issues.md#n41) (`null` for an optional member). Validators disagree too, mostly on how strict to be where the draft has no keyword: see the [cross-check](interop-testing.md#validator-cross-check).
 
@@ -228,7 +239,7 @@ The others most often met: [S9](spec-issues.md#s9) (a retried first message), [S
 1. **The spec.** Run `node scripts/spec-snapshot.mjs`. If any text differs, store a snapshot with `--save` and re-check [spec/grounding.md](../spec/grounding.md).
 2. **Sierra.** Read [Sierra's post](https://sierra.ai/blog/poppy) and list [sierra-inc](https://github.com/sierra-inc)'s public repositories (`curl -s https://api.github.com/orgs/sierra-inc/repos`; `gh api` needs SSO for that organisation).
 3. **New projects.** `gh search repos "<term>" --created ">=<last check>"` for `poppy`, `"personal agent protocol"`, `poppy.json`; `gh search code` for `well-known/poppy`, `poppy_domains`, `browser_session_endpoint`, `poppy:write`, `"Personal Agent Protocol"`; `gh search issues --include-prs` for the same since the last check. Then npm (`registry.npmjs.org/-/v1/search?text=…`), PyPI (`pypi.org/pypi/<name>/json`) and crates.io. Read [awesome-poppy](https://github.com/JaviChulvi/awesome-poppy), [poppy.md](https://poppy.md/implementations) and [PAP Checker's directory](https://papchecker.com/sites). Expect noise: Poppy Playtime, the Poppy robot, PoppyDB.
-4. **Existing rows.** `gh api repos/<owner>/<repo>` for `pushed_at` and `archived`, and `…/commits?per_page=3` and `…/releases?per_page=2`.
+4. **Existing rows and pins.** `gh api repos/<owner>/<repo>` for `pushed_at` and `archived`, and `…/commits?per_page=3` and `…/releases?per_page=2`. For each upstream [`interop/registry.json`](../interop/registry.json) pins, `git ls-remote <source> HEAD`, and for one that moved, `gh api repos/<owner>/<repo>/compare/<pin>...<head>` (or a blobless clone when the compare passes 300 files) to read what changed in its Poppy code.
 5. **Reading code.** Download a tarball at a pinned commit into a new empty directory, and read it there. Run third-party code only in Docker, never on the host.
-6. **Live Companies.** Don't probe businesses. Use public directories and articles; record who listed a host, and that we didn't fetch it.
+6. **Live Companies.** Find hosts in public directories, articles and pull requests, and record who listed each. Check each once with `npm run validate -- <domain>`, one host at a time: it fetches the `poppy.json`, following redirects, and the issuer's metadata, and nothing else. No other requests: no Sessions, no conversations.
 7. **Record it.** Update the rows here and in [implementations.md](implementations.md), change the date at the top of both, and add a pinned adapter to the grid where one fits ([interop-testing.md](interop-testing.md)).
