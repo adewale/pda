@@ -159,6 +159,22 @@
       "notes": "Drives packages/adonis/src/poppy-client directly; no model."
     },
     {
+      "name": "everruns",
+      "role": "agent",
+      "source": "https://github.com/everruns/everruns",
+      "commit": "f470ad7098863b92232f65a8890dedf8da2981c8",
+      "build": "interop/impls/everruns-agent",
+      "notes": "The poppy_client capability: worker_poppy_call (what its tools run) in everruns-server, in-memory mode, through its real egress service; no model. Signed-out only. Patches: RFC 1918 addresses pass the SSRF guard (interop setting, off by default); the signing key loader made public. MIT."
+    },
+    {
+      "name": "everruns",
+      "role": "company",
+      "source": "https://github.com/everruns/everruns",
+      "commit": "f470ad7098863b92232f65a8890dedf8da2981c8",
+      "build": "interop/impls/everruns-company",
+      "notes": "A published poppy channel on everruns-server in in-memory mode, with a stand-in turn runner (\"Reply N\"); signed-out only. Patch: RFC 1918 addresses pass the SSRF guard (interop setting, off by default). MIT."
+    },
+    {
       "name": "ilmer-live",
       "role": "company",
       "source": "https://github.com/rbirkby/Ilmer.org",

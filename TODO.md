@@ -9,7 +9,7 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 - [ ] **The final domain for `client_id`**, before any Company registers the agent; it can't change afterwards ([deployment-tasks](docs/deployment-tasks.md#1-configuration-and-accounts)).
 - [ ] **CI's runner image.** `ubuntu-latest` moves to Ubuntu 26 from 19 October 2026 (GitHub's notice on our runs): pin `ubuntu-24.04`, or accept the move.
 - [ ] **A known-good Company to verify against.** None is documented. Options: deploy our mock Company as an example Company Worker we own, or document the public demo Companies with what our local grid shows works against their code.
-- [ ] **Approval to file upstream bug reports**, found by the grid ([poppy-issues.md](docs/poppy-issues.md)): poppy-demo's hard-coded scopes; Datalayer's `session_id` on refresh and its 403s without `WWW-Authenticate`; adonis-agora's `aud`; everruns' duplicate migration. Nothing is posted without the owner.
+- [ ] **Approval to file upstream bug reports**, found by the grid ([poppy-issues.md](docs/poppy-issues.md)): poppy-demo's hard-coded scopes; Datalayer's `session_id` on refresh and its 403s without `WWW-Authenticate`; adonis-agora's `aud`; everruns' duplicate migration (fixed upstream since) and, privately under SECURITY.md, its Company's unchecked client assertion `sub`. Nothing is posted without the owner.
 - [ ] **Send the spec issues to the draft's authors** ([spec-issues.md](docs/spec-issues.md), [readings.md](docs/readings.md)), once grounded against the current text.
 - [ ] **Submit the OpenClaw and Hermes proposals** after the agent works against a live Company Agent ([proposals/README.md](docs/proposals/README.md) lists what to fold in first).
 
@@ -51,7 +51,7 @@ Built and passing in the grid (scenario OU, against the store at its pinned comm
 - [ ] **Code. Scenarios not yet written:** `H`, `DC`, `W`, `O2`, `CM` ([interop-testing.md](docs/interop-testing.md)).
 - [ ] **Code. Attacks not yet built:** `XM`, `XS` (needs N42's private test suffix), `XB`, `XN`, `XO`, `XE`, `XP`, `YF`, `YC`, `YM` ([adversarial-interop.md](docs/adversarial-interop.md)).
 - [ ] **Code. The Hypothesis client's gaps:** the Operations extension, MCP, browsing, handoff and Direct Conversations, rate limits, Device Sign-In polling ([test/hypothesis/README.md](test/hypothesis/README.md)).
-- [ ] **Owner then Code. The adapters not yet run:** everruns (needs Docker disk), typo3 (needs the private extension), and the live lane, kept until our own side is verified ([deployment-tasks](docs/deployment-tasks.md#3-then)).
+- [ ] **Owner then Code. The adapters not yet run:** typo3 (needs the private extension) and the live lane, kept until our own side is verified ([deployment-tasks](docs/deployment-tasks.md#3-then)). everruns ran on 12 October, both sides, at `f470ad7` ([interop-testing.md](docs/interop-testing.md#everruns-joins-the-grid)); its cells aren't yet in a full grid run.
 
 ## Open questions in the spec
 

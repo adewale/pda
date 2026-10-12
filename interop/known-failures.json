@@ -314,6 +314,67 @@
       ],
       "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
       "reason": "Reading S1, as in SV: the revocation request's client assertion names the token endpoint, and Companies reading S1 endpoint answer invalid_client, so sign-out fails."
+    },
+    {
+      "agent": "everruns",
+      "company": "dpa-mock-strict",
+      "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_grant"
+      ],
+      "issue": "https://github.com/everruns/everruns/blob/f470ad7098863b92232f65a8890dedf8da2981c8/crates/capabilities/src/capabilities/poppy_client/protocol.rs#L416-L422",
+      "reason": "Reading S2, blamed on the spec: everruns signs its Session assertion with no typ (start_session passes typ None; its client assertion has typ JWT), and declares S2 any; dpa-mock-strict declares jwt-60s and refuses the assertion with invalid_grant at the first Session (S0, and the send that starts a Session in C and CI). The lenient reference dpa-mock accepts it."
+    },
+    {
+      "agent": "everruns",
+      "company": "poppy-demo",
+      "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_grant"
+      ],
+      "issue": "https://github.com/everruns/everruns/blob/f470ad7098863b92232f65a8890dedf8da2981c8/crates/capabilities/src/capabilities/poppy_client/protocol.rs#L416-L422",
+      "reason": "Reading S2, blamed on the spec: everruns signs its Session assertion with no typ (start_session passes typ None; its client assertion has typ JWT), and declares S2 any; poppy-demo declares jwt-60s and refuses the assertion with invalid_grant at the first Session (S0, and the send that starts a Session in C and CI). The lenient reference dpa-mock accepts it."
+    },
+    {
+      "agent": "everruns",
+      "company": "ilmer",
+      "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_grant"
+      ],
+      "issue": "https://github.com/everruns/everruns/blob/f470ad7098863b92232f65a8890dedf8da2981c8/crates/capabilities/src/capabilities/poppy_client/protocol.rs#L416-L422",
+      "reason": "Reading S2, blamed on the spec: everruns signs its Session assertion with no typ (start_session passes typ None; its client assertion has typ JWT), and declares S2 any; ilmer declares jwt-60s and refuses the assertion with invalid_grant at the first Session (S0, and the send that starts a Session in C and CI). The lenient reference dpa-mock accepts it."
+    },
+    {
+      "agent": "everruns",
+      "company": "*",
+      "scenario": "DP",
+      "blame": [
+        null,
+        "agent"
+      ],
+      "errors": [
+        "discovery_failed"
+      ],
+      "issue": "https://github.com/everruns/everruns/blob/f470ad7098863b92232f65a8890dedf8da2981c8/crates/capabilities/src/capabilities/poppy_client/protocol.rs#L295-L302",
+      "reason": "Reading S3: everruns fetches OAuth metadata only at the appended location ({issuer}/.well-known/oauth-authorization-server), not where RFC 8414 3.1 inserts it, which Poppy 3.2 cites (spec-issues S3). With the issuer_path hook our mocks serve it only at the inserted location, so discovery fails (not_found). Unattributed in a run without another agent at DP; rule 2 blames the agent when dpa passes DP at the same Company."
+    },
+    {
+      "agent": "poppy-demo",
+      "company": "everruns",
+      "scenario": "*",
+      "blame": [
+        null,
+        "agent"
+      ],
+      "errors": [
+        "discovery_failed"
+      ],
+      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; an everruns channel's issuer is https://everruns.company.interop.test/api/v1/channels/{channel id}/poppy (draft 3.2 allows both). The caller stops after poppy.json with invalid_metadata."
     }
   ]
 }

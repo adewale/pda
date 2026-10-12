@@ -15,6 +15,9 @@
 //! - Port 8080: everruns' router, which publishes the personal agent's client
 //!   metadata (`/api/v1/poppy/agent.json`, the `client_id`) and JWKS.
 //! - Port 8081: the control API (manifest, healthz, reset, step).
+//! - The image runs `serve`, a supervisor that owns both ports and runs this
+//!   adapter as a child process (`child`), started again on every reset
+//!   (see the end of this file).
 
 #[path = "../test_harness.rs"]
 mod test_harness;
@@ -48,8 +51,14 @@ struct Agent {
     /// (company, label) -> everruns session id. Each everruns session holds
     /// one conversation per company.
     sessions: Mutex<HashMap<(String, String), String>>,
-    /// (company, label, message_id key) -> conversation, for retries.
-    retries: Mutex<HashMap<(String, String, String), String>>,
+    /// (company, label, message_id key) -> (conversation, whether that send
+    /// started it), for retries.
+    retries: Mutex<HashMap<(String, String, String), (String, bool)>>,
+    /// conversation -> every Company message everruns' client has handed
+    /// back for it, from sends and reads, in order. everruns moves its cursor
+    /// past whatever a call returns, so a `read` without a cursor (spec 5.2)
+    /// answers from here, as dpa-agent answers from its inbox.
+    inbox: Mutex<HashMap<String, Vec<Value>>>,
 }
 
 struct App {
@@ -87,6 +96,7 @@ async fn start_agent() -> Result<Agent, String> {
         agent_id,
         sessions: Mutex::new(HashMap::new()),
         retries: Mutex::new(HashMap::new()),
+        inbox: Mutex::new(HashMap::new()),
     })
 }
 
@@ -256,7 +266,7 @@ async fn step(app: &App, agent: &Agent, body: Value) -> Response {
                     return adapter_error(StatusCode::INTERNAL_SERVER_ERROR, "adapter", error.to_string());
                 }
             };
-            let client = everruns_server::domains::poppy_agent::protocol::PoppyAgent::new(
+            let client = everruns_capabilities::capabilities::poppy_client::protocol::PoppyAgent::new(
                 agent.egress.clone(),
                 Arc::new(key),
                 everruns_server::domains::poppy_agent::client_id(
@@ -307,6 +317,13 @@ async fn step(app: &App, agent: &Agent, body: Value) -> Response {
                         "issuer": stored["issuer"],
                     }))
                 }
+                // everruns starts a Session only to hold a conversation (it
+                // has no API support), so at a Company without one it never
+                // starts a Session: a feature it lacks, not a refusal.
+                Err(message) if message.contains("offers no conversations") => unsupported(
+                    "session",
+                    &format!("everruns starts a Session only for a conversation: {message}"),
+                ),
                 Err(message) => failed(message),
                 Ok(other) => adapter_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -326,7 +343,11 @@ async fn step(app: &App, agent: &Agent, body: Value) -> Response {
             let stored = agent.stored(&session, &company).await;
             let current = stored["conversation_id"].as_str().map(str::to_string);
             // A message_id given in params is a retry key (spec 5.2): the
-            // same key is the same message, in the same conversation.
+            // same key resends the same request. A retried first message
+            // starts the conversation again (everruns' `new_conversation`,
+            // the same POST to the conversation endpoint), which 7.3 says
+            // returns the conversation it already started; it isn't sent to
+            // that conversation's messages (S9), as the Datalayer adapters do.
             let retry_of = match params["message_id"].as_str() {
                 Some(key) => agent
                     .retries
@@ -336,11 +357,15 @@ async fn step(app: &App, agent: &Agent, body: Value) -> Response {
                     .cloned(),
                 None => None,
             };
-            let asked = params["conversation"].as_str().map(str::to_string).or(retry_of);
+            let restart = retry_of.as_ref().is_some_and(|(_, started)| *started);
+            let asked = params["conversation"]
+                .as_str()
+                .map(str::to_string)
+                .or(retry_of.map(|(conversation, _)| conversation));
             let new_conversation = match (asked.as_deref(), current.as_deref()) {
                 (None, None) => false,
                 (None, Some(_)) => true,
-                (Some(asked), Some(current)) if asked == current => false,
+                (Some(asked), Some(current)) if asked == current => restart,
                 (Some(asked), _) => {
                     return unsupported(
                         "send",
@@ -360,9 +385,8 @@ async fn step(app: &App, agent: &Agent, body: Value) -> Response {
                     json!({
                         "action": "send", "company": company, "text": text,
                         "message_id": message_id, "new_conversation": new_conversation,
-                        // Default 0: everruns moves its cursor past whatever a
-                        // send returns, so a reply waited for here would never
-                        // show up in a later `read`.
+                        // Default 0. A reply this returns is kept in the
+                        // adapter's inbox, so a later `read` still shows it.
                         "wait_seconds": wait_seconds(&params, 0),
                     }),
                 )
@@ -372,10 +396,19 @@ async fn step(app: &App, agent: &Agent, body: Value) -> Response {
                     if let (Some(key), Some(conversation)) =
                         (params["message_id"].as_str(), answer["conversation_id"].as_str())
                     {
-                        agent.retries.lock().await.insert(
+                        let started = new_conversation || current.is_none();
+                        agent.retries.lock().await.entry(
                             (company.clone(), label.clone(), key.to_string()),
-                            conversation.to_string(),
-                        );
+                        ).or_insert((conversation.to_string(), started));
+                    }
+                    if let Some(conversation) = answer["conversation_id"].as_str() {
+                        agent
+                            .inbox
+                            .lock()
+                            .await
+                            .entry(conversation.to_string())
+                            .or_default()
+                            .extend(company_messages(&answer));
                     }
                     ok(json!({
                         "conversation": answer["conversation_id"],
@@ -411,8 +444,19 @@ async fn step(app: &App, agent: &Agent, body: Value) -> Response {
             {
                 Ok(answer) => {
                     let stored = agent.stored(&session, &company).await;
+                    // Everything received in this conversation so far, the
+                    // new messages last (no cursor given: spec 5.2).
+                    let messages = match stored["conversation_id"].as_str() {
+                        Some(conversation) => {
+                            let mut inbox = agent.inbox.lock().await;
+                            let all = inbox.entry(conversation.to_string()).or_default();
+                            all.extend(company_messages(&answer));
+                            all.clone()
+                        }
+                        None => company_messages(&answer),
+                    };
                     ok(json!({
-                        "messages": company_messages(&answer),
+                        "messages": messages,
                         "cursor": stored["cursor"],
                         // everruns doesn't read or follow has_more.
                         "has_more": Value::Null,
@@ -526,14 +570,14 @@ async fn manifest(State(app): State<Arc<App>>) -> Json<Value> {
         "commit": app.commit,
         "poppy": ["0.1"],
         "extensions": [],
-        "scenarios": ["D", "S0", "C", "CI"],
+        // DP needs only discover and session, which everruns has.
+        "scenarios": ["D", "S0", "C", "CI", "DP"],
         "readings": { "S1": "token-endpoint", "S2": "any", "S3": "append", "S4": "omit", "S23": "per-origin" },
         "relaxations": [
             "EVERRUNS_INTEROP_ALLOW_PRIVATE_NETWORKS=1 (patches/0001): RFC 1918 addresses pass the egress SSRF guard, because *.interop.test resolves to the proxy's private address",
             "In-memory mode (embedded PostgreSQL); the client_id is INTEROP_ORIGIN + /api/v1/poppy/agent.json via configure_public_base_url",
             "The adapter front pins Host and X-Forwarded-Proto to INTEROP_ORIGIN",
-            "patches/0002 renumbers two of the three migrations that share version 218 at this commit (a fresh database can't be migrated otherwise)",
-            "patches/0003 makes the Poppy client module public (visibility only) so `discover` calls PoppyAgent::discover, whose result carries the issuer"
+            "patches/0002 makes the deployment's signing key loader public (visibility only) so `discover` calls PoppyAgent::discover, whose result carries the issuer"
         ],
         "notes": notes,
     }))
@@ -544,21 +588,6 @@ async fn healthz(State(app): State<Arc<App>>) -> Response {
         Json(json!({ "ok": true })).into_response()
     } else {
         (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "ok": false }))).into_response()
-    }
-}
-
-async fn reset(State(app): State<Arc<App>>, headers: HeaderMap) -> Response {
-    if let Err(denied) = authorized(&app, &headers) {
-        return denied;
-    }
-    // A new server is a new database: new signing key (rotated), no Users,
-    // Sessions, tokens or conversations.
-    match start_agent().await {
-        Ok(agent) => {
-            *app.agent.write().await = Some(Arc::new(agent));
-            ok(json!({}))
-        }
-        Err(detail) => adapter_error(StatusCode::INTERNAL_SERVER_ERROR, "reset_failed", detail),
     }
 }
 
@@ -603,12 +632,14 @@ async fn run() {
     let control = Router::new()
         .route("/manifest", get(manifest))
         .route("/healthz", get(healthz))
-        .route("/reset", post(reset))
         .route("/step", post(step_route))
         .with_state(app.clone());
     let front_router = Router::new().fallback(any(front)).with_state(app.clone());
-    let control_listener = tokio::net::TcpListener::bind("0.0.0.0:8081").await.expect("8081");
-    let front_listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.expect("8080");
+    // The supervisor (below) gives this process its loopback ports.
+    let control_at = std::env::var("INTEROP_CHILD_CONTROL").unwrap_or_else(|_| "0.0.0.0:8081".into());
+    let front_at = std::env::var("INTEROP_CHILD_FRONT").unwrap_or_else(|_| "0.0.0.0:8080".into());
+    let control_listener = tokio::net::TcpListener::bind(&control_at).await.expect("control port");
+    let front_listener = tokio::net::TcpListener::bind(&front_at).await.expect("front port");
     tokio::spawn(async move { axum::serve(control_listener, control).await.ok() });
     tokio::spawn(async move { axum::serve(front_listener, front_router).await.ok() });
     match start_agent().await {
@@ -626,16 +657,194 @@ async fn run() {
     std::future::pending::<()>().await;
 }
 
-/// `interop_adapter serve --ignored --exact`: run until killed.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore]
-async fn serve() {
-    run().await;
-}
-
 /// Build-time warm-up: downloads the embedded PostgreSQL binaries.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore]
 async fn warm() {
     let _server = TestServer::in_memory().await;
+}
+
+// ---------------------------------------------------------------------------
+// Supervisor: one child process per reset.
+//
+// Every `TestServer` everruns' harness builds keeps its router, pool and
+// background tasks alive for the life of the process (its listener handles
+// are leaked on purpose), so starting a new one on each `/reset` grew the
+// container by about 280 MB a reset until it was killed. The process the
+// image runs (`serve`) is therefore only a supervisor: it owns ports 8080 and
+// 8081, runs the adapter proper (`child`) as a child process on loopback
+// ports, forwards every request to it, and answers `/reset` by killing the
+// child and starting another. A new process is a new embedded PostgreSQL
+// (its postgres dies with the child: everruns spawns it with
+// PR_SET_PDEATHSIG), a new database and a new key. A child starts in about
+// two seconds.
+
+const CHILD_FRONT: &str = "127.0.0.1:18080";
+const CHILD_CONTROL: &str = "127.0.0.1:18081";
+
+struct Supervisor {
+    secret: Option<String>,
+    client: reqwest::Client,
+    child: tokio::sync::Mutex<Option<tokio::process::Child>>,
+}
+
+impl Supervisor {
+    /// Kill the running child, if any, and start a new one; ready once its
+    /// `/healthz` answers 200.
+    async fn restart(&self) -> Result<(), String> {
+        let mut slot = self.child.lock().await;
+        if let Some(mut old) = slot.take() {
+            let _ = old.kill().await;
+        }
+        let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+        let mut child = tokio::process::Command::new(exe)
+            .args(["child", "--ignored", "--exact", "--nocapture", "--test-threads=1"])
+            .env("INTEROP_CHILD_FRONT", CHILD_FRONT)
+            .env("INTEROP_CHILD_CONTROL", CHILD_CONTROL)
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|error| format!("spawn: {error}"))?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        loop {
+            if let Ok(Some(status)) = child.try_wait() {
+                return Err(format!("the adapter process exited while starting ({status})"));
+            }
+            if let Ok(response) = self
+                .client
+                .get(format!("http://{CHILD_CONTROL}/healthz"))
+                .send()
+                .await
+                && response.status().is_success()
+            {
+                *slot = Some(child);
+                return Ok(());
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill().await;
+                return Err("the adapter process wasn't ready within 60 s".into());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+}
+
+/// Forward `request` unchanged to `target` (a loopback address).
+async fn forward(client: &reqwest::Client, target: &str, request: Request) -> Response {
+    let (parts, body) = request.into_parts();
+    let path = parts
+        .uri
+        .path_and_query()
+        .map(|pq| pq.as_str().to_string())
+        .unwrap_or_else(|| "/".into());
+    let bytes = match axum::body::to_bytes(body, 16 << 20).await {
+        Ok(bytes) => bytes,
+        Err(_) => return (StatusCode::PAYLOAD_TOO_LARGE, "too large").into_response(),
+    };
+    let mut outgoing = client.request(parts.method.clone(), format!("http://{target}{path}"));
+    for (name, value) in &parts.headers {
+        if matches!(name.as_str(), "content-length" | "connection" | "transfer-encoding") {
+            continue;
+        }
+        outgoing = outgoing.header(name, value);
+    }
+    match outgoing.body(bytes).send().await {
+        Ok(response) => {
+            let mut built = Response::builder().status(response.status().as_u16());
+            for (name, value) in response.headers() {
+                if matches!(name.as_str(), "connection" | "transfer-encoding") {
+                    continue;
+                }
+                built = built.header(name, value);
+            }
+            built
+                .body(Body::from_stream(response.bytes_stream()))
+                .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
+        }
+        Err(error) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "error": "starting", "detail": error.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+async fn supervised_reset(State(sup): State<Arc<Supervisor>>, headers: HeaderMap) -> Response {
+    let given = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    if !matches!((&sup.secret, given), (Some(secret), Some(given)) if secret == given) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({ "error": "unauthorized", "detail": "Bearer INTEROP_SECRET required" })),
+        )
+            .into_response();
+    }
+    match sup.restart().await {
+        Ok(()) => match sup.client.get(format!("http://{CHILD_CONTROL}/healthz")).send().await {
+            Ok(response) => {
+                let health = response.json::<Value>().await.unwrap_or_else(|_| json!({}));
+                let mut answer = json!({ "ok": true });
+                if let Some(issuer) = health.get("issuer") {
+                    answer["issuer"] = issuer.clone();
+                }
+                Json(answer).into_response()
+            }
+            Err(error) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "reset_failed", "detail": error.to_string() })),
+            )
+                .into_response(),
+        },
+        Err(detail) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "reset_failed", "detail": detail })),
+        )
+            .into_response(),
+    }
+}
+
+async fn supervise() {
+    let sup = Arc::new(Supervisor {
+        secret: std::env::var("INTEROP_SECRET").ok().filter(|s| !s.is_empty()),
+        client: reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("client"),
+        child: tokio::sync::Mutex::new(None),
+    });
+    let control = Router::new()
+        .route("/reset", post(supervised_reset))
+        .fallback(any(|State(sup): State<Arc<Supervisor>>, request: Request| async move {
+            forward(&sup.client, CHILD_CONTROL, request).await
+        }))
+        .with_state(sup.clone());
+    let front_router = Router::new()
+        .fallback(any(|State(sup): State<Arc<Supervisor>>, request: Request| async move {
+            forward(&sup.client, CHILD_FRONT, request).await
+        }))
+        .with_state(sup.clone());
+    let control_listener = tokio::net::TcpListener::bind("0.0.0.0:8081").await.expect("8081");
+    let front_listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.expect("8080");
+    tokio::spawn(async move { axum::serve(control_listener, control).await.ok() });
+    tokio::spawn(async move { axum::serve(front_listener, front_router).await.ok() });
+    if let Err(error) = sup.restart().await {
+        panic!("could not start the adapter process: {error}");
+    }
+    std::future::pending::<()>().await;
+}
+
+/// `interop_adapter serve --ignored --exact`: the supervisor, until killed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore]
+async fn serve() {
+    supervise().await;
+}
+
+/// `interop_adapter child --ignored --exact`: the adapter proper, on the
+/// loopback ports the supervisor gives it, until the supervisor kills it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore]
+async fn child() {
+    run().await;
 }

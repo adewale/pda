@@ -1,23 +1,27 @@
 # everruns-company
 
-> **Status (11 October 2026): not built end to end, not in `interop/registry.json`.** The `everruns-server` library compiled (about 25 minutes cold, with swap added to the colima VM), but the image build then failed with "No space left on device" on the shared Docker disk, so this adapter has not run, paired or passed any scenario. The Company adapter linked once, from an earlier revision; the agent adapter has never compiled. Add the registry entry once both images build and `npm run interop -- --agents everruns,dpa --companies everruns,dpa-mock` runs.
+> **Status (12 October 2026): in the grid as `everruns` (role `company`), first run that day.** With the six other agents and everruns' own over the 25 scenarios of [the last grid](../../../docs/interop-results/README.md): 24 pass, 3 fail, 148 unsupported, 0 errors, every failure a known one. dpa, both Datalayer agents, pi-poppy, adonis-agora and everruns pass D, S0, C and CI; poppy-demo's caller fails D, S0 and C on its issuer-origin rule, as at the other Companies whose issuer isn't their origin. Image: 689 MB on disk (148 MB compressed).
 
 [everruns](https://github.com/everruns/everruns)' Poppy channel (a Company's front door for personal agents, `crates/server/src/channels/poppy/`) behind the interop adapter of [docs/interop-spec.md](../../../docs/interop-spec.md) (version 1, section 5.3).
 
-- **Upstream:** https://github.com/everruns/everruns at `b09c922cc305e88be93b6f10768ef3855531571f` (10 October 2026, "Poppy conversations reach sessions through the channel port (#4558)", the head of `main` on 11 October). It includes PR #4531, which added everruns' own interop run against pi-poppy (`scripts/poppy-interop.sh`); this adapter takes the same approach (everruns' in-process server and a stand-in turn runner), but over the network.
+- **Upstream:** https://github.com/everruns/everruns at `f470ad7098863b92232f65a8890dedf8da2981c8` (12 October 2026, the head of `main` that day). The pin moved from `b09c922` (10 October, "Poppy conversations reach sessions through the channel port (#4558)"); `crates/server/src/channels/poppy/` is the same at both, and the move dropped the migration patch (fixed upstream in #4560, then squashed into one baseline by #4581). It includes PR #4531, which added everruns' own interop run against pi-poppy (`scripts/poppy-interop.sh`); this adapter takes the same approach (everruns' in-process server and a stand-in turn runner), but over the network.
 - **Licence:** MIT (everruns). Nothing is vendored: the Dockerfile fetches the commit, applies `patches/`, and compiles `adapter/main.rs` inside the workspace.
 - **Registry name:** `everruns`, role `company`; reached as `everruns.company.interop.test`.
 
 ## How it runs
 
-The adapter is an integration-test target of `everruns-server` (copied to `crates/server/tests/interop_adapter/main.rs` at build time), because everruns' in-process server assembly is its test harness, `crates/server/tests/test_harness.rs`, compiled here from the pinned checkout. The binary runs one ignored test, `serve`, until killed.
+The adapter is an integration-test target of `everruns-server` (copied to `crates/server/tests/interop_adapter/main.rs` at build time), because everruns' in-process server assembly is its test harness, `crates/server/tests/test_harness.rs`, compiled here from the pinned checkout. The image runs the ignored test `serve`, a supervisor that owns ports 8080 and 8081, runs the adapter proper (the ignored test `child`) as a child process on loopback ports and forwards to it, and answers `/reset` by starting a new child (about 1.5 s): starting a new in-process server on each reset, as the first version did, leaked about 280 MB a reset (see everruns-agent's README).
 
 - **Port 8080:** everruns' real router in in-memory mode (an embedded PostgreSQL per process; its binaries are downloaded at image build time into `EVERRUNS_PG_CACHE`), with one agent and one published `poppy` channel whose domain is the INTEROP_ORIGIN host. A small front serves the channel's discovery document at `/.well-known/poppy.json` (`EVERRUNS_WELL_KNOWN=redirect` answers with the 302 to `/api/v1/channels/{id}/poppy/poppy.json?domain=…` that everruns' docs tell a company to serve instead) and forwards everything else.
 - **Issuer:** `https://everruns.company.interop.test/api/v1/channels/{channel_id}/poppy`. The channel id changes on every `/reset`. RFC 8414 metadata is served at both the insertion location (`/.well-known/oauth-authorization-server/api/v1/channels/{id}/poppy`) and the append location.
 - **The channel's agent** is a stand-in turn runner that answers each turn with `Reply N`, as in everruns' own channel tests. No model.
-- **Port 8081:** `GET /manifest`, `GET /healthz` (no auth), `POST /reset` (a new server, database and channel), `GET /hooks`, `POST /hooks/<name>` (Bearer `INTEROP_SECRET`; a hook's response body is its result).
+- **Port 8081:** `GET /manifest`, `GET /healthz` (no auth), `POST /reset` (a new process, server, database and channel), `GET /hooks`, `POST /hooks/<name>` (Bearer `INTEROP_SECRET`; a hook's response body is its result).
 
-Build: `docker build -t interop/everruns-company:dev interop/impls/everruns-company`. See everruns-agent's README for build time and memory: compiling `everruns-server` needs more than 5 GB free, and `CARGO_BUILD_JOBS` defaults to 1.
+Build: the runner builds it as `poppy-interop/company-everruns:<tag>`; by hand, `docker build -t poppy-interop/company-everruns:latest interop/impls/everruns-company`. See everruns-agent's README for build time and memory: compiling `everruns-server` needs more memory than an 8 GB colima VM has without swap, and `CARGO_BUILD_JOBS` defaults to 1.
+
+## Results
+
+12 October 2026, local lane, `--image-tag evr`, the egress probe got nowhere, no flaky cell, no stale known failure. dpa, datalayer-ts, datalayer-py, pi-poppy, adonis-agora and everruns pass D, S0, C and CI here (poppy-demo doesn't list CI). poppy-demo fails D, S0 and C: its caller requires `auth.issuer` to be the Company's origin, and a channel's issuer is `…/api/v1/channels/{id}/poppy` (the draft allows both; a known failure, blamed on the agent by rule 2, as at dpa-mock, dpa-mock-strict and adonis-agora). No agent tripped a check here, and the Company recorded nothing (it serves no `/violations`).
 
 ## What works
 
@@ -37,14 +41,13 @@ Hooks: `fixture` only (`{"accounts": [], "scopes": [], "prompts": {"hello"}}`). 
 ## Patches and relaxations
 
 1. `patches/0001-interop-allow-private-networks.patch` (interop-only, off by default): `EVERRUNS_INTEROP_ALLOW_PRIVATE_NETWORKS=1`, set by the image, lets RFC 1918 addresses through `is_blocked_ip`, the SSRF check after DNS pinning. Every `*.interop.test` name resolves to the proxy on a private Docker network, so without it the Company can't fetch any agent's client metadata or JWKS. Loopback, link-local, metadata, CGNAT and documentation ranges stay blocked.
-2. `patches/0002-renumber-duplicate-migrations.patch` (a build fix): at this commit three migrations share version 218, so a fresh database can't be migrated (`duplicate key value violates unique constraint "_sqlx_migrations_pkey"`).
-3. `patches/0003-expose-poppy-client-to-adapter.patch` (visibility only): not needed by this adapter, but applied so both everruns images build the same `everruns-server` and share one compile.
-4. The front pins `Host` and `X-Forwarded-Proto` to INTEROP_ORIGIN.
-5. In-memory mode, with a stand-in turn runner instead of a model.
-6. The front serves `/.well-known/poppy.json`, the company-website part everruns leaves to the company.
+2. `patches/0002-expose-signing-key-to-adapter.patch` (visibility only): not needed by this adapter, but applied so both everruns images build the same `everruns-server` and share one compile.
+3. The front pins `Host` and `X-Forwarded-Proto` to INTEROP_ORIGIN.
+4. In-memory mode, with a stand-in turn runner instead of a model.
+5. The front serves `/.well-known/poppy.json`, the company-website part everruns leaves to the company.
 
 TLS: no change. everruns' reqwest 0.13 (`rustls`) client trusts the system store, which `SSL_CERT_FILE` points at `/interop/ca.pem`.
 
 ## Readings
 
-`S1: token-endpoint` (the Session assertion's `aud` must be exactly the token endpoint; the client assertion may name the token endpoint or the issuer), `S2: any` (no `typ` required, lifetime up to 300 s), `S3: either`, `S4: omit` (`scope` on a signed-out Session request is `invalid_scope`). No nonces, so no `S23`.
+`S1: token-endpoint` (the Session assertion's `aud` must be exactly the token endpoint; the client assertion may name the token endpoint or the issuer), `S2: lenient-300s` (no `typ` required, lifetime up to 300 s: `MAX_LIFETIME_SECS` in `channels/poppy/client.rs`; declared `any` until 12 October), `S3: either`, `S4: omit` (`scope` on a signed-out Session request is `invalid_scope`). No nonces, so no `S23`.
