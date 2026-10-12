@@ -130,7 +130,7 @@ I'd offer the plugin a place in the M×N interop harness in [adewale/dpa](https:
 - 39 scenarios. 25 test interop between honest implementations. The other 14 are security scenarios: a malicious agent (7), a malicious Company (3) and network faults injected by the proxy (4).
 - A recording TLS proxy, on a Docker network with no route to the internet, and per-cell blame by named attribution rules.
 
-**What the last full grid found** (12 October 2026, 24 interop scenarios; `docs/interop-results/README.md`): 1,440 cells, 683 pass, 137 fail, 620 unsupported, 0 errors. Every failure is a known upstream or spec failure with a written cause. The security grid, run apart, passed 25 of 25 cells.
+**What the last full grid found** (12 October 2026, 30 interop scenarios; `docs/interop-results/README.md`): 1,800 cells, 849 pass, 171 fail, 780 unsupported, 0 errors. Every failure is a known upstream or spec failure with a written cause. The security grid, run apart, passed 25 of 25 cells.
 
 **What joining takes:**
 
