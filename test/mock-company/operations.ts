@@ -87,9 +87,13 @@ export class Operations {
       this.#expire(record);
       const same =
         record.operation.state === "proposed" || record.operation.state === "in_progress";
-      const owner = record.account
-        ? record.account === context.account
-        : record.sessionId === context.session.id;
+      // Only an operation this Session may use (Ops 3.2): the same agent and
+      // User, and its account or, proposed signed out, its own Session.
+      // Another User signed in to the same account gets a proposal of their own.
+      const owner =
+        record.clientId === context.session.clientId &&
+        record.userId === context.session.userId &&
+        (record.account ? record.account === context.account : record.sessionId === context.session.id);
       if (same && owner && JSON.stringify(record.operation.terms) === JSON.stringify(terms)) {
         // A confirm reached us, so the agent knows this operation: it retries
         // or reads it, and MUST NOT ask for a new proposal until it is final (Ops 6).

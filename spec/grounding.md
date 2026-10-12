@@ -387,7 +387,8 @@ In the Profile column, "both" means the strict mock (conformance tests, `dpa-moc
 | `mcp.not-bearer` | MUST (4.3, 6) | 6: "Every listed API MUST accept Session Tokens as described in 4.3: DPoP for OpenAPI, and Bearer for MCP." | both | refuses |
 | `mcp.wrong-token` | MUST (4.3, 6) | 6: "It MUST accept only tokens issued for its `url` (4.3)."; 4.3: "MUST include `resource` set to the MCP server's `url`" | both | refuses |
 | `mcp.accept` | RFC (MCP 2025-06-18 Streamable HTTP, which spec 6 names) | MCP 2025-06-18 Streamable HTTP (client MUST Accept both); spec 6 names that version | both | records |
-| `rate-limit.retry-after-ignored` | MUST (4.3) | 4.3: "The Personal Agent MUST wait at least that long before sending the request again." | both | refuses (429) |
+| `rate-limit.retry-after-ignored` | MUST (4.3) | 4.3: "The Personal Agent MUST wait at least that long before sending the request again." Only the same request (method and URL) counts. | both | refuses (429) |
+| `rate-limit.shared-limit-ignored` | Guides (Rate limits) | Guides #both-rate-limits: "keep track of limits for each company and share them across your tasks and users, rather than letting each task find the limit on its own." 4.3's MUST names only "the request". | both | refuses (429: the Company's limit still holds) |
 | `secret.password` | MUST NOT (4.7) | 4.7: "Personal Agents MUST NOT send credentials to any endpoint other than the Company's `auth.mediated.endpoint`."; "`secret` marks a value the Personal Agent MUST protect" | both | records |
 | `secret.one-time-code` | Guides (Handling secrets; 4.7: submit only the code) | Guides #both-secrets: "These are secrets: … one-time sign-in codes"; 4.7: "submits only the code" | both | records |
 | `secret.account-token` | MUST (4.8) | 4.8: "MUST NOT put them in model context, conversation messages, logs, or URLs"; "Companies MUST accept an Account Token only at their `token_endpoint` and `revocation_endpoint`" | both | records |

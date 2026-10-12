@@ -56,7 +56,10 @@ describe("the shared mock hooks", () => {
       const source = readFileSync(path.join(ROOT, host), "utf8");
       expect(source).toMatch(/from "(?:\.\.\/shared|\.\.\/\.\.\/interop\/impls\/shared)\/mock-hooks\.ts"/);
       for (const used of ["placeInteropCompanies()", "mockHooks(() => mock)", "violationsBody(await mock.state()", "MOCK_BASE"]) expect(source, used).toContain(used);
-      for (const copied of ["placeCompanies(", "class HookError", "function accountFor", "async fixture(", "violationId(", "deviceInterval"]) expect(source, copied).not.toContain(copied);
+      // MOCK_BASE's settings copied (a knob a run may draw, by name alone, isn't a copy).
+      for (const copied of ["placeCompanies(", "class HookError", "function accountFor", "async fixture(", "violationId(", "deviceInterval: 1", "rotateRefreshTokens: true"]) {
+        expect(source, copied).not.toContain(copied);
+      }
     });
   }
 });

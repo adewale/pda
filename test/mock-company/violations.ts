@@ -139,7 +139,8 @@ export const VIOLATIONS = {
   "mcp.accept": "RFC (MCP 2025-06-18 Streamable HTTP, which spec 6 names): MCP request doesn't Accept application/json and text/event-stream",
 
   // ---- Rate limits and secrets (4.3, 4.7, 4.8; Guides) ----
-  "rate-limit.retry-after-ignored": "MUST (4.3): Request sent before an earlier Retry-After elapsed",
+  "rate-limit.retry-after-ignored": "MUST (4.3): Request sent again before its Retry-After elapsed",
+  "rate-limit.shared-limit-ignored": "Guides (Rate limits: keep track of limits for each company and share them across your tasks and users; 4.3's MUST covers only the request sent again): A different request sent to the Company before an earlier Retry-After elapsed",
   "secret.password": "MUST NOT (4.7): A password sent anywhere but the Mediated Sign-In body",
   "secret.one-time-code": "Guides (Handling secrets; 4.7: submit only the code): A one-time code sent anywhere but the code submission body",
   "secret.account-token": "MUST (4.8): An Account Token sent anywhere but the token and revocation bodies",

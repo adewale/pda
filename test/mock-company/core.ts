@@ -227,6 +227,8 @@ export class Company {
   otherRequestCount = 0;
   pageRequestCount = 0;
   retryAfterUntil = 0;
+  /** When each request (method and URL without the query) that got 429 may be sent again. */
+  readonly retryAfterByRequest = new Map<string, number>();
 
   constructor(
     readonly id: string,
@@ -378,14 +380,30 @@ export class Company {
 
   // ---- Rate limits (4.3) ----
 
-  /** 429 when configured; a request before an earlier Retry-After is a violation. */
+  /**
+   * 429 when configured. Until the `Retry-After` passes, every request gets
+   * 429 too, since the Company's limit covers them all. Only the same
+   * request (method and URL) sent again before its own `Retry-After` breaks
+   * 4.3's MUST ("before sending the request again"); a different request
+   * breaks the Guides' advice to share a Company's limits across tasks.
+   */
   rateLimit(kind: "token" | "other" | "page", inbound: Inbound): void {
     const now = this.now();
+    const request = `${inbound.request.method} ${inbound.url.origin}${inbound.url.pathname}`;
     if (now < this.retryAfterUntil) {
-      this.violation(
-        "rate-limit.retry-after-ignored",
-        `sent ${inbound.request.method} ${inbound.url.pathname} ${this.retryAfterUntil - now} ms before Retry-After elapsed`
-      );
+      const own = this.retryAfterByRequest.get(request);
+      if (own !== undefined && now < own) {
+        this.violation(
+          "rate-limit.retry-after-ignored",
+          `sent ${inbound.request.method} ${inbound.url.pathname} ${own - now} ms before Retry-After elapsed`
+        );
+      } else {
+        this.violation(
+          "rate-limit.shared-limit-ignored",
+          `sent ${inbound.request.method} ${inbound.url.pathname} ${this.retryAfterUntil - now} ms before another request's Retry-After elapsed`
+        );
+      }
+      this.retryAfterByRequest.set(request, this.retryAfterUntil);
       throw this.tooMany(Math.ceil((this.retryAfterUntil - now) / 1000));
     }
     const limits = this.config.rateLimit;
@@ -394,6 +412,7 @@ export class Company {
       kind === "token" ? ++this.tokenRequestCount : kind === "page" ? ++this.pageRequestCount : ++this.otherRequestCount;
     if (count <= limit) {
       this.retryAfterUntil = now + this.config.rateLimit.retryAfterSeconds * 1000;
+      this.retryAfterByRequest.set(request, this.retryAfterUntil);
       throw this.tooMany(this.config.rateLimit.retryAfterSeconds);
     }
   }
