@@ -10,7 +10,9 @@
     { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "pending" },
     { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
     { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" } },
-    { "agent": "api", "params": { "api": "${fixture.openapi.api}", "operation": "${fixture.openapi.operation}", "args": "${fixture.openapi.args}" }, "save": "r" },
+    { "agent": "api", "params": { "api": "${fixture.openapi.api}", "operation": "${fixture.openapi.operation}", "args": "${fixture.openapi.args}" }, "save": "a" },
+    { "agent": "approve_op", "when": "${a.held}", "params": { "operation": "${a.held}", "decision": "approve" }, "save": "approved", "note": "An agent that holds a write for its User's approval (any write a Company's description doesn't mark as proposing an operation) says so with held; the User approves, and the write is sent." },
+    { "runner": "first", "params": { "of": ["${approved.result}", "${a}"] }, "save": "r", "note": "The API's answer, from whichever step sent the call." },
     { "expect": { "${r.status}": 200, "${r.body}": { "$exists": true } } }
   ]
 }
