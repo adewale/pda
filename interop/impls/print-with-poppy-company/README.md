@@ -54,10 +54,15 @@ Scenarios claimed: `D`, `S0`. Not `AO`, `AS`, `O`, `OX`: as written they start w
 Readings:
 
 - `S1` `endpoint`: a client assertion's `aud` must be exactly the endpoint it is sent to, a string: the token endpoint at `/oauth/token`, the revocation endpoint at `/oauth/revoke`.
-- `S2` `lenient-300s`: any `typ` but `poppy-browser+jwt`, and at most 120 s (`exp - iat ≤ 120`, `iat` no older than 120 s, 5 s of clock skew). The harness has no 120 s value; `lenient-300s` is the nearest that admits any `typ`. An agent declaring `jwt-60s` is compatible and one declaring `any` isn't, as they should be, but a refusal of an assertion living 121 to 300 s raises no `reading.S2.refused` check.
+- `S2` `lenient-120s`: any `typ` but `poppy-browser+jwt`, and at most 120 s (`exp - iat ≤ 120`, `iat` no older than 120 s, 5 s of clock skew). Compatible with agents reading `jwt-60s` or `lenient-120s`; not with `lenient-300s` or `any`.
 - `S3` `either`: the issuer is the bare origin, so both metadata locations are the same URL.
 - `S4` `either`: the jwt-bearer grant ignores `scope`; every Session Token comes back with `scope: ""`.
 
-## Not run yet
+## The grid (runner, 12 October 2026, run 2026-10-12T08:40:03Z)
 
-Written on 12 October 2026 and not yet built or run: Docker's disk had too little room. Before the first run, check that `npm ci --omit=dev` finds prebuilt binaries for better-sqlite3 and sharp on the platform, that the store starts within the runner's 60 s, and that it fetches an agent's client metadata through the proxy over TLS.
+| Agent | Pass | Fail | Why it fails |
+| --- | --- | --- | --- |
+| dpa, datalayer-ts, datalayer-py, pi-poppy, adonis-agora | D S0 | none | |
+| poppy-demo | none | D S0 | A known failure, as at Ilmer: its caller checks `authorization_endpoint` and `agent.protocols` for every Company ([session.ts line 178](https://github.com/irvinebroque/poppy-demo/blob/02a9b304e92fdfee465c57f2822742eecac8bdc8/workers/caller/src/session.ts#L178)), and this store, signed out with no conversations, has neither, so discovery throws. |
+
+No check failed; the only findings are three tentative S2 `typ` notes for pi-poppy's and adonis-agora's typ-less assertions, which this store accepts. The image builds in about a minute; npm found prebuilt binaries for better-sqlite3 and sharp. It is about 625 MB on disk (about 150 MB compressed). With the patch, `POST /api/agent-sessions` answers 404 `not_available` and a `Bearer` token gets 401 `invalid_token`, checked in a container with no network.

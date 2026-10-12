@@ -51,10 +51,8 @@ const MANIFEST = {
     // endpoint at /oauth/token, the revocation endpoint at /oauth/revoke (a string, not an array).
     S1: 'endpoint',
     // Any typ (only poppy-browser+jwt is refused), at most 120 s (exp - iat <= 120, iat no
-    // older than 120 s). The harness's values have nothing for 120 s; lenient-300s is the
-    // nearest that admits any typ, so an agent declaring jwt-60s is compatible and one
-    // declaring any is not. An assertion living 121-300 s is refused without a reading.S2.refused check.
-    S2: 'lenient-300s',
+    // older than 120 s).
+    S2: 'lenient-120s',
     // The issuer is the bare origin, so both metadata locations are the same URL.
     S3: 'either',
     // The jwt-bearer grant ignores scope; every Session Token comes back with scope "".
