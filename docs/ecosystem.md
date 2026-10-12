@@ -115,9 +115,40 @@ False positives in searches are listed in [implementations.md](implementations.m
 
 ## How they work together
 
-Our [interop grid](interop-results/README.md) ran six Personal Agents against nine Companies (our two mocks included) on 12 October, over 24 scenarios, on an isolated network: **1,296 cells, 661 pass, 143 fail, 492 unsupported, 0 errors**. Every failure is a known upstream or spec failure. The separate security grid, against our own implementations only, passed **25 of 25**.
+Our [interop grid](interop-results/README.md) ran six Personal Agents against ten Companies (our two mocks included) on 12 October, over 24 scenarios, on a network with no internet access: **1,440 cells, 683 pass, 137 fail, 620 unsupported, 0 errors**. Every failure is a known upstream or spec failure. The separate security grid, which runs only against our own implementations, passed **25 of 25**. Datalayer is at 0.10.0 (`0c048aa`); every other project is at the commit in [`interop/registry.json`](../interop/registry.json).
 
-An edge below means no cell between that pair failed; a missing edge means at least one did (the reasons are in [the results](interop-results/README.md)). Unsupported scenarios count for nothing either way, so an edge between two small implementations can rest on a few cells.
+### Scorecard
+
+Each implementation's cells, as pass / fail / unsupported, summed over the grid's row (as a Personal Agent) or column (as a Company). The percentage is passes among the cells that ran, because an unsupported cell means one side doesn't offer that feature, which is no failure. A failure counts against both ends of its cell, so read the last column before blaming a side: the [attribution rules](interop-spec.md) decide whose it is, and [the results](interop-results/README.md) list every failure by rule.
+
+**As a Personal Agent** (against all ten Companies):
+
+| Agent | Pass / fail / unsupported | Passes where run | What its failures are |
+| --- | --- | --- | --- |
+| dpa (ours) | 156 / 0 / 84 | 100% of 156 | None. Its unsupported cells are signed-out Companies and features a Company lacks. |
+| Datalayer Python | 151 / 3 / 86 | 98% of 154 | Device Sign-In polling ignores `use_dpop_nonce` (SVN). |
+| Datalayer TS | 147 / 7 / 86 | 95% of 154 | The same SVN failure, and its event stream gives up after five quick reconnects (CS). |
+| adonis-agora | 100 / 39 / 101 | 72% of 139 | Its assertions carry no `typ`, which three Companies refuse ([S2](spec-issues.md#s2), the spec's); its device and revocation `aud` ([S1](spec-issues.md#s1)); renewal without `session_id` at Datalayer. |
+| pi-poppy | 102 / 45 / 93 | 69% of 147 | No `typ` (S2); it resends the Session assertion on a nonce retry; it throws when a Company ends the Session ([N39](spec-issues.md#n39)). |
+| poppy-demo caller | 27 / 43 / 170 | 39% of 70 | It requires the issuer to be the Company's origin ([N36](spec-issues.md#n36)), always asks for its hard-coded scopes, and crashes on a missing `authorization_endpoint`. |
+
+**As a Company** (against all six agents):
+
+| Company | Pass / fail / unsupported | Passes where run | What its failures are |
+| --- | --- | --- | --- |
+| poppyseed | 94 / 5 / 45 | 95% of 99 | Mostly the agents': adonis-agora's `aud` (S1), poppy-demo's parse of an empty revocation answer. |
+| pi-poppy Company | 91 / 7 / 46 | 93% of 98 | The agents': Datalayer's SVN polling, pi-poppy's own nonce retry, adonis-agora's `aud`. |
+| Datalayer TS / Python | 86 / 9 / 49 each | 91% of 95 | Its renewal requires `session_id`; its cancel sends `result.data: null` ([N41](spec-issues.md#n41)); poppy-demo's hard-coded scopes. |
+| adonis-agora AuthKit | 87 / 11 / 46 | 89% of 98 | The agents': poppy-demo's issuer-origin rule, pi-poppy's nonce retry. |
+| dpa-mock (lenient reference) | 106 / 15 / 23 | 88% of 121 | The agents': nonce retries, Datalayer's SVN polling and CS stream, poppy-demo's issuer rule. |
+| print-with-poppy | 10 / 2 / 132 | 83% of 12 | poppy-demo's crash on its missing `authorization_endpoint`. Signed-out only, so 22 of 24 scenarios don't apply. |
+| poppy-demo Northstar | 40 / 18 / 86 | 69% of 58 | It refuses assertions without `typ` (S2 `jwt-60s`); poppy-demo's own agent passes there. |
+| Ilmer | 14 / 9 / 121 | 61% of 23 | It refuses assertions without `typ` (S2), and poppy-demo's crash. Signed-out only. |
+| dpa-mock-strict | 69 / 52 / 23 | 57% of 121 | It refuses assertions without `typ`, our strict reading of S2, so pi-poppy and adonis-agora fail almost every cell. |
+
+Not in the grid: everruns (adapters written, never run), nestjs-agent (its Company needs adonis-agora's AuthKit, which the grid already runs), Spot, the TYPO3 lab (private), and Atlas and Flight Sector (an open pull request). [interop-testing.md](interop-testing.md#candidates-from-the-12-october-survey) says what each would need.
+
+An edge below means no cell between that pair failed; a missing edge means at least one did. Unsupported cells count for nothing either way, so an edge between two small implementations can rest on a few cells: each signed-out Company's edges rest on two to four.
 
 ```mermaid
 flowchart LR
@@ -138,16 +169,18 @@ flowchart LR
     north[poppy-demo Northstar]
     seed[poppyseed]
     ilmer[Ilmer]
+    pwp[print-with-poppy]
     authkit[adonis-agora AuthKit]
   end
-  dpa --> mock & strict & mts & mpy & pico & north & seed & ilmer & authkit
-  dlts --> north & seed & ilmer & authkit
-  dlpy --> mts & mpy & north & seed & ilmer & authkit
+  dpa --> mock & strict & mts & mpy & pico & north & seed & ilmer & pwp & authkit
+  dlts --> north & seed & ilmer & pwp & authkit
+  dlpy --> mts & mpy & north & seed & ilmer & pwp & authkit
+  pi --> pwp
   demo --> pico & north
-  adonis --> mock & authkit
+  adonis --> mock & pwp & authkit
 ```
 
-pi-poppy's agent has no clean pair: it resends the Session assertion on a nonce retry, gives up when a Session ends, and sends no `typ`, so each Company trips at least one of these.
+pi-poppy's only clean pair is print-with-poppy, where just two signed-out scenarios run. Everywhere else one of its three habits trips the Company: the resent Session assertion on a nonce retry, giving up when a Session ends, and no `typ`.
 
 What the grid found in each project is in [poppy-issues.md](poppy-issues.md); the failures by rule are in [interop-results/](interop-results/README.md).
 
