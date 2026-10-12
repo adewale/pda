@@ -72,7 +72,7 @@ const DEMO: Entitlement = {
   lane: "demo",
   reason: null,
   key: null,
-  demo: { spentUsd: 0.5, capUsd: 2, domainCapped: false, resetsAt: Date.UTC(2026, 9, 12) },
+  demo: { spentUsd: 0.5, capUsd: 2, domainCapped: false, domain: "example.com", resetsAt: Date.UTC(2026, 9, 12) },
   model: { provider: "cloudflare", id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5" }
 };
 
@@ -539,6 +539,26 @@ describe("model settings", () => {
     expect(screen.getByText("None until your agent has a key or the demo")).toBeTruthy();
   });
 
+  it("says a personal account's shared demo allowance ran out, never naming an organisation", async () => {
+    const capped: Entitlement = { ...DEMO, lane: "none", reason: "domain_cap", model: null, demo: { ...DEMO.demo!, domainCapped: true, domain: null } };
+    stubFetch(capped);
+    open("/settings");
+    const banner = (await screen.findByText(/^Today's shared demo allowance for personal accounts is used up\./)).closest("[role=status]");
+    expect(banner?.textContent).toContain("Today's shared demo allowance for personal accounts is used up. Your agent resumes at midnight UTC, or with your own key.");
+    expect(banner?.textContent).not.toMatch(/organisation/i);
+    const meter = screen.getByText(/Resets at midnight UTC\. Today's shared demo allowance for personal accounts is used up\./);
+    expect(meter.textContent).not.toMatch(/organisation/i);
+  });
+
+  it("says a Workspace domain's demo allowance ran out, naming the domain", async () => {
+    const capped: Entitlement = { ...DEMO, lane: "none", reason: "domain_cap", model: null, demo: { ...DEMO.demo!, domainCapped: true, domain: "acme.example" } };
+    stubFetch(capped);
+    open("/");
+    const banner = (await screen.findByText(/^Your organisation \(acme\.example\) has used today's demo allowance\./)).closest("[role=status]");
+    expect(banner?.textContent).toContain("Your organisation (acme.example) has used today's demo allowance. Your agent resumes at midnight UTC, or with your own key.");
+    expect(banner?.textContent).not.toMatch(/personal accounts/);
+  });
+
   it("says a refused key stopped the agent, with no demo fallback", async () => {
     stubFetch({ ...OWN_KEY, lane: "none", reason: "key_invalid", key: { ...OWN_KEY.key!, status: "invalid" }, model: null });
     open("/settings");
@@ -707,6 +727,19 @@ describe("scheduled settings", () => {
       failures: 3,
       lastRun: Date.UTC(2026, 9, 12, 8, 0),
       lastOutcome: "failed"
+    },
+    {
+      id: "sch_cccccccccc",
+      kind: "reminder",
+      text: "Bins out",
+      nextRun: Date.UTC(2026, 9, 18, 19, 0),
+      repeats: "every Sunday at 20:00",
+      timeZone: "Europe/London",
+      status: "paused",
+      failures: 0,
+      lastRun: null,
+      lastOutcome: null,
+      pausedReason: "this account can no longer sign in"
     }
   ];
 
@@ -737,6 +770,7 @@ describe("scheduled settings", () => {
     const items = within(list).getAllByRole("listitem").map((item) => item.textContent);
     expect(items[0]).toMatch(/^ReminderCall the bankOnce · next .*17:00.* \(Europe\/London\)Cancel$/);
     expect(items[1]).toBe("TaskCheck whether my print order has shippedPaused after 3 failed runs in a rowCancel");
+    expect(items[2]).toBe("ReminderBins outPaused: this account can no longer sign inCancel");
     expect(screen.getByText(/1 of 20 waiting/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Cancel reminder: Call the bank" }));
     await waitFor(() => expect(screen.queryByText("Call the bank")).toBeNull());

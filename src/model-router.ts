@@ -16,7 +16,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { createAI } from "agents/models/pi-ai";
-import { budgetDomain, onDemo } from "./allowlist";
+import { budgetDomain, maySignIn, onDemo, type ListEnv } from "./allowlist";
 import { budgetWindow } from "./compaction";
 import { nextUtcMidnight, utcDay, type Ledger } from "./budget";
 import { ConfigError, readModelConfig, readDemoCaps, type KeyProvider } from "./config";
@@ -46,12 +46,17 @@ import type { Identity } from "./session";
  *    binding, through the `DEMO_GATEWAY_ID` gateway, on Unified Billing.
  * 4. Otherwise "needs a key": no model calls at all.
  *
+ * Before any of these: the identity the agent stored must still be allowed
+ * to sign in under the deployment's lists as they are now (`maySignIn`).
+ * Someone taken off them gets no model calls at all, not even on their own
+ * key, so their agent's background turns stop with their sign-in.
+ *
  * Pi sees one model, `personal-agent/model`, whose provider asks for the lane
  * at each request. So the check covers every model call: the person's own
  * turns, background turns (Company messages), and each tool round.
  */
 
-export type Refusal = "no_key" | "key_invalid" | "user_cap" | "domain_cap";
+export type Refusal = "no_key" | "key_invalid" | "user_cap" | "domain_cap" | "signed_out";
 
 /** What `/api/entitlement` returns and Settings shows. Never the key. */
 export type Entitlement = {
@@ -63,6 +68,12 @@ export type Entitlement = {
     readonly spentUsd: number;
     readonly capUsd: number;
     readonly domainCapped: boolean;
+    /**
+     * The Google Workspace domain whose shared daily budget this person
+     * spends, or null for the one budget everyone on a personal Google
+     * account or a GitHub account shares (`personal`).
+     */
+    readonly domain: string | null;
     readonly resetsAt: number;
   } | null;
   /** The model this lane would call. */
@@ -89,6 +100,11 @@ export type AccessOptions = {
   readonly ledger: Ledger;
   /** The person's recorded identity, or null before the Worker has sent it. */
   readonly profile: () => Profile | null;
+  /**
+   * The deployment's lists (`OWNERS`, `SIGNIN_ALLOWLIST`, `DEMO_ALLOWLIST`,
+   * `SIGNUP`), read at every decision, never cached.
+   */
+  readonly lists: () => ListEnv;
   /** Gateway metadata `u`: a hash naming this agent, never the person. */
   readonly agent: string;
   readonly domainBudget: (domain: string) => { spent(day: string): Promise<number>; add(day: string, usd: number): Promise<number> };
@@ -153,7 +169,11 @@ export function refusalText(entitlement: Entitlement): string {
     case "user_cap":
       return "Model calls are paused: you've used today's demo allowance. It resets at midnight UTC, or add your own key in Settings.";
     case "domain_cap":
-      return "Model calls are paused: your organisation has used today's demo allowance. It resets at midnight UTC, or add your own key in Settings.";
+      return entitlement.demo?.domain
+        ? `Model calls are paused: your organisation (${entitlement.demo.domain}) has used today's demo allowance. It resets at midnight UTC, or add your own key in Settings.`
+        : "Model calls are paused: today's shared demo allowance for personal accounts is used up. It resets at midnight UTC, or add your own key in Settings.";
+    case "signed_out":
+      return "Model calls are off: this account can no longer sign in to this deployment.";
     default:
       return "Model calls are off: this agent has no model key. Add your own in Settings.";
   }
@@ -221,7 +241,10 @@ export class ModelAccess {
     const now = this.#now();
     const key = keys.info();
     const profile = this.#options.profile();
-    const eligible = profile !== null && onDemo(profile, env);
+    const lists = this.#options.lists();
+    // Nobody's agent calls a model for someone who can't sign in now; an agent that was never told who it belongs to fails closed.
+    const allowed = profile !== null && maySignIn(profile, lists);
+    const eligible = allowed && onDemo(profile, lists);
     let demo: Entitlement["demo"] = null;
     let domain = "";
     if (eligible) {
@@ -234,6 +257,7 @@ export class ModelAccess {
         spentUsd,
         capUsd: caps.perUserUsd,
         domainCapped: domainSpent >= caps.perDomainUsd,
+        domain: domain === "personal" ? null : domain,
         resetsAt: nextUtcMidnight(now)
       };
     }
@@ -253,6 +277,7 @@ export class ModelAccess {
       lane: route
     });
 
+    if (!allowed) return result("none", "signed_out", null, null);
     if (key?.status === "valid") {
       const model = this.#ownKeyModel(key.provider);
       return result("own_key", null, model, { kind: "own_key", provider: key.provider, models: this.#models(), model });

@@ -19,6 +19,8 @@ export type ScheduledItem = {
   readonly failures: number;
   readonly lastRun: number | null;
   readonly lastOutcome: string | null;
+  /** Why it is paused, when failed runs didn't pause it. */
+  readonly pausedReason?: string | null;
 };
 
 type Items = { state: "loading" } | { state: "ready"; items: ScheduledItem[]; limit: number } | { state: "unavailable" };
@@ -36,6 +38,7 @@ function nextRun(item: ScheduledItem): string {
 }
 
 function status(item: ScheduledItem): string {
+  if (item.status === "paused" && item.pausedReason) return `Paused: ${item.pausedReason}`;
   if (item.status === "paused") return `Paused after ${item.failures} failed runs in a row`;
   const repeat = item.repeats === "once" ? "Once" : item.repeats.charAt(0).toUpperCase() + item.repeats.slice(1);
   return `${repeat} · next ${nextRun(item)} (${item.timeZone})`;

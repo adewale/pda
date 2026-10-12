@@ -5,6 +5,7 @@ import { createRegistry, Harness, type Extension } from "@earendil-works/pi-dura
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
+import { maySignIn, type ListEnv } from "./allowlist";
 import { attachmentsExtension } from "./attachment-images";
 import { AttachmentError, attachmentInfo, deleteAttachment, migrateAttachments, readAttachment, saveAttachment, type AttachmentInfo } from "./attachments";
 import { Ledger } from "./budget";
@@ -74,6 +75,8 @@ export type ScheduleView = {
   readonly failures: number;
   readonly lastRun: number | null;
   readonly lastOutcome: string | null;
+  /** Why it is paused, when failed runs didn't pause it. */
+  readonly pausedReason: string | null;
 };
 
 function scheduleView(schedule: Schedule): ScheduleView {
@@ -87,7 +90,8 @@ function scheduleView(schedule: Schedule): ScheduleView {
     status: schedule.status,
     failures: schedule.failures,
     lastRun: schedule.lastRun,
-    lastOutcome: schedule.lastOutcome
+    lastOutcome: schedule.lastOutcome,
+    pausedReason: schedule.pausedReason
   };
 }
 
@@ -135,6 +139,7 @@ export class PersonalAgent extends DurableObject<Env> {
       keys: this.keys,
       ledger: new Ledger(ctx.storage.sql),
       profile: () => this.#profile(),
+      lists: () => this.deployment(),
       agent: ctx.id.toString().slice(0, 32),
       domainBudget: (domain) => env.DomainBudget.getByName(domain),
       demoLane: (route) => this.demoLane(route),
@@ -165,6 +170,7 @@ export class PersonalAgent extends DurableObject<Env> {
         return { status: result.status, ...(result.reason ? { reason: result.reason } : {}) };
       },
       push: (message) => this.pushToDevices(message),
+      maySignIn: () => this.maySignInNow(),
       changed: () => this.poppy.refreshActivity()
     });
     this.generalTools = [
@@ -232,6 +238,27 @@ export class PersonalAgent extends DurableObject<Env> {
       .use(this.history)
       .use(this.webSockets)
       .use(this.harness);
+  }
+
+  /**
+   * The deployment's vars as they are now, for the checks of who may sign in
+   * and who is on the demo. Read at every check, never kept: a Durable
+   * Object's `env` is the running version's, and a deploy that changes a
+   * list restarts the object, so the next check sees the new lists. Tests
+   * override it to take someone off a list.
+   */
+  protected deployment(): ListEnv {
+    return this.env;
+  }
+
+  /**
+   * Whether the person this agent belongs to may still sign in, by the
+   * identity the Worker last recorded and the lists as they are now. An
+   * agent that was never told who it belongs to fails closed.
+   */
+  protected maySignInNow(): boolean {
+    const profile = this.#profile();
+    return profile !== null && maySignIn(profile, this.deployment());
   }
 
   /** Now, for the demo lane's daily caps. Tests run it on a fixed day, so no test straddles midnight. */
@@ -398,8 +425,9 @@ export class PersonalAgent extends DurableObject<Env> {
   /**
    * The Worker records who this agent belongs to on every signed-in request
    * that reaches it, so demo eligibility follows the current allowlists,
-   * background turns included. Then anything held for a refused model goes
-   * through if calls are allowed again.
+   * background turns included. Then reminders and tasks paused because the
+   * person couldn't sign in start again, and anything held for a refused
+   * model goes through if calls are allowed again.
    */
   async recordIdentity(identity: Profile): Promise<void> {
     this.ctx.storage.sql.exec(
@@ -410,6 +438,7 @@ export class PersonalAgent extends DurableObject<Env> {
       identity.domain,
       Date.now()
     );
+    if (await this.schedules.resumeSignedIn()) this.poppy.refreshActivity();
     await this.#resumePaused();
   }
 

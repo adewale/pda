@@ -47,6 +47,15 @@ export function useEntitlement(): [EntitlementState, (next?: Entitlement) => voi
   return [value, refresh];
 }
 
+/**
+ * Who has used up a shared demo allowance: the Workspace domain's people,
+ * or everyone on a personal Google or GitHub account, who share one.
+ */
+function sharedAllowance(demo: Entitlement["demo"]): string {
+  if (!demo?.domain) return "Today's shared demo allowance for personal accounts is used up.";
+  return `Your organisation (${demo.domain}) has used today's demo allowance.`;
+}
+
 function dollars(value: number): string {
   return `$${value.toFixed(2)}`;
 }
@@ -54,14 +63,14 @@ function dollars(value: number): string {
 /** Shown above every place while the agent can't call a model. */
 export function ModelBanner({ entitlement, onSettings }: { entitlement: EntitlementState; onSettings: (() => void) | null }) {
   if (entitlement.state !== "ready" || entitlement.entitlement.lane !== "none") return null;
-  const { reason, key } = entitlement.entitlement;
+  const { reason, key, demo } = entitlement.entitlement;
   const text =
     reason === "key_invalid"
       ? `${key ? PROVIDER[key.provider] : "Your provider"} refused your key, so your agent isn't calling the model.`
       : reason === "user_cap"
         ? "You've used today's demo allowance. Your agent resumes at midnight UTC, or with your own key."
         : reason === "domain_cap"
-          ? "Your organisation has used today's demo allowance. Your agent resumes at midnight UTC, or with your own key."
+          ? `${sharedAllowance(demo)} Your agent resumes at midnight UTC, or with your own key.`
           : "Your agent needs a model key before it can answer.";
   return (
     <div role="status" className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-kumo-hairline bg-kumo-warning-tint px-4 py-2 text-[13px] text-kumo-default">
@@ -106,7 +115,7 @@ function DemoMeter({ demo }: { demo: NonNullable<Entitlement["demo"]> }) {
         <div className={`h-full rounded-full ${used >= 1 ? "bg-kumo-warning" : "bg-kumo-brand"}`} style={{ width: `${Math.round(used * 100)}%` }} />
       </div>
       <p className="text-[13px] text-kumo-subtle">
-        Resets at midnight UTC.{demo.domainCapped ? " Your organisation has used its allowance for today." : ""}
+        Resets at midnight UTC.{demo.domainCapped ? ` ${sharedAllowance(demo)}` : ""}
       </p>
     </div>
   );

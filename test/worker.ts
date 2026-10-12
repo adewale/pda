@@ -12,6 +12,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { PersonalAgent as ProductionAgent } from "../src/agent";
+import type { ListEnv } from "../src/allowlist";
 import { SUMMARY_MESSAGE_PREFIX, SUMMARY_SYSTEM_PROMPT } from "../src/compaction";
 import worker from "../src/index";
 import { demoCatalogModel, gatewayDemoLane, routerProvider, type DemoRoute, type LaneModel } from "../src/model-router";
@@ -722,6 +723,7 @@ export class PersonalAgent extends ProductionAgent {
   }
 
   async poppyCards(): Promise<string> {
+    void this.poppy.client;
     return JSON.stringify(
       this.ctx.storage.sql.exec("SELECT card FROM poppy_cards ORDER BY updated_at").toArray().map((row) => JSON.parse(String(row.card)))
     );
@@ -881,7 +883,20 @@ export class PersonalAgent extends ProductionAgent {
   async backgroundTurn(text: string, operationId: string): Promise<void> {
     await this.poppyNotify(text, operationId);
   }
+
+  /** The deployment's lists, with this agent's overrides (`deploymentOverride`) on top. */
+  protected override deployment(): ListEnv {
+    return { ...super.deployment(), ...deploymentOverrides.get(this.ctx.id.toString()) };
+  }
+
+  /** As a redeploy with these vars would be for this agent (say, someone taken off `SIGNIN_ALLOWLIST`); `{}` puts the test config back. */
+  async deploymentOverride(overrides: Partial<Record<"OWNERS" | "SIGNUP" | "SIGNIN_ALLOWLIST" | "DEMO_ALLOWLIST", unknown>>): Promise<void> {
+    deploymentOverrides.set(this.ctx.id.toString(), overrides);
+  }
 }
+
+/** Each agent's overrides of the deployment's lists, by Durable Object id. */
+const deploymentOverrides = new Map<string, Partial<ListEnv>>();
 
 /** One Web Push request a test agent sent to its fake push service. */
 export type PushRequest = { readonly url: string; readonly headers: Record<string, string>; readonly body: string };

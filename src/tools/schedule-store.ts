@@ -54,6 +54,8 @@ export type Schedule = {
   readonly failures: number;
   readonly lastRun: number | null;
   readonly lastOutcome: string | null;
+  /** Why it is paused, when something other than failed runs paused it. */
+  readonly pausedReason: string | null;
 };
 
 export type RunOutcome = "reminded" | "started" | "done" | "failed";
@@ -107,6 +109,8 @@ const SCHEMA = [
 
 export function migrateSchedules(sql: SqlStorage): void {
   for (const statement of SCHEMA) sql.exec(statement);
+  const columns = sql.exec("PRAGMA table_info(schedules)").toArray() as { name: string }[];
+  if (!columns.some((column) => column.name === "paused_reason")) sql.exec("ALTER TABLE schedules ADD COLUMN paused_reason TEXT");
 }
 
 // ---------------------------------------------------------------- When
@@ -228,9 +232,10 @@ type Row = {
   failures: number;
   last_run: number | null;
   last_outcome: string | null;
+  paused_reason: string | null;
 };
 
-const COLUMNS = "id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, status, failures, last_run, last_outcome";
+const COLUMNS = "id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, status, failures, last_run, last_outcome, paused_reason";
 
 function toRecurrence(row: Row): Recurrence {
   if (row.recurrence === "weekly") return { repeat: "weekly", time: String(row.local_time), weekday: (WEEKDAYS.find((day) => day === row.weekday) ?? "Monday") as Weekday };
@@ -251,7 +256,8 @@ function toSchedule(row: Row): Schedule {
     status: (["active", "paused", "done", "cancelled"] as const).find((status) => status === row.status) ?? "cancelled",
     failures: Number(row.failures),
     lastRun: row.last_run === null ? null : Number(row.last_run),
-    lastOutcome: row.last_outcome === null ? null : String(row.last_outcome)
+    lastOutcome: row.last_outcome === null ? null : String(row.last_outcome),
+    pausedReason: row.paused_reason === null || row.paused_reason === undefined ? null : String(row.paused_reason)
   };
 }
 
@@ -401,6 +407,34 @@ export class ScheduleStore {
       return true;
     }
     return false;
+  }
+
+  /** Pause an active row, keeping when it was next due, and say why. False if it wasn't active. */
+  pause(id: string, reason: string): boolean {
+    const found = this.get(id);
+    if (!found || found.status !== "active") return false;
+    this.#sql.exec("UPDATE schedules SET status = 'paused', paused_reason = ? WHERE id = ?", reason, id);
+    return true;
+  }
+
+  /**
+   * Start again every row paused for `reason`: a repeat at its next time
+   * after now, a one-off at its own time, or at once if that has passed.
+   * Returns the rows started again.
+   */
+  resume(reason: string): Schedule[] {
+    const now = this.#now();
+    const paused = (this.#sql.exec(`SELECT ${COLUMNS} FROM schedules WHERE status = 'paused' AND paused_reason = ?`, reason).toArray() as Row[]).map(toSchedule);
+    for (const schedule of paused) {
+      const next =
+        schedule.recurrence.repeat === "none"
+          ? Math.max(schedule.nextRun ?? now, now)
+          : schedule.nextRun !== null && schedule.nextRun > now
+            ? schedule.nextRun
+            : nextOccurrence(schedule.recurrence, now, schedule.timeZone);
+      this.#sql.exec("UPDATE schedules SET status = 'active', paused_reason = NULL, next_run = ? WHERE id = ?", next, schedule.id);
+    }
+    return paused.map((schedule) => this.get(schedule.id)!);
   }
 
   // ---------------------------------------------------------------- Runs

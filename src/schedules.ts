@@ -12,6 +12,13 @@
  *   standing permission. The model router meters it like any call; when the
  *   model can't be called (no key, a refused key, a demo cap), or the turn
  *   ends unanswered, the run fails. Three failures in a row pause the task.
+ *
+ * Before either runs, and before any notification goes out, the agent checks
+ * that the person it belongs to may still sign in, by the identity it stored
+ * and the deployment's lists as they are now. If not, the row is paused,
+ * with `SIGNED_OUT` as the reason: no card, no push, no model call, and
+ * nothing deleted. Their next signed-in request (after an owner puts them
+ * back on a list) starts it again (`resumeSignedIn`).
  */
 import { LifecycleCapability, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle";
 import type { Card } from "./poppy/wire";
@@ -21,6 +28,9 @@ import { PAUSE_AFTER_FAILURES, ScheduleError, ScheduleStore, type NewSchedule, t
 import type { PushMessage } from "./web-push";
 
 export type { PushMessage };
+
+/** Why a reminder or task is paused when the person it belongs to was taken off the deployment's lists. */
+export const SIGNED_OUT = "this account can no longer sign in";
 
 /** A task's turn: started, or refused before any model call, with why. */
 export type TaskStart = { readonly ok: true } | { readonly ok: false; readonly reason: string };
@@ -41,6 +51,8 @@ export type SchedulerOptions = {
   readonly taskEnded: (operationId: string) => Promise<TaskEnd>;
   /** Tell the User's subscribed devices; does nothing when they have none. */
   readonly push: (message: PushMessage) => Promise<void>;
+  /** Whether the person this agent belongs to may sign in now, by the deployment's current lists. */
+  readonly maySignIn: () => boolean;
   /** Something Activity shows changed. */
   readonly changed: () => void;
 };
@@ -121,6 +133,12 @@ export class Scheduler extends LifecycleCapability {
     if (!schedule || schedule.status !== "active" || schedule.nextRun === null) return;
     // Woken early (another clock, a stale job): wait for the row's own time.
     if (schedule.nextRun > this.#options.now()) return { rescheduleAt: this.#options.jobTime(schedule.nextRun) };
+    if (!this.#maySignIn()) {
+      // Taken off the lists: nothing runs, nothing is sent, and the row waits, paused, until they sign in again.
+      this.store.pause(schedule.id, SIGNED_OUT);
+      this.#options.changed();
+      return;
+    }
     try {
       await this.#run(schedule);
     } catch (error) {
@@ -196,6 +214,27 @@ export class Scheduler extends LifecycleCapability {
     this.#waiting.set(operationId, waiting);
   }
 
+  /** Whether the person may sign in now; a check that can't be made (a config error) counts as no. */
+  #maySignIn(): boolean {
+    try {
+      return this.#options.maySignIn();
+    } catch (error) {
+      console.warn("sign-in check failed", error instanceof Error ? error.message : String(error));
+      return false;
+    }
+  }
+
+  /**
+   * After a signed-in request: start again, with their jobs, the rows paused
+   * because the person couldn't sign in, if they can now. Returns how many.
+   */
+  async resumeSignedIn(): Promise<number> {
+    if (!this.#maySignIn()) return 0;
+    const resumed = this.store.resume(SIGNED_OUT);
+    for (const schedule of resumed) if (schedule.nextRun !== null) await this.#arm(schedule);
+    return resumed.length;
+  }
+
   /** Count a failed run; at the third in a row, pause the task, cancel its job and say so. */
   async #failed(schedule: Schedule, dueAt: number, reason: string): Promise<void> {
     const paused = this.store.failed(schedule.id, "failed");
@@ -219,6 +258,8 @@ export class Scheduler extends LifecycleCapability {
   }
 
   async #push(message: PushMessage): Promise<void> {
+    // Never to the devices of someone who can no longer sign in.
+    if (!this.#maySignIn()) return;
     try {
       await this.#options.push(message);
     } catch (error) {

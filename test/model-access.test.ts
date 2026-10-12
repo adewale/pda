@@ -7,13 +7,13 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { Entitlement } from "../src/model-router";
-import { demoCatalogModel, gatewayDemoLane, nativeProviders } from "../src/model-router";
+import { demoCatalogModel, gatewayDemoLane, nativeProviders, refusalText } from "../src/model-router";
 import { calculateCost } from "@earendil-works/pi-ai";
 import { keyContext } from "../src/model-keys";
 import { Sealer } from "../src/poppy/store";
 import { agentNameFor, type Identity } from "../src/session";
 import { keyState } from "./fake-models";
-import { chat, connect, fetchWorker, ORIGIN, sessionCookie } from "./agent-helpers";
+import { chat, connect, fetchWorker, ORIGIN, sessionCookie, until } from "./agent-helpers";
 import type { PersonalAgent } from "./worker";
 
 const testEnv = env as Env;
@@ -315,16 +315,27 @@ describe("demo caps", () => {
     const b = await connect(second);
     await chat(a.socket, a.client, "[cost 0.9] from the first");
     await chat(b.socket, b.client, "[cost 0.9] from the second");
-    expect(await entitlement(first)).toMatchObject({ lane: "none", reason: "domain_cap", demo: { domainCapped: true } });
+    expect(await entitlement(first)).toMatchObject({ lane: "none", reason: "domain_cap", demo: { domainCapped: true, domain: "capped-domain.example" } });
     expect(await entitlement(second)).toMatchObject({ lane: "none", reason: "domain_cap" });
 
     await send(a, "again from the first");
     expect(await (await stubFor(first)).demoCallCount()).toBe(1);
-    expect((await (await stubFor(first)).lastAssistant()).error).toContain("your organisation has used today's demo allowance");
+    expect((await (await stubFor(first)).lastAssistant()).error).toContain("your organisation (capped-domain.example) has used today's demo allowance");
     // Someone in another domain is unaffected.
     expect(await entitlement(someone("workspace.example"))).toMatchObject({ lane: "demo" });
     a.socket.close();
     b.socket.close();
+  });
+
+  it("says the personal accounts' shared allowance ran out, never an organisation, for a personal Google or GitHub account", async () => {
+    // octo, on the demo by GitHub id: the personal pool, so the entitlement names no domain.
+    const demo = (await entitlement({ provider: "github", sub: "4242", email: null, domain: null })).demo;
+    expect(demo).toMatchObject({ domain: null });
+    const capped: Entitlement = { lane: "none", reason: "domain_cap", key: null, model: null, demo: { ...demo!, domainCapped: true } };
+    expect(refusalText(capped)).toBe(
+      "Model calls are paused: today's shared demo allowance for personal accounts is used up. It resets at midnight UTC, or add your own key in Settings."
+    );
+    expect(refusalText(capped)).not.toMatch(/organisation/);
   });
 
   it("holds a background turn past the cap, with a notice, and never calls the model for it", async () => {
@@ -341,6 +352,34 @@ describe("demo caps", () => {
     expect(card?.open).toBe(true);
     expect(card?.text).toContain("1 update from a Company is waiting for it.");
     connection.socket.close();
+  });
+});
+
+describe("someone taken off the lists", () => {
+  const NOBODY = { emails: [], domains: [], github: {} };
+
+  it("makes no model call for a Company message's background turn, on the demo or their own key, and holds it until they're back", async () => {
+    const onDemoOnly = someone("workspace.example");
+    const withKey = someone("nokey.example");
+    expect((await saveKey(withKey, "anthropic", ANTHROPIC_KEY())).status).toBe(200);
+    for (const identity of [onDemoOnly, withKey]) {
+      const stub = await stubFor(identity);
+      expect((await api(identity, "/api/entitlement")).status).toBe(200);
+      const calls = await stub.demoCallCount();
+      await stub.deploymentOverride({ SIGNIN_ALLOWLIST: NOBODY });
+      expect(await stub.entitlement(identity)).toMatchObject({ lane: "none", reason: "signed_out" });
+
+      await stub.backgroundTurn("[company message] Acme: your order shipped", "op-removed-1");
+      expect(await stub.demoCallCount()).toBe(calls);
+      expect(await stub.poppyTranscript()).not.toContain("Acme: your order shipped");
+      expect(JSON.parse(await stub.poppySql("SELECT operation_id FROM model_paused"))).toEqual([{ operation_id: "op-removed-1" }]);
+
+      // Back on the list: their next signed-in request lets it through.
+      await stub.deploymentOverride({});
+      expect((await api(identity, "/api/entitlement")).status).toBe(200);
+      expect(JSON.parse(await stub.poppySql("SELECT COUNT(*) AS n FROM model_paused"))).toEqual([{ n: 0 }]);
+      await until(async () => (await stub.poppyTranscript()).includes("Acme: your order shipped") || undefined);
+    }
   });
 });
 
@@ -441,6 +480,8 @@ describe("SIGNUP", () => {
   it("open: lets anyone in, who then needs a key unless they are on the demo", async () => {
     const stranger = someone("stranger.example");
     const open = { SIGNUP: "open" } as unknown as Partial<Env>;
+    // The Worker and the agent read the same vars in production; here each is given them.
+    await (await stubFor(stranger)).deploymentOverride({ SIGNUP: "open" });
     expect((await api(stranger, "/api/me", {}, open)).status).toBe(200);
     const response = await api(stranger, "/api/entitlement", {}, open);
     expect(await response.json()).toMatchObject({ lane: "none", reason: "no_key", demo: null });

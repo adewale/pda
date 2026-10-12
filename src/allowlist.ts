@@ -12,7 +12,10 @@ import type { Identity } from "./session";
  *   daily caps. Everyone else needs their own key.
  *
  * Checked at sign-in and on every request, so removing someone takes effect
- * on their next request (and, for the demo, on the agent's next model call).
+ * on their next request. Their agent checks too, against the identity it
+ * stored, before every model call and before each reminder or task runs:
+ * someone who can no longer sign in gets no model calls (not even on their
+ * own key), and their reminders and tasks pause (src/schedules.ts).
  *
  * - `emails`: Google accounts whose verified email is one of these.
  * - `domains`: Google Workspace accounts of these domains (Google's `hd`
@@ -117,7 +120,7 @@ export function isAllowed(identity: Pick<Identity, "provider" | "sub" | "email" 
  * when `SIGNUP` is `open`, or someone on `SIGNIN_ALLOWLIST`. `OWNERS` is
  * read every time, so a copy nobody has configured lets nobody in.
  */
-export function maySignIn(identity: Identity, env: ListEnv): boolean {
+export function maySignIn(identity: Pick<Identity, "provider" | "sub" | "email" | "domain">, env: ListEnv): boolean {
   if (isAllowed(identity, readOwners(env))) return true;
   if (readSignup(env) === "open") return true;
   return isAllowed(identity, readSigninAllowlist(env));

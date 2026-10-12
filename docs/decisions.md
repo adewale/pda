@@ -71,7 +71,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 - **Context.** A deployment is run by someone who pays for it, and may be shared with a few people, or opened to anyone.
 - **Decision.** `OWNERS` are always let in. `SIGNUP=allowlist` (committed) lets in only `SIGNIN_ALLOWLIST` besides; `SIGNUP=open` lets in anyone with a Google or GitHub account. Lists name Google emails, Google Workspace domains (from the `hd` claim, so a personal account using a work address doesn't count) and GitHub accounts by numeric id (a login can be renamed and re-registered). The check runs at the callback and again on every signed-in request.
 - **Alternatives.** *Emails for GitHub accounts:* a verified email proves the address was once confirmed, not that the person still works there. *Checking only at sign-in:* someone removed would keep a 30-day session.
-- **Consequences.** Removing someone takes a redeploy and locks them out on their next request; a WebSocket already open stays open until it reconnects.
+- **Consequences.** Removing someone takes a redeploy and locks them out on their next request; a WebSocket already open stays open until it reconnects, but their agent makes no model call for them (checked before every call) and pauses their reminders and tasks when they come due, deleting nothing, until they sign in again.
 - **When.** 11 October (`32930a2`); `OWNERS` and `SIGNUP` with model access (`e5b0818`).
 
 ## 5. The Poppy client inside each person's Durable Object

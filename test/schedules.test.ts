@@ -9,6 +9,8 @@
 import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { Identity } from "../src/session";
+import { base64url } from "../src/base64url";
+import { SIGNED_OUT } from "../src/schedules";
 import { MAX_ACTIVE_SCHEDULES } from "../src/tools/schedule-store";
 import { agent, cards, chat, company, connect, fetchWorker, ORIGIN, person, sessionCookie, signInDirect, until, type Company } from "./agent-helpers";
 import { obey } from "./worker";
@@ -329,5 +331,86 @@ describe("a task that can't run", () => {
     expect(await schedule(stub, task.id)).toMatchObject({ status: "done", failures: 1, last_outcome: "failed" });
     expect(await rows(stub, "SELECT operation_id FROM model_paused")).toEqual([]);
     socket.close();
+  });
+});
+
+describe("someone taken off the lists", () => {
+  /** `SIGNIN_ALLOWLIST` naming nobody: with `SIGNUP` at `allowlist`, only `OWNERS` sign in. */
+  const NOBODY = { emails: [], domains: [], github: {} };
+
+  /** A browser's push subscription, with keys the push encryption accepts. */
+  async function device(endpoint: string) {
+    const pair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
+    const p256dh = base64url(new Uint8Array((await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer));
+    return { endpoint, p256dh, auth: base64url(crypto.getRandomValues(new Uint8Array(16))) };
+  }
+
+  it("pauses their due reminder and task: no card, no push, no model call, nothing deleted; back on the list, they start again", async () => {
+    const identity = person();
+    const { stub, cookie } = await agent(identity);
+    await stub.addPushSubscription(identity, await device("https://fcm.googleapis.com/fcm/send/removed"));
+    await stub.setClock(NOON);
+    // 17:00 in London is 16:00 UTC; the task is daily at 15:00 UTC.
+    const reminder = await stub.scheduleCreate({ kind: "reminder", text: "Call the bank", when: { at: "2026-10-12T17:00" }, timeZone: "Europe/London" });
+    const task = await stub.scheduleCreate({ kind: "task", text: "Check my parcel", when: { every: { repeat: "daily", time: "15:00" } }, timeZone: "UTC" });
+    const calls = await stub.demoCallCount();
+    const cardsBefore = (await cards({ stub })).length;
+
+    // Taken off SIGNIN_ALLOWLIST and redeployed; still on DEMO_ALLOWLIST, so only the sign-in check stops the task's demo call.
+    await stub.deploymentOverride({ SIGNIN_ALLOWLIST: NOBODY });
+    const removed = { SIGNIN_ALLOWLIST: NOBODY } as unknown as Partial<Env>;
+    expect((await fetchWorker(new Request(`${ORIGIN}/api/schedules`, { headers: { Cookie: cookie } }), removed)).status).toBe(401);
+
+    await advanceTo(stub, Date.UTC(2026, 9, 12, 16, 0));
+    await stub.scheduleSettled();
+    expect(await runs(stub)).toEqual([]);
+    expect(await stub.demoCallCount()).toBe(calls);
+    expect(await stub.pushRequests()).toEqual([]);
+    expect((await cards({ stub })).length).toBe(cardsBefore);
+    expect(await rows(stub, "SELECT id, status, paused_reason, next_run FROM schedules ORDER BY next_run")).toEqual([
+      { id: task.id, status: "paused", paused_reason: SIGNED_OUT, next_run: Date.UTC(2026, 9, 12, 15, 0) },
+      { id: reminder.id, status: "paused", paused_reason: SIGNED_OUT, next_run: Date.UTC(2026, 9, 12, 16, 0) }
+    ]);
+    expect(await jobFor(stub, reminder.id)).toBe(0);
+    expect(await jobFor(stub, task.id)).toBe(0);
+    // A day on, nothing has run, and the push subscription is still kept.
+    await advanceTo(stub, Date.UTC(2026, 9, 13, 16, 0));
+    expect(await runs(stub)).toEqual([]);
+    expect(await stub.pushRequests()).toEqual([]);
+    expect(await rows(stub, "SELECT COUNT(*) AS n FROM push_subscriptions")).toEqual([{ n: 1 }]);
+
+    // Back on the list: their next signed-in request starts both again.
+    await stub.deploymentOverride({});
+    const listed = (await (await fetchWorker(new Request(`${ORIGIN}/api/schedules`, { headers: { Cookie: cookie } }))).json()) as { schedules: Array<Record<string, unknown>> };
+    expect(listed.schedules).toEqual([
+      // The missed one-off is due at once; the daily task at its next time.
+      expect.objectContaining({ id: reminder.id, status: "active", pausedReason: null, nextRun: Date.UTC(2026, 9, 13, 16, 0) }),
+      expect.objectContaining({ id: task.id, status: "active", pausedReason: null, nextRun: Date.UTC(2026, 9, 14, 15, 0) })
+    ]);
+    await advanceTo(stub, Date.UTC(2026, 9, 13, 16, 0));
+    expect((await cards({ stub })).find((card) => String(card.id).startsWith(`reminder-${reminder.id}-`))).toMatchObject({ text: "Reminder: Call the bank" });
+    expect(await stub.pushRequests()).toHaveLength(1);
+    await advanceTo(stub, Date.UTC(2026, 9, 14, 15, 0));
+    await stub.scheduleSettled();
+    expect(await stub.demoCallCount()).toBe(calls + 1);
+    expect((await runs(stub)).map((run) => [run.schedule_id, run.outcome])).toEqual([
+      [reminder.id, "reminded"],
+      [task.id, "done"]
+    ]);
+    expect(await stub.pushRequests()).toHaveLength(2);
+  });
+
+  it("reads the lists when an item is due, not when it was set", async () => {
+    const { stub } = await agent(person());
+    await stub.setClock(NOON);
+    const kept = await stub.scheduleCreate({ kind: "reminder", text: "Stretch", when: { in: "PT1H" }, timeZone: "UTC" });
+    const dropped = await stub.scheduleCreate({ kind: "reminder", text: "Post the letter", when: { in: "PT2H" }, timeZone: "UTC" });
+    await advanceTo(stub, NOON + 60 * MINUTE);
+    expect(await schedule(stub, kept.id)).toMatchObject({ status: "done", last_outcome: "reminded" });
+    // Set while allowed, removed before it is due: it pauses.
+    await stub.deploymentOverride({ SIGNIN_ALLOWLIST: NOBODY });
+    await advanceTo(stub, NOON + 120 * MINUTE);
+    expect(await schedule(stub, dropped.id)).toMatchObject({ status: "paused" });
+    expect((await runs(stub)).map((run) => run.schedule_id)).toEqual([kept.id]);
   });
 });
