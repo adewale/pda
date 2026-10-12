@@ -34,8 +34,8 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 
 ## Testing and interop
 
-- [ ] **Code. Ground everything against a downloaded copy of the spec.** In progress: a snapshot, a grounding table for every issue, Appendix A row, reading and mock check, and a script that detects changes.
-- [ ] **Code. Block the interop containers' internet access and re-run the full local grid** against today's client. In progress.
+- [ ] **Owner. Decide the grounding questions** in [spec/grounding.md](spec/grounding.md): which mock checks resting only on a keyword-less rule, the Guides or our readings stay violations in each profile; whether validator errors resting on the Guides or readings become warnings; whether grid attribution treats SHOULD, Guides and reading violations as warnings; and marking scenario YK `permitted_by: N5`.
+- [ ] **Owner. Re-check the spec** with `node scripts/spec-snapshot.mjs` before sending issues to its authors or submitting the proposals.
 - [ ] **Code. Scenarios not yet written:** `H`, `DC`, `W`, `O2`, `CM` ([interop-testing.md](docs/interop-testing.md)).
 - [ ] **Code. Attacks not yet built:** `XM`, `XS` (needs N42's private test suffix), `XB`, `XN`, `XO`, `XE`, `XP`, `YF`, `YC`, `YM` ([adversarial-interop.md](docs/adversarial-interop.md)).
 - [ ] **Code. The Hypothesis client's gaps:** the Operations extension, MCP, browsing, handoff and Direct Conversations, rate limits, Device Sign-In polling ([test/hypothesis/README.md](test/hypothesis/README.md)).
