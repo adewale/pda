@@ -94,7 +94,11 @@ describe("describeToolCall", () => {
 
   it("falls back to the domain, then to 'the Company'", () => {
     expect(describeToolCall("poppy_status", { domain: "Acme.Example" }, done)!.text).toBe("Checked your accounts and conversations at Acme.Example");
-    expect(describeToolCall("poppy_status", {}, done)!.text).toBe("Checked your accounts and conversations at the Company");
+    expect(describeToolCall("poppy_discover", {}, done)!.text).toBe("Looked up what the Company offers personal agents");
+  });
+
+  it("says poppy_status with no domain checked every company", () => {
+    expect(describeToolCall("poppy_status", {}, done)!.text).toBe("Checked what's open at every company");
   });
 
   it("gives an unknown Poppy tool a plain line, and other tools none", () => {

@@ -73,7 +73,7 @@ describe("own keys: the key never leaves the agent", () => {
     expect(JSON.parse(savedText)).toMatchObject({ lane: "own_key", reason: null, key: { provider: "anthropic", status: "valid", source: "pasted" } });
 
     const connection = await connect(identity);
-    await chat(connection.socket, connection.client, "hello with a key", "fake Anthropic (claude-opus-5-5) answers: hello with a key");
+    await chat(connection.socket, connection.client, "hello with a key", "fake Anthropic (claude-sonnet-5-5) answers: hello with a key");
     connection.socket.send(JSON.stringify({ type: "poppy.context", locale: "en-GB", time_zone: "Europe/London" }));
     await connection.client.until(() => connection.client.frames.some((frame) => frame.type === "poppy.activity"));
 
@@ -174,9 +174,9 @@ describe("precedence and who pays", () => {
     const identity = someone("workspace.example");
     expect(await entitlement(identity)).toMatchObject({ lane: "demo", reason: null, key: null });
     expect((await saveKey(identity, "anthropic", ANTHROPIC_KEY())).status).toBe(200);
-    expect(await entitlement(identity)).toMatchObject({ lane: "own_key", model: { provider: "anthropic", id: "claude-opus-5-5" } });
+    expect(await entitlement(identity)).toMatchObject({ lane: "own_key", model: { provider: "anthropic", id: "claude-sonnet-5-5" } });
     const connection = await connect(identity);
-    await chat(connection.socket, connection.client, "who answers?", "fake Anthropic (claude-opus-5-5) answers: who answers?");
+    await chat(connection.socket, connection.client, "who answers?", "fake Anthropic (claude-sonnet-5-5) answers: who answers?");
     expect(await (await stubFor(identity)).demoCallCount()).toBe(0);
     connection.socket.close();
   });
@@ -190,7 +190,7 @@ describe("precedence and who pays", () => {
     // The demo model speaks Anthropic Messages through the gateway; its stream reports usage.
     const usage = { input_tokens: 1_234, output_tokens: 567 };
     const sse = [
-      ["message_start", { type: "message_start", message: { id: "m", type: "message", role: "assistant", content: [], model: "claude-opus-5-5", stop_reason: null, stop_sequence: null, usage: { input_tokens: usage.input_tokens, output_tokens: 1 } } }],
+      ["message_start", { type: "message_start", message: { id: "m", type: "message", role: "assistant", content: [], model: "claude-sonnet-5-5", stop_reason: null, stop_sequence: null, usage: { input_tokens: usage.input_tokens, output_tokens: 1 } } }],
       ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }],
       ["content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hello" } }],
       ["content_block_stop", { type: "content_block_stop", index: 0 }],
@@ -223,8 +223,8 @@ describe("demo caps", () => {
   it("charges production's demo lane pi-ai's price for the usage it reports, and trips the cap on that, until the next UTC day", async () => {
     const identity = someone("metered.example");
     const stub = await stubFor(identity);
-    // 100k tokens in and 20k out: under the $1 cap once, over it twice, at the catalog's prices.
-    const usage = { input_tokens: 100_000, output_tokens: 20_000 };
+    // 50k tokens in and 70k out: under the $1 cap once, over it twice, at the catalog's prices (and well under the compaction threshold).
+    const usage = { input_tokens: 50_000, output_tokens: 70_000 };
     await stub.useGatewayDemo(usage);
     const perCall = calculateCost(demoCatalogModel(testEnv), {
       input: usage.input_tokens,
@@ -324,7 +324,7 @@ describe("no key", () => {
     expect((await saveKey(identity, "anthropic", ANTHROPIC_KEY())).status).toBe(200);
     expect(JSON.parse(await stub.poppySql("SELECT COUNT(*) AS n FROM model_paused"))).toEqual([{ n: 0 }]);
     await connection.client.until(() =>
-      connection.client.texts().includes("assistant: fake Anthropic (claude-opus-5-5) answers: [company message] Acme: a reply arrived")
+      connection.client.texts().includes("assistant: fake Anthropic (claude-sonnet-5-5) answers: [company message] Acme: a reply arrived")
     );
     const card = (JSON.parse(await stub.poppyCards()) as Array<{ id: string; open: boolean }>).find((item) => item.id === "model-access");
     expect(card?.open).toBe(false);

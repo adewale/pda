@@ -6,6 +6,8 @@ import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { Ledger } from "./budget";
+import { COMPACTION_POLICY, compactionExtension } from "./compaction";
+import { TranscriptHistory } from "./history";
 import { isKeyProvider, readModelConfig, type KeyProvider } from "./config";
 import { checkKey, keyFormatProblem, ModelKeys, NO_AMBIENT_AUTH, PROVIDER_LABEL } from "./model-keys";
 import {
@@ -60,6 +62,7 @@ export class PersonalAgent extends DurableObject<Env> {
   readonly sockets: PiSessionSockets;
   readonly webSockets: WebSockets;
   readonly poppy: PoppyCapability;
+  readonly history: TranscriptHistory;
   readonly lifecycle: Lifecycle;
   readonly keys: ModelKeys;
   readonly access: ModelAccess;
@@ -106,6 +109,8 @@ export class PersonalAgent extends DurableObject<Env> {
             () => this.poppy.browser
           )
         );
+        // Our summarizer for pi's compaction: Company text stays labelled as the Company's (compaction.ts).
+        this.registry.install(compactionExtension(ROUTER_MODEL));
         // One provider, the router: it picks the lane at every call (model-router.ts).
         const models = createModels({ authContext: NO_AMBIENT_AUTH });
         models.setProvider(router);
@@ -117,7 +122,9 @@ export class PersonalAgent extends DurableObject<Env> {
             settings: {
               // pi doubles the delay before each retry: 1, 2, 4, 8 and 16
               // seconds, so a rate-limited model gets about 30 seconds.
-              retry: { enabled: true, maxRetries: 5, baseDelayMs: 1000 }
+              retry: { enabled: true, maxRetries: 5, baseDelayMs: 1000 },
+              // A context budget: summarise from about 150k tokens, not near the model's 1M window.
+              compaction: COMPACTION_POLICY
             },
             onReport: (error) => console.warn("pi report", error)
           },
@@ -130,9 +137,11 @@ export class PersonalAgent extends DurableObject<Env> {
       this.ctx.getWebSockets(tag)
     );
     this.webSockets = new WebSockets(this.sockets.options());
-    // Poppy first, so it sees `poppy.*` frames before the chat socket does.
+    this.history = new TranscriptHistory(this.harness);
+    // Poppy and the page's history first, so they see their frames before the chat socket does.
     this.lifecycle = Lifecycle.install(this)
       .use(this.poppy)
+      .use(this.history)
       .use(this.webSockets)
       .use(this.harness);
   }

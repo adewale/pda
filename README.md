@@ -2,7 +2,7 @@
 
 **Your own AI agent that can deal with companies for you, plus a validator that checks companies and agents are set up to work together.**
 
-Sign in with Google or GitHub and chat with your own Claude Opus 5.5 agent. It keeps one conversation that survives reloads, crashes and deploys. It is also a reference Personal Agent for the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy), a draft standard for AI agents acting for people at companies: it finds a company that supports the protocol, has you sign in on the company's own page, talks to the company's agent and uses its APIs and website, and asks you before anything that changes your account. It runs on Cloudflare Workers, with one Durable Object per person.
+Sign in with Google or GitHub and chat with your own Claude Sonnet 5.5 agent. It keeps one conversation that survives reloads, crashes and deploys. It is also a reference Personal Agent for the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy), a draft standard for AI agents acting for people at companies: it finds a company that supports the protocol, has you sign in on the company's own page, talks to the company's agent and uses its APIs and website, and asks you before anything that changes your account. It runs on Cloudflare Workers, with one Durable Object per person.
 
 The **Poppy Validator** checks the documents that make this work: a company's `poppy.json` and OAuth server metadata, and an agent's client metadata and keys. It is a web form, an HTTP API, a CLI and a library, and our agent uses it to decide which documents to trust.
 

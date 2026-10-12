@@ -48,7 +48,7 @@ function session(patch: Partial<PiSession> = {}, poppy: Partial<PoppyView> = {})
     tools: [],
     queued: 0,
     retry: null,
-    model: { provider: "anthropic", modelId: "anthropic/claude-opus-5-5" },
+    model: { provider: "anthropic", modelId: "anthropic/claude-sonnet-5-5" },
     error: null,
     status: "open",
     catalog: [],
@@ -73,7 +73,7 @@ const DEMO: Entitlement = {
   reason: null,
   key: null,
   demo: { spentUsd: 0.5, capUsd: 2, domainCapped: false, resetsAt: Date.UTC(2026, 9, 12) },
-  model: { provider: "cloudflare", id: "anthropic/claude-opus-5-5", name: "Claude Opus 5.5" }
+  model: { provider: "cloudflare", id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5" }
 };
 
 /** `fetch` for the page: the agent's identity, and `/api/entitlement` answering `entitlement`. */
@@ -147,7 +147,7 @@ describe("rail", () => {
     const signOut = screen.getByRole("button", { name: "Sign out" });
     expect(signOut.closest("form")!.getAttribute("action")).toBe("/logout");
     expect(signOut.closest("form")!.getAttribute("method")).toBe("post");
-    expect(container.textContent).not.toMatch(/Live|Claude Opus|Powered by|Cloudflare/);
+    expect(container.textContent).not.toMatch(/Live|Claude Sonnet|Powered by|Cloudflare/);
   });
 });
 
@@ -468,8 +468,8 @@ describe("settings page", () => {
     open("/settings");
     expect(screen.getByText(/Signed in as/).textContent).toBe("Signed in as ada@example.com with Google.");
     expect(screen.getByRole("button", { name: "Sign out of this agent" })).toBeTruthy();
-    expect(await screen.findByText("anthropic/claude-opus-5-5")).toBeTruthy();
-    expect(screen.getByText(/Using the demo \(Claude Opus 5.5\)/)).toBeTruthy();
+    expect(await screen.findByText("anthropic/claude-sonnet-5-5")).toBeTruthy();
+    expect(screen.getByText(/Using the demo \(Claude Sonnet 5.5\)/)).toBeTruthy();
     expect(await screen.findByText("https://agent.example/poppy/client.json")).toBeTruthy();
     expect(screen.getByText("Durable Personal Agent")).toBeTruthy();
     // The only text field is the key, which is a password field.
@@ -506,7 +506,7 @@ describe("model settings", () => {
     reason: null,
     key: { provider: "anthropic", status: "valid", source: "pasted", addedAt: Date.UTC(2026, 9, 11) },
     demo: null,
-    model: { provider: "anthropic", id: "claude-opus-5-5", name: "Claude Opus 5.5" }
+    model: { provider: "anthropic", id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" }
   };
 
   it("shows today's demo spend as a meter, and the deployment's operator's access to keys", async () => {
@@ -565,7 +565,7 @@ describe("model settings", () => {
     fireEvent.change(input, { target: { value: key } });
     fireEvent.click(screen.getByRole("button", { name: "Check and save key" }));
     expect(await screen.findByText(/Using your/)).toBeTruthy();
-    expect(screen.getByText(/Using your/).textContent).toContain("Anthropic key for Claude Opus 5.5");
+    expect(screen.getByText(/Using your/).textContent).toContain("Anthropic key for Claude Sonnet 5.5");
     expect(posted).toEqual([{ method: "POST", body: { provider: "anthropic", key } }]);
     expect(input.value).toBe("");
     expect(container.innerHTML).not.toContain(key);

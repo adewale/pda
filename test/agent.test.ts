@@ -577,10 +577,10 @@ describe("configuration", () => {
     expect(await response.text()).toContain("GOOGLE_CLIENT_ID");
   });
 
-  it("resolves the configured DEMO_MODEL_ID in the gateway catalog as Claude Opus 5.5", () => {
+  it("resolves the configured DEMO_MODEL_ID in the gateway catalog as Claude Sonnet 5.5", () => {
     const ai = createAI({ binding: {} as Ai, id: env.DEMO_GATEWAY_ID });
     const model = ai(env.DEMO_MODEL_ID) as { name?: string; id: string };
-    expect(model.name).toBe("Claude Opus 5.5");
+    expect(model.name).toBe("Claude Sonnet 5.5");
   });
 });
 

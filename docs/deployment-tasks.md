@@ -34,7 +34,8 @@ From the spec's Model access, "Check live", and the parts tested only in fakes o
 
 - [ ] Own keys: pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key of each.
 - [ ] The key checks: a pasted key is checked with the vendor's free list-models call (`GET /v1/models`) before it is sealed, and a bad key is refused.
-- [ ] The demo: Claude Opus 5.5 through the AI binding on Unified Billing (today a live call fails with `x-api-key header is required` until the gateway has credits).
+- [ ] The demo: Claude Sonnet 5.5 through the AI binding on Unified Billing (today a live call fails with `x-api-key header is required` until the gateway has credits).
+- [ ] The demo after a compaction (preserved thinking): in a conversation that has thinking turns, go past 184k tokens of context (or send a request the model calls too long) so a summary is placed, then send one more turn. It should answer, not fail with a 400 about thinking blocks or signatures. The demo request now asks Anthropic to drop stale thinking blocks (`block_binding`, beta `thinking-binding-controls-2026-08-01`), which works only if AI Gateway passes the `anthropic-beta` header and the body through unchanged; a 400 naming an unknown field or beta means it doesn't ([decisions §23](decisions.md#23-compaction-a-budget-our-summarizer-the-page)). The own-key Anthropic lane sends the same request straight to Anthropic, so check it once with a real key too.
 - [ ] The gateway metadata (`u`, `d`) reaches the spend rules; the 429 they return; how far a burst overshoots.
 - [ ] Settings in a real browser: the key panel (paste, remove), the demo meter, and the needs-key banner.
 - [ ] The Content-Security-Policy doesn't break the deployed page: the theme script, the WebSocket, images, the validator's pages.

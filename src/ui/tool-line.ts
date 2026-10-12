@@ -119,7 +119,7 @@ export function describeToolCall(
       return line(granted ? `Used the access you gave ${company} before` : `Asked you to sign in at ${company}`, "sign-in", access(a.scopes));
     }
     case "poppy_status":
-      return line(`Checked your accounts and conversations at ${company}`, null);
+      return line(domain ? `Checked your accounts and conversations at ${company}` : "Checked what's open at every company", null);
     case "poppy_message": {
       const text = str(a.text);
       if (!text) return line(`Sent details to ${company}'s agent`, "their agent");
