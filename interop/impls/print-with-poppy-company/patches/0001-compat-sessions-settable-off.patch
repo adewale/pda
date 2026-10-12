@@ -1,0 +1,19 @@
+Interop: let ALLOW_COMPAT_AGENT_SESSIONS=false turn the Bearer compatibility path off in demo mode.
+
+Upstream turns it on whenever APP_MODE=demo, whatever the setting says. The grid tests
+Poppy only, so the adapter sets ALLOW_COMPAT_AGENT_SESSIONS=false. Unset, demo mode
+keeps compatibility on, as upstream does.
+
+diff --git a/server/config.ts b/server/config.ts
+--- a/server/config.ts
++++ b/server/config.ts
+@@ -46,7 +46,8 @@ export const config = {
+   shipping: process.env.PRODIGI_SHIPPING_METHOD || "Budget",
+   compatibility:
+     process.env.ALLOW_COMPAT_AGENT_SESSIONS === "true" ||
+-    env.APP_MODE === "demo",
++    (env.APP_MODE === "demo" &&
++      process.env.ALLOW_COMPAT_AGENT_SESSIONS !== "false"),
+   allowedClients: (process.env.AGENT_CLIENT_IDS || "")
+     .split(",")
+     .map((s) => s.trim())
