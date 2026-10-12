@@ -10,7 +10,7 @@ How the ideas behind our [interop harness](interop-testing.md) grew up: writing 
   - **Benefits.** New implementations are easier to bootstrap. The lessons of every implementation sit in one machine-readable place. Compliance arguments become "empirical matters which can be settled by a carefully crafted test case".
   - **Costs.** Only functional behaviour can be tested this way, so low-level bugs hide inside implementations. Suites get big and slow. Failure messages are generic unless the harness is built with care. When many tests fail, people tend to fix each one rather than the shared cause. Refactoring the data can break several implementations at once. Implementers have to agree on the canonical set. And pirate tests don't replace unit tests.
 
-Pirate testing runs one suite against N implementations. It tests conformance, not pairs.
+Pirate testing runs one suite against N implementations, so it tests each one's conformance, not how two of them work together.
 
 ## 2. Language-neutral suites
 
@@ -33,7 +33,7 @@ The same move, made separately by many communities:
 
 ## 3. Protocol interop: events and runners
 
-Data files test parsers. Protocols need two live peers, and the field moved from meeting in person to automated grids.
+Data files are enough to test a parser, but a protocol needs two live peers. Testing them moved from meetings in person to automated grids.
 
 - **Events.**
   - The first SIP interoperability "bake-off" was in August 1999. SIPit became the SIP Forum's plugfest, mostly peer-to-peer tests with anonymous results ([Columbia](https://www.cs.columbia.edu/sip/sipit), [UNH-IOL](https://www.iol.unh.edu/event/2021/12/sipit-33)).
@@ -72,7 +72,7 @@ Data files test parsers. Protocols need two live peers, and the field moved from
 | Strength | Clear incentive, and procurement can rely on it | Cheap, and finds pairwise failures and spec ambiguity |
 | Weakness | A snapshot that can certify a gap (issue 1375 above); cost excludes hobby projects | No authority; a red cell is easily misread as blame |
 
-Certification needs a stable spec. Grids suit drafts. WPT's move from per-browser scores to a shared Interop score shows how a grid can steer collective work without naming losers.
+Certification needs a stable spec, while a grid suits a draft. WPT's move from per-browser scores to a shared Interop score shows how a grid can steer collective work without naming losers.
 
 ## 6. Modern additions: generating and checking tests mechanically
 
@@ -132,12 +132,12 @@ Certification needs a stable spec. Grids suit drafts. WPT's move from per-browse
 
 | Idea | Where it is in our harness |
 | --- | --- |
-| Tests as data | Scenarios as JSON in [`interop/scenarios/`](../interop/scenarios), honest, adversarial and network-fault; Datalayer's one-sided vectors run against our code by [`interop/vectors/datalayer/`](../interop/vectors/datalayer). We exported our own validator fixtures and tamper rows in Datalayer's schema too, but removed them: nothing consumed them |
+| Tests as data | Scenarios as JSON in [`interop/scenarios/`](../interop/scenarios), honest, adversarial and network-fault; Datalayer's one-sided vectors run against our code by [`interop/vectors/datalayer/`](../interop/vectors/datalayer), and [`interop/vectors/validators/`](../interop/vectors/validators/README.md) runs two other validators and ours over the same 107 `poppy.json` documents. We exported our own validator fixtures and tamper rows in Datalayer's schema too, but removed them: nothing consumed them |
 | Thin adapter per implementation | Control API and hooks API ([interop-spec §5](interop-spec.md#5-adapter-apis)); every implementation is an entry in [`registry.json`](../interop/registry.json) |
 | Unsupported ≠ failed | 501 from an adapter, and `scenarios` in the manifest |
 | Playing the missing side | Our mock Company, in its lenient profile (`dpa-mock`), is the reference column for attribution rule 2; the strict profile runs beside it as `dpa-mock-strict` |
 | Recorded traffic and passive checks | Recording proxy, a HAR per cell, the mock's checks as pure functions over the trace |
-| Disagreement as evidence about the spec | Readings S1–S23, rule 3 (blame `spec`), and "Grid:" rows in [spec-issues](spec-issues.md) |
+| Disagreement as evidence about the spec | Our [readings](readings.md) of the open questions, rule 3 (blame `spec`), and "Grid:" rows in [spec-issues](spec-issues.md) |
 | Testing the tests | `TAMPERS` and the catalog test; `INTEROP_FAULT=assertion-typ` to check attribution |
 | Six readings of open questions | The `PROFILES` in `test/poppy.test.ts` |
 | Ledger | Appendix A of the spec and `npm run check:docs`, kept by hand |

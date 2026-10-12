@@ -2,7 +2,7 @@
 
 This file lists what we found by reading other implementations of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1 (updated 9 October 2026), and the gaps in the specification that their differences expose. It also lists what the comparison found in our own client.
 
-- **Date.** Everything here was checked on 11 October 2026, two days after the draft was published. Every implementation was days old.
+- **Date.** Everything here was checked on 11 October 2026, two days after the draft was published, when every implementation was days old. The notes on Datalayer 0.10.0 are from 12 October.
 - **Method.** We read the code and compared it with the text of the specification, the Guides and the Operations extension. Later the same day we ran seven of the projects against each other in our [interop grid](interop-spec.md) ([summary of the results](interop-results/README.md)); rows marked "Grid:" come from those runs. Live documents were fetched from public URLs. File and line references are to each repository's default branch on that date.
 - **Severity** is how much an issue matters to interoperability or security, not a judgement of the project. Many of these are demos, and several were built in a day.
 
@@ -73,7 +73,7 @@ The most complete SDK: Python and TypeScript, both sides, reference Companies, a
 | Grid: the Python Company checks DPoP `htu` against the decoded path, not the raw one, so a percent-encoded path gets `invalid_dpop_proof`. | Python ASGI layer | 4.3, RFC 9449 | Medium |
 | Grid: the client checks a callback's `error` before its `state`. | client | 4.5, RFC 6749 §10.12 | Low |
 | Grid: both Companies close an SSE stream after sending the backlog, and answer an ended Session with `invalid_token`, never `invalid_session` ([N39](spec-issues.md#n39)). | Company | 7.6, 4.2 | Low |
-| Grid: optional Operation members are sent as `null` (`expires_at`, `result.data`) rather than omitted ([N41](spec-issues.md#n41)). | Company | Ops | Low |
+| Grid: optional Operation members are sent as `null` (`expires_at`, `result.data`) rather than omitted ([N41](spec-issues.md#n41)). At 0.10.0 a confirmed operation omits `expires_at`; a cancelled one's `result.data` is still `null`. | Company | Ops | Low |
 | Grid: Manzanita's OpenAPI paths use templates with no declared `parameters`. | reference Company | OpenAPI 3 | Low |
 | Grid: an API's 403 `insufficient_scope` (and `sign_in_required`) from `ApiResults` carries the error in the body only, with no `WWW-Authenticate` challenge, though the Company's own `jsonError` adds one (RFC 6750 §3, RFC 9449). A client that reads the challenge, such as adonis-agora's `callOpenApi`, sees a plain 403. | `src/company/points.ts:183-188`; `company/points.py:230-231` | 6 | Low |
 
@@ -106,7 +106,7 @@ A Company OAuth server (`@adonis-agora/authkit-server`), and Company conversatio
 | Handoff without hooks never reaches `queued`. | agent `conversations.ts:755` | 7.9 | Low |
 | The client restarts silently on `cursor_expired`; the draft says the agent SHOULD tell the User. | agent `collect()` | 7.5 | Low |
 | Grid: the agent's assertions carry no `typ`, so strict Companies refuse every request ([S2](spec-issues.md#s2)). | agent `poppy-client` | 4.2 | Medium |
-| Grid: the agent's assertion `aud` is the token endpoint at the device and revocation endpoints too, which poppyseed, pi-poppy's Company and both Datalayer Companies refuse ([S1](spec-issues.md#s1)). | agent `poppy-client` | 4.6, 4.9 | Medium |
+| Grid: the agent's assertion `aud` is the token endpoint at the device and revocation endpoints too, which poppyseed and pi-poppy's Company refuse, as both Datalayer Companies did until 0.10.0 ([S1](spec-issues.md#s1)). | agent `poppy-client` | 4.6, 4.9 | Medium |
 | Grid: the Company sends no headers on an idle resumed SSE stream until an event arrives ([N30](spec-issues.md#n30)). | agent (Company conversations) | 7.6 | Low |
 | Grid: `allowInsecureClientIds`, needed to test against private addresses, also accepts `http` `client_id`s ([N42](spec-issues.md#n42)). | authkit | 4.1 | Low |
 
@@ -170,7 +170,7 @@ What the comparison found in our own client, and what we did.
 | After a 429, a DPoP nonce challenge on the retry wasn't retried, so the call failed at Companies that require nonces. Found by running the conformance tests under the nonce profiles. | Fixed in `oauthRequest`; reverting it fails both nonce-profile Retry-After tests. |
 | Our mock flagged random User IDs containing "ada" as personal information (about 1 ID in 1,600), and a crash test reset every Durable Object in the shared test runtime, including other files' mock Companies. Both made tests flaky. | Fixed: the mock's check matches whole values; the crash test runs in its own runtime. |
 | Our mock required `token_type_hint` at revocation, which RFC 7009 makes optional. | Fixed: recorded, not required. We send `refresh_token`. |
-| No interop test against another implementation (Datalayer's `CompanyService`, pi-poppy's mock). | Fixed: the [interop grid](interop-spec.md) runs our client against six other projects' Companies, and their agents against our mock and each other's Companies. [Summary of the results](interop-results/README.md). |
+| No interop test against another implementation (Datalayer's `CompanyService`, pi-poppy's mock). | Fixed: the [interop grid](interop-spec.md) runs our client against seven other projects' Companies, and their agents against our mock and each other's Companies. [Summary of the results](interop-results/README.md). |
 | Appendix A is maintained by hand, unlike Datalayer's checked ledger. | Partly fixed: `npm run check:docs` checks every test it names exists. |
 | The site crawl: Retry-After wasn't honoured on website pages (4.3). | Fixed: a page that answers 429 or 503 is loaded again after its `Retry-After`, through the shared `CompanyLimiter`; a long one fails with `rate_limited`. The browser join waits too, since its redirect loads a page. |
 | The site crawl: a read-only GET narrowed to `poppy:read` even when it needed a custom scope. | Fixed: the narrowed token asks for the scopes the operation's security requirement declares, or `poppy:read` when it declares none. Tested at a Company with a custom-scope lookup and at one with only custom scopes. |

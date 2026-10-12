@@ -52,7 +52,9 @@ Other relaxations, with no upstream change:
 
 ## Results
 
-Runner, 11 October 2026 (`npm run interop`):
+In the full grid of 12 October ([summary](../../../docs/interop-results/README.md)), pi-poppy passed 102 cells, failed 45 and had 93 unsupported, every failure a known one. Its only Company with no failed cell is print-with-poppy (D and S0). With Datalayer at v0.10.0, O passes at both Datalayer Companies; OX still fails there on `result.data: null`.
+
+Runner, 11 October 2026 (`npm run interop`), before Datalayer v0.10.0 and before our mock was split into `dpa-mock` and `dpa-mock-strict`:
 
 - **pi-poppy Company:** every claimed scenario passes except `SE`.
 - **Datalayer TypeScript Company:** passes D, S0, SD, SV, SMC, SX, SXV, C, CI, CA, SO, R, AO and AS. `O` and `OX` fail on `null` members (below), and `SE` as above.
@@ -62,6 +64,7 @@ Runner, 11 October 2026 (`npm run interop`):
 ## Known failures
 
 - **Session ended (`SE`):** after a Company ends the Session, pi-poppy answers 401 `invalid_token` by renewing. The renewal's 400 `invalid_session` is thrown rather than recovered with a new Session (spec 4.2).
-- **Session assertion without `typ`:** strict Companies (dpa-mock) refuse it with `invalid_grant`.
-- **`null` for absent members:** pi-poppy's `parseOperation` accepts an optional member absent but not `null`. Datalayer answers a confirm with `"expires_at": null` ("expires_at must be a non-empty string") and a cancel with `"result": {"data": null}` ("result.data must be an object"). The Company performed or cancelled the operation; the agent reports a failure.
+- **Nonce retry:** on `use_dpop_nonce` pi-poppy re-signs the client assertion and the proof but resends the same Session assertion, so a Company that refuses a reused `jti` refuses the retry (`session-assertion.jti-reused`: N at dpa-mock, dpa-mock-strict and adonis-agora; SVN at dpa-mock, dpa-mock-strict and pi-poppy's Company).
+- **Session assertion without `typ`:** strict Companies (dpa-mock-strict, poppy-demo's Northstar, Ilmer) refuse it ([S2](../../../docs/spec-issues.md#s2)).
+- **`null` for absent members:** pi-poppy's `parseOperation` accepts an optional member absent but not `null`. Datalayer answered a confirm with `"expires_at": null` ("expires_at must be a non-empty string") until v0.10.0, and still answers a cancel with `"result": {"data": null}` ("result.data must be an object"). The Company performed or cancelled the operation, but the agent reports a failure ([N41](../../../docs/spec-issues.md#n41)).
 - **SSE:** a stream opened at the latest cursor, at a Company that sends nothing until there is an event (pi-poppy's own), times out after pi-poppy's 2 s.

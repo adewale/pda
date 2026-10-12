@@ -15,8 +15,9 @@ The owner will update and submit these after verifying our agent against a real 
 - **Model access:** two lanes, an operator-paid demo with daily caps and the person's own Anthropic or OpenAI key sent straight to the vendor ([decisions §13, §14](../decisions.md#13-model-access-two-lanes-caps-in-durable-objects)).
 - **Adversarial testing** runs only against our own implementations, and the disclosure process in [SECURITY.md](../../SECURITY.md) applies to anything it would find in theirs.
 - **A second client:** the independent Python client and its Hypothesis stateful test of our mock ([decisions §19](../decisions.md#19-a-second-client-in-python-with-hypothesis)).
-- **New spec issues** N43 to N45: website submissions with no approval step, when to fetch discovery documents again, and a lost code exchange orphaning an Account Token ([spec-issues.md](../spec-issues.md)). The drafts' counts (65 issues, 142 checks, 22 scenarios) are out of date; say it without numbers or recount.
+- **New spec issues** N43 to N45: website submissions with no approval step, when to fetch discovery documents again, and a lost code exchange orphaning an Account Token ([spec-issues.md](../spec-issues.md)). The drafts' counts (65 issues, 142 checks, 22 scenarios) are out of date: six issues were withdrawn on 12 October as our misreadings, leaving 62. Say it without numbers, or recount.
 - **Test vectors:** references to our exported vectors, which were deleted, are already gone from the drafts.
+- **The grid and Datalayer:** both drafts describe the harness as of 11 October (6 Personal Agents, 8 Companies). print-with-poppy has joined it since, and Datalayer's pin is 0.10.0, which the Hermes draft's SDK version (0.8.0) and its "SDK findings at v0.6.0" predate; both findings are still present at 0.10.0 ([interop-results](../interop-results/README.md)).
 
 ## Before posting
 

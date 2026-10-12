@@ -55,7 +55,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 | Ilmer.org | A local-history archive assistant, signed-out only | TypeScript, MIT | Yes | [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org) | 12 Oct |
 | everruns `poppy` channel | Hosts a Company's Poppy endpoints, signed-out only | Rust, MIT | Adapter written, not run | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct |
 | Spot | A cart-approval and payment service | JavaScript, none declared | No | [futurebasicsrepo/…-client-hub-api](https://github.com/futurebasicsrepo/futurebasicsrepo-client-hub-api) | 12 Oct (active) |
-| print-with-poppy | An agent-first photo-printing store: signed-out Sessions, OpenAPI, Operations v1 required for orders; agents on an allowlist | TypeScript (Express, SQLite), none declared | Yes, D and S0, patched ([`interop/impls/print-with-poppy-company`](../interop/impls/print-with-poppy-company)) | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 12 Oct |
+| print-with-poppy | An agent-first photo-printing store: signed-out Sessions, OpenAPI, Operations v1 required for orders; agents on an allowlist | TypeScript (Express, SQLite), none declared | Yes: D and S0, and OU with dpa only; patched ([`interop/impls/print-with-poppy-company`](../interop/impls/print-with-poppy-company)) | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 12 Oct |
 | Flight Sector (introspection-js-sdk) | The demo Company in PR #441 | TypeScript, Apache-2.0 | No | [PR #441](https://github.com/introspection-org/introspection-js-sdk/pull/441) | 12 Oct |
 | TYPO3 lab | A signed-out "knowledge profile" in a private extension | PHP, private | README only | [dirnbauer/webconsulting-typo3-lab](https://github.com/dirnbauer/webconsulting-typo3-lab) | 12 Oct |
 | Fillthemat (planned) | A growth platform for martial-arts schools planning to make each School a Company: one issuer per School with a path (`https://auth.fillthemat.com/schools/<id>`), metadata by RFC 8414 insertion, signed-out Sessions first. Draft PR; nothing served from merged code | TypeScript, MIT | No | [fillthemat/fillthemat PR #200](https://github.com/fillthemat/fillthemat/pull/200) | 12 Oct |
@@ -68,7 +68,7 @@ Datalayer (Python and TypeScript, published as `personal-agent-protocol` on PyPI
 
 | Tool | What it checks | Open? | Source | Checked |
 | --- | --- | --- | --- | --- |
-| Our validator | `poppy.json`, the issuer's metadata, client metadata and JWKS; 71 messages, each with an explanation, a fix and a reference | Yes (in this repo); live at [/validator](https://personal-agent.adewale-883.workers.dev/validator) | [`src/validator/`](../src/validator) | 12 Oct |
+| Our validator | `poppy.json`, the issuer's metadata, client metadata and JWKS; 76 messages, each with an explanation, a fix and a reference | Yes (in this repo); live at [/validator](https://personal-agent.adewale-883.workers.dev/validator) | [`src/validator/`](../src/validator) | 12 Oct |
 | poppy-validator | A linter for `poppy.json` and the issuer's metadata: 64 rules, each with a spec section and a basis (MUST, field table, advisory, context), a JSON Schema, `--json` and `--strict` | Yes: Python, MIT, not on PyPI | [tusharck/poppy-validator](https://github.com/tusharck/poppy-validator) at `d2220bf` | 12 Oct |
 | poppy-sidecar | A `poppy.json` generator, a 25-check validator, and a "testbed" that checks an agent's self-reported action trace against granted scopes | Yes: Python, MIT; its README's PyPI badge points at a package that doesn't exist | [habib-analyst/poppy-sidecar](https://github.com/habib-analyst/poppy-sidecar) at `858db66` | 12 Oct |
 | PAP Checker | Checks a domain from outside (discovery, OAuth metadata, OpenAPI, MCP resource metadata), with a public directory of domains seen | No (closed); by Benji Fisher, who also runs UCP Checker | [papchecker.com](https://papchecker.com), [its directory](https://papchecker.com/sites) | 12 Oct |
@@ -77,7 +77,7 @@ Datalayer (Python and TypeScript, published as `personal-agent-protocol` on PyPI
 | poppyseed's check command; Datalayer's `pap company verify` | Each project's conformance runner for a Company | Yes | the projects above | 11 Oct |
 | Datalayer's conformance cases | 124 language-neutral JSON cases, unchanged in 0.10.0; we run them against our client and validator | Yes, BSD-3-Clause | [interop/vectors/datalayer](../interop/vectors/datalayer) | 12 Oct |
 
-We ran the two open validators and ours over the same 107 `poppy.json` documents; the results are in [interop-testing.md](interop-testing.md#validator-cross-check).
+A committed script, [`interop/vectors/validators/`](../interop/vectors/validators/README.md), runs the two open validators and ours over the same 107 `poppy.json` documents; the results are in [interop-testing.md](interop-testing.md#validator-cross-check).
 
 ## Companies you can reach
 
@@ -141,12 +141,12 @@ Each implementation's cells, as pass / fail / unsupported, summed over the grid'
 | Datalayer TS / Python | 86 / 9 / 49 each | 91% of 95 | Its renewal requires `session_id`; its cancel sends `result.data: null` ([N41](spec-issues.md#n41)); poppy-demo's hard-coded scopes. |
 | adonis-agora AuthKit | 87 / 11 / 46 | 89% of 98 | The agents': poppy-demo's issuer-origin rule, pi-poppy's nonce retry. |
 | dpa-mock (lenient reference) | 106 / 15 / 23 | 88% of 121 | The agents': nonce retries, Datalayer's SVN polling and CS stream, poppy-demo's issuer rule. |
-| print-with-poppy | 10 / 2 / 132 | 83% of 12 | poppy-demo's crash on its missing `authorization_endpoint`. Signed-out only, so 22 of 24 scenarios don't apply. |
+| print-with-poppy | 10 / 2 / 132 | 83% of 12 | poppy-demo's crash on its missing `authorization_endpoint`. Signed-out only, so 22 of 24 scenarios don't apply. OU, run apart with dpa only, passes. |
 | poppy-demo Northstar | 40 / 18 / 86 | 69% of 58 | It refuses assertions without `typ` (S2 `jwt-60s`); poppy-demo's own agent passes there. |
 | Ilmer | 14 / 9 / 121 | 61% of 23 | It refuses assertions without `typ` (S2), and poppy-demo's crash. Signed-out only. |
 | dpa-mock-strict | 69 / 52 / 23 | 57% of 121 | It refuses assertions without `typ`, our strict reading of S2, so pi-poppy and adonis-agora fail almost every cell. |
 
-Not in the grid: everruns (adapters written, never run), nestjs-agent (its Company needs adonis-agora's AuthKit, which the grid already runs), Spot, the TYPO3 lab (private), and Atlas and Flight Sector (an open pull request). [interop-testing.md](interop-testing.md#candidates-from-the-12-october-survey) says what each would need.
+Not in the grid: everruns (adapters written, never run), nestjs-agent (its Company needs adonis-agora's AuthKit, which the grid already runs), Spot (it publishes valid discovery, but has no adapter), the TYPO3 lab (private), and Atlas and Flight Sector (an open pull request). [interop-testing.md](interop-testing.md#candidates-from-the-12-october-survey) says what the 12 October candidates would need.
 
 An edge below means no cell between that pair failed; a missing edge means at least one did. Unsupported cells count for nothing either way, so an edge between two small implementations can rest on a few cells: each signed-out Company's edges rest on two to four.
 
@@ -180,7 +180,7 @@ flowchart LR
   adonis --> mock & pwp & authkit
 ```
 
-pi-poppy's only clean pair is print-with-poppy, where just two signed-out scenarios run. Everywhere else one of its three habits trips the Company: the resent Session assertion on a nonce retry, giving up when a Session ends, and no `typ`.
+pi-poppy's only clean pair is print-with-poppy, where just two signed-out scenarios run. At every other Company one of three habits fails a cell: it resends the Session assertion on a nonce retry, gives up when a Session ends, and sends no `typ`.
 
 What the grid found in each project is in [poppy-issues.md](poppy-issues.md); the failures by rule are in [interop-results/](interop-results/README.md).
 
