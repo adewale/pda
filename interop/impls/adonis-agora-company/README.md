@@ -121,6 +121,8 @@ Verified on a private Docker network behind a TLS-terminating stand-in proxy wit
 
 ## The full grid (runner, run 2026-10-11T16:46:10Z)
 
+A dated snapshot from the 11 October grid. The latest results for every pair are in [docs/interop-results/README.md](../../../docs/interop-results/README.md), and each project's totals in [the ecosystem scorecard](../../../docs/ecosystem.md#scorecard).
+
 | Agent | Pass | Fail / error |
 | --- | --- | --- |
 | dpa | D S0 N SD SV SM SMC SX SXV C CI SO SE AO RL | CA, AS; CS error |

@@ -64,7 +64,7 @@ Datalayer already applies it to Poppy: 124 shared JSON cases in `protocol/fixtur
 
 - **Packaging.** Each implementation is a container. A Workers implementation is a `wrangler dev` process.
   - Each serves `GET /manifest`: name, commit, role, the scenarios it supports, and its readings of the open spec questions. An unsupported step answers 501, the equivalent of QUIC's "unsupported" exit code.
-- **Clients** expose a control API: `POST /step {op, company, params}`, plus `GET /log` for the requests they made.
+- **Clients** expose a control API: `POST /step {op, company, params}`, plus `GET /log` for the requests they made, a debugging aid that only our `dpa-agent` adapter serves; the interop spec doesn't define it, and the runner reads the recording proxy instead.
   - The `op`s ([interop-spec.md section 5.2](interop-spec.md#52-agent)) include `discover`, `session`, `signin`, `send`, `read`, `sse`, `api` (OpenAPI or MCP), `web_join`, `approve_op` and `signout`.
   - The API is authenticated with a per-run secret.
   - Ours drives `src/poppy` directly, not the model, so results never depend on an LLM.

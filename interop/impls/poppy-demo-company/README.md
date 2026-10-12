@@ -44,6 +44,8 @@ Readings: `S1` `endpoint` (assertion `aud` must equal the endpoint it is sent to
 
 ## The grid (runner, 11 October 2026, run 2026-10-11T16:46:10Z)
 
+A dated snapshot from the 11 October grid. The latest results for every pair are in [docs/interop-results/README.md](../../../docs/interop-results/README.md), and each project's totals in [the ecosystem scorecard](../../../docs/ecosystem.md#scorecard).
+
 | Agent | Pass | Fail | Why it fails |
 | --- | --- | --- | --- |
 | dpa | D S0 SD SX C CI CA SO AO | AS | dpa holds non-GET API calls for the User's approval at a Company without the Operations extension, so the write is never sent and no `insufficient_scope` comes back. Northstar's OpenAPI declares no per-operation scopes either. The scenario has no approval step. |

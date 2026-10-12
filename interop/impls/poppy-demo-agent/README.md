@@ -55,6 +55,8 @@ Readings: `S1` `endpoint` (each client assertion's `aud` is the endpoint it's se
 
 ## The grid (runner, 11 October 2026, run 2026-10-11T16:46:10Z)
 
+A dated snapshot from the 11 October grid. The latest results for every pair are in [docs/interop-results/README.md](../../../docs/interop-results/README.md), and each project's totals in [the ecosystem scorecard](../../../docs/ecosystem.md#scorecard).
+
 | Company | Pass | Fail | Why it fails |
 | --- | --- | --- | --- |
 | poppy-demo | D S0 SD SX C CA SO AO | none | |

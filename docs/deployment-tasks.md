@@ -13,11 +13,11 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
   - `PUBLIC_ORIGIN`: where the agent's Poppy identity lives. It becomes the `client_id` every Company knows the agent by, forever (item "The final domain" below).
   - `POPPY_LOGO_URI`: the logo Companies show on their consent pages, normally `<origin>/logo.svg`.
   - Optionally any other declared var, such as `DEMO_GATEWAY_ID` (next item).
-- [ ] **Owner. `DEMO_GATEWAY_ID`.** The template says `demo`. Until that gateway exists, set `"DEMO_GATEWAY_ID": "default"` in `deployment.local.json`, and remove it once `demo` is set up ([setup §3](setup.md#3-the-demo-optional-claude-on-your-bill-capped)).
+- [x] **Owner. `DEMO_GATEWAY_ID`.** The template says `demo`; the live deployment's `deployment.local.json` sets `"DEMO_GATEWAY_ID": "dpa-gateway"`, the gateway the owner created on 12 October ([setup §3](setup.md#3-the-demo-optional-claude-on-your-bill-capped)).
 - [ ] **Owner. The Cloudflare dashboard** ([setup §3](setup.md#3-the-demo-optional-claude-on-your-bill-capped)):
-  - [ ] a gateway named `demo`, with Authentication on and Unified Billing;
-  - [ ] credits loaded, with auto top-up off;
-  - [ ] spend rules as a backstop to the agent's own caps: one split by `metadata.u`, one by `metadata.d`, and a pooled daily cap;
+  - [x] a gateway (`dpa-gateway`) with Unified Billing; [ ] Authentication on and logging off or minimal, unconfirmed (Wrangler's login token can't read AI Gateway settings);
+  - [x] credits loaded ($100 on 12 October); [ ] auto top-up confirmed off;
+  - [x] a spend limit (the owner added one on 12 October); [ ] spend rules as a backstop to the agent's own caps: one split by `metadata.u`, one by `metadata.d`, and a pooled daily cap;
   - [ ] the account's credit limit;
   - [ ] no provider keys (BYOK) stored on any gateway;
   - [ ] no API tokens with "AI Gateway Run".
@@ -32,14 +32,14 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
 
 From the spec's Model access, "Check live", and the parts tested only in fakes or happy-dom. Each is **Owner** to run; any that fails becomes **Code**.
 
-- [ ] Own keys: pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key of each.
-- [ ] The key checks: a pasted key is checked with the vendor's free list-models call (`GET /v1/models`) before it is sealed, and a bad key is refused.
-- [ ] The demo: Claude Sonnet 5.5 through the AI binding on Unified Billing (today a live call fails with `x-api-key header is required` until the gateway has credits).
-- [ ] The demo after a compaction (preserved thinking): in a conversation that has thinking turns, go past 184k tokens of context (or send a request the model calls too long) so a summary is placed, then send one more turn. It should answer, not fail with a 400 about thinking blocks or signatures. The demo request now asks Anthropic to drop stale thinking blocks (`block_binding`, beta `thinking-binding-controls-2026-08-01`), which works only if AI Gateway passes the `anthropic-beta` header and the body through unchanged; a 400 naming an unknown field or beta means it doesn't ([decisions §23](decisions.md#23-compaction-a-budget-our-summarizer-the-page)). The own-key Anthropic lane sends the same request straight to Anthropic, so check it once with a real key too.
+- [x] Own keys: pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key of each (12 October: the owner's OpenAI key, and an Anthropic key created inside a workspace; an organisation-wide Anthropic key needs a workspace ID, which Settings now takes).
+- [x] The key checks: a pasted key is checked with the vendor's free list-models call (`GET /v1/models`) before it is sealed, and a refused key shows the vendor's reason (12 October).
+- [x] The demo: Claude Sonnet 5.5 through the AI binding on Unified Billing, through `dpa-gateway` (12 October, after credits were loaded). Every demo call carries the `anthropic-beta` header the compaction fix adds, so the gateway passes it through.
+- [ ] The demo after a compaction (preserved thinking): in a conversation that has thinking turns, go past 184k tokens of context (or send a request the model calls too long) so a summary is placed, then send one more turn. It should answer, not fail with a 400 about thinking blocks or signatures. The header half is shown by the plain demo call above; the summary-then-turn half is still untried. The demo request now asks Anthropic to drop stale thinking blocks (`block_binding`, beta `thinking-binding-controls-2026-08-01`), which works only if AI Gateway passes the `anthropic-beta` header and the body through unchanged; a 400 naming an unknown field or beta means it doesn't ([decisions §23](decisions.md#23-compaction-a-budget-our-summarizer-the-page)). The own-key Anthropic lane sends the same request straight to Anthropic, so check it once with a real key too.
 - [ ] The gateway metadata (`u`, `d`) reaches the spend rules; the 429 they return; how far a burst overshoots.
 - [ ] Settings in a real browser: the key panel (paste, remove), the demo meter, and the needs-key banner.
 - [ ] The Content-Security-Policy doesn't break the deployed page: the theme script, the WebSocket, images, the validator's pages.
-- [ ] Sign-in end to end: GitHub now; Google once registered; someone not on a list is refused.
+- [ ] Sign-in end to end: GitHub works (the owner signs in with it); still to try: someone not on a list is refused, and Google once registered.
 - [ ] If a "Deploy to Cloudflare" button is added: how it handles the deployer's vars.
 
 ## 3. Then
