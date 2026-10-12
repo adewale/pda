@@ -5,6 +5,35 @@ A snapshot: the summary of one run of the [interop harness](../../interop/README
 - **Run the grid locally** (needs Docker): `npm run interop` with the command below, or `npm run interop -- --agents dpa --companies dpa-mock,dpa-mock-strict` for our own pair. Each run writes to `interop/results/<run>/` (gitignored); [interop spec](../interop-spec.md) section 9 describes the files.
 - **Download CI's**: the Interop workflow (`.github/workflows/interop.yml`) runs our agent against both of our mocks and uploads the `interop-results` artifact from each run.
 
+## Latest run: 12 October, 30 scenarios
+
+The command, run at `2026-10-12T13:20:47Z` on the local lane, on the isolated network, with every image rebuilt at the pins in [`interop/registry.json`](../../interop/registry.json) (Datalayer at 0.10.0), after scenarios H, DC, W, O2 and CM were written and AO learned to approve a held write:
+
+```sh
+npm run interop -- --agents dpa,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora \
+  --companies dpa-mock,dpa-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora \
+  --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CI,CS,CA,SO,SE,R,AO,AM,AS,O,OX,RL,DP,OU,H,DC,W,O2,CM
+```
+
+**1,800 cells: 849 pass, 171 fail, 780 unsupported, 0 errors.** No cell was flaky and no known failure was stale; every failure matched a known failure's recorded cause (blame, checks and step), so the run exits 0. Checks recorded: 6 failures, 4 warnings, 744 tentative. Our agent, `dpa`, passed every one of the 195 cells it ran.
+
+Against the 1,440-cell run below, the 360 new cells are scenarios H, DC, W, O2, CM and OU. Their failures are known: Datalayer's SDKs require `conversation_id` in the answer to a handoff or a close (7.9 and 7.12 say status and responder), the S2 `typ` reading at the strict Companies, and poppy-demo's discovery. everruns ran apart on both sides ([interop-testing.md](../interop-testing.md#everruns-joins-the-grid)) and isn't in these totals.
+
+Pass / fail / unsupported, by agent (rows) and Company (columns), over 30 scenarios:
+
+| | dpa-mock | dpa-mock-strict | datalayer-ts | datalayer-py | pi-poppy | poppy-demo | poppyseed | ilmer | print-with-poppy | adonis-agora |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **dpa** | 30 / 0 / 0 | 30 / 0 / 0 | 22 / 0 / 8 | 22 / 0 / 8 | 24 / 0 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 4 / 0 / 26 | 22 / 0 / 8 |
+| **datalayer-ts** | 24 / 4 / 2 | 24 / 4 / 2 | 21 / 1 / 8 | 21 / 1 / 8 | 23 / 1 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 3 / 0 / 27 | 22 / 0 / 8 |
+| **datalayer-py** | 25 / 3 / 2 | 25 / 3 / 2 | 22 / 0 / 8 | 22 / 0 / 8 | 23 / 1 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 3 / 0 / 27 | 22 / 0 / 8 |
+| **pi-poppy** | 24 / 3 / 3 | 1 / 26 / 3 | 19 / 2 / 9 | 19 / 2 / 9 | 21 / 2 / 7 | 1 / 11 / 18 | 22 / 1 / 7 | 1 / 4 / 25 | 3 / 0 / 27 | 19 / 2 / 9 |
+| **poppy-demo** | 0 / 12 / 18 | 0 / 12 / 18 | 5 / 5 / 20 | 5 / 5 / 20 | 10 / 0 / 20 | 10 / 0 / 20 | 9 / 1 / 20 | 0 / 4 / 26 | 0 / 3 / 27 | 0 / 12 / 18 |
+| **adonis-agora** | 24 / 0 / 6 | 1 / 23 / 6 | 18 / 1 / 11 | 18 / 1 / 11 | 17 / 3 / 10 | 1 / 11 / 18 | 18 / 3 / 9 | 1 / 4 / 25 | 3 / 0 / 27 | 22 / 0 / 8 |
+
+Each implementation's totals and what its failures are: [the ecosystem scorecard](../ecosystem.md#scorecard). The sections below are the day's earlier runs, kept for their per-rule detail.
+
+## Earlier runs
+
 The command, run at `2026-10-12T09:00:00Z` on the local lane, on the isolated network (interop spec section 3, Isolation), after Datalayer's pin moved to 0.10.0:
 
 ```sh
