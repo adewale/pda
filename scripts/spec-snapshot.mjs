@@ -514,12 +514,14 @@ function render(site) {
     const html = page.body.toString("utf8");
     const updated = html.replace(/<!--.*?-->/g, "").match(/Updated\s*(?:<[^>]+>\s*)*([A-Z][a-z]{2} \d{1,2}, \d{4})/)?.[1];
     const markdown = page.markdown?.status === 200 ? page.markdown.body.toString("utf8") : htmlToMarkdown(html);
+    const content = contentHtml(contentOf(html));
     return {
       ...page,
       updated,
       markdownText: markdown,
       markdownSource: page.markdown?.status === 200 ? page.markdown.url : "converted from the page's HTML",
-      contentHtml: contentHtml(contentOf(html)),
+      // Exactly what save() writes to html/<name>.html, so the manifest hashes the file it names.
+      storedHtml: `<!-- ${page.url}, content only; see ../README.md -->\n${content}\n`,
       counts: keywordCounts(markdown)
     };
   });
@@ -566,7 +568,7 @@ function manifestOf(site, rendered, dir) {
         ...(page.markdown ? { fetched: fetchedFields(page.markdown) } : {}),
         sha256: sha256(page.markdownText)
       },
-      content_html: { file: `html/${page.name}.html`, sha256: sha256(page.contentHtml) },
+      content_html: { file: `html/${page.name}.html`, sha256: sha256(page.storedHtml) },
       rfc2119: page.counts
     })),
     walkthrough_bundle: site.walkthrough
@@ -636,7 +638,7 @@ function save(site) {
   mkdirSync(path.join(out, "html"), { recursive: true });
   for (const page of rendered.pages) {
     writeFileSync(path.join(out, "pages", `${page.name}.md`), page.markdownText);
-    writeFileSync(path.join(out, "html", `${page.name}.html`), `<!-- ${page.url}, content only; see ../README.md -->\n${page.contentHtml}\n`);
+    writeFileSync(path.join(out, "html", `${page.name}.html`), page.storedHtml);
   }
   if (rendered.walkthroughText) writeFileSync(path.join(out, "pages", "walkthroughs.md"), rendered.walkthroughText);
   const manifest = manifestOf(site, rendered, dir);
