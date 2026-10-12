@@ -101,7 +101,7 @@ Hardening (SSRF, duplicate JSON members, redirects on `client_id`) stays in one-
 
 ## Plan
 
-Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repository (never made; our exported vectors were removed because nothing consumed them), the Playwright consent scripts, nightly CI for the full grid, and scenarios H, DC, W, O2 and CM. Datalayer's 124 cases run against our code: 24 pass, 2 fail on readings the draft leaves open, and 98 don't apply.
+Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repository (never made; our exported vectors were removed because nothing consumed them), the Playwright consent scripts, nightly CI for the full grid, and scenarios H, DC, W, O2 and CM. Datalayer's 124 cases run against our code: on 12 October, at `0c048aa`, with the discovery cases judged by whether our client refuses the document (not by the validator's severity), 24 pass, 2 fail on readings the draft leaves open, and 98 don't apply.
 
 
 1. **Pirate vectors, no network.**
@@ -133,7 +133,7 @@ The re-survey ([implementations.md](implementations.md), [ecosystem.md](ecosyste
 | [tiny-poppy-gate](https://github.com/bobbyhalljr/tiny-poppy-gate) at `a7d084d` | Neither | Nothing to adapt: an in-memory toy with its own document shape, no HTTP and no OAuth. | n/a |
 | Fillthemat ([draft PR #200](https://github.com/fillthemat/fillthemat/pull/200)) | Company, later | Its discovery document so far has no `agent`, `apis` or `web`. Its issuers have a path on a shared host (`https://auth.fillthemat.com/schools/<id>`), the deployment our `DP` scenario was written for. | Watch; an adapter once sign-in or a Company Agent is merged. |
 
-Datalayer's 0.10.0 (`0c048aa`, 34 commits past our pin) changes cells: its Companies now accept a client assertion `aud` of the issuer, the token endpoint or the endpoint called, so adonis-agora's S1 known failures at both Datalayer Companies should pass, and assertions over 120 s are refused. Device Sign-In still doesn't retry `use_dpop_nonce`, the TypeScript SSE client still gives up after five quick reconnects, some optional Operation members are still `null`, and renewal still needs `session_id`. Moving the pin means rebuilding two images and re-running their rows and columns.
+Datalayer's pin moved on 12 October from `12d7187` (0.6.0) to 0.10.0 (`0c048aa`, 34 commits later); the four adapters' READMEs say what changed for each. Its Companies now accept a client assertion `aud` of the issuer, the token endpoint or the endpoint called, so adonis-agora's S1 cells at both Datalayer Companies should pass, and assertions over 120 s are refused. Device Sign-In still doesn't retry `use_dpop_nonce`, the TypeScript SSE client still gives up after five quick reconnects, a cancelled Operation's `result.data` is still `null` (a confirmed one no longer sends `expires_at: null`), and renewal still needs `session_id`. The four images are to be rebuilt and their rows and columns re-run.
 
 ## Validator cross-check
 

@@ -33,7 +33,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 | Project | What | Language, licence | Grid | Source | Checked |
 | --- | --- | --- | --- | --- | --- |
 | This project (dpa) | A hosted Personal Agent per User, on Durable Objects | TypeScript, none chosen | Yes | [adewale/dpa](https://github.com/adewale/dpa) | 12 Oct |
-| Datalayer SDK | Client side of a both-sides SDK | Python, TypeScript; BSD-3-Clause | Yes, pinned at `12d7187` (0.8.0); 0.10.0 is out | [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol) | 12 Oct |
+| Datalayer SDK | Client side of a both-sides SDK | Python, TypeScript; BSD-3-Clause | Yes, pinned at `0c048aa` (0.10.0; was `12d7187`, 0.6.0) | [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol) | 12 Oct |
 | pi-poppy | An extension for the pi coding agent | TypeScript, MIT | Yes | [richardanaya/pi-poppy](https://github.com/richardanaya/pi-poppy) | 12 Oct (no commits since 10 Oct) |
 | adonis-agora agent | `poppy-client`, `poppy-agent` bin and "connections" in an AdonisJS agent library | TypeScript, MIT | Yes | [DavideCarvalho/adonis-agora-agent](https://github.com/DavideCarvalho/adonis-agora-agent) | 12 Oct |
 | nestjs-agent | `@dudousxd/nestjs-agent-poppy` (0.1.1 in the repository, not on npm): a NestJS port of the adonis-agora agent. Its client is a verbatim copy of adonis-agora's `poppy-client`, plus connections and a `poppy-agent` CLI | TypeScript, MIT | No | [DavideCarvalho/nestjs-agent](https://github.com/DavideCarvalho/nestjs-agent) | 12 Oct |
@@ -160,7 +160,7 @@ Where the draft is ambiguous, implementations already disagree. The questions ar
 | dpa (agent) | endpoint called | `typ: JWT`, `kid`, 60 s | insertion | omits |
 | dpa-mock / dpa-mock-strict | endpoint, token endpoint or issuer | any, 300 s / `typ: JWT`, `kid`, 60 s | insertion | ignores |
 | Datalayer agents | endpoint called | `typ: JWT`, 60 s | insertion | omits |
-| Datalayer Companies | endpoint called at our pin; 0.10.0 also accepts the token endpoint or the issuer | any, 300 s at our pin; 0.10.0: `typ` absent or `JWT`, 120 s | insertion | omits or ignores |
+| Datalayer Companies | endpoint called, token endpoint or issuer (0.10.0) | `typ` absent or `JWT`, 120 s, `jti` of 16+ characters (0.10.0) | insertion | omits or ignores |
 | pi-poppy agent / Company | endpoint called / endpoint called | no `typ` on Session assertions / any, 120 s | append / either | omits / ignores |
 | poppy-demo caller / Northstar | endpoint called / endpoint called | `typ: JWT`, 60 s / required | append / n/a | omits / `invalid_scope` |
 | adonis-agora agent / AuthKit | token endpoint / either | no `typ`, 60 s / any | insertion / either (serves both) | omits / omits |

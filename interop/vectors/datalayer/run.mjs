@@ -21,7 +21,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { DatabaseSync } from "node:sqlite";
 
-export const COMMIT = "12d71877d477b93f3ee68ebdc542560ba85997b9";
+export const COMMIT = "0c048aa7fef8d98bbc23de5474220b6e7206384a";
 const SUITES = ["protocol", "security", "lifecycle", "conversations", "operations"];
 // The number of cases at COMMIT.
 const EXPECTED_CASES = 124;
@@ -192,12 +192,14 @@ function companyResponses(doc) {
   return responses;
 }
 
+// Two separate things a report says (docs/conformance-levels.md): a message's severity is the
+// validator's verdict on the draft; `refuses` (and the report's `refused`) is whether our
+// client won't use the document. A case about what an agent does is judged by the second.
 const errorIds = (report) => report.messages.filter((m) => m.severity === "error").map((m) => m.id);
-const describe = (report) =>
-  report.messages
-    .filter((m) => m.severity === "error")
-    .map((m) => `${m.id}${m.at ? ` at ${m.at}` : ""}`)
-    .join(", ") || "no errors";
+const refusingIds = (report) => report.messages.filter((m) => m.refuses).map((m) => m.id);
+const listed = (messages, none) => messages.map((m) => `${m.id}${m.at ? ` at ${m.at}` : ""}`).join(", ") || none;
+const describe = (report) => listed(report.messages.filter((m) => m.severity === "error"), "no errors");
+const describeRefusals = (report) => listed(report.messages.filter((m) => m.refuses), "nothing our client refuses");
 
 // ------------------------------------------------------------ A whole client, in memory
 /** Cloudflare's SqlStorage over node:sqlite: just what src/poppy uses (exec → toArray). */
@@ -312,12 +314,17 @@ const CHECKS = {
   async discovery_document(input, expect) {
     const { validateText } = await src("validator/index.ts");
     const report = validateText("poppy", JSON.stringify(input), { domain: input.organization?.domain });
+    // Datalayer's `valid` is whether its agent parses and uses the document: our client's
+    // refusal, not the validator's severity, is the comparable answer.
     if (!expect.valid) {
-      check(report.outcome === "invalid", ourBug(`validator called it ${report.outcome}; expected invalid`));
-      return `refused: ${describe(report)}`;
+      check(report.refused, ourBug(`our client would use it (validator: ${report.outcome}, ${describe(report)}); expected a refusal`));
+      return `refused: ${describeRefusals(report)}`;
     }
-    check(report.outcome === "valid", reading(`validator called it ${report.outcome}: ${describe(report)}`));
+    check(!report.refused, reading(`our client refuses it: ${describeRefusals(report)}`));
     const notes = [];
+    if (report.outcome !== "valid") {
+      notes.push(`used by our client; the validator calls it ${report.outcome} (${describe(report)}), a verdict on the draft`);
+    }
     if (expect.extra) {
       // We ignore unknown fields (3.3) rather than carrying them: accepted is what we can check.
       notes.push(`unknown ${Object.keys(expect.extra).join(", ")} accepted (ignored, not preserved)`);
@@ -477,15 +484,18 @@ const CHECKS = {
       refusal = error;
     }
     if ("error" in expect) {
+      // Agent behaviour: discover() refuses, the validator agrees our client refuses it, and
+      // for the case's reason. That reason's severity (its basis) doesn't enter into it.
       check(refusal !== undefined, ourBug(`discovery succeeded; expected ${expect.error}`));
-      const ids = errorIds(report);
+      check(report.refused, ourBug(`discover() refused, but the validator says our client wouldn't: ${describe(report)}`));
+      const refusing = refusingIds(report);
       const wanted = DISCOVERY_ERRORS[expect.error] ?? [];
       const allMessages = report.messages.map((m) => m.id);
-      if (wanted.some((id) => ids.includes(id))) return `refused: ${describe(report)}${note}`;
+      if (wanted.some((id) => refusing.includes(id))) return `refused: ${describeRefusals(report)}${note}`;
       if (wanted.some((id) => allMessages.includes(id))) {
-        throw reading(`refused, but ${wanted.join("/")} is only a ${report.messages.find((m) => wanted.includes(m.id)).severity} for us; refused for: ${describe(report)}`);
+        throw reading(`refused, but not for ${wanted.join("/")}, which our client doesn't refuse over; refused for: ${describeRefusals(report)}`);
       }
-      throw ourBug(`refused, but not for ${expect.error}: ${describe(report)}`);
+      throw ourBug(`refused, but not for ${expect.error}: ${describeRefusals(report)}`);
     }
     if (refusal) {
       throw reading(`refused: ${refusal.message}`);

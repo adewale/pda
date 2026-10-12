@@ -35,11 +35,6 @@ import uvicorn
 from reactor import PluginManifest  # type: ignore[import-untyped]
 
 from personal_agent_protocol.company import (
-    COMPANY_ACCOUNTS,
-    COMPANY_AGENTS,
-    COMPANY_APIS,
-    COMPANY_MCP,
-    OPERATION_EXECUTORS,
     CompanyRequest,
     MemoryCompanyStore,
     build_company,
@@ -93,6 +88,10 @@ RELAXATIONS = [
     "Organization domain and issuer come from INTEROP_ORIGIN instead of manzanita.example",
 ]
 
+# uvicorn drops an idle connection after 5 s by default, just as the proxy may reuse it (a
+# device poll every 5 s raced it: "socket hang up"). Outlive the proxy's idle sockets.
+KEEP_ALIVE = 75
+
 MANIFEST = {
     "interop": 1,
     "name": NAME,
@@ -105,9 +104,12 @@ MANIFEST = {
     # no rate limits and no staff.
     "scenarios": [
         "D", "S0", "SD", "SV", "SMC", "SX", "SXV", "R", "SE", "SO",
-        "C", "CI", "CS", "CA", "DC", "AO", "AS", "W", "O", "O2", "OX",
+        "C", "CI", "CS", "CA", "AO", "AS", "O", "OX",
     ],
-    "readings": {"S1": "endpoint", "S2": "any", "S4": "either"},
+    # S1: a client assertion's aud may be the issuer, the token endpoint or the endpoint
+    # called, at the token, device and revocation endpoints alike (service.py `_client`).
+    # S2: typ absent or "JWT", at most 120 s (company/verify.py): lenient-120s.
+    "readings": {"S1": "either", "S2": "lenient-120s", "S4": "either"},
     "relaxations": RELAXATIONS,
 }
 
@@ -133,22 +135,6 @@ class InteropPolicyPlugin:
         )
 
 
-class InteropManzanita(mz.ManzanitaPlugin):
-    """Manzanita's own contributions, as `ManzanitaPlugin` makes them."""
-
-    def provide_contributions(self, contributions: object) -> None:
-        contribute = contributions.contribute  # type: ignore[attr-defined]
-        agent, api, mcp = mz.ManzanitaAgent(), mz.ManzanitaApi(), mz.ManzanitaMcp()
-        contribute(COMPANY_ACCOUNTS, mz.ManzanitaAccounts(), contribution_id="accounts")
-        contribute(COMPANY_AGENTS, agent, contribution_id="agent")
-        contribute(OPERATION_EXECUTORS, self.executor, contribution_id="exchange")
-        contribute(OPERATION_EXECUTORS, self.gift_wrap, contribution_id="gift-wrap")
-        contribute(OPERATION_EXECUTORS, self.returns, contribution_id="returns")
-        contribute(OPERATION_EXECUTORS, self.repairs, contribution_id="repairs")
-        contribute(COMPANY_APIS, api, contribution_id="api")
-        contribute(COMPANY_MCP, mcp, contribution_id="mcp")
-
-
 def config():  # type: ignore[no-untyped-def]
     return replace(mz.CONFIG, domain=DOMAIN)
 
@@ -165,7 +151,9 @@ class World:
 
     def __init__(self) -> None:
         self.store = MemoryCompanyStore()
-        self.plugin = InteropManzanita()
+        # Manzanita's own plugin, as `manzanita()` builds it (accounts, agent, executors,
+        # API and MCP server); only the store and the URL policy are the adapter's.
+        self.plugin = mz.ManzanitaPlugin()
         plugins: list[tuple[PluginManifest, object]] = [
             (PluginManifest(name="manzanita", version="1"), self.plugin),
             (PluginManifest(name="interop-store", version="1"), StorePlugin(self.store)),
@@ -435,7 +423,7 @@ async def control(scope: dict[str, Any], receive: Any, send: Any) -> None:  # no
 async def main() -> None:
     servers = [
         uvicorn.Server(
-            uvicorn.Config(company, host="0.0.0.0", port=8080, log_level="warning")  # noqa: S104
+            uvicorn.Config(company, host="0.0.0.0", port=8080, log_level="warning", timeout_keep_alive=KEEP_ALIVE)  # noqa: S104
         ),
         uvicorn.Server(
             uvicorn.Config(control, host="0.0.0.0", port=8081, log_level="warning")  # noqa: S104
