@@ -26,6 +26,7 @@ No. Every page is as it was when it was last deployed, between 9 October 23:08 a
 - Every page still shows "Updated Oct 9, 2026", and the sitemap still lists the same nine pages: home, overview, spec, extensions, Operations, guides, open topics, license, contributions.
 - Each response's `Last-Modified` is between Fri, 09 Oct 2026 23:08:24 GMT (the spec) and Sat, 10 Oct 2026 13:52:43 GMT (contributions), and each came from the CDN's cache (`x-vercel-cache: HIT`) with an `Age` of 34 to 49 hours, so the same bytes had been served since then. The spec page's `Age` of 176,194 seconds puts its cached copy at 9 October 23:08 UTC.
 - The counts we recorded on 11 October come out the same (next section).
+- Checked again on the evening of 12 October with `node scripts/spec-snapshot.mjs`: every page's body and text were the same as the snapshot's.
 - No later text contradicts a quotation in our docs: where a row misstated the text, it misstated the text of 9 October (the "misread" verdicts below).
 
 We have no copy of the 11 October crawl to compare byte for byte; from now on, `node scripts/spec-snapshot.mjs` compares the live site with this snapshot.
