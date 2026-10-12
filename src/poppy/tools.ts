@@ -1,6 +1,6 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
 import type { Extension, ToolRegistration } from "@earendil-works/pi-durable";
-import { callMcpTool, callOpenApi, describeOpenApi, isReadOnlyMcpTool, listMcpTools } from "./apis";
+import { callMcpTool, callOpenApi, describeOpenApi, listMcpTools } from "./apis";
 import { openAtCompanies } from "./activity";
 import { browse, type BrowseAction, type PoppyBrowser } from "./browser";
 import { PoppyClient, PoppyError } from "./client";
@@ -266,7 +266,8 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             ),
             session: Label
           }),
-          // Reads are safe; writes carry a stored Idempotency-Key, or wait for approval (uploads always do, with a card fixed per call).
+          // Safe on replay: reads; writes sent straight to a proposing endpoint carry a stored
+          // Idempotency-Key or are sent at most once per call; every other write only shows a card fixed per call.
           replay: "safe"
         },
         async ({ domain, operation: name, api, params, body, files, session }, callKey) =>
@@ -299,14 +300,11 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             api: Type.Optional(Type.String()),
             session: Label
           }),
-          // Unsafe in general: only read-only tools are repeated after a crash (checked in the call).
+          // Unsafe: a tool call has no idempotency key, so an interrupted one is reported, never repeated.
           replay: "unsafe"
         },
-        async ({ domain, tool: name, args, api, session }) => {
-          const found = await company(domain);
-          await isReadOnlyMcpTool(client(), found, session ?? "main", api, name);
-          return callMcpTool(client(), found, session ?? "main", { tool: name, args: (args ?? {}) as Json, ...(api ? { apiUrl: api } : {}) });
-        }
+        async ({ domain, tool: name, args, api, session }) =>
+          callMcpTool(client(), await company(domain), session ?? "main", { tool: name, args: (args ?? {}) as Json, ...(api ? { apiUrl: api } : {}) })
       ),
       tool(
         {

@@ -303,9 +303,15 @@ export class Web {
       );
     }
     // An operation's `url`: the same operation, shown in the same Session (Ops 4.4).
-    const exchange = /^\/orders\/[^/]+\/exchanges\/([A-Za-z0-9_-]+)$/.exec(inbound.url.pathname);
+    const exchange = /^\/orders\/[^/]+\/exchanges\/([^/]+)$/.exec(inbound.url.pathname);
     if (exchange) {
-      const operation = session && !session.ended ? this.operations?.forWebsite(session, exchange[1]!) : null;
+      let id: string | null = null;
+      try {
+        id = decodeURIComponent(exchange[1]!);
+      } catch {
+        // Not an id this Company issued.
+      }
+      const operation = id && session && !session.ended ? this.operations?.forWebsite(session, id) : null;
       if (!operation) return html("<p>Not found</p>", 404);
       return html(`<h1>Your exchange</h1><p>${operation.summary}</p><p>Status: ${operation.state}</p>`);
     }

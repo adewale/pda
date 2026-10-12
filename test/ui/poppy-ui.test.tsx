@@ -475,7 +475,7 @@ describe("Companies page", () => {
     const { sent } = renderCompanies({ accounts });
     fireEvent.click(screen.getByRole("button", { name: "Globex" }));
     fireEvent.change(screen.getByLabelText("Account"), { target: { value: "https://auth.globex.example|g***@example.com" } });
-    fireEvent.change(screen.getByLabelText(/Word Globex's summary must contain/), { target: { value: "rebook" } });
+    fireEvent.change(screen.getByLabelText(/Word or words Globex's summary must begin with/), { target: { value: "rebook" } });
     fireEvent.change(screen.getByLabelText("Up to"), { target: { value: "50" } });
     fireEvent.change(screen.getByLabelText("Currency"), { target: { value: "eur" } });
     fireEvent.change(screen.getByLabelText("Number of times"), { target: { value: "2" } });
@@ -501,7 +501,7 @@ describe("Companies page", () => {
     fireEvent.change(amount, { target: { value: "lots" } });
     fireEvent.click(screen.getByRole("button", { name: "Add standing permission" }));
     expect(sent).toEqual([]);
-    expect(screen.getByText(/Name a word the Company's summary must contain/)).toBeTruthy();
+    expect(screen.getByText(/Name the word or words the Company's summary must begin with/)).toBeTruthy();
     expect(screen.getByText(/Use a number/)).toBeTruthy();
     expect(amount.value).toBe("lots");
     expect(amount.getAttribute("aria-invalid")).toBe("true");

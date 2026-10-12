@@ -47,32 +47,89 @@ const SENT = 2;
  * as when the signed-out Session it was proposed in has ended (Ops 3.2).
  * Nothing can confirm, read or cancel it any more, so it is final for us
  * (our reading of N19, docs/readings.md): never confirmed or read again, and
- * no longer in the way of a new proposal.
+ * no longer in the way of a new proposal. `LOST`: it may have happened (a
+ * confirm's answer never came, or it was in progress); `LOST_NOT_DONE`: it
+ * wasn't. Rows marked lost before the two were told apart are all `LOST`,
+ * the cautious one.
  */
 const LOST = 3;
+const LOST_NOT_DONE = 4;
+
+function isLost(confirmed: number): boolean {
+  return confirmed === LOST || confirmed === LOST_NOT_DONE;
+}
+
+/** For a lost operation, whether it may have happened; null when it isn't lost. */
+export function lostOutcome(confirmed: number): "unknown" | "not_done" | null {
+  return confirmed === LOST ? "unknown" : confirmed === LOST_NOT_DONE ? "not_done" : null;
+}
 /** When the tracking job checks on a confirm whose answer never came. */
 const CONFIRM_CHECK_MS = 60_000;
 
 const FINAL = new Set(["succeeded", "failed", "cancelled", "expired"]);
 const STATES = new Set(["proposed", "in_progress", ...FINAL]);
-const ID = /^[A-Za-z0-9_-]{1,256}$/;
-
-function parseOperation(value: Json): Operation | null {
-  if (!isObject(value)) return null;
-  const { operation_id, revision, state, summary } = value;
-  if (
-    typeof operation_id !== "string" ||
-    !ID.test(operation_id) ||
-    typeof revision !== "number" ||
-    !Number.isInteger(revision) ||
-    revision < 1 ||
-    typeof state !== "string" ||
-    !STATES.has(state) ||
-    typeof summary !== "string"
-  ) {
-    return null;
+/**
+ * Why an `operation_id` can't be used, or null if it can. It is the
+ * Company's own (it MAY be its record's id, Ops 3), so any text is taken:
+ * 1 to 256 characters, none a control character, no space at either end,
+ * not `.` or `..` (which a URL would resolve away), and well-formed Unicode.
+ * It goes into URLs percent-encoded.
+ */
+export function operationIdProblem(id: unknown): string | null {
+  if (typeof id !== "string") return "it has no operation_id";
+  const length = [...id].length;
+  if (length < 1 || length > 256) return "its operation_id isn't 1 to 256 characters";
+  if (/\p{Cc}/u.test(id)) return "its operation_id has a control character";
+  if (id.trim() !== id) return "its operation_id starts or ends with a space";
+  if (id === "." || id === "..") return "its operation_id is a dot segment";
+  try {
+    encodeURIComponent(id);
+  } catch {
+    return "its operation_id isn't well-formed Unicode";
   }
-  return value as unknown as Operation;
+  return null;
+}
+
+function parseOperation(value: Json): { operation: Operation } | { problem: string } {
+  if (!isObject(value)) return { problem: "it isn't an object" };
+  const { operation_id, revision, state, summary } = value;
+  const idProblem = operationIdProblem(operation_id);
+  if (idProblem) return { problem: idProblem };
+  if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 1) return { problem: "its revision isn't a whole number from 1" };
+  if (typeof state !== "string" || !STATES.has(state)) return { problem: "its state isn't one the Operations extension defines" };
+  if (typeof summary !== "string") return { problem: "it has no summary" };
+  return { operation: value as unknown as Operation };
+}
+
+/** A short, stable tag for a value (FNV-1a of its JSON), so a notice about it is given once. */
+function tagOf(value: Json): string {
+  const text = JSON.stringify(value) ?? "";
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index++) hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
+  return hash.toString(16).padStart(8, "0");
+}
+
+/**
+ * The Company proposed something we can't use: an operation we can't read,
+ * or one from a Company that doesn't list the extension (so there is nowhere
+ * to confirm it). Nothing was done and nothing can be confirmed; the User
+ * and the model are told so, once, rather than the model being left with
+ * the raw answer.
+ */
+async function unusableProposal(client: PoppyClient, company: Company, problem: string, value: Json): Promise<void> {
+  const tag = `${company.issuer}-${tagOf(value)}`;
+  await client.host.showCard({
+    id: `op-unreadable-${tag}`,
+    kind: "notice",
+    company: company.name,
+    domain: company.domain,
+    open: false,
+    text: `${company.name} proposed an action the agent couldn't read (${problem}), so nothing was done and there is nothing to approve. Ask again if you still want it.`
+  });
+  await client.host.notifyModel(
+    `[system] ${company.name} proposed an operation the agent can't use (${problem}). Nothing was done, and it can't be approved or confirmed. Tell the User; if they still want it, ask ${company.name} again or another way.`,
+    `poppy-op-unreadable-${tag}`
+  );
 }
 
 function stored(client: PoppyClient, issuer: string, id: string): OperationRow | undefined {
@@ -124,22 +181,6 @@ export function highlights(terms: Json | undefined): string[] {
   return found;
 }
 
-/** Money terms: every `{ amount, currency }` object in `terms`. */
-function moneyTerms(terms: Json | undefined): { amount: number; currency: string }[] {
-  const found: { amount: number; currency: string }[] = [];
-  const walk = (value: Json) => {
-    if (Array.isArray(value)) value.forEach(walk);
-    if (!isObject(value)) return;
-    if ((typeof value.amount === "string" || typeof value.amount === "number") && typeof value.currency === "string") {
-      found.push({ amount: Number(value.amount), currency: value.currency });
-      return;
-    }
-    Object.values(value).forEach(walk);
-  };
-  if (terms !== undefined) walk(terms);
-  return found;
-}
-
 /**
  * Links in a final operation's `result.data` the User can follow: HTTPS URLs
  * on the Company's own hosts (a checkout or an order's status page), each
@@ -157,9 +198,9 @@ export function resultLinks(company: Company, data: Json | undefined): { label: 
   return links.slice(0, 4);
 }
 
-async function showOperation(client: PoppyClient, company: Company, row: OperationRow, lostOutcome?: "unknown" | "not_done"): Promise<void> {
+async function showOperation(client: PoppyClient, company: Company, row: OperationRow): Promise<void> {
   const operation = JSON.parse(row.operation) as Operation;
-  const lost = row.confirmed === LOST ? (lostOutcome ?? "unknown") : undefined;
+  const lost = lostOutcome(row.confirmed) ?? undefined;
   const open = !lost && operation.state === "proposed" && row.approved_revision !== operation.revision;
   const links = FINAL.has(operation.state) ? resultLinks(company, operation.result?.data) : [];
   await client.host.showCard({
@@ -194,13 +235,13 @@ async function showOperation(client: PoppyClient, company: Company, row: Operati
  * once. If a confirm was sent, it may have happened; the User is told to check.
  */
 async function markLost(client: PoppyClient, company: Company, row: OperationRow): Promise<void> {
-  if (row.confirmed === LOST) return;
+  if (isLost(row.confirmed)) return;
   // It may have happened if it was being performed, or an earlier confirm's answer never came.
   const uncertain = row.confirmed === SENT || (JSON.parse(row.operation) as Operation).state === "in_progress";
   const approved = row.approved_revision !== null;
   releasePermission(client, row);
-  setConfirmed(client, row.issuer, row.operation_id, LOST);
-  await showOperation(client, company, stored(client, row.issuer, row.operation_id)!, uncertain ? "unknown" : "not_done");
+  setConfirmed(client, row.issuer, row.operation_id, uncertain ? LOST : LOST_NOT_DONE);
+  await showOperation(client, company, stored(client, row.issuer, row.operation_id)!);
   const outcome = uncertain
     ? `A confirm may have reached ${company.name} before, so it may have happened: tell the User to check with ${company.name} before asking for it again.`
     : approved
@@ -231,7 +272,7 @@ export function refuseWhileConfirming(client: PoppyClient, issuer: string, reque
     request
   );
   const row = found ? stored(client, issuer, found.operation_id) : undefined;
-  if (!row || row.approved_revision === null || row.confirmed === LOST) return;
+  if (!row || row.approved_revision === null || isLost(row.confirmed)) return;
   const operation = JSON.parse(row.operation) as Operation;
   if (FINAL.has(operation.state)) return;
   throw new PoppyError(
@@ -258,8 +299,17 @@ export async function handleProposal(
   label: string,
   value: Json
 ): Promise<Operation | null> {
-  const operation = parseOperation(value);
-  if (!operation || !company.extensions.operations) return null;
+  const parsed = parseOperation(value);
+  if ("problem" in parsed || !company.extensions.operations) {
+    await unusableProposal(
+      client,
+      company,
+      "problem" in parsed ? parsed.problem : "its poppy.json doesn't list the Operations extension, so there is nowhere to confirm it",
+      value
+    );
+    return null;
+  }
+  const { operation } = parsed;
   const existing = stored(client, company.issuer, operation.operation_id);
   const previous = existing ? (JSON.parse(existing.operation) as Operation) : undefined;
   if (previous && previous.revision > operation.revision) return previous;
@@ -328,8 +378,9 @@ async function afterUpdate(
 
 /** Store the operation the Company returned, and react to its state. */
 async function update(client: PoppyClient, company: Company, value: Json): Promise<Operation | null> {
-  const operation = parseOperation(value);
-  if (!operation) return null;
+  const parsed = parseOperation(value);
+  if ("problem" in parsed) return null;
+  const { operation } = parsed;
   const existing = stored(client, company.issuer, operation.operation_id);
   if (!existing) return null;
   const previous = JSON.parse(existing.operation) as Operation;
@@ -366,7 +417,7 @@ export async function approveAndConfirm(
   permissionId?: string
 ): Promise<void> {
   const row = stored(client, issuer, operationId);
-  if (!row || row.confirmed === LOST) return;
+  if (!row || isLost(row.confirmed)) return;
   const operation = JSON.parse(row.operation) as Operation;
   // An approval covers one revision; a stale card can't approve newer terms.
   if (operation.revision !== revision || operation.state !== "proposed") return;
@@ -400,7 +451,7 @@ const CONFIRMING = (issuer: string, operationId: string) => `confirm|${issuer}|$
  */
 export async function confirm(client: PoppyClient, issuer: string, operationId: string): Promise<void> {
   const row = stored(client, issuer, operationId);
-  if (!row || row.approved_revision === null || !row.approved_by || row.confirmed === LOST) return;
+  if (!row || row.approved_revision === null || !row.approved_by || isLost(row.confirmed)) return;
   if (FINAL.has((JSON.parse(row.operation) as Operation).state)) return;
   const key = CONFIRMING(issuer, operationId);
   if (client.inFlight.has(key)) return;
@@ -543,7 +594,7 @@ export async function retryApproved(client: PoppyClient, issuer: string): Promis
  */
 export async function trackOperation(client: PoppyClient, issuer: string, operationId: string): Promise<number | null> {
   const row = stored(client, issuer, operationId);
-  if (!row || row.confirmed === LOST) return null;
+  if (!row || isLost(row.confirmed)) return null;
   const known = JSON.parse(row.operation) as Operation;
   if (FINAL.has(known.state)) return null;
   // A proposal with no confirm outstanding has nothing to follow up.
@@ -584,7 +635,7 @@ export async function trackOperation(client: PoppyClient, issuer: string, operat
 /** Decline a proposal, or ask the Company to stop one in progress (Ops 7). */
 export async function cancelOperation(client: PoppyClient, issuer: string, operationId: string): Promise<void> {
   const row = stored(client, issuer, operationId);
-  if (!row || row.confirmed === LOST) return;
+  if (!row || isLost(row.confirmed)) return;
   const company = client.companyByIssuer(issuer);
   const endpoint = endpointOf(company);
   releasePermission(client, row);
@@ -655,14 +706,88 @@ export function permissions(client: PoppyClient): PermissionRow[] {
 }
 
 /**
+ * The `terms` keys a standing permission lets through as they are, besides
+ * money and dates: the ones that say which record the action is on, from the
+ * draft's own example (Ops 3: `order_id`, `item_id`, `replacement_sku`, beside
+ * `price_difference`). The Company names its keys (Ops 3), so anything else,
+ * whatever it is called, is a term we can't check, and the User decides.
+ */
+const DESCRIPTIVE_TERMS = new Set(["order_id", "item_id", "replacement_sku"]);
+
+/** Words that, right after the action, say the summary isn't that action: "Exchange nothing: …". */
+const NEGATIONS = new Set(["not", "no", "nothing", "none", "never", "neither", "nor", "without"]);
+
+function words(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu) ?? [];
+}
+
+/**
+ * The summary begins with the permission's action, word for word ("exchange"
+ * covers "Exchange the Stormline Jacket…"), and the word after it isn't a
+ * negation. Anywhere else in the summary isn't enough: "Not an exchange:
+ * delete all saved addresses" contains the word too.
+ */
+export function summaryStartsWithAction(summary: string, action: string): boolean {
+  const want = words(action);
+  const have = words(summary);
+  if (want.length === 0 || !want.every((word, index) => have[index] === word)) return false;
+  const next = have[want.length];
+  return next === undefined || !NEGATIONS.has(next);
+}
+
+/** A money term: an object of exactly `amount` (a decimal number) and `currency` (three capital letters). */
+function moneyOf(value: Json): { amount: number; currency: string } | null {
+  if (!isObject(value)) return null;
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !("amount" in value) || !("currency" in value)) return null;
+  const { amount, currency } = value;
+  if (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency)) return null;
+  if (typeof amount === "number" ? !Number.isFinite(amount) : typeof amount !== "string" || !/^-?\d+(\.\d+)?$/.test(amount)) return null;
+  return { amount: Number(amount), currency };
+}
+
+/** A date or time term: a key that names one, never a renewal or repeat, with an ISO 8601 value. */
+function isDateTerm(key: string, value: Json): boolean {
+  if (!/(date|_at$|_on$|time|deadline|until)/i.test(key) || /(renew|recur|repeat|trial|charge|bill|interval|period)/i.test(key)) return false;
+  return (
+    typeof value === "string" &&
+    /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/.test(value) &&
+    !Number.isNaN(Date.parse(value))
+  );
+}
+
+/**
+ * Whether a permission covers every term (Ops 5.1). `terms` must be a
+ * non-empty object, every member of which is one of: a money term, in the
+ * permission's currency and within its maximum when it has one (a
+ * permission without one is for any amount, as the page offers it); a date;
+ * or a descriptive key above, as a string. Anything else (a flag, a number
+ * without a currency, a recurrence, a nested or unknown term) we can't
+ * check, and a permission with a maximum needs at least one money term to
+ * check it against. Otherwise the User decides (Guides, Operations).
+ */
+export function termsCovered(terms: Json | undefined, limit: { maxAmount: string | null; currency: string | null }): boolean {
+  if (terms === undefined || !isObject(terms) || Object.keys(terms).length === 0) return false;
+  let money = 0;
+  for (const [key, value] of Object.entries(terms)) {
+    const found = moneyOf(value);
+    if (found) {
+      if (limit.maxAmount !== null && (found.currency !== limit.currency || !(found.amount <= Number(limit.maxAmount)))) return false;
+      money += 1;
+    } else if (!(DESCRIPTIVE_TERMS.has(key) && typeof value === "string") && !isDateTerm(key, value)) {
+      return false;
+    }
+  }
+  return limit.maxAmount === null || money > 0;
+}
+
+/**
  * A standing permission covers an operation only if it is for this Company
- * and account, the action matches, it hasn't expired or run out of uses,
- * and every money term is within its limit. A limit the terms don't let us
- * check means asking the User instead (Guides, Operations).
+ * and account, hasn't expired or run out of uses, the summary begins with
+ * its action, and it covers every term (`termsCovered`).
  */
 function matchPermission(client: PoppyClient, company: Company, row: OperationRow, operation: Operation): string | undefined {
   if (!row.account) return undefined;
-  const summary = operation.summary.toLowerCase();
   for (const permission of rows<PermissionRow>(
     client.sql,
     "SELECT * FROM poppy_permissions WHERE issuer = ? AND account = ?",
@@ -671,13 +796,8 @@ function matchPermission(client: PoppyClient, company: Company, row: OperationRo
   )) {
     if (permission.expires_at !== null && permission.expires_at <= Date.now()) continue;
     if (permission.max_uses !== null && permission.uses + permission.reserved >= permission.max_uses) continue;
-    if (!summary.includes(permission.action)) continue;
-    if (permission.max_amount !== null) {
-      const money = moneyTerms(operation.terms);
-      if (money.length === 0) continue;
-      const limit = Number(permission.max_amount);
-      if (money.some((term) => term.currency !== permission.currency || !(term.amount <= limit))) continue;
-    }
+    if (!summaryStartsWithAction(operation.summary, permission.action)) continue;
+    if (!termsCovered(operation.terms, { maxAmount: permission.max_amount, currency: permission.currency })) continue;
     return permission.id;
   }
   return undefined;
@@ -723,9 +843,11 @@ export function registerExecutor(kind: string, executor: ApprovalExecutor): void
 }
 
 /**
- * At a Company without the operations extension, a write waits for the
- * User's click: the exact request is stored, and only an approval makes it,
- * once (spec, Safety). Returns the approval id.
+ * A write no operation covers (any write at a Company without the
+ * extension, or one whose description doesn't say it proposes), an upload,
+ * or a website submit waits for the User's click: the exact request is
+ * stored, and only an approval makes it, once (spec, Safety). Returns the
+ * approval id.
  */
 export async function proposeLocal(
   client: PoppyClient,

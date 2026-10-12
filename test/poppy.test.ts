@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
-import { openApi } from "../src/poppy/apis";
+import { openApi, proposesOperation } from "../src/poppy/apis";
+import type { Json } from "../src/poppy/json";
+import { summaryStartsWithAction, termsCovered } from "../src/poppy/operations";
 import type { PoppyClient } from "../src/poppy/client";
 import { tokenHostAllowed } from "../src/poppy/discovery";
 import { assertPublicHost, fetchJson, PoppyFetchError, type Fetcher } from "../src/poppy/fetch";
@@ -1158,6 +1160,99 @@ describe("6 APIs", () => {
     expect((await c.stub.state()).performs).toBe(1);
   });
 
+  const exchangeWrite = (c: Company) => ({
+    domain: c.domain,
+    operation: "exchangeItem",
+    params: { order_id: "ord_7Hk2" },
+    body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
+  });
+  const exchangeRequests = async (c: Company) => (await requests(c)).filter((request) => request.url === `${c.hosts.api}/orders/ord_7Hk2/exchanges`);
+
+  it("asks the User on its own card before a write at a Company with operations whose description doesn't say it proposes", async () => {
+    const c = await company({ documentsProposals: false });
+    const a = await agent();
+    await signInDirect(a, c);
+    const result = await tool(a, "poppy_api_call", exchangeWrite(c));
+    expect(result.text).toContain("Waiting for the User's approval");
+    expect(await exchangeRequests(c)).toEqual([]);
+    const approval = (await cards(a)).find((item) => item.kind === "approval")!;
+    expect(approval.summary).toContain("POST /orders/{order_id}/exchanges");
+    // Approved, the write goes out once; this Company proposes all the same, so its terms get their own card.
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
+    expect(await exchangeRequests(c)).toHaveLength(1);
+    const state = await c.stub.state();
+    expect(state.performs).toBe(0);
+    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
+    expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
+  });
+
+  it("sends a write that proposes straight to a Company with operations, and reads only a 202 with an operation in the description as saying so", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    expect(JSON.parse((await tool(a, "poppy_api_call", exchangeWrite(c))).text)).toMatchObject({ status: 202, proposed: { revision: 1 } });
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
+    const operation = { $ref: "#/components/schemas/Operation" };
+    const root = { components: { schemas: { Operation: { type: "object" } }, responses: { Proposed: { content: { "application/json": { schema: { properties: { operation } } } } } } } };
+    const json = (schema: Json) => ({ content: { "application/json": { schema } } });
+    expect(proposesOperation(root, { responses: { "202": { $ref: "#/components/responses/Proposed" } } })).toBe(true);
+    expect(proposesOperation(root, { responses: { "202": json({ type: "object", properties: { operation } }) } })).toBe(true);
+    // poppyseed's marker says so too.
+    expect(proposesOperation(root, { "x-poppy-operation": true, responses: { "200": { description: "OK" } } })).toBe(true);
+    // "Accepted" alone may be a job that acts without asking.
+    expect(proposesOperation(root, { responses: { "202": { description: "Accepted" } } })).toBe(false);
+    expect(proposesOperation(root, { responses: { "202": json({ properties: { job_id: { type: "string" } } }) } })).toBe(false);
+    expect(proposesOperation(root, { responses: { "201": json({ properties: { operation } }) } })).toBe(false);
+    expect(proposesOperation(root, { "x-poppy-operation": "yes", responses: {} })).toBe(false);
+    expect(proposesOperation(root, {})).toBe(false);
+  });
+
+  it("never sends a write that takes no Idempotency-Key twice when its tool call is replayed", async () => {
+    const c = await company({ exchangeTakesIdempotencyKey: false });
+    const a = await agent();
+    await signInDirect(a, c);
+    const first = await tool(a, "poppy_api_call", exchangeWrite(c), "call-write");
+    expect(first.text).toContain("proposed");
+    expect((await exchangeRequests(c))[0]!.headers["idempotency-key"]).toBeUndefined();
+    const replay = await tool(a, "poppy_api_call", exchangeWrite(c), "call-write");
+    expect(replay.isError).toBe(true);
+    expect(replay.text).toContain("[interrupted]");
+    expect(await exchangeRequests(c)).toHaveLength(1);
+    // A new call is a new request.
+    expect((await tool(a, "poppy_api_call", exchangeWrite(c), "call-again")).isError).toBe(false);
+    expect(await exchangeRequests(c)).toHaveLength(2);
+  });
+
+  it("shows one card for a replayed write that waits for the User's approval", async () => {
+    const c = await company({ operations: false });
+    const a = await agent();
+    await signInDirect(a, c);
+    const first = await tool(a, "poppy_api_call", exchangeWrite(c), "call-held");
+    const again = await tool(a, "poppy_api_call", exchangeWrite(c), "call-held");
+    expect(JSON.parse(again.details)).toEqual(JSON.parse(first.details));
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toHaveLength(1);
+    expect(await exchangeRequests(c)).toEqual([]);
+  });
+
+  it("asks the User before an MCP tool at a Company with operations unless its output schema says it proposes", async () => {
+    const c = await company({ documentsProposals: false });
+    const a = await agent();
+    await signInDirect(a, c);
+    const call = { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
+    expect((await tool(a, "poppy_mcp_call", call)).text).toContain("Waiting for the User's approval");
+    // The tool wasn't called: the Company has proposed nothing.
+    expect((await c.stub.state()).operations).toEqual([]);
+    // A tool the server marks read-only goes straight through, as an OpenAPI GET does.
+    const search = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
+    expect(search.text).toContain("Stormline");
+    const approval = (await cards(a)).find((item) => item.kind === "approval")!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
+    const state = await c.stub.state();
+    expect(state.operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
+    expect(state.performs).toBe(0);
+    expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
+  });
+
   it("says which error refused an approved write", async () => {
     const c = await company({ operations: false });
     const a = await agent();
@@ -1628,6 +1723,121 @@ describe("Operations extension", () => {
     const again = await tool(a, "poppy_mcp_call", call);
     expect(again.isError).toBe(true);
     expect(again.text).toContain(card.operationId);
+  });
+
+  /** A signed-in agent with a standing permission, and the exchange the Company proposes with these summary and terms. */
+  async function underPermission(
+    operation: { summary: string; terms?: Record<string, unknown> },
+    permission: { action: string; maxAmount?: string; currency?: string }
+  ) {
+    const c = await company({ exchangeOperation: operation });
+    const a = await agent();
+    await signInDirect(a, c);
+    await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", ...permission });
+    expect((await tool(a, "poppy_api_call", exchangeCall(c))).isError).toBe(false);
+    return { c, a };
+  }
+
+  const ids = { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" };
+
+  // Ops 5.1: a standing permission MUST cover "the action, and every term of the revision".
+  it.each([
+    ["the action's word, after a negation", { summary: "Not an exchange: delete all saved addresses.", terms: { order_id: "ord_7Hk2" } }, { action: "exchange" }],
+    ["the action's word, not at the start", { summary: "Delete all saved addresses, then exchange nothing.", terms: { order_id: "ord_7Hk2" } }, { action: "exchange" }],
+    ["the action's word, followed by a negation", { summary: "Exchange nothing: delete all saved addresses.", terms: { order_id: "ord_7Hk2" } }, { action: "exchange" }],
+    ["a recurrence", { summary: "Exchange the jacket for 20.00 GBP more.", terms: { ...ids, price_difference: { amount: "20.00", currency: "GBP" }, recurrence: "monthly, forever" } }, { action: "exchange", maxAmount: "50", currency: "GBP" }],
+    ["a renewal flag", { summary: "Exchange the jacket for 20.00 GBP more.", terms: { ...ids, price_difference: { amount: "20.00", currency: "GBP" }, auto_renew: true } }, { action: "exchange", maxAmount: "50", currency: "GBP" }],
+    ["a flag, with no limit set", { summary: "Exchange the jacket.", terms: { ...ids, close_account: true } }, { action: "exchange" }],
+    ["a charge with no currency", { summary: "Exchange the jacket for 20.00 GBP more.", terms: { ...ids, price_difference: { amount: "20.00", currency: "GBP" }, extra_charge_gbp: 5000 } }, { action: "exchange", maxAmount: "50", currency: "GBP" }],
+    ["a money term with more than an amount and currency", { summary: "Exchange the jacket for 20.00 GBP a month.", terms: { ...ids, price_difference: { amount: "20.00", currency: "GBP", per: "month" } } }, { action: "exchange", maxAmount: "50", currency: "GBP" }],
+    ["money nested in an unknown term", { summary: "Exchange the jacket.", terms: { ...ids, fees: { restocking: { amount: "20.00", currency: "GBP" } } } }, { action: "exchange" }],
+    ["a date term that is a renewal", { summary: "Exchange the jacket.", terms: { ...ids, renews_at: "2026-11-12" } }, { action: "exchange" }],
+    ["no terms at all", { summary: "Exchange the jacket." }, { action: "exchange" }]
+  ] as const)("asks the User when a standing permission doesn't cover %s", async (_, operation, permission) => {
+    const { c, a } = await underPermission(operation, permission);
+    const state = await c.stub.state();
+    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
+    expect(state.performs).toBe(0);
+    expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
+  });
+
+  it("confirms under a standing permission that covers the action and every term: its money, a date, and which order and item", async () => {
+    const { c } = await underPermission(
+      {
+        summary: "Exchange the Stormline Jacket (M) for the Insulated Jacket (M) for 20.00 GBP more, with a 10.00 GBP fee if cancelled, delivered on 20 October.",
+        terms: { ...ids, price_difference: { amount: "20.00", currency: "GBP" }, cancellation_fee: { amount: 10, currency: "GBP" }, delivery_date: "2026-10-20" }
+      },
+      { action: "exchange", maxAmount: "50", currency: "GBP" }
+    );
+    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "succeeded", approvedBy: "standing_permission" });
+  });
+
+  it("confirms any amount under a standing permission set with no limit, as the page offers it", async () => {
+    const { c } = await underPermission(
+      { summary: "Exchange the jacket for 900.00 GBP more.", terms: { ...ids, price_difference: { amount: "900.00", currency: "GBP" } } },
+      { action: "Exchange the jacket" }
+    );
+    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "succeeded", approvedBy: "standing_permission" });
+  });
+
+  it("matches a standing permission's action only at the start of the summary, word for word, and checks only the terms it can", () => {
+    expect(summaryStartsWithAction("Exchange the Stormline Jacket (M)…", "exchange")).toBe(true);
+    expect(summaryStartsWithAction("  exchange: the jacket", "Exchange")).toBe(true);
+    expect(summaryStartsWithAction("Exchanges are free", "exchange")).toBe(false);
+    expect(summaryStartsWithAction("Non-exchange: delete all saved addresses", "exchange")).toBe(false);
+    expect(summaryStartsWithAction("Exchange no items; close the account", "exchange")).toBe(false);
+    expect(summaryStartsWithAction("Book a table for two", "book a table")).toBe(true);
+    expect(summaryStartsWithAction("Book a room", "book a table")).toBe(false);
+    expect(summaryStartsWithAction("Exchange", "")).toBe(false);
+    const limit = { maxAmount: "50", currency: "GBP" };
+    expect(termsCovered({ price_difference: { amount: "50.00", currency: "GBP" } }, limit)).toBe(true);
+    expect(termsCovered({ price_difference: { amount: "50.01", currency: "GBP" } }, limit)).toBe(false);
+    expect(termsCovered({ price_difference: { amount: "20.00", currency: "USD" } }, limit)).toBe(false);
+    expect(termsCovered({ price_difference: { amount: "twenty", currency: "GBP" } }, limit)).toBe(false);
+    expect(termsCovered({ order_id: "ord_1" }, limit)).toBe(false);
+    expect(termsCovered({ order_id: "ord_1" }, { maxAmount: null, currency: null })).toBe(true);
+    expect(termsCovered({ order_id: 7 }, { maxAmount: null, currency: null })).toBe(false);
+    expect(termsCovered({ pickup_at: "2026-10-20T10:00:00Z" }, { maxAmount: null, currency: null })).toBe(true);
+    expect(termsCovered({ pickup_at: "next Tuesday" }, { maxAmount: null, currency: null })).toBe(false);
+    expect(termsCovered({ items: [{ amount: "1", currency: "GBP" }] }, { maxAmount: null, currency: null })).toBe(false);
+    expect(termsCovered({}, { maxAmount: null, currency: null })).toBe(false);
+  });
+
+  // Ops 3: operation_id "MAY be the ID of the Company's own record for the action".
+  it.each(["booking:", "booking/", "BK.2026.", "ord#"])("takes an operation id like %s…, the Company's own record's, and confirms it percent-encoded", async (prefix) => {
+    const { c, a, card } = await proposal({ operationIdPrefix: prefix });
+    expect(card.operationId.startsWith(prefix)).toBe(true);
+    expect(card.open).toBe(true);
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    const state = await c.stub.state();
+    expect(state.operations[0]).toMatchObject({ id: card.operationId, state: "succeeded", confirms: 1 });
+    expect(state.performs).toBe(1);
+    expect(state.requests.filter((request) => request.url.endsWith("/confirm")).map((request) => request.url)).toEqual([
+      `${c.hosts.operationsEndpoint}/${encodeURIComponent(card.operationId)}/confirm`
+    ]);
+    expect(await a.stub.poppyWaitForNotice(`Operation ${card.operationId} at`)).toContain("is succeeded");
+  });
+
+  it.each([
+    ["a control character", "ord\u0007", "control character"],
+    ["a leading space", " ord", "starts or ends with a space"],
+    ["more than 256 characters", "x".repeat(257), "isn't 1 to 256 characters"]
+  ])("tells the User and the model when a proposal's id has %s, and does nothing", async (_, prefix, problem) => {
+    const c = await company({ operationIdPrefix: prefix });
+    const a = await agent();
+    await signInDirect(a, c);
+    const result = await tool(a, "poppy_api_call", exchangeCall(c));
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.text)).toMatchObject({ status: 202, unusable: true });
+    expect(result.text).toContain("nothing was done");
+    const notice = (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("op-unreadable-"))!;
+    expect(notice.text).toContain(problem);
+    expect(notice.text).toContain("nothing was done");
+    expect((await cards(a)).filter((item) => item.kind === "operation")).toEqual([]);
+    expect(await a.stub.poppyWaitForNotice("proposed an operation the agent can't use")).toContain(problem);
+    const state = await c.stub.state();
+    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
+    expect(state.requests.filter((request) => request.url.startsWith(c.hosts.operationsEndpoint))).toEqual([]);
   });
 
   it("declines a proposal by cancelling it", async () => {

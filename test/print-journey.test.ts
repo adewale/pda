@@ -76,6 +76,21 @@ async function turnAbout(a: Agent, fragment: string) {
   await a.client.until(() => !a.client.view().running);
 }
 
+/**
+ * An operation the Company no longer has (N19) is final everywhere the agent
+ * lists it: Activity's log says how it ended, nothing about it is in
+ * progress, and `poppy_status` doesn't list it as open.
+ */
+async function expectFinalElsewhere(a: Pick<Agent, "stub">, card: Record<string, any>, result: "expired" | "unknown", outcome: string) {
+  const activity = JSON.parse(await a.stub.poppyActivity()) as { inProgress: { id: string }[]; log: { id: string; result: string; outcome?: string }[] };
+  const entry = activity.log.find((item) => item.id === card.id)!;
+  expect(entry.result).toBe(result);
+  expect(entry.outcome).toContain(outcome);
+  expect(activity.inProgress.map((item) => item.id)).not.toContain(card.id);
+  const status = JSON.parse((await tool(a, "poppy_status", {})).text) as { operations: { operation: string }[] };
+  expect(status.operations.map((item) => item.operation)).not.toContain(card.operationId);
+}
+
 const photoRequests = async (c: Company) => (await requests(c)).filter((request) => request.url === `${c.hosts.api}/photos`);
 
 describe("photos the User attaches", () => {
@@ -255,6 +270,8 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect(lost).toMatchObject({ open: false, lost: "not_done" });
     expect(await a.stub.poppyWaitForNotice("no longer has operation")).toContain("The User approved it, but");
     expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ id: card.operationId, state: "proposed", confirms: 0 })]);
+    // Activity and poppy_status treat it as final, not as waiting for the User.
+    await expectFinalElsewhere(a, card, "expired", "wasn't done");
     // Nothing tracks it any more, and asking again isn't refused as a confirm still open.
     await a.stub.poppyAdvance(120_000);
     const again = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder(photoId) });
@@ -280,6 +297,7 @@ describe("printing a photo at a Company (the demo journey)", () => {
     const lost = await until(async () => (await cards(a)).find((item) => item.id === card.id && item.lost));
     expect(lost).toMatchObject({ open: false, lost: "unknown" });
     expect(await a.stub.poppyWaitForNotice("no longer has operation")).toContain("so it may have happened: tell the User to check");
+    await expectFinalElsewhere(a, card, "unknown", "may have happened");
     // Confirmed once, and never again.
     await a.stub.poppyAdvance(120_000);
     expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ confirms: 1 })]);
