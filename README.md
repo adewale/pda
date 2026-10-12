@@ -43,6 +43,7 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 - **[Grounding](spec/grounding.md):** every claim we make about the draft, quoted against a stored copy of its text.
 - **[Conformance levels](docs/conformance-levels.md):** how our mock, validator and grid grade a broken MUST, a departed SHOULD and one of our readings.
 - **[Ecosystem map](docs/ecosystem.md):** every Poppy implementation we know of, what it does, and how it scores in our grid.
+- **[Interop results](docs/interop-results/README.md):** the state of M×N interop: the latest grid of every agent against every Company, with pass, fail and unsupported counts for each pair, and every failure with the rule that blamed it on a side.
 - **[Issues in other implementations](docs/poppy-issues.md):** what the grid and code reading found in other projects, reported to their maintainers privately first.
 
 None of this has been sent to the draft's authors yet.
