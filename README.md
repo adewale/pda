@@ -37,6 +37,8 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 - Read a web page you point it at: "What does this article say?" It sends nothing about you, only the address. A page that needs JavaScript, such as a timetable or a shop built as an app, it loads in a fresh browser in Cloudflare's Browser Run that only reads, up to 10 pages an hour.
 - Remember things you tell it: "Remember I'm vegetarian." Ask it to forget one, or see and delete every note in Settings.
 - Dates, time zones and sums: "What date is 90 days from today?", "What time is it in Tokyo?", "What's 15% of €84.20?"
+- Reminders: "Remind me at 5pm to call the bank." It shows in the chat at that time, and on your phone or laptop if you turn on notifications in Settings.
+- Tasks on a schedule: "Every weekday at 9, check whether my print order has shipped." The agent does it in the background and tells you; anything it would change still waits for your approval. Settings lists every reminder and task, with Cancel.
 
 **You stay in control**
 

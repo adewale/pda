@@ -172,7 +172,7 @@ const MEMORY_RULES = `You keep short notes about the User across this never-endi
 /** Whether the turn now running was started by the User, rather than a Company message or one of the agent's notices. */
 type Turn = { fromUser: boolean };
 
-function startedByUser(messages: readonly Message[]): boolean {
+export function startedByUser(messages: readonly Message[]): boolean {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]!;
     if (message.role !== "user") continue;

@@ -6,9 +6,9 @@ Back to the [README](../README.md)
 
 ## The model's tools
 
-The model is offered 21 tools: 14 `poppy_*` tools from `src/poppy/tools.ts` and 7 general tools from `src/tools/extensions.ts`. Nothing else adds any:
+The model is offered 25 tools: 14 `poppy_*` tools from `src/poppy/tools.ts`, 7 general tools from `src/tools/extensions.ts` and 4 for reminders and scheduled tasks from `src/tools/schedules.ts`. Nothing else adds any:
 
-- `PiHarness` runs a registry we fill (`src/agent.ts`). Its `persona` extension has `tools: []`; the others are `poppy`, `web`, `memory`, `time`, `attachments` and `compaction`, and only the first four have tools.
+- `PiHarness` runs a registry we fill (`src/agent.ts`). Its `persona` extension has `tools: []`; the others are `poppy`, `web`, `memory`, `time`, `schedule`, `attachments` and `compaction`, and only the first five have tools.
 - pi-durable's built-in tasks (generation, tool calls, compaction) are tasks, not tools. Its shell and file tools (`bash`, `read`, `write`, `edit`) are a separate export, `@earendil-works/pi-durable/tools`, which nothing here imports.
 - The Agents SDK's `skills()` extension, which would add `activate_skill` and a resource reader, isn't installed.
 - A test checks the exact list of tool names in a request the model receives: "are the Poppy tools and the general tools, and nothing the harness adds", in `test/general-tools.test.ts`.
@@ -22,7 +22,7 @@ Two kinds of approval card exist, and they come from different places:
 - **A Company's proposal is Poppy's.** When a Company has the Operations extension and answers a write with an operation (Ops §4), the User approves its exact revision and terms on a card (Ops §5.1), and only then does the agent confirm it (Ops §5.2). A standing permission the User set can approve a proposal instead, within its limits (Ops §5.1). This is the only approval a Company ever sees.
 - **Our own cards are this project's.** Every write a Company doesn't propose waits on a local approval card before anything is sent: an OpenAPI write whose description doesn't declare an operation, an MCP tool without `readOnlyHint: true`, and a website form submit. Every upload of the User's photo waits on one too, even to an endpoint that proposes. The draft doesn't ask for these; we add them so that nothing changes the User's account, and none of their files leaves, on the model's word alone ([decision 6](decisions.md#6-prompt-injection-defences-that-are-structural), [decision 26](decisions.md#26-photos-in-the-chat-uploaded-only-with-the-users-approval)).
 
-No tool approves, confirms or cancels anything. Confirming, declining, cancelling, standing permissions, entering credentials, signing out and speaking in a Direct Conversation are actions on the page.
+No tool approves, confirms or cancels anything. A scheduled task's run is a background turn like a Company message's, so the same holds for it: it can ask for approval, never give it. Confirming, declining, cancelling, standing permissions, entering credentials, signing out and speaking in a Direct Conversation are actions on the page.
 
 ## Poppy features
 
@@ -56,10 +56,15 @@ No tool approves, confirms or cancels anything. Confirming, declining, cancellin
 | The date and time in the User's time zone, or another | `now` | No | `src/tools/clock.ts` |
 | Date arithmetic and differences, with weekdays | `date_math` | No | `src/tools/clock.ts` |
 | Exact sums, including money | `calculate` | No | `src/tools/calculate.ts` |
+| Remind the User at a time, once or daily, on weekdays or weekly: a card in the tray and a notification on their devices | `remind_me` | Only the User's own message sets one; no model call when it fires | `src/tools/schedules.ts`, `src/schedules.ts` |
+| Run the agent in the background at a time, or on a repeat, with the User's instruction | `schedule_task` | Only the User's own message sets one; the run's writes need approval as any turn's do, and its model calls count against the demo's caps | `src/tools/schedules.ts`, `src/schedules.ts` |
+| List reminders and tasks | `list_scheduled` | No | `src/tools/schedules.ts` |
+| Cancel one | `cancel_scheduled` | Only in a turn the User started; also Settings' Cancel | `src/tools/schedules.ts` |
+| Notifications on the User's devices (Web Push), for reminders and tasks | None: Settings' toggle | Turning them on is the User's action | `src/web-push.ts`, `src/ui/notifications.tsx`, `public/sw.js` |
 | Photos in the chat: kept in the agent, shown to the model, sent to a Company only in an approved upload | None: the composer, the agent's storage and a request hook | Sending one, on our own card | `src/attachments.ts`, `src/attachment-images.ts`, `src/ui/attachments.tsx` |
 | One never-ending conversation, summarised past about 150,000 tokens | None: a compaction hook | No | `src/compaction.ts` |
 | Activity: what the agent did at each Company, and every Poppy exchange with its spec section | None: the Activity page | No | `src/poppy/activity.ts`, `src/poppy/protocol-log.ts`, `src/ui/activity.tsx` |
 | Pay for the model with the operator's capped demo or the User's own Anthropic or OpenAI key | None: Settings | Pasting a key is the User's action | `src/model-router.ts`, `src/model-keys.ts`, `src/budget.ts` |
 | Sign in to the agent with Google or GitHub | None: the Worker | It is the User's action | `src/oauth.ts`, `src/session.ts` |
 
-All seven general tools are ours, built for this project in `src/tools/`: `read_url` fetches pages from Cloudflare's network directly and renders the ones that need JavaScript in Cloudflare Browser Run, and the other six run in the agent itself.
+All eleven general tools are ours, built for this project in `src/tools/`: `read_url` fetches pages from Cloudflare's network directly and renders the ones that need JavaScript in Cloudflare Browser Run, and the other ten run in the agent itself. Reminders and tasks wake on the agent's own Durable Object alarm; a notification goes through the push service the User's browser chose (Google, Mozilla, Apple or Microsoft).

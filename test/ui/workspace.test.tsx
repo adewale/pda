@@ -681,3 +681,196 @@ describe("memory settings", () => {
     expect(calls).toEqual(["GET /api/memories", "DELETE /api/memories", "GET /api/memories"]);
   });
 });
+
+describe("scheduled settings", () => {
+  const ITEMS = [
+    {
+      id: "sch_aaaaaaaaaa",
+      kind: "reminder",
+      text: "Call the bank",
+      nextRun: Date.UTC(2026, 9, 12, 16, 0),
+      repeats: "once",
+      timeZone: "Europe/London",
+      status: "active",
+      failures: 0,
+      lastRun: null,
+      lastOutcome: null
+    },
+    {
+      id: "sch_bbbbbbbbbb",
+      kind: "task",
+      text: "Check whether my print order has shipped",
+      nextRun: Date.UTC(2026, 9, 13, 8, 0),
+      repeats: "every weekday at 09:00",
+      timeZone: "Europe/London",
+      status: "paused",
+      failures: 3,
+      lastRun: Date.UTC(2026, 9, 12, 8, 0),
+      lastOutcome: "failed"
+    }
+  ];
+
+  /** `/api/schedules` answering `items`, recording each call; cancelling removes one as the agent would. */
+  function stubSchedules(items = ITEMS) {
+    let held = [...items];
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/entitlement") return Response.json(DEMO);
+        if (!url.startsWith("/api/schedules")) return new Response("Not found", { status: 404 });
+        const method = init?.method ?? "GET";
+        calls.push(`${method} ${url}`);
+        if (method === "GET") return Response.json({ schedules: held, limit: 20 });
+        held = held.filter((item) => `/api/schedules/${item.id}` !== url);
+        return new Response(null, { status: 204 });
+      })
+    );
+    return calls;
+  }
+
+  it("lists each reminder and task with what, when next, how it repeats and its status, and cancels one with its own button", async () => {
+    const calls = stubSchedules();
+    open("/settings");
+    const list = await screen.findByRole("list", { name: "Your reminders and tasks" });
+    const items = within(list).getAllByRole("listitem").map((item) => item.textContent);
+    expect(items[0]).toMatch(/^ReminderCall the bankOnce · next .*17:00.* \(Europe\/London\)Cancel$/);
+    expect(items[1]).toBe("TaskCheck whether my print order has shippedPaused after 3 failed runs in a rowCancel");
+    expect(screen.getByText(/1 of 20 waiting/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel reminder: Call the bank" }));
+    await waitFor(() => expect(screen.queryByText("Call the bank")).toBeNull());
+    expect(calls).toEqual(["GET /api/schedules", "DELETE /api/schedules/sch_aaaaaaaaaa", "GET /api/schedules"]);
+  });
+
+  it("says how to ask for one when nothing is scheduled", async () => {
+    stubSchedules([]);
+    open("/settings");
+    expect(await screen.findByText(/Nothing scheduled\. Ask your agent, for example “Remind me at 5pm to call the bank”/)).toBeTruthy();
+  });
+});
+
+describe("notification settings", () => {
+  const KEY = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
+  const SUBSCRIPTION = { endpoint: "https://fcm.googleapis.com/fcm/send/device", expirationTime: null, keys: { p256dh: "BCVx", auth: "BTBZ" } };
+
+  /**
+   * A browser that can take push messages: its service worker container, push
+   * manager and notification permission, recording what the page asks of each.
+   */
+  function stubBrowser(permissionAfterAsking: NotificationPermission = "granted") {
+    const log: string[] = [];
+    let current: { endpoint: string; toJSON(): unknown; unsubscribe(): Promise<boolean> } | null = null;
+    let permission: NotificationPermission = "default";
+    const registration = {
+      pushManager: {
+        getSubscription: async () => current,
+        subscribe: async (options: { userVisibleOnly: boolean; applicationServerKey: Uint8Array }) => {
+          log.push(`subscribe userVisibleOnly=${options.userVisibleOnly} key=${options.applicationServerKey.length} bytes`);
+          current = {
+            endpoint: SUBSCRIPTION.endpoint,
+            toJSON: () => SUBSCRIPTION,
+            unsubscribe: async () => {
+              log.push("unsubscribe");
+              current = null;
+              return true;
+            }
+          };
+          return current;
+        }
+      }
+    };
+    Object.defineProperty(window.navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        getRegistration: async () => registration,
+        register: async (url: string, options: { scope: string }) => {
+          log.push(`register ${url} scope ${options.scope}`);
+          return registration;
+        },
+        ready: Promise.resolve(registration)
+      }
+    });
+    vi.stubGlobal("PushManager", class {});
+    vi.stubGlobal("Notification", {
+      get permission() {
+        return permission;
+      },
+      requestPermission: async () => {
+        log.push("ask permission");
+        permission = permissionAfterAsking;
+        return permission;
+      }
+    });
+    return log;
+  }
+
+  /** `/api/push/key` answering `key`, and the subscription routes, recording each call and body. */
+  function stubPushApi(key: string | null = KEY) {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/entitlement") return Response.json(DEMO);
+        if (url === "/api/push/key") return Response.json({ publicKey: key });
+        if (url !== "/api/push/subscription") return new Response("Not found", { status: 404 });
+        calls.push(`${init?.method} ${url} ${String(init?.body)}`);
+        return new Response(null, { status: init?.method === "POST" ? 201 : 204 });
+      })
+    );
+    return calls;
+  }
+
+  afterEach(() => {
+    delete (window.navigator as { serviceWorker?: unknown }).serviceWorker;
+  });
+
+  it("turns notifications on: asks permission, subscribes with the deployment's key and hands the subscription to the agent; off unsubscribes and forgets it", async () => {
+    const log = stubBrowser();
+    const calls = stubPushApi();
+    open("/settings");
+    const toggle = (await screen.findByRole("switch", { name: "Notifications on this device" })) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByText(/Add to Home Screen/)).toBeTruthy();
+    expect(calls).toEqual([]);
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.checked).toBe(true));
+    expect(log).toEqual(["ask permission", "register /sw.js scope /", "subscribe userVisibleOnly=true key=65 bytes"]);
+    expect(calls).toEqual([`POST /api/push/subscription ${JSON.stringify(SUBSCRIPTION)}`]);
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle.checked).toBe(false));
+    expect(calls.at(-1)).toBe(`DELETE /api/push/subscription ${JSON.stringify({ endpoint: SUBSCRIPTION.endpoint })}`);
+    expect(log.at(-1)).toBe("unsubscribe");
+  });
+
+  it("subscribes nothing when the browser's permission is refused, and says how to allow it", async () => {
+    const log = stubBrowser("denied");
+    const calls = stubPushApi();
+    open("/settings");
+    fireEvent.click(await screen.findByRole("switch", { name: "Notifications on this device" }));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/^This browser blocks notifications from your agent/);
+    expect(log).toEqual(["ask permission"]);
+    expect(calls).toEqual([]);
+  });
+
+  it("hides the option when the deployment has no VAPID key", async () => {
+    stubBrowser();
+    stubPushApi(null);
+    open("/settings");
+    // The key request has answered once the other sections have loaded from theirs; then nothing appeared.
+    await screen.findByText(/Your reminders and tasks couldn't be loaded/);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByRole("switch", { name: "Notifications on this device" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Notifications" })).toBeNull();
+  });
+
+  it("says how to get them on an iPhone when this browser can't take push messages", async () => {
+    stubPushApi();
+    open("/settings");
+    expect(await screen.findByText(/This browser can't show notifications from your agent\. On iPhone and iPad, notifications reach only the app added to your Home Screen/)).toBeTruthy();
+    expect(screen.queryByRole("switch")).toBeNull();
+  });
+});

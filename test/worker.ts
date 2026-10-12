@@ -25,6 +25,8 @@ import { poppyExtension } from "../src/poppy/tools";
 import type { BrowserLauncher } from "../src/tools/render";
 import type { Fetcher as WebFetcher } from "../src/tools/web";
 import { fakeBrowserWeb, fakeLauncher, type FakeBrowserWeb, type FakeRender, type FakeRenderLog } from "./fake-browser";
+import { base64url } from "../src/base64url";
+import type { PushFetcher } from "../src/web-push";
 import { CLOCK_HEADER, companyIdFromHost, type MockCompany } from "./mock-company";
 
 type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
@@ -824,10 +826,73 @@ export class PersonalAgent extends ProductionAgent {
     return { text: textOf(message?.content as Message["content"] | undefined), error: message?.errorMessage ?? null };
   }
 
+  /** Reminders' and tasks' jobs: a year out on the real clock, so none runs by itself; `scheduleAdvance` makes them due. */
+  protected override scheduleJobTime(_at: number): number {
+    return Date.now() + 365 * 86_400_000;
+  }
+
+  /**
+   * Set the clock (`setClock`) to `at` and make every reminder and task job
+   * due on the real clock; the test then runs the alarm
+   * (`runDurableObjectAlarm`), and each job checks its row's own time.
+   */
+  async scheduleAdvance(at: number): Promise<void> {
+    fixedClocks.set(this.ctx.id.toString(), at);
+    this.ctx.storage.sql.exec("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'schedules' AND running = 0", Date.now());
+  }
+
+  /** A reminder or task made straight in the store, without the tools' check of whose turn it is (test setup). */
+  async scheduleCreate(input: { kind: "reminder" | "task"; text: string; when: Record<string, unknown>; timeZone: string }): Promise<{ id: string; nextRun: number | null; error?: string }> {
+    try {
+      const { schedule } = await this.schedules.create({ ...input, createdFrom: `test:${crypto.randomUUID()}` });
+      return { id: schedule.id, nextRun: schedule.nextRun };
+    } catch (error) {
+      // A refusal comes back as its words rather than a rejected call.
+      return { id: "", nextRun: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** Web Push: this agent's fake push services, never the network. Every endpoint answers 201 unless `pushServe` said otherwise. */
+  protected override pushFetcher(): PushFetcher {
+    const pushes = pushesOf(this.ctx.id.toString());
+    return async (request) => {
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      pushes.requests.push({ url: request.url, headers: Object.fromEntries(request.headers), body: base64url(bytes) });
+      return new Response(null, { status: pushes.statuses.get(request.url) ?? 201 });
+    };
+  }
+
+  /** The fake push service answers `status` for `endpoint` from now on. */
+  async pushServe(endpoint: string, status: number): Promise<void> {
+    pushesOf(this.ctx.id.toString()).statuses.set(endpoint, status);
+  }
+
+  /** Every push this agent sent, oldest first: the URL, headers and encrypted body (base64url). */
+  async pushRequests(): Promise<PushRequest[]> {
+    return pushesOf(this.ctx.id.toString()).requests;
+  }
+
+  /** Wait until every scheduled task's turn this agent is waiting on has been recorded. */
+  async scheduleSettled(): Promise<void> {
+    await this.schedules.settledForTests();
+  }
+
   /** A background turn, as a Company message would start one. */
   async backgroundTurn(text: string, operationId: string): Promise<void> {
     await this.poppyNotify(text, operationId);
   }
+}
+
+/** One Web Push request a test agent sent to its fake push service. */
+export type PushRequest = { readonly url: string; readonly headers: Record<string, string>; readonly body: string };
+
+/** Each agent's fake push services, by Durable Object id: statuses by endpoint, and the requests that reached them. */
+const pushServices = new Map<string, { statuses: Map<string, number>; requests: PushRequest[] }>();
+
+function pushesOf(id: string) {
+  let found = pushServices.get(id);
+  if (!found) pushServices.set(id, (found = { statuses: new Map(), requests: [] }));
+  return found;
 }
 
 /** Every URL each agent's Poppy client asked for. */

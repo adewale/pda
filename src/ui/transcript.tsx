@@ -1,5 +1,6 @@
 import { cn } from "@cloudflare/kumo";
 import {
+  AlarmIcon,
   ArrowClockwiseIcon,
   CalculatorIcon,
   ChatsIcon,
@@ -90,7 +91,8 @@ const HOW_ICON: Record<ToolHow, ReactNode> = {
   "web page": <FileTextIcon size={16} />,
   memory: <NotebookIcon size={16} />,
   clock: <ClockIcon size={16} />,
-  calculator: <CalculatorIcon size={16} />
+  calculator: <CalculatorIcon size={16} />,
+  schedule: <AlarmIcon size={16} />
 };
 
 const STATE_WORDS: Record<ToolLine["state"], string | null> = {

@@ -137,7 +137,7 @@ export type Permission = {
 };
 
 /** How the agent reached the Company. */
-export type ActivityChannel = "api" | "company_agent" | "website" | "sign_in" | "direct";
+export type ActivityChannel = "api" | "company_agent" | "website" | "sign_in" | "direct" | "schedule";
 
 /** What an action could do with the account: read it, or read and change it. */
 export type ActivityAccess = "view" | "view_and_change";
@@ -160,7 +160,8 @@ export type ActivityResult =
 export type ActivityEntry = {
   readonly id: string;
   readonly at: number;
-  readonly kind: "operation" | "approval" | "sign_in" | "conversation" | "message";
+  /** `scheduled`: a reminder or scheduled task ran (src/schedules.ts); its issuer is empty. */
+  readonly kind: "operation" | "approval" | "sign_in" | "conversation" | "message" | "scheduled";
   readonly issuer: string;
   readonly company: string;
   readonly account: string | null;

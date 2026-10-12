@@ -7,7 +7,8 @@
  * writes can't make the browser fetch a URL that carries data out. Scripts
  * come only from this origin (the theme script is a file, not inline), and
  * connections only go back to it (`'self'` covers the page's own WebSocket).
- * Inline styles stay allowed: the UI kit and the validator page use them.
+ * The one service worker (`/sw.js`, for notifications) and the web app
+ * manifest come from this origin too. Inline styles stay allowed: the UI kit and the validator page use them.
  */
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -16,6 +17,8 @@ export const CONTENT_SECURITY_POLICY = [
   "img-src 'self' data:",
   "font-src 'self' data:",
   "connect-src 'self'",
+  "worker-src 'self'",
+  "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",

@@ -32,10 +32,14 @@ import { PoppyCapability } from "./poppy/capability";
 import type { Fetcher, PoppyTimeouts } from "./poppy/fetch";
 import { FetchBrowser } from "./poppy/fetch-browser";
 import { poppyExtension } from "./poppy/tools";
+import { Scheduler, type PushMessage, type TaskStart } from "./schedules";
+import { PushSubscriptions, readVapidKey, sendPush, vapidSubject, type PushFetcher, type Subscription } from "./web-push";
 import { PiSessionSockets } from "./sockets";
 import { memoryExtension, timeExtension, webExtension } from "./tools/extensions";
 import { MAX_MEMORIES, MemoryStore, type Memory } from "./tools/memory-store";
 import { puppeteerLauncher, renderAvailability, RenderLimiter, type BrowserLauncher } from "./tools/render";
+import { describeRecurrence, MAX_ACTIVE_SCHEDULES, type Schedule } from "./tools/schedule-store";
+import { scheduleExtension } from "./tools/schedules";
 import { ReadLimiter, type Fetcher as WebFetcher } from "./tools/web";
 
 const PREAMBLE =
@@ -58,6 +62,35 @@ const SCHEMA = [
   )`
 ];
 
+/** A reminder or task as Settings shows it. */
+export type ScheduleView = {
+  readonly id: string;
+  readonly kind: Schedule["kind"];
+  readonly text: string;
+  readonly nextRun: number | null;
+  readonly repeats: string;
+  readonly timeZone: string;
+  readonly status: Schedule["status"];
+  readonly failures: number;
+  readonly lastRun: number | null;
+  readonly lastOutcome: string | null;
+};
+
+function scheduleView(schedule: Schedule): ScheduleView {
+  return {
+    id: schedule.id,
+    kind: schedule.kind,
+    text: schedule.text,
+    nextRun: schedule.nextRun,
+    repeats: describeRecurrence(schedule.recurrence),
+    timeZone: schedule.timeZone,
+    status: schedule.status,
+    failures: schedule.failures,
+    lastRun: schedule.lastRun,
+    lastOutcome: schedule.lastOutcome
+  };
+}
+
 /** The outcome of attaching a photo, for `POST /api/attachments`. */
 export type AttachResult = { ok: true; attachment: AttachmentInfo } | { ok: false; status: number; error: string };
 
@@ -77,6 +110,10 @@ export class PersonalAgent extends DurableObject<Env> {
   readonly access: ModelAccess;
   /** The agent's notes about the User (src/tools/memory-store.ts). */
   readonly memories: MemoryStore;
+  /** Reminders and scheduled tasks, on the Durable Object's alarm (src/schedules.ts). */
+  readonly schedules: Scheduler;
+  /** The browsers that turned notifications on (src/web-push.ts). */
+  readonly pushSubscriptions: PushSubscriptions;
   /**
    * The general tools, outside Poppy: read_url, memory, time and maths
    * (src/tools/). Built once, so their state (read_url's rate limit, whose
@@ -89,6 +126,7 @@ export class PersonalAgent extends DurableObject<Env> {
     for (const statement of SCHEMA) ctx.storage.sql.exec(statement);
     migrateAttachments(ctx.storage.sql);
     this.memories = new MemoryStore(ctx.storage.sql);
+    this.pushSubscriptions = new PushSubscriptions(ctx.storage.sql);
     const config = readModelConfig(env);
     let sealer: Sealer | undefined;
     this.keys = new ModelKeys(ctx.storage.sql, () => (sealer ??= new Sealer(env)), ctx.id.toString());
@@ -116,6 +154,19 @@ export class PersonalAgent extends DurableObject<Env> {
       ...this.poppySettings()
     });
     let renderLimiter: RenderLimiter | undefined;
+    this.schedules = new Scheduler({
+      storage: ctx.storage,
+      now: () => this.clockNow(),
+      jobTime: (at) => this.scheduleJobTime(at),
+      showCard: (card) => this.poppy.client.host.showCard(card),
+      startTask: (text, operationId) => this.scheduledTurn(text, operationId),
+      taskEnded: async (operationId) => {
+        const result = await this.harness.wait(operationId);
+        return { status: result.status, ...(result.reason ? { reason: result.reason } : {}) };
+      },
+      push: (message) => this.pushToDevices(message),
+      changed: () => this.poppy.refreshActivity()
+    });
     this.generalTools = [
       // Its own fetcher, never the Poppy client's: no Session, cookie or token can reach it.
       webExtension({
@@ -125,7 +176,8 @@ export class PersonalAgent extends DurableObject<Env> {
         renderLimiter: () => (renderLimiter ??= new RenderLimiter(ctx.storage.sql, () => this.clockNow()))
       }),
       memoryExtension(() => this.memories),
-      timeExtension({ userTimeZone: () => this.poppy.timeZone, now: () => this.clockNow() })
+      timeExtension({ userTimeZone: () => this.poppy.timeZone, now: () => this.clockNow() }),
+      scheduleExtension({ scheduler: () => this.schedules, userTimeZone: () => this.poppy.timeZone })
     ];
     this.harness = new PiHarness({
       harness: async ({ storage, context }) => {
@@ -140,7 +192,7 @@ export class PersonalAgent extends DurableObject<Env> {
             () => this.poppy.browser
           )
         );
-        // read_url, memory, time and maths: useful outside Poppy, and kept apart from it.
+        // read_url, memory, time and maths, reminders and tasks: useful outside Poppy, and kept apart from it.
         for (const extension of this.generalTools) this.registry.install(extension);
         // The User's attached photos, shown to the model as images in the messages that name them.
         this.registry.install(attachmentsExtension(() => this.ctx.storage.sql));
@@ -176,6 +228,7 @@ export class PersonalAgent extends DurableObject<Env> {
     // Poppy and the page's history first, so they see their frames before the chat socket does.
     this.lifecycle = Lifecycle.install(this)
       .use(this.poppy)
+      .use(this.schedules)
       .use(this.history)
       .use(this.webSockets)
       .use(this.harness);
@@ -223,6 +276,69 @@ export class PersonalAgent extends DurableObject<Env> {
   /** Now, for the now and date_math tools, and read_url's render limit. */
   protected clockNow(): number {
     return Date.now();
+  }
+
+  /** When the job queue wakes for a reminder or task due at `at`. Tests move it out of the way and run jobs themselves. */
+  protected scheduleJobTime(at: number): number {
+    return at;
+  }
+
+  /**
+   * A scheduled task's turn: through the router like any model call, as a
+   * Company message's turn is, but never held for later. When the model
+   * can't be called the run fails, and the notice says why.
+   */
+  protected async scheduledTurn(text: string, operationId: string): Promise<TaskStart> {
+    const { entitlement } = await this.access.decide();
+    if (entitlement.lane === "none") {
+      await this.#modelNotice(entitlement);
+      return { ok: false, reason: refusalText(entitlement) };
+    }
+    await this.#resumePaused();
+    await this.harness.submit(text, { operationId, whenBusy: "followUp" });
+    return { ok: true };
+  }
+
+  /** Where Web Push messages go: the push services' own hosts, checked in `sendPush`. Tests fake them. */
+  protected pushFetcher(): PushFetcher {
+    return (request) => fetch(request);
+  }
+
+  /**
+   * Tell each device that turned notifications on (Web Push), at once. A
+   * push service that says the subscription is gone (404, 410) has it
+   * deleted. Nothing happens without the deployment's VAPID key.
+   */
+  protected async pushToDevices(message: PushMessage): Promise<void> {
+    const key = await readVapidKey(this.env);
+    if (!key) return;
+    const subject = vapidSubject(this.env);
+    await Promise.all(
+      this.pushSubscriptions.all().map(async (subscription) => {
+        try {
+          const status = await sendPush(this.pushFetcher(), subscription, message, key, subject);
+          if (status === 404 || status === 410) this.pushSubscriptions.remove(subscription.endpoint);
+          else this.pushSubscriptions.sent(subscription.endpoint, status);
+        } catch (error) {
+          // Never the endpoint, which is a capability URL for that browser.
+          console.warn("push not sent", error instanceof Error ? error.name : "unknown");
+        }
+      })
+    );
+  }
+
+  // ---------------------------------------------------------------- Notifications (src/web-push.ts)
+
+  /** Keep this browser's push subscription, from Settings' "Notifications on this device". */
+  async addPushSubscription(identity: Profile, subscription: Subscription): Promise<void> {
+    await this.recordIdentity(identity);
+    this.pushSubscriptions.add(subscription);
+  }
+
+  /** Forget one browser's push subscription; false if it wasn't kept. */
+  async removePushSubscription(identity: Profile, endpoint: string): Promise<boolean> {
+    await this.recordIdentity(identity);
+    return this.pushSubscriptions.remove(endpoint);
   }
 
   /** The browser for Poppy web browsing: plain HTTPS through the Poppy fetcher, no JavaScript. */
@@ -375,6 +491,22 @@ export class PersonalAgent extends DurableObject<Env> {
   async forgetAllMemories(identity: Profile): Promise<number> {
     await this.recordIdentity(identity);
     return this.memories.forgetAll();
+  }
+
+  // ---------------------------------------------------------------- Reminders and tasks (src/schedules.ts)
+
+  /** Every reminder and task waiting or paused, soonest first, for Settings. */
+  async listSchedules(identity: Profile): Promise<{ schedules: ScheduleView[]; limit: number }> {
+    await this.recordIdentity(identity);
+    return { schedules: this.schedules.list().map(scheduleView), limit: MAX_ACTIVE_SCHEDULES };
+  }
+
+  /** Cancel one, as Settings' Cancel button does. */
+  async cancelSchedule(identity: Profile, id: string): Promise<boolean> {
+    await this.recordIdentity(identity);
+    const cancelled = (await this.schedules.cancel(id)) !== null;
+    if (cancelled) this.poppy.refreshActivity();
+    return cancelled;
   }
 
   async removeModelKey(identity: Profile): Promise<Entitlement> {

@@ -60,7 +60,7 @@ export function privacyPage(env: PrivacyEnv): Response {
 <ul>
 <li><strong>When you sign in with Google:</strong> your Google account ID, your email address, and, for a Google Workspace account, its domain. It asks Google only for the <code>openid</code> and <code>email</code> scopes, and reads nothing else from your Google account: no Gmail, Drive, Calendar or contacts.</li>
 <li><strong>When you sign in with GitHub:</strong> your GitHub account ID and your primary verified email address.</li>
-<li><strong>What you give your agent:</strong> your messages, photos you attach, an Anthropic or OpenAI API key if you add one, short notes your agent saves about you (its memory), and what your agent does for you at companies: the sign-ins, conversations and orders you ask for and approve.</li>
+<li><strong>What you give your agent:</strong> your messages, photos you attach, an Anthropic or OpenAI API key if you add one, short notes your agent saves about you (its memory), reminders and scheduled tasks you ask for, your browser's push subscription if you turn on notifications, and what your agent does for you at companies: the sign-ins, conversations and orders you ask for and approve.</li>
 </ul>
 
 <h2>How it's used</h2>
@@ -74,12 +74,13 @@ export function privacyPage(env: PrivacyEnv): Response {
 <li><strong>The AI model provider</strong> receives your conversation so it can reply: Anthropic, through Cloudflare's AI Gateway, when the operator pays; or Anthropic or OpenAI directly, under your own account, when you use your own key.</li>
 <li><strong>Companies you ask your agent to work with</strong> receive what that task needs, and nothing more. You sign in to a company on its own page, and a photo is sent only after you approve it.</li>
 <li><strong>Websites you ask your agent to read</strong> receive a plain request for that page from Cloudflare's network. Nothing about you goes with it: no cookies, no sign-in, nothing but the page's address. A page that needs JavaScript may also be loaded in a fresh browser in Cloudflare's Browser Run, which runs the page's own scripts, sends only requests that read, and is closed afterwards. It gets the page's address and nothing about you.</li>
+<li><strong>Your browser's push service</strong>, if you turn on notifications on a device: Google, Mozilla, Apple or Microsoft, depending on the browser, carries each notification to it. A notification carries only a reminder's words, or that a scheduled task ran, encrypted so that only your device can read it.</li>
 <li><strong>Cloudflare</strong> hosts the service and may keep logs of requests.</li>
 <li>Nobody else, unless the law requires it.</li>
 </ul>
 
 <h2>How long it's kept</h2>
-<p>Attached photos are deleted after 30 days. Your agent's notes about you are kept in its storage until you delete them, one by one or all at once, in Settings, or ask your agent to forget them. Everything else is kept until you ask for it to be deleted: contact ${reach}, and your agent and everything it stores will be deleted within 30 days.</p>
+<p>Attached photos are deleted after 30 days. Your agent's notes about you are kept in its storage until you delete them, one by one or all at once, in Settings, or ask your agent to forget them. Reminders and scheduled tasks are kept in your agent's storage until they're done or you cancel them, in Settings or by asking your agent; after that, only the newest 100 finished ones and a record of the newest 200 runs are kept, for your agent's Activity page. A device's push subscription is kept until you turn notifications off on it, or its push service says it has ended. Everything else is kept until you ask for it to be deleted: contact ${reach}, and your agent and everything it stores will be deleted within 30 days.</p>
 
 <h2>Google user data</h2>
 <p>${name}'s use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>

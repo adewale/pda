@@ -5,6 +5,7 @@ import { ConfigError, readSessionSecret, readSignInProviders } from "./config";
 import { checkDeployment } from "./deployment.ts";
 import { withPagePolicy } from "./csp";
 import { privacyPage } from "./privacy";
+import { parseSubscription, readVapidKey } from "./web-push";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
 import { handleIdentityRoute } from "./poppy/routes";
 import { handleValidator } from "./validator/http.ts";
@@ -201,6 +202,65 @@ async function handleMemories(request: Request, env: Env): Promise<Response> {
   return (await agent.forgetMemory(identity, Number(rest))) ? new Response(null, { status: 204 }) : text(404, "Not found");
 }
 
+/**
+ * Reminders and scheduled tasks (src/schedules.ts), for Settings.
+ * `GET /api/schedules` lists those waiting or paused; `DELETE
+ * /api/schedules/<id>` cancels one, same origin only. Each person reaches
+ * only their own agent's.
+ */
+async function handleSchedules(request: Request, env: Env): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  const rest = pathname.slice("/api/schedules".length).replace(/^\//, "");
+  if (rest !== "" && !/^sch_[a-z0-9]{10}$/.test(rest)) return text(404, "Not found");
+  if (request.method === "GET" && rest === "") {
+    const identity = await signedIn(request, env);
+    return json(200, await (await agentFor(identity, env)).listSchedules(identity));
+  }
+  if (request.method !== "DELETE" || rest === "") return text(405, "Method not allowed");
+  if (!sameOrigin(request)) return text(403, "Cross-origin request refused");
+  const identity = await signedIn(request, env);
+  return (await (await agentFor(identity, env)).cancelSchedule(identity, rest)) ? new Response(null, { status: 204 }) : text(404, "Not found");
+}
+
+/**
+ * Web Push (src/web-push.ts). `GET /api/push/key` gives the page the VAPID
+ * public key to subscribe with, or null when this deployment has none (the
+ * page then hides the option). `POST /api/push/subscription` keeps this
+ * browser's subscription in the person's agent, only for a known push
+ * service; `DELETE` with `{endpoint}` forgets it. Same origin only for both.
+ */
+async function handlePush(request: Request, env: Env): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  if (pathname === "/api/push/key") {
+    if (request.method !== "GET") return text(405, "Method not allowed");
+    await signedIn(request, env);
+    return json(200, { publicKey: (await readVapidKey(env))?.publicKey ?? null });
+  }
+  if (pathname !== "/api/push/subscription") return text(404, "Not found");
+  if (request.method !== "POST" && request.method !== "DELETE") return text(405, "Method not allowed");
+  if (!sameOrigin(request)) return text(403, "Cross-origin request refused");
+  const identity = await signedIn(request, env);
+  const raw = await request.text();
+  if (raw.length > 4096) return json(413, { error: "That's too long to be a push subscription." });
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return json(400, { error: "Send JSON." });
+  }
+  const agent = await agentFor(identity, env);
+  if (request.method === "DELETE") {
+    const endpoint = (body as { endpoint?: unknown } | null)?.endpoint;
+    if (typeof endpoint !== "string") return json(400, { error: "Send the subscription's endpoint." });
+    return (await agent.removePushSubscription(identity, endpoint)) ? new Response(null, { status: 204 }) : text(404, "Not found");
+  }
+  if (!(await readVapidKey(env))) return json(404, { error: "Notifications aren't available on this deployment." });
+  const subscription = parseSubscription(body);
+  if (typeof subscription === "string") return json(400, { error: subscription });
+  await agent.addPushSubscription(identity, subscription);
+  return new Response(null, { status: 201 });
+}
+
 /** `POST /logout` from this origin only, so another site cannot sign you out. */
 function handleLogout(request: Request): Response {
   if (request.method !== "POST") return text(405, "Method not allowed");
@@ -277,6 +337,8 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname === "/api/model-key") return await handleModelKey(request, env);
     if (pathname === "/api/attachments" || pathname.startsWith("/api/attachments/")) return await handleAttachments(request, env);
     if (pathname === "/api/memories" || pathname.startsWith("/api/memories/")) return await handleMemories(request, env);
+    if (pathname === "/api/schedules" || pathname.startsWith("/api/schedules/")) return await handleSchedules(request, env);
+    if (pathname.startsWith("/api/push/")) return await handlePush(request, env);
     if (pathname === "/logout") return handleLogout(request);
     if (pathname.startsWith("/auth/")) return await handleAuth(request, env);
     if (pathname.startsWith("/poppy/")) {

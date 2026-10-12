@@ -30,8 +30,13 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 - [ ] **Code. "Delete my agent" and data export.** Now owed: `/privacy` (12 October) promises deletion within 30 days of a request, and today only the operator could do it, by hand. Build it before the policy is tested: revoke every Account Token at its Company, then delete the Durable Object's storage (memories, photos and keys included).
 - [x] **Code. Memory, and the other general tools.** Built: `read_url`, `remember`, `recall`, `forget`, `now`, `date_math`, `calculate`, with Settings' Memory section ([decisions §27](docs/decisions.md#27-general-tools-beside-poppy-read_url-memory-time-and-maths)).
 - [ ] **Code. Skills and the rest of milestone 2** ([spec, Build plan](durable-personal-agent-spec.md#build-plan)).
-- [ ] **Code. More general tools:** web search (needs a provider and a key the operator pays for), and reminders (a durable job that tells the User at a time).
-- [ ] **Code. Keep the User's time zone in storage.** The page sends it on connect and the agent holds it in memory, so after an eviction `now` answers in UTC until the page reconnects.
+- [x] **Code. Reminders and scheduled tasks**, on the Durable Object's alarm, with Web Push notifications ([decisions §29](docs/decisions.md#29-reminders-and-scheduled-tasks-on-the-durable-objects-alarm-and-web-push)).
+- [ ] **Owner. Set `WEB_PUSH_VAPID_JWK`** on the live deployment, then try notifications on a phone and a laptop ([deployment-tasks](docs/deployment-tasks.md)).
+- [ ] **Code. More general tools:** web search (needs a provider and a key the operator pays for).
+- [ ] **Code. Reminders by email,** for people who don't install the app or turn on notifications: needs an email sender the operator sets up, and the User's verified address.
+- [ ] **Code. Resume a paused task** from Settings; today the User cancels it and asks again.
+- [ ] **Code. An app icon for iOS:** the manifest's icon is the SVG logo, which iOS doesn't use for a home-screen icon; it needs a PNG `apple-touch-icon`.
+- [x] **Code. Keep the User's time zone in storage.** Done: the last zone a page sent is kept in `user_context`, so `now` and schedules use it after an eviction.
 - [ ] **Owner. Try `read_url` and memory live:** a real page or two (one large, one that redirects), and "remember I'm vegetarian" across a week and a redeploy.
 - [x] **Code. Hide Google sign-in while it isn't configured.** `SIGNIN_PROVIDERS` lists the providers a deployment offers. Google was registered on 12 October and the live deployment offers both; the owner signed in with Google.
 - [ ] **Code. Check the `pi report` log line** (`src/agent.ts`, `console.warn("pi report", error)`) can't carry request details or keys into Workers logs.

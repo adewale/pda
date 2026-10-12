@@ -6,7 +6,8 @@ export const HOW: Record<ActivityChannel, string> = {
   company_agent: "their agent",
   website: "website",
   sign_in: "sign-in",
-  direct: "you, directly"
+  direct: "you, directly",
+  schedule: "scheduled by you"
 };
 
 export const ACCESS: Record<ActivityAccess, string> = {
