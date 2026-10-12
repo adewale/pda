@@ -12,6 +12,7 @@ Commands:
 
 - Validator CLI: `npm run validate -- <domain | url | file>`
 - Docs check: `npm run check:docs` (every test Appendix A and `docs/adversarial-interop.md` name exists; CI runs it with typecheck and tests)
+- Spec snapshot: `node scripts/spec-snapshot.mjs` reports which pages of personalagentprotocol.org differ from the newest copy in `spec/`, and `--save` stores a new dated one (local only, not CI; `spec/grounding.md` ties our claims to the stored text)
 - Tests: `npm test` runs five suites (Workers, durability, page, interop, properties); the spec's "Testing and conformance" table says what each holds and is the one list. Only `test/durability/` may reset every Durable Object. Nothing calls the network: the model, Anthropic, OpenAI, Google, GitHub and Companies are faked.
 - Interop grid: `npm run interop -- [--agents dpa] [--companies dpa-mock] [--scenarios D,SD]` (Docker; `interop/README.md`, spec `docs/interop-spec.md`). Results go to `interop/results/` (gitignored).
 - Property tests: `npm run test:properties`. Each property runs Hegel's default 100 cases, so `npm test` and CI stay seconds long; a deep run is local only, never in CI: `HEGEL_CASES=5000 npm run test:properties`. Hegel keeps failing examples in `.hegel/` (gitignored). Write them with the Hegel skill (`.claude/skills/hegel/`) and check them against `hegel-review`; a failing property is never weakened, only fixed in the code or, with a written reason, in the test.
