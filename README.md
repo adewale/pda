@@ -10,14 +10,16 @@ Poppy is a draft standard, published as Draft 0.1 on 9 October 2026, for AI agen
 
 | Step | You or the agent | Spec | On the page | Status |
 | --- | --- | --- | --- | --- |
-| 1 | You attach a photo and ask: "Print this as a 6×4 at print-with-poppy" | | Chat | In progress |
+| 1 | You attach a photo and ask: "Print this as a 6×4 at print-with-poppy" | | Chat, with the photo | Works in tests |
 | 2 | The agent fetches `poppy.json` and the OAuth metadata, and the validator checks both | §3 | Activity: discovery and its verdict | Works in the grid |
 | 3 | It starts a signed-out Session: a signed client assertion, then a DPoP-bound Session Token | §4.1–4.3 | Activity: the Session | Works in the grid |
-| 4 | It reads the store's OpenAPI catalog and uploads the photo | §6 | Tool lines | In progress |
-| 5 | It places the order; the store proposes an operation with its price and terms | Operations v1 | An approval card | In progress |
-| 6 | You approve on the page; the agent confirms and the order completes | Operations §4 | A receipt, and the exchange in Activity | In progress |
+| 4 | It reads the store's OpenAPI catalog and asks before sending your photo; you approve, and it uploads the photo | §6 | A card showing the photo | Works in the grid |
+| 5 | It places the order; the store proposes an operation with its price and terms | Operations v1 | An approval card with the store's summary | Works in the grid |
+| 6 | You approve; the agent confirms, and the store returns checkout and order-status links | Operations §4 | A receipt with the links | Works in the grid |
 
-"Works in the grid" means our agent passes that part against the store's pinned code in our [interop harness](#for-implementers-test-against-us), offline. The live store will accept our agent once its maintainer adds our `client_id` to its allowlist.
+Every step's exchanges also appear in Activity's protocol log, with their spec sections, and can be copied as text for an interop report.
+
+"Works in the grid" means our agent passes that part against the store's pinned code in our [interop harness](#for-implementers-test-against-us), offline, in scenario `OU`; "works in tests" means against our mock Company. The live store will accept our agent once its maintainer adds our `client_id` to its allowlist, so the journey hasn't run live yet.
 
 ## For implementers: test against us
 
