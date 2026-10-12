@@ -1,6 +1,6 @@
 # Architecture and decisions
 
-Why the Durable Personal Agent is built the way it is. The [spec](../durable-personal-agent-spec.md) says what is built and how; this file records the choices behind it, as decision records: the context, the choice, the alternatives and why they lost, the consequences, and when it was made. Commits are on `main`; every decision here was made between 9 and 11 October 2026. Where the commits and docs record the alternatives weighed, they are given as recorded; where they don't, the alternatives listed are the obvious ones and why they would lose, not a record of a debate.
+Why the Durable Personal Agent is built the way it is. The [spec](../durable-personal-agent-spec.md) says what is built and how; this file records the choices behind it, as decision records: the context, the choice, the alternatives and why they lost, the consequences, and when it was made. Commits are on `main`; every decision here was made between 9 and 12 October 2026. Where the commits and docs record the alternatives weighed, they are given as recorded; where they don't, the alternatives listed are the obvious ones and why they would lose, not a record of a debate.
 
 Back to the [README](../README.md) · What's left to deploy and check: [deployment-tasks.md](deployment-tasks.md)
 
@@ -217,11 +217,13 @@ Ruled out by the owner, for cost and risk:
 - **Decision.**
   - **CI** (`.github/workflows/ci.yml`): typecheck, the five suites and the docs check, on pushes to `main` and on pull requests, so a branch with an open pull request runs once. It also refuses global Durable Object resets outside the durability suite.
   - **Interop** (`.github/workflows/interop.yml`): our agent against both mocks in Docker, in its own workflow, only when the client, the validator, the mock, the harness or the dependencies change. The results are an artifact.
+  - **Dependencies** (`.github/workflows/deps.yml`): `npm run deps:check` on the 1st of each month and by hand, writing `npm outdated` and `npm audit` (production, then production and dev) to the job summary. It fails only for an audit finding at high or above; outdated packages are information. It needs no secrets, reads the repository only, and opens no pull requests; about a minute a month.
+  - **Node 24**, the newest LTS line on 12 October 2026, everywhere: `engines` (`>=24`), `.nvmrc`, all three workflows and our own interop images (`node:24-slim`, `node:24-alpine`, pinned by digest). Node 24 moves to maintenance on 20 October 2026 (supported until April 2028) and Node 26 becomes LTS on 28 October 2026; moving to 26 is a later, deliberate change. The workflows use the actions' Node 24 majors (`checkout`, `setup-node` and `upload-artifact` at `v7`).
   - **The pre-push hook** (`.githooks/pre-push`) runs only typecheck, about five seconds; CI runs the rest.
   - **Cut** (`a654175`): the committed grid results (about 4 MB, stale on the next run; a dated summary stays in `docs/interop-results/`), and the outbound test vectors (our validator fixtures and tamper rows exported for a shared repository that was never made; nothing consumed them). The inbound runner for Datalayer's vectors stays.
-- **Alternatives.** *The full grid in CI:* Docker builds of every project take too long for each push, and their failures are upstream's. *Tests in the hook:* slow pushes for checks CI repeats.
+- **Alternatives.** *The full grid in CI:* Docker builds of every project take too long for each push, and their failures are upstream's. *Tests in the hook:* slow pushes for checks CI repeats. *Dependabot:* the owner's choice was a monthly report to read, not a stream of pull requests to triage. *Node 26 now:* it isn't LTS until 28 October.
 - **Consequences.** The full grid and the Hypothesis client run by hand.
-- **When.** 11 October (`065b2c5`, `a654175`).
+- **When.** 11 October (`065b2c5`, `a654175`); the dependency check and Node 24, 12 October.
 
 ## 22. Security hardening
 

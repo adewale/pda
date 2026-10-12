@@ -40,13 +40,14 @@ curl -s https://personal-agent.adewale-883.workers.dev/validator/api \
 
 Or open https://personal-agent.adewale-883.workers.dev/validator?url=poppy-receiver.roundtrip.workers.dev to see the same report as a page.
 
-Work on the code (Node.js 22.18 or later):
+Work on the code (Node.js 24 or later, the LTS line `.nvmrc` names):
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
 npm test                         # five suites; nothing calls the network
 npm run typecheck
 npm run check:docs               # every test the docs name exists
+npm run deps:check               # outdated packages and npm audit; fails only on high or critical
 npm run validate -- poppy-receiver.roundtrip.workers.dev   # the validator CLI
 ```
 

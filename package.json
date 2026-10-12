@@ -8,7 +8,7 @@
     "poppy-validate": "./scripts/poppy-validate.ts"
   },
   "engines": {
-    "node": ">=22.18"
+    "node": ">=24"
   },
   "scripts": {
     "start": "vite dev",
@@ -22,6 +22,7 @@
     "test:hypothesis": "uv run --directory test/hypothesis --frozen pytest",
     "validate": "node scripts/poppy-validate.ts",
     "check:docs": "node scripts/check-docs.mjs",
+    "deps:check": "node scripts/deps-check.mjs",
     "interop": "node interop/runner/cli.ts"
   },
   "dependencies": {
