@@ -4,7 +4,7 @@ Runs every Personal Agent implementation of the [Personal Agent Protocol](https:
 
 ## Run it
 
-Needs Node 22.18 or later, Docker (Docker Desktop, colima, or Docker on Linux) and `openssl`.
+Needs Node 24 or later, Docker (Docker Desktop, colima, or Docker on Linux) and `openssl`.
 
 ```sh
 npm ci --legacy-peer-deps

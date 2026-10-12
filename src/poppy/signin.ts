@@ -5,7 +5,7 @@ import { randomId, sha256 } from "./jwt";
 import { one, rows } from "./store";
 import type { ScopeInfo } from "./wire";
 
-/** Pending sign-ins expire after this long (Guides: keep device flows short). */
+/** Pending sign-ins expire after this long (the Guides suggest Companies give a device code about 10 minutes). */
 const SIGN_IN_TTL_MS = 10 * 60 * 1000;
 
 export const BUILTIN_SCOPES: Readonly<Record<string, string>> = {
@@ -303,8 +303,9 @@ async function refused(client: PoppyClient, row: SignInRow, code: string, messag
 //                └─▶ failed (refused, or interrupted with no answer)
 //
 // `exchanging` with no answer kept means the Company may have signed the
-// Session in, and we hold no Account Token to renew it with; the assertion
-// mustn't be used for a signed-in Session (4.2), so that Session is
+// Session in, and we hold no Account Token to renew it with; 4.2 renews a
+// signed-in Session with the Account Token, and what the assertion gets there
+// is undefined (spec-issues S5), so that Session is
 // abandoned for a new one and the User starts the sign-in again. `exchanged`
 // keeps the answer (sealed, without its Session Token), so the tokens are
 // stored from it. `stored` only has the card and the notice left.

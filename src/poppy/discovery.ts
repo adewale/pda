@@ -105,7 +105,8 @@ export type Discovered = {
  * Discovery for one domain (spec 3). The validator in `src/validator` fetches
  * poppy.json and the issuer's OAuth metadata and checks both, including
  * `issuer` and `poppy_domains` (3.2). We ingest only documents it calls
- * valid: any MUST broken, or a document that couldn't be fetched, and we
+ * valid: any error (a MUST broken, or a limit or reading of ours the message
+ * names), or a document that couldn't be fetched, and we
  * refuse the Company. What follows reads fields the validator has checked.
  */
 export async function discover(fetcher: Fetcher, domain: string): Promise<Discovered> {

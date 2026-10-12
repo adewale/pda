@@ -15,7 +15,7 @@ import { Web } from "./web";
 
 export { companyIdFromHost, hostsFor, DEFAULT_CONFIG };
 export { CLOCK_HEADER } from "./core";
-export { VIOLATION_IDS, VIOLATIONS, violationId, type ViolationId } from "./violations";
+export { basisOf, STRICT_ONLY, VIOLATION_IDS, VIOLATIONS, violationId, type Basis, type ViolationId } from "./violations";
 export type { MockAccount, MockConfig, MockRequest, MockState, Hosts } from "./types";
 
 type Parts = {

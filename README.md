@@ -14,6 +14,7 @@ Alpha. Poppy is Draft 0.1, published 9 October 2026, and may change incompatibly
 - **Sign-in:** GitHub is configured; Google isn't registered yet. The demo lane's gateway has no credits yet, so model calls need your own key until it does.
 - **Tested** against fakes, a strict mock Company, and other projects' implementations in containers; **not yet** against a production Company, because none has published `poppy.json`.
 - **What's left** to deploy and check is in [`docs/deployment-tasks.md`](docs/deployment-tasks.md).
+- **Everything else still open** is in [`TODO.md`](TODO.md).
 
 ## Read next
 
@@ -40,13 +41,14 @@ curl -s https://personal-agent.adewale-883.workers.dev/validator/api \
 
 Or open https://personal-agent.adewale-883.workers.dev/validator?url=poppy-receiver.roundtrip.workers.dev to see the same report as a page.
 
-Work on the code (Node.js 22.18 or later):
+Work on the code (Node.js 24 or later, the LTS line `.nvmrc` names):
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
 npm test                         # five suites; nothing calls the network
 npm run typecheck
 npm run check:docs               # every test the docs name exists
+npm run deps:check               # outdated packages and npm audit; fails only on high or critical
 npm run validate -- poppy-receiver.roundtrip.workers.dev   # the validator CLI
 ```
 
@@ -71,7 +73,7 @@ Deploy your own: [`docs/setup.md`](docs/setup.md), in the order [`docs/deploymen
 
 ## The validator
 
-- **Severity.** An `error` breaks a MUST, so conforming agents refuse the document; a `warning` is a SHOULD or an interoperability hazard; an `info` is harmless.
+- **Severity.** An `error` is a document our client refuses: usually a broken MUST, otherwise a fetching limit from the Guides or a rule the draft leaves open (such as HTTPS for every URL, spec-issues N9), which its explanation names; a `warning` is a SHOULD or an interoperability hazard; an `info` is harmless.
 - **Explanations.** Each message has a stable id and a page saying what it means and how to fix it ([all messages](https://personal-agent.adewale-883.workers.dev/validator/messages)).
 - **Outcome.** `valid`, `invalid`, or `indeterminate` when a document couldn't be fetched.
 

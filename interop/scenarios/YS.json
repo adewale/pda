@@ -1,7 +1,7 @@
 {
   "id": "YS",
   "title": "Adversarial agent: Bearer scheme outside MCP",
-  "requirements": ["6", "N17"],
+  "requirements": ["4.3", "6"],
   "adversary": "agent",
   "needs": { "agent": ["arm", "attack"] },
   "steps": [

@@ -155,7 +155,7 @@ export class Conversations {
     const notFound = () =>
       new HttpError(json({ error: "conversation_not_found" }, 404));
     // A different User of the same agent reaching for this conversation is a cross-User breach
-    // (7.13, S17): record it, then answer conversation_not_found so nothing of User A leaks.
+    // (7.2; S17): record it, then answer conversation_not_found (7.13) so nothing of User A leaks.
     const crossUser = () => {
       this.company.violation("conversation.cross-user", `User ${context.session.userId} reached conversation ${id} of User ${conversation!.owner.userId}`);
       return notFound();
