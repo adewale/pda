@@ -5,12 +5,14 @@ import { createRegistry, Harness, type Extension } from "@earendil-works/pi-dura
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
+import { AgentLog, type Trigger } from "./agent-log";
 import { maySignIn, type ListEnv } from "./allowlist";
 import { attachmentsExtension } from "./attachment-images";
 import { AttachmentError, attachmentInfo, deleteAttachment, migrateAttachments, readAttachment, saveAttachment, type AttachmentInfo } from "./attachments";
 import { Ledger } from "./budget";
 import { COMPACTION_POLICY, compactionExtension } from "./compaction";
 import { TranscriptHistory } from "./history";
+import { code, configureLog, currentEvent } from "./log";
 import { isKeyProvider, readModelConfig, type KeyProvider } from "./config";
 import { checkKey, keyFormatProblem, ModelKeys, NO_AMBIENT_AUTH, PROVIDER_LABEL, workspaceProblem } from "./model-keys";
 import {
@@ -98,6 +100,12 @@ function scheduleView(schedule: Schedule): ScheduleView {
 /** The outcome of attaching a photo, for `POST /api/attachments`. */
 export type AttachResult = { ok: true; attachment: AttachmentInfo } | { ok: false; status: number; error: string };
 
+/**
+ * Who is calling, as the Worker verified them, and the request's id
+ * (`cf-ray`), so a turn the call starts names the request in its event.
+ */
+export type Caller = Profile & { readonly requestId?: string };
+
 /** The outcome of saving a key, for `POST /api/model-key`. Never carries the key. */
 export type KeyResult = { ok: true; entitlement: Entitlement } | { ok: false; status: 400 | 502; error: string };
 
@@ -124,10 +132,20 @@ export class PersonalAgent extends DurableObject<Env> {
    * turn is running) is the agent's.
    */
   readonly generalTools: readonly Extension[];
+  /**
+   * This agent's wide events (src/log.ts, src/agent-log.ts): one per turn,
+   * job and page frame that does work, with a copy of the newest kept for
+   * the User's "Copy diagnostics".
+   */
+  readonly log: AgentLog;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    configureLog(env);
     for (const statement of SCHEMA) ctx.storage.sql.exec(statement);
+    // The same pseudonymous id the demo gateway's metadata carries (`u`): never who the person is.
+    const agentId = ctx.id.toString().slice(0, 32);
+    this.log = new AgentLog({ sql: ctx.storage.sql, agentId, companyName: (issuer) => this.#companyName(issuer) });
     migrateAttachments(ctx.storage.sql);
     this.memories = new MemoryStore(ctx.storage.sql);
     this.pushSubscriptions = new PushSubscriptions(ctx.storage.sql);
@@ -140,13 +158,14 @@ export class PersonalAgent extends DurableObject<Env> {
       ledger: new Ledger(ctx.storage.sql),
       profile: () => this.#profile(),
       lists: () => this.deployment(),
-      agent: ctx.id.toString().slice(0, 32),
+      agent: agentId,
       domainBudget: (domain) => env.DomainBudget.getByName(domain),
       demoLane: (route) => this.demoLane(route),
       ownKeyProviders: () => this.ownKeyProviders(),
       onRefused: (entitlement) => this.#modelNotice(entitlement),
       onKeyRefused: (provider) => this.#keyRefusedNotice(provider),
-      now: () => this.modelNow()
+      now: () => this.modelNow(),
+      onCall: (call) => this.log.modelCall(call)
     });
     const router = routerProvider(this.access, demoCatalogModel(env));
     let browser: PoppyBrowser | undefined;
@@ -156,6 +175,7 @@ export class PersonalAgent extends DurableObject<Env> {
       fetcher: this.poppyFetcher(),
       browser: () => (browser ??= this.poppyBrowser()),
       notifyModel: (text, operationId) => this.poppyNotify(text, operationId),
+      units: this.log,
       ...this.poppySettings()
     });
     let renderLimiter: RenderLimiter | undefined;
@@ -171,7 +191,8 @@ export class PersonalAgent extends DurableObject<Env> {
       },
       push: (message) => this.pushToDevices(message),
       maySignIn: () => this.maySignInNow(),
-      changed: () => this.poppy.refreshActivity()
+      changed: () => this.poppy.refreshActivity(),
+      units: this.log
     });
     this.generalTools = [
       // Its own fetcher, never the Poppy client's: no Session, cookie or token can reach it.
@@ -192,18 +213,21 @@ export class PersonalAgent extends DurableObject<Env> {
           sections: [{ key: "preamble", render: () => PREAMBLE, tag: false }],
           tools: []
         });
+        // Every tool's call is counted on its turn's wide event (src/agent-log.ts).
         this.registry.install(
-          poppyExtension(
-            () => this.poppy.client,
-            () => this.poppy.browser
+          this.log.instrument(
+            poppyExtension(
+              () => this.poppy.client,
+              () => this.poppy.browser
+            )
           )
         );
         // read_url, memory, time and maths, reminders and tasks: useful outside Poppy, and kept apart from it.
-        for (const extension of this.generalTools) this.registry.install(extension);
+        for (const extension of this.generalTools) this.registry.install(this.log.instrument(extension));
         // The User's attached photos, shown to the model as images in the messages that name them.
-        this.registry.install(attachmentsExtension(() => this.ctx.storage.sql));
+        this.registry.install(this.log.instrument(attachmentsExtension(() => this.ctx.storage.sql)));
         // Our summariser for pi's compaction: Company text stays labelled as the Company's (compaction.ts).
-        this.registry.install(compactionExtension(ROUTER_MODEL));
+        this.registry.install(compactionExtension(ROUTER_MODEL, (outcome) => this.log.compactionSummary(outcome)));
         // One provider, the router: it picks the lane at every call (model-router.ts).
         const models = createModels({ authContext: NO_AMBIENT_AUTH });
         models.setProvider(router);
@@ -219,7 +243,8 @@ export class PersonalAgent extends DurableObject<Env> {
               // A context budget: summarise from about 150k tokens, not near the model's 1M window.
               compaction: COMPACTION_POLICY
             },
-            onReport: (error) => console.warn("pi report", error)
+            // pi's own background reports: an event of their own, at level error.
+            onReport: (error) => void this.log.event("job", { job: "pi.report", outcome: "error" }).fail(error).emit()
           },
           context
         );
@@ -230,9 +255,10 @@ export class PersonalAgent extends DurableObject<Env> {
       this.ctx.getWebSockets(tag)
     );
     this.webSockets = new WebSockets(this.sockets.options());
-    this.history = new TranscriptHistory(this.harness);
-    // Poppy and the page's history first, so they see their frames before the chat socket does.
+    this.history = new TranscriptHistory(this.harness, this.log);
+    // The log first, to see the chat's frames; then Poppy and the page's history, so they see theirs before the chat socket does.
     this.lifecycle = Lifecycle.install(this)
+      .use(this.log)
       .use(this.poppy)
       .use(this.schedules)
       .use(this.history)
@@ -319,10 +345,11 @@ export class PersonalAgent extends DurableObject<Env> {
     const { entitlement } = await this.access.decide();
     if (entitlement.lane === "none") {
       await this.#modelNotice(entitlement);
+      currentEvent()?.set({ model_refused: entitlement.reason });
       return { ok: false, reason: refusalText(entitlement) };
     }
     await this.#resumePaused();
-    await this.harness.submit(text, { operationId, whenBusy: "followUp" });
+    await this.#submit(text, operationId, "schedule");
     return { ok: true };
   }
 
@@ -342,13 +369,15 @@ export class PersonalAgent extends DurableObject<Env> {
     const subject = vapidSubject(this.env);
     await Promise.all(
       this.pushSubscriptions.all().map(async (subscription) => {
+        // Counted on the job's event by outcome, never by endpoint, which is a capability URL for that browser.
+        const event = currentEvent();
         try {
           const status = await sendPush(this.pushFetcher(), subscription, message, key, subject);
           if (status === 404 || status === 410) this.pushSubscriptions.remove(subscription.endpoint);
           else this.pushSubscriptions.sent(subscription.endpoint, status);
+          event?.count(status === 404 || status === 410 ? "push.gone" : status >= 200 && status < 300 ? "push.sent" : "push.failed");
         } catch (error) {
-          // Never the endpoint, which is a capability URL for that browser.
-          console.warn("push not sent", error instanceof Error ? error.name : "unknown");
+          event?.count("push.failed").fail(error, { step: "web_push", severe: false });
         }
       })
     );
@@ -389,21 +418,38 @@ export class PersonalAgent extends DurableObject<Env> {
         Date.now()
       );
       await this.#modelNotice(entitlement);
+      currentEvent()?.set({ model_refused: entitlement.reason }).count("notices_held");
       return;
     }
     await this.#resumePaused();
+    await this.#submit(text, operationId, "company");
+  }
+
+  /** Hand pi a background input, saying first who started it, for its turn's event. */
+  async #submit(text: string, operationId: string, trigger: Trigger, requestId?: string): Promise<void> {
+    this.log.submitted(operationId, trigger, requestId);
     await this.harness.submit(text, { operationId, whenBusy: "followUp" });
   }
 
+  /** A Company's name and verified domain, for the diagnostics' protocol log. */
+  #companyName(issuer: string): { name: string; domain: string | null } {
+    try {
+      const company = this.poppy.client.companyByIssuer(issuer);
+      return { name: company.name, domain: company.domain };
+    } catch {
+      return { name: URL.canParse(issuer) ? new URL(issuer).host : issuer, domain: null };
+    }
+  }
+
   /** Background notices held while model calls were refused, oldest first, once calls are allowed again. */
-  async #resumePaused(): Promise<void> {
+  async #resumePaused(requestId?: string): Promise<void> {
     const held = this.ctx.storage.sql
       .exec("SELECT operation_id, text FROM model_paused ORDER BY created_at")
       .toArray() as Array<{ operation_id: string; text: string }>;
     if (held.length === 0) return;
     if ((await this.access.entitlement()).lane === "none") return;
     for (const row of held) {
-      await this.harness.submit(row.text, { operationId: row.operation_id, whenBusy: "followUp" });
+      await this.#submit(row.text, row.operation_id, "held", requestId);
       this.ctx.storage.sql.exec("DELETE FROM model_paused WHERE operation_id = ?", row.operation_id);
     }
     await this.#closeModelNotice();
@@ -429,7 +475,7 @@ export class PersonalAgent extends DurableObject<Env> {
    * person couldn't sign in start again, and anything held for a refused
    * model goes through if calls are allowed again.
    */
-  async recordIdentity(identity: Profile): Promise<void> {
+  async recordIdentity(identity: Caller): Promise<void> {
     this.ctx.storage.sql.exec(
       "INSERT OR REPLACE INTO agent_profile (slot, provider, sub, email, domain, updated_at) VALUES (1, ?, ?, ?, ?, ?)",
       identity.provider,
@@ -439,7 +485,7 @@ export class PersonalAgent extends DurableObject<Env> {
       Date.now()
     );
     if (await this.schedules.resumeSignedIn()) this.poppy.refreshActivity();
-    await this.#resumePaused();
+    await this.#resumePaused(code(identity.requestId));
   }
 
   /** Which lane, today's demo spend, the key's provider and state. Never the key. */
@@ -449,7 +495,7 @@ export class PersonalAgent extends DurableObject<Env> {
   }
 
   /** Check a pasted key with the provider, then seal and store it. The key is never returned or logged. */
-  async setModelKey(identity: Profile, provider: unknown, key: unknown, workspace?: unknown): Promise<KeyResult> {
+  async setModelKey(identity: Caller, provider: unknown, key: unknown, workspace?: unknown): Promise<KeyResult> {
     await this.recordIdentity(identity);
     if (!isKeyProvider(provider)) {
       return { ok: false, status: 400, error: "Choose Anthropic or OpenAI." };
@@ -467,7 +513,7 @@ export class PersonalAgent extends DurableObject<Env> {
     const checked = await checkKey(provider, trimmed, this.modelFetcher(), space);
     if (!checked.ok) return checked;
     await this.keys.put(provider, trimmed, space);
-    return this.#keyChanged();
+    return this.#keyChanged(code(identity.requestId));
   }
 
   // ---------------------------------------------------------------- Attachments (src/attachments.ts)
@@ -544,9 +590,9 @@ export class PersonalAgent extends DurableObject<Env> {
     return this.access.entitlement();
   }
 
-  async #keyChanged(): Promise<KeyResult> {
+  async #keyChanged(requestId?: string): Promise<KeyResult> {
     await this.#closeModelNotice();
-    await this.#resumePaused();
+    await this.#resumePaused(requestId);
     return { ok: true, entitlement: await this.access.entitlement() };
   }
 
@@ -594,6 +640,8 @@ export class PersonalAgent extends DurableObject<Env> {
   async onStart(): Promise<void> {
     // Sessions created before the model router named their own model; point them at it.
     await this.harness.session().setModel(ROUTER_MODEL);
+    // Each run's turn event, from pi's own events.
+    await this.log.watch(this.harness);
     // Give sockets that outlived the last isolate a new watch.
     await this.sockets.reattach();
   }

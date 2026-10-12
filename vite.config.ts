@@ -4,6 +4,7 @@ import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { buildDefines } from "./scripts/build-info.ts";
 
 /**
  * The deployer's own vars: who the deployment is for (`OWNERS`, the
@@ -28,6 +29,8 @@ function localVars(declared: Record<string, unknown>): Record<string, unknown> {
 }
 
 export default defineConfig({
+  // The commit and compatibility date every wide event carries (src/log.ts).
+  define: buildDefines(path.join(import.meta.dirname, "wrangler.jsonc")),
   plugins: [
     react(),
     // Assigned, not returned: the plugin deep-merges a returned config, which

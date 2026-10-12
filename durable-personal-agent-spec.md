@@ -46,6 +46,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Reminders and scheduled tasks (`remind_me`, `schedule_task`, `list_scheduled`, `cancel_scheduled`) | Built and deployed; tested with the faux model, the alarm run by hand on a set clock; Settings lists and cancels them. Not yet run live: one of each firing on time ([deployment-tasks.md](docs/deployment-tasks.md#2-live-checks)) |
 | Web Push notifications | Built and deployed, with `WEB_PUSH_VAPID_JWK` set; tested against a fake push service and RFC 8291's own example. Not yet tried on a real device or push service |
 | Privacy policy (`/privacy`) | Live, rendered from the template's text and the deployment's `PRIVACY_CONTACT` |
+| Wide events in Workers Logs, and Copy diagnostics (Observability) | Built and tested, including the privacy check against every Poppy flow's secrets; not yet deployed or queried live |
 | Skills (milestone 2) | Not started |
 
 With `SIGNUP=allowlist` (the committed value) only `OWNERS` and people on `SIGNIN_ALLOWLIST` can sign in. The operator pays only for `OWNERS` and `DEMO_ALLOWLIST`, up to the daily caps; everyone else needs their own key.
@@ -92,7 +93,8 @@ The Worker turns a verified app session into the person's Durable Object and for
 | AI binding → AI Gateway | The demo lane: Claude Sonnet 5.5 on Unified Billing | `ai` binding `AI`; `DEMO_GATEWAY_ID` |
 | Workers Rate Limiting | The public validator's URL checks: 20 a minute per client address | `ratelimits` binding `VALIDATOR_LIMITER` |
 | Browser Run | `read_url`'s pages that need JavaScript: a fresh headless browser per render, read only (General tools) | `browser` binding `BROWSER`, `remote: true` for local dev; `BROWSER_RUN` |
-| Workers Logs | Logs, with secrets redacted | `observability` |
+| Workers Logs | One wide event per request, turn, job and working page frame (Observability) | `observability`: logs on, `head_sampling_rate` 1, invocation logs and traces off |
+| Version metadata | The version id and tag on every wide event | `version_metadata` binding `CF_VERSION_METADATA` |
 
 **Settings.** No setting has a default. A missing one stops the request with a 500 that names it. Every route except the validator checks the deployment settings first (`src/deployment.ts`), so a copy nobody has configured fails closed.
 
@@ -836,6 +838,37 @@ Four extensions in `src/tools/`, beside `poppy`, so the agent is useful away fro
 - **Forks.** The committed template names nobody and points at no host; until its deployer sets `OWNERS` and `PUBLIC_ORIGIN` every route answers with a config error.
 - **Deletion.** "Delete my agent" (milestone 2) first revokes every Account Token at its Company, then runs `ctx.storage.deleteAll()`.
 
+## Observability
+
+Wide events, after the logging-best-practices guidance the owner chose (decisions §30): one structured event per unit of work, written when it ends, from the one logger in `src/log.ts`. Nothing else in `src/` writes to the console, and a test checks it.
+
+**Every event** carries `timestamp`, `level` (`info` or `error`), `kind`, `service` (`personal-agent`), `version_id` and `version_tag` (from `CF_VERSION_METADATA`), `commit` (built in), `compatibility_date`, `outcome`, `duration_ms`, and, when something failed, `error` and `errors` (`type`, `code`, a redacted `message`, `step`) with `error_count`. Events of an agent carry `agent_id`: its Durable Object id's first 32 hex digits, the same value as AI Gateway's metadata `u`.
+
+| Kind | One per | Fields |
+| --- | --- | --- |
+| `http` | Worker request (`src/index.ts`) | `method`, `route` (a template: `/api/memories/{id}`, never a path with an id or a query), `status`, `request_id` (`cf-ray`), `colo`, `country`, `signed_in`, `sign_in_provider`, `is_owner`, `agent_id`, `lane` where the handler knows it, `sign_in` and `sign_in_error` for app sign-in. The Direct Sign-In callback's work in the agent is a second `http` event with `hop: "agent"` and the same `request_id`. Outcome `success`, `refused` (401, 403), `rejected` (other 4xx) or `error` (5xx, level error) |
+| `turn` | pi run, from its first input to idle (`src/agent-log.ts`) | `turn_id` and `operation_ids`, `trigger` (`user`, `company`, `schedule`, `held`, `compaction`), `request_id` and `started_by` (the request, job or frame that started it), `resumed`; `lane`, `provider`, `model`, `budget_pool` (a Workspace domain or `personal`), `demo_spent_today_usd`, `refused_reason`; `model_calls` (`count`, `refused`, `retries`, input, output and cache tokens, `cost_usd`, `latency_ms`, `errors` by code), `model_rounds`, `stop_reason`; `tool_calls` (at most 30: `name`, `outcome` `success`, `error`, `refused` or `held`, `duration_ms`, `error_code`, `issuers`), `tool_count`, `tools_used` and `tool_outcomes` (strings, for `contains`); `poppy` (`requests`, `failed`, `issuers`, and per step a count, statuses and error codes) and `poppy_issuers`; `read_url` (`count`, `rendered`, `statuses`, `errors`); `approvals_shown`; `compaction` (`count`, `reasons`, `blocking`, `summary`). Outcome `success`, `refused` (every call refused), `aborted` or `error` |
+| `job` | Lifecycle job of ours, or background work outside any unit | `job` (`poppy-read`, `poppy-device`, `poppy-operation`, `schedule-due`, `schedule-settle`, `poppy.recover`, `pi.report`), the ids it works on (`conversation_id`, `operation_id`, `issuer`, `schedule_id`, `schedule_kind`; never a device sign-in's id), `run`, `rescheduled`, `push` (`sent`, `gone`, `failed`), the Poppy counts as on a turn |
+| `ws` | page frame that does work | `frame`, `decision`, `issuer`, `operation_id`, `approval_id`, `action`; `abort` and `reset` too. Keepalives and reads (`poppy.activity`, `poppy.context`, `poppy.protocol`, `history.before`, `poppy.diagnostics`) get none unless they fail |
+
+**Privacy.** Never message or page text, summaries, tool arguments or results, tokens, keys, codes, assertions, DPoP proofs, emails, names, provider account ids, photo bytes, push endpoints or URLs with queries. Company issuer origins and route templates are allowed. Error messages pass through `redact` (URLs cut to their origin; emails, quoted text, credentials and long tokens dropped). `test/protocol-log.test.ts` runs every Poppy flow its secret test runs and finds none of those secrets, nor what anyone said, in any line written or in the diagnostics. The privacy page says so: the operator's logs record when and how the agent worked, not what anyone said, for Workers Logs' retention (7 days on Workers Paid, 3 on Free).
+
+**Diagnostics.** Each agent keeps its newest 200 events in `agent_log` in its SQLite. Activity's **Copy diagnostics** (a `poppy.diagnostics` frame, answered by the agent's log capability) gives them, one JSON line each, with every Company's protocol log, as text.
+
+**Settings.** `observability.logs`: on, `head_sampling_rate: 1`, `invocation_logs: false` (they record each request's full URL, and the sign-in callbacks carry a code and `state`). `observability.traces`: off, because spans record URLs and query strings. pi-telemetry isn't bridged: pi-ai 1.1's providers start no spans and pi-durable passes no telemetry context.
+
+**Querying** in the dashboard's Observability Query Builder, or the Workers Observability API with the same filters:
+
+| Question | Query |
+| --- | --- |
+| Every turn of one agent today (time range: today) | `kind = "turn" AND agent_id = "<agent id>"` |
+| Tool calls refused at Print with Poppy | `kind = "turn" AND regex(tool_outcomes, ":refused@https://[^ ]*printwithpoppy\.com")` |
+| Everything one request did | `request_id = "<cf-ray>"` |
+| Errors by kind and code | `level = "error"`, grouped by `kind` and `error.code` |
+| Demo spend by budget pool | `kind = "turn" AND lane = "demo"`, sum of `model_calls.cost_usd` grouped by `budget_pool` |
+| Slow model calls | `kind = "turn" AND model_calls.latency_ms > 30000` |
+| What a deployment changed | `version_id = "<id>"`, or group by `commit` |
+
 ## Testing and conformance
 
 `npm test` runs five suites, one after another; this table is the one list of them, which the README and `CLAUDE.md` point to. CI (`.github/workflows/ci.yml`) runs them on pushes to `main` and on pull requests with `npm run typecheck` and `npm run check:docs`, which checks that every test named in Appendix A, and every scenario and test the attack tables of `docs/adversarial-interop.md` name, exists. The docs give no test counts; `npx vitest list` does. Two more run outside `npm test`, both described below: the interop grid (`npm run interop`, in Docker; CI's Interop workflow runs our own pair) and the Hypothesis client (`npm run test:hypothesis`, local only).
@@ -852,7 +885,8 @@ Four extensions in `src/tools/`, beside `poppy`, so the agent is useful away fro
 | --- | --- |
 | `test/agent.test.ts` | App sign-in (PKCE, every ID-token and GitHub profile check, flow expiry), the allowlist, `/ws`, durability, configuration |
 | `test/activity.test.ts` | The Activity frame: what it logs, and that it never carries a token, code, credential or sign-in secret |
-| `test/protocol-log.test.ts` | The protocol log: a whole flow in order with its spec sections, a refused discovery, nonce retries, `Retry-After` waits and Session restarts, pruning per Company, and that no secret that crossed the wire reaches a row or a frame |
+| `test/protocol-log.test.ts` | The protocol log: a whole flow in order with its spec sections, a refused discovery, nonce retries, `Retry-After` waits and Session restarts, pruning per Company, and that no secret that crossed the wire reaches a row, a frame, a wide event or the diagnostics, nor anything the User or the model said |
+| `test/log.test.ts` | Wide events (Observability): one per request, turn, job and working frame, each with the environment; a turn counting its model and tool calls and naming its request; a refused turn and a failed request with their type and code; route templates; the agent's 200 events pruned and copied as diagnostics; `redact`; and no `console` call in `src/` but `src/log.ts` |
 | `test/allowlist.test.ts` | Reading and matching the allowlists and `OWNERS`; `SIGNUP` |
 | `test/model-access.test.ts` | Own keys (Anthropic and OpenAI only), sealing, the demo's caps (the personal pool's refusal names no organisation), background turns, refused keys, no model call for someone taken off the lists, `SIGNUP`, against fake vendors |
 | `test/compaction.test.ts` | Compaction: the budget's thresholds, the summary in the next request, overflow summarised and retried once, a failed summary losing nothing, summaries counted against the demo's caps, an open approval and Activity unchanged, `poppy_status` with no domain, the page's earlier messages, and the demo request's thinking settings |
@@ -875,7 +909,7 @@ Four extensions in `src/tools/`, beside `poppy`, so the agent is useful away fro
 | `test/properties/tools.test.ts` | `calculate` agrees exactly with an independent fraction evaluator on generated expressions, is exact on money, rounds half away from zero, and refuses anything else only with a CalcError; dates number every day once, adding and subtracting days, weeks, months (to day 28) and time round-trip, a difference added back gives the end date, every shown wall-clock time reads back, durations parse, and bad input is refused only with a TimeError |
 | `test/durability/crash.test.ts` | The conversation after a crash |
 | `test/fetch-browser.test.ts` | The production browser's own rules, with stub fetchers: the cookie jar, HTTPS and public hosts only, every redirect checked, timeouts, the size limit, no headers of ours, pages that need JavaScript |
-| `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, a summary shown as a notice with the messages before it, the protocol view (a log asked for only when opened, copy and download as text), Settings' Memory, Scheduled and Notifications sections (the toggle asks permission, subscribes with the deployment's key and posts the subscription; off unsubscribes; hidden without a key; the iPhone note where the browser can't) |
+| `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, a summary shown as a notice with the messages before it, the protocol view (a log asked for only when opened, copy and download as text), Copy diagnostics (asked for when Activity opens, copied when ready), Settings' Memory, Scheduled and Notifications sections (the toggle asks permission, subscribes with the deployment's key and posts the subscription; off unsubscribes; hidden without a key; the iPhone note where the browser can't) |
 
 - **Fakes.**
   - The demo lane's model is Pi AI's faux provider. It echoes the latest user message, and obeys any `@@obey <tool> <arguments>` line it has just read, standing in for a model that follows instructions injected into Company text. It is counted, and priced by a `[cost N]` marker in the prompt. For compaction, `[context N]` makes an answer report N tokens of context, `[too long]` makes it refuse a request as too long until the request carries a summary, and it answers our summarizer with a short summary, which `[summary fails]` makes fail and `[summary cost N]` prices.

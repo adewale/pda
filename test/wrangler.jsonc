@@ -4,6 +4,8 @@
   "main": "worker.ts",
   "compatibility_date": "2026-10-09",
   "compatibility_flags": ["nodejs_compat"],
+  // As production: the version on every wide event (src/log.ts).
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "durable_objects": {
     "bindings": [
       { "name": "PersonalAgent", "class_name": "PersonalAgent" },

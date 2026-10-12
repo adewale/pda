@@ -158,7 +158,11 @@ const SUMMARY_MEMO = "dpa.summary";
  * any other call). If the call fails, it declines: nothing is summarised,
  * nothing is lost, and the next turn over the threshold tries again.
  */
-export function compactionExtension(model: { readonly provider: string; readonly id: string }): Extension {
+export function compactionExtension(
+  model: { readonly provider: string; readonly id: string },
+  /** How each summary call went, for the turn's wide event (src/agent-log.ts): never its text. */
+  onSummary: (outcome: { readonly summary: "ok" | "failed"; readonly stopReason?: string; readonly error?: unknown }) => void = () => undefined
+): Extension {
   return {
     name: "compaction",
     hooks: [
@@ -178,9 +182,9 @@ export function compactionExtension(model: { readonly provider: string; readonly
               ...(context.abortSignal ? { signal: context.abortSignal } : {})
             });
             summary = summaryOf(answer);
-            if (summary === undefined) console.warn("compaction summary failed", answer.stopReason);
+            onSummary(summary === undefined ? { summary: "failed", stopReason: answer.stopReason } : { summary: "ok" });
           } catch (error) {
-            console.warn("compaction summary failed", error instanceof Error ? error.name : "error");
+            onSummary({ summary: "failed", error });
           }
           if (summary === undefined) return { decline: true };
           return { summary: await api.memo(SUMMARY_MEMO, summary, context) };

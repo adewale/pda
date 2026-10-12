@@ -282,7 +282,12 @@ export type PoppyServerFrame =
       readonly domain: string | null;
       readonly issuer: string | null;
       readonly entries: readonly ProtocolEntry[];
-    };
+    }
+  /**
+   * The agent's diagnostics, to the page that asked (src/agent-log.ts): its
+   * newest wide events and every Company's protocol log, as text to copy.
+   */
+  | { readonly type: "poppy.diagnostics"; readonly text: string; readonly at: number };
 
 /** Page → server. */
 export type PoppyClientFrame =
@@ -322,4 +327,6 @@ export type PoppyClientFrame =
   | { readonly type: "poppy.permission.remove"; readonly id: string }
   | { readonly type: "poppy.card.dismiss"; readonly id: string }
   /** Ask for one Company's protocol log; the answer goes to this page only. */
-  | { readonly type: "poppy.protocol"; readonly key: string };
+  | { readonly type: "poppy.protocol"; readonly key: string }
+  /** Ask for the agent's diagnostics; the answer goes to this page only. Answered by the agent's log, never Poppy. */
+  | { readonly type: "poppy.diagnostics" };

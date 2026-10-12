@@ -142,7 +142,9 @@ for (const level of ["debug", "log", "info", "warn", "error"] as const) {
         })
         .join(" ")
     );
-    original(...args);
+    // The app's wide events (src/log.ts) are kept for tests to read, not printed: there is one per request, turn and job.
+    const wide = args.length === 1 && typeof args[0] === "object" && (args[0] as { service?: unknown } | null)?.service === "personal-agent";
+    if (!wide) original(...args);
   };
 }
 
@@ -482,7 +484,8 @@ export class PersonalAgent extends ProductionAgent {
         return kept.get(key);
       }
     } as unknown as ToolExecutionApi;
-    const result = await tool.execute(args as never, api, {} as never);
+    // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
+    const result = await this.log.tool(name, () => tool.execute(args as never, api, {} as never));
     const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }
@@ -616,6 +619,11 @@ export class PersonalAgent extends ProductionAgent {
     }
   }
 
+  /** The text "Copy diagnostics" gives the User (src/agent-log.ts). */
+  async diagnostics(): Promise<string> {
+    return this.log.diagnostics();
+  }
+
   /** How many console lines this isolate has written so far; pass it to `poppyLogsSince`. */
   async poppyLogMark(): Promise<number> {
     return logs.length;
@@ -655,7 +663,8 @@ export class PersonalAgent extends ProductionAgent {
     const tool = extension.tools?.find((candidate) => candidate.name === name);
     if (!tool) throw new Error(`No tool ${name}`);
     const api = { conversationId: "test", callId } as unknown as ToolExecutionApi;
-    const result = await tool.execute(args as never, api, {} as never);
+    // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
+    const result = await this.log.tool(name, () => tool.execute(args as never, api, {} as never));
     const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }

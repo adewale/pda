@@ -78,6 +78,7 @@ The **Activity** page shows what your agent is doing and has done.
 - **In progress:** conversations it is following, sign-ins it is waiting on and operations still open, each with a button to stop it: **End conversation**, **Cancel sign-in**, or ask the company to stop an operation.
 - **Log:** newest first, what it did at each company, how and with what access, and who decided (you or a standing permission). Each reminder and task run has a line too.
 - **Protocol:** for each company, every Poppy request your agent made, oldest first, with the section of the spec it follows and what came back. It never records headers, bodies, tokens, keys or codes. **Copy as text** or **Download** it to send with a bug report.
+- **Diagnostics:** when something went wrong, press **Copy diagnostics** and paste the text into your message to whoever runs your deployment (or **Download diagnostics** for a file). It holds your agent's last 200 events and the protocol log: when and how it worked, which companies and tools it used, the model's usage and cost, and what failed with which error code. It never holds what you, your agent or anyone else said, page text, tokens, keys, codes or your email. The operator's own logs record the same kind of events and keep them for 7 days.
 
 ## Checking that it works, end to end
 

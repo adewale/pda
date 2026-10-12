@@ -64,12 +64,17 @@ const entries: ProtocolEntry[] = [
 
 const log: ProtocolLogView = { type: "poppy.protocol", key: ISSUER, company: "Print with Poppy", domain: "print.example", issuer: ISSUER, entries };
 
+/** Activity with `protocol`; `sent` holds the protocol frames, `diagnostics` how many times it asked for the diagnostics. */
 function page(protocol: ProtocolView) {
   const sent: PoppyClientFrame[] = [];
-  const send = (frame: PoppyClientFrame) => void sent.push(frame);
+  let diagnostics = 0;
+  const send = (frame: PoppyClientFrame) => {
+    if (frame.type === "poppy.diagnostics") diagnostics++;
+    else sent.push(frame);
+  };
   const view = render(<ActivityPage activity={{ inProgress: [], log: [] }} protocol={protocol} send={send} />);
   const rerender = (next: ProtocolView) => view.rerender(<ActivityPage activity={{ inProgress: [], log: [] }} protocol={next} send={send} />);
-  return { sent, rerender };
+  return { sent, rerender, asked: () => diagnostics };
 }
 
 describe("protocol view", () => {
@@ -172,5 +177,51 @@ describe("protocol view", () => {
     const loaded = reducePoppy(indexed, log);
     expect(loaded.protocol.logs[ISSUER]).toBe(log);
     expect(protocolText(log, AT)).toContain(`Exported: ${new Date(AT).toISOString()}; 3 entries, oldest first; times in UTC`);
+  });
+});
+
+/**
+ * "Copy diagnostics" (src/ui/protocol.tsx): the agent's newest events and
+ * the protocol logs, as the agent's `poppy.diagnostics` frame carries them,
+ * copied for the operator. Asked for when Activity opens, so the text is
+ * ready when the button is pressed, and again after each copy.
+ */
+describe("diagnostics", () => {
+  const text = 'Personal agent diagnostics\nAgent: 0123abcd\n\n{"kind":"turn","outcome":"success"}\n';
+
+  it("asks the agent once when Activity opens, and copies what it sent", async () => {
+    const writeText = vi.fn(async (_text: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const { asked, rerender, sent } = page({ companies: [], logs: {} });
+    expect(asked()).toBe(1);
+    rerender({ companies: [], logs: {}, diagnostics: { text, at: AT } });
+    expect(asked()).toBe(1);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
+    });
+    expect(writeText).toHaveBeenCalledWith(text);
+    expect(screen.getByText("Copied. Paste them into your message to the operator.").getAttribute("role")).toBe("status");
+    // Fresh for the next copy; nothing else was sent.
+    expect(asked()).toBe(2);
+    expect(sent).toEqual([]);
+  });
+
+  it("says to wait when the agent hasn't answered yet, and asks again", async () => {
+    const writeText = vi.fn(async (_text: string) => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const { asked } = page({ companies: [], logs: {} });
+    expect((screen.getByRole("button", { name: "Download diagnostics" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Copy diagnostics" }));
+    });
+    expect(writeText).not.toHaveBeenCalled();
+    expect(screen.getByText(/Still getting them from your agent/)).toBeTruthy();
+    expect(asked()).toBe(2);
+  });
+
+  it("folds the agent's frame into the page's view", () => {
+    const empty: PoppyView = { cards: [], accounts: [], permissions: [], direct: {}, activity: null, protocol: { companies: [company], logs: {} } };
+    const folded = reducePoppy(empty, { type: "poppy.diagnostics", text, at: AT });
+    expect(folded.protocol).toEqual({ companies: [company], logs: {}, diagnostics: { text, at: AT } });
   });
 });

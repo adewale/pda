@@ -127,3 +127,23 @@ These are Cloudflare's published prices on the day this was written; check the l
 - **Scheduled tasks:** each run is a model call like a chat message, paid on the person's own key or under the demo's daily caps, never beyond them. An agent keeps at most 20 reminders and tasks waiting, none more often than daily. A reminder makes no model call.
 - **Web Push:** free. The browsers' own push services (Google, Mozilla, Apple, Microsoft) carry each notification; the agent's request to them is an outbound request from the Durable Object.
 - **The validator:** open to anyone. A check of a pasted document runs in the Worker; a URL check also fetches from the network, so each client address gets 20 URL checks a minute (the `VALIDATOR_LIMITER` rate-limit binding in `wrangler.jsonc`). Each check is an ordinary Worker request.
+- **Workers Logs:** every request, agent turn, job and page action writes one event (one log event each), unsampled. Until 1 December 2026, Workers Paid includes 20 million log events a month, then $0.60 a million, kept 7 days ([Workers Logs pricing](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#pricing)); from 1 December 2026, logs and traces share Cloudflare Observability's allowance, 50 GB of ingestion and 10 GB-month of storage a billing cycle on Paid, then $0.25 a GB and $0.10 a GB-month ([Observability pricing](https://developers.cloudflare.com/observability/pricing/)). An event is a few kilobytes, so a personal deployment stays far inside either. Workers Traces is off (section 8).
+
+## 8. Logs and diagnostics
+
+The agent writes one structured event per unit of work to Workers Logs: `http` for each request, `turn` for each agent turn, `job` for each background job, `ws` for each page action that does something. The [spec's Observability section](../durable-personal-agent-spec.md#observability) lists every field; [decisions §30](decisions.md#30-logging-one-wide-event-per-unit-of-work-and-diagnostics-the-user-can-copy) says why. They record when and how each agent worked (which Companies, which tools, model usage and cost, what failed and with which code), never what anyone said, and no token, key, code, email or URL query. Workers Logs keeps them 7 days on Workers Paid.
+
+**Querying.** In the dashboard, **Workers & Pages → Observability**, pick this Worker and write a query in the search bar, or build it in the Query Builder beside it:
+
+- Every turn of one agent today (set the time range to today): `kind = "turn" AND agent_id = "<agent id>"`. The agent id is on the second line of the person's diagnostics, and on every event of theirs.
+- Tool calls refused at Print with Poppy: `kind = "turn" AND regex(tool_outcomes, ":refused@https://[^ ]*printwithpoppy\.com")`.
+- Everything one request did, across the Worker and the agent: `request_id = "<cf-ray>"`.
+- What failed: `level = "error"`, grouped by `kind` and `error.code`.
+- Demo spend today by budget: `kind = "turn" AND lane = "demo"`, the sum of `model_calls.cost_usd` grouped by `budget_pool`.
+- What a deploy changed: group by `commit`, or filter on `version_id`.
+
+**Settings** (`wrangler.jsonc`, committed): logs on and unsampled (`head_sampling_rate: 1`); invocation logs off, because each records the request's full URL and the sign-in callbacks carry a one-time code in theirs; traces off, because spans record URLs and query strings. Per-request CPU and wall time are still in the dashboard's metrics.
+
+**A read-only token for an assistant (optional).** To let a coding assistant or a script query the logs (the [Workers Observability API](https://developers.cloudflare.com/api/resources/workers/subresources/observability/), or the Cloudflare API MCP server), create an API token under **My Profile → API Tokens** with only **Account → Workers Observability → Read** for this account; on an account that uses Workers roles, the **Metadata Read-Only** role scoped to this Worker instead. It can read events and nothing else: no secret, no Durable Object, no deploy. Give it an expiry, and revoke it when the work is done.
+
+**Diagnostics from a person.** When someone reports a problem, ask them to press **Copy diagnostics** on their Activity page and paste the text to you. It holds their agent's newest 200 events and its Poppy protocol log, the same redacted fields as the logs, so you can debug without opening the logs or seeing their conversation.

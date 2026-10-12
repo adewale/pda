@@ -117,7 +117,42 @@ export type AccessOptions = {
   /** The provider refused the person's key. */
   readonly onKeyRefused: (provider: KeyProvider) => Promise<void>;
   readonly now?: () => number;
+  /** Each call, once it ended or was refused, for the turn's wide event (src/agent-log.ts). Never its content. */
+  readonly onCall?: (call: ModelCall) => void;
 };
+
+/** One model call as the turn's event counts it: the lane, usage, cost, latency and how it ended. */
+export type ModelCall = {
+  readonly lane: Entitlement["lane"];
+  readonly refused: Refusal | null;
+  readonly provider: string | null;
+  readonly model: string | null;
+  /** The demo's budget: the Workspace domain, or `personal`; null off the demo. */
+  readonly budgetPool: string | null;
+  /** Today's demo spend before this call, in USD; null off the demo. */
+  readonly demoSpentUsd: number | null;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
+  readonly costUsd: number;
+  readonly latencyMs: number;
+  readonly stopReason: string | null;
+  /** A short code for a call that failed: `http_429`, `key_refused`, `context_too_long`, `aborted`, `error`. */
+  readonly errorCode: string | null;
+};
+
+/** A short code for how a model call failed, from pi's stop reason and error text (never the text itself). */
+export function modelErrorCode(message: Pick<AssistantMessage, "stopReason" | "errorMessage">): string | null {
+  if (message.stopReason === "aborted") return "aborted";
+  if (message.stopReason !== "error") return null;
+  const text = message.errorMessage ?? "";
+  if (isKeyRefused(text) || /refused your key/.test(text)) return "key_refused";
+  if (/prompt is too long|context.{0,20}(length|window)|too many tokens/i.test(text)) return "context_too_long";
+  if (/timed? ?out|timeout/i.test(text)) return "timeout";
+  const status = /\b([45]\d\d)\b/.exec(text)?.[1];
+  return status ? `http_${status}` : "error";
+}
 
 /** The demo model's catalog entry: its name, limits and prices. Builds metadata only; nothing is called. */
 export function demoCatalogModel(env: Env): Model<Api> {
@@ -305,17 +340,46 @@ export class ModelAccess {
     call: (models: Models, model: Model<Api>) => AssistantMessageEventStream
   ): AssistantMessageEventStream {
     return lazyStream(outer, async () => {
+      // The wall clock, not `now` (tests fix that to one instant).
+      const started = Date.now();
       const { entitlement, lane } = await this.decide();
       if (!lane) {
+        this.#record(entitlement, null, started, null, "refused");
         await this.#options.onRefused(entitlement);
         throw new ModelRefused(refusalText(entitlement));
       }
-      return this.#meter(lane, call(lane.models, lane.model));
+      return this.#meter(lane, call(lane.models, lane.model), entitlement, started);
     });
   }
 
+  /** Tell `onCall` how a call went; a failure to record is never the call's. */
+  #record(entitlement: Entitlement, lane: Lane | null, started: number, message: AssistantMessage | null, errorCode: string | null): void {
+    if (!this.#options.onCall) return;
+    try {
+      const usage = message?.usage;
+      this.#options.onCall({
+        lane: entitlement.lane,
+        refused: entitlement.reason,
+        provider: lane ? lane.model.provider : null,
+        model: lane ? lane.model.id : null,
+        budgetPool: lane?.kind === "demo" ? lane.domain : null,
+        demoSpentUsd: entitlement.demo ? entitlement.demo.spentUsd : null,
+        inputTokens: usage?.input ?? 0,
+        outputTokens: usage?.output ?? 0,
+        cacheReadTokens: usage?.cacheRead ?? 0,
+        cacheWriteTokens: usage?.cacheWrite ?? 0,
+        costUsd: usage?.cost?.total ?? 0,
+        latencyMs: Math.max(0, Date.now() - started),
+        stopReason: message?.stopReason ?? null,
+        errorCode: errorCode ?? (message ? modelErrorCode(message) : null)
+      });
+    } catch {
+      // The log is a view of the call, never part of it.
+    }
+  }
+
   /** Forward the call's events, then record a demo call's cost, or a refused key. */
-  #meter(lane: Lane, inner: AssistantMessageEventStream): AssistantMessageEventStream {
+  #meter(lane: Lane, inner: AssistantMessageEventStream, entitlement: Entitlement, started: number): AssistantMessageEventStream {
     const out = createAssistantMessageEventStream();
     void (async () => {
       let final: AssistantMessage | undefined;
@@ -337,10 +401,12 @@ export class ModelAccess {
           await this.#options.domainBudget(lane.domain).add(day, cost);
         }
       }
-      out.end(lane.kind === "own_key" && message.stopReason === "error" ? await this.#keyError(lane, message) : message);
+      const ended = lane.kind === "own_key" && message.stopReason === "error" ? await this.#keyError(lane, message) : message;
+      this.#record(entitlement, lane, started, ended, null);
+      out.end(ended);
     })().catch((error: unknown) => {
-      // Never leave pi waiting on a stream that can't finish.
-      console.warn("model call metering failed", error instanceof Error ? error.name : "error");
+      // Never leave pi waiting on a stream that can't finish; the turn's event says it failed.
+      this.#record(entitlement, lane, started, null, `metering_${error instanceof Error ? error.name : "error"}`.slice(0, 64));
       out.end();
     });
     return out;

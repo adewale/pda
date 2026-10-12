@@ -590,6 +590,9 @@ describe("configuration", () => {
     expect(html).toContain("notes about you are kept in its storage until you delete them");
     expect(html).toContain("Nothing about you goes with it: no cookies, no sign-in, nothing but the page's address");
     expect(html).toContain("in Cloudflare's Browser Run, which runs the page's own scripts, sends only requests that read, and is closed afterwards. It gets the page's address and nothing about you.");
+    // The operator's logs (src/log.ts): how the agent worked, never what anyone said, for Workers Logs' retention.
+    expect(html).toContain("They don't record what you, your agent or anyone else said, and hold no tokens, keys, codes or your email");
+    expect(html).toContain("kept for Cloudflare Workers Logs' retention period: 7 days on Workers Paid, 3 days on Workers Free");
     expect((await fetchWorker(new Request(`${ORIGIN}/privacy`, { method: "POST" }))).status).toBe(405);
     const unset = await fetchWorker(new Request(`${ORIGIN}/privacy`), { PRIVACY_CONTACT: "" } as unknown as Partial<Env>);
     expect(unset.status).toBe(500);

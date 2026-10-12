@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { PROTOCOL_STEPS } from "../src/poppy/protocol-log";
 import { PROTOCOL_LOG_LIMIT, type PoppyServerFrame, type ProtocolEntry } from "../src/poppy/wire";
-import { agent, cards, company, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
+import { agent, cards, company, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
 import worker from "./worker";
 
 /**
@@ -247,6 +247,8 @@ describe("secrets and the protocol log", () => {
     const device = await company({ signIn: { direct: null, device: ["poppy:read"], mediated: null } });
     const mediated = await company({ signIn: { direct: null, device: null, mediated: ["poppy:read"] } });
     const a = await agent();
+    // Everything written to the console from here: every wide event the flows make (src/log.ts).
+    const logMark = await a.stub.poppyLogMark();
     extra.push(...(await flows(direct, a)));
 
     await tool(a, "poppy_sign_in", { domain: device.domain, scopes: ["poppy:read"], reason: "To see your orders" });
@@ -295,5 +297,21 @@ describe("secrets and the protocol log", () => {
     expect(leaks(p.raw.join("\n"), secrets)).toEqual([]);
     expect(p.raw.join("\n")).not.toMatch(/"(token|secret|state_hash|device_code|code_verifier|password|assertion|access_token|refresh_token)"/);
     p.socket.close();
+
+    // The operator's logs and the User's "Copy diagnostics" (src/log.ts, src/agent-log.ts): the same flows, and none of it.
+    const logs = (await a.stub.poppyLogsSince(logMark)).join("\n");
+    const events = await wideEvents(a, logMark);
+    expect(events.filter((event) => event.kind === "turn").length).toBeGreaterThan(0);
+    expect(events.filter((event) => event.kind === "job").length).toBeGreaterThan(0);
+    expect(events.some((event) => event.kind === "turn" && event.poppy?.requests > 0 && String(event.poppy_issuers).includes(direct.hosts.issuer))).toBe(true);
+    expect(events.some((event) => event.kind === "ws" && event.frame === "poppy.credentials")).toBe(true);
+    const diagnostics = await a.stub.diagnostics();
+    expect(diagnostics).toContain("Poppy protocol log");
+    // What the User and the model said, and tool arguments' free text, too: none of it is in an event.
+    const said = ["Where is my order?", "stormline-insulated-m", "jacket", a.identity.email!, a.identity.sub];
+    for (const text of [logs, diagnostics]) {
+      expect(leaks(text, secrets)).toEqual([]);
+      expect(said.filter((words) => text.includes(words))).toEqual([]);
+    }
   });
 });
