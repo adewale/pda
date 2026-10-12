@@ -30,7 +30,13 @@ function localVars(declared: Record<string, unknown>): Record<string, unknown> {
 export default defineConfig({
   plugins: [
     react(),
-    cloudflare({ config: (config) => ({ vars: { ...config.vars, ...localVars(config.vars ?? {}) } }) }),
+    // Assigned, not returned: the plugin deep-merges a returned config, which
+    // would append a local list (SIGNIN_PROVIDERS) to the template's.
+    cloudflare({
+      config: (config) => {
+        config.vars = { ...config.vars, ...localVars(config.vars ?? {}) };
+      }
+    }),
     tailwindcss()
   ],
   resolve: {

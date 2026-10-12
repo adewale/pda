@@ -1,5 +1,5 @@
 import { readOwners, readSigninAllowlist, readDemoAllowlist, type ListEnv } from "./allowlist.ts";
-import { ConfigError, readModelConfig, readSignup, readDemoCaps } from "./config.ts";
+import { ConfigError, readModelConfig, readSignInProviders, readSignup, readDemoCaps } from "./config.ts";
 import { readIdentity } from "./poppy/keys.ts";
 
 /**
@@ -25,7 +25,8 @@ const CHECKS: ReadonlyArray<(env: DeploymentEnv) => unknown> = [
   readDemoAllowlist,
   readIdentity,
   readModelConfig,
-  readDemoCaps
+  readDemoCaps,
+  readSignInProviders
 ];
 
 /** Every problem with the deployment's vars, each naming its setting; empty when it is configured. */

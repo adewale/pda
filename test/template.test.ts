@@ -308,4 +308,10 @@ describe("the committed template", () => {
     // The test deployment is configured too.
     expect(deploymentProblems(env as unknown as DeploymentEnv)).toEqual([]);
   });
+
+  it("refuses a build whose SIGNIN_PROVIDERS a config merge appended to, before anything is uploaded", () => {
+    const vars = { ...templateVars(), ...(JSON.parse(deploymentExample) as DeploymentEnv) };
+    const appended = { ...vars, SIGNIN_PROVIDERS: ["github", "google", "github"] } as unknown as DeploymentEnv;
+    expect(deploymentProblems(appended)).toEqual(["SIGNIN_PROVIDERS lists a provider twice"]);
+  });
 });
