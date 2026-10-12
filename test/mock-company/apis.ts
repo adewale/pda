@@ -116,7 +116,7 @@ export class Apis {
     const api = this.company.hosts.api;
     const { read, write } = this.company.orderScopes;
     // Each operation declares the scopes it needs in its security requirement.
-    const secured = (...scopes: string[]) => ({ security: [{ session: scopes }] });
+    const secured = (...scopes: string[]) => (this.company.config.describesSecurity ? { security: [{ session: scopes }] } : {});
     return {
       openapi: "3.1.0",
       info: {
@@ -127,9 +127,17 @@ export class Apis {
       },
       servers: [{ url: this.company.config.openapiServerOverride ?? api }],
       components: {
-        securitySchemes: {
-          session: { type: "http", scheme: "DPoP", description: "Personal Agent Protocol Session Token" }
-        },
+        ...(this.company.config.describesSecurity
+          ? {
+              securitySchemes: {
+                session: { type: "http", scheme: "DPoP", description: "Personal Agent Protocol Session Token" },
+                // print-with-poppy's non-Poppy way in, which an agent never uses (docs/readings.md).
+                ...(this.company.config.printShop
+                  ? { guest: { type: "http", scheme: "bearer", description: "Non-Poppy compatibility token from POST /agent-sessions; no verified agent identity." } }
+                  : {})
+              }
+            }
+          : {}),
         schemas: {
           Operation: {
             type: "object",
@@ -225,12 +233,34 @@ export class Apis {
     };
   }
 
-  /** The print shop (`printShop`): a photo upload and an order that proposes an operation, both signed out. */
+  /**
+   * The print shop (`printShop`), described as print-with-poppy's store is: a
+   * public catalog (a GET with no security), a non-Poppy compatibility
+   * session endpoint (a POST with no security), and a photo upload and an
+   * order that proposes an operation, both signed out, each protected by the
+   * Poppy Session or the compatibility token.
+   */
   #printPaths() {
+    const secured = this.company.config.describesSecurity ? { security: [{ session: [] }, { guest: [] }] } : {};
     return {
+      "/agent-sessions": {
+        post: {
+          operationId: "startGuestAgentSession",
+          summary: "Start a plain HTTP compatibility session (not native Poppy authentication)",
+          responses: { "201": { description: "A Bearer guest token" }, "404": { description: "not_available" } }
+        }
+      },
+      "/catalog": {
+        get: {
+          operationId: "getCatalog",
+          summary: "Products, USD prices, delivery estimate and payment mode",
+          responses: { "200": { description: "The catalog" } }
+        }
+      },
       "/photos": {
         post: {
           operationId: "uploadPhoto",
+          ...secured,
           summary: `Upload one photo to print: JPEG, PNG or WebP, at most ${PHOTO_LIMIT / (1024 * 1024)} MB, in the field photo. Works signed out; the photo belongs to the Session.`,
           requestBody: {
             required: true,
@@ -247,6 +277,7 @@ export class Apis {
       "/prints": {
         post: {
           operationId: "orderPrints",
+          ...secured,
           summary:
             "Propose an order of 4×6 in (6×4) prints of uploaded photos, shipped to an address. Works signed out. Returns 202 with an operation to confirm (Operations extension); nothing is ordered or charged until the User approves it. Needs an Idempotency-Key.",
           parameters: [{ name: "Idempotency-Key", in: "header", required: true, schema: { type: "string", minLength: 16, maxLength: 128 } }],
@@ -462,6 +493,11 @@ export class Apis {
     }
     if (co.config.printShop && method === "POST" && pathname === "/photos") return this.#uploadPhoto(inbound, context);
     if (co.config.printShop && method === "POST" && pathname === "/prints") return this.#orderPrints(inbound, context);
+    if (co.config.printShop && method === "GET" && pathname === "/catalog") {
+      return json({ products: [{ sku: "print-6x4", name: "4×6 in (6×4) lustre print", price: { amount: "10.00", currency: "USD" } }], shipping: { amount: "5.00", currency: "USD" } });
+    }
+    // The compatibility session is off, as the interop adapter sets print-with-poppy's (ALLOW_COMPAT_AGENT_SESSIONS=false).
+    if (co.config.printShop && method === "POST" && pathname === "/agent-sessions") return json({ error: "not_available" }, 404);
     if (method === "GET" && pathname === "/products") {
       const query = (inbound.url.searchParams.get("q") ?? "").toLowerCase();
       return json({ products: PRODUCTS.filter((product) => product.name.toLowerCase().includes(query)) });

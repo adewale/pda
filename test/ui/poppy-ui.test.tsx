@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { DirectConversations, PoppyCards } from "../../src/poppy-ui";
+import { DirectConversations, needsYou, PoppyCards } from "../../src/poppy-ui";
 import { gs, property } from "../properties/hegel";
 import { CompaniesPage } from "../../src/ui/companies";
 import type { Card, ConnectedAccount, DirectUpdate, Permission, PoppyClientFrame } from "../../src/poppy/wire";
@@ -310,6 +310,47 @@ describe("local approval card", () => {
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(sent).toEqual([{ type: "poppy.card.dismiss", id: "approval-1" }]);
+  });
+
+  const receipt = (patch: Partial<Extract<Card, { kind: "approval" }>>) => {
+    const { container } = renderCards({ ...approvalCard, open: false, summary: "Acme: POST /orders", ...patch } as Card);
+    return container.textContent ?? "";
+  };
+
+  it("says an approved write the Company did is done", () => {
+    const text = receipt({ status: "done", result: '{"status":201}' });
+    expect(text).toContain("Done, as you approved: Acme: POST /orders");
+  });
+
+  it("says an approved write the Company answered with an error was sent, not done, with its status and code", () => {
+    const text = receipt({
+      status: "refused",
+      answer: { status: 500, error: "server_error" },
+      result: "Sent as you approved, but Acme answered 500 (server_error). Nothing changed unless Acme says otherwise."
+    });
+    expect(text).toContain("Sent as you approved, but Acme answered 500 (server_error): Acme: POST /orders");
+    expect(text).toContain("Nothing changed unless Acme says otherwise.");
+    expect(text).not.toContain("Done");
+    // No code: the status alone.
+    expect(receipt({ status: "refused", answer: { status: 504 } })).toContain("Acme answered 504: Acme: POST /orders");
+    // Shown as a failure, as an approved write that failed is.
+    const { container } = renderCards({ ...approvalCard, open: false, status: "refused", answer: { status: 500 } });
+    expect(container.querySelector(".text-kumo-danger")).not.toBeNull();
+  });
+
+  it("says an approved write that got no answer may or may not have reached the Company, and keeps it in front of the User", () => {
+    const result = "Sent as you approved, but no answer came from Acme, so it may or may not have reached them. Check with Acme before asking again.";
+    const text = receipt({ status: "unknown", result });
+    expect(text).toContain("Outcome unknown: Acme: POST /orders");
+    expect(text).toContain(result);
+    expect(text).not.toContain("Done");
+    expect(needsYou([{ ...approvalCard, open: false, status: "unknown", result }])).toHaveLength(1);
+  });
+
+  it("says an approved write that was never sent failed", () => {
+    const text = receipt({ status: "failed", result: "The User's attachment att_1 is gone (deleted, or past its 30 days), so nothing was sent [no_attachment]" });
+    expect(text).toContain("Failed after you approved: Acme: POST /orders");
+    expect(text).toContain("so nothing was sent");
   });
 });
 

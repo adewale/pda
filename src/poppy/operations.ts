@@ -1,5 +1,5 @@
 import type { AttachmentInfo } from "../attachments";
-import { PoppyClient, PoppyError } from "./client";
+import { answerOf, PoppyClient, PoppyError } from "./client";
 import { tokenHostAllowed, type Company } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId } from "./jwt";
@@ -908,7 +908,7 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
   const row = one<ApprovalRow>(client.sql, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!row || row.status !== "pending") return;
   const company = client.companyByIssuer(row.issuer);
-  const card = (status: "approved" | "declined" | "done" | "failed" | "unknown", result?: string) =>
+  const card = (status: "approved" | "declined" | "done" | "refused" | "failed" | "unknown", result?: string, answer?: { status: number; error?: string }) =>
     client.host.showCard({
       id: `approval-${id}`,
       kind: "approval",
@@ -919,6 +919,7 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
       summary: row.summary,
       status,
       ...(result ? { result } : {}),
+      ...(answer ? { answer } : {}),
       ...approvalAttachments(row)
     });
   if (decision === "decline") {
@@ -940,6 +941,33 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
   } catch (error) {
     // A Company's refusal keeps its code, as tool failures show it.
     const message = error instanceof PoppyError ? `${error.message} [${error.code}]` : error instanceof Error ? error.message : String(error);
+    const answer = answerOf(error);
+    const name = company.name;
+    if (answer === "none") {
+      // Sent, and no answer came: it may have happened (Safety). Never retried.
+      const result = `Sent as you approved, but no answer came from ${name}, so it may or may not have reached them. Check with ${name} before asking again.`;
+      client.sql.exec("UPDATE poppy_approvals SET status = 'unknown', result = ? WHERE id = ?", result, id);
+      await card("unknown", result);
+      await client.host.notifyModel(
+        `[system] Sent as the User approved, but no answer came from ${name} (${message}), so it may or may not have happened: ${row.summary}. Tell the User to check with ${name}; it won't be retried automatically.`,
+        `poppy-approval-${id}`
+      );
+      return;
+    }
+    if (typeof answer === "number") {
+      // The Company answered, and not with success: sent as approved, not done as far as it says.
+      const code = error instanceof PoppyError && error.code !== `http_${answer}` ? error.code : undefined;
+      const answered = `${answer}${code ? ` (${code})` : ""}`;
+      const result = `Sent as you approved, but ${name} answered ${answered}. Nothing changed unless ${name} says otherwise.`;
+      client.sql.exec("UPDATE poppy_approvals SET status = 'refused', result = ? WHERE id = ?", result, id);
+      await card("refused", result, { status: answer, ...(code ? { error: code } : {}) });
+      await client.host.notifyModel(
+        `[system] Sent as the User approved, but ${name} answered ${answered}, so it wasn't done as far as ${name} says: ${row.summary}. Don't tell the User it was done. ${message}`,
+        `poppy-approval-${id}`
+      );
+      return;
+    }
+    // No answer marked: the agent refused it before sending, couldn't get a Session Token, or couldn't read the answer.
     client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = ? WHERE id = ?", message, id);
     await card("failed", message);
     await client.host.notifyModel(`[system] The approved action failed: ${row.summary}. ${message}`, `poppy-approval-${id}`);
@@ -949,13 +977,17 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
 /** After a restart: approvals left mid-call have an unknown outcome; say so, never retry. */
 export async function recoverInterruptedApprovals(client: PoppyClient): Promise<void> {
   for (const row of rows<ApprovalRow>(client.sql, "SELECT * FROM poppy_approvals WHERE status = 'executing'")) {
-    client.sql.exec("UPDATE poppy_approvals SET status = 'unknown' WHERE id = ?", row.id);
     let company = "the company";
     try {
       company = client.companyByIssuer(row.issuer).name;
     } catch {
       // Unknown issuer; keep the generic name.
     }
+    client.sql.exec(
+      "UPDATE poppy_approvals SET status = 'unknown', result = ? WHERE id = ?",
+      `Interrupted after you approved, so it may or may not have reached ${company}. Check with ${company} before asking again.`,
+      row.id
+    );
     await client.host.showCard({
       id: `approval-${row.id}`,
       kind: "approval",

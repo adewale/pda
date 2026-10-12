@@ -390,6 +390,36 @@ describe("activity page", () => {
     expect(within(row).getByText("Done")).toBeTruthy();
   });
 
+  it("logs an approved write the Company answered with an error as failed, sent as approved, and one with no answer as unknown", () => {
+    const now = Date.now();
+    const entry = (id: string, at: number, result: ActivityEntry["result"], outcome: string): ActivityEntry => ({
+      id,
+      at,
+      kind: "approval",
+      issuer: "https://auth.acme.example",
+      company: "Acme",
+      account: null,
+      what: "Asked you to approve",
+      quote: "Acme: POST /orders",
+      quoteBy: "agent",
+      how: "api",
+      access: "view_and_change",
+      decidedBy: "you",
+      result,
+      outcome,
+      outcomeBy: "agent"
+    });
+    const refused = "Sent as you approved, but Acme answered 500 (server_error). Nothing changed unless Acme says otherwise.";
+    const unknown = "Sent as you approved, but no answer came from Acme, so it may or may not have reached them. Check with Acme before asking again.";
+    open("/activity", session({}, { activity: { inProgress: [], log: [entry("approval-1", now - 1_000, "failed", refused), entry("approval-2", now - 2_000, "unknown", unknown)] } }));
+    const [, first, second] = within(screen.getByRole("table")).getAllByRole("row");
+    expect(within(first!).getByText(refused)).toBeTruthy();
+    expect(within(first!).getByText("Failed")).toBeTruthy();
+    expect(within(second!).getByText(unknown)).toBeTruthy();
+    expect(within(second!).getByText("Outcome unknown")).toBeTruthy();
+    expect(screen.queryByText("Done")).toBeNull();
+  });
+
   it("renders only the fields it knows, so nothing secret-looking can reach the page", () => {
     const entry = {
       id: "signin-2",

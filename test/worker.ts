@@ -62,6 +62,8 @@ export function testFetcher(env: Env, clock?: () => number): Fetcher {
  * - `hold`: the Company handles it, then the answer is held until `poppyReleaseHeld`,
  *   and the connection fails; meanwhile the test can act as a later step would;
  * - `lose`: the request fails before it reaches the Company;
+ * - `error`: the request doesn't reach the Company, and a 500 with
+ *   `{"error":"server_error"}` answers instead, as a failing server would;
  * - `stall`: the Company handles it and its answer starts (status, headers and
  *   the body's first byte), then the body never ends. The fetcher ignores the
  *   request's signal, so only the client's own deadline ends the wait.
@@ -70,7 +72,7 @@ export type NetworkFault = {
   readonly method: string;
   readonly url: string;
   readonly grant?: string;
-  readonly mode: "throw" | "gateway" | "hold" | "lose" | "stall";
+  readonly mode: "throw" | "gateway" | "hold" | "lose" | "stall" | "error";
 };
 
 type Faults = { pending: NetworkFault[]; held: (() => void)[]; stalled: { cancelled: boolean }[] };
@@ -98,6 +100,7 @@ function faultyFetcher(fetcher: Fetcher, faults: () => Faults): Fetcher {
     if (index === -1) return fetcher(request);
     const [fault] = pending.splice(index, 1);
     if (fault!.mode === "lose") throw new Error("Network connection lost before the request was sent");
+    if (fault!.mode === "error") return Response.json({ error: "server_error" }, { status: 500 });
     const response = await fetcher(request);
     if (fault!.mode === "stall") {
       const first = new Uint8Array((await response.arrayBuffer()).slice(0, 1));

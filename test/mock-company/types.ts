@@ -174,6 +174,13 @@ export type MockConfig = {
    */
   readonly printShop: boolean;
   /**
+   * The OpenAPI description declares its security: a DPoP scheme, and each
+   * operation's requirement. Off, it declares none, as older or minimal
+   * descriptions don't (Datalayer's, pi-poppy's), and every operation is
+   * still called with the Session Token.
+   */
+  readonly describesSecurity: boolean;
+  /**
    * The description says which writes propose an operation (Ops 4.1): a 202
    * with an `operation` in the OpenAPI description, an `outputSchema` with an
    * `operation` on the MCP tool. Off, the writes propose all the same, but
@@ -282,6 +289,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   metadataCacheHeaders: null,
   eventPageSize: 20,
   printShop: false,
+  describesSecurity: true,
   documentsProposals: true,
   exchangeTakesIdempotencyKey: true,
   operationIdPrefix: null,

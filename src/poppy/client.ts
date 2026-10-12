@@ -72,6 +72,27 @@ export class PoppyError extends Error {
   }
 }
 
+/**
+ * What a request to a Company's API that ended in an error got back: `none`,
+ * no answer at all (a timeout, or the network failed), so it may or may not
+ * have reached the Company; or the HTTP status the API answered with. An
+ * error with no mark never reached the API: the agent refused it, or a token
+ * couldn't be had. An approved write's receipt says which (operations.ts).
+ */
+export type RequestAnswer = number | "none";
+const answers = new WeakMap<object, RequestAnswer>();
+
+/** Mark `error` with what its request got back, and return it. */
+export function withAnswer<T>(error: T, answer: RequestAnswer): T {
+  if (typeof error === "object" && error !== null) answers.set(error, answer);
+  return error;
+}
+
+/** What the request that threw `error` got back, if it reached a Company's API. */
+export function answerOf(error: unknown): RequestAnswer | undefined {
+  return typeof error === "object" && error !== null ? answers.get(error) : undefined;
+}
+
 /** The Company asked us to wait longer than we hold a request open for. */
 export class RateLimitedError extends PoppyError {
   constructor(readonly waitMs: number) {
@@ -1031,7 +1052,7 @@ export class PoppyClient {
         )
       ).catch((error: unknown) => {
         log({ failed: noAnswer(error) });
-        throw timeoutError(error, `${url.origin}${url.pathname}`);
+        throw withAnswer(timeoutError(error, `${url.origin}${url.pathname}`), "none");
       });
       const nonce = response.headers.get("DPoP-Nonce");
       if (nonce) this.#nonces.set(url.origin, nonce);
@@ -1041,7 +1062,7 @@ export class PoppyClient {
         await response.body?.cancel();
         const retrying = wait <= INLINE_WAIT_MS && attempt < 3;
         log({ status: response.status, error: challenge.error ?? null }, { kind: "wait", ms: wait, retrying });
-        if (!retrying) throw new RateLimitedError(wait);
+        if (!retrying) throw withAnswer(new RateLimitedError(wait), response.status);
         await this.host.sleep(wait);
         continue;
       }
@@ -1076,9 +1097,12 @@ export class PoppyClient {
       log({ status: response.status, error: challenge.error ?? (typeof peek?.error === "string" ? peek.error : null) });
       if (challenge.error && (response.status === 401 || response.status === 403)) {
         await response.body?.cancel();
-        throw new PoppyError(challenge.error, `${company.name}: ${challenge.error}`, response.status, {
-          ...(challenge.scope ? { scope: challenge.scope } : {})
-        });
+        throw withAnswer(
+          new PoppyError(challenge.error, `${company.name}: ${challenge.error}`, response.status, {
+            ...(challenge.scope ? { scope: challenge.scope } : {})
+          }),
+          response.status
+        );
       }
       return response;
     }
