@@ -32,8 +32,9 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
   ```
 
 - **Our agent as your peer.** Its `client_id` is `https://personal-agent.adewale-883.workers.dev/poppy/client.json`. A Company that keeps an allowlist can add it, and we'll point the agent at you; Appendix A of [the spec](durable-personal-agent-spec.md) lists every requirement it implements and the test that checks it.
-- **The interop harness** (`interop/`) runs every agent against every Company in containers with no internet access, through a recording proxy, and blames each failure on a side by a named rule. It runs seven other projects today. The latest grid has 1,440 cells: 683 pass, 137 fail and 620 unsupported, and every failure is a known upstream or spec one. [docs/ecosystem.md](docs/ecosystem.md#scorecard) scores each implementation; [interop/README.md](interop/README.md) says how to add yours.
-- **Cross-checks.** Our validator runs against two other open validators on the same 107 documents ([results](docs/interop-testing.md#validator-cross-check)), and our client against Datalayer's language-neutral conformance cases ([results](interop/vectors/datalayer/README.md)).
+- **The interop harness** (`interop/`) runs every agent against every Company in containers with no internet access, through a recording proxy, and blames each failure on a side by a named rule. It runs seven other projects today. The latest grid has 1,440 cells: 683 pass, 137 fail and 620 unsupported, and every failure is a known upstream or spec one. [docs/ecosystem.md](docs/ecosystem.md#scorecard) scores each implementation; [interop/README.md](interop/README.md) says how to add yours, and [docs/interop-spec.md](docs/interop-spec.md) defines the scenarios, the attribution rules and the isolation.
+- **Adversarial testing.** A malicious agent and a malicious Company attack our own implementations, and only ours: oversized documents, nonce loops, terms swapped at confirm, forged messages and more ([docs/adversarial-interop.md](docs/adversarial-interop.md)).
+- **Cross-checks.** Our validator runs against two other open validators on the same 107 documents ([the tool](interop/vectors/validators/README.md), [results](docs/interop-testing.md#validator-cross-check)), and our client against Datalayer's language-neutral conformance cases ([results](interop/vectors/datalayer/README.md)). A second client, written in Python from the draft's text, drives stateful property tests of our mock Company ([test/hypothesis](test/hypothesis/README.md)).
 - **Findings in your code** go to you privately first, as [SECURITY.md](SECURITY.md) describes. Nothing is posted to another project without the owner's approval.
 
 ## For the draft's authors: what we found
@@ -42,9 +43,12 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 - **[Readings](docs/readings.md):** where the draft is ambiguous, the reading we chose and why: strict where security depends on it, lenient where it doesn't.
 - **[Grounding](spec/grounding.md):** every claim we make about the draft, quoted against a stored copy of its text.
 - **[Conformance levels](docs/conformance-levels.md):** how our mock, validator and grid grade a broken MUST, a departed SHOULD and one of our readings.
-- **[Ecosystem map](docs/ecosystem.md):** every Poppy implementation we know of, what it does, and how it scores in our grid.
+- **[Ecosystem map](docs/ecosystem.md):** every Poppy implementation we know of, what it does, and how it scores in our grid. The detailed survey behind it, with licences, maturity and what we learned from each project, is [implementations.md](docs/implementations.md).
 - **[Interop results](docs/interop-results/README.md):** the state of M×N interop: the latest grid of every agent against every Company, with pass, fail and unsupported counts for each pair, and every failure with the rule that blamed it on a side.
 - **[Issues in other implementations](docs/poppy-issues.md):** what the grid and code reading found in other projects, reported to their maintainers privately first.
+
+- **[Proposals](docs/proposals/README.md):** drafts for adding Poppy to OpenClaw and Hermes Agent, to submit once this agent has worked against a live Company.
+- **[Conformance testing history](docs/conformance-testing-history.md):** the precedents this approach borrows from, such as the Feed Validator, the OpenID Foundation's suite and web-platform-tests.
 
 None of this has been sent to the draft's authors yet.
 
