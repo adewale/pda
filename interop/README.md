@@ -27,7 +27,7 @@ npm run interop -- --set dpa:INTEROP_FAULT=assertion-typ --scenarios S0   # a de
 | `--out dir` | Where to write results, instead of `interop/results/<run>/`. |
 | `--image-tag tag` | Build and run under a Docker tag (default `latest`); `--image-tag adv` keeps a full grid run's `:latest` images untouched. The only way to keep a side build of our images: don't `docker tag` them by hand, and `docker image rm poppy-interop/<image>:<tag>` a side tag when you're done with it (the runner never removes images). |
 
-**Adversarial cells** (the malicious `evil-agent`/`evil-company` and the fault-injection proxy; [`docs/adversarial-interop.md`](../docs/adversarial-interop.md)) run only against our own `owner: "self"` implementations, on the local lane, never live. No flag lifts this — see [`SECURITY.md`](../SECURITY.md) and [`docs/interop-spec.md`](../docs/interop-spec.md) §13. They appear in a separate security grid in `index.html` and never count toward the interop pass rates.
+**Adversarial cells** (the malicious `evil-agent`/`evil-company` and the fault-injection proxy; [`docs/adversarial-interop.md`](../docs/adversarial-interop.md)) run only against our own `owner: "self"` implementations, on the local lane, never live. No flag lifts this ([`SECURITY.md`](../SECURITY.md), [`docs/interop-spec.md`](../docs/interop-spec.md) §13). They appear in a separate security grid in `index.html` and never count toward the interop pass rates.
 
 ```sh
 npm run interop -- --image-tag adv --agents evil-agent --companies dpa-mock --scenarios YR,YD,YA,YT,YS,YK,YU
@@ -46,20 +46,20 @@ Each run writes:
 
 A cell that fails or errors runs once more, with both adapters reset again; its first run's HAR is kept beside the second's (`<agent>__<company>.attempt2.har`) and `attempts` in `results.json` records both. A cell that passes the second time is **flaky**: it counts as a pass, is listed apart in the console and the report, and never matches a known failure.
 
-The runner exits 1 when a cell fails or errors and doesn't match an entry of `known-failures.json` (its cell, and the blame, error checks and failed step's code the entry expects, so a different failure in the same cell is unexpected), or when a known failure is stale: it matched no failed cell though the run could judge it (each name it gives ran, and each `*` spans every agent, Company or scenario of the lane, leaving aside the adversarial ones, which run apart), so it is fixed or wrong. A partial run never judges an entry for cells it didn't run.
+The runner exits 1 in two cases. One is a cell that fails or errors without matching an entry of `known-failures.json`; an entry names its cells and the blame, error checks and failed step's code it expects, so a different failure in the same cell is unexpected. The other is a stale known failure, one that matched no failed cell though the run could judge it (each name it gives ran, and each `*` spans every agent, Company or scenario of the lane, leaving aside the adversarial ones, which run apart): it is fixed or wrong. A partial run never judges an entry for cells it didn't run.
 
 ### Isolation
 
-The local lane never touches a real system. Its network is created `--internal`: no container on it, ours or a third party's, has a route out, and Docker's resolver answers only the run's names. Nothing turns this off; there is no flag for it.
+The local lane never touches a real system. Its network is created `--internal`: no container on it, ours or a third party's, has a route out, and Docker's resolver answers only the run's names. No flag or setting turns this off.
 
 - **Proof, every run.** Before any implementation starts, the runner checks that Docker reports the network internal, then runs a probe with `docker exec` in the proxy (on the internal network only, like every implementation): TCP to `1.1.1.1:443` and `8.8.8.8:53`, and a DNS lookup of `example.com`. All three must fail, or the run stops. The console prints the outcome (`isolation: … {"tcp 1.1.1.1:443":"ENETUNREACH","tcp 8.8.8.8:53":"ENETUNREACH","dns example.com":"EAI_AGAIN"}`), and `results.json` keeps it as `isolation`.
-- **How the runner still reaches its containers.** An internal network can't publish ports, so the proxy's control port is reached through a relay: a second container of the proxy image (`proxy/relay.mjs`) on both the internal network and an ordinary per-run one, which publishes only its own port on `127.0.0.1` and forwards to the proxy's control port and nowhere else. Adapters' control calls go through the proxy's `/control` as before; the HAR recording is unchanged.
+- **How the runner still reaches its containers.** An internal network can't publish ports, so the proxy's control port is reached through a relay: a second container of the proxy image (`proxy/relay.mjs`) on both the internal network and an ordinary per-run one, which publishes only its own port on `127.0.0.1` and forwards to the proxy's control port and nowhere else. Adapters' control calls go through the proxy's `/control`, and the relay's traffic isn't recorded in the HAR.
 - **An implementation that needs the internet at runtime** fails its cells. That is a finding: record it in `known-failures.json` with what it tried to reach (from its log in `logs/`). Never open the network for it. Fetch what an image needs when it is built.
 - **The live lane** (`--lane live`, never run) needs the internet by definition, and is kept apart: it creates no network, runs only our agent on Docker's default bridge, and no third-party image.
 
 ### Docker hygiene
 
-Everything a run creates on Docker, its containers, two networks (the internal one and the relay's) and any volumes, carries the label `interop.run=<tag>`, where the tag is the run's random one (printed at the start, and in container names, `poppy-interop-<tag>-...`). The runner removes exactly those when it exits, when it fails and on Ctrl-C or SIGTERM, unless `--keep`. It never removes images (the next run reuses them), never touches the build cache, and never removes anything without its own run's label. To clear a run left by `--keep` or a killed runner: `docker rm -f -v $(docker ps -aq --filter label=interop.run=<tag>)`, then `docker network rm $(docker network ls -q --filter label=interop.run=<tag>)`.
+Everything a run creates on Docker (its containers, two networks, the internal one and the relay's, and any volumes) carries the label `interop.run=<tag>`, where the tag is the run's random one (printed at the start, and in container names, `poppy-interop-<tag>-...`). The runner removes exactly those when it exits, when it fails and on Ctrl-C or SIGTERM, unless `--keep`. It never removes images (the next run reuses them), never touches the build cache, and never removes anything without its own run's label. To clear a run left by `--keep` or a killed runner: `docker rm -f -v $(docker ps -aq --filter label=interop.run=<tag>)`, then `docker network rm $(docker network ls -q --filter label=interop.run=<tag>)`.
 
 Before it starts, the runner checks free space on Docker's data disk, running `df -Pk /` in a short-lived container of the proxy image, and refuses to start below `--min-free-gb` (2 GB by default), saying how much there is. A first run, before the proxy image is built, skips the check.
 
@@ -69,9 +69,9 @@ Results aren't committed. A summary of the last full grid, for readers who don't
 
 1. Both adapters get `POST /reset`; the proxy starts a new recording.
 2. The Company's `fixture` hook says what the scenario may use: accounts, the scopes to sign in with (`scopes.read`, `scopes.write`; Poppy's when absent), API operations, prompts for its agent.
-3. The scenario's steps run in order: agent steps through `POST /step`, Company steps through `POST /hooks/<name>`, runner steps (`wait`, `fetch`, `assert_trace`) in the runner. Each `save`d result can be referred to later as `${name.path}`, and `expect` steps compare them.
-4. The checker reads the recording: trace checks (assertions, DPoP proofs, tokens in URLs, token hosts, redirects, Retry-After, Company error shapes), `src/validator` over every discovery document and client metadata served, the agent's declared readings, and any violations the Company adapter recorded (`GET /violations`).
-5. Attribution blames a failed cell by the first rule that decides it: violation, grid, reading, or unattributed. A violation a Company recorded that is exactly a declared reading difference (a strict Company refusing a typ-less assertion from an agent that declared S2 `any`) is a reading, not a violation. So is a refusal the trace shows and the Company's declared reading explains (`reading.<id>.refused`: `invalid_client` for an `aud` its S1 reading doesn't accept, `invalid_grant` for an assertion its S2 `jwt-60s` refuses), when the agent declared an incompatible reading. Rule 3 needs that evidence: two sides that merely declare different readings of a question the scenario lists aren't blamed on the spec unless the trace shows the question mattered.
+3. The scenario's steps run in order: agent steps through `POST /step`, Company steps through `POST /hooks/<name>`, runner steps (`first`, `wait`, `fetch`, `assert_trace`) in the runner. Each `save`d result can be referred to later as `${name.path}`, and `expect` steps compare them.
+4. The checker reads the recording: trace checks (assertions, DPoP proofs, tokens in URLs, token hosts, redirects, Retry-After, Company error shapes, and the fields 7.5 requires of a read of events), `src/validator` over every discovery document and client metadata served, the agent's declared readings, and any violations the Company adapter recorded (`GET /violations`).
+5. Attribution blames a failed cell by the first rule that decides it: adversarial (for a cell with an adversarial side), violation, warning, grid, reading, or unattributed (spec section 9). A violation a Company recorded that is exactly a declared reading difference (a strict Company refusing a typ-less assertion from an agent that declared S2 `any`) is a reading, not a violation. So is a refusal the trace shows and the Company's declared reading explains (`reading.<id>.refused`: `invalid_client` for an `aud` its S1 reading doesn't accept, `invalid_grant` for an assertion its S2 `jwt-60s` refuses), when the agent declared an incompatible reading. Rule 3 needs that evidence: two sides that merely declare different readings of a question the scenario lists aren't blamed on the spec unless the trace shows the question mattered.
 
 ## Layout
 
@@ -85,8 +85,8 @@ proxy/               The recording TLS proxy and the control relay (Node, no dep
 impls/dpa-agent/     Our agent: src/poppy in Node, no model
 impls/dpa-mock/      Our mock Company (test/mock-company) behind the hooks API, as dpa-mock (lenient) and dpa-mock-strict
 impls/shared/        What our two adapters share: the HTTP shim, the esbuild bundle, and the mock's hooks (mock-hooks.ts, also used by test/hypothesis)
-vectors/datalayer/  Runs Datalayer's conformance cases against src/poppy and src/validator (spec section 11)
-vectors/validators/ Our validator against poppy-validator and poppy-sidecar on the same documents
+vectors/datalayer/   Runs Datalayer's conformance cases against src/poppy and src/validator (spec section 11)
+vectors/validators/  Our validator against poppy-validator and poppy-sidecar on the same documents
 test/                Unit tests for the runner, in Node (interop/vitest.config.ts, part of npm test)
 ```
 
