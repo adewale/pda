@@ -20,7 +20,7 @@ Back to [spec-issues.md](spec-issues.md) · [interop-spec.md §7](interop-spec.m
 | --- | --- | --- |
 | **Client** | `src/poppy/`, the Personal Agent; `dpa` in the [interop registry](../interop/registry.json) | One behaviour |
 | **Strict mock** | `test/mock-company/` with its defaults (`DEFAULT_CONFIG` in `types.ts`), as the conformance tests run it; `dpa-mock-strict` in the grid | `strictAssertions: true`, `clientAssertionAud: "lenient"`, `nonceScope: "company"` |
-| **Lenient mock** | The same mock with `strictAssertions: false`; `dpa-mock`, the grid's reference Company for attribution rule 2 | As the strict mock, except S2 |
+| **Lenient mock** | The same mock with `strictAssertions: false`; `dpa-mock`, the grid's reference Company for attribution rule 2 | As the strict mock, except S2; and in the grid it doesn't report the checks in `STRICT_ONLY` (`test/mock-company/violations.ts`), which rest only on a SHOULD or the Guides and refuse nothing |
 
 The conformance tests also run sign-in, Sessions and sign-out under six other profiles (`PROFILES` in `test/poppy.test.ts`): exact `aud` (S1), a DPoP nonce per origin and per Company (S23), lenient assertions (S2), a trailing-slash issuer (S7), and an issuer with a path (S3). So the client is tested against both answers to S1, S2, S7 and S23, and against an issuer with a path, not only the mock's default.
 

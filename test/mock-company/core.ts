@@ -57,7 +57,7 @@ export type Session = {
   account: string | null;
   /** The account it was ever signed in to; it can't switch (4.4). */
   boundAccount: string | null;
-  /** The Company answered `account_mismatch` for it: the agent must start a new Session (4.4), not ask this one again. */
+  /** The Company answered `account_mismatch` for it; 4.4 says the agent then starts a new Session (no RFC 2119 keyword) rather than asking this one again. */
   mismatched: boolean;
   /** The sign-in whose Account Token it is signed in with, if any: revoking that token signs it out (4.9). */
   grant: string | null;
@@ -895,7 +895,7 @@ export class Company {
       if (session.mismatched) {
         this.violation(
           "session.account-mismatch-reused",
-          `Session ${session.id} asked again to sign in to another account after account_mismatch (4.4: start a new Session)`
+          `Session ${session.id} asked again to sign in to another account after account_mismatch (4.4 says the agent starts a new Session; no RFC 2119 keyword)`
         );
       }
       session.mismatched = true;
@@ -960,7 +960,7 @@ export class Company {
       this.violation("resource.stale-token", "used an older Session Token after a newer one was issued for the Session");
     }
     const client = await this.client(session.clientId);
-    // Sign-out takes effect right away (4.9): check the Session, not just the token.
+    // Sign-out takes effect right away (4.9 SHOULD): check the Session, not just the token.
     const signedIn =
       token.signedIn && session.account !== null && session.account === token.account;
     return {

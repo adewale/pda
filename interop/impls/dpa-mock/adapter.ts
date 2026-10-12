@@ -48,7 +48,9 @@ placeInteropCompanies();
  *   rule 2): the conformance suite's S2-lenient settings
  *   (`strictAssertions: false`: no `typ` or `kid` needed, assertions up to
  *   300 s). Section 8 of the interop spec treats S2 as a warning, so the
- *   reference Company doesn't refuse an agent for it.
+ *   reference Company doesn't refuse an agent for it. Its `GET /violations`
+ *   also leaves out `STRICT_ONLY` (test/mock-company/violations.ts): checks
+ *   whose only basis is a SHOULD or a Guides recommendation.
  * - `strict` (`dpa-mock-strict`): `strictAssertions` on, as the strictest
  *   live Companies are; it declares S2 `jwt-60s`.
  *
@@ -124,7 +126,7 @@ async function control(request: Request): Promise<Response> {
     return json({ ok: true });
   }
   if (request.method === "GET" && url.pathname === "/hooks") return json({ hooks: Object.keys(HOOKS) });
-  if (request.method === "GET" && url.pathname === "/violations") return json(violationsBody(await mock.state()));
+  if (request.method === "GET" && url.pathname === "/violations") return json(violationsBody(await mock.state(), PROFILE));
   const hook = /^\/hooks\/([a-z_]+)$/.exec(url.pathname);
   if (request.method === "POST" && hook) {
     const run = HOOKS[hook[1]!];

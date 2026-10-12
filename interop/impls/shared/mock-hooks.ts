@@ -8,7 +8,7 @@
  */
 import type { MockCompany } from "../../../test/mock-company/index.ts";
 import { DEFAULT_CONFIG, placeCompanies, type MockConfig } from "../../../test/mock-company/types.ts";
-import { violationId } from "../../../test/mock-company/violations.ts";
+import { basisOf, STRICT_ONLY, VIOLATION_IDS, violationId, type Basis, type ViolationId } from "../../../test/mock-company/violations.ts";
 
 export const COMPANY_SUFFIX = "company.interop.test";
 
@@ -162,9 +162,24 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
   };
 }
 
-/** `GET /violations`: each violation the mock recorded, by id, with its detail. */
-export function violationsBody(state: { readonly violations: readonly string[] }): { violations: { id: string; detail: string }[] } {
+/**
+ * `GET /violations`: each violation the mock recorded, by id, with what the
+ * check rests on (`basis`, test/mock-company/violations.ts) and its detail.
+ * The lenient profile leaves out `STRICT_ONLY`: checks whose only basis is a
+ * SHOULD or a Guides recommendation, which the reference Company mustn't
+ * fail an agent for.
+ */
+export function violationsBody(
+  state: { readonly violations: readonly string[] },
+  profile: "strict" | "lenient" = "strict"
+): { violations: { id: string; basis: Basis | null; detail: string }[] } {
+  const known = (id: string): id is ViolationId => (VIOLATION_IDS as readonly string[]).includes(id);
   return {
-    violations: state.violations.map((recorded) => ({ id: violationId(recorded), detail: recorded.replace(/^\[[^\]]+\]\s*/, "") }))
+    violations: state.violations
+      .map((recorded) => {
+        const id = violationId(recorded);
+        return { id, basis: known(id) ? basisOf(id) : null, detail: recorded.replace(/^\[[^\]]+\]\s*/, "") };
+      })
+      .filter((violation) => profile === "strict" || !(known(violation.id) && STRICT_ONLY.has(violation.id)))
   };
 }
