@@ -611,7 +611,14 @@ export class PersonalAgent extends ProductionAgent {
 const demoCalls = new Map<string, number>();
 
 /** One demo-lane request: a summary or a turn, whether it carried a summary, and its latest user text (a turn's clipped, a summary's whole). */
-export type DemoRequest = { readonly summary: boolean; readonly carriesSummary: boolean; readonly last: string; readonly messages: number };
+export type DemoRequest = {
+  readonly summary: boolean;
+  readonly carriesSummary: boolean;
+  readonly last: string;
+  readonly messages: number;
+  /** The images the request showed the model, in order: each one's type, size in bytes, and the start of the user text it came with. */
+  readonly images: readonly { readonly mimeType: string; readonly bytes: number; readonly with: string }[];
+};
 const demoRequests = new Map<string, DemoRequest[]>();
 
 function recordRequest(id: string, context: TranscriptContext): void {
@@ -624,7 +631,14 @@ function recordRequest(id: string, context: TranscriptContext): void {
     summary,
     carriesSummary: carriesSummary(context),
     last: summary ? last : last.slice(0, 200),
-    messages: context.messages.length
+    messages: context.messages.length,
+    images: users.flatMap((message) =>
+      typeof message.content === "string"
+        ? []
+        : message.content.flatMap((part) =>
+            part.type === "image" ? [{ mimeType: part.mimeType, bytes: atob(part.data).length, with: textOf(message.content).slice(0, 80) }] : []
+          )
+    )
   });
 }
 

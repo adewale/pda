@@ -19,7 +19,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 **Non-goals**
 
 - Multiple chats per user, sharing, teams, or a mobile app.
-- The protocol's open topics: payments, push notifications and attachments are not in Draft 0.1, so they are not implemented beyond what the protocol already allows (for example, polling instead of push).
+- The protocol's open topics: payments, push notifications and attachments are not in Draft 0.1, so they are not implemented beyond what the protocol already allows (for example, polling instead of push). A photo the User attaches reaches a Company only as a file in an upload to its own OpenAPI API, which section 6 already allows, never in a conversation message.
 - Browsing websites that don't publish a `poppy.json`. Web browsing exists only to use a Company's site within a Poppy Session.
 - A model picker: each lane has one model, set when the agent is deployed (see Model access).
 - The Company side of the protocol, except the mock Company used for tests (see Testing and conformance).
@@ -38,6 +38,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Poppy identity (`/poppy/client.json`, `/poppy/jwks.json`) | Live, with production signing keys |
 | Web browsing | Built on a fetch-based browser in the Durable Object, with no JavaScript; the production browser is tested against the mock Company's website. Not yet tried on a real Company's site |
 | Chat, Activity, Companies and Settings pages | Built; tested in happy-dom and checked in headless Chrome (light, dark, phone width). Not yet used with a real Company |
+| Photos in the chat, and uploads to a Company's API | Built: a photo attached to a message is kept in the agent, shown to the model, and sent to a Company only in an upload the User approves on a card. The demo journey, print-with-poppy's 6×4 print, passes end to end in the interop grid (scenario OU) against the store at its pinned commit in its demo mode, and in the Worker tests against the mock's print shop. Not yet tried against the live store, which must first allowlist our `client_id` (TODO.md) |
 | Sign-in allowlist (emails, Google Workspace domains, GitHub accounts), `OWNERS`, `SIGNUP` | Built and tested; set in the deployer's untracked `deployment.local.json`, changed by redeploying |
 | Discovery document validator (library, CLI, JSON API, form) | Built and tested; live at `/validator`; the client's discovery uses it as its ingestion gate |
 | Memory, skills (milestone 2) | Not started |
@@ -142,6 +143,7 @@ App sign-in is the Worker's own Google and GitHub OAuth. It is separate from Pop
 | `GET /api/me` | Signed-in email and provider | v0 |
 | `GET /api/entitlement` | The model lane, today's demo spend against its cap, the key's provider and state (never the key) | Built |
 | `POST`/`DELETE /api/model-key` | Same origin only. Check a pasted Anthropic or OpenAI key with a free vendor call, then seal it; or remove it | Built |
+| `POST /api/attachments`, `GET`/`DELETE /api/attachments/<id>` | Same origin only for `POST` and `DELETE`. Keep a photo the User attached (`multipart/form-data`: `file`, and the page's smaller `preview` for the model), answering its id, name, type and size; serve it back to its owner's page (`nosniff`, a sandboxing CSP); delete it. See Photos the User attaches | Built |
 | `GET /auth/{provider}`, `GET /auth/{provider}/callback`, `POST /logout` | App sign-in | v0 |
 | `GET /poppy/client.json` | The Poppy client metadata document; its URL is our `client_id` | M3 |
 | `GET /poppy/jwks.json` | Our public signing keys | M3 |
@@ -209,6 +211,7 @@ The conversation never ends, so the model sees a summary of its older part. pi-d
 | `model_keys` | The person's own key, sealed; its provider, state (`valid`, or `invalid` after a 401), source, and an Anthropic workspace ID if the key needs one |
 | `model_spend` | Demo spend per UTC day, in dollars, kept a week |
 | `model_paused` | Background notices held while model calls are refused |
+| `attachments`, `attachment_chunks` | Photos the User attached: name, sniffed type, size; the file and the model's preview in 1 MiB rows |
 
 Session Tokens and DPoP private keys are never written to storage.
 
@@ -263,6 +266,13 @@ The wire protocol and chat UI come from Cloudflare's Pi harness example (`cloudf
 | page → agent | `history.before` | After a reload whose snapshot starts with a summary: the entries before the summary, from `src/history.ts` |
 | agent → page | `history` | Up to 500 of those entries, oldest first, back to the newest reset, without the prompt entries; `more` while older ones remain |
 
+**Photos the User attaches** (`src/attachments.ts`, `src/attachment-images.ts`, `src/ui/attachments.tsx`)
+
+- **Upload.** The page sends each photo to `POST /api/attachments` as soon as it is attached, with a JPEG copy at most 1568 px on its longer side when the browser can draw one. The agent keeps the file and the copy in its SQLite, by type sniffed from the first bytes (JPEG, PNG, WebP or GIF), at most 10 MiB each, 100 MiB in all, for 30 days.
+- **In the message.** The protocol between page and agent is the upstream copy, which carries text, so the page adds a marker per photo to the message: `[attachment att_… · lake.jpg · image/jpeg · 2.4 MB]`. The transcript keeps the marker, never the bytes, and the page shows the photo in its place.
+- **To the model.** A pi `beforeRequest` hook adds the preview (or the file itself, when it is under 1 MiB and there is no preview) as an image to the User's message that names it, on each request, for the four most recent photos. A message that starts with `[`, as every Company message and agent notice does, can't make the model look at a photo.
+- **To a Company.** Only through `poppy_api_call`'s `files`, after the User's approval (APIs, Uploads).
+
 **What the page shows**
 
 The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line mapping, Activity, Companies, Settings) and `src/poppy-ui.tsx` (cards, the tray, receipts, the Direct Conversation sheet). It follows a spartan house style: neutral surfaces, color only for state, no decorative motion, and every action labelled with where, how, what access and who decided.
@@ -275,10 +285,12 @@ The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line 
   - **One status line** while the agent works.
   - **A notice where earlier conversation was summarised** ("Earlier conversation summarised", the summary behind a disclosure), with the messages before it still above it after a reload (see Compaction).
   - **An empty state** that says what the agent does.
+  - **Photos.** The composer attaches JPEG, PNG, WebP or GIF photos by a labelled button, by pasting or by dropping, up to 10 MB each; each goes to the agent at once, shows as it is attached, and can be removed before sending. A sent photo shows in the User's message.
 - **Cards** in the tray:
   - **Sign-in:** a link to the Company's page, a QR code with its user code, a credentials form, or a one-time-code form. Links are shown only when HTTPS.
   - **Operations:** the Company's summary verbatim ("Manzanita says: …"), with costs, dates and conditions from `terms`, and what changed since the last revision.
-  - **Local approvals**, **Direct Conversation invitations** and **notices**.
+  - **Local approvals**, **Direct Conversation invitations** and **notices**. A card that would send the User's photo shows the photo and says it goes only to that Company.
+  - **Receipts** of a finished operation link the HTTPS pages on the Company's own hosts its `result.data` names, such as a checkout; one the Company no longer has (N19) says whether it may have happened.
 - **A Direct Conversation sheet**, a right-hand column at 1024px and wider, full screen on phones. Each message is labelled "You", "A person at Acme" or "Acme's agent".
 - **Activity.**
   - **In progress:** device sign-ins with a countdown, open conversations and operations, each with its stop button.
@@ -523,7 +535,8 @@ Browsing uses our own fetch-based browser, `FetchBrowser` (`src/poppy/fetch-brow
 - **Description.** The OpenAPI 3.0 or 3.1 description is fetched with the safe-fetch rules (with a 1 MB cap) and cached. `$ref`s in parameters and request bodies are resolved.
 - **Tools.** `poppy_api_describe` lists operations or describes one operation's inputs. `poppy_api_call` calls one by `operationId` or `METHOD /path`, with a DPoP Session Token.
 - **Idempotency.** A write whose description declares an `Idempotency-Key` header gets a v4 UUID, fixed per tool call and stored before sending, so a replayed call sends the same key.
-- **Operations.** A `202` with `operation` is a proposal (Ops 4.1); the model is told nothing has happened yet.
+- **Operations.** A `202` with `operation` is a proposal (Ops 4.1); the model is told nothing has happened yet. A proposal in a signed-out Session is handled like any other: its card, the User's approval, our confirm in that same Session.
+- **Uploads.** An operation whose request body is `multipart/form-data` takes `files`, each file field's attachment id (see Photos the User attaches), and `body`'s members as its other fields. The client reads the stored file and builds the form only when it sends. An upload always waits for the User's approval on a card that shows the photo, at every Company, with or without the Operations extension, and only after the description's server is checked to be the Company's (N10). The card is fixed per tool call. `poppy_api_describe` lists an operation's file fields.
 
 **MCP**
 
@@ -531,7 +544,7 @@ Browsing uses our own fetch-based browser, `FetchBrowser` (`src/poppy/fetch-brow
 - **Protected resource metadata.** Before first use, the server's metadata (RFC 9728) must list `auth.issuer` in `authorization_servers`; otherwise the server isn't used.
 - **Tools.** `poppy_mcp_list` and `poppy_mcp_call`. A result with `structuredContent.operation` is a proposal (Ops 4.2). Company tool names and descriptions stay inside tool results; they are never added to the model's own tool list.
 
-**Writes and approvals.** At a Company with the Operations extension, writes go straight through, because the Company proposes an operation instead of acting. At a Company without it, OpenAPI writes and MCP tools without `readOnlyHint: true` wait for the User's approval (see Safety).
+**Writes and approvals.** At a Company with the Operations extension, writes go straight through, because the Company proposes an operation instead of acting. At a Company without it, OpenAPI writes and MCP tools without `readOnlyHint: true` wait for the User's approval (see Safety). An upload of the User's photo waits for their approval at every Company.
 
 **Errors (§6)**
 
@@ -635,7 +648,8 @@ All four go to one handler. It stores the operation and its revision, and pushes
 - **Timeouts.** A timeout leads to a read of the operation or a repeat confirm, with the same operation id. A new proposal of the same action is never requested until this one is final.
   - Before a confirm is sent, the intent is stored and a tracking job scheduled, so a lost answer, an exception or a restart mid-call is followed up: the job reads the operation first, and confirms the approved revision again only if it is still proposed.
   - A final operation is never read or confirmed again, including by the confirm retried after a sign-in.
-- **Final states.** These are succeeded, failed, cancelled and expired. `result.summary` is shown to the User as the Company's account of what happened, and recorded.
+- **Final states.** These are succeeded, failed, cancelled and expired. `result.summary` is shown to the User as the Company's account of what happened, and recorded; `result.data` goes to the model as data, and its HTTPS links on the Company's hosts to the receipt.
+- **An operation the Company no longer has.** `operation_not_found` from a confirm, a read or a cancel, as when the signed-out Session it belongs to has ended (Ops 3.2), makes it final for us (our reading of N19): nothing confirms, reads or cancels it again, a reserved permission use is released, the card closes saying whether it may have happened, and the model is told, once. It no longer blocks a new proposal of the same request.
 - **Withdrawn approval.** If the User withdraws approval before confirmation, the agent doesn't confirm. After confirmation, it cancels.
 
 **Cancelling (Ops §7)** comes only from the card: Decline on a proposal, Ask to stop on one in progress. Each is `POST {endpoint}/{operation_id}/cancel`.
@@ -662,7 +676,7 @@ Tools take a `domain`, resolved to its issuer, and optionally a `session` label 
 | `poppy_invite_user(conversation, reason)` | Offers the User a Direct Conversation card | safe |
 | `poppy_close(conversation)` | Closes a conversation | safe |
 | `poppy_api_describe(domain, api?, operation?)` | Lists OpenAPI operations, or describes one | safe |
-| `poppy_api_call(domain, operation, params?, body?)` | Calls an OpenAPI operation | safe: reads, stored `Idempotency-Key`s, and writes that wait for approval |
+| `poppy_api_call(domain, operation, params?, body?, files?)` | Calls an OpenAPI operation; `files` names the User's attachments for an upload | safe: reads, stored `Idempotency-Key`s, and writes that wait for approval (an upload's card is fixed per call) |
 | `poppy_mcp_list(domain)` / `poppy_mcp_call(domain, tool, args?)` | MCP tools | list safe; call unsafe |
 | `poppy_browse(domain, action, url?, selector?, value?)` | Open a page, follow a link, fill a field, or submit a form (after the User's approval) in the Session's browser context | unsafe |
 | `poppy_operation(domain, operation)` | Reads an operation | safe |
@@ -683,6 +697,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
   - People's model keys are sealed per agent and provider and opened only to make a model call or check the key (see Model access).
   - None of them reach the model, tool results, the transcript, logs or URLs. Mediated credentials pass through memory once, from the card to the one request.
   - Responses that carry codes are `Cache-Control: no-store`.
+- **The User's photos.** Kept in their agent's SQLite only, at most 10 MiB each and 100 MiB in all, deleted after 30 days and with the agent. Served back only to their owner's page. The model sees a preview as an image in the User's own message that names it, and never in a Company's message or a notice; tools name a photo by its id, never its bytes. A photo goes to a Company only in an upload the User approved on a card showing it, to the Company's own hosts. Nothing logs them.
 - **Untrusted content.** Company text and data are presented to the model as information, never instructions, and never the User's approval. That is structural, not left to the model: no tool confirms or cancels an operation, and `poppy_api_call` refuses any URL at or under a Poppy endpoint (token, sign-in, conversation, operations, browser-session), even when a Company's OpenAPI description lists it, so a model that obeys injected text can't confirm an operation or send a message as the User.
 - **Spend.** The operator pays only for the demo lane: `OWNERS` and `DEMO_ALLOWLIST`, capped per person and per domain each day before every call, with gateway spend limits behind. Everyone else uses their own key or makes no calls. Open sign-up still costs the operator storage for every agent created.
 - **Forks.** The committed template names nobody and points at no host; until its deployer sets `OWNERS` and `PUBLIC_ORIGIN` every route answers with a config error.
@@ -717,6 +732,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | `test/validator.test.ts` | The discovery document validator: fixtures declared as data, a catalog test that every message has one, the spec's examples, live documents, fetching, the HTTP endpoint |
 | `test/mock-company.test.ts` | The mock Company itself: one `TAMPERS` row per check, proving it fires, and a catalog test that every check has a row |
 | `test/poppy.test.ts` | The Poppy client against the mock Company, grouped by spec section, with the sign-in, Session and sign-out sections run under six profiles |
+| `test/print-journey.test.ts` | The demo journey against the mock's print shop: attaching photos (kept, served back only to their owner, refused when not a photo, too big or from another origin), the model shown the preview and never because a Company named it, an upload only after the User's approval, the order proposed signed out and confirmed from the card, and an operation lost with its Session (N19) |
 | `test/prompt-injection.test.ts` | Prompt injection, model lane: a Company's message, operation summary or MCP tool description tells the model to approve an operation or send a secret, and the faux model obeys; nothing is confirmed, nothing is sent as the User, no credential leaves |
 | `test/durability/crash.test.ts` | The conversation after a crash |
 | `test/fetch-browser.test.ts` | The production browser's own rules, with stub fetchers: the cookie jar, HTTPS and public hosts only, every redirect checked, timeouts, the size limit, no headers of ours, pages that need JavaScript |
@@ -733,7 +749,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
     - An `afterEach` fails a Poppy test if any mock it created recorded one.
     - A test that breaks the protocol on purpose declares it with `expectViolations`.
     - Every check has a `TAMPERS` row in `test/mock-company.test.ts` that proves it fires, and a catalog test fails if one doesn't.
-  - **Configuration.** Behaviours switch per test: nonces, registration, token rotation (with reuse detection), rate limits (website pages too), streaming (with keep-alive comments), slow confirms, each sign-in type, wrong issuers and redirects, ended Sessions, token responses without `scope`, only custom scopes, an API `resource`, a required extension, an OpenAPI server on another host, a Company that ignores `wait` or never says `queued`, and operations confirmed on the website.
+  - **Configuration.** Behaviours switch per test: nonces, registration, token rotation (with reuse detection), rate limits (website pages too), streaming (with keep-alive comments), slow confirms, each sign-in type, wrong issuers and redirects, ended Sessions, token responses without `scope`, only custom scopes, an API `resource`, a required extension, an OpenAPI server on another host, a Company that ignores `wait` or never says `queued`, operations confirmed on the website, and a print shop after print-with-poppy (`printShop`: a `multipart/form-data` photo upload and a signed-out order that proposes an operation, with a required `Idempotency-Key`).
   - **Profiles** run the same tests under different readings of the draft's open questions (`docs/spec-issues.md`):
     - our own reading;
     - the client assertion's `aud` exactly the endpoint called (S1);
@@ -865,6 +881,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 6 | Handle `invalid_token`, `sign_in_required`, `insufficient_scope` | `client.ts` | Test: "asks for sign-in when an API needs the account" |
 | 6 | (Our rule, from OpenAPI) Fill OpenAPI path templates from the call's arguments, declared as parameters or not; refuse one left unfilled before any request | `apis.ts` | Test: "fills a path template the description doesn't declare as a parameter, by name", "refuses a path it can't fill before any request, not sending the template"; property: "fills every template with its value as one segment…", "refuses, before any request, a value that would fill a whole segment with nothing, . or ..", "refuses a path value of nothing, . or .., which would reach another resource" |
 | 6 | An approved write the Company refuses keeps the error's code (our rule) | `operations.ts` | Test: "says which error refused an approved write" |
+| 6 | (Our rule) An OpenAPI upload (`multipart/form-data`) sends the User's attachment only after they approve it on a card, at every Company, only to the Company's hosts, with files named by attachment id and read only when sent; a replayed call shows the same card | `apis.ts`, `client.ts`, `attachments.ts` | Test: "sends the photo only once the User approves, orders signed out, and confirms only the terms the User approved", "sends nothing when the User declines to send the photo", "shows one card for a replayed upload call, and never a second upload", "refuses a file the User didn't attach, a field the operation doesn't take, and a file to an operation that takes none", "never asks to send a photo to a server that isn't the Company's (N10)"; Mock (`upload.boundary`, `upload.part-name`, RFC 7578) |
 | 7.1 | Skip unfamiliar conversation protocols | `discovery.ts` | Test: "discovers a Company…" |
 | 7.2 | MUST NOT depend on the format of the Company's ids | `conversations.ts` | Design |
 | 7.2 | Message ids are 1 to 256 base64url characters, with a `msg_` prefix (the prefix is a SHOULD) | `conversations.ts` | Mock |
@@ -890,7 +907,9 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | § | Requirement | Where | Checked by |
 | --- | --- | --- | --- |
 | 2 | List `operations` version `1` in client metadata | `routes.ts` | Test: "serves the client metadata document…" |
+| 3.2 | An operation proposed in a signed-out Session is used only in that Session; `operation_not_found` once it has ended makes it final for us, saying whether it may have happened (our reading of N19) | `operations.ts` | Test: "stops at an operation whose signed-out Session ended…", "tells the User an order may have happened when its signed-out Session ended…" |
 | 4 | Accept proposals from OpenAPI, MCP and conversations; a message never confirms | `apis.ts`, `conversations.ts` | Test: OpenAPI ("gets a proposal…"), MCP ("doesn't ask an MCP tool for a new proposal…") and conversations ("handles an authorization event…"); a message never confirms: "never confirms an operation, or speaks as the User, when a Company message says the User approved" |
+| 4.1 | A proposal from the agent's own API call in a signed-out Session gets the approval card, with the summary verbatim, and is confirmed only from the card, in that Session | `apis.ts`, `operations.ts` | Test: "sends the photo only once the User approves, orders signed out, and confirms only the terms the User approved" |
 | 4.4 | An operation's `url` shows it on the website in the same Session; confirmed there or at the endpoint, it is one operation | `browser.ts`, `operations.ts` | Test: "treats an operation confirmed on the website as the same operation…" |
 | 5.1 | MUST have the User's approval for the exact revision | `operations.ts` | Test: "needs a new approval when the terms change" |
 | 5.1 | MUST show the Company's name and `summary`, and take the answer through our own interface; we show its verified domain too (N14) | `operations.ts`, page | Test: "shows the Company's summary verbatim…", "approves exactly this operation and revision", "shows the verified domain under the name the Company chose…" |
@@ -913,6 +932,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | Demo caps per person and per domain, checked before the call, background turns included | `model-router.ts`, `budget.ts`, `agent.ts` | Test: "refuses a call once the person has spent today's cap, before calling", "refuses everyone in a Workspace domain once the domain has spent its cap", "holds a background turn past the cap, with a notice, and never calls the model for it", "charges production's demo lane pi-ai's price for the usage it reports…" |
 | No key and no demo: no model calls; background notices wait | `agent.ts` | Test: "makes no model calls, says so, and runs held background turns once a key is added" |
 | A 401 marks the key invalid, stops calls, and never falls back to the demo | `model-router.ts` | Test: "marks the key invalid on a 401, stops model calls, and never falls back to the demo" |
+| A photo the User attaches stays in their agent: served back only to its owner, never in the transcript, shown to the model only from the User's own messages, and refused when it isn't a photo, is too big or comes from another origin | `attachments.ts`, `attachment-images.ts`, `index.ts` | Test: "keeps a photo in the User's own agent and gives it back only to them", "takes only photos, from the page's own origin, up to 10 MB, and deletes one the User removes", "shows the model the page's preview as an image in the message that names it…", "never shows the model a photo because a Company's text names it" |
 | Own keys are Anthropic or OpenAI only: no sign-in for another provider, and a stored key for a provider since removed is deleted unopened, never a crash | `index.ts`, `agent.ts`, `model-keys.ts` | Test: "has no OpenRouter sign-in, and refuses a pasted key for any other provider", "deletes an OpenRouter key stored before that lane was removed, unopened, and falls back as if there were none" |
 | `SIGNUP=allowlist` behaves as before; `open` lets anyone in without the demo | `allowlist.ts` | Test: "allowlist: lets in owners and the sign-in allowlist only, as before", "open: lets anyone in, who then needs a key unless they are on the demo" |
 | The template names no author host or identity, and fails closed | `wrangler.jsonc`, `deployment.ts` | Test: "holds none of the deployer's identities or origins (from deployment.local.json, when this checkout has one)", "gives an email address only at a name reserved for examples", "commits empty identity placeholders, and example identities only at reserved names", "fails closed: every signed-in route refuses until OWNERS and PUBLIC_ORIGIN are set" |
@@ -924,7 +944,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 - **JWTs.** ES256 with a `kid` on every key; `jti` of 128 bits; one-minute lifetimes; keys rotated by publishing first and retiring late (`scripts/poppy-secrets.mjs`).
 - **Metadata fetches.** At most 3 redirects, 100 KB (1 MB for OpenAPI), 5 s for the answer and its body together, no credentials, no IP-literal or single-label hosts, cache bounded to between a minute and a day (a minute when the Company sends no caching headers, for poppy.json and OpenAPI alike). Tested: "never fetches from…, directly or by redirect", "never discovers…", "never fetches an OpenAPI document a Company lists on a private host", "gives up on a document whose body stalls, within the time limit, and cancels it", "keeps an OpenAPI description as long as discovery would keep its documents…"; property: "the client and the validator agree on which hosts are private", "a host and its fully qualified form, with the root's trailing dot, are refused alike", "refuses localhost and single-label hosts written with the root's trailing dot", "reads a body of at most maxBytes as UTF-8…".
 - **Deadlines.** A token or revocation request gets 15 s for its answer and body; an API, conversation or operations request 30 s for its answer to start (plus a long poll's `wait`), then 30 s to read the body, which is cancelled when it stalls (`POPPY_TIMEOUTS` in `src/poppy/fetch.ts`). Tested: "gives up on … whose body stalls, and cancels it", "gives up on a token response whose body stalls", "gives up on an API request whose answer never starts".
-- **Retries.** A fixed `Idempotency-Key` per call; new proofs and assertions on every retry; `Retry-After` honoured on 429 and 503, website pages included.
+- **Retries.** A fixed `Idempotency-Key` per call, on every write whose description takes one (the print shop's order requires it, and the mock records `idempotency.key-missing` when it is left off); new proofs and assertions on every retry; `Retry-After` honoured on 429 and 503, website pages included.
 - **Rate limits.** Shared per Company across Users through `CompanyLimiter`; long polls or streams; idle conversations read rarely.
 - **JSON.** UTF-8, duplicate member names rejected, unknown fields ignored.
 - **User IDs.** Random, stored per User per Company.

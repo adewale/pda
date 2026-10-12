@@ -28,12 +28,13 @@ export function placeInteropCompanies(): void {
 
 /**
  * Settings every host starts from: rotating Account Tokens (scenario R),
- * devices polled every second so Device Sign-In doesn't wait five, and no
- * API of an unknown type: the conformance tests list one on purpose to check
+ * devices polled every second so Device Sign-In doesn't wait five, no API
+ * of an unknown type (the conformance tests list one on purpose to check
  * agents skip it, but it breaks 6's MUST, and a reference Company keeps to
- * every MUST (docs/conformance-levels.md).
+ * every MUST, docs/conformance-levels.md), and the print shop, for scenario
+ * OU's photo upload and signed-out order.
  */
-export const MOCK_BASE: Partial<MockConfig> = { rotateRefreshTokens: true, deviceInterval: 1, unknownApi: false };
+export const MOCK_BASE: Partial<MockConfig> = { rotateRefreshTokens: true, deviceInterval: 1, unknownApi: false, printShop: true };
 
 /** A hook's refusal: its HTTP status and error code. */
 export class HookError extends Error {
@@ -79,6 +80,19 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
           args: { params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } }
         },
         mcp: { api: "mcp", tool: "search_products", args: { query: "jacket" } },
+        // Scenario OU: a photo uploaded signed out, then an order of it that proposes an operation.
+        openapi_upload: { api: "openapi", operation: "uploadPhoto", args: { files: { photo: "lake.jpg" } } },
+        openapi_propose: {
+          api: "openapi",
+          operation: "orderPrints",
+          args: {
+            body: {
+              email: "ada@example.com",
+              ship_to: { name: "Ada Lovelace", line1: "12 St James's Square", city: "London", postal_code: "SW1Y 4JH", country: "GB" },
+              items: [{ photo_id: "${upload_id}", copies: 1 }]
+            }
+          }
+        },
         prompts: {
           hello: "Hello",
           operation: "I'd like to exchange the jacket on my order",

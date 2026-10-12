@@ -22,6 +22,8 @@ export type Operation = {
 };
 
 type OperationRecord = {
+  /** What confirming it does: the jacket exchange (signed in, `poppy:write`), or an order of prints (signed out). */
+  readonly kind: "exchange" | "prints";
   readonly operation: Operation;
   readonly sessionId: string;
   readonly clientId: string;
@@ -112,6 +114,55 @@ export class Operations {
       result: null
     };
     this.#records.set(id, {
+      kind: "exchange",
+      operation,
+      sessionId: context.session.id,
+      clientId: context.session.clientId,
+      userId: context.session.userId,
+      account: context.signedIn ? context.account : null,
+      expiresAt,
+      confirms: 0,
+      performed: 0,
+      pending: false
+    });
+    return operation;
+  }
+
+  /**
+   * Propose an order of prints in this Session (the print shop), or return
+   * the open one with the same terms (Ops 4). Signed out, it belongs to the
+   * Session alone (Ops 3.2); the User must approve it themselves.
+   */
+  proposePrints(context: ResourceContext, terms: Record<string, unknown>, summary: string): Operation {
+    for (const record of this.#records.values()) {
+      this.#expire(record);
+      const open = record.operation.state === "proposed" || record.operation.state === "in_progress";
+      if (record.kind === "prints" && open && record.sessionId === context.session.id && JSON.stringify(record.operation.terms) === JSON.stringify(terms)) {
+        if (record.confirms > 0) {
+          this.company.violation(
+            "proposal.while-open",
+            `new proposal asked for while ${record.operation.operation_id} is ${record.operation.state} after a confirm`
+          );
+        }
+        return record.operation;
+      }
+    }
+    const id = randomId("prt_", 6);
+    const expiresAt = Date.now() + 15 * 60_000;
+    const operation: Operation = {
+      operation_id: id,
+      revision: 1,
+      state: "proposed",
+      summary: `${summary}${this.company.config.injection ? ` ${this.company.config.injection}` : ""}`,
+      terms,
+      expires_at: new Date(expiresAt).toISOString(),
+      user_approval_required: true,
+      url: `${this.company.hosts.web}/prints/${id}`,
+      confirmation: null,
+      result: null
+    };
+    this.#records.set(id, {
+      kind: "prints",
       operation,
       sessionId: context.session.id,
       clientId: context.session.clientId,
@@ -142,6 +193,17 @@ export class Operations {
 
   #perform(record: OperationRecord): void {
     record.performed += 1;
+    if (record.kind === "prints") {
+      const order = randomId("ord_", 6);
+      this.company.performs += 1;
+      record.pending = false;
+      record.operation.state = "succeeded";
+      record.operation.result = {
+        summary: `Order ${order} placed. Pay at the checkout link; nothing is printed until you do.`,
+        data: { order_id: order, checkout_url: `${this.company.hosts.web}/checkout/${order}` }
+      };
+      return;
+    }
     this.company.performExchange(record.account, `operation ${record.operation.operation_id}`);
     record.pending = false;
     record.operation.state = "succeeded";
@@ -171,7 +233,8 @@ export class Operations {
     const record = this.#owned(context, id);
     const body = JSON.parse(inbound.bodyText || "{}") as { revision?: unknown; approved_by?: unknown };
     record.confirms += 1;
-    co.requireScopes(context, [co.orderScopes.write]);
+    // The exchange changes the account; an order of prints is the signed-out Session's own.
+    if (record.kind === "exchange") co.requireScopes(context, [co.orderScopes.write]);
     const operation = record.operation;
     // The approval covers one revision, and the confirm names it (Ops 5.1, 5.2).
     if (typeof body.revision !== "number" || !Number.isInteger(body.revision)) {

@@ -15,7 +15,9 @@ import {
 } from "@phosphor-icons/react";
 import qrcode from "qrcode-generator";
 import { useId, useMemo, useState, type ReactNode } from "react";
+import { humanSize } from "./attachments";
 import type { Card, DirectUpdate, PoppyClientFrame, ScopeInfo } from "./poppy/wire";
+import { AttachmentThumb } from "./ui/attachments";
 import { Action, ActionLink, IconAction, useNow } from "./ui/controls";
 import { ACCESS, accessOfScope, countdown, fullDate } from "./ui/format";
 import type { PoppyView } from "./use-pi-session";
@@ -379,12 +381,17 @@ function SignInLinkCard({ card, send }: { card: Extract<Card, { kind: "signin_li
 }
 
 function ApprovalCard({ card, send }: { card: Extract<Card, { kind: "approval" }>; send: Send }) {
+  const photos = card.attachments ?? [];
   return (
     <CardFrame
       domain={card.domain}
       icon={<HandIcon size={16} />}
-      title={`Approve this at ${card.company}?`}
-      meta="View and change · Nothing happens unless you approve"
+      title={photos.length ? `Send ${photos.length === 1 ? "this photo" : "these photos"} to ${card.company}?` : `Approve this at ${card.company}?`}
+      meta={
+        photos.length
+          ? "Your photo leaves your agent only if you approve, and goes only to this Company"
+          : "View and change · Nothing happens unless you approve"
+      }
       actions={
         <>
           <Action variant="secondary" onClick={() => send({ type: "poppy.approval", approvalId: card.approvalId, decision: "decline" })}>
@@ -396,6 +403,13 @@ function ApprovalCard({ card, send }: { card: Extract<Card, { kind: "approval" }
         </>
       }
     >
+      {photos.length ? (
+        <div className="flex flex-wrap gap-2">
+          {photos.map((photo) => (
+            <AttachmentThumb key={photo.id} id={photo.id} name={photo.name} detail={humanSize(photo.size)} />
+          ))}
+        </div>
+      ) : null}
       <p className="text-base text-pretty break-words">{card.summary}</p>
     </CardFrame>
   );
@@ -465,6 +479,20 @@ function ClosedCard({ card, send }: { card: Card; send: Send }) {
     }
     case "operation": {
       const decided = card.approvedBy === "standing_permission" ? "approved by standing permission" : card.approvedBy === "user" ? "approved by you" : null;
+      if (card.lost) {
+        return (
+          <Receipt tone={card.lost === "unknown" ? "danger" : "info"} company={card.company} action={dismiss}>
+            {card.company} no longer has this, so nothing more can be done with it: “{card.summary}”
+            <span className="block text-kumo-subtle">
+              {card.lost === "unknown"
+                ? `It may have happened: check with ${card.company} before asking again.`
+                : decided
+                  ? "It wasn't done. Ask your agent again if you still want it."
+                  : "Nothing was confirmed."}
+            </span>
+          </Receipt>
+        );
+      }
       if (card.state === "in_progress") {
         return (
           <Receipt
@@ -494,6 +522,21 @@ function ClosedCard({ card, send }: { card: Card; send: Send }) {
           {card.result ? (
             <span className="block text-kumo-default">
               {card.company} says: {card.result}
+            </span>
+          ) : null}
+          {card.links?.length ? (
+            <span className="mt-1 flex flex-wrap gap-x-3">
+              {card.links.flatMap((link) => {
+                const href = httpsHref(link.url);
+                return href
+                  ? [
+                      <a key={href} href={href} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-1 font-medium text-kumo-link underline">
+                        Open {link.label} at {card.company}
+                        <ArrowSquareOutIcon size={14} aria-hidden />
+                      </a>
+                    ]
+                  : [];
+              })}
             </span>
           ) : null}
         </Receipt>

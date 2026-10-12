@@ -96,6 +96,8 @@ export type Inbound = {
   readonly request: Request;
   readonly url: URL;
   readonly bodyText: string;
+  /** The body as sent, for a multipart upload's file. */
+  readonly bodyBytes: Uint8Array;
 };
 
 /**

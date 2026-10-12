@@ -47,8 +47,8 @@ describe("the shared mock hooks", () => {
     });
   });
 
-  it("rotate Account Tokens, poll devices every second and list no API of an unknown type, for every host", () => {
-    expect(MOCK_BASE).toEqual({ rotateRefreshTokens: true, deviceInterval: 1, unknownApi: false });
+  it("rotate Account Tokens, poll devices every second, list no API of an unknown type and open the print shop (OU), for every host", () => {
+    expect(MOCK_BASE).toEqual({ rotateRefreshTokens: true, deviceInterval: 1, unknownApi: false, printShop: true });
   });
 
   for (const host of ["interop/impls/dpa-mock/adapter.ts", "test/hypothesis/launcher.ts"]) {

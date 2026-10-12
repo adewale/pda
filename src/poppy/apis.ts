@@ -1,8 +1,10 @@
+import { attachmentInfo, humanSize, readAttachment, type AttachmentInfo } from "../attachments";
 import { PoppyClient, PoppyError, scopeSet } from "./client";
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
 import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
+import { randomId } from "./jwt";
 import { intent } from "./store";
 
 type Api = Company["apis"][number];
@@ -22,10 +24,45 @@ export type OpenApiOperation = {
   readonly summary: string;
   readonly parameters: readonly { name: string; in: string; required: boolean; schema?: Json; description?: string }[];
   readonly requestBody?: Json;
+  /** A `multipart/form-data` request body: its file fields, its other fields, and whether JSON is accepted too. */
+  readonly upload?: Upload;
   readonly acceptsIdempotencyKey: boolean;
   /** Scopes its first security requirement names, the operation's own or the document's. */
   readonly scopes: readonly string[];
 };
+
+/**
+ * What an operation's `multipart/form-data` request body takes: `files`, the
+ * fields that carry a file (`format: binary` in OpenAPI 3.0, or a
+ * `contentMediaType` in 3.1, alone or as an array's items), and `fields`, the
+ * others, sent as text. `json` says the operation takes JSON too.
+ */
+export type Upload = {
+  readonly files: readonly string[];
+  readonly fields: readonly string[];
+  readonly required: readonly string[];
+  readonly json: boolean;
+};
+
+function isBinary(schema: Json): boolean {
+  if (!isObject(schema)) return false;
+  if (schema.type === "array") return isBinary(schema.items ?? null);
+  return (schema.type === "string" || schema.type === undefined) && (schema.format === "binary" || typeof schema.contentMediaType === "string");
+}
+
+/** The upload a request body describes, if it takes `multipart/form-data`. */
+export function uploadOf(root: Json, requestBody: Json | undefined): Upload | undefined {
+  if (!isObject(requestBody) || !isObject(requestBody.content)) return undefined;
+  const multipart = requestBody.content["multipart/form-data"];
+  if (!isObject(multipart)) return undefined;
+  const schema = resolveRef(root, multipart.schema ?? null);
+  const properties = isObject(schema) && isObject(schema.properties) ? schema.properties : {};
+  const files: string[] = [];
+  const fields: string[] = [];
+  for (const [name, property] of Object.entries(properties)) (isBinary(resolveRef(root, property)) ? files : fields).push(name);
+  const required = isObject(schema) && Array.isArray(schema.required) ? schema.required.filter((name): name is string => typeof name === "string") : [];
+  return { files, fields, required, json: isObject(requestBody.content["application/json"]) };
+}
 
 /** The scopes of the first security requirement: `[{ scheme: [scopes] }]`. */
 function declaredScopes(security: Json | undefined): string[] {
@@ -82,6 +119,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
               : []
           );
         const requestBody = op.requestBody !== undefined ? resolveRef(json, op.requestBody) : undefined;
+        const upload = uploadOf(json, requestBody);
         operations.push({
           operationId: typeof op.operationId === "string" ? op.operationId : `${method.toUpperCase()} ${path}`,
           method: method.toUpperCase(),
@@ -89,6 +127,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
           summary: [op.summary, op.description].filter((text) => typeof text === "string").join(" — "),
           parameters: parameters.filter((parameter) => !(parameter.in === "header" && /^idempotency-key$/i.test(parameter.name))),
           ...(requestBody !== undefined ? { requestBody } : {}),
+          ...(upload ? { upload } : {}),
           acceptsIdempotencyKey: parameters.some((parameter) => parameter.in === "header" && /^idempotency-key$/i.test(parameter.name)),
           scopes: declaredScopes(op.security ?? json.security)
         });
@@ -124,7 +163,16 @@ export async function describeOpenApi(client: PoppyClient, company: Company, api
     path: op.path,
     summary: op.summary,
     parameters: op.parameters as unknown as Json,
-    ...(op.requestBody !== undefined ? { requestBody: op.requestBody } : {})
+    ...(op.requestBody !== undefined ? { requestBody: op.requestBody } : {}),
+    ...(op.upload
+      ? {
+          upload: {
+            files: [...op.upload.files],
+            fields: [...op.upload.fields],
+            note: "A multipart/form-data upload. Give each file field the id of a photo the User attached (att_…) in files, and other fields in body. The User approves sending the file on a card first."
+          }
+        }
+      : {})
   };
 }
 
@@ -133,8 +181,30 @@ type OpenApiCall = {
   readonly operation: string;
   readonly params: Readonly<Record<string, string | number | boolean>>;
   readonly body?: Json;
+  /** File fields of a `multipart/form-data` upload, each an attachment id; never the bytes. */
+  readonly files?: Readonly<Record<string, string>>;
   readonly idempotencyKey?: string;
 };
+
+/**
+ * A `multipart/form-data` body: `body`'s members as text fields, and each
+ * file field the stored attachment it names, with its name and type. The
+ * bytes are read here, as the request is made, never earlier.
+ */
+function multipartBody(client: PoppyClient, call: OpenApiCall): FormData {
+  const form = new FormData();
+  if (isObject(call.body ?? null)) {
+    for (const [name, value] of Object.entries(call.body as Record<string, Json>)) {
+      if (value !== null && value !== undefined) form.append(name, typeof value === "string" ? value : JSON.stringify(value));
+    }
+  }
+  for (const [field, id] of Object.entries(call.files ?? {})) {
+    const found = readAttachment(client.sql, id);
+    if (!found) throw new PoppyError("no_attachment", `The User's attachment ${id} is gone (deleted, or past its 30 days), so nothing was sent`, 0);
+    form.append(field, new Blob([found.bytes], { type: found.info.type }), found.info.name);
+  }
+  return form;
+}
 
 /**
  * The narrower scope a read-only lookup asks for (Guides), or null to use
@@ -212,12 +282,13 @@ function refuseProtocolEndpoint(company: Company, url: URL): void {
   }
 }
 
-async function performOpenApi(client: PoppyClient, company: Company, label: string, call: OpenApiCall): Promise<Json> {
-  const api = findApi(company, "openapi", call.apiUrl);
-  const document = await openApi(client, api);
-  const op = findOperation(document, call.operation);
+/**
+ * The description's server, if it is one of the Company's hosts: `servers`
+ * can name any host, and Session Tokens (and the User's files) go only to the
+ * Company's (N10).
+ */
+function serverOf(company: Company, api: Api, document: OpenApiDocument): URL {
   const url = new URL(document.base);
-  // The description's `servers` can name any host; Session Tokens go only to the Company's (N10).
   if (!tokenHostAllowed(company, url)) {
     throw new PoppyError(
       "untrusted_server",
@@ -225,6 +296,14 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
       0
     );
   }
+  return url;
+}
+
+async function performOpenApi(client: PoppyClient, company: Company, label: string, call: OpenApiCall): Promise<Json> {
+  const api = findApi(company, "openapi", call.apiUrl);
+  const document = await openApi(client, api);
+  const op = findOperation(document, call.operation);
+  const url = serverOf(company, api, document);
   const path = pathFor(op, call.params);
   for (const parameter of op.parameters) {
     const value = given(call.params, parameter.name);
@@ -233,15 +312,20 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
   url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
   refuseProtocolEndpoint(company, url);
   // Read-only lookups ask for a read-only token when the account allows (Guides).
-  const write = op.method === "GET" ? null : `${op.method} ${url.href} ${JSON.stringify(call.body ?? null)}`;
+  const write =
+    op.method === "GET"
+      ? null
+      : `${op.method} ${url.href} ${JSON.stringify(call.body ?? null)}${call.files ? ` ${JSON.stringify(call.files)}` : ""}`;
   if (write) refuseWhileConfirming(client, company.issuer, write);
   const readOnly = op.method === "GET" ? readOnlyScope(client.session(company.issuer, label)?.scope, op) : null;
+  // An upload, or an operation that takes only multipart/form-data, sends a form; anything else JSON.
+  const form = call.files || (op.upload && !op.upload.json && call.body !== undefined) ? multipartBody(client, call) : null;
   const response = await client.resource(
     company,
     {
       method: op.method,
       url: url.href,
-      ...(call.body !== undefined ? { body: call.body } : {}),
+      ...(form ? { form } : call.body !== undefined ? { body: call.body } : {}),
       ...(call.idempotencyKey ? { headers: { "Idempotency-Key": call.idempotencyKey } } : {})
     },
     {
@@ -287,7 +371,15 @@ export async function callOpenApi(
   client: PoppyClient,
   company: Company,
   label: string,
-  request: { apiUrl?: string; operation: string; params?: Record<string, string | number | boolean>; body?: Json; callKey: string }
+  request: {
+    apiUrl?: string;
+    operation: string;
+    params?: Record<string, string | number | boolean>;
+    body?: Json;
+    /** For a `multipart/form-data` upload: each file field's attachment id. */
+    files?: Record<string, string>;
+    callKey: string;
+  }
 ): Promise<Json> {
   const api = findApi(company, "openapi", request.apiUrl);
   const document = await openApi(client, api);
@@ -295,20 +387,68 @@ export async function callOpenApi(
   // A call that can't fill the path, or that would reach a Poppy endpoint, is
   // refused now, before a token request or an approval card.
   refuseProtocolEndpoint(company, new URL(`${document.base}${pathFor(op, request.params ?? {})}`));
+  const files = request.files && Object.keys(request.files).length ? request.files : undefined;
+  // A file the User would be asked to send must be one we'd send: to the Company's own host, checked before the card.
+  if (files) serverOf(company, api, document);
+  const attached = files ? uploadedFiles(client, company, op, files) : [];
   const call: OpenApiCall = {
     apiUrl: api.url,
     operation: op.operationId,
     params: request.params ?? {},
     ...(request.body !== undefined ? { body: request.body } : {}),
+    ...(files ? { files } : {}),
     ...(op.method !== "GET" && op.acceptsIdempotencyKey
       ? { idempotencyKey: intent(client.sql, `idem|${request.callKey}`, () => crypto.randomUUID()) }
       : {})
   };
+  if (files) {
+    // The User's photo leaves their agent only when they say so, at any Company:
+    // the Operations extension covers what a Company does, not what we send it.
+    const names = attached.map((info) => `“${info.name}” (${info.type.replace("image/", "").toUpperCase()}, ${humanSize(info.size)})`).join(" and ");
+    const id = await proposeLocal(
+      client,
+      company,
+      label,
+      "openapi",
+      `Send your ${attached.length === 1 ? "photo" : "photos"} ${names} to ${company.name}: ${op.method} ${op.path} (${op.summary || op.operationId})${request.body !== undefined ? ` with ${JSON.stringify(request.body)}` : ""}`,
+      { issuer: company.issuer, call } as unknown as Json,
+      { id: intent(client.sql, `approval|${request.callKey}`, () => randomId("apr_")), attachments: attached }
+    );
+    return { proposed: id, note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
+  }
   if (op.method === "GET" || company.extensions.operations) {
     return performOpenApi(client, company, label, call);
   }
   const id = await proposeLocal(client, company, label, "openapi", `${company.name}: ${op.method} ${op.path} (${op.summary || op.operationId}) with ${JSON.stringify({ params: call.params, body: call.body ?? null })}`, { issuer: company.issuer, call } as unknown as Json);
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
+}
+
+/**
+ * The attachments an upload names, checked before anything is asked or sent:
+ * the operation takes `multipart/form-data`, each field is one of its file
+ * fields, each id is an attachment this agent holds, and every required file
+ * field is given.
+ */
+function uploadedFiles(client: PoppyClient, company: Company, op: OpenApiOperation, files: Record<string, string>): AttachmentInfo[] {
+  const upload = op.upload;
+  if (!upload) {
+    throw new PoppyError("invalid_request", `${op.method} ${op.path} at ${company.name} takes no file: its request body isn't multipart/form-data`, 0);
+  }
+  const attached: AttachmentInfo[] = [];
+  for (const [field, id] of Object.entries(files)) {
+    if (upload.files.length && !upload.files.includes(field)) {
+      throw new PoppyError("invalid_request", `${op.method} ${op.path} has no file field ${field}; its file fields are ${upload.files.join(", ")}`, 0);
+    }
+    if (typeof id !== "string") throw new PoppyError("invalid_request", `files.${field} must be an attachment id (att_…)`, 0);
+    const info = attachmentInfo(client.sql, id);
+    if (!info) {
+      throw new PoppyError("no_attachment", `No attachment ${id}: name one the User attached (att_…, in their message)`, 0);
+    }
+    attached.push(info);
+  }
+  const missing = upload.required.filter((name) => upload.files.includes(name) && !(name in files));
+  if (missing.length) throw new PoppyError("invalid_request", `${op.method} ${op.path} needs the file field${missing.length > 1 ? "s" : ""} ${missing.join(", ")}`, 0);
+  return attached;
 }
 
 registerExecutor("openapi", async (client, request, label) => {

@@ -364,6 +364,39 @@ function exchange(c: C, s: Session, headers: Record<string, string> = {}, body: 
   return call(c, s, "POST", `${c.hosts.api}/orders/ord_7Hk2/exchanges`, { body, headers });
 }
 
+/** The first bytes of a JPEG: enough for the print shop, which reads only those. */
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0xff, 0xd9]);
+
+/** A `multipart/form-data` body with one part, its Content-Disposition as given. */
+function multipart(boundary: string, disposition: string, bytes: Uint8Array = JPEG): Uint8Array<ArrayBuffer> {
+  const head = new TextEncoder().encode(`--${boundary}\r\nContent-Disposition: ${disposition}\r\nContent-Type: image/jpeg\r\n\r\n`);
+  const tail = new TextEncoder().encode(`\r\n--${boundary}--\r\n`);
+  const out = new Uint8Array(head.length + bytes.length + tail.length);
+  out.set(head);
+  out.set(bytes, head.length);
+  out.set(tail, head.length + bytes.length);
+  return out;
+}
+
+/** A photo upload to the print shop, with the body and Content-Type as given. */
+async function uploadPhoto(c: C, s: Session, body: Uint8Array<ArrayBuffer>, contentType: string) {
+  const url = `${c.hosts.api}/photos`;
+  return c.call(url, {
+    method: "POST",
+    headers: { Authorization: `DPoP ${s.token}`, DPoP: await proof(s.key, "POST", url, s.token), "Content-Type": contentType },
+    body
+  });
+}
+
+/** An order of prints of `photoId`, as the print shop's description asks for it. */
+function printOrder(photoId: string) {
+  return {
+    email: "ada@example.com",
+    ship_to: { name: "Ada Lovelace", line1: "12 St James's Square", city: "London", postal_code: "SW1Y 4JH", country: "GB" },
+    items: [{ photo_id: photoId, copies: 1 }]
+  };
+}
+
 /** A second Personal Agent, its metadata and JWKS served by the test, optionally broken. */
 const OTHER = "https://other.agent.test/poppy/client.json";
 const OTHER_JWKS = "https://other.agent.test/poppy/jwks.json";
@@ -1529,6 +1562,33 @@ const TAMPERS: readonly Tamper[] = [
       expect((await exchange(c, s, { "Idempotency-Key": "key_1" })).status).toBe(201);
       return exchange(c, s, { "Idempotency-Key": "key_1" }, { item_id: "itm_4Qa", replacement_sku: "stormline-m" });
     }
+  },
+  {
+    id: "idempotency.key-missing",
+    what: "an order of prints without the Idempotency-Key its description requires",
+    config: { printShop: true },
+    detail: "[idempotency.key-missing] POST /prints without the Idempotency-Key its description requires",
+    run: async (c) => {
+      const s = await signedOut(c);
+      const uploaded = await uploadPhoto(c, s, multipart("b0undary", 'form-data; name="photo"; filename="lake"'), "multipart/form-data; boundary=b0undary");
+      expect(uploaded.status).toBe(201);
+      const { id } = (await uploaded.json()) as { id: string };
+      return call(c, s, "POST", `${c.hosts.api}/prints`, { body: printOrder(id) });
+    }
+  },
+  {
+    id: "upload.boundary",
+    what: "a photo upload whose multipart/form-data has no boundary",
+    config: { printShop: true },
+    detail: '[upload.boundary] multipart/form-data without a boundary: "multipart/form-data"',
+    run: async (c) => uploadPhoto(c, await signedOut(c), multipart("b0undary", 'form-data; name="photo"; filename="lake"'), "multipart/form-data")
+  },
+  {
+    id: "upload.part-name",
+    what: "a photo upload whose part has no form-data name",
+    config: { printShop: true },
+    detail: '[upload.part-name] multipart part without a form-data name (Content-Disposition: "attachment; filename=\\"lake\\"")',
+    run: async (c) => uploadPhoto(c, await signedOut(c), multipart("b0undary", 'attachment; filename="lake"'), "multipart/form-data; boundary=b0undary")
   },
   {
     id: "exchange.performed-twice",

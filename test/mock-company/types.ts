@@ -166,6 +166,13 @@ export type MockConfig = {
   readonly metadataCacheHeaders: Readonly<Record<string, string>> | null;
   /** Events per page of a conversation read; more waiting means `has_more: true` (7.5). */
   readonly eventPageSize: number;
+  /**
+   * A print shop on the API, after print-with-poppy: `POST /photos` takes one
+   * photo as `multipart/form-data`, and `POST /prints` (with a required
+   * `Idempotency-Key`) proposes an order of prints as an operation, both
+   * signed out. Only agents that list the Operations extension can order.
+   */
+  readonly printShop: boolean;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -242,7 +249,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   openapiListsPoppyEndpoints: false,
   poppyJsonCacheHeaders: null,
   metadataCacheHeaders: null,
-  eventPageSize: 20
+  eventPageSize: 20,
+  printShop: false
 };
 
 /** One request the mock received, with secrets redacted. */

@@ -138,6 +138,9 @@ export function describeToolCall(
     case "poppy_api_call": {
       const operation = str(a.operation) ?? "";
       const match = /^(GET|POST|PUT|PATCH|DELETE)\s+(\S+)/i.exec(operation);
+      // An upload names the User's photos by attachment id; sending one always waits for their approval.
+      const files = isRecord(a.files) ? Object.keys(a.files).length : 0;
+      if (files) return line(`Asked you to approve sending ${files === 1 ? "your photo" : "your photos"} to ${company}`, "API", "view and change");
       if (match && match[1]!.toUpperCase() === "GET") return line(`Read ${noun(match[2]!)} at ${company}`, "API", "view");
       if (state === "waiting") return line(`Asked you to approve a change at ${company}`, "API", "view and change");
       if (match) return line(`Made a change at ${company}: ${noun(match[2]!)}`, "API", "view and change");

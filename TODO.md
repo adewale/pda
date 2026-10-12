@@ -32,6 +32,16 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 - [ ] **Code. A sign-in finished by recovery doesn't run the after-sign-in step**, so operations approved while waiting on it wait for the next sign-in.
 - [ ] **Code. A user guide to verifying the agent works:** sign in, add a key, chat, check a Company with the validator, connect to a Company, read Activity.
 
+### The demo journey: "print this photo as a 6×4" at print-with-poppy
+
+Built and passing in the grid (scenario OU, against the store at its pinned commit in demo mode) and in `test/print-journey.test.ts`. Left for the live journey:
+
+- [ ] **Owner. Ask print-with-poppy to allowlist our `client_id`.** The store admits only agents its operator lists in `AGENT_CLIENT_IDS`, by exact `client_id` (`https://<PUBLIC_ORIGIN>/poppy/client.json`); until then its token endpoint answers `invalid_client` ("must register its HTTPS metadata URL"), which the agent reports as "hasn't approved this agent yet". Settle the final domain first, since the allowlisted URL can't change.
+- [ ] **Owner. Confirm the store is in demo mode** (`GET /api/catalog` says `mode: "demo"`) before a live run, so nothing is charged or printed; outside demo mode an approved order is a real Stripe checkout the User pays.
+- [ ] **Owner. Try it live once both are done**, on the deployed agent with a real photo: the two cards (sending the photo, then the order's terms), the receipt's checkout link.
+- [ ] **Code. Activity lists an operation the Company no longer has (N19) as still open**, because `src/poppy/activity.ts` reads the operation's own state; the card, the model and the confirm path already treat it as final. Left while that file is being changed elsewhere.
+- [ ] **Code. HEIC photos** aren't taken; most browsers convert them for a file picker whose `accept` list leaves HEIC out, but a pasted or dropped HEIC is refused.
+
 ## Testing and interop
 
 - [x] **Grounding questions decided by a policy**, [docs/conformance-levels.md](docs/conformance-levels.md): a check's basis sets its level in the mock, the validator and the grid; YK is `permitted_by: N5`. **Owner:** review its judgement calls, and rerun the full grid under it (some third-party cells may change rule, or newly fail on validator errors that were warnings).

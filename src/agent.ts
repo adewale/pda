@@ -5,6 +5,8 @@ import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
+import { attachmentsExtension } from "./attachment-images";
+import { AttachmentError, attachmentInfo, deleteAttachment, migrateAttachments, readAttachment, saveAttachment, type AttachmentInfo } from "./attachments";
 import { Ledger } from "./budget";
 import { COMPACTION_POLICY, compactionExtension } from "./compaction";
 import { TranscriptHistory } from "./history";
@@ -52,6 +54,9 @@ const SCHEMA = [
   )`
 ];
 
+/** The outcome of attaching a photo, for `POST /api/attachments`. */
+export type AttachResult = { ok: true; attachment: AttachmentInfo } | { ok: false; status: number; error: string };
+
 /** The outcome of saving a key, for `POST /api/model-key`. Never carries the key. */
 export type KeyResult = { ok: true; entitlement: Entitlement } | { ok: false; status: 400 | 502; error: string };
 
@@ -70,6 +75,7 @@ export class PersonalAgent extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     for (const statement of SCHEMA) ctx.storage.sql.exec(statement);
+    migrateAttachments(ctx.storage.sql);
     const config = readModelConfig(env);
     let sealer: Sealer | undefined;
     this.keys = new ModelKeys(ctx.storage.sql, () => (sealer ??= new Sealer(env)), ctx.id.toString());
@@ -109,6 +115,8 @@ export class PersonalAgent extends DurableObject<Env> {
             () => this.poppy.browser
           )
         );
+        // The User's attached photos, shown to the model as images in the messages that name them.
+        this.registry.install(attachmentsExtension(() => this.ctx.storage.sql));
         // Our summarizer for pi's compaction: Company text stays labelled as the Company's (compaction.ts).
         this.registry.install(compactionExtension(ROUTER_MODEL));
         // One provider, the router: it picks the lane at every call (model-router.ts).
@@ -269,6 +277,38 @@ export class PersonalAgent extends DurableObject<Env> {
     if (!checked.ok) return checked;
     await this.keys.put(provider, trimmed, space);
     return this.#keyChanged();
+  }
+
+  // ---------------------------------------------------------------- Attachments (src/attachments.ts)
+
+  /** Keep a photo the User attached, with the smaller copy the page made for the model. Never logged. */
+  async attach(identity: Profile, name: string | null, bytes: ArrayBuffer, preview: ArrayBuffer | null): Promise<AttachResult> {
+    await this.recordIdentity(identity);
+    try {
+      const attachment = saveAttachment(this.ctx.storage.sql, {
+        name,
+        bytes: new Uint8Array(bytes),
+        preview: preview ? new Uint8Array(preview) : null
+      });
+      return { ok: true, attachment };
+    } catch (error) {
+      if (error instanceof AttachmentError) return { ok: false, status: error.status, error: error.message };
+      throw error;
+    }
+  }
+
+  /** An attachment's bytes, for the User's own page. */
+  async attachment(identity: Profile, id: string): Promise<{ info: AttachmentInfo; bytes: ArrayBuffer } | null> {
+    await this.recordIdentity(identity);
+    const found = readAttachment(this.ctx.storage.sql, id);
+    return found ? { info: found.info, bytes: found.bytes.slice().buffer } : null;
+  }
+
+  /** Delete one, as when the User removes it before sending. */
+  async removeAttachment(identity: Profile, id: string): Promise<boolean> {
+    await this.recordIdentity(identity);
+    if (!attachmentInfo(this.ctx.storage.sql, id)) return false;
+    return deleteAttachment(this.ctx.storage.sql, id);
   }
 
   async removeModelKey(identity: Profile): Promise<Entitlement> {

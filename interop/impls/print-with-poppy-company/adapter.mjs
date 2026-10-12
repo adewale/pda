@@ -44,8 +44,10 @@ const MANIFEST = {
   poppy: ['0.1'],
   extensions: ['operations'],
   // Signed out only. No sign-in (AO, AS, O and OX all start with Direct Sign-In), no
-  // conversations (C, CI, CS), no DPoP nonces (N), no Account Tokens (SO, R, SE).
-  scenarios: ['D', 'S0'],
+  // conversations (C, CI, CS), no DPoP nonces (N), no Account Tokens (SO, R, SE). OU is its
+  // own path: a multipart photo upload, then POST /api/orders proposes an operation in the
+  // signed-out Session, which the agent confirms once its User approves.
+  scenarios: ['D', 'S0', 'OU'],
   readings: {
     // A client assertion's aud must be exactly the endpoint it is sent to: the token
     // endpoint at /oauth/token, the revocation endpoint at /oauth/revoke (a string, not an array).
@@ -125,10 +127,25 @@ const HOOKS = {
     // No accounts or scopes (signed out only) and no prompts (no conversations). getCatalog
     // answers without any Session; every other operation needs one, plus a photo uploaded
     // as multipart/form-data before an order can be proposed.
+    // OU: the photo goes up as multipart/form-data in the field `photo` (uploadPhoto), then
+    // proposeOrder (with the Idempotency-Key its description requires) names it by the id the
+    // upload answered, which the scenario saves as upload_id.
     return {
       accounts: [],
       scopes: [],
       openapi_public: { api: 'openapi', operation: 'getCatalog', args: {} },
+      openapi_upload: { api: 'openapi', operation: 'uploadPhoto', args: { files: { photo: 'lake.jpg' } } },
+      openapi_propose: {
+        api: 'openapi',
+        operation: 'proposeOrder',
+        args: {
+          body: {
+            email: 'ada@example.com',
+            address: { name: 'Ada Lovelace', line1: '123 Market Street', city: 'San Francisco', state: 'CA', postalCode: '94103', country: 'US' },
+            items: [{ photoId: '${upload_id}', quantity: 1, fit: 'contain' }]
+          }
+        }
+      },
       prompts: {},
       otp_account: null
     };
