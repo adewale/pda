@@ -1,0 +1,38 @@
+# The monthly dependency check: `npm outdated` and `npm audit` (production,
+# then production and dev), written to the job summary by
+# scripts/deps-check.mjs. It fails only for an audit finding at "high" or
+# above; outdated packages are information. Report only, by the owner's
+# choice: no Dependabot, no pull requests, no commits, no secrets. About a
+# minute a month.
+name: Dependencies
+
+on:
+  schedule:
+    # 06:00 UTC on the 1st of each month.
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deps
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # package.json engines: >=24; .nvmrc: 24 (the newest LTS line)
+          node-version: 24.x
+          cache: npm
+
+      # agents declares many optional peers.
+      - run: npm ci --legacy-peer-deps
+
+      - run: npm run deps:check
