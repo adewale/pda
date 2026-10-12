@@ -41,6 +41,8 @@ export type ProtocolLogView = Extract<PoppyServerFrame, { type: "poppy.protocol"
 export type ProtocolView = {
   readonly companies: readonly ProtocolCompany[] | null;
   readonly logs: Readonly<Record<string, ProtocolLogView>>;
+  /** The agent's diagnostics as it last sent them (its newest wide events and the protocol logs), for "Copy diagnostics". */
+  readonly diagnostics?: { readonly text: string; readonly at: number };
 };
 
 /** Poppy's part of the page: cards, settings, activity, Direct Conversations, the protocol view. */
@@ -93,6 +95,8 @@ export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView
       return { ...view, protocol: { ...view.protocol, companies: frame.companies } };
     case "poppy.protocol":
       return { ...view, protocol: { ...view.protocol, logs: { ...view.protocol.logs, [frame.key]: frame } } };
+    case "poppy.diagnostics":
+      return { ...view, protocol: { ...view.protocol, diagnostics: { text: frame.text, at: frame.at } } };
     default:
       return view;
   }

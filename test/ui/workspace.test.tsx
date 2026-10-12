@@ -376,7 +376,9 @@ describe("activity page", () => {
     expect(within(running).getByText(/Expires in 4:30\b/)).toBeTruthy();
     fireEvent.click(within(running).getByRole("button", { name: "Cancel sign-in" }));
     fireEvent.click(within(running).getByRole("button", { name: "End conversation" }));
+    // Opening Activity asks for the diagnostics (test/ui/protocol.test.tsx); then the two stops.
     expect(sent).toEqual([
+      { type: "poppy.diagnostics" },
       { type: "poppy.signin.cancel", signInId: "s1" },
       { type: "poppy.direct.close", conversationId: "c1" }
     ]);

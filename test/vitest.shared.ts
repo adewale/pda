@@ -2,6 +2,7 @@ import path from "node:path";
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { exportJWK, generateKeyPair } from "jose";
 import { configDefaults, defineConfig } from "vitest/config";
+import { buildDefines } from "../scripts/build-info.ts";
 // Google and GitHub, faked as the outbound service; the file says how tests drive them.
 import { fakeProviders } from "./fake-providers.ts";
 
@@ -32,6 +33,8 @@ async function poppySecrets() {
  */
 export async function workersConfig(options: { name: string; include: string[]; exclude?: string[] }) {
   return defineConfig({
+  // As the build: the commit and compatibility date on every wide event (src/log.ts).
+  define: buildDefines(path.join(testsDir, "wrangler.jsonc")),
   plugins: [
     cloudflareTest({
       wrangler: { configPath: path.join(testsDir, "wrangler.jsonc") },

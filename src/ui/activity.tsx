@@ -6,7 +6,7 @@ import type { ActivityView, ProtocolView } from "../use-pi-session";
 import { Action, EmptyState, PageHeader, Section, SkeletonRows, Truncated, useNow } from "./controls";
 import { ACCESS, ago, countdown, DECIDED, fullDate, HOW, RESULT, when } from "./format";
 import { PROTOCOL_LOG_LIMIT } from "../poppy/wire";
-import { ProtocolList } from "./protocol";
+import { Diagnostics, ProtocolList } from "./protocol";
 
 type Send = (frame: PoppyClientFrame) => void;
 
@@ -182,6 +182,12 @@ export function ActivityPage({ activity, protocol, send }: { activity: ActivityV
         description={`Each Poppy request your agent made to a Company, oldest first, with its spec section and what came back: the last ${PROTOCOL_LOG_LIMIT} per Company. Never headers, bodies, tokens, keys or codes.`}
       >
         <ProtocolList protocol={protocol} send={send} />
+      </Section>
+      <Section
+        title="Diagnostics"
+        description="For the operator, when something went wrong: your agent's last 200 events (when and how it worked, which Companies and tools, model usage and cost) and the protocol log above, as text. Never what you, your agent or anyone else said."
+      >
+        <Diagnostics diagnostics={protocol.diagnostics} send={send} />
       </Section>
     </div>
   );

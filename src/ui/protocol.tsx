@@ -193,6 +193,63 @@ function CompanyProtocol({ company, log, send }: { company: ProtocolCompany; log
   );
 }
 
+/** A file name for the diagnostics download: the date and time it was made. */
+function diagnosticsFileName(at: number): string {
+  return `agent-diagnostics-${new Date(at).toISOString().slice(0, 19).replace(/:/g, "-")}.txt`;
+}
+
+/**
+ * "Copy diagnostics": the agent's newest events (src/agent-log.ts) and every
+ * Company's protocol log, as text a User can hand the operator, who then
+ * needs no access to the logs. Asked for when Activity opens, so the copy is
+ * ready when the button is pressed, and again after each copy.
+ */
+export function Diagnostics({ diagnostics, send }: { diagnostics: ProtocolView["diagnostics"]; send: Send }) {
+  const [said, setSaid] = useState("");
+  useEffect(() => {
+    send({ type: "poppy.diagnostics" });
+  }, [send]);
+  const copy = async () => {
+    if (!diagnostics) {
+      send({ type: "poppy.diagnostics" });
+      setSaid("Still getting them from your agent; try again in a moment.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(diagnostics.text);
+      setSaid("Copied. Paste them into your message to the operator.");
+    } catch {
+      setSaid("Couldn't copy here; use Download instead.");
+    }
+    send({ type: "poppy.diagnostics" });
+  };
+  const download = () => {
+    if (!diagnostics) return;
+    const url = URL.createObjectURL(new Blob([diagnostics.text], { type: "text/plain;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = diagnosticsFileName(diagnostics.at);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    setSaid("Downloaded.");
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Action variant="secondary" icon={<CopyIcon size={16} aria-hidden />} onClick={() => void copy()}>
+        Copy diagnostics
+      </Action>
+      <Action variant="secondary" icon={<DownloadSimpleIcon size={16} aria-hidden />} onClick={download} disabled={!diagnostics}>
+        Download diagnostics
+      </Action>
+      <span role="status" className="text-[13px] text-kumo-subtle">
+        {said}
+      </span>
+    </div>
+  );
+}
+
 /** Every Company's protocol log, each behind its own disclosure. */
 export function ProtocolList({ protocol, send }: { protocol: ProtocolView; send: Send }) {
   if (protocol.companies === null) return <SkeletonRows rows={1} label="Loading the protocol view" />;

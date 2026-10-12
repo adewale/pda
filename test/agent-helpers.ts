@@ -190,6 +190,22 @@ export async function tool(a: Pick<Agent, "stub">, name: string, args: Record<st
   return a.stub.poppyTool(name, args, callId);
 }
 
+/**
+ * The wide events (src/log.ts) written in this isolate since `mark`
+ * (`poppyLogMark`), parsed, oldest first. Every console line the app
+ * writes is one; anything else (a library's own line) is left out.
+ */
+export async function wideEvents(a: Pick<Agent, "stub">, mark: number): Promise<Array<Record<string, any>>> {
+  return (await a.stub.poppyLogsSince(mark)).flatMap((line) => {
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      return typeof event?.kind === "string" && event.service === "personal-agent" ? [event] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
 export async function cards(a: Pick<Agent, "stub">): Promise<Array<Record<string, any>>> {
   return JSON.parse(await a.stub.poppyCards());
 }

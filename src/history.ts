@@ -2,6 +2,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { ROOT_CONVERSATION_ID, type Cursor, type EntryId, type EntryRecord } from "@earendil-works/pi-durable";
 import type { PiHarness } from "agents/harness/pi";
 import { LifecycleCapability } from "agents/lifecycle";
+import { plainUnits, type Units } from "./log";
 
 /**
  * The messages before a summary, for the page. pi's snapshot holds only the
@@ -62,10 +63,12 @@ export async function entriesBefore(harness: PiHarness, before: number, limit = 
 /** Answers the page's `history.before` frames; everything else goes on to the next capability. */
 export class TranscriptHistory extends LifecycleCapability {
   readonly #harness: PiHarness;
+  readonly #units: Units;
 
-  constructor(harness: PiHarness) {
+  constructor(harness: PiHarness, units: Units = plainUnits) {
     super("history");
     this.#harness = harness;
+    this.#units = units;
   }
 
   async onWebSocketMessage(socket: WebSocket, message: string | ArrayBuffer | ArrayBufferView): Promise<boolean> {
@@ -83,7 +86,8 @@ export class TranscriptHistory extends LifecycleCapability {
       const answer: HistoryFrame = { type: "history", before, entries, more };
       socket.send(JSON.stringify(answer));
     } catch (error) {
-      console.warn("history failed", error instanceof Error ? error.name : "error");
+      // A read that worked needs no event; one that failed gets its own.
+      await this.#units.frame("history.before", {}, async (event) => void event.fail(error));
     }
     return true;
   }

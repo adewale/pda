@@ -21,6 +21,7 @@
  * back on a list) starts it again (`resumeSignedIn`).
  */
 import { LifecycleCapability, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle";
+import { plainUnits, reportError, type Units } from "./log";
 import type { Card } from "./poppy/wire";
 import { formatDate, wallAt } from "./tools/clock";
 import { PAUSE_AFTER_FAILURES, ScheduleError, ScheduleStore, type NewSchedule, type Schedule } from "./tools/schedule-store";
@@ -55,6 +56,8 @@ export type SchedulerOptions = {
   readonly maySignIn: () => boolean;
   /** Something Activity shows changed. */
   readonly changed: () => void;
+  /** Where each run writes its wide event (src/log.ts); `plainUnits` by default. */
+  readonly units?: Units;
 };
 
 const JOB = "schedule-due";
@@ -133,22 +136,35 @@ export class Scheduler extends LifecycleCapability {
     if (!schedule || schedule.status !== "active" || schedule.nextRun === null) return;
     // Woken early (another clock, a stale job): wait for the row's own time.
     if (schedule.nextRun > this.#options.now()) return { rescheduleAt: this.#options.jobTime(schedule.nextRun) };
-    if (!this.#maySignIn()) {
-      // Taken off the lists: nothing runs, nothing is sent, and the row waits, paused, until they sign in again.
-      this.store.pause(schedule.id, SIGNED_OUT);
-      this.#options.changed();
-      return;
-    }
-    try {
-      await this.#run(schedule);
-    } catch (error) {
-      console.warn("schedule run failed", error instanceof Error ? error.message : String(error));
-    }
+    const dueAt = schedule.nextRun;
+    const units = this.#options.units ?? plainUnits;
+    return units.job({ job: JOB, schedule_id: schedule.id, schedule_kind: schedule.kind }, async (event) => {
+      if (!this.#maySignIn()) {
+        // Taken off the lists: nothing runs, nothing is sent, and the row waits, paused, until they sign in again.
+        this.store.pause(schedule.id, SIGNED_OUT);
+        this.#options.changed();
+        event.set({ outcome: "refused", reason: "signed_out" });
+        return;
+      }
+      try {
+        await this.#run(schedule);
+      } catch (error) {
+        event.fail(error);
+      }
+      const run = this.store.run(`schedule:${schedule.id}:${dueAt}`);
+      if (run?.outcome === "failed") event.level = "error";
+      else if (run && event.level !== "error") event.set({ outcome: run.outcome === "started" ? "started" : "success", run: run.outcome });
+      return this.#afterRun(schedule.id, dueAt);
+    });
+  }
+
+  /** After a run: Activity changed, and the row's next job, if it still has one. */
+  #afterRun(id: string, dueAt: number): LifecycleJobOutcome | void {
     this.#options.changed();
-    const after = this.store.get(schedule.id);
+    const after = this.store.get(id);
     if (!after || after.status !== "active" || after.nextRun === null) return;
     // A run that failed before the row moved on would wake again at once, and again: end the job instead (onStart re-arms it).
-    if (after.nextRun <= schedule.nextRun) return;
+    if (after.nextRun <= dueAt) return;
     return { rescheduleAt: this.#options.jobTime(after.nextRun) };
   }
 
@@ -187,7 +203,8 @@ export class Scheduler extends LifecycleCapability {
   /** Wait for a task's turn to end, then record how it went. */
   #settle(scheduleId: string, operationId: string): void {
     if (this.#waiting.has(operationId)) return;
-    const waiting = (async () => {
+    const units = this.#options.units ?? plainUnits;
+    const waiting = units.job({ job: "schedule-settle", schedule_id: scheduleId, operation_id: operationId }, async (event) => {
       let end: TaskEnd;
       try {
         end = await this.#options.taskEnded(operationId);
@@ -206,10 +223,12 @@ export class Scheduler extends LifecycleCapability {
         const reason = end.reason ? `The turn ended without an answer: ${end.reason}` : "The turn ended without an answer";
         this.store.finishRun(operationId, "failed", reason);
         if (schedule) await this.#failed(schedule, run.dueAt, reason);
+        event.fail(new Error("The turn ended without an answer"), { code: "unanswered" });
       }
       this.#options.changed();
-    })()
-      .catch((error: unknown) => console.warn("schedule settle failed", error instanceof Error ? error.message : String(error)))
+    })
+      // Recorded on the job's event already.
+      .catch(() => undefined)
       .finally(() => this.#waiting.delete(operationId));
     this.#waiting.set(operationId, waiting);
   }
@@ -219,7 +238,7 @@ export class Scheduler extends LifecycleCapability {
     try {
       return this.#options.maySignIn();
     } catch (error) {
-      console.warn("sign-in check failed", error instanceof Error ? error.message : String(error));
+      reportError(error, { source: "schedules.sign_in_check" });
       return false;
     }
   }
@@ -264,7 +283,7 @@ export class Scheduler extends LifecycleCapability {
       await this.#options.push(message);
     } catch (error) {
       // A notification that didn't go is never a failed run.
-      console.warn("push failed", error instanceof Error ? error.message : String(error));
+      reportError(error, { source: "web_push", severe: false });
     }
   }
 

@@ -1,9 +1,10 @@
-import type { AttachResult, KeyResult, PersonalAgent } from "./agent";
-import { maySignIn } from "./allowlist";
+import type { AttachResult, Caller, KeyResult, PersonalAgent } from "./agent";
+import { isAllowed, maySignIn, readOwners } from "./allowlist";
 import { humanSize, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES } from "./attachments";
 import { ConfigError, readSessionSecret, readSignInProviders } from "./config";
 import { checkDeployment } from "./deployment.ts";
 import { withPagePolicy } from "./csp";
+import { code, configureLog, currentEvent, inScope, wideEvent } from "./log";
 import { privacyPage } from "./privacy";
 import { parseSubscription, readVapidKey } from "./web-push";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
@@ -39,18 +40,64 @@ function sameOrigin(request: Request): boolean {
 /**
  * The signed-in person, if they may still use the app: removing someone from
  * the allowlist (or `OWNERS`) and redeploying locks them out on their next
- * request.
+ * request. What the agent is handed: who they are, and this request's id,
+ * for the events of any turn the call starts.
  */
-async function signedIn(request: Request, env: Env): Promise<Identity> {
+async function signedIn(request: Request, env: Env): Promise<Caller> {
   const identity = await verifySession(request, readSessionSecret(env));
+  const event = currentEvent();
+  event?.set({ sign_in_provider: identity.provider });
   if (!maySignIn(identity, env)) throw new AuthError("Not allowed to sign in");
-  return identity;
+  // Pseudonymous: the agent's Durable Object id, as its events and the demo gateway's metadata carry it. Never the email or provider id.
+  event?.set({ signed_in: true, agent_id: env.PersonalAgent.idFromName(await agentNameFor(identity)).toString().slice(0, 32), is_owner: isAllowed(identity, readOwners(env)) });
+  const requestId = typeof event?.fields.request_id === "string" ? event.fields.request_id : undefined;
+  return requestId ? { ...identity, requestId } : identity;
 }
 
 /** The person's own agent, named by a hash of who they are. */
 async function agentFor(identity: Identity, env: Env): Promise<DurableObjectStub<PersonalAgent>> {
-  return env.PersonalAgent.getByName(await agentNameFor(identity));
+  return env.PersonalAgent.getByName(await agentNameFor({ provider: identity.provider, sub: identity.sub }));
 }
+
+/** This request's id: Cloudflare's `cf-ray`, or a new one where there is none (local dev, tests). */
+function requestIdOf(request: Request): string {
+  return code(request.headers.get("cf-ray")) ?? crypto.randomUUID();
+}
+
+/** The route a path takes, as a template: never an id, and never a query. */
+export function routeOf(pathname: string): string {
+  const path = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+  if (EXACT_ROUTES.has(path)) return path;
+  if (/^\/api\/(attachments|memories|schedules)\/[^/]+$/.test(path)) return `${path.slice(0, path.lastIndexOf("/"))}/{id}`;
+  if (/^\/auth\/(google|github)(\/callback)?$/.test(path)) return path;
+  if (path.startsWith("/auth/")) return "/auth/{other}";
+  if (path.startsWith("/api/")) return "/api/{other}";
+  if (path.startsWith("/poppy/")) return "/poppy/{other}";
+  if (path.startsWith("/validator/")) return "/validator/{other}";
+  return "{other}";
+}
+
+const EXACT_ROUTES = new Set([
+  "/",
+  "/ws",
+  "/api/me",
+  "/api/sign-in-options",
+  "/api/entitlement",
+  "/api/model-key",
+  "/api/attachments",
+  "/api/memories",
+  "/api/schedules",
+  "/api/push/key",
+  "/api/push/subscription",
+  "/privacy",
+  "/logout",
+  "/poppy/callback",
+  "/poppy/client.json",
+  "/poppy/jwks.json",
+  "/validator",
+  "/validator/api",
+  "/validator/messages"
+]);
 
 /** Verify the session, upgrade, and forward to the person's own agent. */
 async function handleWs(request: Request, env: Env): Promise<Response> {
@@ -65,9 +112,9 @@ async function handleWs(request: Request, env: Env): Promise<Response> {
   const agent = await agentFor(identity, env);
   // Who this agent belongs to, for the demo check on its model calls.
   await agent.recordIdentity(identity);
-  // Drop the query string so the client cannot pick a pi session.
+  // Drop the query string so the client cannot pick a pi session; name this request, for the turns its messages start.
   const url = new URL(request.url);
-  const forwarded = new Request(`${url.origin}/ws`, request);
+  const forwarded = new Request(`${url.origin}/ws${identity.requestId ? `?request_id=${encodeURIComponent(identity.requestId)}` : ""}`, request);
   return agent.fetch(forwarded);
 }
 
@@ -91,7 +138,9 @@ function handleSignInOptions(request: Request, env: Env): Response {
 async function handleEntitlement(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return text(405, "Method not allowed");
   const identity = await signedIn(request, env);
-  return json(200, await (await agentFor(identity, env)).entitlement(identity));
+  const entitlement = await (await agentFor(identity, env)).entitlement(identity);
+  currentEvent()?.set({ lane: entitlement.lane });
+  return json(200, entitlement);
 }
 
 /**
@@ -114,6 +163,7 @@ async function handleModelKey(request: Request, env: Env): Promise<Response> {
     return json(400, { error: "Send JSON with provider and key." });
   }
   const result: KeyResult = await agent.setModelKey(identity, body?.provider, body?.key, body?.workspace);
+  if (result.ok) currentEvent()?.set({ lane: result.entitlement.lane });
   return result.ok ? json(200, result.entitlement) : json(result.status, { error: result.error });
 }
 
@@ -292,7 +342,7 @@ async function handlePoppy(request: Request, env: Env): Promise<Response> {
   }
   const agent = await agentFor(identity, env);
   await agent.recordIdentity(identity);
-  return agent.fetch(new Request(url.toString(), { method: "GET" }));
+  return agent.fetch(new Request(url.toString(), { method: "GET", headers: identity.requestId ? { "x-request-id": identity.requestId } : {} }));
 }
 
 /** `/auth/<provider>` and `/auth/<provider>/callback`. */
@@ -307,11 +357,45 @@ async function handleAuth(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
-  /** Every page the Worker writes gets the app's Content-Security-Policy. */
+  /**
+   * Every page the Worker writes gets the app's Content-Security-Policy, and
+   * every request one wide event (src/log.ts), written when it ends: the
+   * method, the route's template, the status, who (pseudonymously) and how
+   * it went. Handlers add to it through `currentEvent()`.
+   */
   async fetch(request: Request, env: Env): Promise<Response> {
-    return withPagePolicy(await route(request, env));
+    configureLog(env);
+    const cf = (request as { cf?: { colo?: unknown; country?: unknown } }).cf;
+    const event = wideEvent("http", {
+      method: request.method,
+      route: routeOf(new URL(request.url).pathname),
+      request_id: requestIdOf(request),
+      signed_in: false,
+      ...(typeof cf?.colo === "string" ? { colo: cf.colo } : {}),
+      ...(typeof cf?.country === "string" ? { country: cf.country } : {})
+    });
+    try {
+      const response = await inScope(event, () => route(request, env));
+      event.set({ status: response.status });
+      if (event.fields.outcome === undefined) event.set({ outcome: outcomeOf(response.status) });
+      if (response.status >= 500) event.level = "error";
+      return withPagePolicy(response);
+    } catch (error) {
+      event.set({ status: 500 }).fail(error);
+      throw error;
+    } finally {
+      event.emit();
+    }
   }
 } satisfies ExportedHandler<Env>;
+
+/** How a status reads in the event: refused for 401 and 403, rejected for other 4xx, error for 5xx. */
+function outcomeOf(status: number): string {
+  if (status >= 500) return "error";
+  if (status === 401 || status === 403) return "refused";
+  if (status >= 400) return "rejected";
+  return "success";
+}
 
 /** The Worker's own routes; static assets serve everything else. */
 async function route(request: Request, env: Env): Promise<Response> {
@@ -354,11 +438,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (error instanceof AuthError) {
       return text(401, "Unauthorized");
     }
-    if (error instanceof ConfigError) {
-      console.error("config error", error.message);
-      return text(500, error.message);
-    }
-    console.error("request failed", error instanceof Error ? `${error.name}: ${error.message}` : "unknown");
+    // On the request's event: its class, and its message redacted.
+    currentEvent()?.fail(error, error instanceof ConfigError ? { code: "config" } : {});
+    if (error instanceof ConfigError) return text(500, error.message);
     return text(500, "Internal error");
   }
 }

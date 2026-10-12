@@ -7,7 +7,7 @@ import type { PoppyClient } from "../src/poppy/client";
 import { tokenHostAllowed, type Company as PoppyCompany } from "../src/poppy/discovery";
 import { isSignInPage } from "../src/poppy/browser";
 import { assertPublicHost, fetchJson, PoppyFetchError, type Fetcher } from "../src/poppy/fetch";
-import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
+import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
 import worker from "./worker";
 
@@ -2244,7 +2244,10 @@ describe("7.13 conversation errors", () => {
       expect(replayed.text).toBe(
         `Mock Shop ${c.id} already has message ${message} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived. [message_id_conflict]`
       );
-      expect((await a.stub.poppyLogsSince(logMark)).some((line) => line.includes("poppy message_id_conflict"))).toBe(true);
+      // On the tool call's turn event, at level error, by its code (src/log.ts).
+      const turn = (await wideEvents(a, logMark)).find((event) => event.kind === "turn");
+      expect(turn).toMatchObject({ level: "error", tool_outcomes: expect.stringContaining("poppy_message:error") });
+      expect(turn!.errors).toContainEqual(expect.objectContaining({ type: "PoppyError", code: "message_id_conflict", step: "poppy.conversation_send" }));
       // Two sends of that id, the second refused; nothing under another id, and the Company kept the first.
       expect(await posts(c, id)).toEqual({ messages: [202, 409], started: 1 });
       expect((await c.stub.state()).conversations[0]!.sent).toEqual(["agent:hello", "agent:First version."]);
