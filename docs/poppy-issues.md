@@ -45,12 +45,12 @@ A two-Worker demo: a Company ("Northstar") and a Personal Agent, wired to each o
 | Only ES256; `htu` is checked against `request.url` rather than a configured origin; metadata fetches follow redirects. | `shared/protocol.ts:69,80,82`; `index.ts:13,19` | Guides | Low |
 | The consent page shows only `client_name`: no `client_id` domain, logo or duration. | `ui.ts:24` | 4.5, Guides | Low |
 | By design, the Company accepts only its sibling agent's `client_id`, so other agents get `invalid_client`. | `index.ts:8,12-13,16,19` | 4.1 (allowed) | Note |
-| Grid: the agent requires the issuer to equal the Company's origin, so it fails every scenario at a Company whose issuer is on another host or has a path (our mock, adonis-agora). See spec [N36](spec-issues.md#n36). | caller | 3.2 | High |
+| Grid: the agent requires the issuer to equal the Company's origin, so it fails every scenario at a Company whose issuer is on another host or has a path (our mock, adonis-agora). The draft's own examples put the issuer on another host (3, 3.2). | caller | 3.2 | High |
 | Grid: the agent parses the revocation response as JSON. RFC 7009 allows an empty 200, so sign-out throws at poppyseed. | caller | 4.9, RFC 7009 | Medium |
 | Grid: the agent throws (`new URL(undefined)`) at a signed-out Company with no `authorization_endpoint`, such as Ilmer. | caller | 3.1 | Medium |
 | Grid: the agent always asks for the hard-coded `poppy:read poppy:write`, whatever `auth.direct.scopes` offers, so it can't sign in at a Company with its own scopes (Datalayer's Manzanita offers `orders:read` and `orders:write` and answers `invalid_scope`). | `shared/protocol.ts:5`; `workers/caller/src/session.ts:190` | 4.4, 4.5 | Medium |
 | Grid: Northstar answers 500 instead of `invalid_client` for client metadata that isn't JSON, and instead of `invalid_token` for a well-formed token naming no Session. | receiver | 4.1, 6 | Low |
-| Grid: agent keys keep `kid: agent-key-1` when rotated, so a Company that caches by `kid` uses a stale key ([N38](spec-issues.md#n38)). | caller | Guides | Low |
+| Grid: agent keys keep `kid: agent-key-1` when rotated, so a Company that caches by `kid` uses a stale key; the Guides say "Give every key a `kid`". | caller | Guides | Low |
 
 Its live documents pass our validator with no errors or warnings, and are fixtures in `test/validator.test.ts`.
 
@@ -154,7 +154,7 @@ A Personal Agent extension for the pi coding agent, with its own mock Company, r
 | Grid: Session assertions have no `typ`, so strict Companies refuse every request ([S2](spec-issues.md#s2)). | 4.2 | Medium |
 | Grid: after `invalid_session` from the token endpoint it gives up instead of starting a new Session ([N39](spec-issues.md#n39)). | 4.2 | Medium |
 | Grid: `null` optional Operation members are rejected, so an operation Datalayer performed is reported as failed ([N41](spec-issues.md#n41)). | Ops | Medium |
-| Grid: its Company answers an unknown `kid` with `invalid_client` and doesn't refetch the JWKS for 60 s ([N38](spec-issues.md#n38)). | Guides | Low |
+| Grid: its Company answers an unknown `kid` with `invalid_client` and doesn't refetch the JWKS for 60 s, though the Guides say "Companies refetch `jwks_uri` when they see an unknown `kid`". | Guides | Low |
 
 ## This project
 

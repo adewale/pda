@@ -353,8 +353,8 @@ Profile: "both" means the strict mock (conformance tests, `dpa-mock-strict`) and
 | `client-metadata.fetch-status` | MUST (4.1; Guides: fetch it without following redirects) | 4.1: "MUST be an HTTPS URL that returns its metadata document"; Guides #company-agents: "Fetch the `client_id` URL without following redirects." | both | refuses; redirect refusal is Guides |
 | `client-metadata.not-json` | MUST (4.1) | 4.1: "returns its metadata document" | both | refuses |
 | `client-metadata.client-id-mismatch` | MUST (4.1) | 4.1: "`client_id` MUST equal the URL the document was fetched from." | both | refuses |
-| `client-metadata.jwks-uri` | MUST (4.1; "same domain" read as the same host, S6) | 4.1: "`jwks_uri` and every entry in `redirect_uris` MUST be HTTPS URLs on the same domain as `client_id`." Same host = S6. | both | refuses |
-| `client-metadata.redirect-uris` | MUST (4.1; "same domain" read as the same host, S6) | 4.1 (same sentence) | both | refuses |
+| `client-metadata.jwks-uri` | MUST (4.1; "same domain" read as the same host) | 4.1: "`jwks_uri` and every entry in `redirect_uris` MUST be HTTPS URLs on the same domain as `client_id`." Same host = S6. | both | refuses |
+| `client-metadata.redirect-uris` | MUST (4.1; "same domain" read as the same host) | 4.1 (same sentence) | both | refuses |
 | `client-metadata.auth-method` | Rule (4.1) | 4.1: "(`private_key_jwt`, RFC 7523)" and the example's `"token_endpoint_auth_method": "private_key_jwt"` | both | records |
 | `client-metadata.jwks-status` | Rule (4.1) | 4.1: "Companies fetch it … to get the keys it signs with" | both | refuses |
 | `client-metadata.jwks-empty` | Rule (4.1) | 4.1 (as above) | both | refuses |

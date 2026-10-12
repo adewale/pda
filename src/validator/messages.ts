@@ -115,7 +115,7 @@ export const MESSAGES = define({
     refuses: true,
     title: "Client metadata is served by a redirect",
     explain:
-      "client_id MUST equal the URL the document was fetched from (4.1), and the Guides tell Companies to fetch it without following redirects, so a redirect there fails verification at Companies that do, and this validator, like our client with any document, doesn't follow it. The draft itself doesn't address redirects here (spec-issues S6), so this is a warning.",
+      "client_id MUST equal the URL the document was fetched from (4.1), and the Guides tell Companies to fetch it without following redirects, so a redirect there fails verification at Companies that do, and this validator, like our client with any document, doesn't follow it. Only the Guides say not to follow redirects here, and the Guides are recommendations, so this is a warning.",
     fix: "Serve the client metadata document directly at its client_id URL.",
     ref: guides("Verifying personal agents", "company-agents")
   },

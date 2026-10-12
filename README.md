@@ -1,6 +1,6 @@
 # Durable Personal Agent
 
-**A Personal Agent for [Poppy](https://personalagentprotocol.org/), the Personal Agent Protocol, built alongside the tools we used to test it: a validator, a strict mock Company, an interop harness that runs other projects' code, and 68 written-up spec issues.** It is for the draft's authors and for people implementing either side of the protocol.
+**A Personal Agent for [Poppy](https://personalagentprotocol.org/), the Personal Agent Protocol, built alongside the tools we used to test it: a validator, a strict mock Company, an interop harness that runs other projects' code, and 62 written-up spec issues.** It is for the draft's authors and for people implementing either side of the protocol.
 
 Poppy is a draft standard, published as Draft 0.1 on 9 October 2026, for AI agents acting for people at companies. This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, starts a Session, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page before an action that changes your account. The status is alpha. The agent has run only against our mock and other projects' demos and SDKs, and never against a live Company. The one deployed product we know of that publishes `poppy.json`, [Spot](docs/ecosystem.md#companies-you-can-reach), isn't in the grid.
 
@@ -38,7 +38,7 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 
 ## For the draft's authors: what we found
 
-Comparing implementations, crawling the site and running the grid turned up 68 problems in the draft, each with a suggested fix and what we do meanwhile ([spec-issues.md](docs/spec-issues.md)). The ones with the widest effect:
+Comparing implementations, crawling the site and running the grid turned up 62 problems in the draft, each with a suggested fix and what we do meanwhile ([spec-issues.md](docs/spec-issues.md)). The ones with the widest effect:
 
 - [N2](docs/spec-issues.md#n2): a sign-in isn't bound to its Session until the code exchange, so a code can be redeemed into another User's Session of the same agent.
 - [N9](docs/spec-issues.md#n9): only `issuer` and conversation endpoints must be HTTPS, which leaves the Mediated Sign-In endpoint, which receives passwords, open.

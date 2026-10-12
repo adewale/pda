@@ -67,7 +67,7 @@ Rule 3 needs evidence in the trace that the question mattered (a `reading.<id>.r
 
 **Rule 4, unattributed (no single side by rule; the known failure names the cause):**
 
-- poppy-demo × dpa-mock, dpa-mock-strict and adonis-agora (the rest, including D at both mocks): its caller requires `auth.issuer` to equal the Company's origin, and those issuers are on `auth.` or under `/poppy` ([N36](../spec-issues.md#n36)).
+- poppy-demo × dpa-mock, dpa-mock-strict and adonis-agora (the rest, including D at both mocks): its caller requires `auth.issuer` to equal the Company's origin, and those issuers are on `auth.` or under `/poppy`, as the draft's own examples allow.
 - poppy-demo × Ilmer (D, S0 and C) and × print-with-poppy (D, S0): neither has an `authorization_endpoint` (signed-out only), and the caller runs `new URL(undefined)` on it.
 - poppy-demo × Datalayer TS and Python, SD, SX, CA, SO, AO: the caller always asks for its hard-coded `poppy:read poppy:write`; Manzanita offers only `orders:read` and `orders:write` and answers `invalid_scope`.
 - poppy-demo × poppyseed, SO: poppyseed answers revocation with an empty 200 (RFC 7009 allows it); the caller parses it as JSON and throws.

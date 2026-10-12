@@ -130,7 +130,7 @@ Each implementation's cells, as pass / fail / unsupported, summed over the grid'
 | Datalayer TS | 147 / 7 / 86 | 95% of 154 | The same SVN failure, and its event stream gives up after five quick reconnects (CS). |
 | adonis-agora | 100 / 39 / 101 | 72% of 139 | Its assertions carry no `typ`, which three Companies refuse ([S2](spec-issues.md#s2), the spec's); its device and revocation `aud` ([S1](spec-issues.md#s1)); renewal without `session_id` at Datalayer. |
 | pi-poppy | 102 / 45 / 93 | 69% of 147 | No `typ` (S2); it resends the Session assertion on a nonce retry; it throws when a Company ends the Session ([N39](spec-issues.md#n39)). |
-| poppy-demo caller | 27 / 43 / 170 | 39% of 70 | It requires the issuer to be the Company's origin ([N36](spec-issues.md#n36)), always asks for its hard-coded scopes, and crashes on a missing `authorization_endpoint`. |
+| poppy-demo caller | 27 / 43 / 170 | 39% of 70 | It requires the issuer to be the Company's origin, though the draft's examples put it elsewhere, always asks for its hard-coded scopes, and crashes on a missing `authorization_endpoint`. |
 
 **As a Company** (against all six agents):
 
@@ -204,7 +204,7 @@ Where the draft is ambiguous, implementations already disagree. The questions ar
 | Fillthemat (planned) | this School's token endpoint, exactly | not stated | insertion (path issuers) | not stated |
 | nestjs-agent | token endpoint (as adonis-agora) | no `typ`, `kid`, 60 s | insertion | omits |
 
-The others most often met: [S9](spec-issues.md#s9) (a retried first message), [S23](spec-issues.md#s23) (nonce scope), [N36](spec-issues.md#n36) (an issuer on another host or with a path), [N39](spec-issues.md#n39) (the error for an ended Session) and [N41](spec-issues.md#n41) (`null` for an optional member). Validators disagree too, mostly on how strict to be where the draft has no keyword: see the [cross-check](interop-testing.md#validator-cross-check).
+The others most often met: [S9](spec-issues.md#s9) (a retried first message), [S23](spec-issues.md#s23) (nonce scope), [N39](spec-issues.md#n39) (the error for an ended Session) and [N41](spec-issues.md#n41) (`null` for an optional member). Validators disagree too, mostly on how strict to be where the draft has no keyword: see the [cross-check](interop-testing.md#validator-cross-check).
 
 ## How to update this map
 

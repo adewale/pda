@@ -116,7 +116,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
   - **Flaky cells.** A failed cell runs once more; a pass then is flaky, counts as a pass, is listed apart, and never matches a known failure.
   - Our agent there is `src/poppy` in Node with no model, so results never depend on an LLM.
 - **Alternatives.** *One-sided conformance suites only* (Datalayer's vectors, poppyseed's checker) test one side, and can't find two conforming implementations that fail together. *`wrangler dev` for our side:* Node trusts the run's CA, starts in a second, and needs no `workerd` networking in a container.
-- **Consequences.** The 11 October grid ([summary](interop-results/README.md)) gave evidence for S1, S2 and S9, found spec issues N36 to N42 and per-project bugs ([poppy-issues.md](poppy-issues.md)), and ended with every failure a known one. Harness bugs were as common as implementation bugs at first.
+- **Consequences.** The 11 October grid ([summary](interop-results/README.md)) gave evidence for S1, S2 and S9, found spec issues N39 to N42 (N36 to N38 were later withdrawn as our misreadings) and per-project bugs ([poppy-issues.md](poppy-issues.md)), and ended with every failure a known one. Harness bugs were as common as implementation bugs at first.
 - **When.** 11 October: design (`850860c`), contract (`1cb5835`), runner (`909fffa`), wildcards and two reference mocks (`33ec7e1`), stale entries and flaky retries (`8fde2fb`).
 
 ## 10. Third-party adapters frozen, and some kept unrun
