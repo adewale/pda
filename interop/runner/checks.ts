@@ -56,7 +56,8 @@ export const TRACE_CHECKS = {
   "dpop.ath": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof ath isn't the hash of the token sent" },
   "dpop.ath-at-token-endpoint": { side: "agent", basis: "Rule", mock: true, what: "DPoP proof at the token endpoint carries ath" },
   "secret.token-in-url": { side: "agent", basis: "MUST", mock: true, what: "A token sent in a URL" },
-  "rate-limit.retry-after-ignored": { side: "agent", basis: "MUST", mock: true, what: "Request sent before an earlier Retry-After elapsed" },
+  "rate-limit.retry-after-ignored": { side: "agent", basis: "MUST", mock: true, what: "Request sent again before its Retry-After elapsed" },
+  "rate-limit.shared-limit-ignored": { side: "agent", basis: "Guides", mock: true, what: "A different request sent to the Company before an earlier Retry-After elapsed" },
   "token.unlisted-host": { side: "agent", basis: "Reading", mock: false, what: "A Session Token sent to a host the Company's documents don't list (our reading, N10)" },
   "redirect.credentials-followed": { side: "agent", basis: "Guides", mock: false, what: "A redirect followed with the token or proof of the request that got it (Guides)" },
   "company.www-authenticate": { side: "company", basis: "RFC", mock: false, what: "401 to a request with a token, without WWW-Authenticate (RFC 6750, RFC 9449)" },
@@ -324,18 +325,32 @@ export function redirectChecks(all: readonly Exchange[]): Check[] {
   return found;
 }
 
-/** A request to the same Company before an earlier 429's Retry-After elapsed (100 ms of slack for the proxy's clock). */
+/**
+ * Requests to a Company before an earlier 429's Retry-After elapsed (100 ms
+ * of slack for the proxy's clock). 4.3's MUST is about sending the request
+ * again ("before sending the request again"): the same method and URL is
+ * `rate-limit.retry-after-ignored`. A different request to that Company in
+ * the wait departs only from the Guides' advice to share a Company's limit
+ * across tasks, `rate-limit.shared-limit-ignored`, a warning, as the mock
+ * Company reads it.
+ */
 export function retryAfterChecks(all: readonly Exchange[]): Check[] {
   const found: Check[] = [];
-  const blocked = new Map<string, number>();
+  const blocked = new Map<string, { until: number; request: string }[]>();
   for (const x of [...agentRequests(all)].sort((a, b) => a.started - b.started)) {
-    const until = blocked.get(x.peer ?? "");
-    if (until !== undefined && x.started < until - 100) {
-      found.push(check("rate-limit.retry-after-ignored", x, `sent ${until - x.started} ms before Retry-After elapsed`));
+    const peer = x.peer ?? "";
+    const request = `${x.method} ${x.url.href}`;
+    const waits = (blocked.get(peer) ?? []).filter((wait) => x.started < wait.until - 100);
+    const same = waits.find((wait) => wait.request === request);
+    if (same) {
+      found.push(check("rate-limit.retry-after-ignored", x, `sent again ${same.until - x.started} ms before its Retry-After elapsed`));
+    } else if (waits.length > 0) {
+      const latest = Math.max(...waits.map((wait) => wait.until));
+      found.push(check("rate-limit.shared-limit-ignored", x, `sent ${latest - x.started} ms before an earlier Retry-After at this Company elapsed`));
     }
     if (x.status === 429) {
       const seconds = Number(x.responseHeaders.get("retry-after"));
-      if (Number.isFinite(seconds)) blocked.set(x.peer ?? "", x.ended + seconds * 1000);
+      if (Number.isFinite(seconds)) blocked.set(peer, [...waits, { until: x.ended + seconds * 1000, request }]);
     }
   }
   return found;

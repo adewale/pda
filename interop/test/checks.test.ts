@@ -123,6 +123,13 @@ describe("trace checks", () => {
     expect(retryAfterChecks(recording(limited, { url: "https://api.other.company.interop.test/x", at: 20 }))).toEqual([]);
   });
 
+  it("calls only the same request sent again a MUST failure; another request to that Company in the wait is the Guides' warning", () => {
+    const limited = { url: `${API}/products`, at: 0, time: 10, status: 429, responseHeaders: { "retry-after": "1" } };
+    expect(ids(retryAfterChecks(recording(limited, { url: `${API}/products`, at: 500 })))).toEqual(["rate-limit.retry-after-ignored:error"]);
+    expect(ids(retryAfterChecks(recording(limited, { url: `${API}/orders`, at: 500 })))).toEqual(["rate-limit.shared-limit-ignored:warning"]);
+    expect(ids(retryAfterChecks(recording(limited, { url: `${API}/orders`, at: 950 })))).toEqual([]);
+  });
+
   it("checks Company responses: WWW-Authenticate, Retry-After, OAuth errors, token responses", () => {
     const checks = companyChecks(
       recording(
