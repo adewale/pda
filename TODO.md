@@ -4,7 +4,7 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 
 ## Decisions for the owner
 
-- [ ] **A license.** None is chosen ([README](README.md#support-contributing-and-license)). It blocks making the repository public, which the proposals and the interop harness's reuse depend on.
+- [ ] **A license.** None is chosen ([README](README.md#security-contributing-and-licence)). It blocks making the repository public, which the proposals and the interop harness's reuse depend on.
 - [ ] **Make the repository public, or not.** The proposals and `docs/interop-results/` link into it.
 - [ ] **The final domain for `client_id`**, before any Company registers the agent; it can't change afterwards ([deployment-tasks](docs/deployment-tasks.md#1-configuration-and-accounts)).
 - [ ] **CI's runner image.** `ubuntu-latest` moves to Ubuntu 26 from 19 October 2026 (GitHub's notice on our runs): pin `ubuntu-24.04`, or accept the move.

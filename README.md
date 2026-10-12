@@ -1,115 +1,85 @@
 # Durable Personal Agent
 
-**Your own AI agent that can deal with companies for you, plus a validator that checks companies and agents are set up to work together.**
+**A Personal Agent for [Poppy](https://personalagentprotocol.org/), the Personal Agent Protocol, built alongside the tools we used to test it: a validator, a strict mock Company, an interop harness that runs other projects' code, and 68 written-up spec issues.** It is for the draft's authors and for people implementing either side of the protocol.
 
-Sign in with Google or GitHub and chat with your own Claude Sonnet 5.5 agent. It keeps one conversation that survives reloads, crashes and deploys. It is also a reference Personal Agent for the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy), a draft standard for AI agents acting for people at companies: it finds a company that supports the protocol, has you sign in on the company's own page, talks to the company's agent and uses its APIs and website, and asks you before anything that changes your account. It runs on Cloudflare Workers, with one Durable Object per person.
+Poppy is a draft standard, published as Draft 0.1 on 9 October 2026, for AI agents acting for people at companies. This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, starts a Session, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you before anything that changes your account. The status is alpha: no real business publishes `poppy.json` yet, so everything here has run against demos, SDKs and our own mock.
 
-The **Poppy Validator** checks the documents that make this work: a company's `poppy.json` and OAuth server metadata, and an agent's client metadata and keys. It is a web form, an HTTP API, a CLI and a library, and our agent uses it to decide which documents to trust.
+## See it work: ordering a print from print-with-poppy
 
-## Status
+[print-with-poppy](https://github.com/spenciefy/print-with-poppy) is a photo-printing store built for agents. We use it as the demo because its code isn't ours: our agent has to work with someone else's reading of the draft. It runs in its own demo mode, so an order never prints a photo or charges a card.
 
-Alpha. Poppy is Draft 0.1, published 9 October 2026, and may change incompatibly.
+| Step | You or the agent | Spec | On the page | Status |
+| --- | --- | --- | --- | --- |
+| 1 | You attach a photo and ask: "Print this as a 6×4 at print-with-poppy" | | Chat | In progress |
+| 2 | The agent fetches `poppy.json` and the OAuth metadata, and the validator checks both | §3 | Activity: discovery and its verdict | Works in the grid |
+| 3 | It starts a signed-out Session: a signed client assertion, then a DPoP-bound Session Token | §4.1–4.3 | Activity: the Session | Works in the grid |
+| 4 | It reads the store's OpenAPI catalog and uploads the photo | §6 | Tool lines | In progress |
+| 5 | It places the order; the store proposes an operation with its price and terms | Operations v1 | An approval card | In progress |
+| 6 | You approve on the page; the agent confirms and the order completes | Operations §4 | A receipt, and the exchange in Activity | In progress |
 
-- **Live:** https://personal-agent.adewale-883.workers.dev (chat; sign-in is allowlisted) and https://personal-agent.adewale-883.workers.dev/validator (public).
-- **Sign-in:** GitHub is configured; Google isn't registered yet. The demo lane's gateway has no credits yet, so model calls need your own key until it does.
-- **Tested** against fakes, a strict mock Company, and other projects' implementations in containers; **not yet** against a production Company, because none has published `poppy.json`.
-- **What's left** to deploy and check is in [`docs/deployment-tasks.md`](docs/deployment-tasks.md).
-- **Everything else still open** is in [`TODO.md`](TODO.md).
+"Works in the grid" means our agent passes that part against the store's pinned code in our [interop harness](#for-implementers-test-against-us), offline. The live store will accept our agent once its maintainer adds our `client_id` to its allowlist.
 
-## Read next
+## For implementers: test against us
 
-- [`durable-personal-agent-spec.md`](durable-personal-agent-spec.md): what is built and how, with Appendix A mapping every Poppy requirement to the code and the test that checks it.
-- [`docs/decisions.md`](docs/decisions.md): why it's built that way, and what was considered instead.
-- [`docs/setup.md`](docs/setup.md) and [`docs/deployment-tasks.md`](docs/deployment-tasks.md): deploying your own copy.
+- **The validator** checks a Company's `poppy.json` and OAuth metadata, or an agent's client metadata and keys, from a web form, an HTTP API, a CLI or a library. Its severities follow each requirement's basis: a broken MUST is an error, a departed SHOULD a warning ([conformance-levels.md](docs/conformance-levels.md)). Reference: [docs/validator.md](docs/validator.md).
 
-## Quick start
+  ```sh
+  curl -s https://personal-agent.adewale-883.workers.dev/validator/api \
+    -H 'Content-Type: application/json' \
+    -d '{"url": "your-company.example"}' | jq '{outcome, counts}'
+  ```
 
-Check a live company from your terminal:
+- **Our agent as your peer.** Its `client_id` is `https://personal-agent.adewale-883.workers.dev/poppy/client.json`. A Company that keeps an allowlist can add it, and we'll point the agent at you; Appendix A of [the spec](durable-personal-agent-spec.md) lists every requirement it implements and the test that checks it.
+- **The interop harness** (`interop/`) runs every agent against every Company in containers with no internet access, through a recording proxy, and blames each failure on a side by a named rule. It runs seven other projects today. The latest grid has 1,440 cells: 683 pass, 137 fail and 620 unsupported, and every failure is a known upstream or spec one. [docs/ecosystem.md](docs/ecosystem.md#scorecard) scores each implementation; [interop/README.md](interop/README.md) says how to add yours.
+- **Cross-checks.** Our validator runs against two other open validators on the same 107 documents ([results](docs/interop-testing.md#validator-cross-check)), and our client against Datalayer's language-neutral conformance cases ([results](interop/vectors/datalayer/README.md)).
+- **Findings in your code** go to you privately first, as [SECURITY.md](SECURITY.md) describes. Nothing is posted to another project without the owner's approval.
 
-```sh
-curl -s https://personal-agent.adewale-883.workers.dev/validator/api \
-  -H 'Content-Type: application/json' \
-  -d '{"url": "poppy-receiver.roundtrip.workers.dev"}' | jq '{outcome, counts}'
-```
+## For the draft's authors: what we found
 
-```json
-{
-  "outcome": "valid",
-  "counts": { "error": 0, "warning": 0, "info": 1 }
-}
-```
+Comparing implementations, crawling the site and running the grid turned up 68 problems in the draft, each with a suggested fix and what we do meanwhile ([spec-issues.md](docs/spec-issues.md)). The ones with the widest effect:
 
-Or open https://personal-agent.adewale-883.workers.dev/validator?url=poppy-receiver.roundtrip.workers.dev to see the same report as a page.
+- [N2](docs/spec-issues.md#n2): a sign-in isn't bound to its Session until the code exchange, so a code can be redeemed into another User's Session of the same agent.
+- [N9](docs/spec-issues.md#n9): only `issuer` and conversation endpoints must be HTTPS, which leaves the Mediated Sign-In endpoint, which receives passwords, open.
+- [N10](docs/spec-issues.md#n10): nothing says which hosts may receive a Session Token, and an OpenAPI description's `servers` can name any host.
+- [N11](docs/spec-issues.md#n11): a multi-tenant identity provider with one issuer merges unrelated Companies into one, with shared User IDs.
+- [N4](docs/spec-issues.md#n4): revoking the Account Token that a step-up replaced may sign out the Session that was just stepped up.
+- [S1](docs/spec-issues.md#s1) and [S2](docs/spec-issues.md#s2): the client assertion's `aud`, `typ` and lifetime are unstated. Implementations already disagree, and these two account for most of the grid's failures between projects.
 
-Work on the code (Node.js 24 or later, the LTS line `.nvmrc` names):
+Where the draft is ambiguous we chose a reading and wrote down why ([readings.md](docs/readings.md)): strict where security depends on it, lenient where it doesn't. Every claim we make about the draft quotes a stored copy of its text ([spec/grounding.md](spec/grounding.md)), and the ecosystem map lists every implementation we know of ([ecosystem.md](docs/ecosystem.md)). None of this has been sent to the draft's authors yet.
+
+## How it's built
+
+- **One agent per person.** Each Google or GitHub sign-in gets its own Durable Object running Pi, with its conversation, Poppy state, tokens and keys in its own SQLite. One person's agent can't read another's, and work survives crashes and deploys.
+- **Approval stays on the page.** Company text reaches the model labelled as information, never as approval. Anything that changes your account, including a website form, waits for your approval of exactly what will be sent, or for a standing permission you set.
+- **Secrets stay out of the model.** Session Tokens and DPoP keys live only in memory; Account Tokens and pasted model keys are sealed with AES-GCM and bound to their row; the model's tools never take or return a credential.
+- **Two ways to pay for the model.** An operator-paid demo through AI Gateway, capped per person and per domain before every call, or your own Anthropic or OpenAI key, sent straight to the vendor. Compaction keeps each request under about 200k tokens.
+- **Everything is tested offline.** Five suites run with the model, the vendors, Google, GitHub and every Company faked, and every Poppy test fails if the strict mock Company records a violation or a warning. A second client in Python drives a stateful Hypothesis test of the mock, because a misreading our client and mock share is invisible to both.
+
+The design is [durable-personal-agent-spec.md](durable-personal-agent-spec.md); why it is built this way is [docs/decisions.md](docs/decisions.md).
+
+## Status and limitations
+
+- **Live:** https://personal-agent.adewale-883.workers.dev, with sign-in limited to an allowlist, and the validator at `/validator`, open to anyone. GitHub sign-in works; Google sign-in isn't registered yet.
+- **No real Company yet.** The agent has run only against our mock and other projects' demos and SDKs.
+- **Not tried live:** the demo lane's gateway and its spend limits are faked in the tests ([deployment-tasks.md](docs/deployment-tasks.md)).
+- **Browsing runs no JavaScript,** so a site that needs it to show a page or send a form can't be browsed.
+- **Not built:** memory and skills.
+- Everything still open is in [TODO.md](TODO.md).
+
+## Run it yourself
+
+Node.js 24 or later:
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
 npm test                         # five suites; nothing calls the network
 npm run typecheck
 npm run check:docs               # every test the docs name exists
-npm run deps:check               # outdated packages and npm audit; fails only on high or critical
-npm run validate -- poppy-receiver.roundtrip.workers.dev   # the validator CLI
+npm run validate -- example.com  # the validator CLI
+npm run interop -- --agents dpa --companies dpa-mock   # the grid, in Docker
 ```
 
-Deploy your own: [`docs/setup.md`](docs/setup.md), in the order [`docs/deployment-tasks.md`](docs/deployment-tasks.md) gives.
-
-## What we built and why
-
-- **One agent per person.** Each signed-in identity gets its own Durable Object running Pi, holding its conversation, tokens and keys in its own SQLite, so one person's agent can't reach another's and work survives crashes and deploys.
-- **Sign-in and allowlists.** Google and GitHub OAuth in the Worker, because Cloudflare Access rejects the chat's WebSocket; `OWNERS`, `SIGNIN_ALLOWLIST` and `SIGNUP` say who may sign in, from an untracked file, so a fork names nobody.
-- **The Poppy client** (`src/poppy/`): discovery through the validator, Sessions with DPoP, all three sign-in types and Account Tokens, so the agent can act at a Company as the protocol intends, with every Personal Agent MUST mapped to a test.
-- **Conversations** with a Company's agent, read in the background with streaming, handoff to a person and Direct Conversations, because the Company Agent is how most tasks will get done.
-- **APIs and operations with approval.** OpenAPI and MCP calls, and the Operations extension; nothing that changes your account happens without your approval on the page or a standing permission you set, because Company text can't be trusted to ask.
-- **Website browsing** on a fetch-based browser with no JavaScript, for Companies whose site is the only way in; every form it would send waits for your approval of exactly what it sends.
-- **The page:** Chat with a "needs you" tray, Activity, Companies and Settings, so you can see what the agent did, where, with what access, and who decided.
-- **Model access in two lanes:** an operator-paid demo on AI Gateway, capped per person and per domain before every call, and your own Anthropic or OpenAI key, sent straight to the vendor, so the operator's bill has a ceiling and nobody else pays for your use.
-- **The discovery validator**, with stable message ids, explanations and an `indeterminate` outcome, because implementations needed a shared answer to "is this document right?" (the W3C Feed Validator's lesson).
-- **The strict mock Company** (`test/mock-company/`), because no real Company exists: it checks everything our client sends, every check has a named violation and a test proving it fires, and every Poppy test must leave none.
-- **The interop harness** (`interop/`): every agent against every Company in containers, through a recording proxy, with each failure blamed on a side by a named rule; and **adversarial testing**, malicious peers run only against our own implementations, because passing our own mock proves only our own reading.
-- **Five test suites and a second client.** Workers, durability, page, interop and property tests ([the spec's table](durable-personal-agent-spec.md#testing-and-conformance)), plus an independent Python client driving a Hypothesis stateful test of the mock, because a misreading our client and mock share is invisible to both.
-- **[Spec issues](docs/spec-issues.md) and [readings](docs/readings.md):** the draft's problems with suggested fixes, and the reading we chose for each open question and why, so they can go to the draft's authors.
-- **[Proposals](docs/proposals/)** for Poppy support in OpenClaw and Hermes Agent, unposted drafts, because a protocol needs more than one Personal Agent.
-
-## The validator
-
-- **Severity.** Each message names its basis, and its severity follows from it ([docs/conformance-levels.md](docs/conformance-levels.md)). An `error` breaks a MUST, an RFC's MUST or a rule the draft states without a key word, and only errors make a document invalid. A `warning` departs from a SHOULD, the Guides or our reading of an open question. An `info` is harmless. What our own client refuses is reported separately (`refused`, and `refuses` on each message): it also refuses a few warnings that guard against hostile documents (the Guides' fetch limits, duplicate members, HTTPS everywhere, spec-issues N9), and tolerates a few errors the draft tells readers to tolerate.
-- **Explanations.** Each message has a stable id and a page saying what it means and how to fix it ([all messages](https://personal-agent.adewale-883.workers.dev/validator/messages)).
-- **Outcome.** `valid`, `invalid`, or `indeterminate` when a document couldn't be fetched.
-
-A domain checks the company's `poppy.json` and its OAuth server metadata; a URL is taken as a Personal Agent's `client_id`, which checks its client metadata and key set.
-
-```sh
-npm run validate -- https://personal-agent.adewale-883.workers.dev/poppy/client.json   # an agent
-npm run validate -- ./poppy.json --domain example.com                                   # a local file
-cat jwks.json | npm run validate -- --kind jwks -                                        # standard input
-npm run validate -- example.com --json                                                  # the JSON report
-```
-
-Exit status `0` valid, `1` invalid, `2` couldn't check; `--strict` fails on warnings too; `--help` lists every option.
-
-| Request | Answer |
-| --- | --- |
-| `GET /validator?url=example.com` | The results page, so you can link to it |
-| `POST /validator/api` with `{"url": "example.com"}` | The JSON report |
-| `POST /validator/api` with `{"document": "…", "kind": "poppy", "domain": "example.com"}` | The JSON report for a pasted document (`kind`: `poppy`, `oauth-metadata`, `client-metadata` or `jwks`) |
-| `GET /validator/messages` | What each message means, and the report's format |
-
-The API accepts any origin and uses no cookies; URL checks are limited to 20 a minute per address, documents to 100 KB. As a library, `validateCompany`, `validateClient`, `validateText` and `validateTarget` in `src/validator/` run in the Worker, Node and the tests alike. How rules are versioned is in the spec.
-
-## Limitations
-
-- **No production Company tested yet.** The client has run against our mock and the Companies of six other projects, which are SDKs, demos or signed-out.
-- **No JavaScript in browsing.** A site that needs JavaScript to show its pages or send its forms can't be browsed.
-- **Model lanes not tried live:** the vendors, Unified Billing and the gateway's spend rules are faked in the tests ([deployment-tasks.md](docs/deployment-tasks.md), "Live checks").
-- **The validator** checks documents, not behaviour, and checks host names, not the addresses they resolve to.
-- **Not built:** memory and skills (milestone 2).
-
-## Other implementations
-
-[`docs/implementations.md`](docs/implementations.md) surveys every public Poppy implementation we found on 11 October 2026: Datalayer's SDK, poppyseed, pi-poppy, adonis-agora, poppy-demo, everruns, Ilmer and others, with licences, maturity and live deployments. The ones our harness runs are in [`interop/registry.json`](interop/registry.json): six other projects, plus everruns' adapters (written, not yet run) and a README for a TYPO3 Company whose extension is private. What we found in them is in [`docs/poppy-issues.md`](docs/poppy-issues.md), and a snapshot of the last full grid in [`docs/interop-results/`](docs/interop-results/README.md).
-
-[`docs/ecosystem.md`](docs/ecosystem.md) maps the whole Poppy ecosystem as of 12 October 2026, from the spec and its checkers to the demo Companies you can reach, and how to keep the map current.
+To deploy your own copy, follow [docs/setup.md](docs/setup.md) in the order [docs/deployment-tasks.md](docs/deployment-tasks.md) gives.
 
 ## Project layout
 
@@ -120,16 +90,16 @@ src/model-*.ts      Who pays for each model call: own keys (sealed), the demo an
 src/poppy/          The Poppy client, its tools, the fetch-based browser and the Activity log
 src/ui/             The page: Chat, Activity, Companies, Settings
 src/validator/      The validator: parser, primitives, profiles, fetch, HTTP, HTML
-scripts/            The validator CLI, the deploy check, the docs check, the secrets generator
+scripts/            The validator CLI, the deploy check, the docs check, the spec snapshot
 test/               The suites, the fakes, the mock Company, the Hypothesis client
-interop/            The interop runner, recording proxy, scenarios and adapters
-docs/               Decisions, setup and deployment tasks, spec issues and readings, interop, proposals
-deployment.*.json   The deployer's own vars: an example here, the real ones untracked
+interop/            The interop runner, recording proxy, scenarios, adapters and cross-checks
+spec/               A dated copy of the draft, and what each of our claims rests on
+docs/               Decisions, setup, spec issues, readings, interop, the ecosystem map, proposals
 ```
 
-## Support, contributing and license
+## Security, contributing and licence
 
-- **Support:** this is a private repository for its collaborators. Report problems with [GitHub issues](https://github.com/adewale/dpa/issues).
-- **Security:** report a vulnerability privately, as [`SECURITY.md`](SECURITY.md) describes. It also sets out how we disclose what interop and adversarial testing finds in other projects: to their maintainers, privately, first.
-- **Contributing:** keep `npm test`, `npm run typecheck` and `npm run check:docs` passing. A new Poppy feature needs a test, and a check in the mock Company where the spec has a MUST. `git config core.hooksPath .githooks` turns on a pre-push typecheck.
-- **License:** no license has been chosen yet. Files copied from Cloudflare's `agents` examples keep their MIT license; see [`NOTICE.md`](NOTICE.md).
+- **Security:** report a vulnerability privately, as [SECURITY.md](SECURITY.md) describes.
+- **Contributing:** keep `npm test`, `npm run typecheck` and `npm run check:docs` passing. A new Poppy feature needs a test, and a check in the mock Company where the draft states a requirement. `git config core.hooksPath .githooks` turns on a pre-push typecheck.
+- **Support:** this is a private repository for its collaborators; report problems in [GitHub issues](https://github.com/adewale/dpa/issues).
+- **Licence:** none chosen yet. Files copied from Cloudflare's `agents` examples keep their MIT licence; see [NOTICE.md](NOTICE.md).
