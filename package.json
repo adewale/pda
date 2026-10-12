@@ -26,6 +26,7 @@
     "interop": "node interop/runner/cli.ts"
   },
   "dependencies": {
+    "@cfworker/json-schema": "4.1.1",
     "@cloudflare/kumo": "^2.6.0",
     "@cloudflare/puppeteer": "1.4.0",
     "@earendil-works/chord": "^1.1.0",

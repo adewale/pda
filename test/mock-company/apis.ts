@@ -139,6 +139,35 @@ export class Apis {
             }
           : {}),
         schemas: {
+          PrintOrder: {
+            type: "object",
+            additionalProperties: false,
+            required: ["email", "ship_to", "items"],
+            properties: {
+              email: { type: "string", format: "email" },
+              ship_to: { $ref: "#/components/schemas/Address" },
+              items: {
+                type: "array",
+                minItems: 1,
+                items: {
+                  type: "object",
+                  required: ["photo_id", "copies"],
+                  properties: { photo_id: { type: "string" }, copies: { type: "integer", minimum: 1, maximum: 100 } }
+                }
+              }
+            }
+          },
+          Address: {
+            type: "object",
+            required: ["name", "line1", "city", "postal_code", "country"],
+            properties: {
+              name: { type: "string" },
+              line1: { type: "string" },
+              city: { type: "string" },
+              postal_code: { type: "string" },
+              country: { type: "string" }
+            }
+          },
           Operation: {
             type: "object",
             required: ["operation_id", "revision", "state", "summary", "confirmation", "result"],
@@ -284,35 +313,8 @@ export class Apis {
           requestBody: {
             required: true,
             content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  required: ["email", "ship_to", "items"],
-                  properties: {
-                    email: { type: "string", format: "email" },
-                    ship_to: {
-                      type: "object",
-                      required: ["name", "line1", "city", "postal_code", "country"],
-                      properties: {
-                        name: { type: "string" },
-                        line1: { type: "string" },
-                        city: { type: "string" },
-                        postal_code: { type: "string" },
-                        country: { type: "string" }
-                      }
-                    },
-                    items: {
-                      type: "array",
-                      minItems: 1,
-                      items: {
-                        type: "object",
-                        required: ["photo_id", "copies"],
-                        properties: { photo_id: { type: "string" }, copies: { type: "integer", minimum: 1, maximum: 100 } }
-                      }
-                    }
-                  }
-                }
-              }
+              // By reference, as print-with-poppy's Proposal is: the agent must follow $refs to see the fields.
+              "application/json": { schema: { $ref: "#/components/schemas/PrintOrder" } }
             }
           },
           responses: {

@@ -253,6 +253,47 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect(described.upload).toMatchObject({ files: ["photo"], fields: [] });
   });
 
+  it("describes an order's body with its $refs written out, so the model sees the fields to send", async () => {
+    const c = await company({ printShop: true });
+    const a = await poppyAgent();
+    const described = JSON.parse((await tool(a, "poppy_api_describe", { domain: c.domain, operation: "orderPrints" })).text);
+    const schema = described.requestBody.content["application/json"].schema;
+    expect(schema.required).toEqual(["email", "ship_to", "items"]);
+    expect(schema.properties.ship_to.required).toContain("postal_code");
+    expect(JSON.stringify(described)).not.toContain("$ref");
+  });
+
+  it("refuses a body sent as a string of JSON with a correction, before a card or a request (live, 12 October)", async () => {
+    // print-with-poppy's maintainer found our agent's order body serialised twice: the model passed
+    // body as a string of JSON, and the client stringified it again, so the store's parser refused it.
+    const c = await company({ printShop: true });
+    const a = await poppyAgent();
+    const order = printOrder("pho_1");
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: JSON.stringify(order) });
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain("[invalid_body]");
+    expect(result.text).toContain("not a string containing serialised JSON: pass body as a structured object");
+    expect(result.text).toContain("Nothing was sent.");
+    expect(await cards(a)).toEqual([]);
+    expect((await requests(c)).filter((request) => request.url === `${c.hosts.api}/prints`)).toEqual([]);
+  });
+
+  it("refuses a body that doesn't match the operation's schema, naming what's wrong, and lets a right one through", async () => {
+    const c = await company({ printShop: true });
+    const a = await poppyAgent();
+    const { ship_to: _, ...noAddress } = printOrder("pho_1");
+    const missing = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: { ...noAddress, gift: true } });
+    expect(missing.text).toContain("[invalid_body]");
+    expect(missing.text).toContain("ship_to");
+    expect(missing.text).toContain("gift");
+    const none = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints" });
+    expect(none.text).toContain("needs a JSON body");
+    expect((await requests(c)).filter((request) => request.url === `${c.hosts.api}/prints`)).toEqual([]);
+    // A string isn't parsed for the model, and a body that matches goes as before.
+    const right = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder("pho_1") });
+    expect(right.text).not.toContain("invalid_body");
+  });
+
   it("stops at an operation whose signed-out Session ended: nothing is confirmed, the User and model are told, and a new proposal can be asked for (N19)", async () => {
     const c = await company({ printShop: true });
     const a = await poppyAgent();

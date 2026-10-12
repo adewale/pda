@@ -1,3 +1,4 @@
+import { Validator, type OutputUnit } from "@cfworker/json-schema";
 import { attachmentInfo, humanSize, readAttachment, type AttachmentInfo } from "../attachments";
 import { PoppyClient, PoppyError, scopeSet, withAnswer } from "./client";
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
@@ -42,7 +43,12 @@ export type OpenApiOperation = {
    * compatibility endpoint, say). The agent never calls one.
    */
   readonly outsidePoppy: boolean;
+  /** Where its JSON request body's schema is, to check a body against before a card or a request. */
+  readonly jsonBody?: JsonBody;
 };
+
+/** An operation's `application/json` request body: whether it's required, and its schema's place in the description. */
+type JsonBody = { readonly required: boolean; readonly root: Json; readonly pointer: string; readonly draft: "4" | "2020-12" };
 
 /**
  * What an operation's `multipart/form-data` request body takes: `files`, the
@@ -155,6 +161,104 @@ function resolveRef(root: Json, value: Json, depth = 0): Json {
   return resolveRef(root, current, depth + 1);
 }
 
+/** One JSON Pointer reference token (RFC 6901). */
+function pointerPart(name: string): string {
+  return name.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
+/**
+ * Where an operation's JSON request body schema is. `raw` is the operation's
+ * `requestBody` as written (perhaps a `$ref`), `resolved` the object it names,
+ * and `at` the pointer to `raw`. OpenAPI 3.0's schemas are read as draft 4
+ * with `nullable` folded into `type`; 3.1's are JSON Schema 2020-12.
+ */
+function jsonBodyOf(root: Json, raw: Json | undefined, resolved: Json | undefined, at: string): JsonBody | undefined {
+  if (!isObject(resolved) || !isObject(resolved.content) || !isObject(root)) return undefined;
+  const media = Object.keys(resolved.content).find((type) => /^application\/(?:[\w.-]+\+)?json\s*(?:;|$)/i.test(type));
+  if (!media || !isObject(resolved.content[media]) || (resolved.content[media] as Record<string, Json>).schema === undefined) return undefined;
+  const base = isObject(raw) && typeof raw.$ref === "string" && raw.$ref.startsWith("#/") ? raw.$ref.slice(1) : at;
+  const v30 = typeof root.openapi === "string" && root.openapi.startsWith("3.0.");
+  return {
+    required: resolved.required === true,
+    root: v30 ? foldNullable(root) : root,
+    pointer: `${base}/content/${pointerPart(media)}/schema`,
+    draft: v30 ? "4" : "2020-12"
+  };
+}
+
+/** OpenAPI 3.0's `nullable: true` as JSON Schema: `null` added to `type`. */
+function foldNullable(value: Json): Json {
+  if (Array.isArray(value)) return value.map(foldNullable);
+  if (!isObject(value)) return value;
+  const out: Record<string, Json> = {};
+  for (const [key, member] of Object.entries(value)) if (key !== "nullable") out[key] = foldNullable(member);
+  if (value.nullable === true && typeof value.type === "string") out.type = [value.type, "null"];
+  return out;
+}
+
+/** A schema with its `$ref`s written out, to a depth and a size, so the model sees the fields it must send. */
+function inlineRefs(root: Json, value: Json, depth = 0): Json {
+  if (depth > 6) return value;
+  const resolved = resolveRef(root, value);
+  if (Array.isArray(resolved)) return resolved.map((member) => inlineRefs(root, member, depth + 1));
+  if (!isObject(resolved)) return resolved;
+  const out: Record<string, Json> = {};
+  for (const [key, member] of Object.entries(resolved)) out[key] = inlineRefs(root, member, depth + 1);
+  return out;
+}
+
+const BODY_BASE = "https://openapi.invalid/description";
+
+/**
+ * A JSON body is checked against the operation's request schema before a
+ * card or a request, so a mistake comes back to the model as a correction,
+ * not as the Company's 400 after the User approved it. A string where the
+ * schema wants an object is the commonest: the model serialised the body
+ * itself, and our client would serialise it again. Strings aren't parsed for
+ * the model, as an API may take a JSON string. A schema we can't read
+ * refuses nothing: the Company decides.
+ */
+function checkBody(company: Company, op: OpenApiOperation, body: Json | undefined): void {
+  const spec = op.jsonBody;
+  if (!spec) return;
+  if (body === undefined) {
+    if (!spec.required) return;
+    throw new PoppyError("invalid_body", `${op.method} ${op.path} (${op.operationId}) at ${company.name} needs a JSON body: see its requestBody in poppy_api_describe. Nothing was sent.`, 0);
+  }
+  let errors: readonly OutputUnit[];
+  try {
+    const validator = new Validator({ $ref: `${BODY_BASE}#${spec.pointer}` }, spec.draft, false);
+    validator.addSchema(spec.root as never, BODY_BASE);
+    errors = validator.validate(body).errors;
+  } catch {
+    return;
+  }
+  if (errors.length === 0) return;
+  if (typeof body === "string" && /^\s*[{[]/.test(body)) {
+    let parsed: Json | undefined;
+    try {
+      parsed = JSON.parse(body) as Json;
+    } catch {
+      parsed = undefined;
+    }
+    if (parsed !== undefined && typeof parsed === "object") {
+      throw new PoppyError(
+        "invalid_body",
+        `body for ${op.operationId} at ${company.name} must be the JSON value itself, such as {"product": "prints"}, not a string containing serialised JSON: pass body as a structured object. Nothing was sent.`,
+        0
+      );
+    }
+  }
+  // The leaves: the wrappers ($ref, properties, allOf…) only say a child failed.
+  const leaves = errors.filter((unit) => !/subschema had errors|does not match schema|did not match/i.test(unit.error));
+  const shown = (leaves.length ? leaves : errors).slice(0, 5).map((unit) => `${unit.instanceLocation.replace(/^#/, "body") || "body"}: ${unit.error}`);
+  throw new PoppyError(
+    "invalid_body",
+    `body for ${op.operationId} at ${company.name} doesn't match its request schema: ${shown.join("; ")}. See its requestBody in poppy_api_describe. Nothing was sent.`,
+    0
+  );
+}
+
 /** The API's OpenAPI 3.0/3.1 description, fetched safely and cached. */
 export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDocument> {
   const cached = documents.get(api.url);
@@ -189,18 +293,21 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
           );
         const requestBody = op.requestBody !== undefined ? resolveRef(json, op.requestBody) : undefined;
         const upload = uploadOf(json, requestBody);
+        const jsonBody = jsonBodyOf(json, op.requestBody, requestBody, `/paths/${pointerPart(path)}/${method}/requestBody`);
         operations.push({
           operationId: typeof op.operationId === "string" ? op.operationId : `${method.toUpperCase()} ${path}`,
           method: method.toUpperCase(),
           path,
           summary: [op.summary, op.description].filter((text) => typeof text === "string").join(" — "),
           parameters: parameters.filter((parameter) => !(parameter.in === "header" && /^idempotency-key$/i.test(parameter.name))),
-          ...(requestBody !== undefined ? { requestBody } : {}),
+          // Written out, so poppy_api_describe shows the fields to send, not a bare $ref.
+          ...(requestBody !== undefined ? { requestBody: inlineRefs(json, requestBody) } : {}),
           ...(upload ? { upload } : {}),
           acceptsIdempotencyKey: parameters.some((parameter) => parameter.in === "header" && /^idempotency-key$/i.test(parameter.name)),
           proposes: proposesOperation(json, op),
           scopes: declaredScopes(op.security ?? json.security),
-          outsidePoppy: outsidePoppySession(dpop, method.toUpperCase(), op.security ?? json.security)
+          outsidePoppy: outsidePoppySession(dpop, method.toUpperCase(), op.security ?? json.security),
+          ...(jsonBody ? { jsonBody } : {})
         });
       }
     }
@@ -497,6 +604,8 @@ export async function callOpenApi(
   refuseProtocolEndpoint(company, new URL(`${document.base}${pathFor(op, request.params ?? {})}`));
   refuseOutsidePoppy(company, op);
   const files = request.files && Object.keys(request.files).length ? request.files : undefined;
+  // A JSON body (not a form's fields) is checked against the operation's schema, before a card.
+  if (!(files || (op.upload && !op.upload.json && request.body !== undefined))) checkBody(company, op, request.body);
   // A file the User would be asked to send must be one we'd send: to the Company's own host, checked before the card.
   if (files) serverOf(company, api, document);
   const attached = files ? uploadedFiles(client, company, op, files) : [];
