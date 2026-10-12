@@ -56,6 +56,14 @@ export type PoppyOptions = {
   readonly timeouts?: PoppyTimeouts;
 };
 
+/** The last locale and time zone the User's page sent: one row. */
+const USER_CONTEXT_SCHEMA = `CREATE TABLE IF NOT EXISTS user_context (
+  slot INTEGER PRIMARY KEY CHECK (slot = 1),
+  locale TEXT,
+  time_zone TEXT,
+  updated_at INTEGER NOT NULL
+)`;
+
 /** The User counts as available while a page is open and was used recently (spec 7.4). */
 const AVAILABLE_FOR_MS = 10 * 60_000;
 
@@ -105,9 +113,49 @@ export class PoppyCapability extends LifecycleCapability {
     this.#client = undefined;
   }
 
-  /** The User's IANA time zone, as their page last reported it (`poppy.context`); undefined until a page connects. */
+  /**
+   * The User's IANA time zone, as their page last reported it
+   * (`poppy.context`). Kept in `user_context` too, so reminders, scheduled
+   * tasks and `now` still know it after an eviction, before a page
+   * reconnects. Undefined until a page has ever sent one.
+   */
   get timeZone(): string | undefined {
-    return this.#context.time_zone;
+    return this.#context.time_zone ?? this.#storedContext().time_zone;
+  }
+
+  /** The last locale and time zone a page sent, from storage. */
+  #storedContext(): { locale?: string; time_zone?: string } {
+    const sql = this.#options.storage.sql;
+    sql.exec(USER_CONTEXT_SCHEMA);
+    const row = sql.exec("SELECT locale, time_zone FROM user_context WHERE slot = 1").toArray()[0];
+    return {
+      ...(typeof row?.locale === "string" ? { locale: row.locale } : {}),
+      ...(typeof row?.time_zone === "string" ? { time_zone: row.time_zone } : {})
+    };
+  }
+
+  /** Keep what the page sent; a field it left out keeps its last value. */
+  #storeContext(context: { locale?: string; time_zone?: string }): void {
+    if (context.locale === undefined && context.time_zone === undefined) return;
+    const sql = this.#options.storage.sql;
+    sql.exec(USER_CONTEXT_SCHEMA);
+    sql.exec(
+      `INSERT INTO user_context (slot, locale, time_zone, updated_at) VALUES (1, ?, ?, ?)
+       ON CONFLICT (slot) DO UPDATE SET locale = COALESCE(excluded.locale, locale), time_zone = COALESCE(excluded.time_zone, time_zone), updated_at = excluded.updated_at`,
+      context.locale ?? null,
+      context.time_zone ?? null,
+      Date.now()
+    );
+  }
+
+  /** Send the Activity frame again, after something outside Poppy (a reminder, a scheduled task) added to it. */
+  refreshActivity(): void {
+    try {
+      void this.client;
+    } catch {
+      return;
+    }
+    this.#sendActivity();
   }
 
   get browser(): PoppyBrowser {
@@ -345,6 +393,7 @@ export class PoppyCapability extends LifecycleCapability {
           ...(typeof frame.locale === "string" && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(frame.locale) ? { locale: frame.locale } : {}),
           ...(typeof frame.time_zone === "string" && /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)*$/.test(frame.time_zone) ? { time_zone: frame.time_zone } : {})
         };
+        this.#storeContext(this.#context);
         this.#sendCards(socket);
         this.#sendSettings(socket);
         this.#sendActivity(socket);

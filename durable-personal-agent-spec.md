@@ -226,6 +226,7 @@ pi-durable and the Agents SDK add no tools of their own: the model is offered ex
 | `model_paused` | Background notices held while model calls are refused |
 | `attachments`, `attachment_chunks` | Photos the User attached: name, sniffed type, size; the file and the model's preview in 1 MiB rows |
 | `memories` | The agent's notes about its User: text (at most 500 characters), whose (`user` or `agent`), when; at most 200 (General tools) |
+| `user_context` | The locale and IANA time zone the User's page last sent in `poppy.context`, one row |
 
 Session Tokens and DPoP private keys are never written to storage.
 
@@ -757,7 +758,7 @@ Three extensions in `src/tools/`, beside `poppy`, so the agent is useful away fr
 
 **Time and maths** (`src/tools/clock.ts`, `src/tools/calculate.ts`; pure, so the property tests run them in Node)
 
-- **The User's zone.** The page sends its IANA time zone in `poppy.context` on connect; `PoppyCapability.timeZone` keeps it in memory. Without it, after an eviction and before the page reconnects, `now` answers in UTC and says the zone isn't known.
+- **The User's zone.** The page sends its IANA time zone in `poppy.context` on connect. `PoppyCapability.timeZone` keeps it in memory and in `user_context`, the last value any page sent, so after an eviction `now`, reminders and scheduled tasks still use it. Until a page has ever sent one, `now` answers in UTC and says the zone isn't known.
 - **Dates.** A date has no zone; a date and time is an instant, shown in the zone with its offset (to the second, for the historical offsets that had seconds). Years and months move the wall-clock date, 31 January plus a month being the end of February; then weeks and days; then hours, minutes and seconds as elapsed time. A skipped wall-clock time moves forward by the gap; a repeated one takes the earlier instant. Years 1 to 9999.
 - **Sums.** A recursive-descent parser (no `eval`, no `Function`) over numbers, `+ - * /` (and `× ÷ −`), `^`, `%` after a number for percent, `mod`, parentheses, `round(x, places)` (half away from zero), `floor`, `ceil`, `min`, `max`, `sqrt`, `abs`, `pi` and `e`. It evaluates with exact fractions of BigInts, so `0.1 + 0.2` is `0.3` and money adds to the cent; `sqrt`, a fractional power, `pi`, `e`, and an answer that doesn't end within 20 decimal places are rounded to 15 significant digits and marked `exact: false`. At most 500 characters, nesting 50 deep, exponents up to 1,000 and numbers up to 4,000 bits.
 

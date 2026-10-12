@@ -31,7 +31,7 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 - [x] **Code. Memory, and the other general tools.** Built: `read_url`, `remember`, `recall`, `forget`, `now`, `date_math`, `calculate`, with Settings' Memory section ([decisions §27](docs/decisions.md#27-general-tools-beside-poppy-read_url-memory-time-and-maths)).
 - [ ] **Code. Skills and the rest of milestone 2** ([spec, Build plan](durable-personal-agent-spec.md#build-plan)).
 - [ ] **Code. More general tools:** web search (needs a provider and a key the operator pays for), and reminders (a durable job that tells the User at a time).
-- [ ] **Code. Keep the User's time zone in storage.** The page sends it on connect and the agent holds it in memory, so after an eviction `now` answers in UTC until the page reconnects.
+- [x] **Code. Keep the User's time zone in storage.** Done: the last zone a page sent is kept in `user_context`, so `now` and schedules use it after an eviction.
 - [ ] **Owner. Try `read_url` and memory live:** a real page or two (one large, one that redirects), and "remember I'm vegetarian" across a week and a redeploy.
 - [x] **Code. Hide Google sign-in while it isn't configured.** `SIGNIN_PROVIDERS` lists the providers a deployment offers. Google was registered on 12 October and the live deployment offers both; the owner signed in with Google.
 - [ ] **Code. Check the `pi report` log line** (`src/agent.ts`, `console.warn("pi report", error)`) can't carry request details or keys into Workers logs.
