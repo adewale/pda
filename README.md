@@ -2,7 +2,7 @@
 
 **A Personal Agent for [Poppy](https://personalagentprotocol.org/), the Personal Agent Protocol, built alongside the tools we used to test it: a validator, a strict mock Company, an interop harness that runs other projects' code, and 68 written-up spec issues.** It is for the draft's authors and for people implementing either side of the protocol.
 
-Poppy is a draft standard, published as Draft 0.1 on 9 October 2026, for AI agents acting for people at companies. This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, starts a Session, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you before anything that changes your account. The status is alpha: no real business publishes `poppy.json` yet, so everything here has run against demos, SDKs and our own mock.
+Poppy is a draft standard, published as Draft 0.1 on 9 October 2026, for AI agents acting for people at companies. This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, starts a Session, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page before an action that changes your account. The status is alpha. The agent has run only against our mock and other projects' demos and SDKs, and never against a live Company. The one deployed product we know of that publishes `poppy.json`, [Spot](docs/ecosystem.md#companies-you-can-reach), isn't in the grid.
 
 ## See it work: ordering a print from print-with-poppy
 
@@ -50,7 +50,7 @@ Where the draft is ambiguous we chose a reading and wrote down why ([readings.md
 ## How it's built
 
 - **One agent per person.** Each Google or GitHub sign-in gets its own Durable Object running Pi, with its conversation, Poppy state, tokens and keys in its own SQLite. One person's agent can't read another's, and work survives crashes and deploys.
-- **Approval stays on the page.** Company text reaches the model labelled as information, never as approval. Anything that changes your account, including a website form, waits for your approval of exactly what will be sent, or for a standing permission you set.
+- **Approval stays on the page.** Company text reaches the model labelled as information, never as approval. A website form, and an API write at a Company without the Operations extension, wait for your approval of exactly what will be sent, or for a standing permission you set. At a Company with Operations the agent relies on the Company to propose the action for approval instead of acting; the draft lets a Company use Operations for some actions and not others, and closing that gap is [open work](TODO.md).
 - **Secrets stay out of the model.** Session Tokens and DPoP keys live only in memory; Account Tokens and pasted model keys are sealed with AES-GCM and bound to their row; the model's tools never take or return a credential.
 - **Two ways to pay for the model.** An operator-paid demo through AI Gateway, capped per person and per domain before every call, or your own Anthropic or OpenAI key, sent straight to the vendor. Compaction keeps each request under about 200k tokens.
 - **Everything is tested offline.** Five suites run with the model, the vendors, Google, GitHub and every Company faked, and every Poppy test fails if the strict mock Company records a violation or a warning. A second client in Python drives a stateful Hypothesis test of the mock, because a misreading our client and mock share is invisible to both.
@@ -60,7 +60,7 @@ The design is [durable-personal-agent-spec.md](durable-personal-agent-spec.md); 
 ## Status and limitations
 
 - **Live:** https://personal-agent.adewale-883.workers.dev, with sign-in limited to an allowlist, and the validator at `/validator`, open to anyone. GitHub sign-in works; Google sign-in isn't registered yet.
-- **No real Company yet.** The agent has run only against our mock and other projects' demos and SDKs.
+- **Never run against a live Company.** Spot publishes valid discovery but has no Operations and isn't in the grid; everything else we know of is a demo or an SDK.
 - **Not tried live:** the demo lane's gateway and its spend limits are faked in the tests ([deployment-tasks.md](docs/deployment-tasks.md)).
 - **Browsing runs no JavaScript,** so a site that needs it to show a page or send a form can't be browsed.
 - **Not built:** memory and skills.
