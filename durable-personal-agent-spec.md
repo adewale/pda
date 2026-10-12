@@ -206,7 +206,7 @@ The conversation never ends, so the model sees a summary of its older part. pi-d
 | `poppy_approvals` | Local approvals for writes at Companies without the Operations extension |
 | `poppy_cards` | Cards for the chat page |
 | `agent_profile` | Who the agent belongs to (provider, id, email, Workspace domain), recorded by the Worker on each signed-in request, for the demo check on background turns |
-| `model_keys` | The person's own key, sealed; its provider, state (`valid`, or `invalid` after a 401) and source |
+| `model_keys` | The person's own key, sealed; its provider, state (`valid`, or `invalid` after a 401), source, and an Anthropic workspace ID if the key needs one |
 | `model_spend` | Demo spend per UTC day, in dollars, kept a week |
 | `model_paused` | Background notices held while model calls are refused |
 
@@ -227,7 +227,7 @@ Who pays for a model call is decided before every call, in `src/model-router.ts`
 
 **Keys.**
 
-- **Pasting.** `POST /api/model-key` takes an Anthropic or OpenAI API key, the only kinds of own key, checks its shape, then makes a free call the key must pass (list models). Only then is it sealed. A stored key for any other provider (left from an earlier lane, since removed; see [`docs/decisions.md`](docs/decisions.md)) is deleted unopened the next time the agent reads its key, and the agent carries on as if it had none.
+- **Pasting.** `POST /api/model-key` takes an Anthropic or OpenAI API key, the only kinds of own key, checks its shape, then makes a free call the key must pass (list models). Only then is it sealed. An Anthropic key that belongs to a whole organization rather than one workspace needs a workspace ID: Anthropic refuses its requests (400) without an `anthropic-workspace-id` header. Settings takes the ID beside the key, and the agent sends it on the check and on every model call with that key. When the vendor answers the check with anything but a refusal of the key (401, 403), the page shows the vendor's own reason, with anything key-like redacted; only 408, 429 and 5xx say to try again. A stored key for any other provider (left from an earlier lane, since removed; see [`docs/decisions.md`](docs/decisions.md)) is deleted unopened the next time the agent reads its key, and the agent carries on as if it had none.
 - **Sealing.** AES-GCM under `TOKEN_ENC_KEY`, with additional data `model-key:v1:<provider>:<agent id>`, in that person's agent only. Every sealed value now starts `v1.`; values from before still open.
 - **Never shown again.** The key isn't echoed to the page, logged, put in the transcript or the Activity log, or reachable by any model tool. A vendor error that reaches the transcript has anything shaped like a key redacted.
 - **Who can read it.** The deployment's operator (they hold `TOKEN_ENC_KEY` and choose the code) and Cloudflare, as the runtime. Settings says so and advises setting a spending limit on the key at the provider.

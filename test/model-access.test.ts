@@ -40,11 +40,11 @@ async function entitlement(identity: Identity): Promise<Entitlement> {
   return response.json();
 }
 
-async function saveKey(identity: Identity, provider: string, key: string) {
+async function saveKey(identity: Identity, provider: string, key: string, workspace?: unknown) {
   return api(identity, "/api/model-key", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider, key })
+    body: JSON.stringify({ provider, key, ...(workspace === undefined ? {} : { workspace }) })
   });
 }
 
@@ -112,6 +112,31 @@ describe("own keys: the key never leaves the agent", () => {
     expect(body).not.toContain("Try again");
     expect(body).not.toContain("sk-ant-test-broke");
     expect((await entitlement(identity)).key).toBeNull();
+  });
+
+  it("takes an Anthropic workspace ID for an organization-wide key, and sends it on the check and every model call", async () => {
+    const identity = someone("nokey.example");
+    const key = `sk-ant-test-unscoped-${crypto.randomUUID()}`;
+
+    const without = await saveKey(identity, "anthropic", key);
+    expect(without.status).toBe(400);
+    const said = await without.text();
+    expect(said).toContain("must include the anthropic-workspace-id header");
+    expect(said).toContain("Add the key's workspace ID from the Anthropic Console, or use a key created inside a workspace.");
+    expect((await entitlement(identity)).key).toBeNull();
+
+    expect((await saveKey(identity, "anthropic", key, "wrkspc 01")).status).toBe(400);
+    expect(await (await saveKey(identity, "openai", "sk-test-good-0123456789abcdef", "wrkspc_01")).text()).toContain("Only Anthropic keys take a workspace ID.");
+    expect((await saveKey(identity, "anthropic", key, 42)).status).toBe(400);
+
+    const saved = await saveKey(identity, "anthropic", key, " wrkspc_01TestWorkspace ");
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ lane: "own_key", key: { provider: "anthropic", status: "valid", workspace: "wrkspc_01TestWorkspace" } });
+
+    // The fake Anthropic refuses this key's model calls without the header, so an answer proves it was sent.
+    const connection = await connect(identity);
+    await chat(connection.socket, connection.client, "hello from a workspace", "fake Anthropic (claude-sonnet-5-5) answers: hello from a workspace");
+    connection.socket.close();
   });
 
   it("fake vendors: `bad` and `revoked` are whole key segments, so a random key never spells them by chance", () => {

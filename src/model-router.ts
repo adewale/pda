@@ -21,6 +21,7 @@ import { budgetWindow } from "./compaction";
 import { nextUtcMidnight, utcDay, type Ledger } from "./budget";
 import { ConfigError, readModelConfig, readDemoCaps, type KeyProvider } from "./config";
 import {
+  ANTHROPIC_WORKSPACE_HEADER,
   isKeyRefused,
   NO_AMBIENT_AUTH,
   PROVIDER_LABEL,
@@ -209,7 +210,9 @@ export class ModelAccess {
       const name = { anthropic: "ANTHROPIC_MODEL_ID", openai: "OPENAI_MODEL_ID" }[provider];
       throw new ConfigError(`${name} ${JSON.stringify(id)} isn't in pi-ai's ${PROVIDER_LABEL[provider]} catalog`);
     }
-    return model;
+    // A key that belongs to a whole Anthropic organization names its workspace on every request.
+    const workspace = provider === "anthropic" ? this.#options.keys.info()?.workspace : null;
+    return workspace ? { ...model, headers: { ...model.headers, [ANTHROPIC_WORKSPACE_HEADER]: workspace } } : model;
   }
 
   /** The lane now, and what Settings shows. */

@@ -98,13 +98,13 @@ async function handleModelKey(request: Request, env: Env): Promise<Response> {
   if (request.method === "DELETE") return json(200, await agent.removeModelKey(identity));
   const raw = await request.text();
   if (raw.length > 4096) return json(413, { error: "That's too long to be a key." });
-  let body: { provider?: unknown; key?: unknown };
+  let body: { provider?: unknown; key?: unknown; workspace?: unknown };
   try {
     body = JSON.parse(raw) as typeof body;
   } catch {
     return json(400, { error: "Send JSON with provider and key." });
   }
-  const result: KeyResult = await agent.setModelKey(identity, body?.provider, body?.key);
+  const result: KeyResult = await agent.setModelKey(identity, body?.provider, body?.key, body?.workspace);
   return result.ok ? json(200, result.entitlement) : json(result.status, { error: result.error });
 }
 

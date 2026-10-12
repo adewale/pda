@@ -9,7 +9,7 @@ import { Ledger } from "./budget";
 import { COMPACTION_POLICY, compactionExtension } from "./compaction";
 import { TranscriptHistory } from "./history";
 import { isKeyProvider, readModelConfig, type KeyProvider } from "./config";
-import { checkKey, keyFormatProblem, ModelKeys, NO_AMBIENT_AUTH, PROVIDER_LABEL } from "./model-keys";
+import { checkKey, keyFormatProblem, ModelKeys, NO_AMBIENT_AUTH, PROVIDER_LABEL, workspaceProblem } from "./model-keys";
 import {
   gatewayDemoLane,
   ModelAccess,
@@ -250,7 +250,7 @@ export class PersonalAgent extends DurableObject<Env> {
   }
 
   /** Check a pasted key with the provider, then seal and store it. The key is never returned or logged. */
-  async setModelKey(identity: Profile, provider: unknown, key: unknown): Promise<KeyResult> {
+  async setModelKey(identity: Profile, provider: unknown, key: unknown, workspace?: unknown): Promise<KeyResult> {
     await this.recordIdentity(identity);
     if (!isKeyProvider(provider)) {
       return { ok: false, status: 400, error: "Choose Anthropic or OpenAI." };
@@ -259,9 +259,15 @@ export class PersonalAgent extends DurableObject<Env> {
     const trimmed = key.trim();
     const problem = keyFormatProblem(provider, trimmed);
     if (problem) return { ok: false, status: 400, error: problem };
-    const checked = await checkKey(provider, trimmed, this.modelFetcher());
+    if (workspace !== undefined && workspace !== null && typeof workspace !== "string") {
+      return { ok: false, status: 400, error: "A workspace ID is text." };
+    }
+    const space = workspace?.trim() || null;
+    const spaceProblem = workspaceProblem(provider, space);
+    if (spaceProblem) return { ok: false, status: 400, error: spaceProblem };
+    const checked = await checkKey(provider, trimmed, this.modelFetcher(), space);
     if (!checked.ok) return checked;
-    await this.keys.put(provider, trimmed);
+    await this.keys.put(provider, trimmed, space);
     return this.#keyChanged();
   }
 

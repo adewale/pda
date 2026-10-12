@@ -21,7 +21,8 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS model_keys (
   status TEXT NOT NULL,
   source TEXT NOT NULL,
   added_at INTEGER NOT NULL,
-  invalid_at INTEGER
+  invalid_at INTEGER,
+  workspace TEXT
 )`;
 
 /** What the page may know about the key: never the key, nor any part of it. */
@@ -32,6 +33,8 @@ export type KeyInfo = {
   /** Pasted in Settings: the only way a key arrives. */
   readonly source: "pasted";
   readonly addedAt: number;
+  /** An Anthropic workspace ID, for a key that belongs to an organization rather than one workspace. Not a secret. */
+  readonly workspace: string | null;
 };
 
 export const PROVIDER_LABEL: Record<KeyProvider, string> = {
@@ -50,6 +53,7 @@ type Row = {
   status: "valid" | "invalid";
   source: "pasted";
   added_at: number;
+  workspace: string | null;
 };
 
 /** The one key slot of one agent. */
@@ -64,10 +68,13 @@ export class ModelKeys {
     this.#sealer = sealer;
     this.#agent = agent;
     sql.exec(SCHEMA);
+    // Agents created before workspace IDs: add the column in place.
+    const columns = sql.exec("PRAGMA table_info(model_keys)").toArray() as { name: string }[];
+    if (!columns.some((column) => column.name === "workspace")) sql.exec("ALTER TABLE model_keys ADD COLUMN workspace TEXT");
   }
 
   #row(): Row | undefined {
-    const row = this.#sql.exec("SELECT provider, sealed, status, source, added_at FROM model_keys WHERE slot = 1").toArray()[0] as
+    const row = this.#sql.exec("SELECT provider, sealed, status, source, added_at, workspace FROM model_keys WHERE slot = 1").toArray()[0] as
       | (Omit<Row, "provider"> & { provider: string })
       | undefined;
     if (row && !isKeyProvider(row.provider)) {
@@ -82,18 +89,19 @@ export class ModelKeys {
 
   info(): KeyInfo | null {
     const row = this.#row();
-    return row ? { provider: row.provider, status: row.status, source: row.source, addedAt: row.added_at } : null;
+    return row ? { provider: row.provider, status: row.status, source: row.source, addedAt: row.added_at, workspace: row.workspace ?? null } : null;
   }
 
-  /** Seal and store a key, replacing any other. */
-  async put(provider: KeyProvider, key: string): Promise<void> {
+  /** Seal and store a key, with its Anthropic workspace ID if it needs one, replacing any other. */
+  async put(provider: KeyProvider, key: string, workspace: string | null = null): Promise<void> {
     const sealed = await this.#sealer().seal(key, keyContext(provider, this.#agent));
     this.#sql.exec(
-      `INSERT OR REPLACE INTO model_keys (slot, provider, sealed, status, source, added_at, invalid_at)
-       VALUES (1, ?, ?, 'valid', 'pasted', ?, NULL)`,
+      `INSERT OR REPLACE INTO model_keys (slot, provider, sealed, status, source, added_at, invalid_at, workspace)
+       VALUES (1, ?, ?, 'valid', 'pasted', ?, NULL, ?)`,
       provider,
       sealed,
-      Date.now()
+      Date.now(),
+      workspace
     );
   }
 
@@ -180,12 +188,27 @@ export function keyFormatProblem(provider: KeyProvider, key: string): string | n
   return null;
 }
 
+/**
+ * Anthropic's header naming the workspace a request is billed to. A key
+ * created inside a workspace needs none; a key that belongs to the whole
+ * organization is refused (400) without it.
+ */
+export const ANTHROPIC_WORKSPACE_HEADER = "anthropic-workspace-id";
+
+/** A problem with an optional workspace ID, or null. */
+export function workspaceProblem(provider: KeyProvider, workspace: string | null): string | null {
+  if (workspace === null) return null;
+  if (provider !== "anthropic") return `Only Anthropic keys take a workspace ID.`;
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(workspace)) return "A workspace ID is letters, digits, _ and -, like wrkspc_01…, from the Anthropic Console.";
+  return null;
+}
+
 /** A free, read-only request that only a working key passes: list models. No tokens are spent. */
-export function keyCheckRequest(provider: KeyProvider, key: string): Request {
+export function keyCheckRequest(provider: KeyProvider, key: string, workspace: string | null = null): Request {
   switch (provider) {
     case "anthropic":
       return new Request("https://api.anthropic.com/v1/models?limit=1", {
-        headers: { "x-api-key": key, "anthropic-version": "2023-06-01" }
+        headers: { "x-api-key": key, "anthropic-version": "2023-06-01", ...(workspace ? { [ANTHROPIC_WORKSPACE_HEADER]: workspace } : {}) }
       });
     case "openai":
       return new Request("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key}` } });
@@ -195,7 +218,7 @@ export function keyCheckRequest(provider: KeyProvider, key: string): Request {
 export type KeyCheck = { ok: true } | { ok: false; status: 400 | 502; error: string };
 
 /** Longest provider reason shown with a failed key check. */
-const REASON_MAX_CHARS = 200;
+const REASON_MAX_CHARS = 400;
 
 /**
  * The provider's own reason for refusing a request, from its error JSON
@@ -232,11 +255,12 @@ async function providerReason(response: Response, key: string): Promise<string |
 export async function checkKey(
   provider: KeyProvider,
   key: string,
-  fetcher: (request: Request) => Promise<Response>
+  fetcher: (request: Request) => Promise<Response>,
+  workspace: string | null = null
 ): Promise<KeyCheck> {
   let response: Response;
   try {
-    response = await fetcher(keyCheckRequest(provider, key));
+    response = await fetcher(keyCheckRequest(provider, key, workspace));
   } catch {
     return { ok: false, status: 502, error: `Couldn't reach ${PROVIDER_LABEL[provider]} to check the key. Try again.` };
   }
@@ -249,7 +273,10 @@ export async function checkKey(
     return { ok: false, status: 400, error: `${PROVIDER_LABEL[provider]} refused that key.` };
   }
   const reason = await providerReason(response, key);
-  const said = `${PROVIDER_LABEL[provider]} answered ${response.status}${reason ? ` (${reason})` : ""}; the key wasn't saved.`;
+  let said = `${PROVIDER_LABEL[provider]} answered ${response.status}${reason ? ` (${reason})` : ""}; the key wasn't saved.`;
+  if (provider === "anthropic" && !workspace && reason?.includes(ANTHROPIC_WORKSPACE_HEADER)) {
+    said += " Add the key's workspace ID from the Anthropic Console, or use a key created inside a workspace.";
+  }
   // Throttling and the provider's own failures pass; another 4xx is its answer about this key or account.
   const transient = response.status === 408 || response.status === 429 || response.status >= 500;
   return transient ? { ok: false, status: 502, error: `${said} Try again.` } : { ok: false, status: 400, error: said };

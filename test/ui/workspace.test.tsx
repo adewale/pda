@@ -472,8 +472,8 @@ describe("settings page", () => {
     expect(screen.getByText(/Using the demo \(Claude Sonnet 5.5\)/)).toBeTruthy();
     expect(await screen.findByText("https://agent.example/poppy/client.json")).toBeTruthy();
     expect(screen.getByText("Durable Personal Agent")).toBeTruthy();
-    // The only text field is the key, which is a password field.
-    expect(screen.queryByRole("textbox")).toBeNull();
+    // The key is a password field; the only visible text field is the Anthropic workspace ID, which isn't a secret.
+    expect(screen.getAllByRole("textbox").map((field) => field.getAttribute("placeholder"))).toEqual(["wrkspc_…"]);
   });
 
   it("says where the identity lives when this address doesn't serve it", async () => {
@@ -504,7 +504,7 @@ describe("model settings", () => {
   const OWN_KEY: Entitlement = {
     lane: "own_key",
     reason: null,
-    key: { provider: "anthropic", status: "valid", source: "pasted", addedAt: Date.UTC(2026, 9, 11) },
+    key: { provider: "anthropic", status: "valid", source: "pasted", addedAt: Date.UTC(2026, 9, 11), workspace: null },
     demo: null,
     model: { provider: "anthropic", id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" }
   };
@@ -573,6 +573,34 @@ describe("model settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove key" }));
     expect(await screen.findByText("Needs a key: your agent can't call a model until you add one.")).toBeTruthy();
     expect(posted.at(-1)).toEqual({ method: "DELETE", body: null });
+  });
+
+  it("offers a workspace ID for Anthropic keys only, and sends it only when given", async () => {
+    const posted: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/entitlement") return Response.json(NO_KEY);
+        if (String(input) === "/api/model-key") {
+          posted.push(JSON.parse(String(init?.body)));
+          return Response.json({ ...OWN_KEY, key: { ...OWN_KEY.key!, workspace: "wrkspc_01Test" } });
+        }
+        return new Response("Not found", { status: 404 });
+      })
+    );
+    open("/settings");
+    const key = (await screen.findByLabelText("API key")) as HTMLInputElement;
+    const workspace = screen.getByLabelText(/Workspace ID/) as HTMLInputElement;
+    expect(workspace.type).toBe("text");
+    fireEvent.click(screen.getByRole("radio", { name: "OpenAI" }));
+    expect(screen.queryByLabelText(/Workspace ID/)).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Anthropic" }));
+    fireEvent.change(key, { target: { value: "sk-ant-test-unscoped-0123456789" } });
+    fireEvent.change(screen.getByLabelText(/Workspace ID/), { target: { value: " wrkspc_01Test " } });
+    fireEvent.click(screen.getByRole("button", { name: "Check and save key" }));
+    expect(await screen.findByText(/Using your/)).toBeTruthy();
+    expect(screen.getByText(/Using your/).textContent).toContain("in workspace wrkspc_01Test");
+    expect(posted).toEqual([{ provider: "anthropic", key: "sk-ant-test-unscoped-0123456789", workspace: "wrkspc_01Test" }]);
   });
 
   it("shows the agent's refusal of a key, and keeps what was typed", async () => {

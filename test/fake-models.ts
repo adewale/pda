@@ -49,6 +49,26 @@ function sse(events: ReadonlyArray<readonly [string, unknown]>): Response {
   return new Response(body, { headers: { "Content-Type": "text/event-stream" } });
 }
 
+/** Anthropic's answer to a request with an organization-wide (`unscoped`) key and no workspace header. */
+const NO_WORKSPACE = () =>
+  Response.json(
+    {
+      type: "error",
+      error: {
+        type: "invalid_request_error",
+        message:
+          "This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use. Add the header, or use an API key that is scoped to a workspace."
+      }
+    },
+    { status: 400 }
+  );
+
+/** An `unscoped` key's request without its workspace: what Anthropic refuses. */
+function missingWorkspace(request: Request): boolean {
+  const key = request.headers.get("x-api-key") ?? "";
+  return key.split("-").includes("unscoped") && !request.headers.get("anthropic-workspace-id");
+}
+
 const UNAUTHORIZED_ANTHROPIC = () =>
   Response.json({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }, { status: 401 });
 
@@ -65,6 +85,7 @@ function anthropicStream(model: string, text: string): Response {
 }
 
 async function anthropic(request: Request): Promise<Response> {
+  if (missingWorkspace(request)) return NO_WORKSPACE();
   if (keyState(request.headers.get("x-api-key"), "sk-ant-test-") !== "ok") return UNAUTHORIZED_ANTHROPIC();
   const body = (await request.json().catch(() => ({}))) as { model?: string; messages?: unknown };
   return anthropicStream(body.model ?? "?", `fake Anthropic (${body.model}) answers: ${lastUserText(body.messages)}`);
@@ -106,6 +127,7 @@ export async function fakeModels(request: Request): Promise<Response | null> {
   if (vendor === "anthropic") {
     if (url.pathname === "/v1/models" && request.method === "GET") {
       const key = request.headers.get("x-api-key") ?? "";
+      if (missingWorkspace(request)) return NO_WORKSPACE();
       // `broke`: an account Anthropic won't serve, answering 400 with its reason (and the key, to test redaction).
       if (key.split("-").includes("broke")) {
         return Response.json(

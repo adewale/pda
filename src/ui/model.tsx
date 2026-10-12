@@ -119,7 +119,8 @@ function Status({ entitlement }: { entitlement: Entitlement }) {
     return (
       <p className="text-base text-pretty">
         Using your <span className="font-medium">{PROVIDER[key.provider]}</span> key
-        {model ? <> for {model.name}</> : null}. Added {new Date(key.addedAt).toLocaleDateString()}.
+        {model ? <> for {model.name}</> : null}
+        {key.workspace ? <> in workspace <span className="font-mono">{key.workspace}</span></> : null}. Added {new Date(key.addedAt).toLocaleDateString()}.
       </p>
     );
   }
@@ -143,9 +144,10 @@ function Status({ entitlement }: { entitlement: Entitlement }) {
 function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange: (next: Entitlement) => void }) {
   const [provider, setProvider] = useState<"anthropic" | "openai">("anthropic");
   const [key, setKey] = useState("");
+  const [workspace, setWorkspace] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const ids = { key: useId(), error: useId() };
+  const ids = { key: useId(), error: useId(), workspace: useId(), workspaceHint: useId() };
   const field =
     "mt-1 block w-full rounded-lg bg-kumo-base px-3 py-2 font-mono text-base text-kumo-default ring ring-kumo-line placeholder:text-kumo-placeholder focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-brand aria-invalid:ring-kumo-danger";
 
@@ -162,7 +164,7 @@ function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, key: key.trim() })
+        body: JSON.stringify({ provider, key: key.trim(), ...(provider === "anthropic" && workspace.trim() ? { workspace: workspace.trim() } : {}) })
       });
       const body = (await response.json().catch(() => ({}))) as Entitlement & { error?: string };
       if (!response.ok) {
@@ -170,6 +172,7 @@ function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange
         return;
       }
       setKey("");
+      setWorkspace("");
       onChange(body);
     } catch {
       setError("Couldn't reach your agent. Try again.");
@@ -229,6 +232,27 @@ function KeyForm({ entitlement, onChange }: { entitlement: Entitlement; onChange
           </p>
         ) : null}
       </div>
+      {provider === "anthropic" ? (
+        <div>
+          <label htmlFor={ids.workspace} className="block text-[13px] font-medium text-kumo-default">
+            Workspace ID <span className="font-normal text-kumo-subtle">(optional)</span>
+          </label>
+          <input
+            id={ids.workspace}
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            className={field}
+            placeholder="wrkspc_…"
+            value={workspace}
+            aria-describedby={ids.workspaceHint}
+            onChange={(event) => setWorkspace(event.target.value)}
+          />
+          <p id={ids.workspaceHint} className="mt-1 text-[13px] text-kumo-subtle text-pretty">
+            Only for a key that belongs to your whole organization rather than one workspace. Anthropic then needs to know which workspace to bill.
+          </p>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-end gap-2">
         {hasKey ? (
           <Action type="button" variant="secondary" disabled={busy} onClick={() => void remove()}>
