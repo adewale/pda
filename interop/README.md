@@ -35,6 +35,8 @@ npm run interop -- --image-tag adv --agents dpa --companies evil-company --scena
 npm run interop -- --image-tag adv --agents dpa --companies dpa-mock --scenarios NREP,CDUP,CIDUP,ODUP
 ```
 
+`--image-tag adv` builds our images under a side tag so a grid run in progress keeps its `:latest` ones. When no grid is running, `--no-build` reuses `:latest` instead (`evil-agent` and `evil-company` are our two images with `INTEROP_ADVERSARY` set). A side tag stays on Docker's disk until you remove it: `docker image rm poppy-interop/agent-dpa:adv poppy-interop/company-dpa-mock:adv poppy-interop/proxy:adv`.
+
 Each run writes:
 
 - `results.json`: every cell's outcome, blame, rule, steps and checks (spec section 9).
