@@ -18,6 +18,8 @@ import { demoCatalogModel, gatewayDemoLane, routerProvider, type DemoRoute, type
 import { POPPY_TIMEOUTS, type Fetcher, type PoppyTimeouts } from "../src/poppy/fetch";
 import { buildActivity } from "../src/poppy/activity";
 import { readConversation } from "../src/poppy/conversations";
+import { protocolIndex, protocolLog } from "../src/poppy/protocol-log";
+import type { ProtocolCompany, ProtocolEntry } from "../src/poppy/wire";
 import { Sealer } from "../src/poppy/store";
 import { poppyExtension } from "../src/poppy/tools";
 import { CLOCK_HEADER, companyIdFromHost, type MockCompany } from "./mock-company";
@@ -285,13 +287,100 @@ function recording(agent: object, fetcher: Fetcher): Fetcher {
   };
 }
 
+/** Every secret value that crossed the wire, per agent, for tests that check none reaches a log or a frame. */
+const wireSecrets = new WeakMap<object, Set<string>>();
+
+/** Form fields and JSON members that carry a secret, in either direction. */
+const SECRET_FIELDS = new Set([
+  "assertion",
+  "client_assertion",
+  "code",
+  "code_verifier",
+  "refresh_token",
+  "access_token",
+  "device_code",
+  "user_code",
+  "token",
+  "sign_in_id",
+  "session_id"
+]);
+
+function collectSecrets(found: Set<string>, value: unknown, key = ""): void {
+  if (typeof value === "string") {
+    if (SECRET_FIELDS.has(key) || key.startsWith("credentials.")) found.add(value);
+    return;
+  }
+  if (Array.isArray(value)) for (const item of value) collectSecrets(found, item, key);
+  else if (typeof value === "object" && value !== null) {
+    for (const [name, item] of Object.entries(value)) collectSecrets(found, item, key === "credentials" ? `credentials.${name}` : name);
+  }
+}
+
+/**
+ * `fetcher`, noting every secret it carries: tokens in `Authorization`, DPoP
+ * proofs, cookies, the secret fields of form and JSON bodies (assertions,
+ * codes, verifiers, tokens, sign-in values), and the same fields in JSON
+ * answers. Answers are read from a clone, after the fact.
+ */
+function tapping(agent: object, fetcher: Fetcher): Fetcher {
+  return async (request) => {
+    let found = wireSecrets.get(agent);
+    if (!found) wireSecrets.set(agent, (found = new Set()));
+    const seen = found;
+    const authorization = request.headers.get("Authorization");
+    if (authorization) seen.add(authorization.replace(/^\S+\s+/, ""));
+    for (const name of ["DPoP", "Cookie"]) {
+      const value = request.headers.get(name);
+      if (value) seen.add(value);
+    }
+    const type = request.headers.get("Content-Type") ?? "";
+    if (request.body && type.includes("form-urlencoded")) {
+      for (const [name, value] of new URLSearchParams(new TextDecoder().decode(await request.clone().arrayBuffer()))) if (SECRET_FIELDS.has(name)) seen.add(value);
+    } else if (request.body && type.includes("json")) {
+      try {
+        collectSecrets(seen, JSON.parse(await request.clone().text()));
+      } catch {
+        // Not JSON after all.
+      }
+    }
+    const response = await fetcher(request);
+    const setCookie = response.headers.get("Set-Cookie");
+    if (setCookie) seen.add(setCookie.split(";")[0]!.split("=").slice(1).join("="));
+    if ((response.headers.get("Content-Type") ?? "").includes("json")) {
+      void response
+        .clone()
+        .text()
+        .then((text) => collectSecrets(seen, JSON.parse(text)))
+        .catch(() => undefined);
+    }
+    return response;
+  };
+}
+
 /** The production agent with pi-ai's faux provider in place of AI Gateway. */
 export class PersonalAgent extends ProductionAgent {
   /** Woken whenever the model is told something. */
   #noticeWaiters: (() => void)[] = [];
 
   protected override poppyFetcher(): Fetcher {
-    return faultyFetcher(recording(this, testFetcher(this.env, () => clockOf(this).now)), () => faultsOf(this));
+    return faultyFetcher(recording(this, tapping(this, testFetcher(this.env, () => clockOf(this).now))), () => faultsOf(this));
+  }
+
+  /** Every secret this agent's Poppy requests and their answers carried (see `tapping`). */
+  async poppyWireSecrets(): Promise<string[]> {
+    return [...(wireSecrets.get(this) ?? [])].filter((value) => value.length > 0);
+  }
+
+  /** The protocol view's index, as the agent would send it now. */
+  async poppyProtocolIndex(): Promise<ProtocolCompany[]> {
+    void this.poppy.client;
+    return protocolIndex(this.ctx.storage.sql, (issuer) => ({ name: issuer, domain: null })).companies as ProtocolCompany[];
+  }
+
+  /** One Company's protocol log, oldest first, as the page would get it. */
+  async poppyProtocol(key: string): Promise<ProtocolEntry[]> {
+    void this.poppy.client;
+    return protocolLog(this.ctx.storage.sql, key, (issuer) => ({ name: issuer, domain: null })).entries as ProtocolEntry[];
   }
 
   /** Every request this agent sent to a host that is neither ours nor a mock Company's. */

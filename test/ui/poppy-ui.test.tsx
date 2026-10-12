@@ -14,7 +14,7 @@ import type { PoppyView } from "../../src/use-pi-session";
  * Company supplies becomes a dangerous link.
  */
 
-const EMPTY: PoppyView = { cards: [], accounts: [], permissions: [], direct: {}, activity: null };
+const EMPTY: PoppyView = { cards: [], accounts: [], permissions: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
 
 function view(patch: Partial<PoppyView>): PoppyView {
   return { ...EMPTY, ...patch };

@@ -1,5 +1,6 @@
 import { LifecycleCapability, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle";
 import { buildActivity } from "./activity";
+import { apiOperationFor } from "./apis";
 import type { PoppyBrowser } from "./browser";
 import { PoppyClient, type JobName, type PoppyHost } from "./client";
 import {
@@ -33,6 +34,7 @@ import {
   submitCredentials,
   submitSignInCode
 } from "./signin";
+import { protocolIndex, protocolLog, registerApiNamer } from "./protocol-log";
 import { migrate, rows } from "./store";
 import type { Card, PoppyClientFrame, PoppyServerFrame } from "./wire";
 
@@ -57,6 +59,9 @@ export type PoppyOptions = {
 /** The User counts as available while a page is open and was used recently (spec 7.4). */
 const AVAILABLE_FOR_MS = 10 * 60_000;
 
+// The protocol log names an OpenAPI call by its operation and path template.
+registerApiNamer(apiOperationFor);
+
 function html(status: number, message: string): Response {
   const escaped = message.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
   return new Response(
@@ -78,6 +83,8 @@ export class PoppyCapability extends LifecycleCapability {
   #lastActivity = 0;
   /** The last `poppy.activity` broadcast, so an unchanged one isn't sent again. */
   #lastActivityFrame = "";
+  /** The last `poppy.protocol.index` broadcast, likewise. */
+  #lastProtocolIndex = "";
 
   constructor(options: PoppyOptions) {
     super("poppy");
@@ -178,6 +185,7 @@ export class PoppyCapability extends LifecycleCapability {
    */
   #sendActivity(socket?: WebSocket): void {
     if (!socket && !this.#hasPoppyState()) return;
+    this.#sendProtocolIndex(socket);
     let text: string;
     try {
       text = JSON.stringify(buildActivity(this.client));
@@ -192,6 +200,44 @@ export class PoppyCapability extends LifecycleCapability {
     }
     if (text === this.#lastActivityFrame) return;
     this.#lastActivityFrame = text;
+    for (const open of this.lifecycle.sockets.get()) {
+      try {
+        open.send(text);
+      } catch {
+        // Closed between listing and sending.
+      }
+    }
+  }
+
+  /** A Company's name and verified domain, by issuer, for the protocol view. */
+  #companyNames = (issuer: string): { name: string; domain: string | null } => {
+    try {
+      const company = this.client.companyByIssuer(issuer);
+      return { name: company.name, domain: company.domain };
+    } catch {
+      return { name: URL.canParse(issuer) ? new URL(issuer).host : issuer, domain: null };
+    }
+  };
+
+  /**
+   * Which Companies have a protocol log, without the entries, so it stays
+   * small: to one socket on connect, otherwise to every page when it changed.
+   * A page with a Company's log open asks for it again when its `lastSeq` moves.
+   */
+  #sendProtocolIndex(socket?: WebSocket): void {
+    let text: string;
+    try {
+      text = JSON.stringify(protocolIndex(this.client.sql, this.#companyNames));
+    } catch (error) {
+      console.warn("poppy protocol index failed", error instanceof Error ? error.message : String(error));
+      return;
+    }
+    if (socket) {
+      socket.send(text);
+      return;
+    }
+    if (text === this.#lastProtocolIndex) return;
+    this.#lastProtocolIndex = text;
     for (const open of this.lifecycle.sockets.get()) {
       try {
         open.send(text);
@@ -261,7 +307,7 @@ export class PoppyCapability extends LifecycleCapability {
     this.#lastActivity = Date.now();
     try {
       await this.#handleFrame(socket, frame);
-      if (frame.type !== "poppy.context" && frame.type !== "poppy.activity") this.#sendActivity();
+      if (frame.type !== "poppy.context" && frame.type !== "poppy.activity" && frame.type !== "poppy.protocol") this.#sendActivity();
     } catch (error) {
       console.warn("poppy frame failed", frame.type, error instanceof Error ? error.message : String(error));
       this.#broadcast({
@@ -301,6 +347,10 @@ export class PoppyCapability extends LifecycleCapability {
         return;
       }
       case "poppy.activity":
+        return;
+      case "poppy.protocol":
+        // Read-only, from our own table, to the page that asked.
+        if (typeof frame.key === "string") socket.send(JSON.stringify(protocolLog(client.sql, frame.key, this.#companyNames)));
         return;
       case "poppy.credentials":
         // Straight to the sign-in code; never the model, the transcript or a log.

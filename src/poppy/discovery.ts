@@ -1,4 +1,4 @@
-import { summarize, validateCompany } from "../validator/index.ts";
+import { summarize, validateCompany, type CompanyReport } from "../validator/index.ts";
 import { bareHost } from "../validator/primitives.ts";
 import type { Fetcher } from "./fetch";
 
@@ -63,6 +63,10 @@ export type WebsiteOnly = {
 
 export class DiscoveryError extends Error {
   override name = "DiscoveryError";
+  /** The validator's report, when discovery refused what it read (for the protocol log). */
+  constructor(message: string, readonly report?: CompanyReport) {
+    super(message);
+  }
 }
 
 const CACHE_MIN_SECONDS = 60;
@@ -99,6 +103,8 @@ export type Discovered = {
   readonly result: Company | WebsiteOnly;
   /** Seconds both documents may be cached for, bounded. */
   readonly cacheSeconds: number;
+  /** The validator's report on both documents. */
+  readonly report: CompanyReport;
 };
 
 /**
@@ -114,7 +120,7 @@ export type Discovered = {
 export async function discover(fetcher: Fetcher, domain: string): Promise<Discovered> {
   const checked = await validateCompany(fetcher, domain);
   if (checked.refused || checked.outcome === "indeterminate" || !isObj(checked.poppy)) {
-    throw new DiscoveryError(summarize(checked) || "poppy.json couldn't be used");
+    throw new DiscoveryError(summarize(checked) || "poppy.json couldn't be used", checked);
   }
   const doc = checked.poppy;
   const organization = doc.organization as Obj;
@@ -124,7 +130,7 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
 
   const auth = doc.auth;
   if (!isObj(auth) || !isObj(checked.metadata)) {
-    return { result: { websiteOnly: true, name, domain: orgDomain }, cacheSeconds };
+    return { result: { websiteOnly: true, name, domain: orgDomain }, cacheSeconds, report: checked };
   }
   const metadata = checked.metadata;
   const issuer = auth.issuer as string;
@@ -209,7 +215,8 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
       ...(web ? { web } : {}),
       extensions
     },
-    cacheSeconds
+    cacheSeconds,
+    report: checked
   };
 }
 
