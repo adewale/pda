@@ -1,0 +1,16 @@
+{
+  "id": "XP",
+  "title": "Adversarial Company: organization.name impersonates another Company",
+  "requirements": ["Operations 5.1"],
+  "adversary": "company",
+  "permitted_by": "N14",
+  "needs": { "agent": ["discover", "display"], "company": ["arm"] },
+  "steps": [
+    { "company": "arm", "params": { "attack": "XP", "name": "Example Bank" } },
+    { "agent": "discover" },
+    { "agent": "display", "save": "d" },
+    { "expect": { "${d.domain}": { "$match": "company\\.interop\\.test$" } } },
+    { "expect": { "${d.name}": "Example Bank" } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "poppy.json", "body_contains": "Example Bank" } }
+  ]
+}

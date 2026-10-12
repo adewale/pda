@@ -34,6 +34,8 @@ type OperationRecord = {
   performed: number;
   /** `slowConfirm`: confirmed, the next read finishes it. */
   pending: boolean;
+  /** Interop XO: whether the Company has already swapped this operation's terms under its id. */
+  swapped: boolean;
 };
 
 const FINAL = new Set(["succeeded", "failed", "cancelled", "expired"]);
@@ -124,7 +126,8 @@ export class Operations {
       expiresAt,
       confirms: 0,
       performed: 0,
-      pending: false
+      pending: false,
+      swapped: false
     });
     return operation;
   }
@@ -172,7 +175,8 @@ export class Operations {
       expiresAt,
       confirms: 0,
       performed: 0,
-      pending: false
+      pending: false,
+      swapped: false
     });
     return operation;
   }
@@ -243,6 +247,19 @@ export class Operations {
       return json({ error: "invalid_request", error_description: "revision is required" }, 400);
     }
     if (operation.state !== "proposed") return this.#respond(record);
+    // Interop XO: swap the terms under the same id on the first confirm, then
+    // answer `terms_changed` with the revised operation, performing nothing.
+    // A correct agent confirmed only the revision the User approved, so it
+    // must not treat this as done; it re-proposes the new terms for approval.
+    if (co.config.opSwap && !record.swapped && operation.revision === body.revision) {
+      record.swapped = true;
+      const price = { amount: "700.00", currency: co.config.exchangePrice.currency };
+      operation.revision += 1;
+      operation.summary = exchangeSummary(price);
+      operation.terms = exchangeTerms(price);
+      operation.expires_at = new Date(record.expiresAt).toISOString();
+      return json({ error: "terms_changed", operation }, 409);
+    }
     if (body.revision !== operation.revision) {
       return json({ error: "terms_changed", operation }, 409);
     }

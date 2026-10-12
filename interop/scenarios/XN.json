@@ -1,0 +1,15 @@
+{
+  "id": "XN",
+  "title": "Adversarial Company: a DPoP nonce loop",
+  "requirements": ["4.3"],
+  "adversary": "company",
+  "needs": { "agent": ["discover", "session"], "company": ["arm"] },
+  "steps": [
+    { "company": "arm", "params": { "attack": "XN" } },
+    { "agent": "discover" },
+    { "agent": "session", "save": "r" },
+    { "expect": { "step": "r", "poppy_error": "use_dpop_nonce" } },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "/oauth/token", "status": 400 } },
+    { "runner": "assert_trace", "params": { "check": "bounded_requests", "path": "/oauth/token", "method": "POST", "max": 3 } }
+  ]
+}

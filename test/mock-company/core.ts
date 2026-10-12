@@ -335,6 +335,10 @@ export class Company {
 
   /** The DPoP nonce the server at `origin` expects. */
   nonceFor(origin: string): string {
+    // Interop XN: a fresh nonce on every call, so a retrying agent's proof
+    // never carries the one the server now wants. nonceLoop also makes the
+    // check below always challenge, so this value is only ever handed out.
+    if (this.config.nonceLoop) return randomId("n_");
     const key = this.config.nonceScope === "origin" ? origin : "company";
     let nonce = this.#nonces.get(key);
     if (!nonce) {
@@ -783,6 +787,12 @@ export class Company {
       throw fail("invalid_dpop_proof", "ath doesn't match the token", "dpop.ath");
     }
     const jkt = await calculateJwkThumbprint(jwk);
+    if (this.config.nonceLoop) {
+      // Interop XN: never accept the nonce it issued, so every reply is a
+      // fresh `use_dpop_nonce` challenge. An agent that retries without bound
+      // would loop; a correct one gives up after a bounded number of tries.
+      throw fail("use_dpop_nonce", "nonce required (loop)", null);
+    }
     if (this.config.requireNonce) {
       // Nonces belong to a server (RFC 9449; Guides: "keep it for that server").
       const holder = `${jkt}|${origin}`;

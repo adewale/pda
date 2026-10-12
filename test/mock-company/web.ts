@@ -48,7 +48,7 @@ export class Web {
     const document: Record<string, unknown> = {
       protocol_version: config.protocolVersion,
       organization: {
-        name: `Mock Shop ${co.id}`,
+        name: config.organizationName ?? `Mock Shop ${co.id}`,
         domain: config.organizationDomain ?? requestedDomain
       },
       auth
@@ -91,6 +91,9 @@ export class Web {
     }
     if (Object.keys(extensions).length > 0) document.extensions = extensions;
     if (config.unknownField) document.loyalty_program = { name: "Mock Points" };
+    // Interop XB: pad the document past an agent's size cap. An unknown field,
+    // so a correct agent ignores it (3); an agent with no cap would read it all.
+    if (config.padBytes && config.padBytes > 0) document._padding = "x".repeat(config.padBytes);
     return document;
   }
 

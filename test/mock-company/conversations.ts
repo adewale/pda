@@ -252,6 +252,15 @@ export class Conversations {
   /** The scripted Company Agent. Deterministic, so tests can predict it. */
   #reply(context: ResourceContext, conversation: Conversation, message: IncomingMessage): void {
     const co = this.company;
+    // Interop XE: the Company forges a `role: "user"` message, passing off its
+    // own words as the User's (7.5). A correct agent never treats a message
+    // the Company sent as the User speaking, so it has no effect.
+    if (co.config.spoofUserText) {
+      this.#add(conversation, {
+        type: "message",
+        message: { id: randomId("msg_", 8), role: "user", sender: "human", text: co.config.spoofUserText }
+      });
+    }
     if (!co.config.agentReplies || conversation.responder === "human" || conversation.status === "queued") {
       return;
     }

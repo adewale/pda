@@ -49,6 +49,19 @@ describe("harm oracles", () => {
     expect(assertTrace(recording(issued, { url: `${API}/notes`, method: "POST", body: "nothing here" }), { check: "no_secret_in", value: "canary-xyz" }).kind).toBe("ok");
   });
 
+  it("bounded_requests passes a bounded retry and fails an unbounded loop (XN, XB)", () => {
+    const tokenReq = (at: number) => ({ url: TOKEN, method: "POST", form: { grant_type: "x" }, status: 400, at });
+    const two = recording(tokenReq(0), tokenReq(1));
+    const five = recording(tokenReq(0), tokenReq(1), tokenReq(2), tokenReq(3), tokenReq(4));
+    expect(assertTrace(two, { check: "bounded_requests", path: "/oauth/token", method: "POST", max: 3 }).kind).toBe("ok");
+    expect(assertTrace(five, { check: "bounded_requests", path: "/oauth/token", method: "POST", max: 3 }).kind).toBe("failed");
+    // Nothing matching: inapplicable, so the cell is unsupported rather than falsely passing.
+    expect(assertTrace(recording(issued), { check: "bounded_requests", path: "/never", max: 3 }).kind).toBe("inapplicable");
+    // Injected (proxy) requests don't count against the honest side.
+    const withInjected = recording(tokenReq(0), { url: TOKEN, method: "POST", form: { grant_type: "x" }, status: 400, injected: true });
+    expect(assertTrace(withInjected, { check: "bounded_requests", path: "/oauth/token", method: "POST", max: 1 }).kind).toBe("ok");
+  });
+
   it("attack_observed finds the attack, or fails (which cell.ts turns into a harness error)", () => {
     expect(assertTrace(recording(issued), { check: "attack_observed", path: "/oauth/token", method: "POST" }).kind).toBe("ok");
     expect(assertTrace(recording(issued), { check: "attack_observed", path: "/oauth/token", injected: true }).kind).toBe("failed");

@@ -32,7 +32,7 @@ export type AttackContext = {
 export type AttackResult = { readonly status: number; readonly body: unknown; readonly poppy_error?: string; readonly detail?: string };
 
 /** The armed attack ids this adapter supports (manifest `attacks`, spec §4). */
-export const ATTACKS = ["YR", "YD", "YA", "YT", "YS", "YK", "YU"] as const;
+export const ATTACKS = ["YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM"] as const;
 export type AttackId = (typeof ATTACKS)[number];
 
 type Signer = { kid: string; key: CryptoKey };
@@ -182,6 +182,37 @@ export async function runAttack(ctx: AttackContext, company: Company, attack: st
       const b = await startSession(ctx, company, await dpopKey(), "usr_Hd8pW2zQ5nVb7LtK3xRc9F");
       const target = `${conversations.replace(/\/+$/, "")}/${encodeURIComponent(opened.conversation_id)}`;
       return finish(await ctx.fetcher(new Request(target, { headers: { Authorization: `DPoP ${b.token}`, DPoP: await proof(b.key, "GET", target, b.token) } })));
+    }
+    case "YM": {
+      // Confirm an operation without the User's approval (Ops 5.1; confirm.approved-by).
+      // Sign in with write, propose the exchange, then POST /confirm with no approved_by.
+      const mediated = company.signIn.mediated?.endpoint;
+      const operations = company.extensions.operations?.endpoint;
+      const openapi = company.apis.find((entry) => entry.type === "openapi");
+      if (!mediated || !operations || !openapi) {
+        return { status: 0, body: null, poppy_error: "unsupported", detail: "YM needs Mediated Sign-In, the Operations extension and an OpenAPI" };
+      }
+      const session = await startSession(ctx, company, await dpopKey());
+      const credentials = (params.credentials as Record<string, string>) ?? { email: "ada@example.com", password: "correct horse" };
+      const signedIn = (await bodyOf(
+        await ctx.fetcher(new Request(mediated, { method: "POST", headers: { "content-type": "application/json", Authorization: `DPoP ${session.token}`, DPoP: await proof(session.key, "POST", mediated, session.token) }, body: JSON.stringify({ scope: "poppy:read poppy:write", credentials }) }))
+      )) as { refresh_token?: string };
+      if (!signedIn.refresh_token) return { status: 0, body: signedIn, poppy_error: "sign_in_failed", detail: "no Account Token" };
+      // A write Session Token from the Account Token.
+      const refreshed = (await bodyOf(
+        await post(ctx, endpoint, { grant_type: "refresh_token", refresh_token: signedIn.refresh_token, session_id: session.sessionId, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: await proof(session.key, "POST", endpoint) })
+      )) as { access_token?: string };
+      const writeToken = refreshed.access_token ?? session.token;
+      // Propose the jacket exchange (202 with an operation).
+      const exchangeUrl = `${new URL(openapi.url).origin}/orders/ord_7Hk2/exchanges`;
+      const proposed = (await bodyOf(
+        await ctx.fetcher(new Request(exchangeUrl, { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": `${jti()}${jti()}`, Authorization: `DPoP ${writeToken}`, DPoP: await proof(session.key, "POST", exchangeUrl, writeToken) }, body: JSON.stringify({ item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }) }))
+      )) as { operation?: { operation_id?: string; revision?: number } };
+      const op = proposed.operation;
+      if (!op?.operation_id) return { status: 0, body: proposed, poppy_error: "no_operation", detail: "the exchange didn't propose an operation" };
+      // Confirm it without saying the User approved: approved_by omitted.
+      const confirmUrl = `${operations.replace(/\/+$/, "")}/${encodeURIComponent(op.operation_id)}/confirm`;
+      return finish(await ctx.fetcher(new Request(confirmUrl, { method: "POST", headers: { "content-type": "application/json", Authorization: `DPoP ${writeToken}`, DPoP: await proof(session.key, "POST", confirmUrl, writeToken) }, body: JSON.stringify({ revision: op.revision ?? 1 }) })));
     }
     default:
       return { status: 501, body: null, poppy_error: "unsupported", detail: `unknown attack ${attack}` };
