@@ -39,7 +39,7 @@ From the spec's Model access, "Check live", and the parts tested only in fakes o
 - [ ] The gateway metadata (`u`, `d`) reaches the spend rules; the 429 they return; how far a burst overshoots.
 - [ ] Settings in a real browser: the key panel (paste, remove), the demo meter, and the needs-key banner.
 - [ ] The Content-Security-Policy doesn't break the deployed page: the theme script, the WebSocket, images, the validator's pages.
-- [ ] Sign-in end to end: GitHub works (the owner signs in with it); still to try: a Google sign-in end to end (yours, and a `sierra.ai` Workspace account), and someone not on a list being refused.
+- [ ] Sign-in end to end: GitHub works (the owner signs in with it); Google works end to end (the owner signed in on 12 October); still to try: a `sierra.ai` Workspace account, and someone not on a list being refused.
 - [ ] If a "Deploy to Cloudflare" button is added: how it handles the deployer's vars.
 
 ## 3. Then
