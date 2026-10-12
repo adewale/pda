@@ -18,6 +18,7 @@ The implementations themselves are surveyed in [implementations.md](implementati
 - [everruns](#everruns-everrunseverruns)
 - [Ilmer.org](#ilmerorg-rbirkbyilmerorg)
 - [pi-poppy](#pi-poppy-richardanayapi-poppy)
+- [print-with-poppy](#print-with-poppy-spenciefyprint-with-poppy)
 - [This project](#this-project)
 
 ## The specification
@@ -157,6 +158,21 @@ A Personal Agent extension for the pi coding agent, with its own mock Company, r
 | Grid: after `invalid_session` from the token endpoint it gives up instead of starting a new Session ([N39](spec-issues.md#n39)). | 4.2 | Medium |
 | Grid: `null` optional Operation members are rejected, so an operation Datalayer performed is reported as failed ([N41](spec-issues.md#n41)). | Ops | Medium |
 | Grid: its Company answers an unknown `kid` with `invalid_client` and doesn't refetch the JWKS for 60 s, though the Guides say "Companies refetch `jwks_uri` when they see an unknown `kid`". | Guides | Low |
+
+## print-with-poppy (spenciefy/print-with-poppy)
+
+An agent-first photo-printing store: signed-out Sessions, an OpenAPI API, and Operations v1 for every order. Our grid runs it at commit `7ef69be` in demo mode ([adapter README](../interop/impls/print-with-poppy-company/README.md)), and on 12 October the owner tried our deployed agent against the live store at printwithpoppy.com. It is also our demo journey. Rows marked "Live:" come from that run; "Source:" from reading the pinned code; "Grid:" from the grid.
+
+| Issue | Section | Severity | Status |
+| --- | --- | --- | --- |
+| Live: `POST /api/agent-sessions` answers `500 internal_error` ("Something went wrong. Retry the same request; do not create a duplicate order."), three times in a row on 12 October. | n/a (store error) | Medium | Tell the maintainer |
+| Live and Source: the OpenAPI description offers a non-Poppy way in, `startGuestAgentSession` ("Start a plain HTTP compatibility session (not native Poppy authentication)"), with no security requirement, beside the DPoP-protected operations; every real operation accepts either DPoP or the guest Bearer token (`AgentGuest`). A Poppy agent reading the description can be drawn into it: ours called it three times. The guest token carries no agent identity, so the allowlist and DPoP binding don't apply to it. | 6, 4.3 | Medium | Tell the maintainer; we now refuse such writes ([readings](readings.md)) |
+| Source: in demo mode the compatibility path can't be turned off: `config.compatibility` is `ALLOW_COMPAT_AGENT_SESSIONS === "true" \|\| APP_MODE === "demo"`, so no setting disables it while the store is in demo mode. Our adapter patches it off ([patch](../interop/impls/print-with-poppy-company/patches/0001-compat-sessions-settable-off.patch)). | 4.3 | Low | Tell the maintainer |
+| Source: no licence is declared, so the code can't be reused or redistributed as it stands. | n/a | Low | Tell the maintainer |
+| Source: an order is an operation proposed in a signed-out Session, which the draft limits to that Session (Ops 3.2); if the Session ends before it's confirmed, the agent can neither confirm it nor ask for it again ([N19](spec-issues.md#n19)). The store does nothing wrong; the draft leaves the case open, and this store makes it the normal path. | Ops 3.2, 6 | Medium (spec) | In spec-issues N19 |
+| Grid: none of its own. Of its 19 cells that ran, 16 pass; the 3 failures are poppy-demo's agent crashing on the missing `authorization_endpoint` (poppy-demo's bug, listed above). It accepts any assertion `typ` and lifetimes up to 120 s ([S2](spec-issues.md#s2)), a reading, not a fault. | 4.2 | n/a | n/a |
+
+**Not yet explained (12 October):** why our agent turned to the compatibility endpoint at all. The maintainer says our `client_id` is on the live store's allowlist; if our Poppy Session had failed at `/oauth/token`, the protocol log in Activity would show it. Pending the owner's copy of that log.
 
 ## This project
 
