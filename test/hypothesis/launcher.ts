@@ -55,7 +55,14 @@ const KNOBS = [
   "streaming",
   "textDeltas",
   "sseKeepAlive",
-  "agentReplies"
+  "agentReplies",
+  "slowConfirm",
+  "userApprovalRequired",
+  "requireOperationsExtension",
+  "operationIdPrefix",
+  "deviceInterval",
+  "deviceExpiresIn",
+  "eventPageSize"
 ] as const satisfies readonly (keyof MockConfig)[];
 
 const env = { PUBLIC_ORIGIN: "https://no-direct-worker.invalid" } as unknown as Env;

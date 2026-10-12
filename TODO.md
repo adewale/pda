@@ -50,7 +50,8 @@ Built and passing in the grid (scenario OU, against the store at its pinned comm
 - [ ] **Owner. Re-check the spec** with `node scripts/spec-snapshot.mjs` before sending issues to its authors or submitting the proposals.
 - [ ] **Code. Scenarios not yet written:** `H`, `DC`, `W`, `O2`, `CM` ([interop-testing.md](docs/interop-testing.md)).
 - [ ] **Code. Attacks not yet built:** `XM`, `XS` (needs N42's private test suffix), `XB`, `XN`, `XO`, `XE`, `XP`, `YF`, `YC`, `YM` ([adversarial-interop.md](docs/adversarial-interop.md)).
-- [ ] **Code. The Hypothesis client's gaps:** the Operations extension, MCP, browsing, handoff and Direct Conversations, rate limits, Device Sign-In polling ([test/hypothesis/README.md](test/hypothesis/README.md)).
+- [x] **Code. The Hypothesis client's gaps** are closed: the Operations extension, MCP, browsing, handoff and Direct Conversations, rate limits and Device Sign-In polling each have a state machine ([test/hypothesis/README.md](test/hypothesis/README.md)). They found five mock bugs, now fixed with tests, and four questions for the draft's authors (listed in that README). By the owner's decision (12 October 2026) the client is now an occasional local check, run after a draft change or a large mock change, not expanded further; what it leaves out is listed in that README.
+- [ ] **Code. The grid's `rate-limit.retry-after-ignored` trace check** (`interop/runner/checks.ts`) treats any request to the peer inside a `Retry-After` as a retry; 4.3's MUST is about the same request, as the mock now reads it ([test/hypothesis/README.md](test/hypothesis/README.md#what-it-found)).
 - [ ] **Owner then Code. The adapters not yet run:** everruns (needs Docker disk), typo3 (needs the private extension), and the live lane, kept until our own side is verified ([deployment-tasks](docs/deployment-tasks.md#3-then)).
 
 ## Open questions in the spec

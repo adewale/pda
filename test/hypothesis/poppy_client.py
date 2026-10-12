@@ -5,9 +5,11 @@ draft (https://personalagentprotocol.org/docs/spec) and our spec's readings
 
 It is deliberately small: discovery, client and Session assertions, DPoP
 proofs with nonces and `ath`, the token grants, Account Token renewal and
-rotation, conversations, and sign-out. It returns what the Company said
-(`Reply`) and leaves judging it to the caller, so the state machine in
-test_mock_company.py can hold the Company to a model.
+rotation, conversations with handoff and Direct Conversations, sign-out,
+the Operations extension, MCP with Bearer Session Tokens, joining a
+browser to a Session (5), and rate limits (4.3). It returns what the
+Company said (`Reply`) and leaves judging it to the caller, so the state
+machines in test_*.py can hold the Company to a model.
 
 The reject-direction rules need to break things on purpose (replay a JWT,
 use a wrong `aud`, sign with another key). Those knobs are explicit
@@ -36,6 +38,7 @@ JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code"
 CLIENT_ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 ASSERTION_LIFETIME = 60  # seconds; strict Companies allow 60 (spec-issues S2)
+MAX_LIMITED_RETRIES = 6  # 429s waited out before a request gives up
 DEFAULT: Any = object()  # "the honest value", where None is itself a value a test may send
 
 
@@ -74,6 +77,65 @@ class Es256Key:
 # ---------------------------------------------------------------- transport
 
 
+class Clock:
+    """
+    The agent's clock for timing requests: when to poll a device, when a
+    `Retry-After` has passed. It starts at the real time and moves only when
+    the agent waits, so a wait costs nothing and every timing is exact. The
+    transport stamps it on each request in `x-test-clock`, the mock's test
+    clock header (test/mock-company/core.ts, CLOCK_HEADER), which the mock
+    reads for rate limits, device polling and token age. JWT times (`iat`,
+    `exp`) stay on the real clock, which is the one the mock checks them on.
+    """
+
+    def __init__(self) -> None:
+        self._ms = int(time.time() * 1000)
+
+    def now_ms(self) -> int:
+        return self._ms
+
+    def sleep(self, seconds: float) -> None:
+        assert seconds >= 0
+        self._ms += int(seconds * 1000)
+
+
+@dataclass
+class Sent429:
+    """A 429 the client met: where, and the `Retry-After` it gave (None when absent or unreadable)."""
+
+    method: str
+    url: str
+    retry_after: float | None
+    at_ms: int
+
+
+@dataclass
+class Exchange:
+    """One request on the wire and its status, for invariants about where the client sent what."""
+
+    method: str
+    url: str
+    scheme: str | None  # of the Authorization header: "DPoP", "Bearer" or None
+    status: int
+    at_ms: int  # the clock stamp it carried
+    retry_after: float | None  # a 429's Retry-After
+
+
+def retry_after_seconds(value: str | None, now_ms: int) -> float | None:
+    """RFC 9110 10.2.3: delay-seconds, or an HTTP-date (as seconds from `now_ms`). Anything else is None."""
+    if value is None:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return float(int(value))
+    try:
+        from email.utils import parsedate_to_datetime
+
+        return max(0.0, parsedate_to_datetime(value).timestamp() - now_ms / 1000)
+    except (TypeError, ValueError):
+        return None
+
+
 class LocalTransport(httpx.BaseTransport):
     """
     Sends `https://<host>/...` for the mock's hosts to the launcher on
@@ -81,23 +143,55 @@ class LocalTransport(httpx.BaseTransport):
     original `Host` and `X-Forwarded-Proto: https`, which
     interop/impls/shared/serve.ts turns back into the URL the client meant.
     Anything else is refused, so nothing leaves localhost.
+
+    It is also the client's one rate limiter for the Company (4.3, Guides
+    "Rate limits": keep track of limits for each company and share them
+    across your tasks and users): after a 429 it holds every request until
+    the `Retry-After` has passed, by waiting on the clock. `ignoring_limits`
+    turns that off, for the rule that breaks it on purpose.
     """
 
-    def __init__(self, port: int, suffix: str) -> None:
+    def __init__(self, port: int, suffix: str, clock: Clock) -> None:
         self._inner = httpx.HTTPTransport()
         self._port = port
         self._suffix = suffix
+        self.clock = clock
+        self.blocked_until_ms = 0
+        self.ignore_limits = False
+        self.limited: list[Sent429] = []
+        self.log: list[Exchange] = []
+
+    def reset(self, clock: Clock) -> None:
+        self.clock = clock
+        self.blocked_until_ms = 0
+        self.ignore_limits = False
+        self.limited.clear()
+        self.log.clear()
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         url = request.url
         if url.scheme != "https" or not (url.host == self._suffix or url.host.endswith("." + self._suffix)):
             raise RuntimeError(f"refusing to send to {url}: only https://*.{self._suffix} goes to the local mock")
+        if not self.ignore_limits and self.clock.now_ms() < self.blocked_until_ms:
+            self.clock.sleep((self.blocked_until_ms - self.clock.now_ms()) / 1000)
         headers = httpx.Headers([(k, v) for k, v in request.headers.raw if k.lower() != b"host"])
         headers["Host"] = url.host
         headers["X-Forwarded-Proto"] = "https"
+        headers["x-test-clock"] = str(self.clock.now_ms())  # the stamp below
         local = url.copy_with(scheme="http", host="127.0.0.1", port=self._port)
         forwarded = httpx.Request(request.method, local, headers=headers, stream=request.stream, extensions=request.extensions)
-        return self._inner.handle_request(forwarded)
+        stamp = self.clock.now_ms()
+        response = self._inner.handle_request(forwarded)
+        authorization = request.headers.get("authorization")
+        seconds = retry_after_seconds(response.headers.get("retry-after"), stamp) if response.status_code == 429 else None
+        scheme = authorization.split(" ", 1)[0] if authorization else None
+        self.log.append(Exchange(request.method, str(url), scheme, response.status_code, stamp, seconds))
+        if response.status_code == 429:
+            self.limited.append(Sent429(request.method, str(url), seconds, self.clock.now_ms()))
+            # Without a readable Retry-After, wait a second: the request isn't sent again at once.
+            until = self.clock.now_ms() + int((seconds if seconds is not None else 1) * 1000)
+            self.blocked_until_ms = max(self.blocked_until_ms, until)
+        return response
 
     def close(self) -> None:
         self._inner.close()
@@ -150,6 +244,31 @@ class PersonalAgent:
     def redirect_uri(self) -> str:
         return f"{self.origin}/poppy/callback"
 
+    def browser_assertion(
+        self,
+        user_id: str,
+        session_id: Any,
+        aud: Any,
+        return_to: Any,
+        *,
+        typ: str = "poppy-browser+jwt",
+        lifetime: int = ASSERTION_LIFETIME,
+        jti: str | None = None,
+    ) -> str:
+        """A browser assertion (5): signed like the Session assertion, with `typ` poppy-browser+jwt."""
+        now = int(time.time())
+        claims = {
+            "iss": self.client_id,
+            "sub": user_id,
+            "aud": aud,
+            "session_id": session_id,
+            "return_to": return_to,
+            "iat": now,
+            "exp": now + lifetime,
+            "jti": jti or random_id(),
+        }
+        return self.signing_key.sign(claims, {"typ": typ, "kid": self.signing_key.kid})
+
     def documents(self) -> dict[str, Any]:
         metadata: dict[str, Any] = {
             "client_id": self.client_id,
@@ -180,6 +299,23 @@ class Company:
     conversations: str | None
     openapi: str | None
     mediated: dict[str, Any] | None
+    mcp: str | None = None  # the MCP server's `url` (6), the only place a Bearer Session Token goes
+    operations: str | None = None  # the Operations extension's endpoint, version 1 (Ops 2)
+    browser_session: str | None = None  # `web.browser_session_endpoint` (5)
+
+    @property
+    def organization_domain(self) -> str:
+        return self.document["organization"]["domain"].lower()
+
+    def on_own_domain(self, url: str) -> bool:
+        """5: `return_to` is an HTTPS URL on `organization.domain` or one of its subdomains."""
+        try:
+            parts = urllib.parse.urlsplit(url)
+            host = (parts.hostname or "").lower()
+        except ValueError:
+            return False
+        domain = self.organization_domain
+        return parts.scheme == "https" and (host == domain or host.endswith("." + domain))
 
     @property
     def token_endpoint(self) -> str:
@@ -206,6 +342,13 @@ class Company:
 
 class DiscoveryError(Exception):
     pass
+
+
+def protected_resource_metadata_url(resource: str) -> str:
+    """RFC 9728 3.1: `/.well-known/oauth-protected-resource` between the host and the resource's path."""
+    parts = urllib.parse.urlsplit(resource)
+    path = parts.path.rstrip("/")
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, "/.well-known/oauth-protected-resource" + path, "", ""))
 
 
 def metadata_url(issuer: str) -> str:
@@ -290,7 +433,18 @@ class Poppy:
         conversations = next((p["endpoint"] for p in protocols if p.get("type") == "poppy"), None)
         openapi = next((a["url"] for a in document.get("apis", []) if a.get("type") == "openapi"), None)
         mediated = auth.get("mediated") if isinstance(auth.get("mediated"), dict) else None
-        return Company(domain, document, issuer, metadata, conversations, openapi, mediated)
+        mcp = next((a["url"] for a in document.get("apis", []) if a.get("type") == "mcp"), None)
+        # Ops 2: version 1, with its endpoint; an extension we don't know is ignored (3.3).
+        operations_entry = document.get("extensions", {}).get("operations")
+        operations = (
+            operations_entry.get("endpoint")
+            if isinstance(operations_entry, dict) and operations_entry.get("version") == "1"
+            else None
+        )
+        web = document.get("web") if isinstance(document.get("web"), dict) else {}
+        return Company(
+            domain, document, issuer, metadata, conversations, openapi, mediated, mcp, operations, web.get("browser_session_endpoint")
+        )
 
     # ---- DPoP (4.3, RFC 9449) ----
 
@@ -322,14 +476,17 @@ class Poppy:
         client_assertion: str | Callable[[], str] | None = None,
         proof: str | None = None,
         dpop: bool = True,
+        retry_limited: bool = True,
     ) -> Reply:
         """
         A form POST with a client assertion and, by default, a DPoP proof
         without `ath`. Callables in `form` make a fresh value per attempt (a
-        retry gets new assertions). Retries once on `use_dpop_nonce`.
+        retry gets new assertions). Retries once on `use_dpop_nonce`, and
+        after a 429 once its `Retry-After` has passed (the transport waits).
         """
         url = endpoint or company.token_endpoint
-        for attempt in range(2):
+        nonce_retried, limited = False, 0
+        while True:
             made = client_assertion() if callable(client_assertion) else client_assertion
             if made is None:
                 made = self.agent.assertion(self.agent.client_id, url)
@@ -344,10 +501,13 @@ class Poppy:
             self._keep_nonce(url, response)
             self.last = Sent(made, body.get("assertion"), sent_proof)
             reply = Reply.of(response)
-            if reply.status == 400 and reply.error == "use_dpop_nonce" and attempt == 0 and proof is None:
+            if reply.status == 429 and retry_limited and limited < MAX_LIMITED_RETRIES:
+                limited += 1
+                continue
+            if reply.status == 400 and reply.error == "use_dpop_nonce" and not nonce_retried and proof is None:
+                nonce_retried = True
                 continue
             return reply
-        return reply
 
     def session_assertion(self, company: Company, user: User, aud: Any = DEFAULT) -> str:
         return self.agent.assertion(user.user_id, company.token_endpoint if aud is DEFAULT else aud)
@@ -370,6 +530,26 @@ class Poppy:
         if scope is not None:
             form["scope"] = " ".join(scope)
         return self.token_request(company, key, form)
+
+    def bearer_token(
+        self, company: Company, session: Session, account_token: str | None, *, resource: Any = DEFAULT, dpop: bool = False
+    ) -> Reply:
+        """
+        A Bearer Session Token for the MCP server (4.3): the request that
+        renews the Session's token, without the `DPoP` header, with
+        `resource` set to the MCP server's `url`. A signed-in Session renews
+        with its Account Token (4.8), a signed-out one with the assertion (4.2).
+        """
+        assert company.mcp is not None
+        form: dict[str, str | Callable[[], str]]
+        if account_token is not None:
+            form = {"grant_type": "refresh_token", "refresh_token": account_token}
+        else:
+            form = {"grant_type": JWT_BEARER, "assertion": lambda: self.session_assertion(company, session.user)}
+        form["session_id"] = session.session_id
+        if resource is not None:
+            form["resource"] = company.mcp if resource is DEFAULT else resource
+        return self.token_request(company, session.key, form, dpop=dpop)
 
     def revoke(self, company: Company, account_token: str) -> Reply:
         """Sign-out (4.9): revoke the Account Token, RFC 7009, with the client assertion."""
@@ -453,36 +633,144 @@ class Poppy:
         *,
         body: Any = None,
         raw_body: str | None = None,
+        content: bytes | None = None,
+        content_type: str = "application/json",
         params: dict[str, str] | None = None,
         headers: dict[str, str] | None = None,
         key: Es256Key | None = None,
         proof: str | None = None,
+        scheme: str = "DPoP",
+        retry_limited: bool = True,
     ) -> Reply:
         """
         A request with the Session Token in `Authorization: DPoP` and a proof
         with `ath` (4.3). Only to the Company's hosts, never with a token in
-        the URL. Retries once on `use_dpop_nonce`.
+        the URL. Retries once on `use_dpop_nonce`, and after a 429 once its
+        `Retry-After` has passed. `scheme` other than DPoP is only for the
+        reject rules: a Bearer header and no proof.
         """
         if not company.may_receive_tokens(url):
             raise AssertionError(f"refusing to send a Session Token to {url}")
         full = httpx.URL(url, params=params or {})
         if session.token in str(full):
             raise AssertionError("refusing to put a token in a URL")
-        content = raw_body if raw_body is not None else (json.dumps(body, allow_nan=False) if body is not None else None)
-        for attempt in range(2):
-            sent_proof = proof or self.proof(key or session.key, method, url, session.token)
-            request_headers = {"Authorization": f"DPoP {session.token}", "DPoP": sent_proof, "Accept": "application/json"}
+        if content is None:
+            text = raw_body if raw_body is not None else (json.dumps(body, allow_nan=False) if body is not None else None)
+            content = text.encode("utf-8") if text is not None else None
+        nonce_retried, limited = False, 0
+        while True:
+            request_headers = {"Authorization": f"{scheme} {session.token}", "Accept": "application/json"}
+            sent_proof = None
+            if scheme == "DPoP":
+                sent_proof = proof or self.proof(key or session.key, method, url, session.token)
+                request_headers["DPoP"] = sent_proof
             if content is not None:
-                request_headers["Content-Type"] = "application/json"
+                request_headers["Content-Type"] = content_type
             request_headers.update(headers or {})
             response = self.http.request(method, full, content=content, headers=request_headers)
             self._keep_nonce(url, response)
             self.last = Sent(proof=sent_proof)
             reply = Reply.of(response)
-            if reply.status == 401 and reply.error == "use_dpop_nonce" and attempt == 0 and proof is None:
+            if reply.status == 429 and retry_limited and limited < MAX_LIMITED_RETRIES:
+                limited += 1
+                continue
+            if reply.status == 401 and reply.error == "use_dpop_nonce" and not nonce_retried and proof is None and scheme == "DPoP":
+                nonce_retried = True
                 continue
             return reply
-        return reply
+
+    # ---- APIs (6): the OpenAPI writes the state machines use ----
+
+    def exchange(self, session: Session, company: Company, api_base: str, idempotency_key: str | None) -> Reply:
+        """`POST /orders/ord_7Hk2/exchanges` (the fixture's `openapi_write`), with an `Idempotency-Key` (Guides: Retries)."""
+        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else None
+        body = {"item_id": "itm_4Qa", "replacement_sku": "stormline-insulated-m"}
+        return self.resource(session, "POST", f"{api_base}/orders/ord_7Hk2/exchanges", company, body=body, headers=headers)
+
+    def upload_photo(self, session: Session, company: Company, api_base: str, name: str, data: bytes) -> Reply:
+        """`POST /photos`: one photo as `multipart/form-data` (RFC 7578), in the field `photo`."""
+        boundary = random_id("b", 12)
+        head = (
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"{name}\"\r\n"
+            "Content-Type: image/jpeg\r\n\r\n"
+        ).encode()
+        content = head + data + f"\r\n--{boundary}--\r\n".encode()
+        return self.resource(
+            session, "POST", f"{api_base}/photos", company, content=content, content_type=f"multipart/form-data; boundary={boundary}"
+        )
+
+    def order_prints(self, session: Session, company: Company, api_base: str, order: dict[str, Any], idempotency_key: str) -> Reply:
+        return self.resource(session, "POST", f"{api_base}/prints", company, body=order, headers={"Idempotency-Key": idempotency_key})
+
+    # ---- the Operations extension (Ops 5 to 7) ----
+
+    def operation_url(self, company: Company, operation_id: str, action: str | None = None) -> str:
+        """The operation's URL: its id is the Company's own text (Ops 3), so it is percent-encoded as one path segment."""
+        assert company.operations is not None
+        url = f"{company.operations}/{urllib.parse.quote(operation_id, safe='')}"
+        return f"{url}/{action}" if action else url
+
+    def read_operation(self, session: Session, company: Company, operation_id: str) -> Reply:
+        return self.resource(session, "GET", self.operation_url(company, operation_id), company)
+
+    def confirm_operation(self, session: Session, company: Company, operation_id: str, revision: Any, approved_by: Any) -> Reply:
+        body = {"revision": revision, "approved_by": approved_by}
+        return self.resource(session, "POST", self.operation_url(company, operation_id, "confirm"), company, body=body)
+
+    def cancel_operation(self, session: Session, company: Company, operation_id: str) -> Reply:
+        return self.resource(session, "POST", self.operation_url(company, operation_id, "cancel"), company)
+
+    # ---- MCP (6), with Bearer Session Tokens (4.3) ----
+
+    def mcp(
+        self,
+        session_token: str | None,
+        company: Company,
+        rpc: dict[str, Any],
+        *,
+        mcp_session: str | None = None,
+        url: str | None = None,
+        scheme: str = "Bearer",
+        dpop_key: Es256Key | None = None,
+    ) -> Reply:
+        """
+        One JSON-RPC message to the MCP server over Streamable HTTP
+        (MCP 2025-06-18): Accept both JSON and SSE, `Mcp-Session-Id` and
+        `MCP-Protocol-Version` after `initialize`. A Bearer token goes only
+        to the MCP server's own `url` from poppy.json (4.3: each one works at
+        only one MCP server); `url` and `scheme` other than that are only for
+        the reject rules.
+        """
+        target = url or company.mcp
+        assert target is not None
+        if scheme == "Bearer" and target != company.mcp:
+            raise AssertionError(f"refusing to send a Bearer Session Token to {target}, not the MCP server {company.mcp}")
+        headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
+        if session_token is not None:  # None only for the reject rule: an MCP client with no token yet
+            headers["Authorization"] = f"{scheme} {session_token}"
+        if scheme == "DPoP" and dpop_key is not None and session_token is not None:
+            headers["DPoP"] = self.proof(dpop_key, "POST", target, session_token)
+        if mcp_session is not None:
+            headers["Mcp-Session-Id"] = mcp_session
+            headers["MCP-Protocol-Version"] = "2025-06-18"
+        limited = 0
+        while True:
+            reply = Reply.of(self.http.post(target, content=json.dumps(rpc), headers=headers))
+            if reply.status == 429 and limited < MAX_LIMITED_RETRIES:
+                limited += 1
+                continue
+            if reply.status == 200 and reply.body is None and "text/event-stream" in reply.headers.get("content-type", ""):
+                # A Streamable HTTP server may answer with a stream: the JSON-RPC response is a `message` event.
+                for block in re.split(r"\r\n\r\n|\n\n|\r\r", reply.text):
+                    data = [line[5:].lstrip(" ") for line in re.split(r"\r\n|\n|\r", block) if line.startswith("data:")]
+                    if data:
+                        candidate = json.loads("\n".join(data))
+                        if isinstance(candidate, dict) and candidate.get("id") == rpc.get("id"):
+                            reply.body = candidate
+            return reply
+
+    def protected_resource_metadata(self, resource: str) -> Reply:
+        return Reply.of(self.http.get(protected_resource_metadata_url(resource)))
 
     # ---- conversations (7) ----
 
@@ -495,16 +783,28 @@ class Poppy:
         *,
         wait: int | None = None,
         cursor: str | None = None,
+        parent: str | None = None,
     ) -> Reply:
-        """Start a conversation (`conversation` None) or send to one (7.3). `raw_message` is the message's JSON text."""
+        """
+        Start a conversation (`conversation` None) or send to one (7.3).
+        `raw_message` is the message's JSON text. `parent` starts a Direct
+        Conversation linked to that one (7.10).
+        """
         assert company.conversations is not None
+        assert parent is None or conversation is None
         url = company.conversations if conversation is None else f"{company.conversations}/{conversation}/messages"
         params: dict[str, str] = {}
         if wait is not None:
             params["wait"] = str(wait)
         if cursor is not None:
             params["cursor"] = cursor
-        return self.resource(session, "POST", url, company, raw_body='{"message":' + raw_message + "}", params=params)
+        prefix = "{" + (f'"parent_conversation_id":{json.dumps(parent)},' if parent is not None else "")
+        return self.resource(session, "POST", url, company, raw_body=prefix + '"message":' + raw_message + "}", params=params)
+
+    def handoff(self, session: Session, company: Company, conversation: str) -> Reply:
+        """Ask for a person at the Company (7.9): an empty JSON object."""
+        assert company.conversations is not None
+        return self.resource(session, "POST", f"{company.conversations}/{conversation}/handoff", company, body={})
 
     def read_events(self, session: Session, company: Company, conversation: str, cursor: str | None, *, stream: bool) -> tuple[Reply, list[dict[str, Any]] | None]:
         """
@@ -530,6 +830,60 @@ class Poppy:
     def close_conversation(self, session: Session, company: Company, conversation: str) -> Reply:
         assert company.conversations is not None
         return self.resource(session, "POST", f"{company.conversations}/{conversation}/close", company, body={})
+
+
+class Browser:
+    """
+    The Personal Agent's own browser for one Session (5; Guides "Web
+    browsing": a separate storage context for each Session, never shared
+    across Users). It holds the Company's cookie and nothing else; it never
+    carries a Session Token.
+    """
+
+    def __init__(self, transport: httpx.BaseTransport) -> None:
+        self.http = httpx.Client(transport=transport, timeout=30, follow_redirects=False)
+
+    def close(self) -> None:
+        self.http.close()
+
+    def join(self, endpoint: str, assertion: str, *, in_url: bool = False) -> httpx.Response:
+        """
+        Step 2 of 5: the assertion as a form POST, as a top-level navigation,
+        in the body (never the URL; `in_url` is only for the reject rule).
+        The cookie the Company sets lands in this browser's jar.
+        """
+        url = f"{endpoint}?{urllib.parse.urlencode({'assertion': assertion})}" if in_url else endpoint
+        limited = 0
+        while True:
+            response = self.http.post(
+                url,
+                content=urllib.parse.urlencode({"assertion": assertion}),
+                headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "text/html"},
+            )
+            if response.status_code == 429 and limited < MAX_LIMITED_RETRIES:
+                limited += 1
+                continue
+            return response
+
+    def get(self, url: str) -> httpx.Response:
+        """Load a page, waiting out a 429's Retry-After (4.3: the website too)."""
+        limited = 0
+        while True:
+            response = self.http.get(url, headers={"Accept": "text/html"})
+            if response.status_code == 429 and limited < MAX_LIMITED_RETRIES:
+                limited += 1
+                continue
+            return response
+
+
+def set_cookie_attributes(header: str) -> tuple[str, dict[str, str | None]]:
+    """A `Set-Cookie` value's name and its attributes, names lower-cased (RFC 6265 5.2)."""
+    name_value, *attributes = [part.strip() for part in header.split(";")]
+    parsed: dict[str, str | None] = {}
+    for attribute in attributes:
+        key, eq, value = attribute.partition("=")
+        parsed[key.strip().lower()] = value.strip() if eq else None
+    return name_value.split("=", 1)[0].strip(), parsed
 
 
 def origin_of(url: str) -> str:

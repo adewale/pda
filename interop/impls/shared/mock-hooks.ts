@@ -159,6 +159,35 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
       }
       return { operation: proposed.id };
     },
+    /** The Company issues a new revision of a proposed operation, with new terms (Ops 3.1). */
+    async revise_operation(params) {
+      const terms = params.terms;
+      if (typeof terms !== "object" || terms === null || Array.isArray(terms)) {
+        throw new HookError(400, "invalid_params", "terms must be a JSON object");
+      }
+      const revision = await current().reviseOperation(str(params.operation, "operation"), str(params.summary, "summary"), terms as Record<string, unknown>);
+      return { revision };
+    },
+    /** The User confirms a proposed operation on the Company's website, in its Session (Ops 4.4). */
+    async confirm_on_website(params) {
+      await current().confirmOnWebsite(str(params.operation, "operation"));
+      return {};
+    },
+    /** No person is available for a queued handoff: back to `idle` with the Company Agent, which says why (7.9). */
+    async staff_unavailable(params) {
+      await current().staffUnavailable(str(params.conversation, "conversation"), str(params.text, "text"));
+      return {};
+    },
+    /** The Company closes a conversation itself (7.12). */
+    async company_close(params) {
+      await current().closeConversation(str(params.conversation, "conversation"));
+      return {};
+    },
+    /** The Company asks to talk with the User: a `user_requested` event with a `reason` (7.10). */
+    async request_user(params) {
+      const event = await current().pushEvent(str(params.conversation, "conversation"), { type: "user_requested", reason: str(params.reason, "reason") });
+      return { event };
+    },
     async require_nonce() {
       await current().configure({ requireNonce: true });
       return {};

@@ -302,18 +302,19 @@ export class Web {
         "Your address &amp; details"
       );
     }
-    // An operation's `url`: the same operation, shown in the same Session (Ops 4.4).
-    const exchange = /^\/orders\/[^/]+\/exchanges\/([^/]+)$/.exec(inbound.url.pathname);
-    if (exchange) {
+    // An operation's `url`, an exchange's or an order of prints': the same
+    // operation, shown in the same Session (Ops 3, 4.4).
+    const shown = /^\/(?:orders\/[^/]+\/(exchanges)|(prints))\/([^/]+)$/.exec(inbound.url.pathname);
+    if (shown) {
       let id: string | null = null;
       try {
-        id = decodeURIComponent(exchange[1]!);
+        id = decodeURIComponent(shown[3]!);
       } catch {
         // Not an id this Company issued.
       }
       const operation = id && session && !session.ended ? this.operations?.forWebsite(session, id) : null;
       if (!operation) return html("<p>Not found</p>", 404);
-      return html(`<h1>Your exchange</h1><p>${operation.summary}</p><p>Status: ${operation.state}</p>`);
+      return html(`<h1>Your ${shown[1] ? "exchange" : "prints"}</h1><p>${operation.summary}</p><p>Status: ${operation.state}</p>`);
     }
     if (inbound.url.pathname === "/orders" || inbound.url.pathname.startsWith("/orders/")) {
       // The cookie follows the Session's current state (5).

@@ -1123,6 +1123,21 @@ const TAMPERS: readonly Tamper[] = [
     }
   },
   {
+    id: "rate-limit.shared-limit-ignored",
+    what: "a different request inside another request's Retry-After",
+    config: { rateLimit: { tokenRequests429: 1, requests429: 0, retryAfterSeconds: 2 } },
+    detail: /^\[rate-limit\.shared-limit-ignored\] sent GET \/products \d+ ms before another request's Retry-After elapsed$/,
+    run: async (c) => {
+      const key = await dpopKey();
+      expect((await startSession(c, key)).status).toBe(429);
+      const s = { key, token: "at_unused", sessionId: "ses_unused" };
+      const read = await call(c, s, "GET", `${c.hosts.api}/products`);
+      expect(read.status).toBe(429);
+      expect(Number(read.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
+      return read;
+    }
+  },
+  {
     id: "secret.password",
     what: "a password in a header to the website",
     detail: (c) => `[secret.password] password sent in headers of GET ${SITE(c)}/`,
@@ -2164,6 +2179,100 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     const state = await c.stub.state();
     expect(state.accountTokens).toBe(1);
     expect(state.recorded.map(violationId)).toEqual(["account-token.rotated-reused"]);
+  });
+
+  it("gives a second User signed in to the same account a proposal of their own, not the first User's (Ops 3.2, 4)", async () => {
+    const c = company();
+    const { operation } = await proposed(c);
+    // Another User of the same agent signs in to Ada's account too.
+    const key = await dpopKey();
+    const started = await startSession(c, key, { assertion: await sessionAssertion(c, { claims: { sub: "usr_Hn4wQ2cVx8TbLm1KpZr7Ys" } }) });
+    const { access_token, session_id } = (await started.json()) as { access_token: string; session_id: string };
+    const other = { key, token: access_token, sessionId: session_id };
+    const signIn = await call(c, other, "POST", c.hosts.mediatedEndpoint, {
+      body: { scope: "poppy:read poppy:write", credentials: { email: "ada@example.com", password: "correct horse" } }
+    });
+    const theirs = { ...other, token: ((await signIn.json()) as { access_token: string }).access_token };
+    const response = await exchange(c, theirs);
+    expect(response.status).toBe(202);
+    const own = ((await response.json()) as { operation: { operation_id: string } }).operation.operation_id;
+    expect(own).not.toBe(operation.operation_id);
+    // Each User can use their own, and only their own.
+    expect((await call(c, theirs, "GET", `${c.hosts.operationsEndpoint}/${encodeURIComponent(own)}`)).status).toBe(200);
+    expect((await call(c, theirs, "GET", `${c.hosts.operationsEndpoint}/${encodeURIComponent(operation.operation_id)}`)).status).toBe(404);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("changes nothing on a handoff while a person already handles the conversation: while queued, responder stays agent (7.7, 7.9)", async () => {
+    const c = company();
+    const s = await signedOut(c);
+    const id = await conversation(c, s);
+    await c.stub.humanJoin(id, "Hi, this is Sam.");
+    const handoff = await call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${id}/handoff`, { body: {} });
+    expect(handoff.status).toBe(202);
+    expect(await handoff.json()).toEqual({ status: "idle", responder: "human" });
+    const { events } = (await (await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${id}/events`)).json()) as {
+      events: { type: string; status?: string; responder?: string }[];
+    };
+    expect(events.filter((event) => event.type === "state").map((event) => [event.status, event.responder])).toEqual([["idle", "human"]]);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("adds direct_closed to the parent when closing the parent closes its Direct Conversation, before the parent's closed state (7.10, 7.12)", async () => {
+    const c = company();
+    const s = await signedOut(c);
+    const parent = await conversation(c, s);
+    const opened = await converse(c, s, message({ sender: "human", text: "Hi, I have a question." }), { parent_conversation_id: parent });
+    const direct = ((await opened.json()) as { conversation_id: string }).conversation_id;
+    expect((await call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${parent}/close`, { body: {} })).status).toBe(200);
+    const { events } = (await (await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${parent}/events`)).json()) as {
+      events: { type: string; status?: string; conversation_id?: string }[];
+    };
+    const tail = events.slice(-2).map((event) => [event.type, event.conversation_id ?? event.status]);
+    expect(tail).toEqual([
+      ["direct_closed", direct],
+      ["state", "closed"]
+    ]);
+    const read = (await (await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${direct}/events`)).json()) as { status: string };
+    expect(read.status).toBe("closed");
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("shows an order of prints at its operation's url, in its Session (Ops 3, 4.4)", async () => {
+    const c = company();
+    await c.stub.configure({ printShop: true });
+    const s = await signedOut(c);
+    const uploaded = await uploadPhoto(c, s, multipart("b0undary", 'form-data; name="photo"; filename="lake.jpg"'), "multipart/form-data; boundary=b0undary");
+    const { id } = (await uploaded.json()) as { id: string };
+    const ordered = await call(c, s, "POST", `${c.hosts.api}/prints`, { body: printOrder(id), headers: { "Idempotency-Key": `idk_${jti()}` } });
+    const { operation } = (await ordered.json()) as { operation: { url: string; summary: string } };
+    const joined = await joinBrowser(c, await browserAssertion(c, s));
+    const cookie = joined.headers.get("Set-Cookie")!.split(";")[0]!;
+    const page = await c.call(operation.url, { headers: { Cookie: cookie } });
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain(operation.summary);
+    // Another Session's browser doesn't see it (Ops 3.2).
+    const other = await signedOut(c);
+    const elsewhere = (await joinBrowser(c, await browserAssertion(c, other))).headers.get("Set-Cookie")!.split(";")[0]!;
+    expect((await c.call(operation.url, { headers: { Cookie: elsewhere } })).status).toBe(404);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("records the MUST only for the same request sent again inside its Retry-After, not another request (4.3)", async () => {
+    const c = company();
+    await c.stub.configure({ rateLimit: { tokenRequests429: 0, requests429: 1, retryAfterSeconds: 2 } });
+    const s = await signedOut(c);
+    expect((await call(c, s, "GET", `${c.hosts.api}/products`)).status).toBe(429);
+    // A different request inside the window: still 429, but only the Guides' advice is broken.
+    expect((await call(c, s, "GET", `${c.hosts.api}/orders`)).status).toBe(429);
+    // Each request that got 429 sent again inside its Retry-After: the MUST.
+    expect((await call(c, s, "GET", `${c.hosts.api}/products`)).status).toBe(429);
+    expect((await call(c, s, "GET", `${c.hosts.api}/orders`)).status).toBe(429);
+    expect((await c.stub.state()).recorded.map(violationId)).toEqual([
+      "rate-limit.shared-limit-ignored",
+      "rate-limit.retry-after-ignored",
+      "rate-limit.retry-after-ignored"
+    ]);
   });
 });
 

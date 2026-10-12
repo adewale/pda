@@ -485,7 +485,11 @@ export class Conversations {
         json({ error: "direct_conversation_open", conversation_id: conversation.directChild }, 409)
       );
     }
-    this.#setState(conversation, this.company.config.neverQueued ? "working" : "queued");
+    // A person already handles it: there's no one to find, and while queued
+    // `responder` stays `agent` (7.7), so nothing changes.
+    if (conversation.responder !== "human") {
+      this.#setState(conversation, this.company.config.neverQueued ? "working" : "queued");
+    }
     return json({ status: conversation.status, responder: conversation.responder }, 202);
   }
 
@@ -499,12 +503,15 @@ export class Conversations {
 
   #closeConversation(conversation: Conversation): void {
     if (conversation.status === "closed") return;
-    this.#setState(conversation, "closed");
+    // Closing the parent closes its open Direct Conversation, whose closing
+    // adds `direct_closed` to the parent (7.10). It goes first, so the parent
+    // takes that event while it's still open and nothing after `closed`.
     if (conversation.directChild) {
       const child = this.#conversations.get(conversation.directChild);
-      conversation.directChild = null;
       if (child) this.#closeConversation(child);
+      conversation.directChild = null;
     }
+    this.#setState(conversation, "closed");
     if (conversation.parentId) {
       const parent = this.#conversations.get(conversation.parentId);
       if (parent && parent.directChild === conversation.id) {
@@ -526,6 +533,18 @@ export class Conversations {
     const conversation = this.#conversations.get(id);
     if (!conversation) throw new Error(`no conversation ${id}`);
     this.#setState(conversation, "idle", "human");
+    this.#say(conversation, text);
+  }
+
+  /**
+   * No person is available for a queued handoff (7.9): the status goes back
+   * to `idle` with `responder` still `agent`, and the Company Agent says why.
+   */
+  staffUnavailable(id: string, text: string): void {
+    const conversation = this.#conversations.get(id);
+    if (!conversation) throw new Error(`no conversation ${id}`);
+    if (conversation.status !== "queued") throw new Error(`conversation ${id} isn't queued for a person`);
+    this.#setState(conversation, "idle", "agent");
     this.#say(conversation, text);
   }
 

@@ -296,6 +296,11 @@ export class MockCompany extends DurableObject<Env> {
     this.#named().conversations.humanJoin(conversationId, text);
   }
 
+  /** No person is available for a queued handoff; the Company Agent says why (7.9). */
+  async staffUnavailable(conversationId: string, text: string): Promise<void> {
+    this.#named().conversations.staffUnavailable(conversationId, text);
+  }
+
   /** The Company Agent says something, optionally with `data` or `operation`. */
   async say(conversationId: string, text: string, extra: Record<string, unknown> = {}): Promise<void> {
     this.#named().conversations.say(conversationId, text, extra);

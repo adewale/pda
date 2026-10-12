@@ -34,7 +34,7 @@ def mock_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[MockServer
 
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
-    from test_mock_company import COVERAGE
+    from machine import COVERAGE
 
     if COVERAGE:
         terminalreporter.section("what the state machine reached (rule: expected outcome, count)")
