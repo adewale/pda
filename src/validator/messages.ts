@@ -3,10 +3,15 @@
  * it. The ids are stable: tools may key on them, and each one has an anchor
  * on the messages page (`/validator/messages#<id>`).
  *
- * Severity follows one rule: `error` is a MUST the document breaks, so a
- * conforming Personal Agent refuses the document (ours does). `warning` is a
- * SHOULD, or something that will stop some agents working with it. `info`
- * is worth knowing but harmless, such as a field this version ignores.
+ * Severity: `error` is a document our client refuses, `warning` a SHOULD or
+ * something that will stop some agents working with it, and `info` worth
+ * knowing but harmless, such as a field this version ignores. Most errors are
+ * a MUST (or a required field) the document breaks, in the draft or an RFC it
+ * builds on. A few are not: limits the Guides recommend for fetching another
+ * party's URL (redirects, size, private hosts), and rules the draft leaves
+ * open that we enforce (HTTPS for every URL, spec-issues N9; duplicate member
+ * names and kids; key types). Each of those says so in `explain`, so a report
+ * never presents our reading as the draft's requirement.
  */
 
 export type Severity = "error" | "warning" | "info";
@@ -55,7 +60,7 @@ export const MESSAGES = define({
     severity: "error",
     title: "Not a public host",
     explain:
-      "Personal Agents and Companies refuse to fetch loopback, private, link-local and single-label hosts, so a document there can't be used by anyone else.",
+      "The Guides ask Personal Agents and Companies to refuse loopback, private and link-local addresses unless configured on purpose (a recommendation, not a requirement of the draft). This validator, like our client, never fetches them or single-label hosts, so it can't check a document there.",
     fix: "Publish the document on a public DNS name.",
     ref: guides("Fetching metadata safely", "both-fetching")
   },
@@ -69,7 +74,8 @@ export const MESSAGES = define({
   "http-too-many-redirects": {
     severity: "error",
     title: "Too many redirects",
-    explain: "Agents follow only a few redirects (this validator, like our client, follows 3).",
+    explain:
+      "The draft says agents MUST follow redirects but sets no limit; the Guides recommend a few at most. This validator, like our client, follows 3.",
     fix: "Redirect straight to where the document lives.",
     ref: guides("Fetching metadata safely", "both-fetching")
   },
@@ -77,7 +83,7 @@ export const MESSAGES = define({
     severity: "error",
     title: "Client metadata is served by a redirect",
     explain:
-      "Companies fetch a client_id URL without following redirects, and client_id must equal the URL fetched, so a redirect there fails verification.",
+      "client_id MUST equal the URL the document was fetched from (4.1), and the Guides tell Companies to fetch it without following redirects, so a redirect there fails verification at Companies that do. The draft itself doesn't address redirects here (spec-issues S6).",
     fix: "Serve the client metadata document directly at its client_id URL.",
     ref: guides("Verifying personal agents", "company-agents")
   },
@@ -98,7 +104,8 @@ export const MESSAGES = define({
   "http-too-large": {
     severity: "error",
     title: "Document too large",
-    explain: "Agents cap what they read from another party's URL; ours, and this validator, stop at 100 KB.",
+    explain:
+      "The Guides recommend capping what is read from another party's URL, such as at 100 KB; the draft sets no size. Our client, and this validator, stop at 100 KB.",
     fix: "Keep the document under 100 KB.",
     ref: guides("Fetching metadata safely", "both-fetching")
   },
@@ -130,9 +137,9 @@ export const MESSAGES = define({
   "not-utf8": {
     severity: "error",
     title: "Not UTF-8",
-    explain: "JSON documents must be encoded as UTF-8.",
+    explain: "JSON exchanged between systems MUST be encoded as UTF-8 (RFC 8259 §8.1); the Guides say the same.",
     fix: "Save and serve the document as UTF-8.",
-    ref: guides("Transport and JSON", "both-transport")
+    ref: rfc(8259, "8.1")
   },
   "json-bom": {
     severity: "warning",
@@ -152,7 +159,7 @@ export const MESSAGES = define({
     severity: "error",
     title: "Duplicate member name",
     explain:
-      "An object has two members with the same name. Parsers disagree about which one wins, so both parties must reject such objects.",
+      "An object has two members with the same name. Parsers disagree about which one wins. RFC 8259 §4 says names SHOULD be unique and the Guides recommend rejecting such objects; the draft has no MUST here, but our client refuses them, so this validator reports an error.",
     fix: "Remove one of the two members.",
     ref: guides("Transport and JSON", "both-transport")
   },
@@ -182,14 +189,16 @@ export const MESSAGES = define({
   "not-https-url": {
     severity: "error",
     title: "URL isn't HTTPS",
-    explain: "Every endpoint and URL in these documents must be HTTPS.",
+    explain:
+      "The draft requires HTTPS for auth.issuer, conversation endpoints, client_id, jwks_uri and redirect_uris, and OAuth for the authorization server's endpoints. It doesn't say so for apis[].url, auth.mediated.endpoint (which receives passwords), web.browser_session_endpoint, extension endpoints or logo_uri (spec-issues N9); this validator requires HTTPS for those too, and our client refuses a poppy.json that doesn't use it.",
     fix: "Use an https:// URL.",
     ref: spec("3.1", "fields")
   },
   "url-has-fragment": {
     severity: "error",
     title: "URL has a fragment",
-    explain: "Endpoints, issuers and redirect URIs can't contain a #fragment.",
+    explain:
+      "OAuth endpoints, issuers and redirect URIs can't contain a #fragment (RFC 6749 §3.1, §3.1.2; RFC 8414 §2). This validator applies the same rule to every URL in these documents.",
     fix: "Remove the part after #.",
     ref: rfc(6749, "3.1")
   },
@@ -327,7 +336,8 @@ export const MESSAGES = define({
   "mediated-fields-empty": {
     severity: "error",
     title: "Mediated Sign-In lists no fields",
-    explain: "auth.mediated.fields lists the credentials the agent sends. Without any, agents can't sign in.",
+    explain:
+      "auth.mediated.fields lists the credentials the agent sends. The draft doesn't say it can't be empty, but without any, agents have nothing to send and can't sign in.",
     fix: "List each credential with name, label and secret.",
     ref: spec("4.7", "mediated-sign-in")
   },
@@ -363,7 +373,8 @@ export const MESSAGES = define({
   "no-poppy-protocol": {
     severity: "warning",
     title: "No poppy conversation protocol",
-    explain: "agent.protocols has no entry of type poppy, the one protocol every Personal Agent implements, so most agents can't talk to the Company Agent.",
+    explain:
+      "agent.protocols has no entry of type poppy, the only conversation protocol the draft defines, so most agents can't talk to the Company Agent.",
     fix: 'Add { "type": "poppy", "endpoint": "https://…" }.',
     ref: spec("7.1", "conversation-protocols")
   },
@@ -377,7 +388,8 @@ export const MESSAGES = define({
   "api-type-unknown": {
     severity: "info",
     title: "API type not defined in this version",
-    explain: "The protocol defines openapi and mcp. Agents skip types they don't recognize, so later versions can add types.",
+    explain:
+      "Draft 0.1 says each API's type MUST be openapi or mcp, and that agents SHOULD skip types they don't recognize, so later versions can add types. Reported as info because agents skip it, not as an error.",
     fix: "Nothing to do, unless agents should use this API.",
     ref: spec("6", "apis")
   },
@@ -496,7 +508,8 @@ export const MESSAGES = define({
   "client-auth-method": {
     severity: "error",
     title: "Token endpoint auth method isn't private_key_jwt",
-    explain: "Personal Agents authenticate with private_key_jwt. Without the member, OAuth's default (client_secret_basic) applies, which doesn't fit.",
+    explain:
+      "Personal Agents authenticate with private_key_jwt (4.1), and the draft's example declares it. The draft has no MUST for the member, but without it OAuth's default (client_secret_basic, RFC 7591 §2) applies, which doesn't fit.",
     fix: 'Set "token_endpoint_auth_method": "private_key_jwt".',
     ref: spec("4.1", "agent-identity")
   },
@@ -524,16 +537,17 @@ export const MESSAGES = define({
   "jwks-key-type": {
     severity: "error",
     title: "Unsupported key",
-    explain: "Keys are EC P-256 (for ES256) or RSA (for RS256). Others can't be used for assertions.",
+    explain:
+      "The Guides say to support ES256 and RS256, so Companies may accept only EC P-256 and RSA keys. The draft doesn't restrict key types; this validator treats others as unusable.",
     fix: "Use an EC P-256 key, or an RSA key of at least 2048 bits.",
     ref: guides("Signing and verifying JWTs", "both-signing")
   },
   "jwks-rsa-small": {
     severity: "error",
     title: "RSA key too small",
-    explain: "RSA keys must be at least 2048 bits.",
+    explain: "RS256 MUST use a key of 2048 bits or larger (RFC 7518 §3.3); the Guides say the same.",
     fix: "Generate a 2048-bit or larger key, or use EC P-256.",
-    ref: guides("Signing and verifying JWTs", "both-signing")
+    ref: rfc(7518, "3.3")
   },
   "jwks-alg": {
     severity: "warning",
@@ -552,7 +566,8 @@ export const MESSAGES = define({
   "jwks-kid-duplicate": {
     severity: "error",
     title: "Two keys share a kid",
-    explain: "A kid must identify one key, or verifiers may pick the wrong one.",
+    explain:
+      "Different keys in a key set SHOULD have different kids (RFC 7517 §4.5), and the Guides give every key one for rotation. Verifiers may pick the wrong key; this validator reports it as an error.",
     fix: "Give each key a unique kid.",
     ref: guides("Rotating keys", "both-key-rotation")
   },

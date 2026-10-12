@@ -95,7 +95,7 @@ ${forms()}
 <h2>Use it from code</h2>
 <pre>curl -s ${escape(origin)}/validator/api -H 'Content-Type: application/json' \\
   -d '{"url": "example.com"}'</pre>
-<p>Or post a document: <code>{"document": "{…}", "kind": "poppy", "domain": "example.com"}</code>. The response is the JSON report described on <a href="/validator/messages#output">the messages page</a>. Errors break a MUST in the specification; warnings are SHOULDs and interoperability problems; info is worth knowing but harmless.</p>`
+<p>Or post a document: <code>{"document": "{…}", "kind": "poppy", "domain": "example.com"}</code>. The response is the JSON report described on <a href="/validator/messages#output">the messages page</a>. Errors are what our client refuses: mostly a MUST in the specification, otherwise a limit or reading each message's explanation names; warnings are SHOULDs and interoperability problems; info is worth knowing but harmless.</p>`
   );
 }
 
@@ -176,7 +176,7 @@ export function messagesPage(): string {
   return page(
     "Poppy Validator messages",
     `<h1>What the messages mean</h1>
-<p class="lede"><a href="/validator">Back to the validator</a>. Message ids are stable, so tools can key on them. An error breaks a MUST in the specification, and conforming Personal Agents refuse the document. A warning is a SHOULD, or something that stops some agents working with it. Info is worth knowing but harmless, such as a field this version doesn't define (agents ignore those, so later versions can add fields).</p>
+<p class="lede"><a href="/validator">Back to the validator</a>. Message ids are stable, so tools can key on them. An error is something our Personal Agent refuses the document for: mostly a MUST in the specification or an RFC it builds on, and otherwise a limit the Guides recommend or a rule the draft leaves open, which the message's explanation names. A warning is a SHOULD, or something that stops some agents working with it. Info is worth knowing but harmless, such as a field this version doesn't define (agents ignore those, so later versions can add fields).</p>
 <h2 id="output">The JSON report</h2>
 <dl>
 <dt>outputVersion</dt><dd>1. Changes that break readers of the report get a new number.</dd>

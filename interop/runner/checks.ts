@@ -6,7 +6,10 @@
  *
  * Severity follows the draft: a MUST broken is an error; behaviour the draft
  * leaves open but strict Companies enforce (S2: assertion `typ` and a 60 s
- * lifetime) is a warning, so a lenient pair isn't failed for it.
+ * lifetime) is a warning, so a lenient pair isn't failed for it. Two errors
+ * rest on less than a MUST and say so in `what`: `token.unlisted-host` (our
+ * reading of which hosts receive tokens, spec-issues N10) and
+ * `redirect.credentials-followed` (the Guides).
  */
 import { createHash } from "node:crypto";
 import { authorization, decodeJwt, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
@@ -53,8 +56,8 @@ export const TRACE_CHECKS = {
   "dpop.ath-at-token-endpoint": { side: "agent", severity: "error", mock: true, what: "DPoP proof at the token endpoint carries ath" },
   "secret.token-in-url": { side: "agent", severity: "error", mock: true, what: "A token sent in a URL" },
   "rate-limit.retry-after-ignored": { side: "agent", severity: "error", mock: true, what: "Request sent before an earlier Retry-After elapsed" },
-  "token.unlisted-host": { side: "agent", severity: "error", mock: false, what: "A Session Token sent to a host the Company's documents don't list" },
-  "redirect.credentials-followed": { side: "agent", severity: "error", mock: false, what: "A redirect followed with the token or proof of the request that got it" },
+  "token.unlisted-host": { side: "agent", severity: "error", mock: false, what: "A Session Token sent to a host the Company's documents don't list (our reading, N10)" },
+  "redirect.credentials-followed": { side: "agent", severity: "error", mock: false, what: "A redirect followed with the token or proof of the request that got it (Guides, not a MUST)" },
   "company.www-authenticate": { side: "company", severity: "error", mock: false, what: "401 to a request with a token, without WWW-Authenticate (RFC 6750, RFC 9449)" },
   "company.retry-after": { side: "company", severity: "warning", mock: false, what: "429 without Retry-After" },
   "company.oauth-error-body": { side: "company", severity: "error", mock: false, what: "OAuth endpoint error that isn't JSON with a string error (RFC 6749 5.2)" },
@@ -214,7 +217,11 @@ export function listedHosts(all: readonly Exchange[]): Map<string, Set<string>> 
   return hosts;
 }
 
-/** A Session Token sent to a host its Company's documents don't list (spec 4.3). */
+/**
+ * A Session Token sent to a host its Company's documents don't list. Our
+ * reading, not a MUST: 4.3 and 6 don't say which hosts may receive Session
+ * Tokens (spec-issues N10). Still an error here; see docs/spec-issues.md N10.
+ */
 export function unlistedHostChecks(all: readonly Exchange[]): Check[] {
   const tokens = issuedTokens(all);
   const listed = listedHosts(all);

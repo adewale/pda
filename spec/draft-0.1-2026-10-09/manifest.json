@@ -1,0 +1,338 @@
+{
+  "site": "https://personalagentprotocol.org",
+  "directory": "draft-0.1-2026-10-09",
+  "protocol_version": "0.1",
+  "user_agent": "dpa-spec-snapshot/1.0 (Durable Personal Agent; snapshots the Poppy spec for citation; one request per page)",
+  "sitemap": {
+    "url": "https://personalagentprotocol.org/sitemap.xml",
+    "status": 200,
+    "retrieved_at": "2026-10-12T00:04:23Z",
+    "content_type": "application/xml",
+    "last_modified": "Sat, 10 Oct 2026 05:51:20 GMT",
+    "etag": "\"13fd11b5d906d9c2799795533249a81b\"",
+    "age": "151982",
+    "bytes": 759,
+    "sha256": "7dcbb4713794fe318e187fd3b5dc0276c083160cdb58fc8998ab854006a5c6c1"
+  },
+  "pages": [
+    {
+      "name": "home",
+      "url": "https://personalagentprotocol.org/",
+      "status": 200,
+      "retrieved_at": "2026-10-12T00:04:57Z",
+      "content_type": "text/html; charset=utf-8",
+      "last_modified": "Fri, 09 Oct 2026 23:12:40 GMT",
+      "etag": "\"84d0230d73e93fc013a69142594e8e4f\"",
+      "age": "175937",
+      "bytes": 44354,
+      "sha256": "6d39a9b99b11f8f54449bbce6d93fd91ede558a3a13fb7f3e46250243633671c",
+      "updated": null,
+      "markdown": {
+        "file": "pages/home.md",
+        "source": "converted from the page's HTML",
+        "sha256": "ec407cbacf717c637a2ef8727f4b477a1a8fd06c1cf4f16a60dab266a7084b7c"
+      },
+      "content_html": {
+        "file": "html/home.html",
+        "sha256": "18dd00d33163d79dcbfe4d54140037145443cf4de7dfde51bb8999cf816c0ab1"
+      },
+      "rfc2119": {
+        "sentences": 0,
+        "words": {}
+      }
+    },
+    {
+      "name": "overview",
+      "url": "https://personalagentprotocol.org/docs/overview",
+      "status": 200,
+      "retrieved_at": "2026-10-12T00:04:58Z",
+      "content_type": "text/html; charset=utf-8",
+      "last_modified": "Fri, 09 Oct 2026 23:13:36 GMT",
+      "etag": "\"ffa4ca9a7e7473e26d52d5688a5358cd\"",
+      "age": "175881",
+      "bytes": 27918,
+      "sha256": "5d12dd01bd4c25912c02489d92ba7f9499a8f61a6029b3f148d9a5e9ff839a09",
+      "updated": "Oct 9, 2026",
+      "markdown": {
+        "file": "pages/overview.md",
+        "source": "https://personalagentprotocol.org/docs/overview.md",
+        "fetched": {
+          "url": "https://personalagentprotocol.org/docs/overview.md",
+          "status": 200,
+          "retrieved_at": "2026-10-12T00:05:34Z",
+          "content_type": "text/markdown; charset=utf-8",
+          "last_modified": "Sat, 10 Oct 2026 08:16:50 GMT",
+          "etag": "\"046c2b7e6fad820c419274bf2e446943\"",
+          "age": "143324",
+          "bytes": 3383,
+          "sha256": "2467c0efefae4f3e5d23be207a1ffa81813a2d4c28098c23c793d9b9bb5d9242"
+        },
+        "sha256": "2467c0efefae4f3e5d23be207a1ffa81813a2d4c28098c23c793d9b9bb5d9242"
+      },
+      "content_html": {
+        "file": "html/overview.html",
+        "sha256": "f67ef2bc5ceac86fa688294462d0ab4a3fcbf1ef24ae902373a804018f740139"
+      },
+      "rfc2119": {
+        "sentences": 0,
+        "words": {}
+      }
+    },
+    {
+      "name": "spec",
+      "url": "https://personalagentprotocol.org/docs/spec",
+      "status": 200,
+      "retrieved_at": "2026-10-12T00:04:58Z",
+      "content_type": "text/html; charset=utf-8",
+      "last_modified": "Fri, 09 Oct 2026 23:08:24 GMT",
+      "etag": "\"b5f2bfd56f171b917f12b0cd008440dd\"",
+      "age": "176194",
+      "bytes": 360246,
+      "sha256": "67a7bd817efd438a12d682aab38cc29a155c97299cef930300d79b32d69f1d9a",
+      "updated": "Oct 9, 2026",
+      "markdown": {
+        "file": "pages/spec.md",
+        "source": "https://personalagentprotocol.org/docs/spec.md",
+        "fetched": {
+          "url": "https://personalagentprotocol.org/docs/spec.md",
+          "status": 200,
+          "retrieved_at": "2026-10-12T00:05:35Z",
+          "content_type": "text/markdown; charset=utf-8",
+          "last_modified": "Fri, 09 Oct 2026 23:13:44 GMT",
+          "etag": "\"a28461ed0027b6015c208bf614b67fa1\"",
+          "age": "175911",
+          "bytes": 75056,
+          "sha256": "207db936b1819fa3669d7e2079be6c8887f30a1028ab10520cb8e51e3fcadeb5"
+        },
+        "sha256": "207db936b1819fa3669d7e2079be6c8887f30a1028ab10520cb8e51e3fcadeb5"
+      },
+      "content_html": {
+        "file": "html/spec.html",
+        "sha256": "89b0f7cfe4a7eaee2a7efeca650a614a89a6a0ce44509e08cf643f2b51c98226"
+      },
+      "rfc2119": {
+        "sentences": 107,
+        "words": {
+          "MUST": 57,
+          "MAY": 30,
+          "SHOULD": 13,
+          "MUST NOT": 15,
+          "SHOULD NOT": 1
+        }
+      }
+    },
+    {
+      "name": "extensions",
+      "url": "https://personalagentprotocol.org/docs/extensions",
+      "status": 200,
+      "retrieved_at": "2026-10-12T00:04:59Z",
+      "content_type": "text/html; charset=utf-8",
+      "last_modified": "Sat, 10 Oct 2026 06:26:08 GMT",
+      "etag": "\"f2ea054e5e0d99d4271b955b0a5c9de6\"",
+      "age": "149930",
+      "bytes": 27177,
+      "sha256": "1e534d01cec36dff2caa12d2f9237d287d45c717a4aa7ef4a3877c326dbc11bc",
+      "updated": "Oct 9, 2026",
+      "markdown": {
+        "file": "pages/extensions.md",
+        "source": "https://personalagentprotocol.org/docs/extensions.md",
+        "fetched": {
+          "url": "https://personalagentprotocol.org/docs/extensions.md",
+          "status": 200,
+          "retrieved_at": "2026-10-12T00:05:36Z",
+          "content_type": "text/markdown; charset=utf-8",
+          "last_modified": "Fri, 09 Oct 2026 23:13:45 GMT",
+          "etag": "\"c686eaa5b07f7385518d5373f0a7fbd9\"",
+          "age": "175911",
+          "bytes": 1638,
+          "sha256": "41247520f3e66f01881f1e347fb082a1f70af6103bf782fdefc83df2cf9f076b"
+        },
+        "sha256": "41247520f3e66f01881f1e347fb082a1f70af6103bf782fdefc83df2cf9f076b"
+      },
+      "content_html": {
+        "file": "html/extensions.html",
+        "sha256": "4a5707542b8785cb3c4d2be2a8713ae4e7904df2d250eeff3e92cd070a846316"
+      },
+      "rfc2119": {
+        "sentences": 0,
+        "words": {}
+      }
+    },
+    {
+      "name": "operations",
+      "url": "https://personalagentprotocol.org/docs/extensions/operations",
+      "status": 200,
+      "retrieved_at": "2026-10-12T00:04:59Z",
+      "content_type": "text/html; charset=utf-8",
+      "last_modified": "Sat, 10 Oct 2026 04:50:17 GMT",
+      "etag": "\"281ea1c6465de5ec8241643aa2e653fc\"",
+      "age": "155682",
+      "bytes": 104035,
+      "sha256": "62abc67a3e37775f8f4753edc7f55c2e703a1f270d36454117da1639f063d63b",
+      "updated": "Oct 9, 2026",
+      "markdown": {
+        "file": "pages/operations.md",
+        "source": "https://personalagentprotocol.org/docs/extensions/operations.md",
+        "fetched": {
+          "url": "https://personalagentprotocol.org/docs/extensions/operations.md",
+          "status": 200,
+          "retrieved_at": "2026-10-12T00:05:37Z",
+          "content_type": "text/markdown; charset=utf-8",
+          "last_modified": "Sat, 10 Oct 2026 08:16:50 GMT",
+          "etag": "\"ae7b8c4a382f57902c2e4ef55494e1dc\"",
+          "age": "143327",
+          "bytes": 17121,
+          "sha256": "d7ecd37076e02409b15b57a28814a2cb526333151027e8be7eb9695b671c1539"
+        },
+        "sha256": "d7ecd37076e02409b15b57a28814a2cb526333151027e8be7eb9695b671c1539"
+      },
+      "content_html": {
+        "file": "html/operations.html",
+        "sha256": "216a26c3c0a3cdbf4b9ea86743bae0af2768500e06900b316340ea9d94dfad0d"
+      },
+      "rfc2119": {
+        "sentences": 20,
+        "words": {
+          "MAY": 3,
+          "MUST NOT": 6,
+          "MUST": 9,
+          "SHOULD": 3
+        }
+      }
+    },
+    {
+      "name": "guides",
+      "url": "https://personalagentprotocol.org/docs/guides",
+      "status": 200,
+      "retrieved_at": "2026-10-12T00:05:00Z",
+      "content_type": "text/html; charset=utf-8",
+      "last_modified": "Sat, 10 Oct 2026 06:30:36 GMT",
+      "etag": "\"62a987a7e9cbc6f1f883358b10cb9a48\"",
+      "age": "149663",
+      "bytes": 90156,
+      "sha256": "5caeb900e5bcdc62095fb15c93af836905e953074e183f0a332033da386b5bd9",
+      "updated": "Oct 9, 2026",
+      "markdown": {
+        "file": "pages/guides.md",
+        "source": "converted from the page's HTML",
+        "sha256": "c8594ac58d089d13037393f6656d06f188e2ff6f88933110c9a2cf6689bef39a"
+      },
+      "content_html": {
+        "file": "html/guides.html",
+        "sha256": "f8343d94f4dc5c2b9e082933276e3466d456358021775bb952c95e726e29a56f"
+      },
+      "rfc2119": {
+        "sentences": 18,
+        "words": {
+          "MUST NOT": 5,
+          "MUST": 15
+        }
+      }
+    },
+    {
+      "name": "open-topics",
+      "url": "https://personalagentprotocol.org/docs/open-topics",
+      "status": 200,
+      "retrieved_at": "2026-10-12T00:05:00Z",
+      "content_type": "text/html; charset=utf-8",
+      "last_modified": "Fri, 09 Oct 2026 23:41:47 GMT",
+      "etag": "\"9a3d7c13e7b863f0166c7236c2d834a3\"",
+      "age": "174192",
+      "bytes": 20951,
+      "sha256": "bda9ca6e1da50fc96ff5d5fb2a2d8ca5fff7cf6e7714a7caef23b51502981379",
+      "updated": "Oct 9, 2026",
+      "markdown": {
+        "file": "pages/open-topics.md",
+        "source": "https://personalagentprotocol.org/docs/open-topics.md",
+        "fetched": {
+          "url": "https://personalagentprotocol.org/docs/open-topics.md",
+          "status": 200,
+          "retrieved_at": "2026-10-12T00:05:38Z",
+          "content_type": "text/markdown; charset=utf-8",
+          "last_modified": "Sat, 10 Oct 2026 08:16:50 GMT",
+          "etag": "\"93c62bc01eb5884f8d54520f58cfda75\"",
+          "age": "143327",
+          "bytes": 908,
+          "sha256": "629423e4f7c609b7914e85913b551d9cd36443e739fbb807f5b79a366a67b7b5"
+        },
+        "sha256": "629423e4f7c609b7914e85913b551d9cd36443e739fbb807f5b79a366a67b7b5"
+      },
+      "content_html": {
+        "file": "html/open-topics.html",
+        "sha256": "4f23f29746c7c336f0c17c21f11b8e9a7dec24e25e09ff2f0ce289dc846e474a"
+      },
+      "rfc2119": {
+        "sentences": 0,
+        "words": {}
+      }
+    },
+    {
+      "name": "license",
+      "url": "https://personalagentprotocol.org/license",
+      "status": 200,
+      "retrieved_at": "2026-10-12T00:04:29Z",
+      "content_type": "text/html; charset=utf-8",
+      "last_modified": "Sat, 10 Oct 2026 08:16:33 GMT",
+      "etag": "\"0e7f2407a057f4c769b6ae1e0a7573be\"",
+      "age": "143275",
+      "bytes": 37875,
+      "sha256": "8119169d02c3b2701bce1c8d8ad67f49b53f225467259918f4ea0a89e88eec43",
+      "updated": null,
+      "markdown": {
+        "file": "pages/license.md",
+        "source": "converted from the page's HTML",
+        "sha256": "375f2dfe08d9a4cbea1a87d183e0fac77cef0abc464ab8ad2c4dfb287d390e95"
+      },
+      "content_html": {
+        "file": "html/license.html",
+        "sha256": "36f1374c6c04db1522484730388fa6acfa1441bff36109d00db146a325d01d9c"
+      },
+      "rfc2119": {
+        "sentences": 0,
+        "words": {}
+      }
+    },
+    {
+      "name": "contributions",
+      "url": "https://personalagentprotocol.org/license/contributions",
+      "status": 200,
+      "retrieved_at": "2026-10-12T00:05:00Z",
+      "content_type": "text/html; charset=utf-8",
+      "last_modified": "Sat, 10 Oct 2026 13:52:43 GMT",
+      "etag": "\"1fb70c634bf7d0eda23695819fd7fc85\"",
+      "age": "123136",
+      "bytes": 17847,
+      "sha256": "f6f22f53bed1d9e8cab01286752a54d2ef9169efd961d99ab985b9e825322d66",
+      "updated": null,
+      "markdown": {
+        "file": "pages/contributions.md",
+        "source": "converted from the page's HTML",
+        "sha256": "4452fc54beba6e9d3b59788bca2da8dbac60fa886897c8060b5643c0025f194b"
+      },
+      "content_html": {
+        "file": "html/contributions.html",
+        "sha256": "0fa561119a7ca658690adc08470a974c4607b0b798d9fdc04fac06ef1729c801"
+      },
+      "rfc2119": {
+        "sentences": 0,
+        "words": {}
+      }
+    }
+  ],
+  "walkthrough_bundle": {
+    "url": "https://personalagentprotocol.org/_next/static/chunks/1-7e6oz3cj7or.js?dpl=dpl_6p1W5nYKs9piSN5tAQDmeZfFCQ2B",
+    "status": 200,
+    "retrieved_at": "2026-10-12T00:05:39Z",
+    "content_type": "application/javascript; charset=utf-8",
+    "last_modified": "Fri, 09 Oct 2026 23:12:40 GMT",
+    "etag": "\"4b6863adce80eed0cf55a4b93146a4d7\"",
+    "age": "175978",
+    "bytes": 39991,
+    "sha256": "84a80b600aa317f4bc5eddcf14a3cda8471e4096ed16b8c9db4653db09d81596",
+    "stored": "hash only (site code); its examples are in pages/walkthroughs.md",
+    "markdown": {
+      "file": "pages/walkthroughs.md",
+      "sha256": "8411273cfe19cfe63addadab3f63fc3d8168224b9315c215cdb38e4a5e0d1cd0"
+    }
+  }
+}

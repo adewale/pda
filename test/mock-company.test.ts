@@ -10,9 +10,12 @@ import {
 } from "jose";
 import { describe, expect, it } from "vitest";
 import {
+  basisOf,
   CLOCK_HEADER,
   hostsFor,
+  STRICT_ONLY,
   VIOLATION_IDS,
+  VIOLATIONS,
   violationId,
   type MockCompany,
   type MockConfig,
@@ -1179,7 +1182,7 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "session.account-mismatch-reused",
     what: "a Session refused with account_mismatch asked again to sign in to another account",
-    detail: /^\[session\.account-mismatch-reused\] Session ses_[\w-]+ asked again to sign in to another account after account_mismatch \(4\.4: start a new Session\)$/,
+    detail: /^\[session\.account-mismatch-reused\] Session ses_[\w-]+ asked again to sign in to another account after account_mismatch \(4\.4 says the agent starts a new Session; no RFC 2119 keyword\)$/,
     run: async (c) => {
       // Ada's Session; Grace's codes exchanged into it.
       const ada = await signedIn(c);
@@ -1778,6 +1781,19 @@ describe("each check the mock Company makes", () => {
     expect(unknown).toEqual([]);
     // Nothing records a violation without an id.
     expect(source.match(/\bviolation\(\s*`[^`$]*`/g) ?? []).toEqual([]);
+  });
+
+  it("says what each check rests on, and leaves out of the lenient profile only SHOULDs and Guides", () => {
+    // "MUST (4.3): …", "RFC (RFC 9449 4.2): …", "Guides (Retries): …": the basis, where, then what.
+    const malformed = VIOLATION_IDS.filter(
+      (id) => !/^(?:MUST(?: NOT)?|RFC|Rule|SHOULD(?: NOT)?|Guides|Reading) \([^)]+\)(?:, strict Company only)?: \S/.test(VIOLATIONS[id])
+    );
+    expect(malformed).toEqual([]);
+    expect([...STRICT_ONLY].filter((id) => !["SHOULD", "Guides"].includes(basisOf(id)))).toEqual([]);
+    // The S2 checks are already off in the lenient profile (strictAssertions: false), and say so.
+    for (const id of VIOLATION_IDS.filter((id) => /\.(?:typ|kid)$/.test(id) && basisOf(id) === "Reading")) {
+      expect(VIOLATIONS[id], id).toMatch(/strict Company only/);
+    }
   });
 });
 

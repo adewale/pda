@@ -16,7 +16,7 @@ export type PageSnapshot = {
   readonly links: readonly { text: string; href: string; selector: string }[];
   /** `selector` is what `submit` takes; `fields` are the names `fill` takes. */
   readonly forms: readonly { selector: string; action: string; method: string; fields: readonly string[] }[];
-  /** The response's `Retry-After`, if any, which a 429 or 503 must be waited out by (spec 4.3). */
+  /** The response's `Retry-After`, if any, which a 429 must be waited out by (spec 4.3, MUST) and a 503 too (Guides, "Retries"). */
   readonly retryAfter?: string;
 };
 

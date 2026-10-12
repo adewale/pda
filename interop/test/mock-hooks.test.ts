@@ -25,13 +25,34 @@ describe("the shared mock hooks", () => {
     expect([...used].filter((hook) => !SHARED.includes(hook))).toEqual([]);
   });
 
-  it("serve violations by id, with the detail after it", () => {
+  it("serve violations by id, with the check's basis and the detail after it", () => {
     expect(violationsBody({ violations: ["[dpop.htu] DPoP: htu https://a.example/x != https://a.example/y", "[user-id.personal] User ID \"ada@example.com\""] })).toEqual({
       violations: [
-        { id: "dpop.htu", detail: "DPoP: htu https://a.example/x != https://a.example/y" },
-        { id: "user-id.personal", detail: 'User ID "ada@example.com"' }
+        { id: "dpop.htu", basis: "MUST", detail: "DPoP: htu https://a.example/x != https://a.example/y" },
+        { id: "user-id.personal", basis: "MUST", detail: 'User ID "ada@example.com"' }
       ]
     });
+  });
+
+  it("leave out, in the lenient profile only, checks whose basis is only a SHOULD or the Guides", () => {
+    const state = {
+      violations: [
+        "[message.json-in-text] conversation message: JSON in text; use data (7.4)",
+        "[client-metadata.key-without-kid] client metadata: JWKS key without kid (Guides: give every key a kid)",
+        "[exchange.performed-twice] itm_4Qa on ord_7Hk2 exchanged again for acct_ada (confirm)",
+        "[dpop.htu] DPoP: htu https://a.example/x != https://a.example/y"
+      ]
+    };
+    expect(violationsBody(state, "strict").violations.map((violation) => violation.id)).toEqual([
+      "message.json-in-text",
+      "client-metadata.key-without-kid",
+      "exchange.performed-twice",
+      "dpop.htu"
+    ]);
+    expect(violationsBody(state, "lenient").violations).toEqual([
+      { id: "exchange.performed-twice", basis: "Guides", detail: "itm_4Qa on ord_7Hk2 exchanged again for acct_ada (confirm)" },
+      { id: "dpop.htu", basis: "MUST", detail: "DPoP: htu https://a.example/x != https://a.example/y" }
+    ]);
   });
 
   it("rotate Account Tokens and poll devices every second, for every host", () => {
@@ -42,7 +63,7 @@ describe("the shared mock hooks", () => {
     it(`are what ${host} serves: it takes placement, base, hooks and violations from the shared module and copies none`, () => {
       const source = readFileSync(path.join(ROOT, host), "utf8");
       expect(source).toMatch(/from "(?:\.\.\/shared|\.\.\/\.\.\/interop\/impls\/shared)\/mock-hooks\.ts"/);
-      for (const used of ["placeInteropCompanies()", "mockHooks(() => mock)", "violationsBody(await mock.state())", "MOCK_BASE"]) expect(source, used).toContain(used);
+      for (const used of ["placeInteropCompanies()", "mockHooks(() => mock)", "violationsBody(await mock.state()", "MOCK_BASE"]) expect(source, used).toContain(used);
       for (const copied of ["placeCompanies(", "class HookError", "function accountFor", "async fixture(", "violationId(", "deviceInterval"]) expect(source, copied).not.toContain(copied);
     });
   }
