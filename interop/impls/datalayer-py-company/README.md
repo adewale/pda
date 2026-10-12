@@ -16,7 +16,7 @@ What changed upstream that matters here:
 - **Mediated Sign-In** with no `scope` is now `invalid_scope`, and failed attempts lock a key out (5 failures, 15 minutes). `AccountDirectory.authenticate` takes a `SignInContext`; Manzanita's own does.
 - **Other hardening:** a token in the query is refused on every route; a repeated `Authorization` or `DPoP` header is 400; a request body over 1 MiB is 413; a DPoP refusal at the token endpoint carries `WWW-Authenticate`; the consent page binds its request to the browser (`__Host-poppy_consent` cookie and a `csrf` field); the web cookie is `__Host-poppy_session`; the replay cache lives in the Company's store; an unfetchable `client_id` is remembered for 30 s; an agent's reply is framed by `working` and `idle` state events; Manzanita's agent says plainly when it can't propose an exchange to an agent that didn't declare Operations.
 
-Adapter changes: `ManzanitaPlugin` now contributes exactly what the adapter's own subclass did (accounts, agent, the four executors, the API and the MCP server), so the adapter uses it as it is. The consent hooks still read `request_id` from the page and call `approve_authorization` and `deny_authorization` directly, which the new browser binding doesn't involve (it guards the form POST, `consent_decision`). Readings: S1 `either`, S2 `lenient-300s`.
+Adapter changes: `ManzanitaPlugin` now contributes exactly what the adapter's own subclass did (accounts, agent, the four executors, the API and the MCP server), so the adapter uses it as it is. The consent hooks still read `request_id` from the page and call `approve_authorization` and `deny_authorization` directly, which the new browser binding doesn't involve (it guards the form POST, `consent_decision`). Readings: S1 `either`, S2 `lenient-120s`.
 
 ## How it runs
 
@@ -55,7 +55,7 @@ Manzanita's scopes are `orders:read` and `orders:write`; the `fixture` hook name
 
 ## Scenarios
 
-Claimed: D, S0, SD, SV, SMC, SX, SXV, R, SE, SO, C, CI, CS, CA, DC, AO, AS, W, O, O2, OX. Not claimed:
+Claimed: D, S0, SD, SV, SMC, SX, SXV, R, SE, SO, C, CI, CS, CA, AO, AS, O, OX. (The manifest used to list DC, W and O2 too; the harness has no such scenarios, so they're gone.) Not claimed:
 
 - **SM:** Manzanita's one account always asks for a one-time code.
 - **AM:** every MCP tool needs a signed-in user.
@@ -80,4 +80,4 @@ Fixed by v0.10.0:
 
 ## Readings
 
-`S1: either` (assertion `aud` may be the issuer, the token endpoint or the endpoint it is sent to, at every endpoint), `S2: lenient-300s` (`typ` absent or `JWT`, lifetime at most 120 s: no section 7 value says 120 s, and this is the nearest that states a cap), `S4: either` (`scope` on a signed-out Session request is ignored). The issuer has no path, so S3 doesn't arise.
+`S1: either` (assertion `aud` may be the issuer, the token endpoint or the endpoint it is sent to, at every endpoint), `S2: lenient-120s` (`typ` absent or `JWT`, lifetime at most 120 s, `jti` of 16 to 256 characters), `S4: either` (`scope` on a signed-out Session request is ignored). The issuer has no path, so S3 doesn't arise.

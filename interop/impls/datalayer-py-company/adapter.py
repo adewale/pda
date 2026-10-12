@@ -100,14 +100,12 @@ MANIFEST = {
     # no rate limits and no staff.
     "scenarios": [
         "D", "S0", "SD", "SV", "SMC", "SX", "SXV", "R", "SE", "SO",
-        "C", "CI", "CS", "CA", "DC", "AO", "AS", "W", "O", "O2", "OX",
+        "C", "CI", "CS", "CA", "AO", "AS", "O", "OX",
     ],
     # S1: a client assertion's aud may be the issuer, the token endpoint or the endpoint
     # called, at the token, device and revocation endpoints alike (service.py `_client`).
-    # S2: typ absent or "JWT", at most 120 s (company/verify.py). No section 7 value says
-    # 120 s; lenient-300s is the nearest (any typ, a stated cap) and, unlike `any`, says
-    # the Company refuses long-lived assertions.
-    "readings": {"S1": "either", "S2": "lenient-300s", "S4": "either"},
+    # S2: typ absent or "JWT", at most 120 s (company/verify.py): lenient-120s.
+    "readings": {"S1": "either", "S2": "lenient-120s", "S4": "either"},
     "relaxations": RELAXATIONS,
 }
 

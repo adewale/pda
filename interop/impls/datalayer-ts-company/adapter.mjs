@@ -54,10 +54,9 @@ const MANIFEST = {
   extensions: ["operations"],
   scenarios: ["D", "S0", "SD", "SV", "SXV", "SMC", "SX", "SE", "SO", "R", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX"],
   // S1: a client assertion's aud may be the issuer, the token endpoint or the endpoint it
-  // is sent to, at every endpoint (0.10.0). S2: typ absent or "JWT", at most 120 s and a
-  // jti of 16 to 256 characters; lenient-300s is the nearest section 7 value, as for
-  // datalayer-py's Company.
-  readings: { S1: "either", S2: "lenient-300s", S3: "insertion", S4: "omit" },
+  // is sent to, at every endpoint (0.10.0). S2: typ absent or "JWT", at most 120 s (and a
+  // jti of 16 to 256 characters): lenient-120s.
+  readings: { S1: "either", S2: "lenient-120s", S3: "insertion", S4: "omit" },
   relaxations: [
     `organization.domain and auth.issuer set to ${DOMAIN} (Manzanita's config.domain; upstream default manzanita.example)`,
     ...(ALLOW_TEST_HOSTS

@@ -101,7 +101,7 @@ Hardening (SSRF, duplicate JSON members, redirects on `client_id`) stays in one-
 
 ## Plan
 
-Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repository (never made; our exported vectors were removed because nothing consumed them), the Playwright consent scripts, nightly CI for the full grid, and scenarios H, DC, W, O2 and CM. Datalayer's 124 cases run against our code: on 12 October, at `0c048aa` and under the conformance levels, 20 pass, 6 fail on readings (four of them because a Guides-only reason is now a warning for our validator, though our client still refuses the same documents), and 98 don't apply.
+Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repository (never made; our exported vectors were removed because nothing consumed them), the Playwright consent scripts, nightly CI for the full grid, and scenarios H, DC, W, O2 and CM. Datalayer's 124 cases run against our code: on 12 October, at `0c048aa`, with the discovery cases judged by whether our client refuses the document (not by the validator's severity), 24 pass, 2 fail on readings the draft leaves open, and 98 don't apply.
 
 
 1. **Pirate vectors, no network.**

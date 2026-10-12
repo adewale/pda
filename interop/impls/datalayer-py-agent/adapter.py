@@ -107,7 +107,7 @@ MANIFEST = {
     "extensions": ["operations"],
     "scenarios": [
         "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "R", "SE", "SO",
-        "C", "CI", "CS", "CA", "AO", "AM", "AS", "RL", "W", "O", "O2", "OX",
+        "C", "CI", "CS", "CA", "AO", "AM", "AS", "RL", "O", "OX",
     ],
     "readings": {"S1": "endpoint", "S2": "jwt-60s", "S3": "insertion", "S4": "omit"},
     "relaxations": [
