@@ -18,12 +18,13 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 - [ ] **Owner. Back up `TOKEN_ENC_KEY`** (for example in a password manager). Losing it loses every sealed Account Token and model key ([setup](docs/setup.md)).
 - [ ] **Code. A runbook for rotating `POPPY_SIGNING_JWKS`**, and for a leaked signing key: add the new key, publish both, switch the signer, retire the old `kid` after Companies' caches expire (N38).
 - [ ] **Owner. Spending alerts:** a Cloudflare billing notification, and provider-side limits and alerts on any funded key.
-- [ ] **Owner. A monthly dependency check.** In progress: `npm run deps:check` and a monthly report-only workflow.
-- [ ] **Code. Upgrade Node** to the current LTS, in `engines`, CI and our own interop images, and move the GitHub Actions off Node 20. In progress.
+- [ ] **Owner. Read the monthly dependency report.** `.github/workflows/deps.yml` runs `npm run deps:check` on the 1st (report only, no pull requests); it fails only on a high or critical audit finding.
+- [ ] **Owner. Allow or deny npm install scripts.** Node 24's npm skips dependency install scripts unless approved, and warns about seven (`workerd`, `esbuild`, `koffi`, `protobufjs`, `fsevents`, `core-js-pure`, `@google/genai`); every check passes without them. Decide with `npm install-scripts approve|deny <package>`.
+- [ ] **Owner. Node 26** becomes LTS on 28 October 2026; Node 24 (now used) is supported until April 2028.
 
 ## Product
 
-- [ ] **Code. Compaction of the never-ending conversation.** Each person's single conversation grows forever, and so does the cost of every model call. Research into Pi's, Cloudflare's and Anthropic's mechanisms is in progress.
+- [ ] **Code. Give compaction a budget.** Pi already compacts automatically, but only near the model's 1M-token window, so every turn before that pays for the whole conversation. Proposed: a 180–200k budget, `poppy_status` listing everything open, the summary shown as a notice, and tests. Check live whether the demo lane rejects compacted histories (preserved thinking).
 - [ ] **Code. "Delete my agent" and data export** (milestone 2): revoke every Account Token at its Company, then delete the Durable Object's storage. Also a short privacy statement about what each agent stores.
 - [ ] **Code. Memory, skills and the rest of milestone 2** ([spec, Build plan](durable-personal-agent-spec.md#build-plan)).
 - [ ] **Code. Hide Google sign-in while it isn't configured.** Today `/auth/google` answers a 500.
