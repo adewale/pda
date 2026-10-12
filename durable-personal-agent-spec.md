@@ -714,7 +714,8 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | `test/properties/jwt.test.ts` | Our client's assertions and DPoP proofs pass the mock Company under every reading; each one-thing-wrong mutation is refused with the violation that names it |
 | `test/properties/model.test.ts` | Model-based: any sequence of honest steps (sign in, talk, renew, propose, approve or decline, sign out) runs the client against the mock Company in process, under drawn readings; after each step no violation, and both agree with a small model |
 | `test/properties/interop.test.ts` | Scenario `${…}` references and comparisons, and reading the HAR recording |
-| `test/validator.test.ts` | The discovery document validator: fixtures declared as data, a catalog test that every message has one, the spec's examples, live documents, fetching, the HTTP endpoint |
+| `test/validator.test.ts` | The discovery document validator: fixtures declared as data, a catalog test that every message has one, the spec's examples, live documents, fetching, which names and resolved addresses are public (and the CLI's pinned lookup, with a stub resolver), the HTTP endpoint |
+| `test/spec-snapshot.test.ts` | Every SHA-256 a stored snapshot of the draft (`spec/*/manifest.json`) records is the hash of the file it names |
 | `test/mock-company.test.ts` | The mock Company itself: one `TAMPERS` row per check, proving it fires, and a catalog test that every check has a row |
 | `test/poppy.test.ts` | The Poppy client against the mock Company, grouped by spec section, with the sign-in, Session and sign-out sections run under six profiles |
 | `test/prompt-injection.test.ts` | Prompt injection, model lane: a Company's message, operation summary or MCP tool description tells the model to approve an operation or send a secret, and the faux model obeys; nothing is confirmed, nothing is sent as the User, no credential leaves |
