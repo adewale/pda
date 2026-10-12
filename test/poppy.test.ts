@@ -452,7 +452,10 @@ describe.each(PROFILES)("4.4–4.5 Direct Sign-In ($name)", ({ config: profile }
     const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c, ["poppy:read", "poppy:write"], { scopes: ["poppy:read"] });
-    expect((await a.stub.poppyNotices()).some((n) => n.includes('not granted "poppy:write"'))).toBe(true);
+    // The model is told about "the User"; the User's own card says "you".
+    expect((await a.stub.poppyNotices()).some((n) => n.includes('the User approved fewer scopes than requested: granted "poppy:read", not granted "poppy:write"'))).toBe(true);
+    const notice = (await cards(a)).find((item) => item.kind === "notice" && item.text.includes('not granted "poppy:write"'))!;
+    expect(notice.text).toContain("but you approved fewer scopes than requested");
   });
 
   it("handles a declined sign-in", async () => {

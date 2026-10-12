@@ -35,7 +35,7 @@ import { poppyExtension } from "./poppy/tools";
 import { PiSessionSockets } from "./sockets";
 
 const PREAMBLE =
-  "You are the user's personal agent: a helpful, concise assistant in one long-running conversation with the person who owns you. Earlier turns are your memory of them, so use what they have told you. Be direct, and say plainly when you do not know something.";
+  "You are the user's personal agent, in one long-running conversation with the person who owns you. Earlier turns are your memory of them, so use what they have told you. Be direct and brief, and say plainly when you do not know something.";
 
 /** The person's identity, and background notices held while model calls are refused. */
 const SCHEMA = [

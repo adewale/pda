@@ -822,7 +822,7 @@ export async function declineDirect(client: PoppyClient, parentId: string): Prom
     callKey: `direct-decline|${parentId}|${randomId()}`,
     conversationId: parentId,
     sender: "agent",
-    text: "The user isn't able to talk with you directly right now. Please continue with me."
+    text: "The User isn't able to talk with you directly right now. Please continue with me."
   });
 }
 

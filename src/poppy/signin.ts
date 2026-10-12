@@ -223,19 +223,19 @@ export async function startSignIn(
 
 type TokenResponse = Parameters<PoppyClient["completeSignIn"]>[3];
 
-/** What the User sees and the model is told once a sign-in has its tokens. */
-function signedInText(company: Company, row: SignInRow, scope: string): string {
+/** What a finished sign-in granted: `who` is "you" on the User's card and "the User" for the model. */
+function signedInText(company: Company, row: SignInRow, scope: string, who: "you" | "the User"): string {
   const granted = scopeSet(scope);
   const missing = row.scopes.split(" ").filter((item) => !granted.has(item));
   return missing.length
-    ? `Signed in to ${company.name}, but the User approved fewer scopes than requested: granted "${scope}", not granted "${missing.join(" ")}".`
+    ? `Signed in to ${company.name}, but ${who} approved fewer scopes than requested: granted "${scope}", not granted "${missing.join(" ")}".`
     : `Signed in to ${company.name} with "${scope}".`;
 }
 
-/** Close the sign-in's card with how it ended, and tell the model, once. */
-async function report(client: PoppyClient, row: SignInRow, text: string): Promise<void> {
+/** Close the sign-in's card with how it ended, and tell the model, once; the card can word it for the User. */
+async function report(client: PoppyClient, row: SignInRow, text: string, cardText = text): Promise<void> {
   const company = client.companyByIssuer(row.issuer);
-  await client.host.showCard({ id: `signin-${row.id}`, kind: "notice", company: company.name, domain: company.domain, open: false, text });
+  await client.host.showCard({ id: `signin-${row.id}`, kind: "notice", company: company.name, domain: company.domain, open: false, text: cardText });
   await client.host.notifyModel(`[system] ${text}`, `poppy-signin-${row.id}`);
 }
 
@@ -252,16 +252,18 @@ async function finish(
   const company = client.companyByIssuer(row.issuer);
   setStatus(client, row.id, outcome.ok ? "done" : outcome.expired ? "expired" : "failed");
   let text: string;
+  let cardText: string | undefined;
   if (outcome.ok) {
     const raw = outcome.response as TokenResponse;
     // An omitted `scope` grants what was asked for (RFC 6749 §5.1, N6).
     const response = { ...raw, scope: grantedScope(raw, row.scopes) };
     await client.completeSignIn(company, row.label, row.account, response);
-    text = signedInText(company, row, response.scope);
+    text = signedInText(company, row, response.scope, "the User");
+    cardText = signedInText(company, row, response.scope, "you");
   } else {
     text = `Sign-in to ${company.name} didn't complete: ${outcome.message}`;
   }
-  await report(client, row, text);
+  await report(client, row, text, cardText);
 }
 
 /** Refusals that mean the Session can't be signed in, and why, in the User's words. */
@@ -339,7 +341,7 @@ async function finishExchange(client: PoppyClient, row: SignInRow, answer?: Kept
       row.id
     );
   }
-  await report(client, row, signedInText(company, row, scope));
+  await report(client, row, signedInText(company, row, scope, "the User"), signedInText(company, row, scope, "you"));
   setStatus(client, row.id, "done");
 }
 
