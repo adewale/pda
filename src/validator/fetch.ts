@@ -9,7 +9,9 @@ import type { Checker } from "./primitives.ts";
 
 export type Fetcher = (request: Request) => Promise<Response>;
 
-export const LIMITS = { maxBytes: 100_000, timeoutMs: 5_000, maxRedirects: 3 } as const;
+// 10 s, the top of the Guides' "a timeout of a few seconds": a serverless Company's
+// first answer after a cold start can take longer than 5 s (readings.md).
+export const LIMITS = { maxBytes: 100_000, timeoutMs: 10_000, maxRedirects: 3 } as const;
 
 export type Fetched = {
   readonly url: string;

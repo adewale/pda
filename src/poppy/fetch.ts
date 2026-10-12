@@ -25,7 +25,8 @@ export type SafeFetchOptions = {
   readonly maxRedirects?: number;
 };
 
-const DEFAULTS = { maxBytes: 100_000, timeoutMs: 5_000, maxRedirects: 3 } as const;
+// The same 10 s as the validator's discovery fetches (src/validator/fetch.ts LIMITS).
+const DEFAULTS = { maxBytes: 100_000, timeoutMs: 10_000, maxRedirects: 3 } as const;
 
 /**
  * How long the client waits on a Company. A token or revocation request,

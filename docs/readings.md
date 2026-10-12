@@ -109,3 +109,7 @@ None known. The three found while writing this were fixed: `dpa-mock` now declar
 ## Keeping this current
 
 When a reading changes, change the code, the adapter's declared `readings`, the entry here, and the "What we do" cell in [spec-issues.md](spec-issues.md) where it summarises rather than links, in one commit.
+
+## Fetch timeout for discovery documents
+
+The Guides say to set "a timeout of a few seconds" for fetches. We read that as 10 seconds for discovery documents, OAuth metadata, client metadata and API descriptions, in the validator and the agent alike. We used 5 seconds until 12 October, when a live Company on a serverless host (print-with-poppy) took longer than that to answer after a cold start. Size and redirect limits are unchanged.

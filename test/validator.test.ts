@@ -749,7 +749,7 @@ describe("fetching", () => {
       const report = await pending;
       expect(ids(report)).toEqual(["http-failed"]);
       expect(report.outcome).toBe("indeterminate");
-      expect(report.messages[0]!.text).toContain(`Fetching ${wellKnown} timed out after 5 seconds.`);
+      expect(report.messages[0]!.text).toContain(`Fetching ${wellKnown} timed out after 10 seconds.`);
       expect(cancelled).toBe(true);
     } finally {
       vi.useRealTimers();

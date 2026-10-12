@@ -460,7 +460,7 @@ const CHECKS = {
     let responses = input.responses;
     let note = "";
     if (input.timeout_seconds !== undefined) {
-      // Our limit is fixed at 5 s (validator LIMITS.timeoutMs), not configurable. Stretch the
+      // Our limit is fixed (validator LIMITS.timeoutMs, 10 s), not configurable. Stretch the
       // trickle so the whole body takes as many multiples of our limit as of theirs.
       const { LIMITS } = await src("validator/fetch.ts");
       const factor = LIMITS.timeoutMs / 1000 / input.timeout_seconds;

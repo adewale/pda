@@ -130,7 +130,7 @@ export const MESSAGES = define({
     basis: "Guides",
     refuses: true,
     title: "Couldn't fetch the document",
-    explain: "The request failed before a response arrived: DNS, TLS, the connection, or the timeout (5 seconds, as the Guides suggest a few). Nothing was checked, and our client can't use a document it couldn't fetch.",
+    explain: "The request failed before a response arrived: DNS, TLS, the connection, or the timeout (10 seconds, the top of the Guides' \"few seconds\", so a serverless Company's cold start fits). Nothing was checked, and our client can't use a document it couldn't fetch.",
     fix: "Check that the URL is reachable from the public internet and answers within a few seconds.",
     ref: guides("Fetching metadata safely", "both-fetching")
   },
