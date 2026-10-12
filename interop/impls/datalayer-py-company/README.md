@@ -22,7 +22,7 @@ Adapter changes: `ManzanitaPlugin` now contributes exactly what the adapter's ow
 
 One Python process (`adapter.py`, Python 3.12):
 
-- **Port 8080:** the Company, `company_app(service)` from the SDK, served by uvicorn. Its domain and issuer come from `INTEROP_ORIGIN` (default `https://datalayer-py.company.interop.test`). The SDK rebuilds every request URL on that origin, never on the inner `Host`.
+- **Port 8080:** the Company, `company_app(service)` from the SDK, served by uvicorn. Its domain and issuer come from `INTEROP_ORIGIN` (default `https://datalayer-py.company.interop.test`). The SDK rebuilds every request URL on that origin, never on the inner `Host`. uvicorn keeps idle connections 75 s rather than its default 5 s, so the proxy never reuses one uvicorn has just closed.
 - **Port 8081:** the control API. Hooks call the same in-process `CompanyService`, the way the upstream tests play the user at the Company. Each hook answers its result object as the body.
 
 `/manifest` and `/healthz` need no authentication; `/reset`, `/hooks` and `/hooks/<name>` need `Authorization: Bearer $INTEROP_SECRET`. The image leaves `/interop` absent: the runner copies its trust directory there.

@@ -10,7 +10,7 @@ Datalayer's Python Personal Agent SDK (`personal_agent_protocol`) behind the int
 
 One Python process (`adapter.py`, Python 3.12):
 
-- **Port 8080:** the agent's public identity at `INTEROP_ORIGIN` (default `https://datalayer-py.agent.interop.test`): client metadata at `/agent.json` (the `client_id`), the JWKS at `/jwks.json`, and the redirect URI `/oauth/callback`, all `Cache-Control: no-store`.
+- **Port 8080:** the agent's public identity at `INTEROP_ORIGIN` (default `https://datalayer-py.agent.interop.test`): client metadata at `/agent.json` (the `client_id`), the JWKS at `/jwks.json`, and the redirect URI `/oauth/callback`, all `Cache-Control: no-store`. uvicorn keeps idle connections 75 s, not its default 5 s: a Company polling every 5 s otherwise raced the proxy reusing a connection uvicorn had just closed ("socket hang up", then `invalid_client`), which showed once as a flaky SV cell.
 - **Port 8081:** the control API. The host contributions the SDK requires are Reactor contributions, as in its own demo kit: an ES256 signer (rotated by `/reset`, with a fresh `kid`), per-Company DPoP keys, an in-memory token and state store, protected input fed from `signin_continue`, a browser handoff that records the authorization URL, and a form-POST browser for browser Sessions.
 
 `/manifest` and `/healthz` need no authentication; `/reset` and `/step` need `Authorization: Bearer $INTEROP_SECRET`. The image leaves `/interop` absent: the runner copies its trust directory there.

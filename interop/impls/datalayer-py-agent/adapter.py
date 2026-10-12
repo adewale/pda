@@ -98,6 +98,10 @@ OPS = [
     "api", "web_join", "approve_op", "signout", "state",
 ]
 
+# uvicorn drops an idle connection after 5 s by default, just as the proxy may reuse it (a
+# Company polling every 5 s raced it: "socket hang up", then invalid_client). Outlive it.
+KEEP_ALIVE = 75
+
 MANIFEST = {
     "interop": 1,
     "name": NAME,
@@ -1160,7 +1164,7 @@ async def control(scope: dict[str, Any], receive: Any, send: Any) -> None:  # no
 
 async def main() -> None:
     servers = [
-        uvicorn.Server(uvicorn.Config(website, host="0.0.0.0", port=8080, log_level="warning")),  # noqa: S104
+        uvicorn.Server(uvicorn.Config(website, host="0.0.0.0", port=8080, log_level="warning", timeout_keep_alive=KEEP_ALIVE)),  # noqa: S104
         uvicorn.Server(uvicorn.Config(control, host="0.0.0.0", port=8081, log_level="warning")),  # noqa: S104
     ]
     await asyncio.gather(*(server.serve() for server in servers))

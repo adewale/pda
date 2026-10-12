@@ -32,23 +32,9 @@
     {
       "agent": "pi-poppy",
       "company": "datalayer-ts",
-      "scenario": "O",
-      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
-      "reason": "Datalayer's confirm answers an Operation with \"expires_at\": null; pi-poppy's parseOperation accepts the member absent but not null, so it reports a failure for an operation the Company performed. The Operations extension doesn't say whether optional members may be null. Expected stale at Datalayer 0c048aa, whose confirm omits expires_at instead of sending null; kept until a run shows it passes."
-    },
-    {
-      "agent": "pi-poppy",
-      "company": "datalayer-ts",
       "scenario": "OX",
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
       "reason": "Datalayer's cancel still answers (at 0c048aa) \"result\": {\"summary\", \"data\": null}; pi-poppy's parseOperation rejects result.data: null. The Operations extension doesn't say whether optional members may be null."
-    },
-    {
-      "agent": "pi-poppy",
-      "company": "datalayer-py",
-      "scenario": "O",
-      "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
-      "reason": "Datalayer's confirm answers an Operation with \"expires_at\": null; pi-poppy's parseOperation accepts the member absent but not null, so it reports a failure for an operation the Company performed. The Operations extension doesn't say whether optional members may be null. Expected stale at Datalayer 0c048aa, whose confirm omits expires_at instead of sending null; kept until a run shows it passes."
     },
     {
       "agent": "pi-poppy",
