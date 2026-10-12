@@ -5,6 +5,13 @@
   "compatibility_date": "2026-10-09",
   "compatibility_flags": ["nodejs_compat"],
   "ai": { "binding": "AI", "remote": true },
+  // Cloudflare Browser Run, for read_url's pages that need JavaScript
+  // (src/tools/render.ts). Declaring it costs nothing; renders are billed as
+  // browser time (Workers Paid: 10 hours a month and 10 concurrent browsers
+  // included). Remote in local dev, so no Chrome runs on the developer's
+  // machine, where a public name could resolve to its own network.
+  // BROWSER_RUN below switches it off.
+  "browser": { "binding": "BROWSER", "remote": true },
   "assets": {
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/ws", "/api/*", "/auth/*", "/logout", "/poppy/*", "/privacy", "/validator", "/validator/*"]
@@ -50,6 +57,10 @@
     // button, and its /auth/<provider> routes answer 404 (docs/setup.md).
     "SIGNIN_PROVIDERS": ["google", "github"],
     "POPPY_CLIENT_NAME": "Durable Personal Agent",
+    // `on`: read_url renders a page that needs JavaScript in Browser Run,
+    // at most 10 an hour per agent. `off`: it reads pages without
+    // JavaScript only and says when one needed it (docs/setup.md).
+    "BROWSER_RUN": "on",
     // Who this deployment is for and where it lives. Empty here, so a copy
     // nobody has configured fails closed; each deployer sets their own in
     // the untracked deployment.local.json (see deployment.example.json),

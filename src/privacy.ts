@@ -73,7 +73,7 @@ export function privacyPage(env: PrivacyEnv): Response {
 <ul>
 <li><strong>The AI model provider</strong> receives your conversation so it can reply: Anthropic, through Cloudflare's AI Gateway, when the operator pays; or Anthropic or OpenAI directly, under your own account, when you use your own key.</li>
 <li><strong>Companies you ask your agent to work with</strong> receive what that task needs, and nothing more. You sign in to a company on its own page, and a photo is sent only after you approve it.</li>
-<li><strong>Websites you ask your agent to read</strong> receive a plain request for that page from Cloudflare's network. Nothing about you goes with it: no cookies, no sign-in, nothing but the page's address.</li>
+<li><strong>Websites you ask your agent to read</strong> receive a plain request for that page from Cloudflare's network. Nothing about you goes with it: no cookies, no sign-in, nothing but the page's address. A page that needs JavaScript may also be loaded in a fresh browser in Cloudflare's Browser Run, which runs the page's own scripts, sends only requests that read, and is closed afterwards. It gets the page's address and nothing about you.</li>
 <li><strong>Cloudflare</strong> hosts the service and may keep logs of requests.</li>
 <li>Nobody else, unless the law requires it.</li>
 </ul>

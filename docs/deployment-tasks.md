@@ -41,6 +41,7 @@ From the spec's Model access, "Check live", and the parts tested only in fakes o
 - [ ] The Content-Security-Policy doesn't break the deployed page: the theme script, the WebSocket, images, the validator's pages.
 - [ ] Sign-in end to end: GitHub works (the owner signs in with it); Google works end to end (the owner signed in on 12 October); still to try: a `sierra.ai` Workspace account, and someone not on a list being refused.
 - [ ] If a "Deploy to Cloudflare" button is added: how it handles the deployer's vars.
+- [ ] Browser Run for `read_url` ([setup §6](setup.md#6-browser-run-on-by-default)): the deploy accepts the `browser` binding (the account is on Workers Paid; Browser Run appears under **Compute → Browser Run**); a single-page app is rendered and its tool line says "rendered in Browser Run"; an ordinary article isn't; the Runs tab shows the browser closing within seconds of each render, never left open. Tested only against a fake browser so far, so this also checks that `@cloudflare/puppeteer` 1.4.0's request interception, `Page.setDownloadBehavior` and `Network.setBlockedURLs` behave in Browser Run as they do in Chrome.
 
 ## 3. Then
 

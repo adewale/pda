@@ -34,7 +34,7 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 
 **Everyday help**
 
-- Read a web page you point it at: "What does this article say?" It sends nothing about you, only the address.
+- Read a web page you point it at: "What does this article say?" It sends nothing about you, only the address. A page that needs JavaScript, such as a timetable or a shop built as an app, it loads in a fresh browser in Cloudflare's Browser Run that only reads, up to 10 pages an hour.
 - Remember things you tell it: "Remember I'm vegetarian." Ask it to forget one, or see and delete every note in Settings.
 - Dates, time zones and sums: "What date is 90 days from today?", "What time is it in Tokyo?", "What's 15% of €84.20?"
 
@@ -87,7 +87,7 @@ None of this has been sent to the draft's authors yet.
 - **One agent per person.** Each Google or GitHub sign-in gets its own Durable Object running Pi, with its conversation, Poppy state, tokens and keys in its own SQLite. One person's agent can't read another's, and work survives crashes and deploys.
 - **Approval stays on the page.** Company text reaches the model labelled as information, never as approval. A write waits for your approval of exactly what will be sent, unless the Company has the Operations extension and its own API description says that call only proposes an operation (an OpenAPI `202` carrying `operation`, or an MCP tool whose output declares one). Then you approve the Company's proposal and its terms instead. Sending your photo or file always waits for you. A standing permission covers a proposal only when the Company's summary begins with the permission's action and every term is an amount within its limit, a date, or one of the record ids in the draft's example (`order_id`, `item_id`, `replacement_sku`); anything else comes to you.
 - **Secrets stay out of the model.** Session Tokens and DPoP keys live only in memory; Account Tokens and pasted model keys are sealed with AES-GCM and bound to their row; the model's tools never take or return a credential.
-- **General tools beside Poppy.** `read_url` reads one public page as untrusted text with no cookies or credentials; `remember`, `recall` and `forget` keep short notes in the agent's own SQLite, never secrets; `now`, `date_math` and `calculate` do time zones, calendar arithmetic and exact decimal sums. All are ours, in `src/tools/`, with no third-party service.
+- **General tools beside Poppy.** `read_url` reads one public page as untrusted text with no cookies or credentials, and renders a page that needs JavaScript in Browser Run, where the page can send only GET and HEAD requests to public hosts; `remember`, `recall` and `forget` keep short notes in the agent's own SQLite, never secrets; `now`, `date_math` and `calculate` do time zones, calendar arithmetic and exact decimal sums. All are ours, in `src/tools/`; Browser Run is the only service they use beyond the page itself.
 - **Two ways to pay for the model.** An operator-paid demo through AI Gateway, capped per person and per domain before every call, or your own Anthropic or OpenAI key, sent straight to the vendor. Compaction keeps each request under about 200k tokens.
 - **Everything is tested offline.** Five suites run with the model, the vendors, Google, GitHub and every Company faked, and every Poppy test fails if the strict mock Company records a violation or a warning. A second client in Python drives a stateful Hypothesis test of the mock, because a misreading our client and mock share is invisible to both.
 
@@ -98,7 +98,7 @@ The design is [durable-personal-agent-spec.md](durable-personal-agent-spec.md); 
 - **Live:** https://personal-agent.adewale-883.workers.dev, with sign-in limited to an allowlist, and the validator at `/validator`, open to anyone. GitHub sign-in works; Google sign-in isn't registered yet.
 - **Never run against a live Company.** Spot publishes valid discovery but has no Operations and isn't in the grid; everything else we know of is a demo or an SDK.
 - **Not tried live:** the demo lane's gateway and its spend limits are faked in the tests ([deployment-tasks.md](docs/deployment-tasks.md)).
-- **Browsing runs no JavaScript,** so a site that needs it to show a page or send a form can't be browsed.
+- **Browsing a Company's site runs no JavaScript,** so a site that needs it to show a page or send a form can't be browsed in a Session. `read_url` can render such a page, signed out and read only.
 - **Not built:** skills, web search and reminders.
 - Everything still open is in [TODO.md](TODO.md).
 

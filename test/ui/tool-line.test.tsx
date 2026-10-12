@@ -125,6 +125,8 @@ describe("describeToolCall", () => {
       access: null,
       state: "done"
     });
+    const rendered = { error: false, details: { url: "https://app.example.com/", status: 200, bytes: 4_200, truncated: false, via: "browser", blocked: 2 } };
+    expect(describeToolCall("read_url", { url: "https://app.example.com/", render: true }, rendered)!.text).toBe("Read app.example.com (HTTP 200, 4 KB, rendered in Browser Run)");
     expect(describeToolCall("read_url", { url: "http://localhost/" }, { error: true, text: "Only https:// pages are read" })).toMatchObject({ text: "Couldn't read localhost", state: "failed" });
     expect(describeToolCall("read_url", { url: "https://example.com/" })).toMatchObject({ text: "Reading example.com", state: "running" });
   });

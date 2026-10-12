@@ -49,7 +49,7 @@ No tool approves, confirms or cancels anything. Confirming, declining, cancellin
 
 | Capability | Tool | Needs the User | Defined in |
 | --- | --- | --- | --- |
-| Read a public web page the User points it at, as text, signed out, sending nothing about them | `read_url` | No; it can't send anything but the address | `src/tools/web.ts` |
+| Read a public web page the User points it at, as text, signed out, sending nothing about them; a page that needs JavaScript is rendered in Cloudflare Browser Run, which may send only GET and HEAD requests to public hosts | `read_url` | No; it can't send anything but the address, and the rendering browser can't post anything | `src/tools/web.ts`, `src/tools/render.ts` |
 | Remember things about the User across the conversation | `remember` | No; the User sees and deletes every note in Settings | `src/tools/memory-store.ts` |
 | Search what it remembers | `recall` | No | `src/tools/memory-store.ts` |
 | Forget a note | `forget` | No | `src/tools/memory-store.ts` |
@@ -62,4 +62,4 @@ No tool approves, confirms or cancels anything. Confirming, declining, cancellin
 | Pay for the model with the operator's capped demo or the User's own Anthropic or OpenAI key | None: Settings | Pasting a key is the User's action | `src/model-router.ts`, `src/model-keys.ts`, `src/budget.ts` |
 | Sign in to the agent with Google or GitHub | None: the Worker | It is the User's action | `src/oauth.ts`, `src/session.ts` |
 
-All seven general tools are ours, built for this project in `src/tools/`, with no third-party service: `read_url` fetches pages from Cloudflare's network directly, and the other six run in the agent itself.
+All seven general tools are ours, built for this project in `src/tools/`: `read_url` fetches pages from Cloudflare's network directly and renders the ones that need JavaScript in Cloudflare Browser Run, and the other six run in the agent itself.

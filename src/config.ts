@@ -68,6 +68,7 @@ export type ConfigEnv = {
   readonly DEMO_DAILY_USD_PER_DOMAIN?: unknown;
   readonly SIGNUP?: unknown;
   readonly SIGNIN_PROVIDERS?: unknown;
+  readonly BROWSER_RUN?: unknown;
   readonly SESSION_SECRET?: unknown;
   readonly GOOGLE_CLIENT_ID?: unknown;
   readonly GOOGLE_CLIENT_SECRET?: unknown;
@@ -179,4 +180,17 @@ export function readProviderConfig(
         clientId: required(env, "GITHUB_CLIENT_ID"),
         clientSecret: required(env, "GITHUB_CLIENT_SECRET")
       };
+}
+
+/**
+ * Whether read_url may render pages in Cloudflare Browser Run: `on` or
+ * `off`, from `BROWSER_RUN`. Off, a page that needs JavaScript is read
+ * without it and the model is told it couldn't be rendered.
+ */
+export function readBrowserRun(env: ConfigEnv): "on" | "off" {
+  const value = required(env, "BROWSER_RUN");
+  if (value !== "on" && value !== "off") {
+    throw new ConfigError(`BROWSER_RUN must be on or off; got ${JSON.stringify(value)}`);
+  }
+  return value;
 }
