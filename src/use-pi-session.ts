@@ -19,7 +19,8 @@ import type {
   DirectUpdate,
   Permission,
   PoppyClientFrame,
-  PoppyServerFrame
+  PoppyServerFrame,
+  ProtocolCompany
 } from "./poppy/wire";
 
 export type ConnectionStatus = "connecting" | "open" | "closed";
@@ -30,14 +31,29 @@ export type ActivityView = {
   readonly log: readonly ActivityEntry[];
 };
 
-/** Poppy's part of the page: cards, settings, activity, Direct Conversations. */
+/** One Company's protocol log, as the agent last sent it. */
+export type ProtocolLogView = Extract<PoppyServerFrame, { type: "poppy.protocol" }>;
+
+/**
+ * The protocol view: which Companies have a log (null until the agent says),
+ * and the logs the page has asked for, by key.
+ */
+export type ProtocolView = {
+  readonly companies: readonly ProtocolCompany[] | null;
+  readonly logs: Readonly<Record<string, ProtocolLogView>>;
+};
+
+/** Poppy's part of the page: cards, settings, activity, Direct Conversations, the protocol view. */
 export type PoppyView = {
   readonly cards: readonly Card[];
   readonly accounts: readonly ConnectedAccount[];
   readonly permissions: readonly Permission[];
   readonly direct: Readonly<Record<string, DirectUpdate>>;
   readonly activity: ActivityView | null;
+  readonly protocol: ProtocolView;
 };
+
+export const EMPTY_PROTOCOL: ProtocolView = { companies: null, logs: {} };
 
 type State = SessionView & {
   readonly status: ConnectionStatus;
@@ -54,7 +70,7 @@ const INITIAL_STATE: State = {
   ...EMPTY_VIEW,
   status: "connecting",
   catalog: [],
-  poppy: { cards: [], accounts: [], permissions: [], direct: {}, activity: null },
+  poppy: { cards: [], accounts: [], permissions: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
   earlier: [],
   summaries: []
 };
@@ -73,6 +89,10 @@ export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView
       return { ...view, direct: { ...view.direct, [frame.update.conversationId]: frame.update } };
     case "poppy.activity":
       return { ...view, activity: { inProgress: frame.inProgress, log: frame.log } };
+    case "poppy.protocol.index":
+      return { ...view, protocol: { ...view.protocol, companies: frame.companies } };
+    case "poppy.protocol":
+      return { ...view, protocol: { ...view.protocol, logs: { ...view.protocol.logs, [frame.key]: frame } } };
     default:
       return view;
   }

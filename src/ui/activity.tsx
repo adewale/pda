@@ -2,9 +2,11 @@ import { cn, Table } from "@cloudflare/kumo";
 import { CheckCircleIcon, CircleIcon, ClockIcon, HourglassIcon, ListChecksIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import type { ActivityEntry, ActivityResult, ActivityTask, PoppyClientFrame } from "../poppy/wire";
-import type { ActivityView } from "../use-pi-session";
+import type { ActivityView, ProtocolView } from "../use-pi-session";
 import { Action, EmptyState, PageHeader, Section, SkeletonRows, Truncated, useNow } from "./controls";
 import { ACCESS, ago, countdown, DECIDED, fullDate, HOW, RESULT, when } from "./format";
+import { PROTOCOL_LOG_LIMIT } from "../poppy/wire";
+import { ProtocolList } from "./protocol";
 
 type Send = (frame: PoppyClientFrame) => void;
 
@@ -165,7 +167,7 @@ function Log({ entries }: { entries: readonly ActivityEntry[] }) {
  * Activity: what the agent is doing at Companies now, each with a way to stop
  * it where the protocol allows, and a log of everything it has done.
  */
-export function ActivityPage({ activity, send }: { activity: ActivityView | null; send: Send }) {
+export function ActivityPage({ activity, protocol, send }: { activity: ActivityView | null; protocol: ProtocolView; send: Send }) {
   return (
     <div className="space-y-8">
       <PageHeader title="Activity" description="What your agent is doing at Companies, and everything it has done there." />
@@ -174,6 +176,12 @@ export function ActivityPage({ activity, send }: { activity: ActivityView | null
       </Section>
       <Section title="Log" description="Newest first. Kept after requests leave the chat.">
         {activity ? <Log entries={activity.log} /> : <SkeletonRows rows={4} label="Loading the log" />}
+      </Section>
+      <Section
+        title="Protocol"
+        description={`Each Poppy request your agent made to a Company, oldest first, with its spec section and what came back: the last ${PROTOCOL_LOG_LIMIT} per Company. Never headers, bodies, tokens, keys or codes.`}
+      >
+        <ProtocolList protocol={protocol} send={send} />
       </Section>
     </div>
   );

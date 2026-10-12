@@ -34,6 +34,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 22. [Security hardening](#22-security-hardening)
 23. [Compaction: a budget, our summarizer, the page](#23-compaction-a-budget-our-summarizer-the-page)
 24. [Conformance levels from each requirement's basis](#24-conformance-levels-from-each-requirements-basis)
+25. [A protocol view in Activity](#25-a-protocol-view-in-activity)
 
 ## 1. A Worker and one Durable Object per person
 
@@ -275,4 +276,20 @@ Each of these closed a specific gap, and each has a test:
   - The validator: 9 errors became warnings, and our client still refuses every one. 4 warnings or info messages became errors, and our client tolerates every one. 4 messages are new. Fetch limits now make a report indeterminate.
   - The grid: 8 trace checks became warnings, `company.retry-after` became an error, and there is a new attribution rule, `warning`. `results.json` counts checks per level.
   - The full grid hasn't been rerun under the policy.
+- **When.** 12 October 2026.
+
+## 25. A protocol view in Activity
+
+- **Context.** The project's audience is now the Poppy spec's authors and other implementers, and its demo is ordering a print from print-with-poppy. They want to see the protocol, not only outcomes: which requests the agent made, in what order, under which section of the draft, and how each was answered. Activity showed outcomes only. Anything recorded about requests sits next to tokens, proofs and codes, which must never be kept.
+- **Decision.** A per-agent, per-Company log in the agent's own SQLite (`poppy_protocol_log`, `src/poppy/protocol-log.ts`), shown in Activity as a "Protocol" disclosure per Company, with "Copy as text" and "Download .txt" for interop reports.
+  - **Where it's written.** In the one Poppy HTTP client (`client.ts`), one row per attempt, so nonce retries, `Retry-After` waits and Session restarts show; and in discovery, from the validator's report. Triggers on the sign-in, conversation and operation tables add state changes no request makes, so `signin.ts`, `conversations.ts` and `operations.ts` need no hooks. `apis.ts` only exports a function that names a call by its `operationId` and path template.
+  - **What's in it.** A whitelist: a step that maps to its spec section, method, origin and path, status, error code, and two lines built field by field from named values. Never a header, body, token, assertion, proof, key, code, `state`, verifier, sign-in value, cursor or query string. The one-time-code URL, which holds the sealed `sign_in_id`, is logged as a template.
+  - **Bounds.** 500 rows per Company, pruned by a trigger. Keyed by issuer, or by domain for a Company discovery refused.
+  - **To the page.** A small index frame on connect and when it changes; a Company's entries only when its disclosure opens, and again when its newest row moves.
+- **Alternatives.**
+  - *Log through the existing Activity frame.* The frame is sent on every change; 500 rows per Company in it would go out after every conversation read.
+  - *Record the HAR the interop proxy records.* That has headers and bodies; redacting after the fact fails open.
+  - *Hooks in each module instead of triggers.* More call sites, in files another change is editing, and a missed one is a silent gap; a trigger can't miss a status change.
+  - *Workers Logs.* Not per person, and not something the page can show.
+- **Consequences.** A test feeds every secret kind the other secret checks use through Direct, Device and Mediated Sign-In, conversations, an operation, MCP and signing out, collects every secret that crossed the wire in the test's fetcher, and finds none in a row or a frame; a deliberately leaked `sign_in_id` fails it. OpenAPI and MCP metadata fetches, and website pages other than their 429 and 503 answers, aren't logged yet. The rows are about the person's own activity, so they go when the agent is deleted.
 - **When.** 12 October 2026.

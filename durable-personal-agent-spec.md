@@ -205,6 +205,7 @@ The conversation never ends, so the model sees a summary of its older part. pi-d
 | `poppy_permissions` | Standing permissions |
 | `poppy_approvals` | Local approvals for writes at Companies without the Operations extension |
 | `poppy_cards` | Cards for the chat page |
+| `poppy_protocol_log` | The protocol view: each Poppy exchange per Company (step, method, origin and path, status, error code, a one-line summary of what was sent and what came back), the newest 500 per Company; see Poppy client, "The protocol log" |
 | `agent_profile` | Who the agent belongs to (provider, id, email, Workspace domain), recorded by the Worker on each signed-in request, for the demo check on background turns |
 | `model_keys` | The person's own key, sealed; its provider, state (`valid`, or `invalid` after a 401), source, and an Anthropic workspace ID if the key needs one |
 | `model_spend` | Demo spend per UTC day, in dollars, kept a week |
@@ -260,6 +261,9 @@ The wire protocol and chat UI come from Cloudflare's Pi harness example (`cloudf
 | agent → page | `poppy.settings` | Connected accounts and standing permissions |
 | agent → page | `poppy.direct` | A Direct Conversation's messages, state, and `text-delta` pieces for display |
 | agent → page | `poppy.activity` | What the agent is doing and has done at Companies: tasks in progress (each with the frame that stops it) and a log, newest first, up to 200 entries. Built in `src/poppy/activity.ts` from the operations, approvals, sign-ins, conversations, messages and inbox tables, naming only the columns it shows, so it never holds a secret, token, state hash or stored request; kept beyond the cards' hour |
+| agent → page | `poppy.protocol.index` | The Companies with a protocol log: key (the issuer, or the domain of a Company discovery refused), name, verified domain, count and newest `seq`, without entries. Sent on connect and whenever it changes |
+| page → agent | `poppy.protocol` | `{ key }`: one Company's protocol log, asked for when its disclosure opens and again when its `seq` moves |
+| agent → page | `poppy.protocol` | That Company's log, oldest first, to the asking page only, from `poppy_protocol_log` (see Poppy client, "The protocol log") |
 | page → agent | `history.before` | After a reload whose snapshot starts with a summary: the entries before the summary, from `src/history.ts` |
 | agent → page | `history` | Up to 500 of those entries, oldest first, back to the newest reset, without the prompt entries; `more` while older ones remain |
 
@@ -283,6 +287,7 @@ The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line 
 - **Activity.**
   - **In progress:** device sign-ins with a countdown, open conversations and operations, each with its stop button.
   - **A log:** time, Company, what, how and access, who decided, result.
+  - **Protocol**, for the spec's authors and other implementers: per Company, a disclosure listing every Poppy exchange in order, each with its time to the millisecond, spec section ("§4.2 Session", "Ops §5.2 Confirming"), what was sent, method and URL, what came back, and an outcome (OK, error, sent again, no answer, refused by us, state). "Copy as text" and "Download .txt" give the same fields as plain text, one exchange a line, for an interop report.
 - **Companies.**
   - **A table:** each Company's account, access in words with the raw scope, until when, and its standing permissions.
   - **A page per Company:** sign out, standing permissions with uses left and an add form, and its open conversations.
@@ -386,9 +391,17 @@ A document without `auth` can only be browsed as an ordinary website (§3.1), an
 - **Nonces:** on `use_dpop_nonce` it takes `DPoP-Nonce`, keeps it in memory per server origin, and retries once with a new proof.
 - **Retries:** each retry gets a new proof, and a retried token request gets new assertions.
 - **Rate limits:** it waits at least `Retry-After` on 429 and 503, website pages included: inline for up to 5 s, otherwise the call fails with `rate_limited` and the durable job that needs it reschedules. It reads the `RateLimit` header into the `CompanyLimiter`.
-- **Logging:** nothing logs headers, bodies or credentials; errors are logged by code and message only.
+- **Logging:** nothing logs headers, bodies or credentials; errors are logged by code and message only. Each exchange is recorded in the protocol log (below), from a whitelist of fields.
 - **Tokens in URLs:** a request whose URL contains its own token is refused before it is sent.
 - **One exchange at a time:** token-endpoint requests for one Company run one after another, and a caller that waited reuses a token another caller just got. Account Tokens can rotate on use, so two parallel renewals would otherwise use one twice (§4.8).
+
+**The protocol log.** `src/poppy/protocol-log.ts` keeps, per Company, the Poppy exchanges the agent made, in order, in `poppy_protocol_log`, for Activity's protocol view. The client writes one row per attempt, so a nonce retry, a `Retry-After` wait or an `invalid_token` or `invalid_session` restart is a row of its own, with what the client did next; discovery writes a row per document the validator fetched and one for its verdict. Triggers on `poppy_signins`, `poppy_conversations` and `poppy_operations` add the state changes no request of ours makes: each sign-in status, a conversation's status and responder, an operation's proposal, revision, approval (by whom) and state.
+
+- **Each row:** a step (`session.start`, `signin.direct.exchange`, `operation.confirm`…) that names its spec section, the time, the method, the URL as origin and path, the status, the error code, and two lines: what was sent and what came back.
+- **What those lines may say**, field by field: the grant type; whether `session_id`, a nonce, an `Idempotency-Key` or a cursor was sent; the requested and granted `scope`, `resource`, `token_type`, `expires_in`, `interval`, `signed_in`; whether an Account Token was issued or rotated; a message's id, `sender` and which of `text`, `data` and `context` it had; an operation's id, revision, `approved_by` and state; an MCP method and tool name; an OpenAPI `operationId` and path template; the validator's outcome, counts, and the ids of the messages our client refused or tolerated. Company strings are kept only if they are short and printable.
+- **Never:** headers, bodies, tokens, assertions, DPoP proofs, keys, codes, `state`, PKCE verifiers, device and user codes, sign-in field values, cursors or query strings. The one-time-code URL holds the sealed `sign_in_id`, so it is logged as `{mediated endpoint}/{sign_in_id}`, and a request refused for carrying its token in the URL is logged without the URL.
+- **Keys and bounds.** Rows are keyed by issuer; a Company that discovery refused is keyed by the domain asked for, so a document naming another Company's issuer can't write into that Company's log. A trigger keeps the newest 500 rows per Company.
+- **Not yet logged:** the OpenAPI description and MCP protected-resource metadata fetches (`apis.ts` fetches them itself), and website pages, apart from their 429 and 503 answers.
 
 **Token requests.** Every request to the token endpoint carries:
 
@@ -704,6 +717,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | --- | --- |
 | `test/agent.test.ts` | App sign-in (PKCE, every ID-token and GitHub profile check, flow expiry), the allowlist, `/ws`, durability, configuration |
 | `test/activity.test.ts` | The Activity frame: what it logs, and that it never carries a token, code, credential or sign-in secret |
+| `test/protocol-log.test.ts` | The protocol log: a whole flow in order with its spec sections, a refused discovery, nonce retries, `Retry-After` waits and Session restarts, pruning per Company, and that no secret that crossed the wire reaches a row or a frame |
 | `test/allowlist.test.ts` | Reading and matching the allowlists and `OWNERS`; `SIGNUP` |
 | `test/model-access.test.ts` | Own keys (Anthropic and OpenAI only), sealing, the demo's caps, background turns, refused keys, `SIGNUP`, against fake vendors |
 | `test/compaction.test.ts` | Compaction: the budget's thresholds, the summary in the next request, overflow summarised and retried once, a failed summary losing nothing, summaries counted against the demo's caps, an open approval and Activity unchanged, `poppy_status` with no domain, the page's earlier messages, and the demo request's thinking settings |
@@ -720,7 +734,7 @@ Confirming, cancelling, standing permissions, credentials and sign-out are actio
 | `test/prompt-injection.test.ts` | Prompt injection, model lane: a Company's message, operation summary or MCP tool description tells the model to approve an operation or send a secret, and the faux model obeys; nothing is confirmed, nothing is sent as the User, no credential leaves |
 | `test/durability/crash.test.ts` | The conversation after a crash |
 | `test/fetch-browser.test.ts` | The production browser's own rules, with stub fetchers: the cookie jar, HTTPS and public hosts only, every redirect checked, timeouts, the size limit, no headers of ours, pages that need JavaScript |
-| `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, a summary shown as a notice with the messages before it |
+| `test/ui/*.test.tsx` | Cards (no frame until a click, secrets never shown back, only HTTPS links), `reducePoppy`, the sign-in page, a summary shown as a notice with the messages before it, the protocol view (a log asked for only when opened, copy and download as text) |
 
 - **Fakes.**
   - The demo lane's model is Pi AI's faux provider. It echoes the latest user message, and obeys any `@@obey <tool> <arguments>` line it has just read, standing in for a model that follows instructions injected into Company text. It is counted, and priced by a `[cost N]` marker in the prompt. For compaction, `[context N]` makes an answer report N tokens of context, `[too long]` makes it refuse a request as too long until the request carries a summary, and it answers our summarizer with a short summary, which `[summary fails]` makes fail and `[summary cost N]` prices.
@@ -849,6 +863,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.7 | Handle `complete`, `code_required`, `failed`, `expired` | `signin.ts` | Test: "sends the credentials only to the endpoint…" (`complete`), "submits only the one-time code…" (`code_required`), "reports a wrong password without retrying" (`failed`), "ends a sign-in the Company says has expired, never tries it again, and lets the User start again" (`expired`) |
 | 4.8 | MUST use a rotated Account Token from then on | `client.ts` | Test: "uses a rotated Account Token from then on", "never uses a rotated Account Token twice, even when renewals run in parallel" (at a Company that revokes the family on reuse); Mock |
 | 4.8 | MUST store Account Tokens as secrets, never in model context, messages, logs or URLs | `client.ts`, `store.ts` | Test: "stores Account Tokens encrypted"; Design |
+| 4.3–4.8 | Keep tokens, assertions, DPoP proofs, device and one-time codes and sign-in credentials out of logs (Guides, "Handling secrets"); our rule adds `state`, PKCE verifiers and session ids, and the protocol log holds whitelisted fields only | `protocol-log.ts`, `client.ts` | Test: "never holds or sends a token, assertion, proof, code, verifier, state, session id or sign-in value" |
 | 4.8 | `scope` may narrow, never broaden; `invalid_grant` continues signed out | `client.ts` | Test: "continues signed out when the User disconnects the agent…" |
 | 4.9 | Sign out by revoking at `revocation_endpoint`; Sessions continue signed out | `signin.ts` | Test: "signs out by revoking the Account Token…"; Mock |
 | 4.9 | Detect disconnection through `invalid_token`, `sign_in_required`, `invalid_grant` | `client.ts` | Test: "continues signed out when the User disconnects…" |

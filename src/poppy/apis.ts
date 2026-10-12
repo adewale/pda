@@ -484,3 +484,26 @@ registerExecutor("mcp", async (client, request, label) => {
   return JSON.stringify(result).slice(0, 2_000);
 });
 
+
+// ---------------------------------------------------------------- The protocol log
+
+/**
+ * The OpenAPI operation a request is for, from the descriptions already
+ * cached: its operationId, path template and server. The protocol log
+ * (protocol-log.ts) names a call by these rather than its filled-in path.
+ */
+export function apiOperationFor(method: string, url: URL): { operation: string; path: string; base: string } | null {
+  const target = `${url.origin}${url.pathname}`.replace(/\/+$/, "");
+  for (const { document } of documents.values()) {
+    for (const op of document.operations) {
+      if (op.method !== method.toUpperCase()) continue;
+      const pattern = `${document.base}${op.path}`
+        .replace(/\/+$/, "")
+        .split(/\{[^}/]+\}/)
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .join("[^/]+");
+      if (new RegExp(`^${pattern}$`).test(target)) return { operation: op.operationId, path: op.path, base: document.base };
+    }
+  }
+  return null;
+}

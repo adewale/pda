@@ -1,5 +1,6 @@
 import { ConfigError } from "../config";
 import { base64url, fromBase64url } from "../base64url";
+import { migrateProtocolLog } from "./protocol-log";
 
 /**
  * Poppy state in the person's SQLite, beside Pi's `pi_*` tables. Session
@@ -142,6 +143,8 @@ export function migrate(sql: Sql): void {
   for (const statement of SCHEMA.split(";")) {
     if (statement.trim()) sql.exec(statement);
   }
+  // After the tables its triggers watch.
+  migrateProtocolLog(sql);
 }
 
 /** Rows of a query as plain objects. */

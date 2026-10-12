@@ -186,7 +186,7 @@ export function Workspace({ identity, session }: { identity: Identity; session: 
             ) : (
               <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8 [&_h1]:outline-none" >
                 {route.place === "activity" ? (
-                  <ActivityPage activity={session.poppy.activity} send={session.sendPoppy} />
+                  <ActivityPage activity={session.poppy.activity} protocol={session.poppy.protocol} send={session.sendPoppy} />
                 ) : route.place === "companies" ? (
                   <CompaniesPage
                     view={session.poppy}

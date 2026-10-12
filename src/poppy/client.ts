@@ -17,6 +17,7 @@ import {
   type DpopKey
 } from "./jwt";
 import { currentKey, readIdentity, type AgentIdentity } from "./keys";
+import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup } from "./protocol-log";
 import { one, rows, Sealer, type Sql } from "./store";
 import type { Card } from "./wire";
 
@@ -214,6 +215,11 @@ export function parseRateLimit(header: string | null): { remaining: number; rese
   return remaining && reset ? { remaining: Number(remaining[1]), reset: Number(reset[1]) } : null;
 }
 
+/** Why a request got no answer, for the protocol log: our deadline, or the network. */
+function noAnswer(error: unknown): string {
+  return error instanceof Error && error.name === "TimeoutError" ? "timeout" : "network";
+}
+
 async function readJson(response: Response, signal: AbortSignal): Promise<Json> {
   const text = await readLimited(response, 2_000_000, signal);
   if (!text) return null;
@@ -320,7 +326,16 @@ export class PoppyClient {
     if (cached && cached.expires_at > this.host.now()) {
       return JSON.parse(cached.company) as Company | WebsiteOnly;
     }
-    const { result, cacheSeconds } = await discover(this.host.fetcher, domain);
+    let discovered: Awaited<ReturnType<typeof discover>>;
+    try {
+      discovered = await discover(this.host.fetcher, domain);
+    } catch (error) {
+      // The protocol view shows a refused Company too, under its domain.
+      if (error instanceof DiscoveryError) recordDiscovery(this.sql, key, error.report, null);
+      throw error;
+    }
+    const { result, cacheSeconds } = discovered;
+    recordDiscovery(this.sql, key, discovered.report, isCompany(result) ? result : null);
     this.sql.exec(
       "INSERT OR REPLACE INTO poppy_domains (domain, issuer, company, expires_at) VALUES (?, ?, ?, ?)",
       key,
@@ -379,6 +394,7 @@ export class PoppyClient {
   async #respectLimit(issuer: string): Promise<void> {
     const delay = await this.#limiter(issuer).delay(this.host.now());
     if (delay <= 0) return;
+    recordLimitWait(this.sql, issuer, delay, delay <= INLINE_WAIT_MS);
     if (delay > INLINE_WAIT_MS) throw new RateLimitedError(delay);
     await this.host.sleep(delay);
   }
@@ -410,6 +426,7 @@ export class PoppyClient {
     if (status !== 429 && status !== 503) return false;
     const response = new Response(null, { status, headers: retryAfter ? { "Retry-After": retryAfter } : {} });
     const wait = await this.#observeLimits(company.issuer, response);
+    recordPageLimit(this.sql, company.issuer, status, wait, wait !== null && wait <= INLINE_WAIT_MS);
     if (wait === null) return false;
     if (wait > INLINE_WAIT_MS) throw new RateLimitedError(wait);
     await this.host.sleep(wait);
@@ -436,8 +453,9 @@ export class PoppyClient {
     for (let attempt = 0; attempt < 3; attempt++) {
       await this.#respectLimit(company.issuer);
       // Each attempt gets new assertions and a new proof: Companies reject a reused jti.
+      const fields = await params();
       const form = new URLSearchParams({
-        ...(await params()),
+        ...fields,
         client_id: this.identity.clientId,
         client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
         client_assertion: await clientAssertion(signing, this.identity.clientId, endpoint)
@@ -447,6 +465,8 @@ export class PoppyClient {
         Accept: "application/json"
       });
       const origin = new URL(endpoint).origin;
+      // For the protocol log, which reads only the fields it names (never a token, code, verifier or assertion).
+      const logged = { endpoint, form: fields, dpop: options.dpop, nonce: options.dpop && this.#nonces.has(origin) };
       if (options.dpop) {
         const nonce = this.#nonces.get(origin);
         headers.set(
@@ -466,21 +486,27 @@ export class PoppyClient {
         );
         return { response, body: await readJson(response, signal) };
       }).catch((error: unknown) => {
+        recordOauth(this.sql, company, logged, { failed: noAnswer(error) });
         throw timeoutError(error, endpoint);
       });
       const nonce = response.headers.get("DPoP-Nonce");
       if (nonce) this.#nonces.set(origin, nonce);
       const wait = await this.#observeLimits(company.issuer, response);
       const error = isObject(body) && typeof body.error === "string" ? body.error : undefined;
+      const answer = { status: response.status, body };
       if (error === "use_dpop_nonce" && nonce && !nonceRetried) {
+        recordOauth(this.sql, company, logged, answer, { kind: "nonce" });
         nonceRetried = true;
         continue;
       }
       if (wait !== null) {
-        if (wait > INLINE_WAIT_MS || attempt === 2) throw new RateLimitedError(wait);
+        const retrying = wait <= INLINE_WAIT_MS && attempt < 2;
+        recordOauth(this.sql, company, logged, answer, { kind: "wait", ms: wait, retrying });
+        if (!retrying) throw new RateLimitedError(wait);
         await this.host.sleep(wait);
         continue;
       }
+      recordOauth(this.sql, company, logged, answer);
       return { status: response.status, body, headers: response.headers };
     }
     throw new PoppyError("rate_limited", "The company kept refusing the request", 429);
@@ -939,9 +965,14 @@ export class PoppyClient {
     options: TokenOptions = {}
   ): Promise<Response> {
     const url = new URL(request.url);
-    if (url.protocol !== "https:") throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
+    const bearer = options.bearer === true;
+    if (url.protocol !== "https:") {
+      recordResource(this.sql, company, request, { bearer, nonce: false }, { refused: "not_https" });
+      throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
+    }
     // Session Tokens go only to the Company's own hosts (N10), whatever a description names.
     if (!tokenHostAllowed(company, url)) {
+      recordResource(this.sql, company, request, { bearer, nonce: false }, { refused: "untrusted_host" });
       throw new PoppyError(
         "untrusted_host",
         `${url.hostname} isn't one of ${company.name}'s hosts (not listed in its poppy.json, nor under ${company.domain} or its poppy_domains), so it never gets a Session Token`,
@@ -955,8 +986,11 @@ export class PoppyClient {
       const token = await this.token(company, options);
       // Tokens never travel in a URL (spec 4.3), whatever a description or a model supplies.
       if (url.href.includes(token.value)) {
+        recordResource(this.sql, company, request, { bearer, nonce: false }, { refused: "token_in_url" });
         throw new PoppyError("invalid_request", "Refusing a URL that contains a token", 0);
       }
+      const auth = { bearer: token.type === "Bearer", nonce: token.type !== "Bearer" && this.#nonces.has(url.origin) };
+      const log = (answer: Parameters<typeof recordResource>[4], next?: Followup) => recordResource(this.sql, company, request, auth, answer, next);
       const headers = new Headers(request.headers);
       headers.set("Accept", request.accept ?? "application/json");
       if (request.body !== undefined) headers.set("Content-Type", "application/json");
@@ -990,41 +1024,50 @@ export class PoppyClient {
           signal
         )
       ).catch((error: unknown) => {
+        log({ failed: noAnswer(error) });
         throw timeoutError(error, `${url.origin}${url.pathname}`);
       });
       const nonce = response.headers.get("DPoP-Nonce");
       if (nonce) this.#nonces.set(url.origin, nonce);
       const wait = await this.#observeLimits(company.issuer, response);
+      const challenge = parseWwwAuthenticate(response.headers.get("WWW-Authenticate"));
       if (wait !== null) {
         await response.body?.cancel();
-        if (wait > INLINE_WAIT_MS || attempt === 3) throw new RateLimitedError(wait);
+        const retrying = wait <= INLINE_WAIT_MS && attempt < 3;
+        log({ status: response.status, error: challenge.error ?? null }, { kind: "wait", ms: wait, retrying });
+        if (!retrying) throw new RateLimitedError(wait);
         await this.host.sleep(wait);
         continue;
       }
-      const challenge = parseWwwAuthenticate(response.headers.get("WWW-Authenticate"));
       if (response.status === 401 && challenge.error === "use_dpop_nonce" && nonce) {
         await response.body?.cancel();
+        log({ status: 401, error: challenge.error }, { kind: "nonce" });
         continue;
       }
       if (response.status === 401 && challenge.error === "invalid_token" && !renewed) {
         // Expired or revoked: get a new token and retry once (spec 6).
         await response.body?.cancel();
+        log({ status: 401, error: challenge.error }, { kind: "renew" });
         this.dropToken(company, options);
         renewed = true;
         continue;
       }
+      // An error's code from its body, for the log and the check below; never a stream, which may not end.
+      const peek =
+        response.status >= 400 && !(response.headers.get("Content-Type") ?? "").includes("text/event-stream")
+          ? ((await this.readJson(response.clone()).catch(() => null)) as { error?: unknown } | null)
+          : null;
       // Some Companies end a Session with `invalid_session` in the body rather
       // than 401 invalid_token, the only token error spec 6 lists for this
       // (spec-issues S13, N39): start a new Session and retry once.
-      if ((response.status === 400 || response.status === 401) && !restarted) {
-        const peek = (await this.readJson(response.clone()).catch(() => null)) as { error?: unknown } | null;
-        if (peek?.error === "invalid_session") {
-          await response.body?.cancel();
-          this.#forgetSession(company.issuer, options.label ?? "main");
-          restarted = true;
-          continue;
-        }
+      if ((response.status === 400 || response.status === 401) && !restarted && peek?.error === "invalid_session") {
+        await response.body?.cancel();
+        log({ status: response.status, error: "invalid_session" }, { kind: "restart" });
+        this.#forgetSession(company.issuer, options.label ?? "main");
+        restarted = true;
+        continue;
       }
+      log({ status: response.status, error: challenge.error ?? (typeof peek?.error === "string" ? peek.error : null) });
       if (challenge.error && (response.status === 401 || response.status === 403)) {
         await response.body?.cancel();
         throw new PoppyError(challenge.error, `${company.name}: ${challenge.error}`, response.status, {

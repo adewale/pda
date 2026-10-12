@@ -186,6 +186,57 @@ export type ActivityTask = {
   readonly stop?: PoppyClientFrame;
 };
 
+/**
+ * How one Poppy exchange ended: answered (`ok`), answered with an error
+ * (`error`), sent again (`retry`), never answered (`failed`), refused by our
+ * client (`refused`), or a state change with no request of its own (`info`).
+ */
+export type ProtocolOutcome = "ok" | "error" | "retry" | "failed" | "refused" | "info";
+
+/**
+ * One line of a Company's protocol log (src/poppy/protocol-log.ts): a Poppy
+ * request the agent made, or a protocol state change, with the spec section
+ * it follows. Built from a whitelist of fields: never a header, body, token,
+ * assertion, proof, key, code, `state`, verifier, sign-in value or query.
+ */
+export type ProtocolEntry = {
+  readonly seq: number;
+  readonly at: number;
+  /** "§4.2", or "Ops §5.2" for the Operations extension. */
+  readonly section: string;
+  /** What the section is about: "Session", "Direct Sign-In". */
+  readonly title: string;
+  /** A stable name for the step, such as `session.start`. */
+  readonly step: string;
+  readonly method: string | null;
+  /** Origin and path, with an id that is a secret replaced by a template. */
+  readonly url: string | null;
+  readonly status: number | null;
+  /** The error code the Company answered, or ours for a request that got no answer. */
+  readonly error: string | null;
+  readonly outcome: ProtocolOutcome;
+  /** What the agent sent, in one line. */
+  readonly summary: string;
+  /** What came back, in one line. */
+  readonly result: string;
+};
+
+/** Protocol log rows kept per Company; older ones are pruned as new ones arrive. */
+export const PROTOCOL_LOG_LIMIT = 500;
+
+/** One Company in the protocol view, without its entries: the page asks for those. */
+export type ProtocolCompany = {
+  /** The Company's issuer; a domain when discovery refused it before an issuer was known. */
+  readonly key: string;
+  readonly company: string;
+  readonly domain: string | null;
+  readonly issuer: string | null;
+  readonly count: number;
+  /** The newest entry's `seq`: when it changes, an open log asks again. */
+  readonly lastSeq: number;
+  readonly lastAt: number;
+};
+
 /** Server → page. */
 export type PoppyServerFrame =
   | { readonly type: "poppy.cards"; readonly cards: readonly Card[] }
@@ -200,6 +251,17 @@ export type PoppyServerFrame =
       readonly inProgress: readonly ActivityTask[];
       /** Newest first. */
       readonly log: readonly ActivityEntry[];
+    }
+  /** The Companies with a protocol log, newest first: sent on connect and whenever one changes. */
+  | { readonly type: "poppy.protocol.index"; readonly companies: readonly ProtocolCompany[] }
+  /** One Company's protocol log, oldest first, to the page that asked for it. */
+  | {
+      readonly type: "poppy.protocol";
+      readonly key: string;
+      readonly company: string;
+      readonly domain: string | null;
+      readonly issuer: string | null;
+      readonly entries: readonly ProtocolEntry[];
     };
 
 /** Page → server. */
@@ -238,4 +300,6 @@ export type PoppyClientFrame =
       readonly expiresAt?: number;
     }
   | { readonly type: "poppy.permission.remove"; readonly id: string }
-  | { readonly type: "poppy.card.dismiss"; readonly id: string };
+  | { readonly type: "poppy.card.dismiss"; readonly id: string }
+  /** Ask for one Company's protocol log; the answer goes to this page only. */
+  | { readonly type: "poppy.protocol"; readonly key: string };

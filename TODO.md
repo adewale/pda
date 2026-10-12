@@ -31,6 +31,8 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 - [ ] **Code. Check the `pi report` log line** (`src/agent.ts`, `console.warn("pi report", error)`) can't carry request details or keys into Workers logs.
 - [ ] **Code. A sign-in finished by recovery doesn't run the after-sign-in step**, so operations approved while waiting on it wait for the next sign-in.
 - [ ] **Code. A user guide to verifying the agent works:** sign in, add a key, chat, check a Company with the validator, connect to a Company, read Activity.
+- [ ] **Code. The protocol log's gaps** ([decisions §25](docs/decisions.md#25-a-protocol-view-in-activity)): the OpenAPI description and MCP protected-resource metadata fetches (`apis.ts` fetches them with `fetchJson`, not the client) and website pages other than their 429 and 503 answers aren't logged; nor is the Direct Sign-In callback's `iss` check, only the sign-in's status change after it.
+- [ ] **Code. Check the protocol view in a real browser** at phone width and in dark mode (tested in happy-dom only), and with a print ordered from print-with-poppy, the demo journey.
 
 ## Testing and interop
 
