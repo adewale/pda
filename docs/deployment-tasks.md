@@ -23,8 +23,8 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
   - [ ] no API tokens with "AI Gateway Run".
 - [ ] **Owner. OAuth apps** ([setup §4 and §5](setup.md#4-a-github-oauth-app)).
   - [x] GitHub: configured for the live deployment; the live redirect to GitHub checks out (spec, Status).
-  - [ ] Google: not registered yet, waiting on the owner's Google Cloud project quota. Until then `deployment.local.json` sets `"SIGNIN_PROVIDERS": ["github"]`, so the page offers only GitHub. Once the client exists, set the two secrets, add `"google"` back and redeploy.
-- [ ] **Owner. Secrets**, set in the owner's own terminal with `wrangler secret put`, so no value passes through anyone else ([setup §2](setup.md#2-secrets)). `SESSION_SECRET`, `POPPY_SIGNING_JWKS` and `TOKEN_ENC_KEY` are set on the live deployment; `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set (the redirect to GitHub reads both); Google's two are the ones missing.
+  - [x] Google: registered on 12 October; its two secrets are set in the dashboard, `SIGNIN_PROVIDERS` lists both providers again, and the live `/auth/google` redirects to Google with the right client and callback. The consent screen links `<origin>/privacy`.
+- [ ] **Owner. Secrets**, set in the owner's own terminal with `wrangler secret put`, so no value passes through anyone else ([setup §2](setup.md#2-secrets)). `SESSION_SECRET`, `POPPY_SIGNING_JWKS` and `TOKEN_ENC_KEY` are set on the live deployment; `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set (the redirect to GitHub reads both); Google's two were added in the dashboard on 12 October.
 - [ ] **Owner. The final domain for `client_id`**, before registering at any Company. Changing `PUBLIC_ORIGIN` later makes the agent a new Personal Agent to every Company (spec, "Our agent's identity"). Open question: will Companies accept a `workers.dev` host? For a custom domain: attach it in the dashboard (a `routes` entry in the committed `wrangler.jsonc` would name the deployer's host, which `test/template.test.ts` refuses), set `PUBLIC_ORIGIN` and `POPPY_LOGO_URI` to it, and change both OAuth apps' callback URLs.
 - [ ] **Owner. `npm run deploy`.** It builds, checks the build names an owner and an origin, then deploys.
 
@@ -39,7 +39,7 @@ From the spec's Model access, "Check live", and the parts tested only in fakes o
 - [ ] The gateway metadata (`u`, `d`) reaches the spend rules; the 429 they return; how far a burst overshoots.
 - [ ] Settings in a real browser: the key panel (paste, remove), the demo meter, and the needs-key banner.
 - [ ] The Content-Security-Policy doesn't break the deployed page: the theme script, the WebSocket, images, the validator's pages.
-- [ ] Sign-in end to end: GitHub works (the owner signs in with it); still to try: someone not on a list is refused, and Google once registered.
+- [ ] Sign-in end to end: GitHub works (the owner signs in with it); still to try: a Google sign-in end to end (yours, and a `sierra.ai` Workspace account), and someone not on a list being refused.
 - [ ] If a "Deploy to Cloudflare" button is added: how it handles the deployer's vars.
 
 ## 3. Then
