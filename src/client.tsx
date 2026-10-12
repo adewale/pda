@@ -16,13 +16,13 @@ type Me =
     }
   | { readonly state: "signed-out"; readonly message: string | null };
 
-/** Set by the Worker's OAuth callback when a sign-in did not complete. */
+/** What the page says for each `?signin_error=` code the Worker's OAuth callback sets. */
 export const SIGN_IN_ERRORS: Record<string, string> = {
   denied: "Sign-in was cancelled.",
-  state: "That sign-in link expired. Please try again.",
-  code: "The provider did not complete sign-in. Please try again.",
-  token: "The provider did not confirm who you are. Please try again.",
-  profile: "The provider did not share your account id. Please try again.",
+  state: "That sign-in expired. Try again.",
+  code: "The provider didn't complete sign-in. Try again.",
+  token: "The provider didn't confirm who you are. Try again.",
+  profile: "The provider didn't share your account ID. Try again.",
   not_allowed: "That account isn't on this agent's allowlist. Ask the owner to add it, or sign in with another account."
 };
 
@@ -32,7 +32,7 @@ function takeSignInError(): string | null {
   if (code === null) return null;
   url.searchParams.delete("signin_error");
   window.history.replaceState(null, "", url);
-  return SIGN_IN_ERRORS[code] ?? "Sign-in failed. Please try again.";
+  return SIGN_IN_ERRORS[code] ?? "Sign-in failed. Try again.";
 }
 
 function useMe(): Me {
@@ -53,7 +53,7 @@ function useMe(): Me {
         } else {
           setMe({
             state: "signed-out",
-            message: `Sign-in is not set up yet: ${await response.text()}`
+            message: `Sign-in isn't set up yet: ${await response.text()}`
           });
         }
       })

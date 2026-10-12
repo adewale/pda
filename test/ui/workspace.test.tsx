@@ -515,7 +515,7 @@ describe("model settings", () => {
     expect(meter.getAttribute("aria-valuenow")).toBe("0.5");
     expect(meter.getAttribute("aria-valuemax")).toBe("2");
     expect(screen.getByText("$0.50 of $2.00 used today")).toBeTruthy();
-    expect(screen.getByText(/Whoever runs this deployment can technically read it/)).toBeTruthy();
+    expect(screen.getByText(/Whoever runs this deployment could read it/)).toBeTruthy();
     expect(screen.getByText(/set a spending limit on the key with your provider/)).toBeTruthy();
   });
 

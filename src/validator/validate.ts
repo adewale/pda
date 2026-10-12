@@ -43,11 +43,11 @@ export type Report = {
   readonly documents: readonly DocumentResult[];
   readonly counts: { readonly error: number; readonly warning: number; readonly info: number };
   /**
-   * Whether our own client refuses these documents (it reads a Company's;
-   * for an agent's, only the document being unreachable counts): a message that `refuses`
-   * (every error but those the draft tells a reader to tolerate, and the
-   * warnings that guard against hostile documents), or a document that
-   * couldn't be checked. Separate from `outcome`, which is about the draft.
+   * Whether our own client refuses these documents, or would if it read
+   * them (it reads only a Company's): a message that `refuses` (every error
+   * but those the draft tells a reader to tolerate, and the warnings that
+   * guard against hostile documents), or a document that couldn't be
+   * checked. Separate from `outcome`, which is about the draft.
    */
   readonly refused: boolean;
   readonly messages: readonly Message[];

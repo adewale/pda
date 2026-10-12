@@ -303,12 +303,12 @@ async function refused(client: PoppyClient, row: SignInRow, code: string, messag
 //                └─▶ failed (refused, or interrupted with no answer)
 //
 // `exchanging` with no answer kept means the Company may have signed the
-// Session in, and we hold no Account Token to renew it with; 4.2 renews a
-// signed-in Session with the Account Token, and what the assertion gets there
-// is undefined (spec-issues S5), so that Session is
-// abandoned for a new one and the User starts the sign-in again. `exchanged`
-// keeps the answer (sealed, without its Session Token), so the tokens are
-// stored from it. `stored` only has the card and the notice left.
+// Session in, and we hold no Account Token to renew it with. 4.2 renews a
+// signed-in Session with the Account Token, and what the assertion gets
+// there is undefined (spec-issues S5), so that Session is abandoned for a
+// new one and the User starts the sign-in again. `exchanged` keeps the
+// answer (sealed, without its Session Token), so the tokens are stored from
+// it. `stored` only has the card and the notice left.
 
 const EXCHANGE = (id: string) => `signin|${id}`;
 

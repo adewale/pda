@@ -69,7 +69,7 @@ describe("sign-in page", () => {
 
   it("shows a general message for a code it doesn't know, as text", async () => {
     await openPage("?signin_error=%3Cimg%20src%3Dx%3E");
-    expect(screen.getByRole("alert").textContent).toBe("Sign-in failed. Please try again.");
+    expect(screen.getByRole("alert").textContent).toBe("Sign-in failed. Try again.");
     expect(document.querySelector("img")).toBeNull();
   });
 

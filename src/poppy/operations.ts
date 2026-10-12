@@ -124,7 +124,7 @@ async function unusableProposal(client: PoppyClient, company: Company, problem: 
     company: company.name,
     domain: company.domain,
     open: false,
-    text: `${company.name} proposed an action the agent couldn't read (${problem}), so nothing was done and there is nothing to approve. Ask again if you still want it.`
+    text: `${company.name} proposed an action your agent couldn't read (${problem}), so nothing was done and there is nothing to approve. Ask again if you still want it.`
   });
   await client.host.notifyModel(
     `[system] ${company.name} proposed an operation the agent can't use (${problem}). Nothing was done, and it can't be approved or confirmed. Tell the User; if they still want it, ask ${company.name} again or another way.`,
@@ -254,11 +254,6 @@ async function markLost(client: PoppyClient, company: Company, row: OperationRow
 }
 
 /**
- * Record an operation from any channel (Ops 4): an OpenAPI 202, an MCP tool
- * result, or a Company message. A new revision of a proposal needs a new
- * approval, unless a standing permission covers it (Ops 5.1).
- */
-/**
  * Before an API write that once proposed an operation: if we've tried to
  * confirm that operation and it isn't final, we read or confirm it again
  * instead, and MUST NOT ask for a new proposal of the same action (Ops 6).
@@ -293,6 +288,11 @@ export function rememberProposal(client: PoppyClient, issuer: string, request: s
   );
 }
 
+/**
+ * Record an operation from any channel (Ops 4): an OpenAPI 202, an MCP tool
+ * result, or a Company message. A new revision of a proposal needs a new
+ * approval, unless a standing permission covers it (Ops 5.1).
+ */
 export async function handleProposal(
   client: PoppyClient,
   company: Company,
@@ -964,7 +964,7 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
       approvalId: row.id,
       summary: row.summary,
       status: "unknown",
-      result: "Interrupted; check with the company whether it happened.",
+      result: `It may have happened: check with ${company} before asking again.`,
       ...approvalAttachments(row)
     });
     await client.host.notifyModel(
