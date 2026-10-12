@@ -64,7 +64,24 @@ export const TRACE_CHECKS = {
   "company.oauth-error-body": { side: "company", basis: "RFC", mock: false, what: "OAuth endpoint error that isn't JSON with a string error (RFC 6749 5.2)" },
   "company.token-response": { side: "company", basis: "Rule", mock: false, what: "Token response without access_token, token_type, expires_in or session_id (4.2)" },
   "company.iss-missing": { side: "company", basis: "RFC", mock: false, what: "Authorization response without iss (RFC 9207, spec 4.5)" },
-  "company.events-shape": { side: "company", basis: "Rule", mock: false, what: "Events response without an events array, string cursor or boolean has_more (7.5)" },
+  "company.events-shape": {
+    side: "company",
+    basis: "MUST",
+    mock: false,
+    what: "Events read without an events array, a string cursor, a boolean has_more, or a string status and responder (7.5: every successful read MUST include them)"
+  },
+  "company.events-cursor": {
+    side: "company",
+    basis: "Reading",
+    mock: false,
+    what: "First read, with no cursor and no events, whose cursor is neither a string nor null (our reading, S10)"
+  },
+  "company.wait-reply-shape": {
+    side: "company",
+    basis: "Rule",
+    mock: false,
+    what: "Send with wait whose reply isn't a read's: events, cursor, has_more, status and responder (7.3: it responds as a read would, 7.5)"
+  },
   "company.sse-event-id": { side: "company", basis: "Rule", mock: false, what: "A streamed event without an id (7.6)" }
 } as const satisfies Record<string, CheckSpec>;
 
@@ -275,6 +292,45 @@ export function retryAfterChecks(all: readonly Exchange[]): Check[] {
 }
 
 const OAUTH_PATH = /token|revoke|revocation|device|par\b/;
+/** Where a conversation's first message goes, or a later one (7.3). */
+const SEND_PATH = /\/conversations(?:\/[^/]+\/messages)?$/;
+
+/**
+ * A read's body (7.5): "Every successful read MUST include `cursor`,
+ * `has_more`, `status`, and `responder`, even with no events. `cursor` is the
+ * last event returned, or the request's cursor if there were none." A send
+ * with `wait` "responds as a read of the conversation's events from that
+ * cursor would" (7.3), so its reply is held to the same, as a Rule.
+ *
+ * The draft doesn't say what `cursor` is when there were no events and the
+ * request had no cursor (S10). Our reading (docs/readings.md): a string or
+ * `null`. So `null` there departs from nothing, and any other value is
+ * `company.events-cursor`, a Reading.
+ */
+function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait-reply-shape"): Check[] {
+  const body = jsonBody(x.responseBody);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return [check(id, x, `not a JSON object: ${x.responseBody.slice(0, 120)}`)];
+  const read = body as Record<string, unknown>;
+  const problems: string[] = [];
+  const events = read.events;
+  if (!Array.isArray(events)) problems.push("events isn't an array");
+  if (!("has_more" in read)) problems.push("no has_more");
+  else if (typeof read.has_more !== "boolean") problems.push("has_more isn't a boolean");
+  for (const field of ["status", "responder"] as const) {
+    if (!(field in read)) problems.push(`no ${field}`);
+    else if (typeof read[field] !== "string") problems.push(`${field} isn't a string`);
+  }
+  const requestCursor = x.url.searchParams.get("cursor") ?? x.requestHeaders.get("last-event-id") ?? null;
+  const found: Check[] = [];
+  if (!("cursor" in read)) problems.push("no cursor");
+  else if (typeof read.cursor !== "string") {
+    if (requestCursor !== null) problems.push(`cursor ${JSON.stringify(read.cursor)}, not a string, after a request with a cursor`);
+    else if (Array.isArray(events) && events.length > 0) problems.push(`cursor ${JSON.stringify(read.cursor)}, not a string, with events returned`);
+    else if (read.cursor !== null) found.push(check("company.events-cursor", x, `cursor ${JSON.stringify(read.cursor)} on a first read with no events`));
+  }
+  if (problems.length > 0) found.unshift(check(id, x, `${problems.join("; ")}: ${x.responseBody.slice(0, 120)}`));
+  return found;
+}
 
 /** Company responses: WWW-Authenticate, Retry-After, OAuth error bodies, token responses, events. */
 export function companyChecks(all: readonly Exchange[]): Check[] {
@@ -301,11 +357,7 @@ export function companyChecks(all: readonly Exchange[]): Check[] {
     if (x.method === "GET" && /\/events$/.test(x.url.pathname) && x.status === 200) {
       const type = x.responseHeaders.get("content-type") ?? "";
       if (type.includes("application/json")) {
-        const body = jsonBody(x.responseBody) as Record<string, unknown> | undefined;
-        const events = body?.events;
-        if (!Array.isArray(events) || (events.length > 0 && typeof body?.cursor !== "string") || (body?.has_more !== undefined && typeof body.has_more !== "boolean")) {
-          found.push(check("company.events-shape", x, x.responseBody.slice(0, 160)));
-        }
+        found.push(...readShapeChecks(x, "company.events-shape"));
       } else if (type.includes("text/event-stream")) {
         for (const block of x.responseBody.replace(/\r\n?/g, "\n").split("\n\n")) {
           const lines = block.split("\n");
@@ -317,6 +369,9 @@ export function companyChecks(all: readonly Exchange[]): Check[] {
           }
         }
       }
+    }
+    if (x.method === "POST" && x.url.searchParams.has("wait") && (x.status === 201 || x.status === 202) && SEND_PATH.test(x.url.pathname)) {
+      if ((x.responseHeaders.get("content-type") ?? "").includes("application/json")) found.push(...readShapeChecks(x, "company.wait-reply-shape"));
     }
   }
   return found;

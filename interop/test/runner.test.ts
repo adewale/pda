@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { upstreamFor } from "../proxy/routing.mjs";
+import { VIOLATION_IDS } from "../../test/mock-company/violations.ts";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
+import { TRACE_CHECKS } from "../runner/checks.ts";
 import { gridCoverage, imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions } from "../runner/cli.ts";
 import { proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
@@ -55,7 +57,7 @@ describe("the registry and known failures", () => {
     }
   });
 
-  it("reads known failures, each with an issue and a reason, naming registry entries or *", () => {
+  it("reads known failures, each with an issue, a reason and the failure it expects, naming registry entries or *", () => {
     const registry = loadRegistry();
     const names = (role: string) => new Set(registry.implementations.filter((entry) => entry.role === role).map((entry) => entry.name));
     const scenarios = new Set(loadScenarios().map((scenario) => scenario.id));
@@ -65,6 +67,9 @@ describe("the registry and known failures", () => {
       expect(failure.agent === "*" || names("agent").has(failure.agent), failure.agent).toBe(true);
       expect(failure.company === "*" || names("company").has(failure.company), failure.company).toBe(true);
       expect(failure.scenario === "*" || scenarios.has(failure.scenario), failure.scenario).toBe(true);
+      // What the failure looks like: a blame, and checks the grid knows (a trace check, or one our mock records).
+      expect("blame" in failure, JSON.stringify(failure)).toBe(true);
+      for (const id of failure.checks ?? []) expect(id in TRACE_CHECKS || (VIOLATION_IDS as readonly string[]).includes(id), id).toBe(true);
     }
   });
 
@@ -179,7 +184,7 @@ describe("the report", () => {
       implementations: [],
       scenarios: [{ id: "SD", title: "Direct Sign-In", steps: [] }],
       cells: [flaky],
-      staleKnown: [{ agent: "pi-poppy", company: "*", scenario: "SE", issue: "https://example.com/1" }]
+      staleKnown: [{ agent: "pi-poppy", company: "*", scenario: "SE", blame: "agent", issue: "https://example.com/1" }]
     });
     expect(html).toContain("<h2>Flaky cells</h2>");
     expect(html).toContain("pass · flaky");

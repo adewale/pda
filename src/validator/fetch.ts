@@ -23,16 +23,45 @@ export type Fetched = {
   readonly text?: string;
 };
 
-/** Literal IPs, localhost and single-label names: never fetched. */
+/**
+ * Names that never lead to a public host, and the names under them: special-use
+ * names (IANA's Special-Use Domain Names registry), the private-use
+ * `.internal`, and the top-level names RFC 6762 Appendix G found in private
+ * use, none of which is delegated in the root zone.
+ */
+export const NON_PUBLIC_SUFFIXES = [
+  "localhost", // RFC 6761: loopback
+  "local", // RFC 6762: multicast DNS on the local link
+  "home.arpa", // RFC 8375: home networks
+  "arpa", // infrastructure: reverse zones, ipv4only.arpa (RFC 8880), resolver.arpa, service.arpa, 6tisch.arpa
+  "internal", // reserved by ICANN for private use (2024)
+  "invalid", // RFC 6761: never resolves
+  "onion", // RFC 7686: Tor, not DNS
+  "alt", // RFC 9476: outside DNS
+  "intranet", // RFC 6762 Appendix G, with the five below
+  "private",
+  "corp",
+  "home",
+  "lan"
+] as const;
+
+/**
+ * Hosts never fetched, judged by name alone: IP literals, single-label names,
+ * and the special-use and private-use names in `NON_PUBLIC_SUFFIXES`. It
+ * can't see what a name resolves to (`127.0.0.1.nip.io` passes it), so a
+ * runtime that can reach private networks must also check the address it
+ * connects to: Workers refuse those destinations themselves, the Node CLI
+ * checks each resolved address (address.ts), and any other caller must
+ * supply a fetcher that does.
+ */
 export function isPublicHost(url: URL): boolean {
   // `localhost.` is `localhost`: a fully qualified name's root dot doesn't change the host.
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
   return !(
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
     !host.includes(".") ||
     /^\d+(\.\d+){3}$/.test(host) ||
-    host.startsWith("[")
+    host.startsWith("[") ||
+    NON_PUBLIC_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))
   );
 }
 
@@ -168,6 +197,11 @@ export async function fetchDocument(
       );
     } catch (error) {
       clearTimeout(timer);
+      // A fetcher that resolves names itself refuses one that leads to a private address (address.ts).
+      if (error instanceof Error && error.name === "NonPublicAddressError") {
+        c.report("http-non-public-address", "", `${error.message}, so ${at} wasn't fetched.`);
+        return { url, finalUrl: at, maxAgeSeconds: null };
+      }
       return failed(error);
     }
     // Only a 200 has its body read; nothing else needs the deadline after this.

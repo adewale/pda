@@ -168,7 +168,18 @@ export function loadScenarios(dir = path.join(INTEROP, "scenarios")): Scenario[]
 export function loadKnownFailures(file = path.join(INTEROP, "known-failures.json")): KnownFailure[] {
   if (!existsSync(file)) return [];
   const value = JSON.parse(readFileSync(file, "utf8")) as { failures?: KnownFailure[] };
-  return value.failures ?? [];
+  const failures = value.failures ?? [];
+  const blames = new Set<unknown>(["agent", "company", "spec", "harness", null]);
+  const strings = (list: unknown) => list === undefined || (Array.isArray(list) && list.every((item) => typeof item === "string"));
+  for (const entry of failures) {
+    // Each entry says what its failure looks like, so another failure in the same cell isn't taken for it.
+    const blame = (entry as { blame?: unknown }).blame;
+    const blameOk = Array.isArray(blame) ? blame.length > 0 && blame.every((item) => blames.has(item)) : blame !== undefined && blames.has(blame);
+    if (!blameOk || !strings(entry.checks) || !strings(entry.errors)) {
+      throw new Error(`${file}: ${entry.agent} × ${entry.company} × ${entry.scenario} needs blame (agent, company, spec, harness or null, or a list of them), and checks and errors as lists of strings`);
+    }
+  }
+  return failures;
 }
 
 function sourceCommit(): string {

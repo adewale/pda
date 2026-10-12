@@ -81,8 +81,17 @@ export const MESSAGES = define({
     refuses: true,
     title: "Not a public host",
     explain:
-      "The Guides ask Personal Agents and Companies to refuse loopback, private and link-local addresses unless configured on purpose (a recommendation, not a requirement of the draft). This validator, like our client, never fetches them or single-label hosts, so it can't check a document there.",
+      "The Guides ask Personal Agents and Companies to refuse loopback, private and link-local addresses unless configured on purpose (a recommendation, not a requirement of the draft). By name alone, this validator, like our client, never fetches IP literals, single-label hosts, or special-use and private-use names such as localhost, .local, .internal and .home.arpa, so it can't check a document there. A name can still resolve to a private address: on Cloudflare Workers the platform refuses those connections, and the command-line validator checks each address a name resolves to (http-non-public-address). Used as a library elsewhere, it checks names only, so the caller must supply a fetcher that checks addresses.",
     fix: "Publish the document on a public DNS name.",
+    ref: guides("Fetching metadata safely", "both-fetching")
+  },
+  "http-non-public-address": {
+    basis: "Guides",
+    refuses: true,
+    title: "Resolves to a private address",
+    explain:
+      "The Guides ask Personal Agents and Companies to refuse loopback, private and link-local addresses, judged by the address actually connected to (a recommendation, not a requirement of the draft). The host name is public, but it resolves to such an address (loopback, RFC 1918, link-local, carrier-grade NAT, unique local, unspecified, multicast or another range that isn't globally reachable), so nothing was checked there. The command-line validator resolves each name itself, refuses these, and connects only to the address it checked.",
+    fix: "Point the name at a public address.",
     ref: guides("Fetching metadata safely", "both-fetching")
   },
   "http-redirect-not-https": {

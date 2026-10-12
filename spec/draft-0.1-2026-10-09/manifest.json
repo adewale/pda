@@ -34,7 +34,7 @@
       },
       "content_html": {
         "file": "html/home.html",
-        "sha256": "18dd00d33163d79dcbfe4d54140037145443cf4de7dfde51bb8999cf816c0ab1"
+        "sha256": "3bb2f2d7a5c4174fe3def5f2d8e154db470eeeaf0a87b39afecdc27c2bde5724"
       },
       "rfc2119": {
         "sentences": 0,
@@ -71,7 +71,7 @@
       },
       "content_html": {
         "file": "html/overview.html",
-        "sha256": "f67ef2bc5ceac86fa688294462d0ab4a3fcbf1ef24ae902373a804018f740139"
+        "sha256": "2c043246c75d5a9246f0e7e21248b74051d717255aa10f0e9fd2daa3de70ea39"
       },
       "rfc2119": {
         "sentences": 0,
@@ -108,7 +108,7 @@
       },
       "content_html": {
         "file": "html/spec.html",
-        "sha256": "89b0f7cfe4a7eaee2a7efeca650a614a89a6a0ce44509e08cf643f2b51c98226"
+        "sha256": "89166344b5104c89176d5d2817a8f7cc501794129cf4d7c23d7b4d2de1063e5f"
       },
       "rfc2119": {
         "sentences": 107,
@@ -151,7 +151,7 @@
       },
       "content_html": {
         "file": "html/extensions.html",
-        "sha256": "4a5707542b8785cb3c4d2be2a8713ae4e7904df2d250eeff3e92cd070a846316"
+        "sha256": "70f6b63b720e3637f2c26a4202fc31efcb2dd7a05a3fed3e8ed0ca8954e14f62"
       },
       "rfc2119": {
         "sentences": 0,
@@ -188,7 +188,7 @@
       },
       "content_html": {
         "file": "html/operations.html",
-        "sha256": "216a26c3c0a3cdbf4b9ea86743bae0af2768500e06900b316340ea9d94dfad0d"
+        "sha256": "af00e335cc2d8f0252a3b30f90c7d1b5703930cd72b6a4b22820fb327930120b"
       },
       "rfc2119": {
         "sentences": 20,
@@ -219,7 +219,7 @@
       },
       "content_html": {
         "file": "html/guides.html",
-        "sha256": "f8343d94f4dc5c2b9e082933276e3466d456358021775bb952c95e726e29a56f"
+        "sha256": "b4764e7e160ce96b5620ad6893e0b15257355314fc45d60b5ec1b8cab665250d"
       },
       "rfc2119": {
         "sentences": 18,
@@ -259,7 +259,7 @@
       },
       "content_html": {
         "file": "html/open-topics.html",
-        "sha256": "4f23f29746c7c336f0c17c21f11b8e9a7dec24e25e09ff2f0ce289dc846e474a"
+        "sha256": "6ea60c99ff9ca0537b637ecf7e91ef47cef6d696686802e3051379305ca43561"
       },
       "rfc2119": {
         "sentences": 0,
@@ -285,7 +285,7 @@
       },
       "content_html": {
         "file": "html/license.html",
-        "sha256": "36f1374c6c04db1522484730388fa6acfa1441bff36109d00db146a325d01d9c"
+        "sha256": "bc05400d1aaf8f745b9ad9ea8c6f01af87ceb5d817840e19e6000267f8520a7b"
       },
       "rfc2119": {
         "sentences": 0,
@@ -311,7 +311,7 @@
       },
       "content_html": {
         "file": "html/contributions.html",
-        "sha256": "0fa561119a7ca658690adc08470a974c4607b0b798d9fdc04fac06ef1729c801"
+        "sha256": "bbea8cc50a7a4f57fd953051f3f93dd267c0ef58db704ed4de801c945c24df29"
       },
       "rfc2119": {
         "sentences": 0,

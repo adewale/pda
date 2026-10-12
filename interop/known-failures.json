@@ -5,6 +5,13 @@
       "agent": "pi-poppy",
       "company": "*",
       "scenario": "N",
+      "blame": "agent",
+      "checks": [
+        "session-assertion.jti-reused"
+      ],
+      "errors": [
+        "invalid_grant"
+      ],
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/agent.ts",
       "reason": "pi-poppy's token request (agent.ts, the send() retry after use_dpop_nonce) signs a new client assertion and DPoP proof but resends the caller's Session assertion, so its jti is used twice (session-assertion.jti-reused; Poppy 4.2: a jti is single use). Hidden until now behind the strict mock's typ refusal."
     },
@@ -12,6 +19,13 @@
       "agent": "pi-poppy",
       "company": "*",
       "scenario": "SVN",
+      "blame": "agent",
+      "checks": [
+        "session-assertion.jti-reused"
+      ],
+      "errors": [
+        "invalid_grant"
+      ],
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/agent.ts",
       "reason": "As in N: on use_dpop_nonce pi-poppy resends the same Session assertion, so its jti is used twice (session-assertion.jti-reused)."
     },
@@ -19,6 +33,10 @@
       "agent": "pi-poppy",
       "company": "*",
       "scenario": "SE",
+      "blame": "agent",
+      "errors": [
+        "invalid_session"
+      ],
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/agent.ts",
       "reason": "After the Company ends the Session, pi-poppy renews on 401 invalid_token, gets invalid_session from the token endpoint and throws it instead of starting a new Session (Poppy 4.2)."
     },
@@ -26,6 +44,10 @@
       "agent": "pi-poppy",
       "company": "dpa-mock-strict",
       "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_grant"
+      ],
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
       "reason": "Reading S2, blamed on the spec: pi-poppy's Session assertion (signSessionAssertion) has no typ \"JWT\", and it declares S2 any; dpa-mock-strict declares jwt-60s and refuses the assertion with invalid_grant at the first Session. The lenient reference dpa-mock accepts it."
     },
@@ -33,6 +55,10 @@
       "agent": "pi-poppy",
       "company": "datalayer-ts",
       "scenario": "OX",
+      "blame": null,
+      "errors": [
+        "agent_refused"
+      ],
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
       "reason": "Datalayer's cancel still answers (at 0c048aa) \"result\": {\"summary\", \"data\": null}; pi-poppy's parseOperation rejects result.data: null. The Operations extension doesn't say whether optional members may be null."
     },
@@ -40,6 +66,10 @@
       "agent": "pi-poppy",
       "company": "datalayer-py",
       "scenario": "OX",
+      "blame": null,
+      "errors": [
+        "agent_refused"
+      ],
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/schema.ts",
       "reason": "Datalayer's cancel still answers (at 0c048aa) \"result\": {\"summary\", \"data\": null}; pi-poppy's parseOperation rejects result.data: null. The Operations extension doesn't say whether optional members may be null."
     },
@@ -47,6 +77,10 @@
       "agent": "datalayer-ts",
       "company": "*",
       "scenario": "SVN",
+      "blame": "agent",
+      "errors": [
+        "use_dpop_nonce"
+      ],
       "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/device.ts#L333-L360",
       "reason": "Datalayer's TypeScript DeviceSignInClient.poll sends each device token request once and never retries use_dpop_nonce (unlike its Session, code, refresh and revocation requests), so Device Sign-In fails at a Company that requires nonces (Poppy 4.3, RFC 9449 section 8)."
     },
@@ -54,6 +88,10 @@
       "agent": "datalayer-py",
       "company": "*",
       "scenario": "SVN",
+      "blame": "agent",
+      "errors": [
+        "use_dpop_nonce"
+      ],
       "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/device.py#L200-L287",
       "reason": "Datalayer's Python DeviceSignInClient.poll has no use_dpop_nonce handling (device.py), unlike its Session, code, refresh and revocation requests, so Device Sign-In fails at a Company that requires nonces (Poppy 4.3, RFC 9449 section 8)."
     },
@@ -61,6 +99,10 @@
       "agent": "datalayer-ts",
       "company": "*",
       "scenario": "CS",
+      "blame": null,
+      "errors": [
+        "stream_unavailable"
+      ],
       "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/conversations.ts#L405-L481",
       "reason": "Datalayer's TypeScript ConversationClient.stream reconnects at once, with no delay or retry: handling, and throws stream_unavailable after five reconnects that bring nothing new; a Company that closes an idle stream fails the resume at the latest event (Poppy 7.6)."
     },
@@ -68,6 +110,13 @@
       "agent": "poppy-demo",
       "company": "dpa-mock",
       "scenario": "*",
+      "blame": [
+        null,
+        "agent"
+      ],
+      "errors": [
+        "discovery_failed"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock's issuer is https://auth.dpa-mock.company.interop.test (draft 3.2 allows both)."
     },
@@ -75,6 +124,13 @@
       "agent": "poppy-demo",
       "company": "dpa-mock-strict",
       "scenario": "*",
+      "blame": [
+        null,
+        "agent"
+      ],
+      "errors": [
+        "discovery_failed"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; dpa-mock-strict's issuer is https://auth.dpa-mock-strict.company.interop.test (draft 3.2 allows both)."
     },
@@ -82,6 +138,13 @@
       "agent": "poppy-demo",
       "company": "adonis-agora",
       "scenario": "*",
+      "blame": [
+        null,
+        "agent"
+      ],
+      "errors": [
+        "discovery_failed"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
     },
@@ -89,6 +152,10 @@
       "agent": "poppy-demo",
       "company": "ilmer",
       "scenario": "*",
+      "blame": null,
+      "errors": [
+        "discovery_failed"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "Ilmer is signed-out only, so its OAuth metadata has no authorization_endpoint; poppy-demo's discovery runs new URL(undefined) on it and throws (action_failed)."
     },
@@ -96,6 +163,10 @@
       "agent": "poppy-demo",
       "company": "print-with-poppy",
       "scenario": "*",
+      "blame": null,
+      "errors": [
+        "discovery_failed"
+      ],
       "issue": "https://github.com/irvinebroque/poppy-demo/blob/02a9b304e92fdfee465c57f2822742eecac8bdc8/workers/caller/src/session.ts#L178",
       "reason": "As at Ilmer: print-with-poppy is signed-out only with no conversations, so its OAuth metadata has no authorization_endpoint and its poppy.json no agent member (both optional; the validator passes it). poppy-demo's discovery checks m.authorization_endpoint and d.agent.protocols for every Company and throws (action_failed) before any request after the metadata."
     },
@@ -103,6 +174,10 @@
       "agent": "poppy-demo",
       "company": "poppyseed",
       "scenario": "SO",
+      "blame": null,
+      "errors": [
+        "action_failed"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "poppyseed answers revocation with 200 and an empty body (RFC 7009 allows it); the caller JSON.parses it and throws, so signout reports action_failed though the token was revoked."
     },
@@ -110,6 +185,10 @@
       "agent": "adonis-agora",
       "company": "dpa-mock-strict",
       "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_client"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
       "reason": "Reading S2, blamed on the spec: adonis-agora's poppy-client signs client and Session assertions without typ \"JWT\" and declares S2 any; dpa-mock-strict declares jwt-60s and refuses them (mock violation client-assertion.typ). The lenient reference dpa-mock accepts them."
     },
@@ -117,6 +196,10 @@
       "agent": "adonis-agora",
       "company": "poppy-demo",
       "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_client"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
       "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
     },
@@ -124,6 +207,10 @@
       "agent": "adonis-agora",
       "company": "ilmer",
       "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_client"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
       "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; ilmer requires it (S2 reading; Ilmer answers invalid_client)."
     },
@@ -131,6 +218,10 @@
       "agent": "pi-poppy",
       "company": "poppy-demo",
       "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_grant"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s2",
       "reason": "Reading S2, blamed on the spec: pi-poppy's Session assertion (signSessionAssertion in src/dpop.ts) has no typ \"JWT\", and it declares S2 any; Northstar declares jwt-60s and answers the first Session request invalid_grant, so every scenario stops at its first step."
     },
@@ -138,6 +229,10 @@
       "agent": "pi-poppy",
       "company": "ilmer",
       "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_grant"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s2",
       "reason": "Reading S2, blamed on the spec: pi-poppy's Session assertion has no typ \"JWT\" (S2 any); Ilmer declares jwt-60s and answers the first Session request invalid_grant. (Both sides send and want the token endpoint as aud there, so S1 is not the cause.)"
     },
@@ -145,6 +240,11 @@
       "agent": "poppy-demo",
       "company": "datalayer-ts",
       "scenario": "*",
+      "blame": null,
+      "errors": [
+        "expect outcome.poppy_error",
+        "invalid_scope"
+      ],
       "issue": "https://github.com/irvinebroque/poppy-demo/blob/02a9b304e92fdfee465c57f2822742eecac8bdc8/shared/protocol.ts#L5",
       "reason": "poppy-demo's caller asks for the hard-coded SCOPES (poppy:read poppy:write, shared/protocol.ts:5, used at workers/caller/src/session.ts:190) whatever the Company offers; Manzanita offers only orders:read and orders:write (auth.direct.scopes), so it refuses the authorization with invalid_scope and every signed-in scenario (SD, SX, CA, SO, AO) fails."
     },
@@ -152,6 +252,11 @@
       "agent": "poppy-demo",
       "company": "datalayer-py",
       "scenario": "*",
+      "blame": null,
+      "errors": [
+        "expect outcome.poppy_error",
+        "invalid_scope"
+      ],
       "issue": "https://github.com/irvinebroque/poppy-demo/blob/02a9b304e92fdfee465c57f2822742eecac8bdc8/shared/protocol.ts#L5",
       "reason": "As at datalayer-ts: the caller always asks for poppy:read poppy:write; Manzanita offers only orders:read and orders:write and answers invalid_scope."
     },
@@ -159,6 +264,10 @@
       "agent": "adonis-agora",
       "company": "datalayer-ts",
       "scenario": "SE",
+      "blame": null,
+      "errors": [
+        "invalid_session"
+      ],
       "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/company/service.ts#L870-L877",
       "reason": "After invalid_session, adonis-agora recovers by renewing with its Account Token and no session_id, which Poppy 4.8 says starts a new signed-in Session; Datalayer's TypeScript CompanyService requires a session_id on every refresh_token grant and answers invalid_session again. (dpa-mock, pi-poppy, poppyseed and adonis-agora's Company accept it.)"
     },
@@ -166,6 +275,10 @@
       "agent": "adonis-agora",
       "company": "datalayer-py",
       "scenario": "SE",
+      "blame": null,
+      "errors": [
+        "invalid_session"
+      ],
       "issue": "https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/service.py#L731-L736",
       "reason": "As at datalayer-ts: Datalayer's Python CompanyService answers a refresh_token grant without session_id with invalid_session, where Poppy 4.8 says it starts a new signed-in Session, so adonis-agora's recovery fails."
     },
@@ -173,6 +286,10 @@
       "agent": "adonis-agora",
       "company": "*",
       "scenario": "SV",
+      "blame": "spec",
+      "errors": [
+        "invalid_client"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
       "reason": "Reading S1, blamed on the spec: adonis-agora's client assertions name the token endpoint as aud everywhere (S1 token-endpoint), including at the device authorization endpoint; poppyseed and pi-poppy require the endpoint the assertion is sent to (S1 endpoint) and answer invalid_client. (Both Datalayer Companies did too until 0.10.0, which accepts the issuer, the token endpoint or the endpoint called.)"
     },
@@ -180,6 +297,10 @@
       "agent": "adonis-agora",
       "company": "*",
       "scenario": "SXV",
+      "blame": "spec",
+      "errors": [
+        "invalid_client"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
       "reason": "Reading S1, as in SV: the device authorization request's client assertion names the token endpoint, and Companies reading S1 endpoint answer invalid_client before the User can deny."
     },
@@ -187,6 +308,10 @@
       "agent": "adonis-agora",
       "company": "*",
       "scenario": "SO",
+      "blame": "spec",
+      "errors": [
+        "invalid_client"
+      ],
       "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
       "reason": "Reading S1, as in SV: the revocation request's client assertion names the token endpoint, and Companies reading S1 endpoint answer invalid_client, so sign-out fails."
     }

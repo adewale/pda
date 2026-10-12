@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { attribute, attributeAll, checkLevel, companyRecorded, knownFailure, levelCounts, staleKnown, unexpected } from "../runner/attribution.ts";
+import { attribute, attributeAll, checkLevel, companyRecorded, failureCode, knownFailure, knownMatches, levelCounts, staleKnown, unexpected } from "../runner/attribution.ts";
 import { compatible, QUESTIONS, readingChecks, refusedReadingChecks } from "../runner/readings.ts";
 import { jwt, NOW, recording } from "./helpers.ts";
-import type { Cell, Check, Outcome, Scenario } from "../runner/types.ts";
+import type { Cell, Check, Outcome, Scenario, StepRecord } from "../runner/types.ts";
 
 const error = (side: "agent" | "company"): Check => ({ id: "x", side, severity: "error", exchange: null, detail: "", source: "trace" });
 /** The trace's evidence that a Company refused what its reading of `question` doesn't accept. */
@@ -157,7 +157,7 @@ describe("attribution", () => {
 
   it("attaches known failures, which no longer fail the run", () => {
     const cells = [cell("a", "c", "fail"), cell("a", "d", "fail")];
-    attributeAll(cells, { ...none, known: [{ agent: "a", company: "c", scenario: "SD", issue: "https://example.com/1", reason: "S2" }] });
+    attributeAll(cells, { ...none, known: [{ agent: "a", company: "c", scenario: "SD", blame: null, issue: "https://example.com/1", reason: "S2" }] });
     expect(cells[0]!.known).toEqual({ issue: "https://example.com/1", reason: "S2" });
     expect(unexpected(cells).map((c) => c.company)).toEqual(["d"]);
   });
@@ -165,32 +165,80 @@ describe("attribution", () => {
 
 describe("known failures", () => {
   const issue = "https://example.com/1";
+  /** A failed cell with no checks or failed step, unattributed: what an entry with `blame: null` and nothing else expects. */
+  const failed = (agent: string, company: string, scenario: string) => cell(agent, company, "fail", [], scenario);
+  const step = (error: string, actor: "agent" | "expect" = "agent"): StepRecord => ({ actor, op: actor === "agent" ? "session" : "expect", ms: 1, ok: false, error });
+  const check = (id: string, severity: "error" | "warning" = "error"): Check => ({ id, side: "agent", severity, exchange: null, detail: "", source: "trace" });
+
   it("match a field by name or by * for any", () => {
-    const known = [{ agent: "pi-poppy", company: "*", scenario: "SE", issue }];
-    expect(knownFailure({ agent: "pi-poppy", company: "datalayer-ts", scenario: "SE" }, known)).toBe(known[0]);
-    expect(knownFailure({ agent: "pi-poppy", company: "datalayer-ts", scenario: "O" }, known)).toBeUndefined();
-    expect(knownFailure({ agent: "dpa", company: "datalayer-ts", scenario: "SE" }, known)).toBeUndefined();
-    const any = [{ agent: "*", company: "*", scenario: "*", issue }];
-    expect(knownFailure({ agent: "a", company: "c", scenario: "D" }, any)).toBe(any[0]);
+    const known = [{ agent: "pi-poppy", company: "*", scenario: "SE", blame: null, issue }];
+    expect(knownFailure(failed("pi-poppy", "datalayer-ts", "SE"), known)).toBe(known[0]);
+    expect(knownFailure(failed("pi-poppy", "datalayer-ts", "O"), known)).toBeUndefined();
+    expect(knownFailure(failed("dpa", "datalayer-ts", "SE"), known)).toBeUndefined();
+    const any = [{ agent: "*", company: "*", scenario: "*", blame: null, issue }];
+    expect(knownFailure(failed("a", "c", "D"), any)).toBe(any[0]);
   });
 
   it("prefer the most specific entry, then the first", () => {
-    const broad = { agent: "pi-poppy", company: "*", scenario: "*", issue, reason: "broad" };
-    const exact = { agent: "pi-poppy", company: "dpa-mock-strict", scenario: "SE", issue, reason: "exact" };
-    const later = { agent: "pi-poppy", company: "*", scenario: "SE", issue, reason: "later" };
+    const broad = { agent: "pi-poppy", company: "*", scenario: "*", blame: null, issue, reason: "broad" };
+    const exact = { agent: "pi-poppy", company: "dpa-mock-strict", scenario: "SE", blame: null, issue, reason: "exact" };
+    const later = { agent: "pi-poppy", company: "*", scenario: "SE", blame: null, issue, reason: "later" };
     const known = [broad, later, exact];
-    expect(knownFailure({ agent: "pi-poppy", company: "dpa-mock-strict", scenario: "SE" }, known)).toBe(exact);
-    expect(knownFailure({ agent: "pi-poppy", company: "pi-poppy", scenario: "SE" }, known)).toBe(later);
-    expect(knownFailure({ agent: "pi-poppy", company: "pi-poppy", scenario: "O" }, known)).toBe(broad);
+    expect(knownFailure(failed("pi-poppy", "dpa-mock-strict", "SE"), known)).toBe(exact);
+    expect(knownFailure(failed("pi-poppy", "pi-poppy", "SE"), known)).toBe(later);
+    expect(knownFailure(failed("pi-poppy", "pi-poppy", "O"), known)).toBe(broad);
     const first = { ...later, reason: "first" };
-    expect(knownFailure({ agent: "pi-poppy", company: "x", scenario: "SE" }, [first, later])).toBe(first);
+    expect(knownFailure(failed("pi-poppy", "x", "SE"), [first, later])).toBe(first);
+  });
+
+  it("name each failed cell's code: a refusal's Poppy error, an expectation's path, a harness error", () => {
+    expect(failureCode({ outcome: "fail", steps: [step("poppy_error invalid_grant: POST https://x/oauth/token")] })).toBe("invalid_grant");
+    expect(failureCode({ outcome: "fail", steps: [step("poppy_error invalid_scope")] })).toBe("invalid_scope");
+    expect(failureCode({ outcome: "fail", steps: [step('outcome.poppy_error: expected "access_denied", got "invalid_scope"', "expect")] })).toBe("expect outcome.poppy_error");
+    expect(failureCode({ outcome: "fail", steps: [step("500 internal: boom")] })).toBe("500 internal");
+    // An optional step that was unsupported isn't the failure.
+    expect(failureCode({ outcome: "fail", steps: [step("unsupported: no MCP"), step("poppy_error invalid_client")] })).toBe("invalid_client");
+    expect(failureCode({ outcome: "fail", steps: [] })).toBeNull();
+    expect(failureCode({ outcome: "error", steps: [] })).toBe("error");
+  });
+
+  it("count a failed cell as known only when its blame, every error check and its step error are the entry's", () => {
+    const entry = { agent: "pi-poppy", company: "*", scenario: "N", blame: "agent" as const, checks: ["session-assertion.jti-reused"], errors: ["invalid_grant"], issue };
+    const at = (blame: Cell["blame"], checks: Check[], steps: StepRecord[] = []): Cell => ({ ...cell("pi-poppy", "dpa-mock", "fail", checks, "N"), blame, steps });
+    // The failure it describes, with or without the refused step, and with warnings beside it.
+    expect(knownMatches(entry, at("agent", [check("session-assertion.jti-reused")]))).toBe(true);
+    expect(knownMatches(entry, at("agent", [check("session-assertion.jti-reused"), check("client-assertion.typ", "warning")], [step("poppy_error invalid_grant: x")]))).toBe(true);
+    // The same cell failing on a different check, or on another one as well: a different regression.
+    expect(knownMatches(entry, at("agent", [check("dpop.ath")]))).toBe(false);
+    expect(knownMatches(entry, at("agent", [check("session-assertion.jti-reused"), check("dpop.ath")]))).toBe(false);
+    // Blamed on another side, or failing at a step with another error.
+    expect(knownMatches(entry, at("company", [check("session-assertion.jti-reused")]))).toBe(false);
+    expect(knownMatches(entry, at("agent", [check("session-assertion.jti-reused")], [step("poppy_error invalid_dpop_proof")]))).toBe(false);
+    // An entry that names no checks only matches a cell that has none.
+    const stepOnly = { ...entry, checks: undefined };
+    expect(knownMatches(stepOnly, at("agent", [], [step("poppy_error invalid_grant")]))).toBe(true);
+    expect(knownMatches(stepOnly, at("agent", [check("session-assertion.jti-reused")], [step("poppy_error invalid_grant")]))).toBe(false);
+  });
+
+  it("make the same cell with a different failure unexpected, and say which entry it missed", () => {
+    const entry = { agent: "a", company: "c", scenario: "SD", blame: "agent" as const, checks: ["x"], issue, reason: "known" };
+    const same = cell("a", "c", "fail", [error("agent")]);
+    const different = cell("a", "c", "fail", [{ ...error("agent"), id: "y" }]);
+    attributeAll([same, different], { ...none, known: [entry] });
+    expect(same.known?.reason).toBe("known");
+    expect(different.known).toBeUndefined();
+    expect(unexpected([same, different])).toEqual([different]);
+    expect(different.reason).toContain(`not the known failure ${issue}: it expects blame agent, checks [x], errors []; this cell has blame agent, checks [y], error none`);
+    // The entry still matched a cell, so it isn't stale; once only the different failure is left, it is.
+    expect(staleKnown([same, different], [entry])).toEqual([]);
+    expect(staleKnown([different], [entry])).toEqual([entry]);
   });
 
   it("are attached to failed cells through wildcards, and unmatched ones are found", () => {
-    const cells = [cell("pi-poppy", "a", "fail", [], "SE"), cell("pi-poppy", "b", "error", [], "SE"), cell("pi-poppy", "c", "pass", [], "SE"), cell("dpa", "a", "fail", [], "SE")];
+    const cells = [cell("pi-poppy", "a", "fail", [], "SE"), cell("pi-poppy", "b", "fail", [], "SE"), cell("pi-poppy", "c", "pass", [], "SE"), cell("dpa", "a", "fail", [], "SE")];
     const known = [
-      { agent: "pi-poppy", company: "*", scenario: "SE", issue, reason: "renewal" },
-      { agent: "*", company: "*", scenario: "O", issue, reason: "fixed" }
+      { agent: "pi-poppy", company: "*", scenario: "SE", blame: null, issue, reason: "renewal" },
+      { agent: "*", company: "*", scenario: "O", blame: null, issue, reason: "fixed" }
     ];
     attributeAll(cells, { ...none, known });
     expect(cells.map((c) => c.known?.reason ?? null)).toEqual(["renewal", "renewal", null, null]);
@@ -202,10 +250,12 @@ describe("known failures", () => {
   });
 
   it("are stale when the cells they name ran and none failed", () => {
-    const exact = { agent: "a", company: "c", scenario: "SD", issue, reason: "exact" };
+    const exact = { agent: "a", company: "c", scenario: "SD", blame: null, issue, reason: "exact" };
     expect(staleKnown([cell("a", "c", "pass")], [exact])).toEqual([exact]);
     expect(staleKnown([cell("a", "c", "fail")], [exact])).toEqual([]);
-    expect(staleKnown([cell("a", "c", "error")], [exact])).toEqual([]);
+    // An errored cell matches an entry that expects the harness's error, and isn't the unattributed failure.
+    expect(staleKnown([{ ...cell("a", "c", "error"), blame: "harness" }], [{ ...exact, blame: "harness", errors: ["error"] }])).toEqual([]);
+    expect(staleKnown([{ ...cell("a", "c", "error"), blame: "harness" }], [exact])).toEqual([exact]);
     // A cell now unsupported didn't fail either.
     expect(staleKnown([cell("a", "c", "unsupported")], [exact])).toEqual([exact]);
     // A pair the run didn't run is never judged (--agents dpa --companies dpa-mock).
@@ -213,8 +263,8 @@ describe("known failures", () => {
   });
 
   it("judge a wildcard entry over every failed cell it covers, even where a more specific entry is attached", () => {
-    const broad = { agent: "a", company: "*", scenario: "*", issue, reason: "broad" };
-    const exact = { agent: "a", company: "c", scenario: "SD", issue, reason: "exact" };
+    const broad = { agent: "a", company: "*", scenario: "*", blame: null, issue, reason: "broad" };
+    const exact = { agent: "a", company: "c", scenario: "SD", blame: null, issue, reason: "exact" };
     const cells = [cell("a", "c", "fail"), cell("a", "d", "pass")];
     attributeAll(cells, { ...none, known: [broad, exact] });
     expect(cells[0]!.known?.reason).toBe("exact");
@@ -226,17 +276,17 @@ describe("known failures", () => {
 
   it("don't judge a wildcard over a dimension the run didn't cover whole", () => {
     // adonis-agora × * × SV fails at Companies reading S1 endpoint; a run against dpa-mock alone passes it.
-    const sv = { agent: "adonis-agora", company: "*", scenario: "SV", issue, reason: "S1" };
+    const sv = { agent: "adonis-agora", company: "*", scenario: "SV", blame: null, issue, reason: "S1" };
     const cells = [cell("adonis-agora", "dpa-mock", "pass", [], "SV")];
     expect(staleKnown(cells, [sv], { agent: false, company: false, scenario: true })).toEqual([]);
     expect(staleKnown(cells, [sv], { agent: false, company: true, scenario: true })).toEqual([sv]);
-    const pair = { agent: "poppy-demo", company: "datalayer-ts", scenario: "*", issue, reason: "scopes" };
+    const pair = { agent: "poppy-demo", company: "datalayer-ts", scenario: "*", blame: null, issue, reason: "scopes" };
     const d = [cell("poppy-demo", "datalayer-ts", "pass", [], "D")];
     expect(staleKnown(d, [pair], { agent: true, company: true, scenario: false })).toEqual([]);
   });
 
   it("never match a flaky cell, which passes and doesn't fail the run", () => {
-    const entry = { agent: "a", company: "c", scenario: "SD", issue, reason: "exact" };
+    const entry = { agent: "a", company: "c", scenario: "SD", blame: null, issue, reason: "exact" };
     const flaky: Cell = { ...cell("a", "c", "pass"), flaky: true, attempts: [{ outcome: "fail", reason: "timeout", har: "SD/a__c.har" }, { outcome: "pass", har: "SD/a__c.attempt2.har" }] };
     attributeAll([flaky], { ...none, known: [entry] });
     expect(flaky.known).toBeUndefined();

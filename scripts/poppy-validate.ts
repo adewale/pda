@@ -6,6 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { validateTarget, validateText, VALIDATOR, type DocumentKind, type Report } from "../src/validator/index.ts";
+import { addressCheckingFetcher } from "./node-fetcher.ts";
 
 const HELP = `Usage: poppy-validate [options] <domain | url | file | ->
 
@@ -81,7 +82,8 @@ if (target === "-" || existsSync(target)) {
   report = validateText(kind, text, options);
 } else {
   label = target;
-  report = await validateTarget((request) => fetch(request), target, options);
+  // Node can reach private networks, so this fetcher checks the address each name resolves to.
+  report = await validateTarget(addressCheckingFetcher(), target, options);
 }
 
 if (values.json) {

@@ -153,10 +153,26 @@ export type Cell = {
 
 export type Attempt = { readonly outcome: Outcome; readonly reason?: string; readonly har: string | null };
 
+/**
+ * A failure we know about (spec section 9). Its cell (`agent`, `company`,
+ * `scenario`, each a name or `*`) says where it may happen; `blame`,
+ * `checks` and `errors` say what it looks like, so a different failure in
+ * the same cell is still unexpected.
+ */
 export type KnownFailure = {
   readonly agent: string;
   readonly company: string;
   readonly scenario: string;
+  /**
+   * The blame attribution gives the cell (`null`: unattributed), or the list
+   * of them where one root cause is blamed differently across the cells it
+   * spans (rule 2 can decide a cell its neighbours leave unattributed).
+   */
+  readonly blame: Blame | readonly Blame[];
+  /** Every error check the cell may show: one outside this list makes it unexpected. Absent: none. */
+  readonly checks?: readonly string[];
+  /** The first failed step's code (`failureCode` in attribution.ts) the cell may show. Absent: none, so the cell may only fail on checks. */
+  readonly errors?: readonly string[];
   readonly issue: string;
   readonly reason?: string;
 };
