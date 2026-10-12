@@ -24,6 +24,8 @@ export type OpenApiOperation = {
   readonly summary: string;
   readonly parameters: readonly { name: string; in: string; required: boolean; schema?: Json; description?: string }[];
   readonly requestBody?: Json;
+  /** Resolved top-level application/json schema, for request-shape checks. */
+  readonly jsonBodySchema?: Json;
   /** A `multipart/form-data` request body: its file fields, its other fields, and whether JSON is accepted too. */
   readonly upload?: Upload;
   readonly acceptsIdempotencyKey: boolean;
@@ -189,6 +191,8 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
           );
         const requestBody = op.requestBody !== undefined ? resolveRef(json, op.requestBody) : undefined;
         const upload = uploadOf(json, requestBody);
+        const jsonMedia = isObject(requestBody) && isObject(requestBody.content) ? requestBody.content["application/json"] : undefined;
+        const jsonBodySchema = isObject(jsonMedia) ? resolveRef(json, jsonMedia.schema ?? null) : undefined;
         operations.push({
           operationId: typeof op.operationId === "string" ? op.operationId : `${method.toUpperCase()} ${path}`,
           method: method.toUpperCase(),
@@ -197,6 +201,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
           parameters: parameters.filter((parameter) => !(parameter.in === "header" && /^idempotency-key$/i.test(parameter.name))),
           ...(requestBody !== undefined ? { requestBody } : {}),
           ...(upload ? { upload } : {}),
+          ...(jsonBodySchema !== undefined ? { jsonBodySchema } : {}),
           acceptsIdempotencyKey: parameters.some((parameter) => parameter.in === "header" && /^idempotency-key$/i.test(parameter.name)),
           proposes: proposesOperation(json, op),
           scopes: declaredScopes(op.security ?? json.security),
@@ -394,6 +399,17 @@ function serverOf(company: Company, api: Api, document: OpenApiDocument): URL {
   return url;
 }
 
+/** Catch double-encoded objects without reinterpreting legitimate JSON strings. */
+export function validateJsonObjectBody(op: OpenApiOperation, body: Json | undefined): void {
+  if (typeof body === "string" && isObject(op.jsonBodySchema) && op.jsonBodySchema.type === "object") {
+    throw new PoppyError(
+      "invalid_request",
+      `${op.method} ${op.path} requires a JSON object: pass body as an object, not a JSON-encoded string. Do not call JSON.stringify on the tool argument. No API request was sent.`,
+      0
+    );
+  }
+}
+
 async function performOpenApi(client: PoppyClient, company: Company, label: string, call: OpenApiCall): Promise<Json> {
   const api = findApi(company, "openapi", call.apiUrl);
   const document = await openApi(client, api);
@@ -416,6 +432,7 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
   if (write) refuseWhileConfirming(client, company.issuer, write);
   const readOnly = op.method === "GET" ? readOnlyScope(client.session(company.issuer, label)?.scope, op) : null;
   // An upload, or an operation that takes only multipart/form-data, sends a form; anything else JSON.
+  if (!call.files && (!op.upload || op.upload.json)) validateJsonObjectBody(op, call.body);
   const form = call.files || (op.upload && !op.upload.json && call.body !== undefined) ? multipartBody(client, call) : null;
   const response = await client.resource(
     company,
@@ -499,6 +516,7 @@ export async function callOpenApi(
   const files = request.files && Object.keys(request.files).length ? request.files : undefined;
   // A file the User would be asked to send must be one we'd send: to the Company's own host, checked before the card.
   if (files) serverOf(company, api, document);
+  if (!files && (!op.upload || op.upload.json)) validateJsonObjectBody(op, request.body);
   const attached = files ? uploadedFiles(client, company, op, files) : [];
   const call: OpenApiCall = {
     apiUrl: api.url,

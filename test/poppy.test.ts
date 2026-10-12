@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
-import { dpopSchemes, openApi, outsidePoppySession, proposesOperation } from "../src/poppy/apis";
+import { dpopSchemes, validateJsonObjectBody, openApi, outsidePoppySession, proposesOperation } from "../src/poppy/apis";
 import type { Json } from "../src/poppy/json";
 import { summaryStartsWithAction, termsCovered } from "../src/poppy/operations";
 import type { PoppyClient } from "../src/poppy/client";
@@ -1199,6 +1199,40 @@ describe("6 APIs", () => {
     body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
   });
   const exchangeRequests = async (c: Company) => (await requests(c)).filter((request) => request.url === `${c.hosts.api}/orders/ord_7Hk2/exchanges`);
+
+  it("rejects a JSON-encoded object before sending a write or asking for approval, then accepts the corrected object", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    const request = exchangeWrite(c);
+    const rejected = await tool(a, "poppy_api_call", { ...request, body: JSON.stringify(request.body) });
+    expect(rejected.text).toContain("pass body as an object, not a JSON-encoded string");
+    expect(await exchangeRequests(c)).toEqual([]);
+    expect((await cards(a)).filter((card) => card.kind === "approval" || card.kind === "operation")).toEqual([]);
+    await tool(a, "poppy_api_call", request);
+    expect(await exchangeRequests(c)).toHaveLength(1);
+    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
+  });
+
+  it("resolves a referenced JSON object schema before checking the body", async () => {
+    const fetcher: Fetcher = async () => Response.json({
+      openapi: "3.1.0",
+      components: { schemas: { Proposal: { type: "object" } }, requestBodies: { Proposal: { content: { "application/json": { schema: { $ref: "#/components/schemas/Proposal" } } } } } },
+      paths: { "/orders": { post: { operationId: "proposeOrder", requestBody: { $ref: "#/components/requestBodies/Proposal" } } } }
+    });
+    const client = { host: { fetcher } } as unknown as PoppyClient;
+    const document = await openApi(client, { type: "openapi", url: `https://api.${crypto.randomUUID()}.example/openapi.json`, description: "" });
+    expect(() => validateJsonObjectBody(document.operations[0]!, '{"product":"prints"}')).toThrow("pass body as an object");
+  });
+
+  it("preserves strings accepted by the schema instead of automatically parsing them", () => {
+    const op = { operationId: "example", method: "POST", path: "/example", summary: "", parameters: [], acceptsIdempotencyKey: false, proposes: false, scopes: [], outsidePoppy: false };
+    const schemas: Json[] = [{ type: "string" }, { type: ["object", "string"] }, { anyOf: [{ type: "object" }, { type: "string" }] }, {}];
+    for (const schema of schemas) {
+      expect(() => validateJsonObjectBody({ ...op, jsonBodySchema: schema }, '{"message":"hello"}')).not.toThrow();
+    }
+    expect(() => validateJsonObjectBody({ ...op, jsonBodySchema: { type: "object" } }, { message: "hello" })).not.toThrow();
+  });
 
   it("asks the User on its own card before a write at a Company with operations whose description doesn't say it proposes", async () => {
     const c = await company({ documentsProposals: false });

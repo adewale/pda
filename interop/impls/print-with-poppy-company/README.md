@@ -7,6 +7,8 @@
 - **Ports:** the store on 8080 (behind the proxy as `print-with-poppy.company.interop.test`), the adapter on 8081.
 - **Image:** two stages on `node:22-bookworm-slim` (upstream's `engines` says Node 22). The build stage has git and a compiler, as upstream's own image does, in case a native module has no prebuilt binary; the run stage has only `server/`, `src/offer.ts` and the production `node_modules`. The browser frontend isn't built: no Poppy endpoint serves it, so `/` answers upstream's 503 "run npm run build" page.
 
+**Demo boundary:** this no-charge environment is the container running `APP_MODE=demo`, not the public `printwithpoppy.com` store. The public `/demo` page is a scripted visual walkthrough, not an API test environment. Check `/api/config` for the mode before testing; never assume the production domain simulates payment. The OU result below covers upload through checkout preparation, not simulated payment and shipment.
+
 ## Run
 
 ```sh

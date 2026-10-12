@@ -258,7 +258,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             operation: Type.String(),
             api: Type.Optional(Type.String()),
             params: Type.Optional(Type.Record(Type.String(), Type.Union([Type.String(), Type.Number(), Type.Boolean()]))),
-            body: Type.Optional(Type.Unknown()),
+            body: Type.Optional(Type.Unknown({ description: "The structured JSON request body matching the operation schema. Pass objects as objects, not JSON-encoded strings; the transport serializes once. Use a string only when the API schema accepts a string." })),
             files: Type.Optional(
               Type.Record(Type.String(), Type.String(), {
                 description: "For an upload: each file field's attachment id (att_…) from the User's message, such as { \"photo\": \"att_…\" }"
