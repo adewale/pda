@@ -102,6 +102,18 @@ describe("own keys: the key never leaves the agent", () => {
     expect(await malformed.text()).toContain("start with sk-ant-");
   });
 
+  it("quotes the vendor's own reason when it answers a key check with something other than a refusal, with the key redacted", async () => {
+    const identity = someone("nokey.example");
+    const key = "sk-ant-test-broke-0123456789abcdef";
+    const answer = await saveKey(identity, "anthropic", key);
+    expect(answer.status).toBe(400);
+    const body = await answer.text();
+    expect(body).toContain("Anthropic answered 400 (invalid_request_error: Your credit balance is too low to access the Anthropic API (key [key]).); the key wasn't saved.");
+    expect(body).not.toContain("Try again");
+    expect(body).not.toContain("sk-ant-test-broke");
+    expect((await entitlement(identity)).key).toBeNull();
+  });
+
   it("fake vendors: `bad` and `revoked` are whole key segments, so a random key never spells them by chance", () => {
     // A random UUID suffix contains `bad` in about 0.7% of keys; such a key is an ordinary one.
     expect(keyState("sk-ant-test-good-3fbad1e2-revoked7", "sk-ant-test-")).toBe("ok");
