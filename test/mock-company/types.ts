@@ -174,6 +174,12 @@ export type MockConfig = {
    */
   readonly printShop: boolean;
   /**
+   * The print shop's upload and order list the transport's own headers as
+   * required header parameters, `DPoP` and `Authorization`, as
+   * print-with-poppy's description did from c147418 to cecb32f.
+   */
+  readonly printShopListsTransportHeaders: boolean;
+  /**
    * The OpenAPI description declares its security: a DPoP scheme, and each
    * operation's requirement. Off, it declares none, as older or minimal
    * descriptions don't (Datalayer's, pi-poppy's), and every operation is
@@ -289,6 +295,7 @@ export const DEFAULT_CONFIG: MockConfig = {
   metadataCacheHeaders: null,
   eventPageSize: 20,
   printShop: false,
+  printShopListsTransportHeaders: false,
   describesSecurity: true,
   documentsProposals: true,
   exchangeTakesIdempotencyKey: true,

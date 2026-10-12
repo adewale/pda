@@ -40,7 +40,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 | poppy-demo caller | A demo caller Worker | TypeScript, none declared | Yes | [irvinebroque/poppy-demo](https://github.com/irvinebroque/poppy-demo) | 12 Oct (no commits since 9 Oct) |
 | everruns `poppy_client` | A capability of a production agent platform; since [#4577](https://github.com/everruns/everruns/pull/4577) (11 Oct) also for apps built on its framework. Still no sign-in. | Rust, MIT | Yes, pinned at `f470ad7` (12 Oct; first run that day) | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct |
 | Atlas (introspection-js-sdk) | A scripted demo agent in an open pull request | TypeScript, Apache-2.0 | No | [PR #441](https://github.com/introspection-org/introspection-js-sdk/pull/441) | 12 Oct (still open) |
-| print-with-poppy's `scripts/agent.ts` | A reference client for that store, demo identity only | TypeScript, none declared | No | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 12 Oct |
+| print-with-poppy's `scripts/agent.ts` | A reference client for that store, demo identity only | TypeScript, MIT (since 12 Oct) | No | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 12 Oct |
 
 ## Companies and Company SDKs
 
@@ -55,7 +55,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 | Ilmer.org | A local-history archive assistant, signed-out only | TypeScript, MIT | Yes | [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org) | 12 Oct |
 | everruns `poppy` channel | Hosts a Company's Poppy endpoints, signed-out only | Rust, MIT | Yes, pinned at `f470ad7` (12 Oct; first run that day) | [everruns/everruns](https://github.com/everruns/everruns) | 12 Oct |
 | Spot | A cart-approval and payment service | JavaScript, none declared | No | [futurebasicsrepo/…-client-hub-api](https://github.com/futurebasicsrepo/futurebasicsrepo-client-hub-api) | 12 Oct (active) |
-| print-with-poppy | An agent-first photo-printing store: signed-out Sessions, OpenAPI, Operations v1 required for orders; agents on an allowlist | TypeScript (Express, SQLite), none declared | Yes: D and S0, and OU with dpa only; patched ([`interop/impls/print-with-poppy-company`](../interop/impls/print-with-poppy-company)) | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 12 Oct |
+| print-with-poppy | An agent-first photo-printing store: signed-out Sessions, OpenAPI, Operations v1 required for orders; agents on an allowlist. Since 12 Oct (`260dbb4`) optional accounts: Direct and Mediated Sign-In by an emailed code, `poppy:read` for order history, `poppy:write` to order into the account | TypeScript (Express, SQLite), MIT (since 12 Oct) | Yes, pinned at `260dbb4` (12 Oct; was `7ef69be`), unpatched: D, S0, CM, SD, SX, SMC, SO, AO, AS, R, and OU with dpa only ([`interop/impls/print-with-poppy-company`](../interop/impls/print-with-poppy-company)) | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 12 Oct |
 | Flight Sector (introspection-js-sdk) | The demo Company in PR #441 | TypeScript, Apache-2.0 | No | [PR #441](https://github.com/introspection-org/introspection-js-sdk/pull/441) | 12 Oct |
 | TYPO3 lab | A signed-out "knowledge profile" in a private extension | PHP, private | README only | [dirnbauer/webconsulting-typo3-lab](https://github.com/dirnbauer/webconsulting-typo3-lab) | 12 Oct |
 | Fillthemat (planned) | A growth platform for martial-arts schools planning to make each School a Company: one issuer per School with a path (`https://auth.fillthemat.com/schools/<id>`), metadata by RFC 8414 insertion, signed-out Sessions first. Draft PR; nothing served from merged code | TypeScript, MIT | No | [fillthemat/fillthemat PR #200](https://github.com/fillthemat/fillthemat/pull/200) | 12 Oct |
@@ -92,7 +92,7 @@ None is a large business. We list what is public; we don't probe these hosts, an
 | TYPO3 lab `/poppy/demo` | A protocol playground | Behind a login | Its repository | 11 Oct |
 | flowers.papsandbox.com | "Northlight Flowers"; the name suggests a sandbox | Unknown | [PAP Checker's directory](https://papchecker.com/sites): 0 problems, first seen 11 Oct | Not fetched |
 | tilopay.shop, tilopay.tilopay.shop | Organisation "Tilopay"; whether it is the payment company's production site is unknown | Unknown | PAP Checker's directory: 1 problem each, first seen 12 Oct | Not fetched |
-| print-with-poppy.vercel.app | print-with-poppy's hosted example, in demo mode (payments and prints simulated) | Signed-out; agents on an allowlist, plus a non-Poppy "compatibility" mode | Its README | Not fetched |
+| [printwithpoppy.com](https://printwithpoppy.com) | Print with Poppy, the store above, live: real payments (Stripe Checkout) and prints (Prodigi) whenever `/api/catalog` says `mode: live`. Its hosted example was print-with-poppy.vercel.app, in demo mode | Guest Sessions for agents on an allowlist (ours is on it); accounts since 12 Oct. A non-Poppy "compatibility" path, documented apart from the Poppy description since 12 Oct | The owner's deployed agent, 12 Oct: discovery, a Session, the catalogue, and an upload's approval card ([poppy-issues.md](poppy-issues.md#print-with-poppy-spenciefyprint-with-poppy)) | 12 Oct |
 
 Ora's poppy.ax had seen only poppy-receiver.roundtrip.workers.dev on 10 October (its `fixtures/sites.json`). PAP Checker says it has checked 16 domains.
 
@@ -141,7 +141,7 @@ Each implementation's cells, as pass / fail / unsupported, summed over the grid'
 | Datalayer TS / Python | 107 / 9 / 64 each | 92% of 116 | Its renewal requires `session_id`; its cancel sends `result.data: null` ([N41](spec-issues.md#n41)); poppy-demo's hard-coded scopes. |
 | adonis-agora AuthKit | 107 / 14 / 59 | 88% of 121 | The agents': poppy-demo's issuer-origin rule, pi-poppy's nonce retry. |
 | dpa-mock (lenient reference) | 127 / 22 / 31 | 85% of 149 | The agents': nonce retries, Datalayer's SVN polling, CS stream and handoff and close answers, poppy-demo's issuer rule. |
-| print-with-poppy | 16 / 3 / 161 | 84% of 19 | poppy-demo's crash on its missing `authorization_endpoint`. Signed-out only, so most scenarios don't apply. OU, run apart with dpa only, passes. |
+| print-with-poppy | 45 / 8 / 127 | 85% of 53 | Its column rerun at `260dbb4` (12 Oct), which added sign-in; the agents' rows above are still from the full grid at `7ef69be`. poppy-demo's crash on its missing `agent` member (7 cells), and adonis-agora's revocation `aud` ([S1](spec-issues.md#s1)), which the store answers with 500, not `invalid_client` (SO). No conversations, so most scenarios don't apply. OU, which only dpa claims, passes. everruns: D passes, 29 unsupported. |
 | poppy-demo Northstar | 48 / 22 / 110 | 69% of 70 | It refuses assertions without `typ` (S2 `jwt-60s`); poppy-demo's own agent passes there. |
 | Ilmer | 17 / 12 / 151 | 59% of 29 | It refuses assertions without `typ` (S2), and poppy-demo's crash. Signed-out only. |
 | dpa-mock-strict | 81 / 68 / 31 | 54% of 149 | It refuses assertions without `typ`, our strict reading of S2, so pi-poppy and adonis-agora fail almost every cell. |
@@ -190,14 +190,14 @@ flowchart LR
   dlpy --> mts & mpy & north & seed & ilmer & pwp & authkit
   pi --> pwp
   demo --> pico & north
-  adonis --> mock & pwp & authkit
+  adonis --> mock & authkit
   evag --> mts & mpy & pico & seed & pwp & authkit & evco
   dpa & dlts & dlpy & pi & adonis --> evco
 ```
 
 The everruns edges come from its own runs. At print-with-poppy only D ran (everruns starts a Session only for a conversation); at dpa-mock everything but DP passed.
 
-pi-poppy's only clean pair is print-with-poppy, where just two signed-out scenarios run. At every other Company one of three habits fails a cell: it resends the Session assertion on a nonce retry, gives up when a Session ends, and sends no `typ`.
+pi-poppy's only clean pair is print-with-poppy, where nine scenarios run (sign-in among them since the store's `260dbb4`; the print-with-poppy edges are from that rerun). At every other Company one of three habits fails a cell: it resends the Session assertion on a nonce retry, gives up when a Session ends, and sends no `typ`.
 
 What the grid found in each project is in [poppy-issues.md](poppy-issues.md); the failures by rule are in [interop-results/](interop-results/README.md).
 
@@ -217,7 +217,7 @@ Where the draft is ambiguous, implementations already disagree. The questions ar
 | poppyseed | endpoint called | any | either | ignores |
 | Ilmer | token endpoint | `typ: JWT`, `kid`, 60 s | either | omits |
 | everruns agent / Company | token endpoint / token endpoint or issuer | Session assertion without `typ` / any, 300 s | append / either | omits / `invalid_scope` |
-| print-with-poppy | endpoint called (token and revocation) | any `typ` except the browser one, 120 s | n/a (issuer is the origin) | ignores |
+| print-with-poppy | endpoint called (token and revocation) | any `typ` except the browser one, 120 s | n/a (issuer is the origin) | `invalid_scope` (since `260dbb4`; it ignored it before) |
 | Fillthemat (planned) | this School's token endpoint, exactly | not stated | insertion (path issuers) | not stated |
 | nestjs-agent | token endpoint (as adonis-agora) | no `typ`, `kid`, 60 s | insertion | omits |
 

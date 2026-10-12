@@ -148,6 +148,16 @@ export function outsidePoppySession(dpop: ReadonlySet<string>, method: string, s
 
 type OpenApiDocument = { readonly base: string; readonly operations: readonly OpenApiOperation[] };
 
+/**
+ * Header parameters the client sets itself, never the model. OpenAPI 3.x
+ * says an `Accept`, `Content-Type` or `Authorization` header parameter
+ * "SHALL be ignored"; `DPoP` is the Session's proof (RFC 9449), made fresh
+ * for each request. A description that lists one, even as required (as
+ * print-with-poppy's did from c147418 to cecb32f), describes the transport,
+ * not an argument: kept, a required one would refuse every call.
+ */
+const TRANSPORT_HEADERS = /^(accept|content-type|authorization|dpop)$/i;
+
 const documents = new Map<string, { document: OpenApiDocument; expiresAt: number }>();
 
 function resolveRef(root: Json, value: Json, depth = 0): Json {
@@ -299,7 +309,9 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
           method: method.toUpperCase(),
           path,
           summary: [op.summary, op.description].filter((text) => typeof text === "string").join(" — "),
-          parameters: parameters.filter((parameter) => !(parameter.in === "header" && /^idempotency-key$/i.test(parameter.name))),
+          parameters: parameters.filter(
+            (parameter) => !(parameter.in === "header" && (/^idempotency-key$/i.test(parameter.name) || TRANSPORT_HEADERS.test(parameter.name)))
+          ),
           // Written out, so poppy_api_describe shows the fields to send, not a bare $ref.
           ...(requestBody !== undefined ? { requestBody: inlineRefs(json, requestBody) } : {}),
           ...(upload ? { upload } : {}),

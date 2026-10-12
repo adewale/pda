@@ -30,7 +30,34 @@ Pass / fail / unsupported, by agent (rows) and Company (columns), over 30 scenar
 | **poppy-demo** | 0 / 12 / 18 | 0 / 12 / 18 | 5 / 5 / 20 | 5 / 5 / 20 | 10 / 0 / 20 | 10 / 0 / 20 | 9 / 1 / 20 | 0 / 4 / 26 | 0 / 3 / 27 | 0 / 12 / 18 |
 | **adonis-agora** | 24 / 0 / 6 | 1 / 23 / 6 | 18 / 1 / 11 | 18 / 1 / 11 | 17 / 3 / 10 | 1 / 11 / 18 | 18 / 3 / 9 | 1 / 4 / 25 | 3 / 0 / 27 | 22 / 0 / 8 |
 
-Each implementation's totals and what its failures are: [the ecosystem scorecard](../ecosystem.md#scorecard). The sections below are the day's earlier runs, kept for their per-rule detail.
+Each implementation's totals and what its failures are: [the ecosystem scorecard](../ecosystem.md#scorecard). The sections below are the print-with-poppy column rerun at its new pin, then the day's earlier runs, kept for their per-rule detail.
+
+## print-with-poppy at `260dbb4`, 12 October
+
+The store's pin moved from `7ef69be` to `260dbb4` that evening, 26 commits later: it now has accounts (Direct and Mediated Sign-In by an emailed code), and the adapter claims seven sign-in scenarios besides D, S0, CM and OU ([adapter README](../../interop/impls/print-with-poppy-company/README.md)). Its column was rerun on its own, at `2026-10-12T22:03:59Z` on the local lane, every image rebuilt, with the seven honest agents (everruns included) and the 30 scenarios of the run above:
+
+```sh
+npm run interop -- --agents dpa,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora,everruns \
+  --companies print-with-poppy \
+  --scenarios AM,AO,AS,C,CA,CI,CM,CS,D,DC,DP,H,N,O,O2,OU,OX,R,RL,S0,SD,SE,SM,SMC,SO,SV,SVN,SX,SXV,W
+```
+
+**210 cells: 46 pass, 8 fail, 156 unsupported, 0 errors.** Egress probe `ENETUNREACH`, `ENETUNREACH`, `EAI_AGAIN`. No flaky cell, no stale entry, every failure known; the run exits 0. Checks: no failures, no warnings, 35 tentative (S2 `typ` notes for pi-poppy's and adonis-agora's assertions, which the store accepts).
+
+| Agent | Pass | Fail | Unsupported |
+| --- | --- | --- | --- |
+| dpa | 10: D, S0, CM, SD, SX, SMC, SO, AO, AS, OU | 0 | 20 |
+| datalayer-ts, datalayer-py, pi-poppy | 9 each: D, S0, CM, SD, SX, SMC, SO, AO, AS | 0 | 21 each |
+| adonis-agora | 8: D, S0, CM, SD, SX, SMC, AO, AS | 1: SO | 21 |
+| poppy-demo | 0 | 7: D, S0, CM, SD, SX, SO, AO | 23 |
+| everruns | 1: D | 0 | 29 |
+
+- **poppy-demo, 7 cells (known).** Its caller reads `d.agent.protocols` for every Company; the store has no conversations, so no `agent` member. It used to trip on the missing `authorization_endpoint` first; the store has one now.
+- **adonis-agora, SO (known, new).** Its revocation request's client assertion names the token endpoint ([S1](../spec-issues.md#s1)); the store wants `/oauth/revoke`, as poppyseed and pi-poppy do. Where they answer `invalid_client`, the store answers 500 `internal_error`: its revoke route doesn't catch the assertion error ([poppy-issues.md](../poppy-issues.md#print-with-poppy-spenciefyprint-with-poppy)).
+- **R, 5 cells unsupported.** Every agent renewed through two expiries and read the account, but the store doesn't rotate Account Tokens, so `refresh_rotated` has nothing to judge.
+- **SM unsupported.** The store's Mediated Sign-In always sends a code, so it claims SMC, which all five agents that claim it pass, and not SM.
+
+Against its column in the run above (6 agents: 16 pass, 3 fail, 161 unsupported, at `7ef69be`), the same six agents now have 45 pass, 8 fail, 127 unsupported: the 29 new passes are the sign-in scenarios, and the five new failures are poppy-demo's crash in four of them and adonis-agora's SO. OU still passes for dpa, now that our client refuses a write the description leaves outside the Poppy Session, and no other agent claims it.
 
 ## Earlier runs
 

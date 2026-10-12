@@ -138,9 +138,9 @@
       "name": "print-with-poppy",
       "role": "company",
       "source": "https://github.com/spenciefy/print-with-poppy",
-      "commit": "7ef69bef9ca9e485386b28a679c532ed7cbee739",
+      "commit": "260dbb4634f5dc0026d790715304be9b78783ff2",
       "build": "interop/impls/print-with-poppy-company",
-      "notes": "Agent-first photo-print store in APP_MODE=demo (payments, prints and email simulated); signed-out only, OpenAPI and Operations v1; the grid's agents on its AGENT_CLIENT_IDS allowlist. Patch: ALLOW_COMPAT_AGENT_SESSIONS=false turns its non-Poppy Bearer path off in demo mode. No licence declared."
+      "notes": "Agent-first photo-print store in APP_MODE=demo (payments, prints and email simulated); guest Sessions, OpenAPI and Operations v1, and accounts by an emailed code (Direct and Mediated Sign-In; the adapter reads the code demo mode stores); the grid's agents on its AGENT_CLIENT_IDS allowlist. Unpatched; ALLOW_COMPAT_AGENT_SESSIONS=false turns its non-Poppy Bearer path off. MIT."
     },
     {
       "name": "adonis-agora",
