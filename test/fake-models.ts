@@ -105,7 +105,15 @@ export async function fakeModels(request: Request): Promise<Response | null> {
   }
   if (vendor === "anthropic") {
     if (url.pathname === "/v1/models" && request.method === "GET") {
-      return keyState(request.headers.get("x-api-key"), "sk-ant-test-") === "refused"
+      const key = request.headers.get("x-api-key") ?? "";
+      // `broke`: an account Anthropic won't serve, answering 400 with its reason (and the key, to test redaction).
+      if (key.split("-").includes("broke")) {
+        return Response.json(
+          { type: "error", error: { type: "invalid_request_error", message: `Your credit balance is too low to access the Anthropic API (key ${key}).` } },
+          { status: 400 }
+        );
+      }
+      return keyState(key, "sk-ant-test-") === "refused"
         ? UNAUTHORIZED_ANTHROPIC()
         : Response.json({ data: [{ id: "claude-sonnet-5-5", type: "model" }], has_more: false });
     }

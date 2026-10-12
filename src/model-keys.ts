@@ -194,7 +194,41 @@ export function keyCheckRequest(provider: KeyProvider, key: string): Request {
 
 export type KeyCheck = { ok: true } | { ok: false; status: 400 | 502; error: string };
 
-/** Ask the provider whether the key works. The answer's body is never read into a message. */
+/** Longest provider reason shown with a failed key check. */
+const REASON_MAX_CHARS = 200;
+
+/**
+ * The provider's own reason for refusing a request, from its error JSON
+ * (`{ error: { type, message } }`, both Anthropic's and OpenAI's shape), read
+ * from at most 4 KB, with anything key-like redacted. Null when there is none.
+ */
+async function providerReason(response: Response, key: string): Promise<string | null> {
+  try {
+    const reader = response.body?.getReader();
+    if (!reader) return null;
+    let text = "";
+    const decoder = new TextDecoder();
+    while (text.length < 4096) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+    }
+    await reader.cancel();
+    const error = (JSON.parse(text) as { error?: { type?: unknown; message?: unknown } }).error;
+    const message = typeof error?.message === "string" ? error.message : "";
+    const type = typeof error?.type === "string" ? error.type : "";
+    const reason = redactKeys([type, message].filter(Boolean).join(": "), key).replace(/\s+/g, " ").trim();
+    return reason ? reason.slice(0, REASON_MAX_CHARS) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ask the provider whether the key works. A refusal of the key itself (401,
+ * 403) says only that; any other answer quotes the provider's reason
+ * (redacted), since it is usually about the account, such as its credit.
+ */
 export async function checkKey(
   provider: KeyProvider,
   key: string,
@@ -206,12 +240,19 @@ export async function checkKey(
   } catch {
     return { ok: false, status: 502, error: `Couldn't reach ${PROVIDER_LABEL[provider]} to check the key. Try again.` };
   }
-  await response.body?.cancel();
-  if (response.ok) return { ok: true };
+  if (response.ok) {
+    await response.body?.cancel();
+    return { ok: true };
+  }
   if (response.status === 401 || response.status === 403) {
+    await response.body?.cancel();
     return { ok: false, status: 400, error: `${PROVIDER_LABEL[provider]} refused that key.` };
   }
-  return { ok: false, status: 502, error: `${PROVIDER_LABEL[provider]} answered ${response.status}; the key wasn't saved. Try again.` };
+  const reason = await providerReason(response, key);
+  const said = `${PROVIDER_LABEL[provider]} answered ${response.status}${reason ? ` (${reason})` : ""}; the key wasn't saved.`;
+  // Throttling and the provider's own failures pass; another 4xx is its answer about this key or account.
+  const transient = response.status === 408 || response.status === 429 || response.status >= 500;
+  return transient ? { ok: false, status: 502, error: `${said} Try again.` } : { ok: false, status: 400, error: said };
 }
 
 /** `text` with the key, and anything shaped like a provider key, replaced. For error messages that reach the transcript. */

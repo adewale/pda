@@ -9,7 +9,7 @@ import type { Check } from "./types.ts";
 
 export const QUESTIONS = {
   S1: { question: "Client assertion aud", values: ["issuer", "token-endpoint", "endpoint", "either"] },
-  S2: { question: "Assertion typ and lifetime", values: ["jwt-60s", "lenient-300s", "any"] },
+  S2: { question: "Assertion typ and lifetime", values: ["jwt-60s", "lenient-120s", "lenient-300s", "any"] },
   S3: { question: "Metadata location for an issuer with a path", values: ["insertion", "append", "either"] },
   S4: { question: "scope on a signed-out Session request", values: ["omit", "poppy-read", "either"] },
   S23: { question: "DPoP nonce scope", values: ["per-origin", "per-company"] }
@@ -40,9 +40,10 @@ export function questionOf(checkId: string): QuestionId | undefined {
 /**
  * S2 readings from narrowest to widest. An agent's says what it sends; a
  * Company's what it accepts. `jwt-60s`: `typ: "JWT"` and at most 60 s.
- * `lenient-300s`: any `typ`, at most 300 s. `any`: no limit stated.
+ * `lenient-120s`: any `typ`, at most 120 s. `lenient-300s`: any `typ`, at
+ * most 300 s. `any`: no limit stated.
  */
-const S2_ORDER = ["jwt-60s", "lenient-300s", "any"] as const;
+const S2_ORDER = ["jwt-60s", "lenient-120s", "lenient-300s", "any"] as const;
 
 /**
  * Can an agent with one reading work with a Company with another? An agent
@@ -54,8 +55,9 @@ export function compatible(question: string, agent: string | undefined, company:
   switch (question) {
     case "S2": {
       // A Company accepts every agent reading at least as narrow as its own:
-      // `jwt-60s` only `jwt-60s`; `lenient-300s` also `lenient-300s`, but not
-      // `any`, which may live past 300 s; `any` everything.
+      // `jwt-60s` only `jwt-60s`; `lenient-120s` also itself; `lenient-300s`
+      // also both lenient readings, but not `any`, which may live past 300 s;
+      // `any` everything.
       const sent = S2_ORDER.indexOf(agent as (typeof S2_ORDER)[number]);
       const accepted = S2_ORDER.indexOf(company as (typeof S2_ORDER)[number]);
       return sent < 0 || accepted < 0 || sent <= accepted;
@@ -103,14 +105,16 @@ function wantedAud(reading: string, endpoint: AssertionEndpoint, called: string)
 /**
  * What an S2 reading refuses in an assertion; null when it is accepted, or
  * the reading sets no limit. `jwt-60s`: no `typ: "JWT"`, or a lifetime over
- * 60 s. `lenient-300s`: a lifetime over 300 s.
+ * 60 s. `lenient-120s`: a lifetime over 120 s. `lenient-300s`: a lifetime
+ * over 300 s.
  */
 function assertionFault(reading: string | undefined, jwt: DecodedJwt): string | null {
   const lifetime = Number(jwt.payload.exp) - Number(jwt.payload.iat);
   if (reading === "jwt-60s") {
     return jwt.header.typ !== "JWT" || !(lifetime <= 60) ? `typ ${JSON.stringify(jwt.header.typ)} and a ${lifetime} s lifetime` : null;
   }
-  if (reading === "lenient-300s") return !(lifetime <= 300) ? `a ${lifetime} s lifetime` : null;
+  const limit = reading === "lenient-120s" ? 120 : reading === "lenient-300s" ? 300 : null;
+  if (limit !== null) return !(lifetime <= limit) ? `a ${lifetime} s lifetime` : null;
   return null;
 }
 
@@ -167,7 +171,7 @@ export const REFUSED_READING = /^reading\.(S\d+)\.refused$/;
  * assertion the Company's reading doesn't accept: a client assertion `aud`
  * other than the one its S1 reading wants at that endpoint, or, for S2
  * `jwt-60s`, an assertion without `typ: "JWT"` or living over 60 s, and
- * for `lenient-300s`, one living over 300 s.
+ * for `lenient-120s` and `lenient-300s`, one living over 120 or 300 s.
  * Attribution reads them as evidence that the cell failed on that question
  * (rule 3). They are warnings and judge neither side.
  */

@@ -108,6 +108,13 @@
     },
     {
       "agent": "poppy-demo",
+      "company": "print-with-poppy",
+      "scenario": "*",
+      "issue": "https://github.com/irvinebroque/poppy-demo/blob/02a9b304e92fdfee465c57f2822742eecac8bdc8/workers/caller/src/session.ts#L178",
+      "reason": "As at Ilmer: print-with-poppy is signed-out only with no conversations, so its OAuth metadata has no authorization_endpoint and its poppy.json no agent member (both optional; the validator passes it). poppy-demo's discovery checks m.authorization_endpoint and d.agent.protocols for every Company and throws (action_failed) before any request after the metadata."
+    },
+    {
+      "agent": "poppy-demo",
       "company": "poppyseed",
       "scenario": "SO",
       "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",

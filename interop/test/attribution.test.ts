@@ -380,6 +380,37 @@ describe("reading compatibility", () => {
     expect(attribute(target, [target], { readings: declared("jwt-60s"), scenarios })).toMatchObject({ blame: "agent", rule: "warning" });
   });
 
+  it("S2 lenient-120s (print-with-poppy, Datalayer 0.10.0): between jwt-60s and lenient-300s", () => {
+    expect(QUESTIONS.S2.values).toEqual(["jwt-60s", "lenient-120s", "lenient-300s", "any"]);
+    // As a Company: accepts jwt-60s and itself, not the wider readings.
+    expect(compatible("S2", "jwt-60s", "lenient-120s")).toBe(true);
+    expect(compatible("S2", "lenient-120s", "lenient-120s")).toBe(true);
+    expect(compatible("S2", "lenient-300s", "lenient-120s")).toBe(false);
+    expect(compatible("S2", "any", "lenient-120s")).toBe(false);
+    // As an agent: accepted by lenient-300s and any, not by jwt-60s.
+    expect(compatible("S2", "lenient-120s", "lenient-300s")).toBe(true);
+    expect(compatible("S2", "lenient-120s", "any")).toBe(true);
+    expect(compatible("S2", "lenient-120s", "jwt-60s")).toBe(false);
+
+    const token = "https://auth.x.company.interop.test/token";
+    const assertion = (lifetime: number) => jwt({ alg: "ES256", kid: "k" }, { iss: "c", sub: "c", aud: token, iat: NOW, exp: NOW + lifetime, jti: `j${lifetime}` });
+    const grant = (lifetime: number) => ({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", client_assertion: assertion(lifetime) });
+    const trace = recording(
+      { url: "https://auth.x.company.interop.test/.well-known/oauth-authorization-server", response: { issuer: "https://auth.x.company.interop.test", token_endpoint: token } },
+      // 120 s and no typ: lenient-120s accepts it.
+      { url: token, form: grant(120), status: 401, response: { error: "invalid_client" } },
+      // 121 s: lenient-120s refuses it, lenient-300s doesn't.
+      { url: token, form: grant(121), status: 401, response: { error: "invalid_client" } },
+      // 301 s: refused by both.
+      { url: token, form: grant(301), status: 401, response: { error: "invalid_client" } }
+    );
+    const refusedAt = (s2: string) => refusedReadingChecks(trace, { S2: s2 }).map((check) => check.exchange);
+    expect(refusedAt("lenient-120s")).toEqual([2, 3]);
+    expect(refusedAt("lenient-300s")).toEqual([3]);
+    const sentBeyond = (s2: string) => readingChecks(trace, { S2: s2 }).filter((check) => check.id === "reading.S2").map((check) => check.exchange);
+    expect(sentBeyond("lenient-120s")).toEqual([2, 3]);
+  });
+
   it("dpa-mock declares the S2 reading the mock enforces: lenient-300s, at the mock's 300 s, or jwt-60s when strict", () => {
     const root = path.join(import.meta.dirname, "../..");
     const adapter = readFileSync(path.join(root, "interop/impls/dpa-mock/adapter.ts"), "utf8");
