@@ -19,7 +19,7 @@ const MANIFEST = {
   commit: process.env.INTEROP_COMMIT,
   poppy: ['0.1'],
   extensions: [],
-  scenarios: ['D', 'S0', 'SD', 'SX', 'SO', 'C', 'CI', 'CA', 'AO', 'AS'],
+  scenarios: ['D', 'S0', 'SD', 'SX', 'SO', 'C', 'CI', 'CA', 'AO', 'AS', 'DC', 'CM'],
   readings: { S1: 'endpoint', S2: 'jwt-60s', S4: 'omit' },
   relaxations: [
     'INTEROP_PEER_SUFFIX=.agent.interop.test (patch 0001): admits any HTTPS client_id under *.agent.interop.test besides the sibling agent, fetched over the network rather than the CALLER service binding; its jwks_uri must share the client_id origin. Off (unset) by default.',

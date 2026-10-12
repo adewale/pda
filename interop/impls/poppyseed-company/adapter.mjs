@@ -30,7 +30,7 @@ const MANIFEST = {
   // Not N, R or RL: poppyseed has no DPoP nonces, no way to expire issued tokens and no
   // way to make the next requests answer 429, so require_nonce, expire_tokens and
   // rate_limit answer 501.
-  scenarios: ['D', 'S0', 'SD', 'SV', 'SX', 'SXV', 'SM', 'SMC', 'SE', 'SO', 'C', 'CA', 'CI', 'CS', 'AO', 'AM', 'AS', 'O', 'OX'],
+  scenarios: ['D', 'S0', 'SD', 'SV', 'SX', 'SXV', 'SM', 'SMC', 'SE', 'SO', 'C', 'CA', 'CI', 'CS', 'AO', 'AM', 'AS', 'O', 'OX', 'H', 'DC', 'W', 'O2', 'CM'],
   readings: {
     // Each client assertion's aud is the endpoint it is sent to (token, revocation or device authorization).
     S1: 'endpoint',

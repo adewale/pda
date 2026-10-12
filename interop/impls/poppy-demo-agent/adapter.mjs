@@ -25,7 +25,7 @@ const MANIFEST = {
   commit: process.env.INTEROP_COMMIT,
   poppy: ['0.1'],
   extensions: [],
-  scenarios: ['D', 'S0', 'N', 'SD', 'SX', 'SO', 'C', 'CA', 'AO'],
+  scenarios: ['D', 'S0', 'N', 'SD', 'SX', 'SO', 'C', 'CA', 'AO', 'H', 'DC', 'CM'],
   // S1: client assertions name the endpoint they're sent to (token or revocation endpoint).
   // S3: OAuth metadata is fetched at `${auth.issuer}/.well-known/oauth-authorization-server`.
   // S4: signed-out Session requests carry no scope. Nonces are not cached (S23 n/a).
@@ -134,7 +134,7 @@ async function ready_to_talk() {
 }
 const conversation = (s, id) => (s.conversations ?? []).find(c => c.id === id);
 const messagesOf = events => events.filter(e => e.type === 'message' && e.message)
-  .map(e => ({ role: e.message.role ?? e.message.sender, text: e.message.text ?? '', id: e.message.id }));
+  .map(e => ({ role: e.message.role ?? e.message.sender, sender: e.message.sender ?? null, text: e.message.text ?? '', id: e.message.id }));
 
 // --- ops ----------------------------------------------------------------------------------------
 const unsupported = why => { throw new AdapterError(501, 'unsupported', why); };
@@ -180,16 +180,20 @@ const ops = {
     await ready_to_talk();
     // Without a conversation the caller continues its active one; its "New session" button
     // (/api/pi/new) clears that, so the next message starts a new conversation.
-    if (!p.conversation && (await state()).active_conversation) await newChat();
+    if (!p.conversation && !p.parent_conversation && (await state()).active_conversation) await newChat();
     const before = await state();
     const seen = p.conversation ? conversation(before, p.conversation)?.events.length ?? 0 : 0;
-    const s = await action('message', { text: p.text, sender: 'agent', ...(p.conversation ? { conversation: p.conversation } : {}) });
-    const c = conversation(s, p.conversation ?? s.active_conversation);
+    // `parent_conversation` starts a Direct Conversation with the caller's own `direct` action
+    // (7.10), which always sends the User's words as sender human; `message` takes `sender`.
+    const s = p.parent_conversation
+      ? await action('direct', { text: p.text, conversation: p.parent_conversation })
+      : await action('message', { text: p.text, sender: p.sender === 'human' ? 'human' : 'agent', ...(p.conversation ? { conversation: p.conversation } : {}) });
+    const c = conversation(s, p.parent_conversation ? s.active_conversation : p.conversation ?? s.active_conversation);
     const fresh = messagesOf((c?.events ?? []).slice(seen));
     const mine = fresh.find(m => m.text === p.text);
     return {
       conversation: c?.id, message_id: mine?.id ?? null, status: c?.status,
-      messages: fresh.filter(m => m !== mine).map(({ role, text }) => ({ role, text }))
+      messages: fresh.filter(m => m !== mine).map(({ role, sender, text }) => ({ role, sender, text }))
     };
   },
   async read(p) {
@@ -204,7 +208,19 @@ const ops = {
     const events = c?.events ?? [];
     const from = p.cursor ? events.findIndex(e => e.id === p.cursor) + 1 : 0;
     // The caller keeps the Company's cursor itself and never follows has_more.
-    return { messages: messagesOf(events.slice(from)).map(({ role, text }) => ({ role, text })), cursor: c?.cursor, has_more: false, status: c?.status };
+    return { messages: messagesOf(events.slice(from)).map(({ role, sender, text }) => ({ role, sender, text })), cursor: c?.cursor, has_more: false, status: c?.status };
+  },
+  // Handoff (7.9) and close (7.12): the caller's own `handoff` and `close` actions, which post
+  // `{}` and then read the conversation's events.
+  async handoff(p) {
+    const s = await action('handoff', { conversation: p.conversation });
+    const c = conversation(s, p.conversation);
+    return { status: c?.status, responder: c?.responder };
+  },
+  async close(p) {
+    const s = await action('close', { conversation: p.conversation });
+    const c = conversation(s, p.conversation);
+    return { status: c?.status, responder: c?.responder };
   },
   async api(p) {
     // The caller knows exactly one API operation, Northstar's GET /api/orders.

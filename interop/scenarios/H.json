@@ -1,0 +1,16 @@
+{
+  "id": "H",
+  "title": "Handoff to a person",
+  "requirements": ["7.7", "7.8", "7.9"],
+  "needs": { "agent": ["discover", "send", "handoff", "read"], "company": ["staff_join"] },
+  "steps": [
+    { "agent": "discover", "save": "d" },
+    { "expect": { "${d.conversations}": true } },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}", "wait": 2 }, "save": "m" },
+    { "agent": "handoff", "params": { "conversation": "${m.conversation}" }, "save": "h", "note": "The Company answers 202 with status and responder (7.9); company.handoff-response checks the wire." },
+    { "expect": { "${h.status}": { "$in": ["queued", "working", "idle"] }, "${h.responder}": { "$in": ["agent", "human"] } } },
+    { "company": "staff_join", "params": { "conversation": "${m.conversation}", "text": "Hello, this is Sam from customer service. How can I help?" } },
+    { "agent": "read", "params": { "conversation": "${m.conversation}", "wait": 2 }, "save": "r" },
+    { "expect": { "${r.messages}": { "$some": { "role": "company", "sender": "human" } } }, "note": "A person's message carries sender human (7.7)." }
+  ]
+}

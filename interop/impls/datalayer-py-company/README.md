@@ -55,7 +55,7 @@ Manzanita's scopes are `orders:read` and `orders:write`; the `fixture` hook name
 
 ## Scenarios
 
-Claimed: D, S0, SD, SV, SMC, SX, SXV, R, SE, SO, C, CI, CS, CA, AO, AS, O, OX. (The manifest used to list DC, W and O2 too; the harness has no such scenarios, so they're gone.) Not claimed:
+Claimed: D, S0, SD, SV, SMC, SX, SXV, R, SE, SO, C, CI, CS, CA, AO, AS, O, OX, and since 12 October DC, W, O2 and CM: Manzanita implements Direct Conversations and close (`service.py:1720-1768`, `1939-1964`), its browser-session endpoint (`_browser_session`, `2523-2589`), a repeated confirm that returns the operation unchanged (`2283-2285`), and fetches each agent's `client_id` and `jwks_uri` when a Session starts. Not claimed:
 
 - **SM:** Manzanita's one account always asks for a one-time code.
 - **AM:** every MCP tool needs a signed-in user.

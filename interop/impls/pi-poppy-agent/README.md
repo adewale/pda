@@ -29,6 +29,8 @@ Environment (set by the runner): `INTEROP_SECRET`, `INTEROP_NAME` (default `pi-p
 | `sse` | Partial: pi-poppy's `readEventStream` reads one burst, stopping at the first chunk that holds a complete frame, or after 300 ms; `wait` is ignored; `last_id` is the last event's id. The extension has no SSE tool, so `CS` is not claimed. |
 | `api` | `api` is a type (`openapi`, `mcp`; the first API of that type) or a URL. OpenAPI: `operation` is an `operationId` or `"METHOD /path"`; `args.params` fill the path template and the rest go in the query; `args.body` is the JSON body. The adapter reads the OpenAPI document (the model's job in pi); `callApi` sends only GET and POST. MCP: pi-poppy mints the Bearer token (`mcpBearer`); the adapter stands in for pi's built-in MCP client with `initialize`, `notifications/initialized` and `tools/call`, passing `args` as the tool's arguments. An HTTP error is the Company's `error` with its status. |
 | `web_join` | Yes (`joinBrowser`). |
+| `handoff`, `close` | Yes (`handoff`, `closeConversation`). `send` takes `parent_conversation` (`sendMessage`'s `parentId`, 7.10) and `sender`. |
+| `confirm_again` | Yes: `confirmOperation` again, after `readOperation`, as `approve_op` does; pi-poppy keeps no record of a confirm it sent. |
 | `approve_op` | `approve` confirms with a user approval built from the Company's name and summary; `decline` cancels (the extension's `poppy_operation_cancel`). |
 | `signout` | Yes (`revoke`). |
 | `state` | Yes, without tokens. |

@@ -100,9 +100,38 @@ Datalayer already applies it to Poppy: 124 shared JSON cases in `protocol/fixtur
 
 Hardening (SSRF, duplicate JSON members, redirects on `client_id`) stays in one-sided tests (the validator's fixtures and the mock's tamper rows), not pairs.
 
+### H, DC, W, O2 and CM (12 October)
+
+This table named these five before they were written, with a few words each, so each was derived from the draft section it targets ([interop-spec.md section 6](interop-spec.md#6-scenarios) has the steps):
+
+- **`H`** (7.7 to 7.9): a conversation, a handoff, the Company's `staff_join`, and a read showing a Company message with `sender: "human"`. A Company needs a way for a person to join; one whose handoff only says no one is available (poppy-demo, Ilmer) or that has no staff (Datalayer's Manzanita) doesn't claim it.
+- **`DC`** (7.3, 7.8, 7.10, 7.12): a Direct Conversation under a signed-out conversation, the User's own words in it, the parent refusing a message with `direct_conversation_open`, `close`, and the parent taking messages again.
+- **`W`** (5): a browser join for a signed-out Session, judged on the wire: `browser_joined` (a 303 with a cookie) and the browser checks of [section 8](interop-spec.md#8-checks).
+- **`O2`** (Ops 5.2, 6): `O`, then the same confirm again (`confirm_again`). The Company must return the operation as it is, with the same `confirmation`.
+- **`CM`** (4.1): a signed-out Session, then `client_fetched`: the Company fetched the agent's `client_id` and the key set holding the key that signed the assertion before granting the Session.
+
+New: agent ops `handoff`, `close` and `confirm_again`, and `send`'s `sender` and `parent_conversation`; the fixture's `web_page` (the runner's default is the Company's home page); three `assert_trace` predicates; and six Company checks with their bases (`company.browser-session-response`, `company.browser-cookie`, `company.handoff-response`, `company.direct-parent-open`, `company.confirm-repeated`, and the Guides warning `company.metadata-fetch-credentials`), plus the browser assertion checks under the mock's ids.
+
+Who claims them, from each project's code at its pinned commit:
+
+| | H | DC | W | O2 | CM |
+| --- | --- | --- | --- | --- | --- |
+| Agents | dpa, Datalayer TS and Python, pi-poppy, poppy-demo, adonis-agora | the same six | dpa, Datalayer TS and Python, pi-poppy, adonis-agora | dpa, Datalayer TS and Python, pi-poppy | all six |
+| Companies | both mocks, pi-poppy, poppyseed, adonis-agora | both mocks, both Datalayer, pi-poppy, poppy-demo, poppyseed, adonis-agora | both mocks, both Datalayer, pi-poppy, poppyseed, adonis-agora | both mocks, both Datalayer, pi-poppy, poppyseed | all ten |
+
+The run (`--image-tag tg1`, these five scenarios, the six agents above against the ten Companies, local lane): 163 pass, 34 fail, 103 unsupported, no errors, no flaky cell, every failure a known one, exit 0. By scenario: H 21 pass and 9 fail; DC 37 and 11; W 33 and 2; O2 23 and 1; CM 49 and 11. Every cell our agent ran passed (5 H, 8 DC, 7 W, 6 O2, 10 CM), and no new Company check failed anywhere: every Company that answered a handoff did so with 202, `status` and `responder`, every accepted join set a `Secure`, `HttpOnly` cookie that wasn't `SameSite=Strict`, every repeated confirm came back unchanged, and every Company fetched the agent's documents without credentials.
+
+What failed:
+
+- **Datalayer's clients and our mocks, H and DC (8 cells, new known failures).** Both SDKs refuse the answer to a handoff or a close unless it carries `conversation_id`; the draft has the Company return only `status` and `responder` (7.9, 7.12), which is what the mocks send ([poppy-issues.md](poppy-issues.md#datalayer-sdk-datalayerpersonal-agent-protocol)). Unattributed: they pass at every other Company, which adds `conversation_id`.
+- **Earlier known failures** (26 cells): S2 readings (pi-poppy and adonis-agora at the strict mock, poppy-demo and Ilmer), and poppy-demo's caller refusing the discovery documents of the mocks, adonis-agora, Ilmer and print-with-poppy. Their entries already span every scenario.
+- **Our browser, twice (fixed before the run above).** W found two bugs in `src/poppy/browser.ts`. It treated the whole origin of a Company's issuer as sign-in pages, so at a Company whose issuer is its website (Datalayer, pi-poppy, poppyseed, adonis-agora) it opened no page at all; now only the authorization, device and Mediated Sign-In endpoints are, and the issuer's host only when it isn't the website. And it called a join refused when the page it was redirected to answered 404 (Datalayer and pi-poppy have no home page); a join is refused only when the endpoint itself answers with an error.
+
+Of the W joins that passed, only our agent's browser follows the 303 with the Company's cookie; the other agents' adapters post the assertion and stop, as a page that submits itself leaves the rest to the browser. `browser_joined` reports this as `followed` and doesn't require it.
+
 ## Plan
 
-Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repository (never made; our exported vectors were removed because nothing consumed them), the Playwright consent scripts, nightly CI for the full grid, and scenarios H, DC, W, O2 and CM. Datalayer's 124 cases run against our code: on 12 October, at `0c048aa`, with the discovery cases judged by whether our client refuses the document (not by the validator's severity), 24 pass, 2 fail on readings the draft leaves open, and 98 don't apply.
+Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repository (never made; our exported vectors were removed because nothing consumed them), the Playwright consent scripts, and nightly CI for the full grid. Scenarios H, DC, W, O2 and CM were written on 12 October ([above](#h-dc-w-o2-and-cm-12-october)). Datalayer's 124 cases run against our code: on 12 October, at `0c048aa`, with the discovery cases judged by whether our client refuses the document (not by the validator's severity), 24 pass, 2 fail on readings the draft leaves open, and 98 don't apply.
 
 1. **Pirate vectors, no network.**
    - Export our validator fixtures and the mock's tamper rows as language-neutral JSON. (Done, then removed: nothing consumed them.)
@@ -119,7 +148,7 @@ Status on 11 October 2026: steps 1 to 4 are done except the shared vectors repos
    - Companies: pi-poppy's mock, poppyseed's app, Datalayer's Python Company.
    - Scenarios: SV, SM, R, SE, CS, H, DC, AO, AM, RL.
    - Invite implementers by registry pull request.
-5. **Live lane.** Public deployments (poppy.ilmer.org, withpoppyseed.dev), signed-out only and gently rate-limited. AdonisJS authkit and everruns come later; W needs real browsers.
+5. **Live lane.** Public deployments (poppy.ilmer.org, withpoppyseed.dev), signed-out only and gently rate-limited. AdonisJS authkit and everruns come later. W needs no real browser: the join is a form POST, which our agent's fetch-based browser makes.
 
 ## Candidates from the 12 October survey
 

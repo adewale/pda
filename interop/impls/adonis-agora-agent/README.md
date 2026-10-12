@@ -43,6 +43,7 @@ docker run --network <net> -e INTEROP_SECRET=<secret> -e INTEROP_ORIGIN=https://
 | `api` | `api` is the type. OpenAPI by `operationId`, or by `"METHOD /path"` for an operation without one (spec 5.2), through `callOpenApi`, which resolves the path against the description's `servers`: `args.params` fill path templates, then the query string, and `args.body` is the body. MCP by `tool`, through `connectMcp`. |
 | `web_join` | Yes. The adapter POSTs the library's browser assertion as a form, as its one-shot page makes a browser do. Joined means 3xx with a cookie. |
 | `signout`, `state` | Yes. `state` carries no token values. |
+| `handoff`, `close` | Yes: the library's `ConversationClient.handoff` and `.close`. `send` takes `parent_conversation` (7.10) and `sender`. |
 | `approve_op` | 501: the client doesn't implement the Operations extension. |
 
 `/reset` generates new keys (a new `kid`), new state, and restarts the identity server.

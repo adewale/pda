@@ -69,6 +69,8 @@ Checked by hand on a private network with a stand-in TLS proxy and a per-run CA,
 - The same `TestAgent` published at `https://seed-agent.agent.interop.test` through the proxy: discovery, signed-out Session, a conversation, and a retried message id returning the same conversation.
 - `poppyseed check` from inside the container, against `https://poppyseed.company.interop.test`, with poppyseed's own hooks: 98 checks passed, 0 failed, 1 skipped (`identity/private-agent-urls`, because loopback agents are allowed).
 
+Scenarios H, DC, W, O2 and CM (12 October) are claimed too: poppyseed has handoff with the reference's staff hooks, Direct Conversations and close (`conversations.ts:162-249`), a browser-session endpoint (`web.ts`), a confirm that returns an operation no longer proposed as it is (`operations.ts:167-175`), and fetches each agent's `client_id` and keys with `redirect: "manual"` and no credentials.
+
 ## What doesn't
 
 - No DPoP nonce challenges, so scenario `N` isn't claimed.

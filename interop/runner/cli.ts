@@ -27,7 +27,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { attributeAll, companyRecorded, levelCounts, staleKnown, unexpected, type RecordedViolation } from "./attribution.ts";
-import { runCell, toReply, type Driver, type Reply, type RunnerReply } from "./cell.ts";
+import { runCell, toReply, withWebPage, type Driver, type Reply, type RunnerReply } from "./cell.ts";
 import { makeCertificates } from "./certs.ts";
 import { traceChecks } from "./checks.ts";
 import { dockerFreeGb, labelArgs, lowDisk, removeRun } from "./cleanup.ts";
@@ -66,7 +66,7 @@ function harnessFile(name: string): Uint8Array | null {
 
 /** The order scenarios run and are shown in; others follow by id. */
 export const SCENARIO_ORDER = [
-  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "SE", "R", "AO", "AM", "AS", "O", "OX", "OU", "RL", "DP",
+  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "O2", "OX", "OU", "RL", "DP", "CM",
   // Adversarial (docs/adversarial-interop.md): network faults, then malicious agent and Company.
   "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "XH", "XI", "BX"
 ];
@@ -363,6 +363,7 @@ async function runOne(
     const answer = await control(company.target, "POST", "/hooks/fixture", {});
     if (answer.status === 200) fixture = answer.body;
   }
+  fixture = withWebPage(fixture, company.domain);
 
   const callbacks: string[] = [];
   const reply = (answer: Answer, agentStep: boolean): Reply => toReply(answer.status, answer.body, agentStep);

@@ -95,7 +95,7 @@ TENANT = "interop"
 
 OPS = [
     "discover", "session", "signin", "signin_continue", "send", "read", "sse",
-    "api", "web_join", "approve_op", "signout", "state",
+    "api", "web_join", "approve_op", "signout", "state", "handoff", "close", "confirm_again",
 ]
 
 # uvicorn drops an idle connection after 5 s by default, just as the proxy may reuse it (a
@@ -111,7 +111,7 @@ MANIFEST = {
     "extensions": ["operations"],
     "scenarios": [
         "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "R", "SE", "SO",
-        "C", "CI", "CS", "CA", "AO", "AM", "AS", "RL", "O", "OX",
+        "C", "CI", "CS", "CA", "AO", "AM", "AS", "RL", "O", "OX", "H", "DC", "W", "O2", "CM",
     ],
     "readings": {"S1": "endpoint", "S2": "jwt-60s", "S3": "insertion", "S4": "omit"},
     "relaxations": [
@@ -466,7 +466,12 @@ def signed_in(session: SessionState) -> dict[str, Any]:
 
 def message_view(state: CompanyState, label: str, event: Any) -> dict[str, Any]:
     message = event.message
-    view: dict[str, Any] = {"role": message.role, "text": message.text, "id": message.id}
+    view: dict[str, Any] = {
+        "role": message.role,
+        "sender": message.sender,
+        "text": message.text,
+        "id": message.id,
+    }
     if message.data is not None:
         view["data"] = message.data
     if message.operation is not None:
@@ -671,8 +676,12 @@ async def op_send(host: str, params: dict[str, Any]) -> dict[str, Any]:
     state = await company_state(host)
     endpoint = conversations_url(state)
     conversation = params.get("conversation")
+    # A Direct Conversation (7.10): started with parent_conversation_id, in the parent's Session.
+    parent = params.get("parent_conversation")
     label = params.get("label") or (
-        state.conversation_labels.get(conversation, "default") if conversation else "default"
+        state.conversation_labels.get(conversation or parent, "default")
+        if (conversation or parent)
+        else "default"
     )
     key = params.get("message_id")
     message = state.messages.get(key) if key else None
@@ -691,7 +700,14 @@ async def op_send(host: str, params: dict[str, Any]) -> dict[str, Any]:
 
     async def call(session: SessionState, token: SessionToken):  # type: ignore[no-untyped-def]
         if conversation is None:
-            return await client.start(endpoint, message, token=token, wait=wait, **who(state, session))
+            return await client.start(
+                endpoint,
+                message,
+                token=token,
+                wait=wait,
+                parent_conversation_id=parent,
+                **who(state, session),
+            )
         return await client.send(
             endpoint,
             conversation,
@@ -967,6 +983,64 @@ async def op_approve_op(host: str, params: dict[str, Any]) -> dict[str, Any]:
     return await with_session(state, label, call)
 
 
+async def op_confirm_again(host: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Confirm again (Ops 5.2, 6): the SDK's confirm with the proposal as the agent first saw it,
+    as a host retries after losing the first answer (the SDK refuses locally only an operation
+    it is handed in another state). `status` is the state the Company answered."""
+
+    state = await company_state(host)
+    operation_id = str(params.get("operation", ""))
+    known = state.operations.get(operation_id)
+    if known is None:
+        raise StepError(404, "unknown_operation", "no proposal with that id has been seen")
+    proposal, label = known
+    endpoint = operations_endpoint(
+        state.company.document, ClientMetadata.model_validate(agent.metadata)
+    )
+    if endpoint is None:
+        raise PoppyRefusal("extension_required", 0, "the Operations extension was not negotiated")
+    client = OperationsClient(transport=agent.transport)
+
+    async def call(session: SessionState, token: SessionToken) -> dict[str, Any]:
+        outcome = await client.confirm(
+            endpoint, proposal, approval=approve(proposal), token=token, **who(state, session)
+        )
+        after = outcome.operation
+        return {
+            "status": after.state if after is not None else outcome.status,
+            "outcome": outcome.status,
+            "operation": None if after is None else after.model_dump(mode="json"),
+        }
+
+    return await with_session(state, label, call)
+
+
+async def control_op(host: str, params: dict[str, Any], action: str) -> dict[str, Any]:
+    state = await company_state(host)
+    conversation = str(params.get("conversation", ""))
+    label = params.get("label") or state.conversation_labels.get(conversation, "default")
+    client = ConversationClient(transport=agent.transport)
+
+    async def call(session: SessionState, token: SessionToken):  # type: ignore[no-untyped-def]
+        run = client.handoff if action == "handoff" else client.close
+        return await run(conversations_url(state), conversation, token=token, **who(state, session))
+
+    receipt = await with_session(state, label, call)
+    return {"status": receipt.status, "responder": receipt.responder}
+
+
+async def op_handoff(host: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Ask for a person (7.9): the SDK's ConversationClient.handoff."""
+
+    return await control_op(host, params, "handoff")
+
+
+async def op_close(host: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Close a conversation (7.12): the SDK's ConversationClient.close."""
+
+    return await control_op(host, params, "close")
+
+
 async def op_signout(host: str, params: dict[str, Any]) -> dict[str, Any]:
     state = await company_state(host)
     session = session_of(state, params.get("label"))
@@ -1044,6 +1118,9 @@ HANDLERS = {
     "signout": op_signout,
     "web_join": op_web_join,
     "state": op_state,
+    "handoff": op_handoff,
+    "close": op_close,
+    "confirm_again": op_confirm_again,
 }
 
 

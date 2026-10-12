@@ -29,7 +29,7 @@ If `/interop/ca.pem` exists, the entrypoint adds it to the system trust store. w
 
 Ilmer has no accounts, sign-in, staff or operations, so the only hook is `fixture`: no accounts, no scopes, no APIs, `prompts.hello`, and `otp_account: null`. Every other hook answers 501, including `require_nonce`, `rate_limit` and `expire_tokens`: Ilmer has no DPoP nonces, its only limit is a daily prompt budget, and token lifetimes are fixed. Hook bodies and results are bare objects (spec 5.3). `POST /reset` stops Wrangler, deletes its Durable Object state and starts it again (about 2 s).
 
-Scenarios: `D`, `S0`, `C`, `CI`. Readings: S1 `token-endpoint`, S2 `jwt-60s` (`typ: JWT`, a `kid`, at most 60 s), S3 `either` (the issuer is a bare origin), S4 `omit`.
+Scenarios: `D`, `S0`, `C`, `CI`, `CM`. Not `DC` (it answers `direct_conversations_not_supported`), `H` (its handoff never brings a person), `W` (no browser-session endpoint). Readings: S1 `token-endpoint`, S2 `jwt-60s` (`typ: JWT`, a `kid`, at most 60 s), S3 `either` (the issuer is a bare origin), S4 `omit`.
 
 ## Relaxations
 

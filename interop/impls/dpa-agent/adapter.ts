@@ -21,7 +21,9 @@ import { memorySql } from "./sqlite.ts";
 import { AttachmentError, migrateAttachments, saveAttachment } from "../../../src/attachments.ts";
 import { callMcpTool, callOpenApi } from "../../../src/poppy/apis.ts";
 import { PoppyClient, PoppyError, type JobName, type PoppyHost } from "../../../src/poppy/client.ts";
-import { conversation as conversationRow, readConversation, sendMessage } from "../../../src/poppy/conversations.ts";
+import { closeConversation, conversation as conversationRow, handoff, readConversation, sendMessage } from "../../../src/poppy/conversations.ts";
+import { browse } from "../../../src/poppy/browser.ts";
+import { FetchBrowser } from "../../../src/poppy/fetch-browser.ts";
 import { DiscoveryError, isCompany, type Company, type SignInType } from "../../../src/poppy/discovery.ts";
 import type { Fetcher } from "../../../src/poppy/fetch.ts";
 import type { Json } from "../../../src/poppy/json.ts";
@@ -62,6 +64,7 @@ const MANIFEST = {
     ? [...ATTACKS]
     : [
         "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
+        "H", "DC", "W", "O2", "CM",
         // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
         "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX"
       ],
@@ -90,7 +93,29 @@ type Agent = {
   notes: string[];
   /** Labels are suffixed per reset, so module-level caches (MCP sessions) never carry over. */
   generation: string;
+  /** The agent's own browser for the website (spec 5): src/poppy/fetch-browser.ts. */
+  browser: FetchBrowser;
 };
+
+/**
+ * Node has no `HTMLRewriter`, with which src/poppy/fetch-browser.ts reads a
+ * page's text, links and forms. Interop-only stand-in: every page reads as
+ * empty. Scenario W tests the browser Session join and the cookie on the
+ * wire, not what a page says; page reading is tested in the Workers pool.
+ */
+if (!("HTMLRewriter" in globalThis)) {
+  (globalThis as Record<string, unknown>).HTMLRewriter = class {
+    on() {
+      return this;
+    }
+    onDocument() {
+      return this;
+    }
+    transform(response: Response) {
+      return response;
+    }
+  };
+}
 
 async function signingKeys(): Promise<string> {
   const keys = [];
@@ -182,7 +207,8 @@ async function newAgent(): Promise<Agent> {
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now: () => Date.now()
   };
-  return { client: new PoppyClient(host), env, jobs, cards, notes, generation: randomId("", 4) };
+  // The fetch-based browser of src/poppy (spec 5), on the adapter's network seam.
+  return { client: new PoppyClient(host), env, jobs, cards, notes, generation: randomId("", 4), browser: new FetchBrowser(host.fetcher) };
 }
 
 let agent = await newAgent();
@@ -379,12 +405,19 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
   async send(domain, params) {
     const c = await company(domain);
     const conversationId = optional(params.conversation);
+    const parentConversationId = optional(params.parent_conversation);
     const callKey = optional(params.message_id) ?? randomId("call_");
+    if (params.sender !== undefined && params.sender !== "agent" && params.sender !== "human") {
+      throw new StepError(400, "invalid_params", "sender must be agent or human");
+    }
     const sent = await sendMessage(agent.client, c, {
-      label: label(params),
+      // A Direct Conversation goes in its parent's Session (7.10).
+      label: (parentConversationId ? conversationRow(agent.client, parentConversationId)?.label : undefined) ?? label(params),
       callKey,
       ...(conversationId ? { conversationId } : {}),
-      sender: "agent",
+      ...(parentConversationId ? { parentConversationId } : {}),
+      // The User's own words, as a Direct Conversation carries them (7.8, 7.10).
+      sender: params.sender === "human" ? "human" : "agent",
       text: text(params.text, "text"),
       ...(typeof params.wait === "number" ? { wait: params.wait } : {})
     });
@@ -528,8 +561,69 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     return apiResult(result);
   },
 
-  async web_join() {
-    throw new StepError(501, "unsupported", "Browser Sessions aren't wired into this adapter: the agent's browser reads pages with workerd's HTMLRewriter, which Node lacks");
+  /**
+   * The agent's browser joins the Session (spec 5) as `poppy_browse` does:
+   * src/poppy/browser.ts posts the browser assertion as a form from the
+   * Session's own fetch-based browser context, which follows the 303 with
+   * the Company's cookie, then loads `url`.
+   */
+  async web_join(domain, params) {
+    const c = await company(domain);
+    const url = text(params.url, "url");
+    const page = (await browse(agent.client, agent.browser, c, label(params), { kind: "open", url })) as { url?: string; status?: number };
+    return { joined: !!c.web?.browserSessionEndpoint, status: page.status ?? null, url: page.url ?? null };
+  },
+
+  /** Ask for a person at the Company (7.9); src/poppy sends a short summary for them first. */
+  async handoff(domain, params) {
+    const c = await company(domain);
+    const id = text(params.conversation, "conversation");
+    if (!conversationRow(agent.client, id)) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
+    const summary = optional(params.text) ?? "The User would like to speak with someone at your company.";
+    return handoff(agent.client, c, id, summary, randomId("call_"));
+  },
+
+  /** Close a conversation (7.12). */
+  async close(domain, params) {
+    const c = await company(domain);
+    const id = text(params.conversation, "conversation");
+    if (!conversationRow(agent.client, id)) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
+    await closeConversation(agent.client, c, id);
+    const row = conversationRow(agent.client, id)!;
+    return { status: row.status, responder: row.responder };
+  },
+
+  /**
+   * Send the confirm of an approved operation again, unchanged (Ops 5.2):
+   * the request src/poppy's tracking job sends when a confirm's answer was
+   * lost (Ops 6), with the approval it recorded. src/poppy itself never
+   * confirms an operation it knows is no longer proposed, so the adapter
+   * sends it through the client's own DPoP-bound request. The answer is the
+   * Company's operation, as it returned it.
+   */
+  async confirm_again(domain, params) {
+    const c = await company(domain);
+    const id = text(params.operation, "operation");
+    const row = rows<{ approved_revision: number | null; approved_by: string | null; label: string }>(
+      agent.client.sql,
+      "SELECT approved_revision, approved_by, label FROM poppy_operations WHERE issuer = ? AND operation_id = ?",
+      c.issuer,
+      id
+    )[0];
+    if (!row || row.approved_revision === null || !row.approved_by) throw new StepError(409, "not_confirmed", `The agent hasn't confirmed ${id}`);
+    const endpoint = c.extensions.operations;
+    if (!endpoint) throw new PoppyStepError("no_operations", 0, `${c.name} has no operations endpoint`);
+    const { status, body } = await agent.client.resourceJson(
+      c,
+      {
+        method: "POST",
+        url: `${endpoint.endpoint.replace(/\/+$/, "")}/${encodeURIComponent(id)}/confirm`,
+        body: { revision: row.approved_revision, approved_by: row.approved_by }
+      },
+      { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
+    );
+    const operation = isRecord(body) ? body : {};
+    return { status: typeof operation.state === "string" ? operation.state : null, http_status: status, operation };
   },
 
   async approve_op(domain, params) {

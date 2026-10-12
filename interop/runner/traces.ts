@@ -6,7 +6,16 @@
  * unsupported rather than failed. Pure functions.
  */
 import { authorization, decodeJwt, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
-import { issuedTokens, retryAfterChecks } from "./checks.ts";
+import {
+  browserJoins,
+  browserSessionResponseChecks,
+  clientDocuments,
+  confirmRepeatChecks,
+  confirmsByOperation,
+  issuedTokens,
+  retryAfterChecks,
+  setCookies
+} from "./checks.ts";
 import type { RunnerReply } from "./cell.ts";
 
 const agentRequests = (all: readonly Exchange[]) => all.filter((x) => x.direction === "to-company" && !x.probe && !x.injected);
@@ -92,6 +101,88 @@ export function requestSeen(all: readonly Exchange[], params: Record<string, unk
       (params.status === undefined || x.status === params.status)
   );
   return match ? { kind: "ok", result: { exchange: match.index } } : { kind: "failed", detail: `no request matching ${JSON.stringify(params)}` };
+}
+
+/**
+ * Scenario W (spec 5): the agent's browser posted a browser assertion, and
+ * the Company answered 303 to `return_to` with a cookie. `followed` says
+ * whether the browser then carried that cookie to where it was sent.
+ * Inapplicable when the Company lists no browser-session endpoint; failed
+ * when no join was accepted.
+ */
+export function browserJoined(all: readonly Exchange[]): RunnerReply {
+  const joins = browserJoins(all);
+  if (joins.length === 0) {
+    const listed = all.some((x) => x.direction === "to-company" && /poppy\.json$/.test(x.url.pathname) && x.responseBody.includes("browser_session_endpoint"));
+    return listed
+      ? { kind: "failed", detail: "no browser join was sent to the Company's browser_session_endpoint" }
+      : { kind: "inapplicable", detail: "the Company lists no web.browser_session_endpoint" };
+  }
+  const accepted = joins.find((x) => x.status === 303 && x.responseHeaders.has("location") && setCookies(x).length > 0);
+  if (!accepted) {
+    const problems = browserSessionResponseChecks(all).map((item) => item.detail);
+    return { kind: "failed", detail: `no join answered 303 with a cookie (${joins.map((x) => `HTTP ${x.status}`).join(", ")}${problems.length ? `; ${problems.join("; ")}` : ""})` };
+  }
+  const target = new URL(accepted.responseHeaders.get("location")!, accepted.url).href;
+  const pairs = setCookies(accepted).map((cookie) => cookie.split(";")[0]!.trim());
+  const followed = all.some(
+    (x) =>
+      x.index > accepted.index &&
+      !x.probe &&
+      x.method === "GET" &&
+      x.url.href === target &&
+      pairs.every((pair) => (x.requestHeaders.get("cookie") ?? "").split(/;\s*/).includes(pair))
+  );
+  return { kind: "ok", result: { exchange: accepted.index, return_to: target, followed } };
+}
+
+/**
+ * Scenario O2 (Operations 5.2, 6): an operation confirmed, then confirmed
+ * again, every answer a success carrying the same confirmation, so it was
+ * performed once. Inapplicable without a second confirm.
+ */
+export function confirmRepeated(all: readonly Exchange[]): RunnerReply {
+  const repeated = [...confirmsByOperation(all)].filter(([, confirms]) => confirms.length >= 2);
+  if (repeated.length === 0) return { kind: "inapplicable", detail: "no operation was confirmed twice" };
+  const problems = confirmRepeatChecks(all);
+  if (problems.length > 0) return { kind: "failed", detail: problems.map((item) => item.detail).join("; ") };
+  const answered = repeated.filter(([, confirms]) => confirms.every((x) => x.status >= 200 && x.status < 300));
+  if (answered.length === 0) {
+    return { kind: "failed", detail: `the confirms were answered ${repeated.flatMap(([, confirms]) => confirms.map((x) => x.status)).join(", ")}` };
+  }
+  return { kind: "ok", result: { operations: answered.map(([id]) => decodeURIComponent(id)), confirms: answered[0]![1].length } };
+}
+
+/**
+ * Scenario CM (4.1): the Company fetched the agent's client_id document,
+ * and the jwks_uri it names with the key that signed the agent's first
+ * granted Session assertion, before it granted that Session. Agents' keys
+ * are new in every cell (interop spec 5.1), so a Session granted without
+ * that fetch was granted on keys the Company never saw. Inapplicable when
+ * the Company fetched nothing of the agent's (registered ahead of time, 4.1's MAY).
+ */
+export function clientFetched(all: readonly Exchange[]): RunnerReply {
+  const fetches = all.filter((x) => x.direction === "to-agent" && !x.probe && x.method === "GET");
+  if (fetches.length === 0) return { kind: "inapplicable", detail: "the Company fetched none of the agent's documents (registered ahead of time?)" };
+  const grant = agentRequests(all)
+    .filter((x) => form(x)?.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer" && x.status === 200)
+    .sort((a, b) => a.ended - b.ended)[0];
+  if (!grant) return { kind: "failed", detail: "no Session was granted" };
+  const fields = form(grant)!;
+  const assertion = decodeJwt(fields.get("assertion") ?? "");
+  const clientId = fields.get("client_id") ?? (typeof assertion?.payload.iss === "string" ? assertion.payload.iss : null);
+  const kid = assertion?.header.kid;
+  const before = fetches.filter((x) => x.status === 200 && x.ended <= grant.ended);
+  const metadata = before.find((x) => x.url.href === clientId);
+  if (!metadata) return { kind: "failed", detail: `the Session was granted (exchange ${grant.index}) without a fetch of ${clientId} in this cell` };
+  const { jwksUris } = clientDocuments(all);
+  const jwks = before.find((x) => {
+    if (!jwksUris.has(x.url.href)) return false;
+    const keys = (jsonBody(x.responseBody) as { keys?: unknown } | undefined)?.keys;
+    return Array.isArray(keys) && (typeof kid !== "string" || keys.some((key) => (key as { kid?: unknown } | null)?.kid === kid));
+  });
+  if (!jwks) return { kind: "failed", detail: `the Session was granted (exchange ${grant.index}) without a fetch of the jwks_uri holding kid ${JSON.stringify(kid)}` };
+  return { kind: "ok", result: { client_id: clientId, metadata: metadata.index, jwks: jwks.index } };
 }
 
 // ---------------------------------------------------------------- Harm oracles (adversarial)
@@ -201,6 +292,9 @@ export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params:
   refresh_rotated: (all) => refreshRotated(all),
   retry_after_respected: (all) => retryAfterRespected(all),
   request_seen: requestSeen,
+  browser_joined: (all) => browserJoined(all),
+  confirm_repeated: (all) => confirmRepeated(all),
+  client_fetched: (all) => clientFetched(all),
   no_request_to: noRequestTo,
   token_not_sent_to: tokenNotSentTo,
   performed_at_most_once: performedAtMostOnce,

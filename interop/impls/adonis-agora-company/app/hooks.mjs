@@ -49,7 +49,8 @@ const MANIFEST = {
   poppy: ['0.1'],
   extensions: [],
   // No AM (no MCP server), O/OX (no Operations extension).
-  scenarios: ['D', 'CM', 'S0', 'N', 'SD', 'SV', 'SXV', 'SM', 'SMC', 'SX', 'SE', 'SO', 'C', 'CI', 'CS', 'CA', 'H', 'AO', 'AS', 'R', 'RL'],
+  // W: AuthKit's browser-session endpoint (on by default). DC: Direct Conversations in @adonis-agora/agent.
+  scenarios: ['D', 'CM', 'S0', 'N', 'SD', 'SV', 'SXV', 'SM', 'SMC', 'SX', 'SE', 'SO', 'C', 'CI', 'CS', 'CA', 'H', 'DC', 'W', 'AO', 'AS', 'R', 'RL'],
   readings: { S1: 'either', S2: 'any', S3: 'either', S4: 'omit', S23: 'per-company' },
   relaxations: [
     'personalAgents.poppy.allowInsecureClientIds (upstream dev/test setting, off by default, refused with NODE_ENV=production; on only with INTEROP_ALLOW_PRIVATE_PEERS=1): agent metadata and JWKS are fetched without the SSRF guard (the grid proxy has a private address), and http:// client_ids are also accepted',

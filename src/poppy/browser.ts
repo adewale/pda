@@ -88,11 +88,25 @@ function onCompanyDomain(company: Company, url: URL): boolean {
   return host === company.domain || host.endsWith(`.${company.domain}`);
 }
 
-/** Origins of the Company's sign-in pages, which are the User's alone (spec 4.4). */
-function signInOrigins(company: Company): string[] {
-  return [company.issuer, company.endpoints.authorization, company.endpoints.deviceAuthorization]
+/**
+ * The Company's sign-in pages, which are the User's alone (spec 4.4): its
+ * authorization, device and Mediated Sign-In endpoints and anything under
+ * them, and the whole of its issuer's host when that host is a sign-in host
+ * of its own (`auth.example.com`). A Company whose issuer is its website's
+ * own origin (`https://example.com`) keeps its website browsable.
+ */
+export function isSignInPage(company: Company, url: URL): boolean {
+  const endpoints = [company.endpoints.authorization, company.endpoints.deviceAuthorization, company.signIn.mediated?.endpoint]
     .filter((value): value is string => !!value)
-    .map((value) => new URL(value).origin);
+    .map((value) => new URL(value));
+  const under = (endpoint: URL) => {
+    const path = endpoint.pathname.replace(/\/+$/, "");
+    return url.origin === endpoint.origin && (url.pathname === path || url.pathname.startsWith(`${path}/`));
+  };
+  if (endpoints.some(under)) return true;
+  const issuer = new URL(company.issuer);
+  const website = issuer.hostname.toLowerCase().replace(/^www\./, "") === company.domain;
+  return !website && url.origin === issuer.origin;
 }
 
 /**
@@ -102,7 +116,6 @@ function signInOrigins(company: Company): string[] {
  * on a sign-in host: the join must reach it.
  */
 function pageGuard(company: Company, endpoint?: string): PageGuard {
-  const signIn = signInOrigins(company);
   return (url) => {
     if (url.protocol !== "https:" || !onCompanyDomain(company, url)) {
       throw new PoppyError("refused", `Browsing is limited to ${company.domain} over HTTPS; not ${url.href}`, 0);
@@ -114,7 +127,7 @@ function pageGuard(company: Company, endpoint?: string): PageGuard {
       throw error;
     }
     if (url.href === endpoint) return;
-    if (signIn.includes(url.origin)) {
+    if (isSignInPage(company, url)) {
       throw new PoppyError("refused", "The agent never opens a company's sign-in pages; the User signs in themselves (use poppy_sign_in)", 0);
     }
   };
@@ -172,13 +185,15 @@ async function sessionContext(
     // The join's redirect loads `return_to` too, so it waits for the Company's limits (4.3).
     await client.beforeRequest(company);
     const result = await context.postForm(endpoint, { assertion });
-    // Joined, but the page it landed on was rate-limited: `load` loads it again after the wait.
-    const landed = result.url !== endpoint && (result.status === 429 || result.status === 503);
-    if (result.status >= 400 && !landed) {
+    // A refused join is answered at the endpoint itself (spec 5: an error page, HTTP 400). A
+    // redirect away from it is the join accepted, whatever the page it landed on then answered;
+    // `load` loads that page again, after the wait if it was rate-limited.
+    const joined = result.url !== endpoint;
+    if (!joined && result.status >= 400) {
       throw new PoppyError("browser_join_failed", `${company.name} didn't accept the browser into the Session`, result.status);
     }
     entry.sessionId = session.session_id;
-    if (landed) await client.pageLimited(company, result.status, result.retryAfter);
+    if (joined && (result.status === 429 || result.status === 503)) await client.pageLimited(company, result.status, result.retryAfter);
   }
   return entry.context;
 }

@@ -38,11 +38,12 @@ docker run -e INTEROP_SECRET=… -v ca.pem:/interop/ca.pem:ro poppy-demo-agent
 | `api` | Only `openapi` `listOrders`, which the caller sends as `GET {company}/api/orders`, the one operation it knows; anything else is 501. |
 | `signout` | Revokes the Account Token, then renews the Session signed out. `{"revoked": false}` when no account is connected. |
 | `state` | Yes. |
+| `handoff`, `close` | The caller's own `handoff` and `close` actions. `send` with `parent_conversation` uses its `direct` action (7.10, always `sender: "human"`), and `sender` reaches its `message` action. Messages carry `sender`. |
 | `sse`, `web_join`, `approve_op` | 501. |
 
 Results follow 5.2: a Poppy error the Company returned is `{"ok": false, "poppy_error", "status"}`, and one the caller raised itself has `status` 0. `send`, `signin` and `api` discover and start a Session first when the caller hasn't, since its UI makes the user do that by hand.
 
-Scenarios claimed: `D`, `S0`, `N`, `SD`, `SX`, `SO`, `C`, `CA`, `AO`. `N` because the caller retries once with a `DPoP-Nonce`. `AO` works against Northstar only.
+Scenarios claimed: `D`, `S0`, `N`, `SD`, `SX`, `SO`, `C`, `CA`, `AO`, `H`, `DC`, `CM`. `N` because the caller retries once with a `DPoP-Nonce`. `AO` works against Northstar only.
 
 Readings: `S1` `endpoint` (each client assertion's `aud` is the endpoint it's sent to, including the revocation endpoint), `S2` `jwt-60s`, `S3` `append` (it fetches `${auth.issuer}/.well-known/oauth-authorization-server`; the same URL as insertion unless the issuer has a path), `S4` `omit`. `S23` doesn't apply: nonces aren't kept between requests.
 

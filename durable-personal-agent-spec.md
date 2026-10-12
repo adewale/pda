@@ -881,7 +881,7 @@ Every MUST and MUST NOT in Draft 0.1 and Operations v1 that falls on a Personal 
 | 4.3 | MUST use the newest Session Token for a Session | `client.ts` | Mock |
 | 4.3 | MUST NOT send tokens in a URL | `client.ts` | Mock; the client refuses such a URL |
 | 4.3 | MUST wait at least `Retry-After` on 429 | `client.ts`, `limiter.ts`, `browser.ts` | Test: "waits out Retry-After on 429 before retrying", "waits out Retry-After on a website page…", "gives up on a website page whose Retry-After is too long…"; property: "waits delay-seconds exactly", "waits until an HTTP-date…", "ignores a value that is neither delay-seconds nor an HTTP-date", "reads a Retry-After that is neither delay-seconds nor an HTTP-date as none…"; Mock |
-| 4.4 | MUST use Direct or Device Sign-In only when the User signs in themselves | `browser.ts`, page | Test: "never opens the Company's sign-in pages"; Design |
+| 4.4 | MUST use Direct or Device Sign-In only when the User signs in themselves | `browser.ts`, page | Test: "never opens the Company's sign-in pages", "keeps a website browsable whose issuer is its own origin, but not its sign-in endpoints"; Design |
 | 4.4 | Each sign-in request MUST include `scope` | `signin.ts` | Mock |
 | 4.4 | Check the granted `scope`; an omitted `scope` is the scope requested (RFC 6749 §5.1; N6) | `signin.ts`, `client.ts` | Test: "notices when the User approves fewer scopes", "takes an omitted scope as the scope asked for…", "keeps a signed-out Session's empty scope…" |
 | 4.4 | Revoke the replaced Account Token after step-up (SHOULD) | `client.ts` | Test: "steps up…" |
