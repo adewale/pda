@@ -1,6 +1,6 @@
 # Conformance levels: MUST, SHOULD, MAY, rules without a key word, the Guides and our readings
 
-What a finding rests on decides how much it counts. The rule is the same in all three places that judge an implementation: the mock Company (`test/mock-company/`), the validator (`src/validator/`) and the interop grid's attribution (`interop/runner/`). The code is `src/validator/levels.ts`. This page is the policy, and the conventions of established conformance suites it follows. It settles the open grounding questions in [spec/grounding.md](../spec/grounding.md).
+What a finding rests on decides how much it counts, in all three places that judge an implementation: the mock Company (`test/mock-company/`), the validator (`src/validator/`) and the interop grid's attribution (`interop/runner/`). The code is `src/validator/levels.ts`. This page sets out the policy and the conventions of other conformance suites it follows, and settles the open grounding questions in [spec/grounding.md](../spec/grounding.md).
 
 ## What the draft says about its own words
 
@@ -150,4 +150,4 @@ The grid's mock (`MOCK_BASE`) no longer lists an API of type `graphql`. The conf
 
 The known failures don't change. Each one is a step failure, a Rule or MUST violation, or an S2 or S1 reading, and those keep their outcome and their known entry. Some cells can change rule without changing outcome. datalayer-ts and datalayer-py × both mocks, SVN, was rule 1. If the violation behind it was the mock's `dpop.nonce-ignored`, which rests on the Guides, it becomes rule `warning`; the known entry still matches.
 
-The full grid hasn't been rerun under this policy. A third-party Company whose documents break one of the four new errors will now fail its cells by rule 1; so will one that answers 429 without `Retry-After`. Run the grid before relying on this section's claim that the known failures don't change.
+A third-party Company whose documents break one of the four new errors now fails its cells by rule 1, and so does one that answers 429 without `Retry-After`. The full grid was run again under this policy at `08b28e7` on 12 October, and every interop cell's outcome stayed the same, with no known failure stale ([interop-results](interop-results/README.md)).

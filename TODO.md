@@ -1,6 +1,6 @@
 # TODO
 
-Everything left open, in one place. **Owner** items need a decision or an account; **Code** items need a change here. Deployment steps and live checks aren't repeated here; they're in [docs/deployment-tasks.md](docs/deployment-tasks.md), in order.
+Everything left open. **Owner** items need a decision or an account; **Code** items need a change here. Deployment steps and live checks are in [docs/deployment-tasks.md](docs/deployment-tasks.md), in order.
 
 ## Decisions for the owner
 
@@ -11,7 +11,7 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 - [ ] **A known-good Company to verify against.** None is documented. Options: deploy our mock Company as an example Company Worker we own, or document the public demo Companies with what our local grid shows works against their code.
 - [ ] **Approval to file upstream bug reports**, found by the grid ([poppy-issues.md](docs/poppy-issues.md)): poppy-demo's hard-coded scopes; Datalayer's `session_id` on refresh and its 403s without `WWW-Authenticate`; adonis-agora's `aud`; everruns' duplicate migration. Nothing is posted without the owner.
 - [ ] **Send the spec issues to the draft's authors** ([spec-issues.md](docs/spec-issues.md), [readings.md](docs/readings.md)), once grounded against the current text.
-- [ ] **Submit the OpenClaw and Hermes proposals** after the agent works against a real Company Agent ([proposals/README.md](docs/proposals/README.md) lists what to fold in first).
+- [ ] **Submit the OpenClaw and Hermes proposals** after the agent works against a live Company Agent ([proposals/README.md](docs/proposals/README.md) lists what to fold in first).
 
 ## Operations
 
@@ -19,7 +19,7 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 - [ ] **Code. A runbook for rotating `POPPY_SIGNING_JWKS`**, and for a leaked signing key: add the new key, publish both, switch the signer, retire the old `kid` after Companies' caches expire, and give every new key a new `kid`.
 - [ ] **Owner. Spending alerts:** a Cloudflare billing notification, and provider-side limits and alerts on any funded key.
 - [ ] **Owner. Read the monthly dependency report.** `.github/workflows/deps.yml` runs `npm run deps:check` on the 1st (report only, no pull requests); it fails only on a high or critical audit finding.
-- [ ] **Owner. Allow or deny npm install scripts.** An npm warned about seven dependency install scripts (`workerd`, `esbuild`, `koffi`, `protobufjs`, `fsevents`, `core-js-pure`, `@google/genai`). Unverified: the `npm install-scripts approve|deny` command we noted doesn't exist in npm 11.12.1 (checked 12 October), which runs every script (`ignore-scripts=false`). The dependency audit's advice: `workerd` and `esbuild` are harmless to allow (they place native binaries that also arrive as optional packages); the other five do nothing we need (a banner, a warning, a no-op, a prebuilt binary).
+- [ ] **Owner. Allow or deny npm install scripts.** npm warned about seven dependency install scripts (`workerd`, `esbuild`, `koffi`, `protobufjs`, `fsevents`, `core-js-pure`, `@google/genai`). Unverified: the `npm install-scripts approve|deny` command we noted doesn't exist in npm 11.12.1 (checked 12 October), which runs every script (`ignore-scripts=false`). The dependency audit's advice: `workerd` and `esbuild` are harmless to allow (they place native binaries that also arrive as optional packages); the other five do nothing we need (a banner, a warning, a no-op, a prebuilt binary).
 - [ ] **Owner. Node 26** becomes LTS on 28 October 2026; Node 24 (now used) is supported until April 2028.
 
 ## Product
@@ -46,7 +46,7 @@ Built and passing in the grid (scenario OU, against the store at its pinned comm
 
 ## Testing and interop
 
-- [x] **Grounding questions decided by a policy**, [docs/conformance-levels.md](docs/conformance-levels.md): a check's basis sets its level in the mock, the validator and the grid; YK is `permitted_by: N5`. **Owner:** review its judgement calls, and rerun the full grid under it (some third-party cells may change rule, or newly fail on validator errors that were warnings).
+- [x] **Grounding questions decided by a policy**, [docs/conformance-levels.md](docs/conformance-levels.md): a check's basis sets its level in the mock, the validator and the grid; YK is `permitted_by: N5`. **Owner:** review its judgement calls. The full grid ran again under it on 12 October with every cell's outcome unchanged ([interop-results](docs/interop-results/README.md)).
 - [ ] **Owner. Re-check the spec** with `node scripts/spec-snapshot.mjs` before sending issues to its authors or submitting the proposals.
 - [ ] **Code. Scenarios not yet written:** `H`, `DC`, `W`, `O2`, `CM` ([interop-testing.md](docs/interop-testing.md)).
 - [ ] **Code. Attacks not yet built:** `XM`, `XS` (needs N42's private test suffix), `XB`, `XN`, `XO`, `XE`, `XP`, `YF`, `YC`, `YM` ([adversarial-interop.md](docs/adversarial-interop.md)).
@@ -57,7 +57,7 @@ Built and passing in the grid (scenario OU, against the store at its pinned comm
 
 - [ ] Eviction: whether idle agents stay resident, and how often DPoP keys and tokens are renewed as a result.
 - [ ] Push notifications are an open topic in the draft, so the agent polls.
-- [ ] Standing permissions need a checkable action field (we now require the summary to begin with the action, and every term to be one we can check); DPoP nonces per server; a standard marker for writes that propose (we now gate any write whose description doesn't say so); local Personal Agents. All in the [spec's Open questions](durable-personal-agent-spec.md#open-questions-and-risks).
+- [ ] Standing permissions need a checkable action field (we now require the summary to begin with the permission's action, and every term to be an amount within its limit, a date or a plain identifier); DPoP nonces per server; a standard marker for writes that propose (we now put on our own card any write whose description doesn't declare a proposal); local Personal Agents. All in the [spec's Open questions](durable-personal-agent-spec.md#open-questions-and-risks).
 
 ## Environment (this machine)
 

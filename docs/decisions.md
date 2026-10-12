@@ -94,7 +94,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 
 ## 7. A strict mock Company as the test oracle
 
-- **Context.** No real Company had published `poppy.json` (and still hasn't), so the client can't be tested against production. Other implementations were days old and disagreed.
+- **Context.** The client can't be tested against production: our agent hasn't run against a live Company (Spot publishes valid discovery but isn't in the grid; [ecosystem.md](ecosystem.md#companies-you-can-reach)). Other implementations were days old and disagreed.
 - **Decision.** A strict mock Company (`test/mock-company/`) in a Durable Object that checks every request our client sends: client metadata and keys, assertions, DPoP proofs, token binding, scopes, message ids, approvals. Each check has a stable id in `violations.ts`; an `afterEach` fails any Poppy test whose mock recorded a violation it didn't declare (`expectViolations`); each check has a `TAMPERS` row that breaks one thing in an otherwise correct request and proves the check fires, and a catalog test fails if a check has no row.
 - **Alternatives.** *Happy-path fakes* would pass a client that sends the wrong `aud` or reuses a `jti`. *Another project's Company* as the oracle: each had its own gaps and readings ([poppy-issues.md](poppy-issues.md)), and none checked everything a Personal Agent sends.
 - **Consequences.** A new Poppy feature needs a test, and a mock check with a `TAMPERS` row where the draft has a MUST. A misreading the client and mock share is invisible to these tests, which is why decisions [8](#8-readings-of-an-ambiguous-draft), [9](#9-an-mn-interop-harness) and [19](#19-a-second-client-in-python-with-hypothesis) exist.
@@ -122,7 +122,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 ## 10. Third-party adapters frozen, and some kept unrun
 
 - **Context.** Every other implementation was days old and changing hourly.
-- **Decision.** Each third-party adapter fetches upstream at a pinned commit, and every change an implementation needed to act as a peer is an interop-only setting or a patch listed in its manifest's `relaxations`. Base images are pinned by digest. By the owner's choice, three things are kept but not run until our own agent is verified against a real Company: the **live lane** (our agent against public deployments, signed-out scenarios only, one request a second), and the **everruns** and **typo3** adapters (everruns' were written but its images never built for lack of Docker disk; typo3's is a README, since the extension it would run is private).
+- **Decision.** Each third-party adapter fetches upstream at a pinned commit, and every change an implementation needed to act as a peer is an interop-only setting or a patch listed in its manifest's `relaxations`. Base images are pinned by digest. By the owner's choice, three things are kept but not run until our own agent is verified against a live Company: the **live lane** (our agent against public deployments, signed-out scenarios only, one request a second), and the **everruns** and **typo3** adapters (everruns' were written but its images never built for lack of Docker disk; typo3's is a README, since the extension it would run is private).
 - **Alternatives.** *Tracking upstream heads* would make every run a moving target. *Running the live lane now* would test public deployments before our side is known to be right.
 - **Consequences.** Pins are bumped deliberately, then the grid is rerun. The [deployment tasks](deployment-tasks.md) list when the live lane and the unrun adapters come in.
 - **When.** 11 October (`f3f5fcb`, `1ea0cf3`, `79f8220`; digests `6f6b4e8`).
@@ -276,7 +276,7 @@ Each of these closed a specific gap, and each has a test:
   - The mock's 144 checks: 117 violations and 27 warnings.
   - The validator: 9 errors became warnings, and our client still refuses every one. 4 warnings or info messages became errors, and our client tolerates every one. 4 messages are new. Fetch limits now make a report indeterminate.
   - The grid: 8 trace checks became warnings, `company.retry-after` became an error, and there is a new attribution rule, `warning`. `results.json` counts checks per level.
-  - The full grid hasn't been rerun under the policy.
+  - The full grid has since run again under the policy, and every interop cell's outcome stayed the same ([interop-results](interop-results/README.md)).
 - **When.** 12 October 2026.
 
 ## 25. A protocol view in Activity
@@ -293,6 +293,7 @@ Each of these closed a specific gap, and each has a test:
   - *Hooks in each module instead of triggers.* More call sites, in files another change is editing, and a missed one is a silent gap; a trigger can't miss a status change.
   - *Workers Logs.* Not per person, and not something the page can show.
 - **Consequences.** A test feeds every secret kind the other secret checks use through Direct, Device and Mediated Sign-In, conversations, an operation, MCP and signing out, collects every secret that crossed the wire in the test's fetcher, and finds none in a row or a frame; a deliberately leaked `sign_in_id` fails it. OpenAPI and MCP metadata fetches, and website pages other than their 429 and 503 answers, aren't logged yet. The rows are about the person's own activity, so they go when the agent is deleted.
+- **When.** 12 October (`0960853`).
 
 ## 26. Photos in the chat, uploaded only with the User's approval
 

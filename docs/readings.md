@@ -1,6 +1,6 @@
 # Our readings of the draft's open questions
 
-Where Poppy Draft 0.1 is ambiguous, we had to pick a behaviour. This file records each pick: which reading our client takes, which our strict and lenient mock Companies take, whether we're strict or lenient there, and why. The questions themselves, with suggested fixes, are in [spec-issues.md](spec-issues.md); its "What we do" column summarises the rest, and for S1, S2, S3, S4, S7 and S23 links here, where the reading and the reasoning behind it are kept.
+Where Poppy Draft 0.1 is ambiguous, we had to pick a behaviour. This file records each pick: which reading our client takes, which our strict and lenient mock Companies take, whether we're strict or lenient there, and why. The questions and their suggested fixes are in [spec-issues.md](spec-issues.md). Its "What we do" column summarises our answer, except for S1, S2, S3, S4, S7 and S23, where it links here for the reading and the reasoning.
 
 Back to [spec-issues.md](spec-issues.md) · [interop-spec.md §7](interop-spec.md#7-readings)
 
@@ -13,7 +13,7 @@ Back to [spec-issues.md](spec-issues.md) · [interop-spec.md §7](interop-spec.m
 - **What we send** takes the narrowest reading: the one every reading accepts, where there is one.
 - **What we accept** is strict where a wrong guess could widen access, mix up identities or let something replay: the mocks refuse it, or record a named violation (`test/mock-company/violations.ts`) when the draft gives a Company no error to send.
 - **What we accept** is lenient where the readings differ only in shape (an error's location, a cursor's spelling, a missing display name) and every reading leads to the same access.
-- **How it's graded** is a separate matter from what we do. A check that rests on a reading is tentative everywhere: a warning in the mock, the validator and the grid, and a failure it causes is the spec's ([conformance-levels.md](conformance-levels.md)). Being strict in behaviour never makes the other side's departure a violation.
+- **How it's graded** is separate from what we do. A check that rests on a reading is tentative everywhere: a warning in the mock, the validator and the grid, and a failure it causes is the spec's ([conformance-levels.md](conformance-levels.md)). Being strict in behaviour never makes the other side's departure a violation.
 
 ## The three implementations
 
@@ -48,7 +48,7 @@ Each adapter declares these in its manifest (`readings` in `interop/impls/dpa-ag
 - **Client:** header `typ: "JWT"`, a `kid` naming a published key, and `exp` 60 s after `iat`, on both client and Session assertions (`ASSERTION_SECONDS` in `src/poppy/jwt.ts`).
 - **Strict mock:** refuses an assertion without `typ: "JWT"` (`client-assertion.typ`, `session-assertion.typ`), without a published `kid` (`.kid`), or living longer than 60 s (`.lifetime`).
 - **Lenient mock:** no `typ` or `kid` needed, and assertions up to 300 s (`MAX_ASSERTION_LIFETIME`), which it declares as `lenient-300s`: the runner counts it compatible with agents reading `jwt-60s`, `lenient-120s` or `lenient-300s`, not with `any`. (`lenient-120s`, any `typ` and at most 120 s, is print-with-poppy's reading, and Datalayer 0.10.0's.) It still refuses a DPoP proof or browser assertion used as one (`client-assertion.wrong-typ`, `session-assertion.browser-typ`), an algorithm other than ES256 or RS256, a bad signature against the published keys, and a reused `jti`, and records an embedded key (`.embedded-key`).
-- **Why.** The parts that stop confusion and replay are strict in both mocks: a distinct `typ` for the other JWT kinds (see N25), a signature from a published key, single-use `jti`. Requiring `typ: "JWT"` on top, and 60 s rather than 300, is what the strictest live Companies do, so the client sends it and the strict mock checks it. The lenient mock is the grid's reference Company: its job is attribution, not gatekeeping, and the interop spec treats S2 as a warning. If it refused typ-less agents, every cell for pi-poppy's and adonis-agora's agents would stop at the first token request and nothing past it would be tested. `dpa-mock-strict` runs in the same grid, so the strict reading is still checked.
+- **Why.** Both mocks are strict on the parts that stop confusion and replay: a distinct `typ` for the other JWT kinds (see N25), a signature from a published key, single-use `jti`. Requiring `typ: "JWT"` on top, and 60 s rather than 300, is what the strictest live Companies do, so the client sends it and the strict mock checks it. The lenient mock is the grid's reference Company: its job is attribution, not gatekeeping, and the interop spec treats S2 as a warning. If it refused typ-less agents, every cell for pi-poppy's and adonis-agora's agents would stop at the first token request and nothing past it would be tested. `dpa-mock-strict` runs in the same grid, so the strict reading is still checked.
 
 ### <a id="s3"></a>S3: metadata location for an issuer with a path
 
