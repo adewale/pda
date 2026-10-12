@@ -21,6 +21,8 @@ The egress probe, run inside the network before any implementation started, got 
 
 **Against the previous grid** (11 October, `18cbaa6`: 1,242 cells, 659 pass, 143 fail, 440 unsupported, 0 errors), the only changed cells are the 54 of the new scenario DP (an issuer with a path, whose metadata is only where RFC 8414 inserts it; S3): `dpa` passes it at both mocks, and the other 52 cells are unsupported, since only our agent lists DP and only our mock has the `issuer_path` hook. Every pair's counts are the previous grid's plus its one DP cell, and the 143 failures fall to the same rules, on the same pairs and scenarios, as listed below; the known failures file needed no change. Neither our client's changes since `18cbaa6` nor the isolated network changed a cell.
 
+**Run again under the conformance levels** ([conformance-levels.md](../conformance-levels.md), decision 24), at `08b28e7` on 12 October (`2026-10-12T07:25:12Z`, `npm run interop` with no selection, so the adversarial cells ran too, with our images rebuilt): every interop cell's outcome is the same, 661 pass, 143 fail and 492 unsupported, with no known failure stale. The checks the Companies and the trace recorded across the interop cells, by level: 6 failures, 4 warnings and 619 tentative (our readings); only failures fail a cell. The security grid is unchanged too (25 pass, 155 unsupported), and the other 1,184 adversarial cells, aimed at other projects' implementations, were refused by the runner as designed.
+
 Pass / fail / unsupported, by agent (rows) and Company (columns), over 24 scenarios:
 
 | | dpa-mock | dpa-mock-strict | datalayer-ts | datalayer-py | pi-poppy | poppy-demo | poppyseed | ilmer | adonis-agora |
