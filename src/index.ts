@@ -1,7 +1,7 @@
 import type { AttachResult, KeyResult, PersonalAgent } from "./agent";
 import { maySignIn } from "./allowlist";
 import { humanSize, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES } from "./attachments";
-import { ConfigError, readSessionSecret } from "./config";
+import { ConfigError, readSessionSecret, readSignInProviders } from "./config";
 import { checkDeployment } from "./deployment.ts";
 import { withPagePolicy } from "./csp";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
@@ -77,6 +77,12 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
     { email: identity.email, provider: identity.provider },
     { headers: { "Cache-Control": "no-store" } }
   );
+}
+
+/** `GET /api/sign-in-options`: which sign-in buttons the signed-out page shows. Public: it names providers, nobody's identity. */
+function handleSignInOptions(request: Request, env: Env): Response {
+  if (request.method !== "GET") return text(405, "Method not allowed");
+  return Response.json({ providers: readSignInProviders(env) }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** `GET /api/entitlement`: the model lane, today's demo spend, the key's provider and state. Never the key. */
@@ -211,6 +217,7 @@ async function handleAuth(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return text(405, "Method not allowed");
   const match = /^\/auth\/([a-z]+)(\/callback)?$/.exec(new URL(request.url).pathname);
   if (!match || !isProvider(match[1]!)) return text(404, "Not found");
+  if (!readSignInProviders(env).includes(match[1])) return text(404, "This deployment doesn't offer that sign-in.");
   return match[2]
     ? finishSignIn(request, env, match[1])
     : startSignIn(request, env, match[1]);
@@ -241,6 +248,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     checkDeployment(env);
     if (pathname === "/ws") return await handleWs(request, env);
     if (pathname === "/api/me") return await handleMe(request, env);
+    if (pathname === "/api/sign-in-options") return handleSignInOptions(request, env);
     if (pathname === "/api/entitlement") return await handleEntitlement(request, env);
     if (pathname === "/api/model-key") return await handleModelKey(request, env);
     if (pathname === "/api/attachments" || pathname.startsWith("/api/attachments/")) return await handleAttachments(request, env);

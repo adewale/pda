@@ -89,4 +89,4 @@ npx wrangler secret put GOOGLE_CLIENT_ID
 npx wrangler secret put GOOGLE_CLIENT_SECRET
 ```
 
-A deployment can run with only one provider: the other's sign-in answers a 500 naming its missing setting.
+A deployment can run with only one provider: list the ones it offers in `SIGNIN_PROVIDERS`, for example `"SIGNIN_PROVIDERS": ["github"]` in `deployment.local.json`. A provider left out has no button on the sign-in page, and its routes answer 404. A provider listed without its client's secrets answers a 500 naming the missing setting.

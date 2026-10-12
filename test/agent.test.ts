@@ -577,6 +577,26 @@ describe("configuration", () => {
     expect(await response.text()).toContain("GOOGLE_CLIENT_ID");
   });
 
+  it("offers only the sign-in providers SIGNIN_PROVIDERS lists, and says which", async () => {
+    const githubOnly = { SIGNIN_PROVIDERS: ["github"] } as unknown as Partial<Env>;
+    const options = await fetchWorker(new Request(`${ORIGIN}/api/sign-in-options`), githubOnly);
+    expect(options.status).toBe(200);
+    expect(await options.json()).toEqual({ providers: ["github"] });
+    for (const path of ["/auth/google", "/auth/google/callback?code=x&state=y"]) {
+      const refused = await fetchWorker(new Request(`${ORIGIN}${path}`), githubOnly);
+      expect(refused.status).toBe(404);
+      expect(await refused.text()).toBe("This deployment doesn't offer that sign-in.");
+    }
+    expect((await fetchWorker(new Request(`${ORIGIN}/auth/github`), githubOnly)).status).toBe(303);
+    expect(await (await fetchWorker(new Request(`${ORIGIN}/api/sign-in-options`))).json()).toEqual({ providers: ["google", "github"] });
+  });
+
+  it.each([[[]], [["github", "github"]], [["microsoft"]], ["github"]])("fails with an error naming SIGNIN_PROVIDERS when it is %j", async (value) => {
+    const response = await fetchWorker(new Request(`${ORIGIN}/auth/github`), { SIGNIN_PROVIDERS: value } as unknown as Partial<Env>);
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain("SIGNIN_PROVIDERS");
+  });
+
   it("resolves the configured DEMO_MODEL_ID in the gateway catalog as Claude Sonnet 5.5", () => {
     const ai = createAI({ binding: {} as Ai, id: env.DEMO_GATEWAY_ID });
     const model = ai(env.DEMO_MODEL_ID) as { name?: string; id: string };

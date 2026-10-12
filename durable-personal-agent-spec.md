@@ -93,6 +93,7 @@ The Worker turns a verified app session into the person's Durable Object and for
 | `DEMO_DAILY_USD_PER_USER`, `DEMO_DAILY_USD_PER_DOMAIN` | var | Daily demo caps in US dollars, per UTC day: `2` and `10`. `0` turns the demo off |
 | `ANTHROPIC_MODEL_ID`, `OPENAI_MODEL_ID` | var | The own-key lane's model per provider: `claude-sonnet-5-5`, `gpt-6.1-sol` |
 | `SIGNUP` | var | `allowlist` (committed) or `open` |
+| `SIGNIN_PROVIDERS` | var | The sign-in buttons the page offers: `["google", "github"]` committed. A provider left out has no button, and its `/auth/<provider>` routes answer 404; `GET /api/sign-in-options` tells the page which to show |
 | `POPPY_CLIENT_NAME` | var | Shown on Companies' consent pages |
 | `OWNERS` | deployer's var | The deployment's operators: always allowed in, always on the demo. Empty in the template, which then refuses every request |
 | `SIGNIN_ALLOWLIST`, `DEMO_ALLOWLIST` | deployer's var | Who may sign in with `SIGNUP=allowlist`; who the operator pays for |

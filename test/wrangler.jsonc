@@ -32,6 +32,9 @@
     "ANTHROPIC_MODEL_ID": "claude-sonnet-5-5",
     "OPENAI_MODEL_ID": "gpt-6.1-sol",
     "SIGNUP": "allowlist",
+    // Which sign-in providers the page offers; a provider left out has no
+    // button, and its /auth/<provider> routes answer 404 (docs/setup.md).
+    "SIGNIN_PROVIDERS": ["google", "github"],
     "SESSION_SECRET": "test-session-secret-at-least-32-characters-long",
     "GOOGLE_CLIENT_ID": "google-test-client",
     "GOOGLE_CLIENT_SECRET": "google-test-secret",

@@ -15,16 +15,20 @@ const WORKER_CODES = [...readFileSync(path.join(import.meta.dirname, "../../src/
   .filter((code, index, all) => all.indexOf(code) === index);
 
 const meRequests: string[] = [];
+let signInProviders: string[] = ["google", "github"];
 
 beforeEach(() => {
   vi.resetModules();
   document.body.innerHTML = '<div id="root"></div>';
   meRequests.length = 0;
+  signInProviders = ["google", "github"];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       meRequests.push(String(input));
-      return new Response("Sign in first", { status: 401 });
+      return String(input) === "/api/sign-in-options"
+        ? Response.json({ providers: signInProviders })
+        : new Response("Sign in first", { status: 401 });
     })
   );
 });
@@ -55,11 +59,18 @@ describe("sign-in page", () => {
 
   it.each(WORKER_CODES)("shows the message for signin_error=%s, then drops it from the address", async (code) => {
     const { SIGN_IN_ERRORS } = await openPage(`?signin_error=${code}`);
-    expect(meRequests).toEqual(["/api/me"]);
+    expect(meRequests).toEqual(["/api/me", "/api/sign-in-options"]);
     expect(screen.getByRole("alert").textContent).toBe(SIGN_IN_ERRORS[code]);
     expect(screen.getByRole("link", { name: "Sign in with Google" }).getAttribute("href")).toBe("/auth/google");
     expect(screen.getByRole("link", { name: "Sign in with GitHub" }).getAttribute("href")).toBe("/auth/github");
     expect(window.location.search).toBe("");
+  });
+
+  it("shows only the sign-in buttons the deployment offers", async () => {
+    signInProviders = ["github"];
+    await openPage("");
+    await screen.findByRole("link", { name: "Sign in with GitHub" });
+    expect(screen.queryByRole("link", { name: "Sign in with Google" })).toBeNull();
   });
 
   it("explains the allowlist when the account isn't on it", async () => {

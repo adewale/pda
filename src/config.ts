@@ -67,6 +67,7 @@ export type ConfigEnv = {
   readonly DEMO_DAILY_USD_PER_USER?: unknown;
   readonly DEMO_DAILY_USD_PER_DOMAIN?: unknown;
   readonly SIGNUP?: unknown;
+  readonly SIGNIN_PROVIDERS?: unknown;
   readonly SESSION_SECRET?: unknown;
   readonly GOOGLE_CLIENT_ID?: unknown;
   readonly GOOGLE_CLIENT_SECRET?: unknown;
@@ -130,6 +131,29 @@ export function readSignup(env: ConfigEnv): Signup {
     throw new ConfigError(`SIGNUP must be allowlist or open; got ${JSON.stringify(value)}`);
   }
   return value;
+}
+
+/**
+ * The sign-in providers this deployment offers, from `SIGNIN_PROVIDERS`: a
+ * non-empty list of `google` and `github`, as an array or its JSON. A
+ * provider left out has no button and its `/auth/<provider>` routes answer
+ * 404, so a deployment can run before that provider's OAuth client exists.
+ */
+export function readSignInProviders(env: ConfigEnv): readonly Provider[] {
+  let value = env.SIGNIN_PROVIDERS;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      throw new ConfigError(`SIGNIN_PROVIDERS must be a list such as ["github"]; got ${JSON.stringify(value)}`);
+    }
+  }
+  const known: readonly string[] = ["google", "github"];
+  if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== "string" || !known.includes(item))) {
+    throw new ConfigError(`SIGNIN_PROVIDERS must be a non-empty list of google and github; got ${JSON.stringify(value)}`);
+  }
+  if (new Set(value).size !== value.length) throw new ConfigError("SIGNIN_PROVIDERS lists a provider twice");
+  return value as Provider[];
 }
 
 /** The key that signs session cookies. Rotating it signs everyone out. */

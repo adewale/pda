@@ -46,6 +46,9 @@
     // `allowlist`: only OWNERS and SIGNIN_ALLOWLIST sign in. `open`: anyone
     // with a Google or GitHub account (they need their own key or the demo).
     "SIGNUP": "allowlist",
+    // Which sign-in providers the page offers; a provider left out has no
+    // button, and its /auth/<provider> routes answer 404 (docs/setup.md).
+    "SIGNIN_PROVIDERS": ["google", "github"],
     "POPPY_CLIENT_NAME": "Durable Personal Agent",
     // Who this deployment is for and where it lives. Empty here, so a copy
     // nobody has configured fails closed; each deployer sets their own in

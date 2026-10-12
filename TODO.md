@@ -27,7 +27,7 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 - [x] **Code. Give compaction a budget.** Done: a summary from 150k tokens, a hard limit at 184k, our summarizer keeping Company text apart, `poppy_status` listing everything open, the summary shown as a notice ([decisions §23](docs/decisions.md#23-compaction-a-budget-our-summarizer-the-page)). What's left is the live check of a demo-lane turn after a compaction (preserved thinking), in [deployment-tasks §2](docs/deployment-tasks.md#2-live-checks).
 - [ ] **Code. "Delete my agent" and data export** (milestone 2): revoke every Account Token at its Company, then delete the Durable Object's storage. Also a short privacy statement about what each agent stores.
 - [ ] **Code. Memory, skills and the rest of milestone 2** ([spec, Build plan](durable-personal-agent-spec.md#build-plan)).
-- [ ] **Code. Hide Google sign-in while it isn't configured.** Today `/auth/google` answers a 500.
+- [x] **Code. Hide Google sign-in while it isn't configured.** `SIGNIN_PROVIDERS` lists the providers a deployment offers; the live one says `["github"]` until the owner's Google Cloud project quota allows a new OAuth client.
 - [ ] **Code. Check the `pi report` log line** (`src/agent.ts`, `console.warn("pi report", error)`) can't carry request details or keys into Workers logs.
 - [ ] **Code. A sign-in finished by recovery doesn't run the after-sign-in step**, so operations approved while waiting on it wait for the next sign-in.
 - [ ] **Code. A user guide to verifying the agent works:** sign in, add a key, chat, check a Company with the validator, connect to a Company, read Activity.
