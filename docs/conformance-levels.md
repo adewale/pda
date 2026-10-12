@@ -84,7 +84,7 @@ A refusal made for safety stays in the behaviour, but its level comes from its b
 - **The validator** gives each message a `refuses` flag, separate from its severity: whether our client refuses a Company over it. The report's `refused` says whether our client refuses the documents.
   - Our client still refuses everything it refused before, with one exception: an extension `version` written as a number now makes it ignore that extension instead of refusing the Company. It also now refuses a URL with an empty host label, such as `https://.`. The reports no longer call our policy the draft's requirement.
   - Warnings our client refuses:
-    - the Guides' fetch limits: `http-non-public-host`, `http-too-many-redirects`, `http-redirect-not-allowed`, `http-too-large`. These now make a report **indeterminate**, because the document was never read.
+    - the Guides' fetch limits: `http-non-public-host`, `http-non-public-address` (added later, for the Node CLI, which checks what a name resolves to), `http-too-many-redirects`, `http-redirect-not-allowed`, `http-too-large`. These now make a report **indeterminate**, because the document was never read.
     - `json-duplicate-member` (a SHOULD);
     - HTTPS and no fragment where the draft doesn't ask for them, which is spec-issues N9: `not-https-url-unstated`, `url-has-fragment-unstated`;
     - `mediated-fields-empty`.
