@@ -131,7 +131,15 @@ function CardFrame({
           <div className="mt-3 space-y-3">{children}</div>
         </div>
       </div>
-      {actions ? <div className="mt-4 flex flex-wrap justify-end gap-2">{actions}</div> : null}
+      {/* Sticky, so a tall card (a photo on a phone) never scrolls its buttons out of the tray; the shadow says there's more above. */}
+      {actions ? (
+        <div
+          data-card-actions
+          className="sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-wrap justify-end gap-2 rounded-b-xl bg-kumo-base px-4 py-3 shadow-[0_-8px_12px_-8px_rgb(0_0_0/0.15)]"
+        >
+          {actions}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -408,7 +416,7 @@ function ApprovalCard({ card, send }: { card: Extract<Card, { kind: "approval" }
       {photos.length ? (
         <div className="flex flex-wrap gap-2">
           {photos.map((photo) => (
-            <AttachmentThumb key={photo.id} id={photo.id} name={photo.name} detail={humanSize(photo.size)} />
+            <AttachmentThumb key={photo.id} id={photo.id} name={photo.name} detail={humanSize(photo.size)} size="card" />
           ))}
         </div>
       ) : null}

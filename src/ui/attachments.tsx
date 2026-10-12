@@ -86,14 +86,21 @@ export function splitMarkers(text: string): { text: string; photos: { id: string
 }
 
 /** One photo, from the User's agent: in a sent message, on an approval card, in the composer. */
-export function AttachmentThumb({ id, name, detail, size = "md" }: { id: string; name: string; detail?: string; size?: "sm" | "md" }) {
+const THUMB_CLASS = {
+  sm: "image-outline size-16 rounded-lg object-cover",
+  md: "image-outline max-h-48 max-w-full rounded-lg object-contain",
+  // In an approval card in the Needs-you tray: short on a phone, so the card's words fit beside it.
+  card: "image-outline max-h-28 max-w-full rounded-lg object-contain sm:max-h-48"
+} as const;
+
+export function AttachmentThumb({ id, name, detail, size = "md" }: { id: string; name: string; detail?: string; size?: keyof typeof THUMB_CLASS }) {
   return (
     <figure className="inline-flex max-w-full flex-col gap-1">
       <img
         src={`/api/attachments/${encodeURIComponent(id)}`}
         alt={name}
         loading="lazy"
-        className={size === "sm" ? "image-outline size-16 rounded-lg object-cover" : "image-outline max-h-48 max-w-full rounded-lg object-contain"}
+        className={THUMB_CLASS[size]}
       />
       <figcaption className="truncate text-[13px] text-kumo-subtle">
         {name}

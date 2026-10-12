@@ -305,6 +305,15 @@ describe("local approval card", () => {
     ]);
   });
 
+  it("keeps Approve and Decline in a sticky footer, so a tall photo card on a phone can't scroll them out of the tray", () => {
+    renderCards({ ...approvalCard, attachments: [{ id: "att_1", name: "image.png", type: "image/png", size: 3_700_000 }] });
+    const footer = screen.getByRole("button", { name: "Approve" }).closest("[data-card-actions]");
+    expect(footer?.className).toContain("sticky");
+    expect(footer?.contains(screen.getByRole("button", { name: "Decline" }))).toBe(true);
+    // The photo is short on a phone, full height from the sm breakpoint.
+    expect(screen.getByRole("img", { name: "image.png" }).className).toContain("max-h-28");
+  });
+
   it("can be dismissed once closed", () => {
     const { sent } = renderCards({ ...approvalCard, open: false, status: "done", result: "Now at the receipt page" });
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
