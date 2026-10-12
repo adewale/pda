@@ -9,23 +9,21 @@ These are draft feature requests proposing [Personal Agent Protocol](https://per
 
 ## Before submitting
 
-The owner will update and submit these after verifying our agent against a real Company Agent ([deployment-tasks.md](../deployment-tasks.md)). Fold in what changed since they were drafted on 11 October:
+The owner will submit these after verifying our agent against a real Company Agent ([deployment-tasks.md](../deployment-tasks.md)). Their facts about Poppy, the implementations, the grid and Datalayer were brought up to date on 12 October 2026 from [ecosystem.md](../ecosystem.md), [implementations.md](../implementations.md), [interop-results](../interop-results/README.md), [spec-issues.md](../spec-issues.md), [poppy-issues.md](../poppy-issues.md) and `test/mock-company/violations.ts`. Before submitting:
 
-- **Browsing:** our agent uses a fetch-based browser with no JavaScript, not Cloudflare Browser Rendering, and every website form submission needs the User's approval ([decisions §12](../decisions.md#12-a-fetch-based-browser-instead-of-browser-rendering)).
-- **Model access:** two lanes, an operator-paid demo with daily caps and the person's own Anthropic or OpenAI key sent straight to the vendor ([decisions §13, §14](../decisions.md#13-model-access-two-lanes-caps-in-durable-objects)).
-- **Adversarial testing** runs only against our own implementations, and the disclosure process in [SECURITY.md](../../SECURITY.md) applies to anything it would find in theirs.
-- **A second client:** the independent Python client and its Hypothesis stateful test of our mock ([decisions §19](../decisions.md#19-a-second-client-in-python-with-hypothesis)).
-- **New spec issues** N43 to N45: website submissions with no approval step, when to fetch discovery documents again, and a lost code exchange orphaning an Account Token ([spec-issues.md](../spec-issues.md)). The drafts' counts (65 issues, 142 checks, 22 scenarios) are out of date: six issues were withdrawn on 12 October as our misreadings, leaving 62. Say it without numbers, or recount.
-- **Test vectors:** references to our exported vectors, which were deleted, are already gone from the drafts.
-- **The grid and Datalayer:** both drafts describe the harness as of 11 October (6 Personal Agents, 8 Companies). print-with-poppy has joined it since, and Datalayer's pin is 0.10.0, which the Hermes draft's SDK version (0.8.0) and its "SDK findings at v0.6.0" predate; both findings are still present at 0.10.0 ([interop-results](../interop-results/README.md)).
+- **Add the live result.** Neither draft says our agent has run against a live Company, because it hasn't. Say which Company Agent it was verified against and what worked, in each draft's Interop section and Impact or Caveats.
+- **Recount from the docs of the day.** The drafts give dated counts: 13 implementations; a grid of 6 Personal Agents and 10 Companies with 39 scenarios (25 interop, 14 security) and 1,440 cells (683 pass, 137 fail, 620 unsupported); 25 of 25 security cells passing; 147 mock checks (119 failures, 18 warnings, 10 tentative); 62 spec issues (5 Critical, 13 High, 29 Medium, 15 Low). Change any that have moved, with the new date.
+- **Recheck Datalayer.** The Hermes draft rests on the Python SDK at 0.10.0 (`0c048aa`): its README's claims, 151 passes and 3 failures as a Personal Agent, and the two gaps still open (Device Sign-In polling ignores `use_dpop_nonce`; SSE resume raises `stream_unavailable` against Datalayer's own Companies). If PyPI has moved on, rerun its row and update the adapter READMEs first.
+- **print-with-poppy.** Both drafts say our agent completes the store's journey only in the grid, because the live store admits agents on an allowlist. Update that if the store has added our `client_id` and the journey has run live.
+- **Re-research both projects.** The OpenClaw paths, seams and quotes are from `6f9af588`, and the Hermes ones from `97a9ae8e`, both on 11 October 2026. Check them against each project's `main`.
 
 ## Before posting
 
-- **adewale/dpa is private.** Both drafts link to it: the interop harness, `docs/spec-issues.md`, and `docs/poppy-issues.md`. Make those public first, or replace the links.
+- **adewale/dpa is private.** Both drafts link to it and cite its files: the interop harness and `docs/interop-spec.md`, `docs/interop-results/README.md`, `docs/spec-issues.md`, `docs/poppy-issues.md`, `docs/implementations.md`, `docs/ecosystem.md`, `SECURITY.md`, and the Datalayer adapter READMEs. Make those public first, or replace the links.
 - **Re-check the linked issues.** Their numbers and states were checked on 11 October 2026.
   - OpenClaw: #150247, #138113, #122034, #116052.
   - Hermes: #98958, #75576, #130295, #133512, #132233, #82416.
-- **Search again for an existing Poppy proposal.** On 11 October there was none in either repository.
+- **Search again for an existing Poppy proposal.** There was none in either repository on 11 October, nor in a search on 12 October.
 - **Disclose any affiliation** with Sierra or the spec's authors, if there is one.
 - **Hermes: issue or Discussion?** Its CONTRIBUTING.md points design proposals to GitHub Discussions. Consider a Discussion for the design and a short issue for the two seams.
 - **Fill in the PR-intent fields.** OpenClaw's dropdown is "Do you plan to open a PR for this?"; Hermes has a "Contribution" checkbox.
