@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
-import { openApi, proposesOperation } from "../src/poppy/apis";
+import { dpopSchemes, openApi, outsidePoppySession, proposesOperation } from "../src/poppy/apis";
 import type { Json } from "../src/poppy/json";
 import { summaryStartsWithAction, termsCovered } from "../src/poppy/operations";
 import type { PoppyClient } from "../src/poppy/client";
@@ -1294,9 +1294,111 @@ describe("6 APIs", () => {
     const card = (await cards(a)).find((item) => item.kind === "approval")!;
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
     const after = (await cards(a)).find((item) => item.kind === "approval")!;
-    expect(after).toMatchObject({ status: "failed" });
-    expect(after.result).toMatch(/insufficient_scope \[insufficient_scope\]$/);
+    expect(after).toMatchObject({ status: "refused", answer: { status: 403, error: "insufficient_scope" } });
+    expect(after.result).toBe(`Sent as you approved, but Mock Shop ${c.id} answered 403 (insufficient_scope). Nothing changed unless Mock Shop ${c.id} says otherwise.`);
     expect((await c.stub.state()).performs).toBe(0);
+  });
+
+  it("never uses a Company's own way in: a write its description leaves outside the Poppy Session is refused before a card or a request", async () => {
+    // The print shop is described as print-with-poppy's store is: DPoP and a
+    // Bearer guest scheme, a compatibility session endpoint with no security,
+    // a public catalog, and writes protected by either scheme.
+    const c = await company({ printShop: true });
+    const a = await agent();
+    const described = JSON.parse((await tool(a, "poppy_api_describe", { domain: c.domain })).text) as { operations: { operation: string; usable?: boolean; note?: string }[] };
+    const listed = (id: string) => described.operations.find((op) => op.operation === id)!;
+    expect(listed("startGuestAgentSession")).toMatchObject({ usable: false, note: expect.stringContaining("which the agent never uses") });
+    for (const id of ["getCatalog", "uploadPhoto", "orderPrints", "exchangeItem", "searchProducts"]) expect(listed(id).usable).toBeUndefined();
+    expect(JSON.parse((await tool(a, "poppy_api_describe", { domain: c.domain, operation: "startGuestAgentSession" })).text)).toMatchObject({ usable: false });
+
+    const before = (await requests(c)).length;
+    const refused = await tool(a, "poppy_api_call", { domain: c.domain, operation: "startGuestAgentSession", body: {} });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toBe(
+      `POST /agent-sessions (startGuestAgentSession) at Mock Shop ${c.id} isn't protected by its Poppy Session: its description lists no DPoP security for it, so it is a way in that isn't Poppy, such as a sign-in, session, token or compatibility endpoint. The agent can't use it: its only access to Mock Shop ${c.id} is the Poppy Session it already has, which every other call uses by itself (signed out, or signed in through poppy_sign_in). Nothing was sent. [outside_poppy_session]`
+    );
+    // No card, no token request, nothing sent to the endpoint.
+    expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
+    expect((await requests(c)).slice(before).filter((request) => request.grant !== null || request.url.includes("/agent-sessions"))).toEqual([]);
+
+    // The public catalog, a GET with no security, is read as before.
+    const catalog = await tool(a, "poppy_api_call", { domain: c.domain, operation: "getCatalog" });
+    expect(catalog.isError, catalog.text).toBe(false);
+    expect(JSON.parse(catalog.text)).toMatchObject({ status: 200, body: { products: [expect.objectContaining({ sku: "print-6x4" })] } });
+    // A write the Poppy Session protects proposes as before.
+    await signInDirect(a, c);
+    expect(JSON.parse((await tool(a, "poppy_api_call", exchangeWrite(c))).text)).toMatchObject({ status: 202, proposed: { revision: 1 } });
+  });
+
+  it("calls every operation as before when the description declares no security", async () => {
+    const c = await company({ printShop: true, describesSecurity: false });
+    const a = await agent();
+    const described = JSON.parse((await tool(a, "poppy_api_describe", { domain: c.domain })).text) as { operations: { usable?: boolean }[] };
+    expect(described.operations.filter((op) => op.usable !== undefined)).toEqual([]);
+    // The same session endpoint, undescribed, is a write like any other: it waits for the User.
+    const held = await tool(a, "poppy_api_call", { domain: c.domain, operation: "startGuestAgentSession", body: {} });
+    expect(held.text).toContain("Waiting for the User's approval");
+    const card = (await cards(a)).find((item) => item.kind === "approval")!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    // The store's 404 is a receipt that says so, never "done".
+    expect((await cards(a)).find((item) => item.kind === "approval")).toMatchObject({ status: "refused", answer: { status: 404, error: "not_available" } });
+  });
+
+  it("reads a DPoP scheme's name in any case, a requirement naming it among others, and the document's own security", () => {
+    const root = (schemes: Record<string, Json>) => ({ components: { securitySchemes: schemes } }) as Json;
+    expect([...dpopSchemes(root({ a: { type: "http", scheme: "dpop" }, b: { type: "http", scheme: "DPoP" }, c: { type: "http", scheme: "bearer" }, d: { type: "apiKey", in: "header", name: "DPoP" } }))]).toEqual(["a", "b"]);
+    expect(dpopSchemes({ openapi: "3.1.0" }).size).toBe(0);
+    const dpop = new Set(["session"]);
+    expect(outsidePoppySession(dpop, "POST", [{ session: [] }, { guest: [] }])).toBe(false);
+    expect(outsidePoppySession(dpop, "POST", [{ session: ["poppy:write"], key: [] }])).toBe(false);
+    expect(outsidePoppySession(dpop, "POST", [{ guest: [] }])).toBe(true);
+    expect(outsidePoppySession(dpop, "POST", [{}])).toBe(true);
+    expect(outsidePoppySession(dpop, "DELETE", [])).toBe(true);
+    expect(outsidePoppySession(dpop, "PUT", undefined)).toBe(true);
+    // Reads are never outside; nor is anything in a description with no DPoP scheme.
+    expect(outsidePoppySession(dpop, "GET", undefined)).toBe(false);
+    expect(outsidePoppySession(new Set(), "POST", undefined)).toBe(false);
+  });
+
+  /** A write at a Company without operations, approved on its card, with `fault` on its request. */
+  async function approvedWrite(mode: "error" | "throw" | "gateway") {
+    const c = await company({ operations: false });
+    const a = await agent();
+    await signInDirect(a, c);
+    expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text).toContain("Waiting for the User's approval");
+    const card = (await cards(a)).find((item) => item.kind === "approval")!;
+    await a.stub.poppyFault({ method: "POST", url: "/exchanges", mode });
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    const after = (await cards(a)).find((item) => item.kind === "approval")!;
+    const activity = JSON.parse(await a.stub.poppyActivity()) as { log: { id: string; result: string; outcome?: string }[] };
+    return { c, a, after, logged: activity.log.find((entry) => entry.id === card.id)! };
+  }
+
+  it("says a 500 to an approved write wasn't done: sent as approved, the status and code, nothing changed", async () => {
+    const { c, a, after, logged } = await approvedWrite("error");
+    const said = `Sent as you approved, but Mock Shop ${c.id} answered 500 (server_error). Nothing changed unless Mock Shop ${c.id} says otherwise.`;
+    expect(after).toMatchObject({ status: "refused", answer: { status: 500, error: "server_error" }, result: said });
+    expect(logged).toMatchObject({ result: "failed", outcome: said });
+    const notice = await a.stub.poppyWaitForNotice(`answered 500 (server_error)`);
+    expect(notice).toContain("Don't tell the User it was done");
+    expect(notice).not.toContain("Done, as the User approved");
+    // A status with no error code says only the status.
+    const gateway = await approvedWrite("gateway");
+    expect(gateway.after).toMatchObject({ status: "refused", answer: { status: 504 } });
+    expect(gateway.after.answer.error).toBeUndefined();
+    expect(gateway.after.result).toBe(`Sent as you approved, but Mock Shop ${gateway.c.id} answered 504. Nothing changed unless Mock Shop ${gateway.c.id} says otherwise.`);
+  });
+
+  it("says an approved write that got no answer may or may not have reached the Company, and never sends it again", async () => {
+    const { c, a, after, logged } = await approvedWrite("throw");
+    const said = `Sent as you approved, but no answer came from Mock Shop ${c.id}, so it may or may not have reached them. Check with Mock Shop ${c.id} before asking again.`;
+    expect(after).toMatchObject({ status: "unknown", result: said });
+    expect(logged).toMatchObject({ result: "unknown", outcome: said });
+    expect(await a.stub.poppyWaitForNotice("may or may not have happened")).toContain("it won't be retried automatically");
+    // The mock handled it before the connection failed; it isn't sent again.
+    expect((await c.stub.state()).performs).toBe(1);
+    expect(await exchangeRequests(c)).toHaveLength(1);
   });
 
   it("calls MCP tools with a Bearer token issued for that server only", async () => {

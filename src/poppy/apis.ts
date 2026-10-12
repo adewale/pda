@@ -1,5 +1,5 @@
 import { attachmentInfo, humanSize, readAttachment, type AttachmentInfo } from "../attachments";
-import { PoppyClient, PoppyError, scopeSet } from "./client";
+import { PoppyClient, PoppyError, scopeSet, withAnswer } from "./client";
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
@@ -35,6 +35,13 @@ export type OpenApiOperation = {
   readonly proposes: boolean;
   /** Scopes its first security requirement names, the operation's own or the document's. */
   readonly scopes: readonly string[];
+  /**
+   * A write the description doesn't protect with the Company's Poppy Session:
+   * the description declares a DPoP security scheme, and this operation's
+   * security requirements don't name it (a sign-in, session, token or
+   * compatibility endpoint, say). The agent never calls one.
+   */
+  readonly outsidePoppy: boolean;
 };
 
 /**
@@ -97,6 +104,42 @@ function declaredScopes(security: Json | undefined): string[] {
   );
 }
 
+/**
+ * The description's security schemes that take a Poppy Session Token: HTTP
+ * schemes named `DPoP` (spec 6: "Every listed API MUST accept Session Tokens
+ * as described in 4.3: DPoP for OpenAPI"; 4.3: "the `DPoP` scheme"). An
+ * HTTP authentication scheme's name is case-insensitive (RFC 9110 11.1).
+ */
+export function dpopSchemes(root: Json): Set<string> {
+  const schemes = isObject(root) && isObject(root.components) && isObject(root.components.securitySchemes) ? root.components.securitySchemes : {};
+  const names = new Set<string>();
+  for (const [name, value] of Object.entries(schemes)) {
+    const scheme = resolveRef(root, value);
+    if (isObject(scheme) && scheme.type === "http" && typeof scheme.scheme === "string" && scheme.scheme.toLowerCase() === "dpop") names.add(name);
+  }
+  return names;
+}
+
+/**
+ * Whether a write is outside the Company's Poppy Session: the description
+ * declares a DPoP scheme, and none of the operation's security requirements
+ * (its own `security`, or else the document's) names it. No requirement, or
+ * `security: []`, is a write that takes no Session Token; a requirement of
+ * another scheme alone (a Bearer guest token from the Company's own session
+ * endpoint) is another way in. Either is the Company's own authentication,
+ * not Poppy, and the agent's only access is its Poppy Session (our reading,
+ * docs/readings.md). A description that declares no DPoP scheme says nothing
+ * either way, as older or minimal descriptions don't (Datalayer's,
+ * pi-poppy's): there every operation is called with the Session Token, as
+ * spec 6 says every listed API accepts it. Reads are never outside: a public
+ * catalog is a GET with no security.
+ */
+export function outsidePoppySession(dpop: ReadonlySet<string>, method: string, security: Json | undefined): boolean {
+  if (dpop.size === 0 || method === "GET" || method === "HEAD") return false;
+  if (!Array.isArray(security)) return true;
+  return !security.some((requirement) => isObject(requirement) && Object.keys(requirement).some((name) => dpop.has(name)));
+}
+
 type OpenApiDocument = { readonly base: string; readonly operations: readonly OpenApiOperation[] };
 
 const documents = new Map<string, { document: OpenApiDocument; expiresAt: number }>();
@@ -123,6 +166,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
   const server = Array.isArray(json.servers) && isObject(json.servers[0]) && typeof json.servers[0].url === "string" ? json.servers[0].url : "/";
   const base = new URL(server, finalUrl).href.replace(/\/+$/, "");
   const operations: OpenApiOperation[] = [];
+  const dpop = dpopSchemes(json);
   if (isObject(json.paths)) {
     for (const [path, item] of Object.entries(json.paths)) {
       if (!isObject(item)) continue;
@@ -155,7 +199,8 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
           ...(upload ? { upload } : {}),
           acceptsIdempotencyKey: parameters.some((parameter) => parameter.in === "header" && /^idempotency-key$/i.test(parameter.name)),
           proposes: proposesOperation(json, op),
-          scopes: declaredScopes(op.security ?? json.security)
+          scopes: declaredScopes(op.security ?? json.security),
+          outsidePoppy: outsidePoppySession(dpop, method.toUpperCase(), op.security ?? json.security)
         });
       }
     }
@@ -171,6 +216,23 @@ function findOperation(document: OpenApiDocument, name: string): OpenApiOperatio
   return found;
 }
 
+/** What `poppy_api_describe` says of a write outside the Poppy Session, so the model doesn't plan around it. */
+const OUTSIDE_POPPY =
+  "Not usable: the Company's description doesn't protect this write with its Poppy Session (DPoP), so it is the Company's own way in (a sign-in, session, token or compatibility endpoint), which the agent never uses. Its only access is its Poppy Session; signing in goes through poppy_sign_in.";
+
+/**
+ * A write outside the Company's Poppy Session is refused before a card, a
+ * token or a request: the agent never uses a Company's own authentication.
+ */
+function refuseOutsidePoppy(company: Company, op: OpenApiOperation): void {
+  if (!op.outsidePoppy) return;
+  throw new PoppyError(
+    "outside_poppy_session",
+    `${op.method} ${op.path} (${op.operationId}) at ${company.name} isn't protected by its Poppy Session: its description lists no DPoP security for it, so it is a way in that isn't Poppy, such as a sign-in, session, token or compatibility endpoint. The agent can't use it: its only access to ${company.name} is the Poppy Session it already has, which every other call uses by itself (signed out, or signed in through poppy_sign_in). Nothing was sent.`,
+    0
+  );
+}
+
 /** A compact description of an API's operations, or one operation's inputs. */
 export async function describeOpenApi(client: PoppyClient, company: Company, apiUrl: string | undefined, name?: string): Promise<Json> {
   const api = findApi(company, "openapi", apiUrl);
@@ -179,7 +241,13 @@ export async function describeOpenApi(client: PoppyClient, company: Company, api
     return {
       api: api.url,
       description: api.description,
-      operations: document.operations.map((op) => ({ operation: op.operationId, method: op.method, path: op.path, summary: op.summary }))
+      operations: document.operations.map((op) => ({
+        operation: op.operationId,
+        method: op.method,
+        path: op.path,
+        summary: op.summary,
+        ...(op.outsidePoppy ? { usable: false, note: OUTSIDE_POPPY } : {})
+      }))
     };
   }
   const op = findOperation(document, name);
@@ -188,6 +256,7 @@ export async function describeOpenApi(client: PoppyClient, company: Company, api
     method: op.method,
     path: op.path,
     summary: op.summary,
+    ...(op.outsidePoppy ? { usable: false, note: OUTSIDE_POPPY } : {}),
     parameters: op.parameters as unknown as Json,
     ...(op.requestBody !== undefined ? { requestBody: op.requestBody } : {}),
     ...(op.upload
@@ -329,6 +398,8 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
   const api = findApi(company, "openapi", call.apiUrl);
   const document = await openApi(client, api);
   const op = findOperation(document, call.operation);
+  // Checked again as the request is made: a card shown before this check existed may still be approved.
+  refuseOutsidePoppy(company, op);
   const url = serverOf(company, api, document);
   const path = pathFor(op, call.params);
   for (const parameter of op.parameters) {
@@ -369,11 +440,14 @@ async function performOpenApi(client: PoppyClient, company: Company, label: stri
   }
   if (response.status === 403 && isObject(body) && body.error === "extension_required") {
     const extension = typeof body.extension === "string" ? body.extension : undefined;
-    throw new PoppyError(
-      "extension_required",
-      `${company.name} requires the extension ${extension ?? "(unnamed)"}, which this agent doesn't support`,
-      403,
-      { body, ...(extension ? { extension } : {}) }
+    throw withAnswer(
+      new PoppyError(
+        "extension_required",
+        `${company.name} requires the extension ${extension ?? "(unnamed)"}, which this agent doesn't support`,
+        403,
+        { body, ...(extension ? { extension } : {}) }
+      ),
+      403
     );
   }
   // An endpoint that would perform an action proposes an operation instead (Ops 4.1).
@@ -417,9 +491,11 @@ export async function callOpenApi(
   const api = findApi(company, "openapi", request.apiUrl);
   const document = await openApi(client, api);
   const op = findOperation(document, request.operation);
-  // A call that can't fill the path, or that would reach a Poppy endpoint, is
-  // refused now, before a token request or an approval card.
+  // A call that can't fill the path, one that would reach a Poppy endpoint,
+  // or a write outside the Poppy Session is refused now, before a token
+  // request or an approval card.
   refuseProtocolEndpoint(company, new URL(`${document.base}${pathFor(op, request.params ?? {})}`));
+  refuseOutsidePoppy(company, op);
   const files = request.files && Object.keys(request.files).length ? request.files : undefined;
   // A file the User would be asked to send must be one we'd send: to the Company's own host, checked before the card.
   if (files) serverOf(company, api, document);
@@ -500,9 +576,24 @@ function uploadedFiles(client: PoppyClient, company: Company, op: OpenApiOperati
   return attached;
 }
 
+/**
+ * An approved write. An answer other than 2xx is an error the receipt names
+ * with its status and code (operations.ts), never "done": the request was
+ * sent as approved, and the Company didn't do it as far as it says.
+ */
 registerExecutor("openapi", async (client, request, label) => {
   const { issuer, call } = request as unknown as { issuer: string; call: OpenApiCall };
-  const result = await performOpenApi(client, client.companyByIssuer(issuer), label, call);
+  const company = client.companyByIssuer(issuer);
+  const result = await performOpenApi(client, company, label, call);
+  const status = isObject(result) && typeof result.status === "number" ? result.status : 200;
+  if (status < 200 || status >= 300) {
+    const body = isObject(result) ? (result.body ?? null) : null;
+    const code = isObject(body) && typeof body.error === "string" ? body.error : `http_${status}`;
+    throw withAnswer(
+      new PoppyError(code, `${company.name} answered ${status}: ${JSON.stringify(body).slice(0, 1_000)}`, status, body !== null ? { body } : {}),
+      status
+    );
+  }
   return JSON.stringify(result).slice(0, 2_000);
 });
 
@@ -577,11 +668,11 @@ async function mcpRequest(client: PoppyClient, company: Company, label: string, 
   if (response.status === 404 && session?.sessionId) {
     mcpSessions.delete(sessionKey);
     await response.body?.cancel();
-    throw new PoppyError("mcp_session_expired", "The MCP session expired", 404);
+    throw withAnswer(new PoppyError("mcp_session_expired", "The MCP session expired", 404), 404);
   }
   if (!response.ok) {
     await response.body?.cancel();
-    throw new PoppyError(`http_${response.status}`, `${api.url} returned HTTP ${response.status}`, response.status);
+    throw withAnswer(new PoppyError(`http_${response.status}`, `${api.url} returned HTTP ${response.status}`, response.status), response.status);
   }
   return { result: await rpcResult(client, response, id), sessionId: response.headers.get("Mcp-Session-Id") };
 }

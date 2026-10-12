@@ -251,18 +251,48 @@ function answered(status: number, error: string | null): string {
 
 const VERDICT: Record<string, string> = { valid: "valid", invalid: "invalid", indeterminate: "indeterminate (not checked)" };
 
+/** The key for a domain whose discovery gave no Company: its https origin, which joins the log of an issuer at that origin. */
+function domainKey(domain: string): string {
+  const host = domain.trim().toLowerCase();
+  try {
+    return new URL(`https://${host}`).origin;
+  } catch {
+    return host;
+  }
+}
+
+/** The host a key names, for a log with no issuer: `https://shop.example` is shop.example. */
+function keyHost(key: string): string {
+  return key.replace(/^https:\/\//, "");
+}
+
+/**
+ * Why a document got no answer, as the other unanswered lines say it:
+ * `No answer (timeout after 10 s)`, `No answer (network)`, or the
+ * validator's reason it wasn't fetched.
+ */
+function unanswered(report: CompanyReport, kind: CompanyReport["documents"][number]["kind"]): string {
+  const message = report.messages.find((item) => item.document === kind && item.id.startsWith("http-"));
+  if (!message) return "No answer";
+  const timedOut = /timed out after (\d+) seconds/.exec(message.text);
+  if (timedOut) return `No answer (timeout after ${timedOut[1]} s)`;
+  return `No answer (${message.id === "http-failed" ? "network" : (token(message.id) ?? "refused")})`;
+}
+
 /**
  * Discovery for one domain, from the validator's report: each document it
  * fetched, then the verdict. Keyed by the issuer once discovery accepted the
- * Company, else by the domain, so a document claiming another Company's
- * issuer can't write into that Company's log.
+ * Company, else by the domain's https origin (which joins the log of an
+ * issuer at that origin), never by an issuer a document claims, so a
+ * document claiming another Company's issuer can't write into that
+ * Company's log.
  */
 export function recordDiscovery(sql: Sql, domain: string, report: CompanyReport | undefined, company: { readonly issuer?: string } | null): void {
   safely(() => {
     const issuer = company?.issuer ?? null;
-    const key = issuer ?? domain.trim().toLowerCase();
+    const key = issuer ?? domainKey(domain);
     if (!report) {
-      insert(sql, { key, issuer, step: "discovery.verdict", outcome: "failed", summary: `Discovery of ${label(key, 253) ?? "the domain"}`, result: "No report: discovery stopped before the validator ran" });
+      insert(sql, { key, issuer, step: "discovery.verdict", outcome: "failed", summary: `Discovery of ${label(keyHost(key), 253) ?? "the domain"}`, result: "No report: discovery stopped before the validator ran" });
       return;
     }
     for (const document of report.documents) {
@@ -280,7 +310,7 @@ export function recordDiscovery(sql: Sql, domain: string, report: CompanyReport 
         outcome: status === null ? "failed" : status >= 200 && status < 300 ? "ok" : "error",
         summary: metadata ? "Fetch the issuer's OAuth server metadata (RFC 8414)" : "Fetch poppy.json, without credentials",
         result: [
-          status === null ? "No answer" : String(status),
+          status === null ? unanswered(report, document.kind) : String(status),
           final && final !== url ? `from ${final}` : null,
           typeof document.contentType === "string" ? label(document.contentType.split(";")[0]!.trim(), 80) : null
         ]
@@ -666,7 +696,7 @@ export function protocolIndex(sql: Sql, names: Names): Extract<PoppyServerFrame,
       )
       .toArray() as unknown as { key: string; issuer: string | null; count: number; last_seq: number; last_at: number }[]
   ).map((row) => {
-    const known = row.issuer ? names(row.issuer) : { name: row.key, domain: row.key };
+    const known = row.issuer ? names(row.issuer) : { name: keyHost(row.key), domain: keyHost(row.key) };
     return { key: row.key, company: known.name, domain: known.domain, issuer: row.issuer, count: row.count, lastSeq: row.last_seq, lastAt: row.last_at };
   });
   return { type: "poppy.protocol.index", companies };
@@ -678,6 +708,6 @@ export function protocolLog(sql: Sql, key: string, names: Names): Extract<PoppyS
     .exec("SELECT seq, key, issuer, at, step, method, url, status, error, outcome, summary, result FROM poppy_protocol_log WHERE key = ? ORDER BY seq", key)
     .toArray() as unknown as LogRow[];
   const issuer = rows.find((row) => row.issuer)?.issuer ?? null;
-  const known = issuer ? names(issuer) : { name: key, domain: key };
+  const known = issuer ? names(issuer) : { name: keyHost(key), domain: keyHost(key) };
   return { type: "poppy.protocol", key, company: known.name, domain: known.domain, issuer, entries: rows.map(entry) };
 }

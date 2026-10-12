@@ -422,8 +422,9 @@ const APPROVAL_STATUS: Record<Extract<Card, { kind: "approval" }>["status"], str
   approved: "Approved",
   declined: "You declined",
   done: "Done, as you approved",
+  refused: "Sent as you approved, but not done",
   failed: "Failed after you approved",
-  unknown: "Interrupted"
+  unknown: "Outcome unknown"
 };
 
 const OPERATION_STATE: Record<string, string> = {
@@ -471,6 +472,16 @@ function ClosedCard({ card, send }: { card: Card; send: Send }) {
       );
     }
     case "approval": {
+      if (card.status === "refused") {
+        // Sent, and the Company answered with an error: never "done".
+        const answered = card.answer ? `${card.answer.status}${card.answer.error ? ` (${card.answer.error})` : ""}` : "with an error";
+        return (
+          <Receipt tone="danger" company={card.company} action={dismiss}>
+            Sent as you approved, but {card.company} answered {answered}: {card.summary}
+            <span className="block text-kumo-subtle">Nothing changed unless {card.company} says otherwise.</span>
+          </Receipt>
+        );
+      }
       const tone: Tone = card.status === "failed" || card.status === "unknown" ? "danger" : card.status === "declined" ? "info" : "success";
       return (
         <Receipt tone={tone} company={card.company} action={dismiss}>

@@ -81,8 +81,17 @@ export type Card =
       readonly kind: "approval";
       readonly approvalId: string;
       readonly summary: string;
-      readonly status: "pending" | "approved" | "declined" | "done" | "failed" | "unknown";
+      /**
+       * `done`: the Company answered 2xx. `refused`: sent as approved, and
+       * the Company answered with another status (`answer`). `unknown`: no
+       * answer came, or the agent restarted mid-call, so it may or may not
+       * have reached the Company. `failed`: it wasn't sent, or its answer
+       * couldn't be read.
+       */
+      readonly status: "pending" | "approved" | "declined" | "done" | "refused" | "failed" | "unknown";
       readonly result?: string;
+      /** What the Company answered a `refused` write: its HTTP status and error code, if it gave one. */
+      readonly answer?: { readonly status: number; readonly error?: string };
       /** The User's photos the request sends: names, types and sizes, which the page shows with the photo itself. */
       readonly attachments?: readonly { readonly id: string; readonly name: string; readonly type: string; readonly size: number }[];
     })

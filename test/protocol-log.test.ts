@@ -124,12 +124,22 @@ describe("the protocol log", () => {
     const a = await agent();
     expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(true);
     const index = await a.stub.poppyProtocolIndex();
-    expect(index.map((entry) => entry.key)).toEqual([c.domain]);
-    expect(index[0]!.issuer).toBeNull();
-    const log = await a.stub.poppyProtocol(c.domain);
+    // Keyed by the domain's https origin, which joins the log of an issuer at that origin; shown by its host.
+    expect(index.map((entry) => entry.key)).toEqual([`https://${c.domain}`]);
+    expect(index[0]).toMatchObject({ issuer: null, company: c.domain, domain: c.domain });
+    const log = await a.stub.poppyProtocol(`https://${c.domain}`);
     expect(log.map((entry) => entry.step)).toEqual(["discovery.poppy", "discovery.metadata", "discovery.verdict"]);
     expect(log[2]).toMatchObject({ outcome: "refused", section: "§3", title: "Validator" });
     expect(log[2]!.result).toMatch(/^invalid: [1-9]\d* errors?, .* · refused by our client \([\w.-]+/);
+  });
+
+  it("says why discovery got no answer, under the domain's https origin", async () => {
+    const c = await company();
+    const a = await agent();
+    await a.stub.poppyFault({ method: "GET", url: `${c.domain}/.well-known/poppy.json`, mode: "lose" });
+    expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(true);
+    const log = await a.stub.poppyProtocol(`https://${c.domain}`);
+    expect(log[0]).toMatchObject({ step: "discovery.poppy", outcome: "failed", result: "No answer (network)" });
   });
 
   it("records DPoP nonce retries, Retry-After waits and Session restarts as their own exchanges", async () => {

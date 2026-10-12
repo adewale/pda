@@ -750,6 +750,16 @@ async function decideHeld(id: string, decision: "approve" | "decline") {
     const code = /\[([a-z_0-9]+)\]$/.exec(row.result ?? "")?.[1] ?? "approved_write_failed";
     throw new PoppyStepError(code, 0, row.result ?? "");
   }
+  // No answer came: what the Company did is unknown, as a failure was before (docs/interop-spec.md 4).
+  if (row.status === "unknown") throw new PoppyStepError("approved_write_failed", 0, row.result ?? "");
+  // Sent, and the Company answered other than 2xx: the receipt says "answered 500 (server_error)".
+  // A Poppy error is a refusal, as `api` gives it; an answer with no code is the response.
+  if (row.status === "refused") {
+    const answered = /answered (\d{3})(?: \(([^)]+)\))?/.exec(row.result ?? "");
+    const status = Number(answered?.[1] ?? 0);
+    if (answered?.[2]) throw new PoppyStepError(answered[2], status, row.result ?? "");
+    return { status: "done", result: { status, body: null } };
+  }
   if (row.status !== "done") return { status: row.status };
   let outcome: Json = null;
   try {
