@@ -15,7 +15,7 @@
 - talk to the Company's agent, and call its OpenAPI or MCP APIs with DPoP-bound tokens;
 - receive proposed **operations** (an order, a refund, a booking) that the person approves before anything happens.
 
-Today Hermes users who want their agent to act at a business can browse anonymously, or hand over a password or browser profile with full access. Poppy is the scoped, revocable middle.
+Today Hermes users who want their agent to act at a business can browse anonymously, or hand over a password or browser profile with full access. Poppy defines a middle ground: scoped and revocable.
 
 Why now:
 
@@ -71,7 +71,7 @@ Under `gateway.multiplex_profiles`, `profile_routes` already map people to profi
 
 ### Seam 1: a credential route for plugin-owned OAuth grants
 
-Catalog rule 11 (`plugin-catalog/README.md`) says a plugin "never refreshes, rotates or writes OAuth tokens", and "if Hermes has no route for a credential a plugin needs, ask for one". A Poppy plugin is its own OAuth client with its own grants. It must store and rotate an Account Token per Company and account, and keep a signing key.
+Catalog rule 11 (`plugin-catalog/README.md`) says a plugin "never refreshes, rotates or writes OAuth tokens", and "if Hermes has no route for a credential a plugin needs, ask for one". A Poppy plugin is its own OAuth client with its own grants, so it must store and rotate an Account Token per Company and account, and keep a signing key.
 
 Today:
 - `plugin_data_dir` says "Secrets are deliberately NOT part of this convention".
@@ -92,7 +92,7 @@ There is no generic public route today: dashboard plugin routes sit behind auth,
 
 1. **The person's own origin** (a VPS, Tailscale Funnel, or a Cloudflare Tunnel). Each install gets its own `client_id` and key. This needs a plugin-registerable, unauthenticated, GET-only route for two documents plus one callback. **Ask:** such a seam, off by default.
 2. **A static identity host plus Device Sign-In only.** The client metadata and JWKS go on any HTTPS host the person controls, such as GitHub Pages or their domain. Hermes stays on loopback; Device needs no redirect. Hermes already does device flows (`hermes_cli/auth_device_flow.py`, `tools/mcp_oauth_device.py`). No seam is needed, but there is no Direct sign-in and key rotation is manual.
-3. **A Nous-run directory** of per-install documents plus a callback relay. The relay sees only codes that are useless without the install's PKCE verifier, client assertion and DPoP key. But the directory becomes a trust anchor, and running it is a product decision.
+3. **A Nous-run directory** of per-install documents plus a callback relay. The relay sees only codes that are useless without the install's PKCE verifier, client assertion and DPoP key, but the directory becomes a trust anchor, and running it is a product decision.
 
 ## Security and privacy
 
@@ -153,7 +153,7 @@ Other: a standalone plugin, plus two generic plugin-surface seams.
 ## Additional information
 
 **Related issues:**
-- #98958: an agent identity and delegation layer for MCP tool calls. Poppy is a concrete, published design for that.
+- #98958: an agent identity and delegation layer for MCP tool calls. Poppy is a published design for that.
 - #75576 and #130295: CIMD for MCP OAuth, including the `client_uri` same-origin rejection, which Poppy's same-domain rule mirrors.
 - #133512: no public route for a plugin's OAuth.
 - #132233: issuer trailing slash.

@@ -94,5 +94,5 @@ Known gaps:
 | poppy-demo | D | S0 SD SX C CI CA SO AO AS |
 | Ilmer | D | S0 C CI |
 
-- **dpa-mock, poppy-demo, Ilmer.** The client signs assertions without `typ: "JWT"`, and all three require it: dpa-mock records `client-assertion.typ`, Northstar answers `invalid_grant` (reported as `invalid_client`), and Ilmer answers `invalid_client`. The draft leaves `typ` open (S2), but every strict Company refuses it.
+- **dpa-mock, poppy-demo, Ilmer.** The client signs assertions without `typ: "JWT"`, and all three require it: dpa-mock records `client-assertion.typ`, Northstar answers `invalid_grant` (reported as `invalid_client`), and Ilmer answers `invalid_client`. The draft leaves `typ` open (S2), but every strict Company refuses an assertion without it.
 - **poppyseed SV, SXV, SO.** The client assertion's `aud` is the token endpoint even at the device authorization and revocation endpoints. poppyseed wants the URL of the endpoint the assertion is sent to, and answers `invalid_client` "assertion signature or claims are invalid".

@@ -13,9 +13,9 @@ Add support for the [Personal Agent Protocol](https://personalagentprotocol.org/
 
 ## Problem to solve
 
-Today, when OpenClaw acts at a business, it has two options. It can scrape the site in the managed browser as an anonymous visitor. Or it can be handed the person's password or session and act as them with full access. The business can't tell the agent from the person, can't limit it, and often blocks it.
+Today, when OpenClaw acts at a business, it can scrape the site in the managed browser as an anonymous visitor, or be handed the person's password or session and act as them with full access. Either way the business can't tell the agent from the person or limit it, and often blocks it.
 
-Poppy is a shared contract for the middle ground. The agent has its own identity, a `client_id` URL that serves metadata and a JWKS. Each person gets a separate, revocable, DPoP-bound grant. Writes become **operations** that the person approves.
+Poppy defines the middle ground. The agent has its own identity, a `client_id` URL that serves metadata and a JWKS. Each person gets a separate, revocable, DPoP-bound grant. Writes become **operations** that the person approves.
 
 Why now:
 
@@ -23,7 +23,7 @@ Why now:
 - About ten implementations exist, all days old, and none is a widely used personal agent.
 - OpenClaw's feedback on what a self-hosted agent needs would shape the spec while it can still change.
 
-One example is how a self-hosted agent gets an HTTPS `client_id`, discussed below. That is the same wall #150247 hit for MCP.
+One example, discussed below, is how a self-hosted agent gets an HTTPS `client_id`: the same wall #150247 hit for MCP.
 
 ## Proposed solution
 
@@ -69,7 +69,7 @@ One example is how a self-hosted agent gets an HTTPS `client_id`, discussed belo
 - On a timeout, or when there's no route to the person, nothing is confirmed.
 - Company text is data and never counts as approval.
 
-**Company MCP servers** go through `poppy_mcp_call`. They are deliberately not registered as OpenClaw MCP servers. That keeps the Company's tool names and descriptions out of the model's tool list, where they'd be a prompt-injection surface. It also keeps the Poppy-minted, Session-bound Bearer token out of `mcp.servers`. `api.registerMcpServerConnectionResolver` could make them native later (open question 4).
+**Company MCP servers** go through `poppy_mcp_call` and are deliberately not registered as OpenClaw MCP servers. That keeps the Company's tool names and descriptions out of the model's tool list, where they'd be a prompt-injection surface, and keeps the Poppy-minted, Session-bound Bearer token out of `mcp.servers`. `api.registerMcpServerConnectionResolver` could make them native later (open question 4).
 
 **Whose state.** The Poppy "User" is the person OpenClaw is acting for, taken from host-trusted context (`requesterSenderId`, or the Gateway profile in multi-user mode, `docs/concepts/multi-user.md`), never from a model argument. For each person the plugin keeps:
 
@@ -90,7 +90,7 @@ Plugin storage isn't split per agent automatically, so the plugin keys every rec
    - The relay never sees anything usable. A code is useless without the install's PKCE verifier, client assertion and DPoP key.
    - Costs: the directory becomes a trust anchor that could swap keys for every install. Companies would allowlist or block one domain. Someone has to run it. That is a product decision for maintainers, as in #150247.
 
-   Note that #150247's shared document (`token_endpoint_auth_method: "none"`) works for MCP public clients but **cannot** work for Poppy. Poppy requires `private_key_jwt`, and one shared private key would make every install the same agent.
+   #150247's shared document (`token_endpoint_auth_method: "none"`) works for MCP public clients but **cannot** work for Poppy, because Poppy requires `private_key_jwt`, and one shared private key would make every install the same agent.
 
 ## Security and privacy
 
