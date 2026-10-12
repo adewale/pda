@@ -1,6 +1,6 @@
 # Durable Personal Agent on Cloudflare: spec
 
-Oct 11, 2026 · Ade Oshineye
+Oct 12, 2026 · Ade Oshineye
 
 This spec follows **Personal Agent Protocol ("Poppy") Draft 0.1, updated Oct 9, 2026**, its Operations extension (version 1) and its Guides, as copied in [`spec/draft-0.1-2026-10-09/`](spec/draft-0.1-2026-10-09/README.md); [`spec/grounding.md`](spec/grounding.md) ties our claims to that text. It describes what is built, and marks what isn't. Why each part is built the way it is, and what was considered instead, is in [`docs/decisions.md`](docs/decisions.md); what is left to deploy and check is in [`docs/deployment-tasks.md`](docs/deployment-tasks.md). Earlier versions designed PAP support before the protocol was published; their A2A messages, agent cards, signed receipts and `sub = HMAC(userKey, …)` are withdrawn.
 
@@ -368,7 +368,7 @@ A document without `auth` can only be browsed as an ordinary website (§3.1), an
 
 - **One library, four front ends.**
   - The client's discovery.
-  - The CLI (`scripts/poppy-validate.ts`; Node 22.18+ runs it directly).
+  - The CLI (`scripts/poppy-validate.ts`; Node 24, the version the repository requires, runs it directly).
   - The JSON API (`POST /validator/api`).
   - The form (`/validator`).
 
