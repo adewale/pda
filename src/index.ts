@@ -257,9 +257,11 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname.startsWith("/poppy/")) {
       return (await handleIdentityRoute(request, env)) ?? (await handlePoppy(request, env));
     }
-    // Static assets serve everything outside `run_worker_first`, so this
-    // is only reached by unknown `/api/*` paths, including the SDK's own
-    // `/agents/<class>/<name>` URLs, which are deliberately not routed.
+    // Only paths `run_worker_first` sends here reach this line: an unknown
+    // `/api/*`, `/auth/*`, `/poppy/*` or `/validator/*` path. Every other
+    // path that matches no file gets the page (`single-page-application`),
+    // including the SDK's own `/agents/<class>/<name>` URLs, which are
+    // deliberately not routed to the agent.
     return text(404, "Not found");
   } catch (error) {
     if (error instanceof AuthError) {

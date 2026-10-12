@@ -79,6 +79,8 @@ Counts: still applies 15 (S1, S2, S3, S4, S5, S7, S8, S10, S11, S12, S13, S17, S
 
 ## Readings
 
+The last column records the grounding pass of 12 October. `docs/readings.md` has been corrected since where it said otherwise, at least for S6 (it now cites the Guides) and S15 (it no longer calls 7.9 a MUST), so read that file for the current wording.
+
 | Reading | Section (anchor) | The ambiguous passage(s), verbatim | Does readings.md describe it correctly? |
 | --- | --- | --- | --- |
 | S1 client assertion `aud` | 4.1 (`spec#agent-identity`), 4.2 (`spec#starting-sessions`) | "The Personal Agent authenticates at the token endpoint with a client assertion signed by a key from `jwks_uri` (`private_key_jwt`, [RFC 7523](https://www.rfc-editor.org/rfc/rfc7523))." and, for the Session assertion, "`aud` is the Company's `token_endpoint`, as a single string rather than an array, so the assertion can't be used at another Company." | Yes. |
