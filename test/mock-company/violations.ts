@@ -195,6 +195,9 @@ export const VIOLATIONS = {
 
   // ---- Writes and retries (Guides; Ops 6) ----
   "idempotency.key-reused": "Guides (Retries): Idempotency-Key reused with a different body",
+  "idempotency.key-missing": "Guides (Retries): An API write whose description takes an Idempotency-Key sent without one",
+  "upload.boundary": "RFC (RFC 7578 4.1; RFC 2046 5.1.1): A multipart/form-data body without a boundary parameter",
+  "upload.part-name": "RFC (RFC 7578 4.2): A multipart/form-data part without a Content-Disposition of form-data with a name",
   "exchange.performed-twice": "Guides (Retries; Ops 1 and 6: at most once): The same exchange made twice (a write retried without its key, or confirmed twice)",
 
   // ---- Conversations (7) ----

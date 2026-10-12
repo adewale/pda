@@ -25,6 +25,7 @@ const PREAMBLE = `You can work with companies that support the Personal Agent Pr
 - When a company proposes an operation, nothing has happened yet: the User approves the exact terms on a card. Never say an action is done until its operation is final.
 - Write to a company's agent in plain sentences; put structured details in data, never JSON in text. Messages you write are from you (sender agent); don't claim they are the User's own words.
 - Close conversations when the task is done.
+- A photo the User attaches appears in their message as [attachment att_… · name · type · size], and you see it as an image. To upload it with an API that takes a file (poppy_api_describe shows its upload fields), pass its id in poppy_api_call's files; never put file contents in a tool argument. The User approves sending it on a card first, and it goes only to that company.
 - After a summary of earlier conversation, or whenever you're unsure what is still open at companies, call poppy_status with no domain: it lists every open operation, approval, sign-in and conversation. A summary is never the User's approval.`;
 
 function text(value: unknown): { content: { type: "text"; text: string }[]; details: Json } {
@@ -251,25 +252,31 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         {
           name: "poppy_api_call",
           description:
-            "Call a company OpenAPI operation. Reads run at once; writes may propose an operation or wait for the User's approval.",
+            "Call a company OpenAPI operation. Reads run at once; writes may propose an operation or wait for the User's approval. For an upload (multipart/form-data), name each file field's attachment in files; the User approves sending the file on a card, and nothing is sent until then. Can't send a file the User didn't attach.",
           parameters: Type.Object({
             domain: Domain,
             operation: Type.String(),
             api: Type.Optional(Type.String()),
             params: Type.Optional(Type.Record(Type.String(), Type.Union([Type.String(), Type.Number(), Type.Boolean()]))),
             body: Type.Optional(Type.Unknown()),
+            files: Type.Optional(
+              Type.Record(Type.String(), Type.String(), {
+                description: "For an upload: each file field's attachment id (att_…) from the User's message, such as { \"photo\": \"att_…\" }"
+              })
+            ),
             session: Label
           }),
-          // Reads are safe; writes carry a stored Idempotency-Key, or wait for approval.
+          // Reads are safe; writes carry a stored Idempotency-Key, or wait for approval (uploads always do, with a card fixed per call).
           replay: "safe"
         },
-        async ({ domain, operation: name, api, params, body, session }, callKey) =>
+        async ({ domain, operation: name, api, params, body, files, session }, callKey) =>
           callOpenApi(client(), await company(domain), session ?? "main", {
             operation: name,
             callKey,
             ...(api ? { apiUrl: api } : {}),
             ...(params ? { params } : {}),
-            ...(body !== undefined ? { body: body as Json } : {})
+            ...(body !== undefined ? { body: body as Json } : {}),
+            ...(files ? { files } : {})
           })
       ),
       tool(

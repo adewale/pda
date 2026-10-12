@@ -1,5 +1,6 @@
-import type { KeyResult, PersonalAgent } from "./agent";
+import type { AttachResult, KeyResult, PersonalAgent } from "./agent";
 import { maySignIn } from "./allowlist";
+import { humanSize, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES } from "./attachments";
 import { ConfigError, readSessionSecret } from "./config";
 import { checkDeployment } from "./deployment.ts";
 import { withPagePolicy } from "./csp";
@@ -108,6 +109,69 @@ async function handleModelKey(request: Request, env: Env): Promise<Response> {
   return result.ok ? json(200, result.entitlement) : json(result.status, { error: result.error });
 }
 
+/** The most a `POST /api/attachments` body may be: the file, the model's preview, and the form around them. */
+const MAX_ATTACH_BODY = MAX_ATTACHMENT_BYTES + MAX_PREVIEW_BYTES + 64 * 1024;
+const ATTACHMENT_ID = /^att_[A-Za-z0-9_-]{22}$/;
+
+/**
+ * The User's photos (src/attachments.ts). `POST /api/attachments`, same
+ * origin only: a `multipart/form-data` body with `file` and, optionally, the
+ * smaller `preview` the page made for the model; the answer is the
+ * attachment's id, name, type and size. `GET /api/attachments/<id>` serves
+ * one back to its owner's page; `DELETE` removes one. Each person reaches
+ * only their own agent's.
+ */
+async function handleAttachments(request: Request, env: Env): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  const id = pathname.slice("/api/attachments".length).replace(/^\//, "");
+  if (id === "") {
+    if (request.method !== "POST") return text(405, "Method not allowed");
+    if (!sameOrigin(request)) return text(403, "Cross-origin request refused");
+    const identity = await signedIn(request, env);
+    const length = Number(request.headers.get("Content-Length") ?? "NaN");
+    if (!Number.isFinite(length)) return json(411, { error: "Send the photo with a Content-Length." });
+    if (length > MAX_ATTACH_BODY) return json(413, { error: `The most your agent takes is ${humanSize(MAX_ATTACHMENT_BYTES)} a photo.` });
+    let form: FormData;
+    try {
+      form = await request.formData();
+    } catch {
+      return json(400, { error: "Send the photo as multipart/form-data, in a field named file." });
+    }
+    const file = form.get("file");
+    const preview = form.get("preview");
+    if (typeof file === "string" || file === null) return json(400, { error: "Send the photo in a field named file." });
+    const result: AttachResult = await (await agentFor(identity, env)).attach(
+      identity,
+      file.name || null,
+      await file.arrayBuffer(),
+      preview && typeof preview !== "string" ? await preview.arrayBuffer() : null
+    );
+    return result.ok ? json(201, result.attachment) : json(result.status, { error: result.error });
+  }
+  if (!ATTACHMENT_ID.test(id)) return text(404, "Not found");
+  if (request.method === "GET") {
+    const identity = await signedIn(request, env);
+    const found = await (await agentFor(identity, env)).attachment(identity, id);
+    if (!found) return text(404, "Not found");
+    return new Response(found.bytes, {
+      headers: {
+        "Content-Type": found.info.type,
+        "Content-Length": String(found.info.size),
+        "Cache-Control": "private, max-age=3600",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "Content-Disposition": "inline"
+      }
+    });
+  }
+  if (request.method === "DELETE") {
+    if (!sameOrigin(request)) return text(403, "Cross-origin request refused");
+    const identity = await signedIn(request, env);
+    return (await (await agentFor(identity, env)).removeAttachment(identity, id)) ? new Response(null, { status: 204 }) : text(404, "Not found");
+  }
+  return text(405, "Method not allowed");
+}
+
 /** `POST /logout` from this origin only, so another site cannot sign you out. */
 function handleLogout(request: Request): Response {
   if (request.method !== "POST") return text(405, "Method not allowed");
@@ -179,6 +243,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname === "/api/me") return await handleMe(request, env);
     if (pathname === "/api/entitlement") return await handleEntitlement(request, env);
     if (pathname === "/api/model-key") return await handleModelKey(request, env);
+    if (pathname === "/api/attachments" || pathname.startsWith("/api/attachments/")) return await handleAttachments(request, env);
     if (pathname === "/logout") return handleLogout(request);
     if (pathname.startsWith("/auth/")) return await handleAuth(request, env);
     if (pathname.startsWith("/poppy/")) {

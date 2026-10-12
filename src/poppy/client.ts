@@ -957,6 +957,12 @@ export class PoppyClient {
       method: string;
       url: string;
       body?: Json;
+      /**
+       * A `multipart/form-data` body instead of JSON (an OpenAPI upload). The
+       * runtime writes its `Content-Type` with the boundary, and serializes it
+       * again for each retry.
+       */
+      form?: FormData;
       headers?: Record<string, string>;
       accept?: string;
       /** A long poll: how much longer than `timeouts.requestMs` the answer may take to start. */
@@ -993,7 +999,7 @@ export class PoppyClient {
       const log = (answer: Parameters<typeof recordResource>[4], next?: Followup) => recordResource(this.sql, company, request, auth, answer, next);
       const headers = new Headers(request.headers);
       headers.set("Accept", request.accept ?? "application/json");
-      if (request.body !== undefined) headers.set("Content-Type", "application/json");
+      if (request.body !== undefined && !request.form) headers.set("Content-Type", "application/json");
       if (token.type === "Bearer") {
         headers.set("Authorization", `Bearer ${token.value}`);
       } else {
@@ -1018,7 +1024,7 @@ export class PoppyClient {
               headers,
               // Never follow a redirect with this proof or token (Guides).
               redirect: "manual",
-              ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {})
+              ...(request.form ? { body: request.form } : request.body !== undefined ? { body: JSON.stringify(request.body) } : {})
             })
           ),
           signal

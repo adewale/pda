@@ -1,8 +1,10 @@
 import { cn, InputArea, Loader } from "@cloudflare/kumo";
-import { ClockIcon, HandIcon, MagnifyingGlassIcon, PaperPlaneRightIcon, SignInIcon, StopIcon } from "@phosphor-icons/react";
+import { ClockIcon, HandIcon, ImageIcon, MagnifyingGlassIcon, PaperPlaneRightIcon, SignInIcon, StopIcon } from "@phosphor-icons/react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { ATTACHMENT_TYPES } from "../attachments";
 import { DirectConversations, HiddenDirectRow, NeedsYouTray, openDirect, Receipts } from "../poppy-ui";
 import type { PiSession } from "../use-pi-session";
+import { attachProblem, PendingAttachments, removeAttachment, uploadAttachment, withMarkers, type PendingAttachment } from "./attachments";
 import { Action, IconAction, useNow } from "./controls";
 import { countdown } from "./format";
 import { Transcript } from "./transcript";
@@ -89,15 +91,56 @@ function useStickToBottom(...dependencies: unknown[]) {
   return scroller;
 }
 
+/** Photos in the composer: attach (picker, paste or drop), remove, and the ready ones for sending. */
+function useAttachments() {
+  const [items, setItems] = useState<PendingAttachment[]>([]);
+  const add = (files: Iterable<File>) => {
+    for (const file of files) {
+      const key = crypto.randomUUID();
+      const name = file.name || "Pasted photo";
+      const problem = attachProblem(file);
+      if (problem) {
+        setItems((current) => [...current, { key, name, state: "failed", error: problem }]);
+        continue;
+      }
+      setItems((current) => [...current, { key, name, state: "uploading" }]);
+      uploadAttachment(file).then(
+        (info) => setItems((current) => current.map((item) => (item.key === key ? { key, name: info.name, state: "ready", info } : item))),
+        (error: unknown) =>
+          setItems((current) =>
+            current.map((item) => (item.key === key ? { key, name, state: "failed", error: error instanceof Error ? error.message : String(error) } : item))
+          )
+      );
+    }
+  };
+  const remove = (key: string) => {
+    const item = items.find((candidate) => candidate.key === key);
+    if (item?.state === "ready") removeAttachment(item.info.id);
+    setItems((current) => current.filter((candidate) => candidate.key !== key));
+  };
+  const ready = items.flatMap((item) => (item.state === "ready" ? [item.info] : []));
+  const uploading = items.some((item) => item.state === "uploading");
+  return { items, add, remove, ready, uploading, clear: () => setItems([]) };
+}
+
+/** The image files among dropped or pasted items. */
+function imageFiles(list: FileList | null | undefined): File[] {
+  return [...(list ?? [])].filter((file) => file.type.startsWith("image/"));
+}
+
 function Composer({ session }: { session: PiSession }) {
   const [prompt, setPrompt] = useState("");
+  const attachments = useAttachments();
+  const picker = useRef<HTMLInputElement>(null);
   const connected = session.status === "open";
   const hintId = "composer-hint";
+  const sendable = (prompt.trim() !== "" || attachments.ready.length > 0) && !attachments.uploading;
   /** While a run is going, Enter queues a follow-up and Steer joins the run. */
   const submit = (whenBusy: "followUp" | "steer" = "followUp") => {
-    const text = prompt.trim();
-    if (!text || !connected) return;
+    if (!sendable || !connected) return;
+    const text = withMarkers(prompt, attachments.ready);
     setPrompt("");
+    attachments.clear();
     session.submit(text, whenBusy);
   };
   return (
@@ -107,12 +150,50 @@ function Composer({ session }: { session: PiSession }) {
           event.preventDefault();
           submit();
         }}
+        onDragOver={(event) => {
+          if ([...event.dataTransfer.types].includes("Files")) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          const files = imageFiles(event.dataTransfer.files);
+          if (files.length === 0) return;
+          event.preventDefault();
+          attachments.add(files);
+        }}
         className="mx-auto max-w-3xl px-4 pt-3 pb-3 sm:px-6"
       >
+        <PendingAttachments items={attachments.items} onRemove={attachments.remove} />
+        <input
+          ref={picker}
+          type="file"
+          accept={ATTACHMENT_TYPES.join(",")}
+          multiple
+          hidden
+          aria-hidden
+          tabIndex={-1}
+          data-testid="attach-input"
+          onChange={(event) => {
+            attachments.add([...(event.currentTarget.files ?? [])]);
+            event.currentTarget.value = "";
+          }}
+        />
         <div className="flex items-end gap-2 rounded-xl bg-kumo-base p-2 ring ring-kumo-line focus-within:ring-2 focus-within:ring-kumo-brand">
+          <IconAction
+            label="Attach a photo"
+            type="button"
+            variant="ghost"
+            disabled={!connected}
+            icon={<ImageIcon size={16} />}
+            onClick={() => picker.current?.click()}
+          />
           <InputArea
             value={prompt}
             onValueChange={setPrompt}
+            onPaste={(event) => {
+              const files = imageFiles(event.clipboardData?.files);
+              if (files.length === 0) return;
+              event.preventDefault();
+              attachments.add(files);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
@@ -128,7 +209,7 @@ function Composer({ session }: { session: PiSession }) {
           />
           {session.running ? (
             <div className="flex gap-1.5">
-              <Action type="button" variant="secondary" disabled={prompt.trim() === ""} onClick={() => submit("steer")}>
+              <Action type="button" variant="secondary" disabled={!sendable} onClick={() => submit("steer")}>
                 Steer
               </Action>
               <IconAction label="Stop the agent" variant="secondary" icon={<StopIcon size={16} weight="fill" />} onClick={session.abort} />
@@ -138,7 +219,7 @@ function Composer({ session }: { session: PiSession }) {
               label="Send message"
               type="submit"
               variant="primary"
-              disabled={!connected || prompt.trim() === ""}
+              disabled={!connected || !sendable}
               icon={<PaperPlaneRightIcon size={16} />}
             />
           )}
@@ -147,7 +228,7 @@ function Composer({ session }: { session: PiSession }) {
           {connected
             ? session.running
               ? "Enter queues a follow-up · Steer adds it to the current answer"
-              : "Enter to send · Shift+Enter for a new line"
+              : "Enter to send · Shift+Enter for a new line · Attach, paste or drop a photo"
             : "You can send once your agent is connected."}
         </p>
       </form>

@@ -35,6 +35,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 23. [Compaction: a budget, our summarizer, the page](#23-compaction-a-budget-our-summarizer-the-page)
 24. [Conformance levels from each requirement's basis](#24-conformance-levels-from-each-requirements-basis)
 25. [A protocol view in Activity](#25-a-protocol-view-in-activity)
+26. [Photos in the chat, uploaded only with the User's approval](#26-photos-in-the-chat-uploaded-only-with-the-users-approval)
 
 ## 1. A Worker and one Durable Object per person
 
@@ -292,4 +293,19 @@ Each of these closed a specific gap, and each has a test:
   - *Hooks in each module instead of triggers.* More call sites, in files another change is editing, and a missed one is a silent gap; a trigger can't miss a status change.
   - *Workers Logs.* Not per person, and not something the page can show.
 - **Consequences.** A test feeds every secret kind the other secret checks use through Direct, Device and Mediated Sign-In, conversations, an operation, MCP and signing out, collects every secret that crossed the wire in the test's fetcher, and finds none in a row or a frame; a deliberately leaked `sign_in_id` fails it. OpenAPI and MCP metadata fetches, and website pages other than their 429 and 503 answers, aren't logged yet. The rows are about the person's own activity, so they go when the agent is deleted.
+
+## 26. Photos in the chat, uploaded only with the User's approval
+
+- **Context.** The demo journey the owner chose is print-with-poppy: "print this photo as a 6×4". The store takes a photo as `multipart/form-data` (`POST /api/photos`, field `photo`), then `POST /api/orders` proposes an Operations v1 operation in a signed-out Session ([its adapter's README](../interop/impls/print-with-poppy-company/README.md)). The page had no way to attach a file, the OpenAPI tool sent only JSON, and the files copied from Cloudflare's example can't change. A photo is the User's data, and the Operations extension covers what a Company does, not what we send it: at a Company with the extension, our writes went straight through.
+- **Decision.**
+  - **Storage.** `src/attachments.ts` keeps each photo in the agent's own SQLite, in 1 MiB rows under the 2 MB row limit: JPEG, PNG, WebP or GIF by their first bytes, at most 10 MiB each (the store takes 20 MB), 100 MiB an agent, deleted after 30 days and with the agent. `POST /api/attachments` (same origin) stores one, `GET` serves it back to its owner's page with `nosniff` and a sandboxing CSP, `DELETE` removes one.
+  - **The model.** The page adds a marker to the message, `[attachment att_… · lake.jpg · image/jpeg · 2.4 MB]`, which the upstream protocol carries as text. A pi `beforeRequest` hook (`src/attachment-images.ts`) shows the model the page's smaller copy as an image in that message, on each request, for the four newest attachments, and only in the User's own messages. Tools name an attachment by its id; the model never holds the bytes.
+  - **Uploads.** `poppy_api_call` takes `files: { field: attachment id }` for an operation whose request body is `multipart/form-data`; the client builds the form from the stored bytes when it sends. Every upload waits for the User's approval on a card that shows the photo, at every Company, operations or not, after the server is checked against the Company's hosts (N10). The card is fixed per tool call, so a replay shows the same one.
+  - **Signed-out operations (N19).** An operation the Company no longer has (`operation_not_found`) is final for us: nothing confirms, reads or cancels it again, its card says whether it may have happened, and it no longer blocks a new proposal ([readings.md](readings.md#n19)).
+- **Alternatives.**
+  - *Images in the transcript,* as an image part of the submitted input, which pi and the upstream protocol carry: every page snapshot and every request would carry the bytes, and deleting a photo wouldn't remove it.
+  - *R2:* one person's few photos fit the Durable Object; R2 adds a binding, a second place to delete from, and per-object access rules for no gain at this size.
+  - *Resizing in the Worker:* workerd has no image library; the browser already decodes the photo, so the page makes the preview, and an agent whose page couldn't shows the model the file only when it is under 1 MiB.
+  - *Letting uploads through at Operations Companies,* like other writes: the photo would leave the agent on the model's word alone, and a Company's injected text could name the User's photo for another Company.
+- **Consequences.** The demo journey has two approvals: sending the photo, then the order's terms. The Activity page lists an operation marked lost as still open, since `src/poppy/activity.ts` reads the operation's own state; that file is being changed elsewhere. HEIC photos aren't taken; browsers convert them for an `accept` list without HEIC.
 - **When.** 12 October 2026.

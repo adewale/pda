@@ -1,5 +1,6 @@
+import type { AttachmentInfo } from "../attachments";
 import { PoppyClient, PoppyError } from "./client";
-import type { Company } from "./discovery";
+import { tokenHostAllowed, type Company } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId } from "./jwt";
 import { one, rows } from "./store";
@@ -41,6 +42,14 @@ type OperationRow = {
 const NOT_SENT = 0;
 const ANSWERED = 1;
 const SENT = 2;
+/**
+ * The Company says it no longer has the operation (`operation_not_found`),
+ * as when the signed-out Session it was proposed in has ended (Ops 3.2).
+ * Nothing can confirm, read or cancel it any more, so it is final for us
+ * (our reading of N19, docs/readings.md): never confirmed or read again, and
+ * no longer in the way of a new proposal.
+ */
+const LOST = 3;
 /** When the tracking job checks on a confirm whose answer never came. */
 const CONFIRM_CHECK_MS = 60_000;
 
@@ -131,9 +140,28 @@ function moneyTerms(terms: Json | undefined): { amount: number; currency: string
   return found;
 }
 
-async function showOperation(client: PoppyClient, company: Company, row: OperationRow): Promise<void> {
+/**
+ * Links in a final operation's `result.data` the User can follow: HTTPS URLs
+ * on the Company's own hosts (a checkout or an order's status page), each
+ * labelled by its key. Anything else stays data.
+ */
+export function resultLinks(company: Company, data: Json | undefined): { label: string; url: string }[] {
+  if (!isObject(data ?? null)) return [];
+  const links: { label: string; url: string }[] = [];
+  for (const [key, value] of Object.entries(data as Record<string, Json>)) {
+    if (typeof value !== "string" || !URL.canParse(value)) continue;
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || !tokenHostAllowed(company, url)) continue;
+    links.push({ label: key.replace(/_url$/i, "").replace(/[_-]+/g, " ").trim() || "link", url: url.href });
+  }
+  return links.slice(0, 4);
+}
+
+async function showOperation(client: PoppyClient, company: Company, row: OperationRow, lostOutcome?: "unknown" | "not_done"): Promise<void> {
   const operation = JSON.parse(row.operation) as Operation;
-  const open = operation.state === "proposed" && row.approved_revision !== operation.revision;
+  const lost = row.confirmed === LOST ? (lostOutcome ?? "unknown") : undefined;
+  const open = !lost && operation.state === "proposed" && row.approved_revision !== operation.revision;
+  const links = FINAL.has(operation.state) ? resultLinks(company, operation.result?.data) : [];
   await client.host.showCard({
     id: `op-${row.issuer}-${operation.operation_id}`,
     kind: "operation",
@@ -153,8 +181,35 @@ async function showOperation(client: PoppyClient, company: Company, row: Operati
     userApprovalRequired: operation.user_approval_required === true,
     ...(operation.url ? { url: operation.url } : {}),
     ...(operation.result?.summary ? { result: operation.result.summary } : {}),
+    ...(links.length ? { links } : {}),
+    ...(lost ? { lost } : {}),
     ...(row.approved_by ? { approvedBy: row.approved_by } : {})
   });
+}
+
+/**
+ * The Company answered `operation_not_found` for an operation it proposed:
+ * the Session it belongs to has ended, or the Company forgot it. Mark it
+ * lost, release a reserved permission use, close its card and tell the model,
+ * once. If a confirm was sent, it may have happened; the User is told to check.
+ */
+async function markLost(client: PoppyClient, company: Company, row: OperationRow): Promise<void> {
+  if (row.confirmed === LOST) return;
+  // It may have happened if it was being performed, or an earlier confirm's answer never came.
+  const uncertain = row.confirmed === SENT || (JSON.parse(row.operation) as Operation).state === "in_progress";
+  const approved = row.approved_revision !== null;
+  releasePermission(client, row);
+  setConfirmed(client, row.issuer, row.operation_id, LOST);
+  await showOperation(client, company, stored(client, row.issuer, row.operation_id)!, uncertain ? "unknown" : "not_done");
+  const outcome = uncertain
+    ? `A confirm may have reached ${company.name} before, so it may have happened: tell the User to check with ${company.name} before asking for it again.`
+    : approved
+      ? `The User approved it, but ${company.name} no longer has it, so it wasn't done. If the User still wants it, ask for a new proposal; they approve that one again.`
+      : "Nothing was confirmed. If the User still wants it, ask for a new proposal.";
+  await client.host.notifyModel(
+    `[system] ${company.name} no longer has operation ${row.operation_id} (operation_not_found)${row.account ? "" : ": it was proposed in a signed-out Session, which has ended, and only that Session could use it (Operations 3.2)"}. It can't be confirmed, read or cancelled now. ${outcome}`,
+    `poppy-op-lost-${row.issuer}-${row.operation_id}`
+  );
 }
 
 /**
@@ -176,7 +231,7 @@ export function refuseWhileConfirming(client: PoppyClient, issuer: string, reque
     request
   );
   const row = found ? stored(client, issuer, found.operation_id) : undefined;
-  if (!row || row.approved_revision === null) return;
+  if (!row || row.approved_revision === null || row.confirmed === LOST) return;
   const operation = JSON.parse(row.operation) as Operation;
   if (FINAL.has(operation.state)) return;
   throw new PoppyError(
@@ -263,8 +318,9 @@ async function afterUpdate(
   if (FINAL.has(operation.state) && previous?.state !== operation.state) {
     settlePermission(client, row, operation.state === "succeeded" || operation.state === "in_progress");
     const result = operation.result?.summary ?? "No details.";
+    const data = operation.result?.data !== undefined ? JSON.stringify(operation.result.data) : "";
     await client.host.notifyModel(
-      `[system] Operation ${operation.operation_id} at ${company.name} is ${operation.state}. The company's account of what happened: "${result}"`,
+      `[system] Operation ${operation.operation_id} at ${company.name} is ${operation.state}. The company's account of what happened: "${result}"${data ? ` Its details, as data: ${data.length > 1_000 ? `${data.slice(0, 1_000)}…` : data}` : ""}`,
       `poppy-op-final-${row.issuer}-${operation.operation_id}`
     );
   }
@@ -310,7 +366,7 @@ export async function approveAndConfirm(
   permissionId?: string
 ): Promise<void> {
   const row = stored(client, issuer, operationId);
-  if (!row) return;
+  if (!row || row.confirmed === LOST) return;
   const operation = JSON.parse(row.operation) as Operation;
   // An approval covers one revision; a stale card can't approve newer terms.
   if (operation.revision !== revision || operation.state !== "proposed") return;
@@ -344,7 +400,7 @@ const CONFIRMING = (issuer: string, operationId: string) => `confirm|${issuer}|$
  */
 export async function confirm(client: PoppyClient, issuer: string, operationId: string): Promise<void> {
   const row = stored(client, issuer, operationId);
-  if (!row || row.approved_revision === null || !row.approved_by) return;
+  if (!row || row.approved_revision === null || !row.approved_by || row.confirmed === LOST) return;
   if (FINAL.has((JSON.parse(row.operation) as Operation).state)) return;
   const key = CONFIRMING(issuer, operationId);
   if (client.inFlight.has(key)) return;
@@ -383,6 +439,10 @@ export async function confirm(client: PoppyClient, issuer: string, operationId: 
     if (error.code === "rate_limited") {
       // Not acted on: after Retry-After the tracking job reads, then confirms.
       await scheduleTracking(client, issuer, operationId, client.host.now() + (error.detail.retryAfter ?? 30) * 1000);
+      return;
+    }
+    if (error.code === "operation_not_found") {
+      await markLost(client, company, row);
       return;
     }
     // The Company answered, so no confirm is outstanding.
@@ -465,6 +525,7 @@ export async function retryApproved(client: PoppyClient, issuer: string): Promis
       ({ operation } = await readOperation(client, client.companyByIssuer(issuer), row));
     } catch (error) {
       if (!(error instanceof PoppyError)) throw error;
+      if (error.code === "operation_not_found") await markLost(client, client.companyByIssuer(issuer), row);
       continue;
     }
     const current = stored(client, issuer, row.operation_id);
@@ -482,7 +543,7 @@ export async function retryApproved(client: PoppyClient, issuer: string): Promis
  */
 export async function trackOperation(client: PoppyClient, issuer: string, operationId: string): Promise<number | null> {
   const row = stored(client, issuer, operationId);
-  if (!row) return null;
+  if (!row || row.confirmed === LOST) return null;
   const known = JSON.parse(row.operation) as Operation;
   if (FINAL.has(known.state)) return null;
   // A proposal with no confirm outstanding has nothing to follow up.
@@ -495,7 +556,10 @@ export async function trackOperation(client: PoppyClient, issuer: string, operat
     if (error instanceof PoppyError && error.code === "rate_limited") {
       return client.host.now() + (error.detail.retryAfter ?? 30) * 1000;
     }
-    if (error instanceof PoppyError && error.code === "operation_not_found") return null;
+    if (error instanceof PoppyError && error.code === "operation_not_found") {
+      await markLost(client, company, row);
+      return null;
+    }
     return client.host.now() + 30_000;
   }
   const { operation } = read;
@@ -520,15 +584,24 @@ export async function trackOperation(client: PoppyClient, issuer: string, operat
 /** Decline a proposal, or ask the Company to stop one in progress (Ops 7). */
 export async function cancelOperation(client: PoppyClient, issuer: string, operationId: string): Promise<void> {
   const row = stored(client, issuer, operationId);
-  if (!row) return;
+  if (!row || row.confirmed === LOST) return;
   const company = client.companyByIssuer(issuer);
   const endpoint = endpointOf(company);
   releasePermission(client, row);
-  const { body } = await client.resourceJson(
-    company,
-    { method: "POST", url: `${endpoint.url}/${encodeURIComponent(operationId)}/cancel` },
-    { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
-  );
+  let body: Json;
+  try {
+    ({ body } = await client.resourceJson(
+      company,
+      { method: "POST", url: `${endpoint.url}/${encodeURIComponent(operationId)}/cancel` },
+      { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
+    ));
+  } catch (error) {
+    if (error instanceof PoppyError && error.code === "operation_not_found") {
+      await markLost(client, company, row);
+      return;
+    }
+    throw error;
+  }
   await update(client, company, body);
 }
 
@@ -660,23 +733,54 @@ export async function proposeLocal(
   label: string,
   kind: string,
   summary: string,
-  request: Json
+  request: Json,
+  options: {
+    /** A fixed id, so a replayed tool call shows the same card rather than a second one. */
+    readonly id?: string;
+    /** The User's files the request would send, shown on the card (names and sizes; the page shows the photo). */
+    readonly attachments?: readonly AttachmentInfo[];
+  } = {}
 ): Promise<string> {
-  const id = randomId("apr_");
-  client.sql.exec(
-    "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
-    id,
-    company.issuer,
-    label,
+  const id = options.id ?? randomId("apr_");
+  const attachments = options.attachments?.length ? options.attachments : undefined;
+  const existing = one<ApprovalRow>(client.sql, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  if (existing && existing.status !== "pending") return id;
+  if (!existing) {
+    client.sql.exec(
+      "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+      id,
+      company.issuer,
+      label,
+      summary,
+      JSON.stringify({ kind, request, ...(attachments ? { attachments } : {}) }),
+      Date.now()
+    );
+  }
+  await client.host.showCard({
+    id: `approval-${id}`,
+    kind: "approval",
+    company: company.name,
+    domain: company.domain,
+    open: true,
+    approvalId: id,
     summary,
-    JSON.stringify({ kind, request }),
-    Date.now()
-  );
-  await client.host.showCard({ id: `approval-${id}`, kind: "approval", company: company.name, domain: company.domain, open: true, approvalId: id, summary, status: "pending" });
+    status: "pending",
+    ...(attachments ? { attachments } : {})
+  });
   return id;
 }
 
 type ApprovalRow = { id: string; issuer: string; label: string; summary: string; request: string; status: string };
+
+/** The files an approval would send or sent, from its stored request. */
+function approvalAttachments(row: ApprovalRow): { attachments?: readonly AttachmentInfo[] } {
+  try {
+    const { attachments } = JSON.parse(row.request) as { attachments?: AttachmentInfo[] };
+    return attachments?.length ? { attachments } : {};
+  } catch {
+    return {};
+  }
+}
 
 export async function decideLocal(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<void> {
   const row = one<ApprovalRow>(client.sql, "SELECT * FROM poppy_approvals WHERE id = ?", id);
@@ -692,7 +796,8 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
       approvalId: id,
       summary: row.summary,
       status,
-      ...(result ? { result } : {})
+      ...(result ? { result } : {}),
+      ...approvalAttachments(row)
     });
   if (decision === "decline") {
     client.sql.exec("UPDATE poppy_approvals SET status = 'declined' WHERE id = ?", id);
@@ -737,7 +842,8 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
       approvalId: row.id,
       summary: row.summary,
       status: "unknown",
-      result: "Interrupted; check with the company whether it happened."
+      result: "Interrupted; check with the company whether it happened.",
+      ...approvalAttachments(row)
     });
     await client.host.notifyModel(
       `[system] An approved action was interrupted and its outcome is unknown: ${row.summary}. Tell the User to check with ${company}; it won't be retried automatically.`,

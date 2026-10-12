@@ -67,6 +67,14 @@ export type Card =
       readonly userApprovalRequired: boolean;
       readonly url?: string;
       readonly result?: string;
+      /** HTTPS links on the Company's hosts from a final operation's `result.data`, such as a checkout. */
+      readonly links?: readonly { readonly label: string; readonly url: string }[];
+      /**
+       * The Company no longer has it (`operation_not_found`), so nothing more
+       * can be done with it (N19): whether it may have happened (`unknown`, a
+       * confirm's answer never came) or wasn't done.
+       */
+      readonly lost?: "unknown" | "not_done";
       readonly approvedBy?: string;
     })
   | (CardBase & {
@@ -75,6 +83,8 @@ export type Card =
       readonly summary: string;
       readonly status: "pending" | "approved" | "declined" | "done" | "failed" | "unknown";
       readonly result?: string;
+      /** The User's photos the request sends: names, types and sizes, which the page shows with the photo itself. */
+      readonly attachments?: readonly { readonly id: string; readonly name: string; readonly type: string; readonly size: number }[];
     })
   | (CardBase & {
       readonly kind: "direct_invite";

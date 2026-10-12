@@ -37,6 +37,16 @@ describe("describeToolCall", () => {
     expect(line).toMatchObject({ text: "Asked you to approve a change at Manzanita", how: "API", access: "view and change", state: "waiting" });
   });
 
+  it("says an upload asked the User to approve sending their photo", () => {
+    const line = describeToolCall(
+      "poppy_api_call",
+      { domain: "manzanita.example", operation: "uploadPhoto", files: { photo: "att_AbCdEfGhIjKlMnOpQrStUv" } },
+      { error: false, details: { proposed: "apr_1" } },
+      names
+    )!;
+    expect(line).toMatchObject({ text: "Asked you to approve sending your photo to Manzanita", how: "API", access: "view and change" });
+  });
+
   it("says a write that went through changed something", () => {
     const line = describeToolCall("poppy_api_call", { domain: "manzanita.example", operation: "DELETE /saved/{id}" }, { error: false, details: { status: 204 } }, names)!;
     expect(line).toMatchObject({ text: "Made a change at Manzanita: saved", access: "view and change", state: "done" });

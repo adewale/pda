@@ -79,6 +79,7 @@ Results aren't committed. A summary of the last full grid, for readers who don't
 registry.json        Implementations: name, role, pinned commit, where to build
 known-failures.json  Failures with an issue link and a reason; they don't fail the run, but a stale one does. "*" matches any agent, Company or scenario
 scenarios/           One JSON file per scenario (spec section 6)
+files/               Files scenarios upload (an api step's args.files): lake.jpg, a 480×360 photo drawn for the purpose
 runner/              The CLI, cell runner, checks, attribution and report
 proxy/               The recording TLS proxy and the control relay (Node, no dependencies)
 impls/dpa-agent/     Our agent: src/poppy in Node, no model

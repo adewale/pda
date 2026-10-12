@@ -50,7 +50,7 @@ import {
 import { readingChecks, refusedReadingChecks } from "./readings.ts";
 import { cellId, renderReport } from "./report.ts";
 import { runWithRetry } from "./retry.ts";
-import { lintScenario } from "./scenario.ts";
+import { inlineFiles, lintScenario } from "./scenario.ts";
 import { assertTrace } from "./traces.ts";
 import type { Cell, Check, KnownFailure, Manifest, Registry, RegistryEntry, Role, Scenario } from "./types.ts";
 
@@ -58,9 +58,15 @@ const ROOT = path.resolve(import.meta.dirname, "../..");
 const INTEROP = path.join(ROOT, "interop");
 const SPEC = "Personal Agent Protocol Draft 0.1";
 
+/** A file scenarios upload (`args.files`), from `interop/files/`; null if there's none by that name. */
+function harnessFile(name: string): Uint8Array | null {
+  const file = path.join(INTEROP, "files", name);
+  return path.dirname(file) === path.join(INTEROP, "files") && existsSync(file) ? readFileSync(file) : null;
+}
+
 /** The order scenarios run and are shown in; others follow by id. */
 export const SCENARIO_ORDER = [
-  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "SE", "R", "AO", "AM", "AS", "O", "OX", "RL", "DP",
+  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "SE", "R", "AO", "AM", "AS", "O", "OX", "OU", "RL", "DP",
   // Adversarial (docs/adversarial-interop.md): network faults, then malicious agent and Company.
   "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "XH", "XI", "BX"
 ];
@@ -350,7 +356,15 @@ async function runOne(
   const callbacks: string[] = [];
   const reply = (answer: Answer, agentStep: boolean): Reply => toReply(answer.status, answer.body, agentStep);
   const driver: Driver = {
-    agent: async (op, params) => reply(await control(agent.target, "POST", "/step", { op, company: company.domain, params }), true),
+    agent: async (op, params) => {
+      let sent: unknown;
+      try {
+        sent = inlineFiles(op, params, harnessFile);
+      } catch (error) {
+        return { kind: "broken", detail: error instanceof Error ? error.message : String(error) };
+      }
+      return reply(await control(agent.target, "POST", "/step", { op, company: company.domain, params: sent }), true);
+    },
     company: async (hook, params) => {
       const answer = await control(company.target, "POST", `/hooks/${hook}`, params);
       const redirect = (answer.body as { redirect?: unknown } | null)?.redirect;

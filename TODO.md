@@ -34,6 +34,16 @@ Everything left open, in one place. **Owner** items need a decision or an accoun
 - [ ] **Code. The protocol log's gaps** ([decisions §25](docs/decisions.md#25-a-protocol-view-in-activity)): the OpenAPI description and MCP protected-resource metadata fetches (`apis.ts` fetches them with `fetchJson`, not the client) and website pages other than their 429 and 503 answers aren't logged; nor is the Direct Sign-In callback's `iss` check, only the sign-in's status change after it.
 - [ ] **Code. Check the protocol view in a real browser** at phone width and in dark mode (tested in happy-dom only), and with a print ordered from print-with-poppy, the demo journey.
 
+### The demo journey: "print this photo as a 6×4" at print-with-poppy
+
+Built and passing in the grid (scenario OU, against the store at its pinned commit in demo mode) and in `test/print-journey.test.ts`. Left for the live journey:
+
+- [ ] **Owner. Ask print-with-poppy to allowlist our `client_id`.** The store admits only agents its operator lists in `AGENT_CLIENT_IDS`, by exact `client_id` (`https://<PUBLIC_ORIGIN>/poppy/client.json`); until then its token endpoint answers `invalid_client` ("must register its HTTPS metadata URL"), which the agent reports as "hasn't approved this agent yet". Settle the final domain first, since the allowlisted URL can't change.
+- [ ] **Owner. Confirm the store is in demo mode** (`GET /api/catalog` says `mode: "demo"`) before a live run, so nothing is charged or printed; outside demo mode an approved order is a real Stripe checkout the User pays.
+- [ ] **Owner. Try it live once both are done**, on the deployed agent with a real photo: the two cards (sending the photo, then the order's terms), the receipt's checkout link.
+- [ ] **Code. Activity lists an operation the Company no longer has (N19) as still open**, because `src/poppy/activity.ts` reads the operation's own state; the card, the model and the confirm path already treat it as final. Left while that file is being changed elsewhere.
+- [ ] **Code. HEIC photos** aren't taken; most browsers convert them for a file picker whose `accept` list leaves HEIC out, but a pasted or dropped HEIC is refused.
+
 ## Testing and interop
 
 - [x] **Grounding questions decided by a policy**, [docs/conformance-levels.md](docs/conformance-levels.md): a check's basis sets its level in the mock, the validator and the grid; YK is `permitted_by: N5`. **Owner:** review its judgement calls, and rerun the full grid under it (some third-party cells may change rule, or newly fail on validator errors that were warnings).

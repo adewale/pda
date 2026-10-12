@@ -18,6 +18,7 @@ import { decodeJwt, decodeProtectedHeader, exportJWK, generateKeyPair, SignJWT }
 import { memoryState } from "../shared/cloudflare-workers.ts";
 import { authorized, body, failure, json, serve, setting } from "../shared/serve.ts";
 import { memorySql } from "./sqlite.ts";
+import { AttachmentError, migrateAttachments, saveAttachment } from "../../../src/attachments.ts";
 import { callMcpTool, callOpenApi } from "../../../src/poppy/apis.ts";
 import { PoppyClient, PoppyError, type JobName, type PoppyHost } from "../../../src/poppy/client.ts";
 import { conversation as conversationRow, readConversation, sendMessage } from "../../../src/poppy/conversations.ts";
@@ -60,7 +61,7 @@ const MANIFEST = {
   scenarios: ADVERSARY
     ? [...ATTACKS]
     : [
-        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "SE", "R", "AO", "AM", "AS", "RL", "DP",
+        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
         // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
         "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX"
       ],
@@ -159,6 +160,7 @@ async function newAgent(): Promise<Agent> {
   } as unknown as Env;
   const sql = memorySql();
   migrate(sql);
+  migrateAttachments(sql);
   const jobs = new Map<string, Job>();
   const cards = new Map<string, Card>();
   const notes: string[] = [];
@@ -505,16 +507,24 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
       });
       return { status: 200, body: result };
     }
+    const files = uploads(args.files);
     const result = await callOpenApi(agent.client, c, label(params), {
       ...(api.startsWith("https://") ? { apiUrl: api } : {}),
       operation: text(params.operation, "operation"),
       params: (args.params ?? {}) as Record<string, string>,
       ...(args.body !== undefined ? { body: args.body as Json } : {}),
+      ...(files ? { files } : {}),
       callKey: randomId("call_")
     });
-    // At a Company without the Operations extension a write waits for the User's approval
-    // (src/poppy/apis.ts): `held` is the approval `approve_op` decides.
+    // A write at a Company without the Operations extension, and any upload of the User's
+    // file, waits for the User's approval (src/poppy/apis.ts): `held` is the approval
+    // `approve_op` decides.
     if (isRecord(result) && typeof result.proposed === "string") return { held: result.proposed };
+    // A proposal (Operations 4.1): the Company's 202, with the operation as the agent keeps it.
+    if (isRecord(result) && isRecord(result.proposed) && typeof result.proposed.operation_id === "string") {
+      const kept = operationOf(agent.client, c.issuer, result.proposed.operation_id);
+      return { status: result.status ?? 202, body: { operation: kept ?? result.proposed } };
+    }
     return apiResult(result);
   },
 
@@ -585,6 +595,30 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * An `api` step's files (spec section 5.2: each `{name, type, data}`, the
+ * runner having read it from interop/files/), attached as the User attaches
+ * a photo on the page: kept in the agent's own storage, and named to the API
+ * tool by attachment id.
+ */
+function uploads(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const files: Record<string, string> = {};
+  for (const [field, file] of Object.entries(value)) {
+    if (!isRecord(file) || typeof file.data !== "string") throw new StepError(400, "invalid_params", `files.${field} must be {name, type, data}`);
+    try {
+      files[field] = saveAttachment(agent.client.sql, {
+        name: typeof file.name === "string" ? file.name : null,
+        bytes: new Uint8Array(Buffer.from(file.data, "base64"))
+      }).id;
+    } catch (error) {
+      if (error instanceof AttachmentError) throw new StepError(400, "invalid_params", `files.${field}: ${error.message}`);
+      throw error;
+    }
+  }
+  return Object.keys(files).length ? files : undefined;
+}
 
 /**
  * An OpenAPI call's outcome as section 5.2 has it: a Poppy error from the

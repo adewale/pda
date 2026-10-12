@@ -3,7 +3,7 @@
  * sections 5 and 6). The adapters are behind a `Driver`, so this runs the
  * same against containers and against fakes in the unit tests.
  */
-import { actorOf, evaluate, expectedRefusals, interpolate, ScenarioError, type Saved } from "./scenario.ts";
+import { actorOf, evaluate, expectedRefusals, firstOf, interpolate, resolveParams, ScenarioError, type Saved } from "./scenario.ts";
 import type { Outcome, Scenario, StepRecord } from "./types.ts";
 
 /** What an adapter call came to. */
@@ -91,9 +91,21 @@ export async function runCell(scenario: Scenario, fixture: unknown, driver: Driv
       }
     }
 
+    // `first`: the first candidate that names something (spec section 6), resolved leniently.
+    if (actor === "runner" && op === "first") {
+      const first = firstOf(step.params, saved);
+      if (!first.found) {
+        record(false, { error: "none of its candidates names anything" });
+        return end("fail", `step ${index} (runner first): none of its candidates names anything`);
+      }
+      record(true, { result: first.value });
+      if (step.save) saved[step.save] = first.value;
+      continue;
+    }
+
     let params: unknown;
     try {
-      params = interpolate(step.params ?? {}, saved);
+      params = resolveParams(step.params ?? {}, saved);
     } catch (error) {
       const message = error instanceof ScenarioError ? error.message : String(error);
       record(false, { error: message });

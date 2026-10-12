@@ -74,7 +74,7 @@ async function attempt<T>(check: () => Promise<T>): Promise<{ ok: true; value: T
 }
 
 function inbound(method: string, url: string, headers: Record<string, string>): Inbound {
-  return { request: new Request(url, { method, headers }), url: new URL(url), bodyText: "" };
+  return { request: new Request(url, { method, headers }), url: new URL(url), bodyText: "", bodyBytes: new Uint8Array() };
 }
 
 const endpointNames = ["tokenEndpoint", "revocationEndpoint", "deviceEndpoint"] as const;

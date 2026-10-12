@@ -14,6 +14,7 @@ import { code } from "@streamdown/code";
 import { useId, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 import type { TranscriptMessage, TranscriptPart } from "../protocol";
+import { AttachmentThumb, splitMarkers } from "./attachments";
 import { Action } from "./controls";
 import { SUMMARY_NOTICE } from "./history";
 import { companyNames, describeToolCall, type ToolHow, type ToolLine, type ToolOutcome } from "./tool-line";
@@ -177,12 +178,22 @@ function ToolEntry({ call, result, running, companies }: { call?: ToolCall; resu
 }
 
 function UserMessage({ message }: { message: TranscriptMessage }) {
-  const text = message.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
+  // Photos the User attached are named by markers in the text (src/attachments.ts): show the photos, not the markers.
+  const { text, photos } = splitMarkers(message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""));
   return (
-    <div className="flex justify-end">
-      <div className="max-w-[min(85%,70ch)] rounded-xl bg-kumo-recessed px-4 py-2.5 text-base leading-7 text-pretty break-words whitespace-pre-wrap text-kumo-default">
-        {text}
-      </div>
+    <div className="flex flex-col items-end gap-2">
+      {photos.length ? (
+        <div className="flex max-w-[min(85%,70ch)] flex-wrap justify-end gap-2">
+          {photos.map((photo) => (
+            <AttachmentThumb key={photo.id} id={photo.id} name={photo.name} detail={photo.size} />
+          ))}
+        </div>
+      ) : null}
+      {text ? (
+        <div className="max-w-[min(85%,70ch)] rounded-xl bg-kumo-recessed px-4 py-2.5 text-base leading-7 text-pretty break-words whitespace-pre-wrap text-kumo-default">
+          {text}
+        </div>
+      ) : null}
     </div>
   );
 }

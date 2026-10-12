@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runCell, toReply, withScopes, type Driver, type Reply } from "../runner/cell.ts";
 import { loadScenarios } from "../runner/cli.ts";
-import { compare, evaluate, expectedRefusals, interpolate, lintScenario, lookup } from "../runner/scenario.ts";
+import { compare, evaluate, expectedRefusals, firstOf, inlineFiles, interpolate, lintScenario, lookup, resolveParams } from "../runner/scenario.ts";
 import type { Scenario } from "../runner/types.ts";
 
 describe("interpolation", () => {
@@ -192,6 +192,67 @@ describe("a cell", () => {
     expect(run.steps[1]).toMatchObject({ op: "approve_op", ok: true, result: { skipped: "${w.held} is null" } });
     expect(lintScenario({ id: "X", title: "x", steps: [{ agent: "a", when: "w.held" }] }, "X.json")).toEqual(["X.json: step 0 when must be one ${...} reference"]);
     expect(lintScenario({ id: "X", title: "x", steps: [{ agent: "a", when: "${w.held}" }] }, "X.json")).toEqual(["X.json: step 0 refers to ${w} before it is saved"]);
+  });
+
+  it("takes an upload's id from whichever step sent it, and resolves the references a fixture's values carry (OU)", async () => {
+    const OU = loadScenarios().find((scenario) => scenario.id === "OU")!;
+    const fixture = {
+      openapi_upload: { api: "openapi", operation: "uploadPhoto", args: { files: { photo: "lake.jpg" } } },
+      openapi_propose: { api: "openapi", operation: "orderPrints", args: { body: { items: [{ photo_id: "${upload_id}", copies: 1 }] } } }
+    };
+    /** Answers in turn, per op. */
+    const sequence = (answers: Record<string, Reply[]>): Driver & { calls: string[] } => {
+      const calls: string[] = [];
+      const next = (op: string): Reply => answers[op]?.shift() ?? { kind: "ok", result: {} };
+      return {
+        calls,
+        agent: async (op, params) => {
+          calls.push(`agent ${op} ${JSON.stringify(params)}`);
+          return next(op);
+        },
+        company: async () => ({ kind: "ok", result: {} }),
+        runner: async () => ({ kind: "ok" })
+      };
+    };
+    const session: Reply = { kind: "ok", result: { signed_in: false, session_id: "ses_1" } };
+    const proposed: Reply = { kind: "ok", result: { status: 202, body: { operation: { operation_id: "op_1", state: "proposed" } } } };
+    // An agent that asks its User before the photo leaves: held, then approved.
+    const held = sequence({
+      session: [session, session],
+      api: [{ kind: "ok", result: { held: "apr_1" } }, proposed],
+      approve_op: [{ kind: "ok", result: { status: "done", result: { status: 201, body: { id: "pho_1" } } } }, { kind: "ok", result: { status: "succeeded" } }]
+    });
+    expect((await runCell(OU, fixture, held)).outcome).toBe("pass");
+    expect(held.calls).toContain('agent api {"api":"openapi","operation":"orderPrints","args":{"body":{"items":[{"photo_id":"pho_1","copies":1}]}}}');
+    expect(held.calls).toContain('agent approve_op {"operation":"op_1","decision":"approve"}');
+    // One that sends it at once.
+    const direct = sequence({
+      session: [session, session],
+      api: [{ kind: "ok", result: { status: 201, body: { id: "pho_2" } } }, proposed],
+      approve_op: [{ kind: "ok", result: { status: "in_progress" } }]
+    });
+    expect((await runCell(OU, fixture, direct)).outcome).toBe("pass");
+    expect(direct.calls.filter((call) => call.startsWith("agent approve_op"))).toEqual(['agent approve_op {"operation":"op_1","decision":"approve"}']);
+    expect(direct.calls).toContain('agent api {"api":"openapi","operation":"orderPrints","args":{"body":{"items":[{"photo_id":"pho_2","copies":1}]}}}');
+    // An upload that answered no id fails at `first`, before anything is ordered.
+    const none = sequence({ session: [session], api: [{ kind: "ok", result: { status: 201, body: {} } }] });
+    const run = await runCell(OU, fixture, none);
+    expect(run.outcome).toBe("fail");
+    expect(run.reason).toContain("runner first");
+    expect(none.calls.filter((call) => call.includes("orderPrints"))).toEqual([]);
+  });
+
+  it("sends an api step's files to the agent's adapter as name, type and base64, only from interop/files/", () => {
+    const read = (name: string) => (name === "lake.jpg" ? new Uint8Array([0xff, 0xd8, 0xff]) : null);
+    expect(inlineFiles("api", { api: "openapi", args: { files: { photo: "lake.jpg" }, body: { a: 1 } } }, read)).toEqual({
+      api: "openapi",
+      args: { files: { photo: { name: "lake.jpg", type: "image/jpeg", data: "/9j/" } }, body: { a: 1 } }
+    });
+    expect(inlineFiles("send", { args: { files: { photo: "lake.jpg" } } }, read)).toEqual({ args: { files: { photo: "lake.jpg" } } });
+    expect(() => inlineFiles("api", { args: { files: { photo: "../secrets.jpg" } } }, read)).toThrow("must name a file in interop/files/");
+    expect(() => inlineFiles("api", { args: { files: { photo: "missing.jpg" } } }, read)).toThrow("isn't there");
+    expect(resolveParams({ id: "${fixture.ref}" }, { fixture: { ref: "${upload_id}" }, upload_id: "pho_3" })).toEqual({ id: "pho_3" });
+    expect(firstOf({ of: ["${a.b}", "${c}"] }, { c: 0 })).toEqual({ found: true, value: 0 });
   });
 
   it("reads adapter answers as the spec words them", () => {

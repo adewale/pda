@@ -52,6 +52,61 @@ export function interpolate(value: unknown, saved: Saved, strict = true): unknow
   return value;
 }
 
+/**
+ * A step's params with every reference resolved, including references a
+ * value brought in carries: a Company's fixture may say what an `api` step
+ * sends in terms of an earlier step's result (`"${upload_id}"`), resolved
+ * when the step that uses it runs. One more pass only, so a value can't
+ * keep pulling in references.
+ */
+export function resolveParams(value: unknown, saved: Saved): unknown {
+  const once = interpolate(value, saved);
+  return JSON.stringify(once ?? null).includes("${") ? interpolate(once, saved) : once;
+}
+
+/**
+ * The runner's `first` op: the first of `of` that names something other
+ * than null, its references resolved leniently (one that refers to nothing
+ * is skipped), so a scenario can take a result from whichever of two steps
+ * ran: an `api` answer, or the `approve_op` of a write the agent held.
+ */
+export function firstOf(params: unknown, saved: Saved): { found: true; value: unknown } | { found: false } {
+  const candidates = (params as { of?: unknown } | null)?.of;
+  if (!Array.isArray(candidates)) return { found: false };
+  for (const candidate of candidates) {
+    const value = interpolate(candidate, saved, false);
+    if (value !== undefined && value !== null) return { found: true, value };
+  }
+  return { found: false };
+}
+
+/** A file an `api` step uploads, as the agent's adapter gets it (spec section 5.2). */
+export type InlineFile = { readonly name: string; readonly type: string; readonly data: string };
+
+const FILE_TYPES: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" };
+
+/**
+ * An `api` step's `args.files` names files in `interop/files/` by field;
+ * the agent's adapter gets each as its name, media type and base64 content,
+ * so adapters need no access to the harness's files. A name that isn't a
+ * plain file name there is an error.
+ */
+export function inlineFiles(op: string, params: unknown, read: (name: string) => Uint8Array | null): unknown {
+  if (op !== "api" || params === null || typeof params !== "object") return params;
+  const args = (params as { args?: unknown }).args;
+  const files = args !== null && typeof args === "object" ? (args as { files?: unknown }).files : undefined;
+  if (files === null || typeof files !== "object" || Array.isArray(files)) return params;
+  const inlined: Record<string, InlineFile> = {};
+  for (const [field, name] of Object.entries(files as Record<string, unknown>)) {
+    if (typeof name !== "string" || !/^[a-z0-9][a-z0-9._-]*\.([a-z]+)$/.test(name)) throw new ScenarioError(`files.${field} must name a file in interop/files/, not ${JSON.stringify(name)}`);
+    const type = FILE_TYPES[/\.([a-z]+)$/.exec(name)![1]!];
+    const bytes = read(name);
+    if (!type || !bytes) throw new ScenarioError(`files.${field}: interop/files/${name} isn't there, or isn't a photo`);
+    inlined[field] = { name, type, data: Buffer.from(bytes).toString("base64") };
+  }
+  return { ...(params as Record<string, unknown>), args: { ...(args as Record<string, unknown>), files: inlined } };
+}
+
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== typeof b || a === null || b === null || typeof a !== "object") return false;

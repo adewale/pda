@@ -90,11 +90,10 @@ export class MockCompany extends DurableObject<Env> {
     const id = companyIdFromHost(url.host);
     if (!id) return new Response(`Not a mock Company host: ${url.host}`, { status: 404 });
     const parts = this.#ensure(id);
-    const bodyText =
-      request.method === "GET" || request.method === "HEAD"
-        ? ""
-        : new TextDecoder().decode(await request.arrayBuffer());
-    const inbound: Inbound = { request, url, bodyText };
+    const bodyBytes =
+      request.method === "GET" || request.method === "HEAD" ? new Uint8Array() : new Uint8Array(await request.arrayBuffer());
+    const bodyText = new TextDecoder().decode(bodyBytes);
+    const inbound: Inbound = { request, url, bodyText, bodyBytes };
     const logged = parts.company.log(inbound, bodyKeys(inbound));
     let response: Response;
     try {
