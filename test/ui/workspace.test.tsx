@@ -622,3 +622,62 @@ describe("model settings", () => {
     expect(input.getAttribute("aria-invalid")).toBe("true");
   });
 });
+
+describe("memory settings", () => {
+  const NOTES = [
+    { id: 2, text: "Prefers trains to planes", source: "agent", createdAt: Date.UTC(2026, 9, 11) },
+    { id: 1, text: "Vegetarian", source: "user", createdAt: Date.UTC(2026, 9, 10) }
+  ];
+
+  /** `/api/memories` answering `notes`, recording each call; deleting removes notes as the agent would. */
+  function stubMemories(notes = NOTES) {
+    let held = [...notes];
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/entitlement") return Response.json(DEMO);
+        if (!url.startsWith("/api/memories")) return new Response("Not found", { status: 404 });
+        const method = init?.method ?? "GET";
+        calls.push(`${method} ${url}`);
+        if (method === "GET") return Response.json({ memories: held, limit: 200 });
+        if (url === "/api/memories") {
+          const forgotten = held.length;
+          held = [];
+          return Response.json({ forgotten });
+        }
+        held = held.filter((note) => `/api/memories/${note.id}` !== url);
+        return new Response(null, { status: 204 });
+      })
+    );
+    return calls;
+  }
+
+  it("lists each note with whose it is, and deletes one with its own button", async () => {
+    const calls = stubMemories();
+    open("/settings");
+    const list = await screen.findByRole("list", { name: "Your agent's notes" });
+    expect(within(list).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      expect.stringMatching(/^Prefers trains to planesYour agent noted, /),
+      expect.stringMatching(/^VegetarianYou said, /)
+    ]);
+    expect(screen.getByText(/2 of 200 notes\. Kept in your agent's storage until you delete them/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Delete note: Vegetarian" }));
+    await waitFor(() => expect(screen.queryByText("Vegetarian")).toBeNull());
+    expect(calls).toEqual(["GET /api/memories", "DELETE /api/memories/1", "GET /api/memories"]);
+  });
+
+  it("forgets everything only after a second click, and can be cancelled", async () => {
+    const calls = stubMemories();
+    open("/settings");
+    await screen.findByRole("list", { name: "Your agent's notes" });
+    fireEvent.click(screen.getByRole("button", { name: "Forget everything" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep them" }));
+    expect(calls).toEqual(["GET /api/memories"]);
+    fireEvent.click(screen.getByRole("button", { name: "Forget everything" }));
+    fireEvent.click(screen.getByRole("button", { name: "Forget all 2" }));
+    expect(await screen.findByText(/No notes yet/)).toBeTruthy();
+    expect(calls).toEqual(["GET /api/memories", "DELETE /api/memories", "GET /api/memories"]);
+  });
+});

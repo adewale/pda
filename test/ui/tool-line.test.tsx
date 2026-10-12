@@ -117,8 +117,33 @@ describe("describeToolCall", () => {
     expect(describeToolCall("", {}, done)).toBeNull();
   });
 
+  it("says where read_url read, with its status and size, and never what the page said", () => {
+    const outcome = { error: false, details: { url: "https://news.example.com/story", status: 200, bytes: 12_400, truncated: true, contentType: "text/html" } };
+    expect(describeToolCall("read_url", { url: "https://news.example.com/story?utm=x" }, outcome)).toEqual({
+      text: "Read news.example.com/story (HTTP 200, 12 KB, cut short)",
+      how: "web page",
+      access: null,
+      state: "done"
+    });
+    expect(describeToolCall("read_url", { url: "http://localhost/" }, { error: true, text: "Only https:// pages are read" })).toMatchObject({ text: "Couldn't read localhost", state: "failed" });
+    expect(describeToolCall("read_url", { url: "https://example.com/" })).toMatchObject({ text: "Reading example.com", state: "running" });
+  });
+
+  it("describes memory, time and maths in plain words", () => {
+    expect(describeToolCall("remember", { text: "Vegetarian", source: "user" }, { error: false, details: { id: 3, saved: "saved", source: "user" } })).toMatchObject({ text: "Saved a note", quote: "Vegetarian", how: "memory" });
+    expect(describeToolCall("remember", { text: "Vegetarian" }, { error: false, details: { saved: "already saved" } })!.text).toBe("Already had this note");
+    expect(describeToolCall("remember", { text: "password is x" }, { error: true })).toMatchObject({ text: "Didn't save a note", state: "failed" });
+    expect(describeToolCall("recall", { query: "food" }, done)).toMatchObject({ text: "Looked through its notes for", quote: "food" });
+    expect(describeToolCall("forget", { id: 3 }, done)!.text).toBe("Forgot note 3");
+    expect(describeToolCall("now", {}, done)).toMatchObject({ text: "Checked the date and time", how: "clock" });
+    expect(describeToolCall("date_math", { start: "today", add: "P30D" }, { error: false, details: { result: { date: "2026-11-11", weekday: "Wednesday" } } })!.text).toBe(
+      "Worked out a date: Wednesday 2026-11-11"
+    );
+    expect(describeToolCall("calculate", { expression: "0.1 + 0.2" }, { error: false, details: { result: "0.3", exact: true } })).toMatchObject({ text: "Calculated 0.1 + 0.2 = 0.3", how: "calculator" });
+  });
+
   it("never throws, and always says something, whatever the arguments", () => {
-    const tools = ["poppy_discover", "poppy_sign_in", "poppy_status", "poppy_message", "poppy_read", "poppy_handoff", "poppy_invite_user", "poppy_close", "poppy_api_describe", "poppy_api_call", "poppy_mcp_list", "poppy_mcp_call", "poppy_browse", "poppy_operation", "poppy_x"];
+    const tools = ["poppy_discover", "poppy_sign_in", "poppy_status", "poppy_message", "poppy_read", "poppy_handoff", "poppy_invite_user", "poppy_close", "poppy_api_describe", "poppy_api_call", "poppy_mcp_list", "poppy_mcp_call", "poppy_browse", "poppy_operation", "poppy_x", "read_url", "remember", "recall", "forget", "now", "date_math", "calculate"];
     // Anything: any JSON, undefined, and objects whose names shadow Object.prototype's.
     const anything = gs.oneOf<unknown>(
       jsonValues(3),

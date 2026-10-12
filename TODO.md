@@ -26,7 +26,11 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 
 - [x] **Code. Give compaction a budget.** Done: a summary from 150k tokens, a hard limit at 184k, our summarizer keeping Company text apart, `poppy_status` listing everything open, the summary shown as a notice ([decisions §23](docs/decisions.md#23-compaction-a-budget-our-summarizer-the-page)). What's left is the live check of a demo-lane turn after a compaction (preserved thinking), in [deployment-tasks §2](docs/deployment-tasks.md#2-live-checks).
 - [ ] **Code. "Delete my agent" and data export.** Now owed: `/privacy` (12 October) promises deletion within 30 days of a request, and today only the operator could do it, by hand. Build it before the policy is tested: revoke every Account Token at its Company, then delete the Durable Object's storage. Also a short privacy statement about what each agent stores.
-- [ ] **Code. Memory, skills and the rest of milestone 2** ([spec, Build plan](durable-personal-agent-spec.md#build-plan)).
+- [x] **Code. Memory, and the other general tools.** Built: `read_url`, `remember`, `recall`, `forget`, `now`, `date_math`, `calculate`, with Settings' Memory section ([decisions §27](docs/decisions.md#27-general-tools-beside-poppy-read_url-memory-time-and-maths)).
+- [ ] **Code. Skills and the rest of milestone 2** ([spec, Build plan](durable-personal-agent-spec.md#build-plan)).
+- [ ] **Code. More general tools:** web search (needs a provider and a key the operator pays for), and reminders (a durable job that tells the User at a time).
+- [ ] **Code. Keep the User's time zone in storage.** The page sends it on connect and the agent holds it in memory, so after an eviction `now` answers in UTC until the page reconnects.
+- [ ] **Owner. Try `read_url` and memory live:** a real page or two (one large, one that redirects), and "remember I'm vegetarian" across a week and a redeploy.
 - [x] **Code. Hide Google sign-in while it isn't configured.** `SIGNIN_PROVIDERS` lists the providers a deployment offers; the live one says `["github"]` until the owner's Google Cloud project quota allows a new OAuth client.
 - [ ] **Code. Check the `pi report` log line** (`src/agent.ts`, `console.warn("pi report", error)`) can't carry request details or keys into Workers logs.
 - [ ] **Code. A sign-in finished by recovery doesn't run the after-sign-in step**, so operations approved while waiting on it wait for the next sign-in.

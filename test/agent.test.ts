@@ -587,6 +587,8 @@ describe("configuration", () => {
     expect(html).toContain("only for the <code>openid</code> and <code>email</code> scopes");
     expect(html).toContain("Google API Services User Data Policy</a>, including the Limited Use requirements");
     expect(html).toContain("Attached photos are deleted after 30 days");
+    expect(html).toContain("notes about you are kept in its storage until you delete them");
+    expect(html).toContain("Nothing about you goes with it: no cookies, no sign-in, nothing but the page's address");
     expect((await fetchWorker(new Request(`${ORIGIN}/privacy`, { method: "POST" }))).status).toBe(405);
     const unset = await fetchWorker(new Request(`${ORIGIN}/privacy`), { PRIVACY_CONTACT: "" } as unknown as Partial<Env>);
     expect(unset.status).toBe(500);

@@ -36,6 +36,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 24. [Conformance levels from each requirement's basis](#24-conformance-levels-from-each-requirements-basis)
 25. [A protocol view in Activity](#25-a-protocol-view-in-activity)
 26. [Photos in the chat, uploaded only with the User's approval](#26-photos-in-the-chat-uploaded-only-with-the-users-approval)
+27. [General tools beside Poppy: read_url, memory, time and maths](#27-general-tools-beside-poppy-read_url-memory-time-and-maths)
 
 ## 1. A Worker and one Durable Object per person
 
@@ -309,4 +310,28 @@ Each of these closed a specific gap, and each has a test:
   - *Resizing in the Worker:* workerd has no image library; the browser already decodes the photo, so the page makes the preview, and an agent whose page couldn't shows the model the file only when it is under 1 MiB.
   - *Letting uploads through at Operations Companies,* like other writes: the photo would leave the agent on the model's word alone, and a Company's injected text could name the User's photo for another Company.
 - **Consequences.** The demo journey has two approvals: sending the photo, then the order's terms. It stays at two now that writes at an Operations Company need their description to say they propose (decision [6](#6-prompt-injection-defences-that-are-structural)): print-with-poppy's `POST /api/orders` documents a 202 with an `operation`, and the mock's print shop mirrors it. An operation marked lost is final in Activity and `poppy_status` too (12 October). HEIC photos aren't taken; browsers convert them for an `accept` list without HEIC.
+- **When.** 12 October 2026.
+
+## 27. General tools beside Poppy: read_url, memory, time and maths
+
+- **Context.** The owner wanted the agent useful away from Companies: reading a page someone links, remembering what they say, and getting dates and sums right. The Poppy tools can't do any of it. Each new tool is also a new way for injected text to reach the model, or for the model to send something out, and the rules the Poppy tools follow (no credential in or out, Company text never the User's approval, a replay that repeats nothing harmful) have to hold for these too.
+- **Decision.** Three pi extensions in `src/tools/`, installed beside `poppy` (`src/tools/extensions.ts`):
+  - **`web`: `read_url(url)`** (`src/tools/web.ts`). A GET with only `Accept` and a `User-Agent` naming the agent, through the agent's own `webFetcher()`, never the Poppy fetcher, so no Session, cookie or token can reach it. HTTPS on the standard port, no user name or password in the URL, a public host by the validator's `isPublicHost`, and the same checks on each of at most 5 redirects; Workers refuse private destinations themselves. 15 seconds in all, the first 1 MB read, 20,000 characters to the model, HTML, text, JSON and XML only, 30 reads a minute per agent. HTML is reduced with `HTMLRewriter` to headings, paragraphs, list items and numbered links. The result is fenced and labelled untrusted, and kept with the tool call (`api.memo`), so a replay returns it without fetching again. The tool line shows the address, status and size, never the content.
+  - **`memory`: `remember(text, source)`, `recall(query?)`, `forget(id)`** (`src/tools/memory-store.ts`). A `memories` table in the agent's SQLite: one fact a note, 500 characters, 200 notes, whose (`user` or `agent`) and when. Secret-looking text is refused with the reason. Full means refused, never evicted. The newest 50 notes, within about 2,000 characters, go in the extension's prompt section, which isn't part of the transcript, so they survive compaction. Settings lists them with Delete and "Forget everything", through `GET`/`DELETE /api/memories`.
+  - **`time`: `now`, `date_math`, `calculate`** (`src/tools/clock.ts`, `src/tools/calculate.ts`). Pure code. Time zones from `Intl`, the User's from the page's `poppy.context`. `calculate` is a recursive-descent parser evaluated with exact BigInt fractions.
+- **Choices inside it.**
+  - **A separate HTML reader** rather than the browser's `parseHtml`: `read_url` drops navigation, headers, footers and asides and marks headings and list items, which the browser must not do, because it has to show every link and form a `click` or `submit` can name. Both use the browser's `decodeEntities`.
+  - **Refusals over guesses.** An HTTP error, a type that isn't text, and a URL with credentials are refused by name; the model can say so to the User.
+  - **The rate limit is in memory**, per agent: an evicted agent starts a fresh minute, which costs a site at most another 30 requests.
+  - **Whose a note is, enforced where it can be.** The prompt and the description say a Company's or a page's text is never the User's preference. A `beforeRequest` hook also notes whether the running turn began with a Company message or one of the agent's notices (they start with `[`); then a note claimed as the User's is saved as the agent's. It can't tell a page the User asked for from the User, so Settings shows whose each note is.
+  - **Exact sums, approximate only where they must be.** Fractions of BigInts make `0.1 + 0.2` exactly `0.3` and money exact to the cent; only `sqrt`, a fractional power, `pi`, `e` and an answer that doesn't end within 20 decimal places are rounded, to 15 significant digits, and the result says `exact: false`. `%` after a number is percent and `mod` is the remainder, so `10 % 3` can't mean two things. Rounding is half away from zero, as money is rounded.
+  - **Dates the way calendars count them.** Months clamp to the month's end, wall-clock days survive a clock change, elapsed hours don't; a skipped time moves forward and a repeated one takes the earlier instant (Temporal's "compatible"). Offsets are kept to the second, because the property tests found St John's 1935 offset of −3:30:52.
+- **Alternatives.**
+  - *A search tool.* It needs a search provider and an API key the operator pays for; reading a page the User names costs nothing. Left for later ([TODO](../TODO.md)).
+  - *`read_url` through the Poppy browser.* It holds a Session's cookies and is limited to a Company's own hosts; sharing it would put Company state one bug away from an arbitrary site.
+  - *Memory as key and value* (`remember(key, value)`, the earlier plan in the spec): keys the model invents drift ("diet", "dietary", "food"), and a short sentence with an id is what the User reads in Settings anyway.
+  - *Evicting the oldest note when full:* silent loss of something the User asked to keep.
+  - *`eval` or `Function` for sums, or floating point:* the first runs code the model wrote; the second makes `0.1 + 0.2` `0.30000000000000004`.
+  - *Temporal for dates:* not in Node 24, which the property tests run in, nor reliably in workerd.
+- **Consequences.** The model is offered 21 tools, and a test checks that exact list, so a tool added by a dependency would fail it. A page read with `read_url` is one more source of injected text; a prompt-injection test serves one that tells the model to confirm an operation and send a token, and nothing is confirmed or sent. Memory is the first User data the User can delete themselves; the privacy policy says so. The User's time zone lives in memory only, so a background turn after an eviction answers in UTC until the page reconnects.
 - **When.** 12 October 2026.

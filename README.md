@@ -21,6 +21,36 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 
 "Works in the grid" means our agent passes that part against the store's pinned code in our [interop harness](#for-implementers-test-against-us), offline, in scenario `OU`; "works in tests" means against our mock Company. The journey hasn't run live yet: the live store accepts our agent only once its maintainer adds our `client_id` to its allowlist.
 
+## What you can do with it
+
+**Get things done at companies that support Poppy**
+
+- Ask whether a company supports Poppy, and the agent checks its setup is valid before using it.
+- Talk to the company's own agent: "Ask Manzanita whether the Stormline jacket comes in medium." It can ask for a person there, or hand the conversation to you so you talk to them yourself.
+- Sign in on the company's own page when a task needs your account. The agent never sees your password.
+- Look things up and make changes through the company's APIs: "What's the status of my last order?"
+- Place orders and changes with the company's price and terms in front of you, approved by you first: "Print this photo as a 6×4 at print-with-poppy."
+- Use the company's website when it has no API. A form is sent only after you approve exactly what it sends.
+
+**Everyday help**
+
+- Read a web page you point it at: "What does this article say?" It sends nothing about you, only the address.
+- Remember things you tell it: "Remember I'm vegetarian." Ask it to forget one, or see and delete every note in Settings.
+- Dates, time zones and sums: "What date is 90 days from today?", "What time is it in Tokyo?", "What's 15% of €84.20?"
+
+**You stay in control**
+
+- Nothing that changes your account happens until you approve it on a card.
+- Standing permissions let small repeat actions through without asking each time, within limits you set.
+- Activity shows what the agent did, where and with what access, and every protocol exchange behind it.
+- Your photos leave the agent only in an upload you approved, to the one company it names.
+
+**Pay for the model your way:** the operator's daily demo allowance if you're on its list, or your own Anthropic or OpenAI key.
+
+**Your data** stays in your own agent's storage; [the privacy policy](https://personal-agent.adewale-883.workers.dev/privacy) says what is kept and for how long.
+
+Which of these is a Poppy feature and which is ours, each tool the model can call, and what needs your approval: [docs/capabilities.md](docs/capabilities.md).
+
 ## For implementers: test against us
 
 - **The validator** checks a Company's `poppy.json` and OAuth metadata, or an agent's client metadata and keys, from a web form, an HTTP API, a CLI or a library. Its severities follow each requirement's basis: a broken MUST is an error, a departed SHOULD a warning ([conformance-levels.md](docs/conformance-levels.md)). Reference: [docs/validator.md](docs/validator.md).
@@ -57,10 +87,11 @@ None of this has been sent to the draft's authors yet.
 - **One agent per person.** Each Google or GitHub sign-in gets its own Durable Object running Pi, with its conversation, Poppy state, tokens and keys in its own SQLite. One person's agent can't read another's, and work survives crashes and deploys.
 - **Approval stays on the page.** Company text reaches the model labelled as information, never as approval. A write waits for your approval of exactly what will be sent, unless the Company has the Operations extension and its own API description says that call only proposes an operation (an OpenAPI `202` carrying `operation`, or an MCP tool whose output declares one). Then you approve the Company's proposal and its terms instead. Sending your photo or file always waits for you. A standing permission covers a proposal only when the Company's summary begins with the permission's action and every term is an amount within its limit, a date, or one of the record ids in the draft's example (`order_id`, `item_id`, `replacement_sku`); anything else comes to you.
 - **Secrets stay out of the model.** Session Tokens and DPoP keys live only in memory; Account Tokens and pasted model keys are sealed with AES-GCM and bound to their row; the model's tools never take or return a credential.
+- **General tools beside Poppy.** `read_url` reads one public page as untrusted text with no cookies or credentials; `remember`, `recall` and `forget` keep short notes in the agent's own SQLite, never secrets; `now`, `date_math` and `calculate` do time zones, calendar arithmetic and exact decimal sums. All are ours, in `src/tools/`, with no third-party service.
 - **Two ways to pay for the model.** An operator-paid demo through AI Gateway, capped per person and per domain before every call, or your own Anthropic or OpenAI key, sent straight to the vendor. Compaction keeps each request under about 200k tokens.
 - **Everything is tested offline.** Five suites run with the model, the vendors, Google, GitHub and every Company faked, and every Poppy test fails if the strict mock Company records a violation or a warning. A second client in Python drives a stateful Hypothesis test of the mock, because a misreading our client and mock share is invisible to both.
 
-The design is [durable-personal-agent-spec.md](durable-personal-agent-spec.md); why it is built this way is [docs/decisions.md](docs/decisions.md).
+The design is [durable-personal-agent-spec.md](durable-personal-agent-spec.md); each capability and tool, and where it comes from, is [docs/capabilities.md](docs/capabilities.md); why it is built this way is [docs/decisions.md](docs/decisions.md).
 
 ## Status and limitations
 
@@ -68,7 +99,7 @@ The design is [durable-personal-agent-spec.md](durable-personal-agent-spec.md); 
 - **Never run against a live Company.** Spot publishes valid discovery but has no Operations and isn't in the grid; everything else we know of is a demo or an SDK.
 - **Not tried live:** the demo lane's gateway and its spend limits are faked in the tests ([deployment-tasks.md](docs/deployment-tasks.md)).
 - **Browsing runs no JavaScript,** so a site that needs it to show a page or send a form can't be browsed.
-- **Not built:** memory and skills.
+- **Not built:** skills, web search and reminders.
 - Everything still open is in [TODO.md](TODO.md).
 
 ## Run it yourself
@@ -93,13 +124,14 @@ src/index.ts        Worker routes (chat, sign-in, Poppy identity, validator)
 src/agent.ts        The per-person Durable Object
 src/model-*.ts      Who pays for each model call: own keys (sealed), the demo and its caps
 src/poppy/          The Poppy client, its tools, the fetch-based browser and the Activity log
+src/tools/          The general tools: read_url, memory, time and maths
 src/ui/             The page: Chat, Activity, Companies, Settings
 src/validator/      The validator: parser, primitives, profiles, fetch, HTTP, HTML
 scripts/            The validator CLI, the deploy check, the docs check, the spec snapshot
 test/               The suites, the fakes, the mock Company, the Hypothesis client
 interop/            The interop runner, recording proxy, scenarios, adapters and cross-checks
 spec/               A dated copy of the draft, and what each of our claims rests on
-docs/               Decisions, setup, spec issues, readings, interop, the ecosystem map, proposals
+docs/               Decisions, capabilities, setup, spec issues, readings, interop, the ecosystem map, proposals
 ```
 
 ## Security, contributing and licence

@@ -22,6 +22,7 @@ import { protocolIndex, protocolLog } from "../src/poppy/protocol-log";
 import type { ProtocolCompany, ProtocolEntry } from "../src/poppy/wire";
 import { Sealer } from "../src/poppy/store";
 import { poppyExtension } from "../src/poppy/tools";
+import type { Fetcher as WebFetcher } from "../src/tools/web";
 import { CLOCK_HEADER, companyIdFromHost, type MockCompany } from "./mock-company";
 
 type TestEnv = Env & { MOCK_COMPANY: DurableObjectNamespace<MockCompany> };
@@ -357,13 +358,118 @@ function tapping(agent: object, fetcher: Fetcher): Fetcher {
   };
 }
 
+/** A fake page on the open web, for read_url: what a host answers, or a stall that never ends. */
+export type FakePage = {
+  readonly status?: number;
+  readonly headers?: Record<string, string>;
+  readonly body?: string;
+  /** Answer with headers, then never finish the body. */
+  readonly stall?: boolean;
+};
+
+/** One request read_url made: everything it carried. */
+export type WebRequest = { readonly method: string; readonly url: string; readonly headers: Record<string, string>; readonly body: string };
+
+/** Each agent's fake web, by Durable Object id: pages by URL, and the requests that reached it. */
+const webs = new Map<string, { pages: Map<string, FakePage>; requests: WebRequest[] }>();
+
+function webOf(id: string) {
+  let web = webs.get(id);
+  if (!web) webs.set(id, (web = { pages: new Map(), requests: [] }));
+  return web;
+}
+
 /** The production agent with pi-ai's faux provider in place of AI Gateway. */
 export class PersonalAgent extends ProductionAgent {
   /** Woken whenever the model is told something. */
   #noticeWaiters: (() => void)[] = [];
 
+  /** read_url's fetcher: the agent's fake web. A URL nobody served answers 502, as in every other fake. */
+  protected override webFetcher(): WebFetcher {
+    const web = webOf(this.ctx.id.toString());
+    return async (request) => {
+      web.requests.push({
+        method: request.method,
+        url: request.url,
+        headers: Object.fromEntries(request.headers),
+        body: request.body ? await request.clone().text() : ""
+      });
+      const page = web.pages.get(request.url);
+      if (!page) return new Response("No network in tests", { status: 502 });
+      const headers = new Headers(page.headers ?? { "Content-Type": "text/html; charset=utf-8" });
+      if (page.stall) {
+        const body = new ReadableStream<Uint8Array>({ start: (controller) => controller.enqueue(new TextEncoder().encode("<p>")) });
+        return new Response(body, { status: page.status ?? 200, headers });
+      }
+      // Bytes, so the runtime adds no Content-Type of its own.
+      return new Response(new TextEncoder().encode(page.body ?? ""), { status: page.status ?? 200, headers });
+    };
+  }
+
+  /** Serve `page` at `url` on this agent's fake web. */
+  async webServe(url: string, page: FakePage): Promise<void> {
+    webOf(this.ctx.id.toString()).pages.set(url, page);
+  }
+
+  /** Every request read_url sent, oldest first. */
+  async webRequests(): Promise<WebRequest[]> {
+    return webOf(this.ctx.id.toString()).requests;
+  }
+
+  /** Every URL the Poppy client asked for, to any host. */
+  async poppyRequestUrls(): Promise<string[]> {
+    return [...(poppyUrls.get(this) ?? [])];
+  }
+
+  /** What each general tool call has kept with itself (`api.memo`), by call id, as pi keeps it per tool task. */
+  #memos = new Map<string, Map<string, unknown>>();
+
+  /**
+   * Run one general tool (read_url, remember, recall, forget, now, date_math,
+   * calculate) as the model would; `callId` names the tool call, so running
+   * it again with the same id is a replay.
+   */
+  async generalTool(
+    name: string,
+    args: Record<string, unknown>,
+    callId: string = crypto.randomUUID()
+  ): Promise<{ text: string; isError: boolean; details: string }> {
+    const tool = this.generalTools.flatMap((extension) => extension.tools ?? []).find((candidate) => candidate.name === name);
+    if (!tool) throw new Error(`No tool ${name}`);
+    let memos = this.#memos.get(callId);
+    if (!memos) this.#memos.set(callId, (memos = new Map()));
+    const kept = memos;
+    const api = {
+      conversationId: "test",
+      callId,
+      memo: async (key: string, ...rest: unknown[]) => {
+        if (rest.length === 1) return kept.get(key);
+        if (!kept.has(key)) kept.set(key, rest[0]);
+        return kept.get(key);
+      }
+    } as unknown as ToolExecutionApi;
+    const result = await tool.execute(args as never, api, {} as never);
+    const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
+    return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
+  }
+
+  /** The clock now and date_math read; a test may fix it. */
+  protected override clockNow(): number {
+    return fixedClocks.get(this.ctx.id.toString()) ?? Date.now();
+  }
+
+  async setClock(at: number): Promise<void> {
+    fixedClocks.set(this.ctx.id.toString(), at);
+  }
+
   protected override poppyFetcher(): Fetcher {
-    return faultyFetcher(recording(this, tapping(this, testFetcher(this.env, () => clockOf(this).now))), () => faultsOf(this));
+    const inner = faultyFetcher(recording(this, tapping(this, testFetcher(this.env, () => clockOf(this).now))), () => faultsOf(this));
+    return async (request) => {
+      let list = poppyUrls.get(this);
+      if (!list) poppyUrls.set(this, (list = []));
+      list.push(request.url);
+      return inner(request);
+    };
   }
 
   /** Every secret this agent's Poppy requests and their answers carried (see `tapping`). */
@@ -696,6 +802,12 @@ export class PersonalAgent extends ProductionAgent {
   }
 }
 
+/** Every URL each agent's Poppy client asked for. */
+const poppyUrls = new WeakMap<object, string[]>();
+
+/** The clock now and date_math read, per agent, where a test fixed it. */
+const fixedClocks = new Map<string, number>();
+
 /** Demo-lane calls per agent, by Durable Object id. */
 const demoCalls = new Map<string, number>();
 
@@ -707,6 +819,10 @@ export type DemoRequest = {
   readonly messages: number;
   /** The images the request showed the model, in order: each one's type, size in bytes, and the start of the user text it came with. */
   readonly images: readonly { readonly mimeType: string; readonly bytes: number; readonly with: string }[];
+  /** The tools the request offered the model, by name, in order. */
+  readonly tools: readonly string[];
+  /** The prompt's sections as the request leaves them, by key. */
+  readonly sections: Readonly<Record<string, string>>;
 };
 const demoRequests = new Map<string, DemoRequest[]>();
 
@@ -716,11 +832,27 @@ function recordRequest(id: string, context: TranscriptContext): void {
   const users = context.messages.filter((m) => m.role === "user");
   const summary = isSummaryRequest(context);
   const last = textOf(users.at(-1)?.content as Message["content"]);
+  const tools: string[] = [];
+  const sections: Record<string, string> = {};
+  for (const message of context.messages) {
+    if (message.role !== "system") continue;
+    for (const added of message.toolsAdded ?? []) if (!tools.includes(added.name)) tools.push(added.name);
+    for (const removed of message.toolsRemoved ?? []) {
+      const at = tools.indexOf(removed.name);
+      if (at !== -1) tools.splice(at, 1);
+    }
+    for (const [key, value] of Object.entries(message.sections ?? {})) {
+      if (value === null) delete sections[key];
+      else sections[key] = value;
+    }
+  }
   list.push({
     summary,
     carriesSummary: carriesSummary(context),
     last: summary ? last : last.slice(0, 200),
     messages: context.messages.length,
+    tools,
+    sections,
     images: users.flatMap((message) =>
       typeof message.content === "string"
         ? []
