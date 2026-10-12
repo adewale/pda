@@ -307,7 +307,8 @@ export class PoppyClient {
   /**
    * A Company by domain: the documents discovery kept, until their HTTP cache
    * lifetime (bounded to between a minute and a day) is up, then discovery
-   * again (spec 3, step 4). Timed by the host's clock, like the client's waits.
+   * again (spec 3 and 3.2: SHOULD cache by HTTP caching headers; the bounds
+   * are the Guides'). Timed by the host's clock, like the client's waits.
    */
   async lookup(domain: string): Promise<Company | WebsiteOnly> {
     const key = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
@@ -541,7 +542,9 @@ export class PoppyClient {
   /**
    * Stop using a Session, and drop its tokens: the next request starts a new
    * one. For a Session the Company may have signed in without our knowing,
-   * which must never be renewed with the Session assertion (4.2).
+   * which we never renew with the Session assertion: 4.2 renews a signed-in
+   * Session with the Account Token, and an assertion's answer there is
+   * undefined (spec-issues S5).
    */
   abandonSession(issuer: string, label: string): void {
     this.#forgetSession(issuer, label);
@@ -1011,7 +1014,8 @@ export class PoppyClient {
         continue;
       }
       // Some Companies end a Session with `invalid_session` in the body rather
-      // than 401 invalid_token (spec 6): start a new Session and retry once.
+      // than 401 invalid_token, the only token error spec 6 lists for this
+      // (spec-issues S13, N39): start a new Session and retry once.
       if ((response.status === 400 || response.status === 401) && !restarted) {
         const peek = (await this.readJson(response.clone()).catch(() => null)) as { error?: unknown } | null;
         if (peek?.error === "invalid_session") {

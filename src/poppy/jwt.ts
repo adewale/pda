@@ -20,7 +20,11 @@ function now(): number {
   return Math.floor(Date.now() / 1000);
 }
 
-/** Assertions are short-lived: one minute (spec 4.2; Guides, "Signing and verifying JWTs"). */
+/**
+ * Assertions are short-lived (spec 4.2, whose example uses one minute; spec 5
+ * caps a browser assertion at 60 seconds; the Guides ask Companies to reject
+ * long lifetimes without giving a number, spec-issues S2). One minute for all.
+ */
 const ASSERTION_SECONDS = 60;
 
 /** RFC 7523 client assertion for `private_key_jwt` at the token or revocation endpoint. */

@@ -71,7 +71,7 @@ Deploy your own: [`docs/setup.md`](docs/setup.md), in the order [`docs/deploymen
 
 ## The validator
 
-- **Severity.** An `error` breaks a MUST, so conforming agents refuse the document; a `warning` is a SHOULD or an interoperability hazard; an `info` is harmless.
+- **Severity.** An `error` is a document our client refuses: usually a broken MUST, otherwise a fetching limit from the Guides or a rule the draft leaves open (such as HTTPS for every URL, spec-issues N9), which its explanation names; a `warning` is a SHOULD or an interoperability hazard; an `info` is harmless.
 - **Explanations.** Each message has a stable id and a page saying what it means and how to fix it ([all messages](https://personal-agent.adewale-883.workers.dev/validator/messages)).
 - **Outcome.** `valid`, `invalid`, or `indeterminate` when a document couldn't be fetched.
 

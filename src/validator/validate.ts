@@ -11,7 +11,7 @@ import type { PoppyFacts, Profile } from "./profiles/profile.ts";
 
 export const VALIDATOR = { name: "poppy-validator", version: "1.0.0" } as const;
 
-/** valid: no errors. invalid: the documents break a MUST. indeterminate: a document couldn't be fetched. */
+/** valid: no errors. invalid: an error (a MUST broken, or a limit or reading of ours that the message names). indeterminate: a document couldn't be fetched. */
 export type Outcome = "valid" | "invalid" | "indeterminate";
 
 export type DocumentResult = {
