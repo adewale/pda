@@ -418,6 +418,31 @@ async function runOne(
   }
 }
 
+/**
+ * Which dimensions a run covered whole, so that a `*` in a known failure is
+ * judged over them (spec section 9). The interop grid is the honest
+ * implementations and the scenarios without an adversary or faults: the
+ * adversarial ones run apart, against our own implementations only (section
+ * 13), so a full grid that leaves them out still covers its dimensions.
+ */
+export function gridCoverage(
+  registry: Registry,
+  lane: "local" | "live",
+  ran: { readonly agents: readonly RegistryEntry[]; readonly companies: readonly RegistryEntry[]; readonly scenarios: readonly Scenario[] },
+  all: readonly Scenario[]
+): { agent: boolean; company: boolean; scenario: boolean } {
+  const honest = (role: Role) => selected(registry, role, null, lane).filter((entry) => !entry.adversarial);
+  const names = (entries: readonly RegistryEntry[]) => new Set(entries.map((entry) => `${entry.role}:${entry.name}`));
+  const ranAgents = names(ran.agents);
+  const ranCompanies = names(ran.companies);
+  const ranScenarios = new Set(ran.scenarios.map((scenario) => scenario.id));
+  return {
+    agent: honest("agent").every((entry) => ranAgents.has(`${entry.role}:${entry.name}`)),
+    company: honest("company").every((entry) => ranCompanies.has(`${entry.role}:${entry.name}`)),
+    scenario: lane === "local" && all.filter((scenario) => !scenario.adversary && !scenario.faults?.length).every((scenario) => ranScenarios.has(scenario.id))
+  };
+}
+
 function selected(registry: Registry, role: Role, names: readonly string[] | null, lane: "local" | "live"): RegistryEntry[] {
   const all = registry.implementations.filter((entry) => entry.role === role && (lane === "live" ? (role === "agent" ? !!entry.build : !!entry.url) : !!entry.build));
   if (!names) return all;
@@ -679,11 +704,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   const adversarial = new Set(implementations.filter((impl) => impl.entry.adversarial).map((impl) => impl.entry.name));
   attributeAll(cells, { readings, scenarios: new Map(scenarios.map((scenario) => [scenario.id, scenario])), known, adversarial });
   // A `*` is judged only over a dimension this run covered whole.
-  const coverage = {
-    agent: selected(registry, "agent", null, options.lane).every((entry) => agents.includes(entry)),
-    company: selected(registry, "company", null, options.lane).every((entry) => companies.includes(entry)),
-    scenario: options.lane === "local" && loadScenarios().every((one) => scenarios.some((scenario) => scenario.id === one.id))
-  };
+  const coverage = gridCoverage(registry, options.lane, { agents, companies, scenarios }, loadScenarios());
   const stale = staleKnown(cells, known, coverage);
   const summary = {
     interop: 1,

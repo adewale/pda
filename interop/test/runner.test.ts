@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { upstreamFor } from "../proxy/routing.mjs";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
-import { imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions } from "../runner/cli.ts";
+import { gridCoverage, imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions } from "../runner/cli.ts";
 import { proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
 import { cellId, renderReport } from "../runner/report.ts";
@@ -30,6 +30,22 @@ describe("options", () => {
 });
 
 describe("the registry and known failures", () => {
+  it("judges a * over the honest grid: a full grid without the adversarial implementations and scenarios covers every dimension", () => {
+    const registry = loadRegistry();
+    const all = loadScenarios();
+    const local = (role: string) => registry.implementations.filter((entry) => entry.role === role && entry.build);
+    const honest = (role: string) => local(role).filter((entry) => !entry.adversarial);
+    const interop = all.filter((scenario) => !scenario.adversary && !scenario.faults?.length);
+    expect(interop.length).toBeLessThan(all.length);
+    expect(gridCoverage(registry, "local", { agents: honest("agent"), companies: honest("company"), scenarios: interop }, all)).toEqual({ agent: true, company: true, scenario: true });
+    expect(gridCoverage(registry, "local", { agents: local("agent"), companies: local("company"), scenarios: all }, all)).toEqual({ agent: true, company: true, scenario: true });
+    // Leaving out an honest implementation or an interop scenario makes the run partial.
+    const partial = gridCoverage(registry, "local", { agents: honest("agent").slice(1), companies: honest("company").slice(1), scenarios: interop.slice(1) }, all);
+    expect(partial).toEqual({ agent: false, company: false, scenario: false });
+    // The live lane never judges a * scenario: it runs only the live ones.
+    expect(gridCoverage(registry, "live", { agents: honest("agent"), companies: [], scenarios: all }, all).scenario).toBe(false);
+  });
+
   it("lists our agent and the reference Company, each with a Dockerfile", () => {
     const registry = loadRegistry();
     const names = registry.implementations.map((entry) => `${entry.role}:${entry.name}`);

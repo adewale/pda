@@ -44,7 +44,7 @@ Each run writes:
 
 A cell that fails or errors runs once more, with both adapters reset again; its first run's HAR is kept beside the second's (`<agent>__<company>.attempt2.har`) and `attempts` in `results.json` records both. A cell that passes the second time is **flaky**: it counts as a pass, is listed apart in the console and the report, and never matches a known failure.
 
-The runner exits 1 when a cell fails or errors and isn't in `known-failures.json`, or when a known failure is stale: it matched no failed cell though the run could judge it (each name it gives ran, and each `*` spans every agent, Company or scenario of the lane), so it is fixed or wrong. A partial run never judges an entry for cells it didn't run.
+The runner exits 1 when a cell fails or errors and isn't in `known-failures.json`, or when a known failure is stale: it matched no failed cell though the run could judge it (each name it gives ran, and each `*` spans every agent, Company or scenario of the lane, leaving aside the adversarial ones, which run apart), so it is fixed or wrong. A partial run never judges an entry for cells it didn't run.
 
 ### Isolation
 
