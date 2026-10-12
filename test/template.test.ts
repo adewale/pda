@@ -107,6 +107,20 @@ const registry = JSON.parse(sources["interop/registry.json"]!) as { implementati
 const REPO_URLS = new Set(registry.implementations.filter((entry) => entry.owner === "self").map((entry) => entry.source));
 const REPO_URL_ALLOWED_IN = new Set(["interop/registry.json", "interop/known-failures.json"]);
 
+/**
+ * Other projects the interop harness pins, as `owner/repo`, from the
+ * registry's GitHub `source` URLs. A login that owns one of them is named by
+ * that reference because it is a public upstream, not because it is on the
+ * deployer's lists, so the reference is taken out before the identity scan
+ * (the same login anywhere else still fails it).
+ */
+const UPSTREAM_REPOS = new Set(
+  registry.implementations
+    .filter((entry) => entry.owner !== "self")
+    .map((entry) => /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(entry.source ?? "")?.[1])
+    .filter((repo): repo is string => repo !== undefined)
+);
+
 /** A file's text with this repository's own URL taken out, where it is allowed. */
 function withoutRepoUrl(file: string, text: string): string {
   if (!REPO_URL_ALLOWED_IN.has(file)) return text;
@@ -153,7 +167,8 @@ function localIdentities(text: string): Needle[] {
 /** The files that hold one of `needles`, as "file: what"; never the value. */
 function filesNaming(needles: readonly Needle[]): string[] {
   return Object.entries(sources).flatMap(([file, text]) => {
-    const scanned = withoutRepoUrl(file, text);
+    let scanned = withoutRepoUrl(file, text);
+    for (const repo of UPSTREAM_REPOS) scanned = scanned.replace(new RegExp(`(?<![\\w.-])${escape(repo)}(?![\\w-])`, "gi"), "");
     return needles.filter((needle) => needle.pattern.test(scanned)).map((needle) => `${file}: ${needle.what}`);
   });
 }
@@ -197,6 +212,12 @@ describe("the committed template", () => {
     const needles = localIdentities(localFile!);
     expect(needles.length).toBeGreaterThan(0);
     expect(filesNaming(needles)).toEqual([]);
+  });
+
+  it("knows the upstream repositories the harness pins, so their owners' names in those references aren't identities", () => {
+    expect(UPSTREAM_REPOS.size).toBeGreaterThan(5);
+    expect(UPSTREAM_REPOS).toContain("spenciefy/print-with-poppy");
+    for (const repo of UPSTREAM_REPOS) expect(repo).toMatch(/^[\w.-]+\/[\w.-]+$/);
   });
 
   it("names this repository's own URL only in the interop registry and known failures", () => {
