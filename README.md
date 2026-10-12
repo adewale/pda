@@ -38,16 +38,14 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 
 ## For the draft's authors: what we found
 
-Comparing implementations, crawling the site and running the grid turned up 62 problems in the draft, each with a suggested fix and what we do meanwhile ([spec-issues.md](docs/spec-issues.md)). The ones with the widest effect:
+- **[Spec issues](docs/spec-issues.md):** 62 problems in Draft 0.1, found by comparing implementations, crawling the site and running the grid. Each has a severity (5 Critical, 13 High, 29 Medium, 15 Low), a suggested fix, and what we do meanwhile.
+- **[Readings](docs/readings.md):** where the draft is ambiguous, the reading we chose and why: strict where security depends on it, lenient where it doesn't.
+- **[Grounding](spec/grounding.md):** every claim we make about the draft, quoted against a stored copy of its text.
+- **[Conformance levels](docs/conformance-levels.md):** how our mock, validator and grid grade a broken MUST, a departed SHOULD and one of our readings.
+- **[Ecosystem map](docs/ecosystem.md):** every Poppy implementation we know of, what it does, and how it scores in our grid.
+- **[Issues in other implementations](docs/poppy-issues.md):** what the grid and code reading found in other projects, reported to their maintainers privately first.
 
-- [N2](docs/spec-issues.md#n2): a sign-in isn't bound to its Session until the code exchange, so a code can be redeemed into another User's Session of the same agent.
-- [N9](docs/spec-issues.md#n9): only `issuer` and conversation endpoints must be HTTPS, which leaves the Mediated Sign-In endpoint, which receives passwords, open.
-- [N10](docs/spec-issues.md#n10): nothing says which hosts may receive a Session Token, and an OpenAPI description's `servers` can name any host.
-- [N11](docs/spec-issues.md#n11): a multi-tenant identity provider with one issuer merges unrelated Companies into one, with shared User IDs.
-- [N4](docs/spec-issues.md#n4): revoking the Account Token that a step-up replaced may sign out the Session that was just stepped up.
-- [S1](docs/spec-issues.md#s1) and [S2](docs/spec-issues.md#s2): the client assertion's `aud`, `typ` and lifetime are unstated. Implementations already disagree, and these two account for most of the grid's failures between projects.
-
-Where the draft is ambiguous we chose a reading and wrote down why ([readings.md](docs/readings.md)): strict where security depends on it, lenient where it doesn't. Every claim we make about the draft quotes a stored copy of its text ([spec/grounding.md](spec/grounding.md)), and the ecosystem map lists every implementation we know of ([ecosystem.md](docs/ecosystem.md)). None of this has been sent to the draft's authors yet.
+None of this has been sent to the draft's authors yet.
 
 ## How it's built
 
