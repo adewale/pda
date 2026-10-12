@@ -234,7 +234,8 @@ export class Apis {
   }
 
   /**
-   * The print shop (`printShop`), described as print-with-poppy's store is: a
+   * The print shop (`printShop`), described as print-with-poppy's store was at
+   * `7ef69be` (since `c147418` its compatibility path has a description of its own): a
    * public catalog (a GET with no security), a non-Poppy compatibility
    * session endpoint (a POST with no security), and a photo upload and an
    * order that proposes an operation, both signed out, each protected by the
@@ -242,6 +243,13 @@ export class Apis {
    */
   #printPaths() {
     const secured = this.company.config.describesSecurity ? { security: [{ session: [] }, { guest: [] }] } : {};
+    // The transport's headers listed as arguments (printShopListsTransportHeaders).
+    const transport = this.company.config.printShopListsTransportHeaders
+      ? [
+          { name: "DPoP", in: "header", required: true, schema: { type: "string" }, description: "RFC 9449 proof with htm, htu, iat, jti and ath." },
+          { name: "Authorization", in: "header", required: true, schema: { type: "string" } }
+        ]
+      : [];
     return {
       "/agent-sessions": {
         post: {
@@ -261,6 +269,7 @@ export class Apis {
         post: {
           operationId: "uploadPhoto",
           ...secured,
+          ...(transport.length ? { parameters: transport } : {}),
           summary: `Upload one photo to print: JPEG, PNG or WebP, at most ${PHOTO_LIMIT / (1024 * 1024)} MB, in the field photo. Works signed out; the photo belongs to the Session.`,
           requestBody: {
             required: true,
@@ -280,7 +289,7 @@ export class Apis {
           ...secured,
           summary:
             "Propose an order of 4×6 in (6×4) prints of uploaded photos, shipped to an address. Works signed out. Returns 202 with an operation to confirm (Operations extension); nothing is ordered or charged until the User approves it. Needs an Idempotency-Key.",
-          parameters: [{ name: "Idempotency-Key", in: "header", required: true, schema: { type: "string", minLength: 16, maxLength: 128 } }],
+          parameters: [...transport, { name: "Idempotency-Key", in: "header", required: true, schema: { type: "string", minLength: 16, maxLength: 128 } }],
           requestBody: {
             required: true,
             content: {

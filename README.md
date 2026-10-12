@@ -2,24 +2,24 @@
 
 **A Personal Agent for [Poppy](https://personalagentprotocol.org/), the Personal Agent Protocol, built alongside the tools we used to test it: a validator, a strict mock Company, an interop harness that runs other projects' code, and 62 written-up spec issues.** It is for the draft's authors and for people implementing either side of the protocol.
 
-Poppy is a draft standard, published as Draft 0.1 on 9 October 2026, for AI agents acting for people at companies. This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, starts a Session, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page before an action that changes your account. The status is alpha. The agent has run only against our mock and other projects' demos and SDKs, and never against a live Company. The one deployed product we know of that publishes `poppy.json`, [Spot](docs/ecosystem.md#companies-you-can-reach), isn't in the grid.
+Poppy is a draft standard, published as Draft 0.1 on 9 October 2026, for AI agents acting for people at companies. This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, starts a Session, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page before an action that changes your account. The status is alpha. The agent has run against one live Company, print-with-poppy's store, as far as asking to upload a photo; otherwise against our mock and other projects' demos and SDKs. Of the deployed products we know of that publish `poppy.json`, print-with-poppy's store is in the grid (its code, offline) and [Spot](docs/ecosystem.md#companies-you-can-reach) isn't.
 
 ## See it work: ordering a print from print-with-poppy
 
-[print-with-poppy](https://github.com/spenciefy/print-with-poppy) is a photo-printing store built for agents. We use it as the demo because its code isn't ours: our agent has to work with someone else's reading of the draft. It runs in its own demo mode, so an order never prints a photo or charges a card.
+[print-with-poppy](https://github.com/spenciefy/print-with-poppy) is a photo-printing store built for agents. We use it as the demo because its code isn't ours: our agent has to work with someone else's reading of the draft. In our grid it runs in its own demo mode, so an order never prints a photo or charges a card. The live store, [printwithpoppy.com](https://printwithpoppy.com), takes real payments: an approved order there leads to a real checkout.
 
 | Step | You or the agent | Spec | On the page | Status |
 | --- | --- | --- | --- | --- |
-| 1 | You attach a photo and ask: "Print this as a 6×4 at print-with-poppy" | | Chat, with the photo | Works in tests |
-| 2 | The agent fetches `poppy.json` and the OAuth metadata, and the validator checks both | §3 | Activity: discovery and its verdict | Works in the grid |
-| 3 | It starts a signed-out Session: a signed client assertion, then a DPoP-bound Session Token | §4.1–4.3 | Activity: the Session | Works in the grid |
-| 4 | It reads the store's OpenAPI catalog and asks before sending your photo; you approve, and it uploads the photo | §6 | A card showing the photo | Works in the grid |
-| 5 | It places the order; the store proposes an operation with its price and terms | Operations v1 | An approval card with the store's summary | Works in the grid |
-| 6 | You approve; the agent confirms, and the store returns checkout and order-status links | Operations §4 | A receipt with the links | Works in the grid |
+| 1 | You attach a photo and ask: "Print this as a 6×4 at print-with-poppy" | | Chat, with the photo | Works in tests; done live |
+| 2 | The agent fetches `poppy.json` and the OAuth metadata, and the validator checks both | §3 | Activity: discovery and its verdict | Works in the grid and live |
+| 3 | It starts a signed-out Session: a signed client assertion, then a DPoP-bound Session Token | §4.1–4.3 | Activity: the Session | Works in the grid and live |
+| 4 | It reads the store's OpenAPI catalog and asks before sending your photo; you approve, and it uploads the photo | §6 | A card showing the photo | Works in the grid; live, as far as the card |
+| 5 | It places the order; the store proposes an operation with its price and terms | Operations v1 | An approval card with the store's summary | Works in the grid; not yet live |
+| 6 | You approve; the agent confirms, and the store returns checkout and order-status links | Operations §4 | A receipt with the links | Works in the grid; not yet live |
 
 Every step's exchanges also appear in Activity's protocol log, with their spec sections, and can be copied as text for an interop report.
 
-"Works in the grid" means our agent passes that part against the store's pinned code in our [interop harness](#for-implementers-test-against-us), offline, in scenario `OU`; "works in tests" means against our mock Company. The journey hasn't run live yet: the live store accepts our agent only once its maintainer adds our `client_id` to its allowlist.
+"Works in the grid" means our agent passes that part against the store's pinned code in our [interop harness](#for-implementers-test-against-us), offline, in scenario `OU`; "works in tests" means against our mock Company. "Live" is the owner's deployed agent at printwithpoppy.com on 12 October. The store's maintainer has added our `client_id` to its allowlist; the agent started a signed-out Session, read the catalogue and asked to send a 3.7 MB photo. Earlier that day the model had called the store's non-Poppy guest session endpoint, which the agent now refuses before asking you ([what happened](docs/poppy-issues.md#print-with-poppy-spenciefyprint-with-poppy)). The order, its approval and checkout haven't run live yet.
 
 ## What you can do with it
 

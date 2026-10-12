@@ -253,6 +253,31 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect(described.upload).toMatchObject({ files: ["photo"], fields: [] });
   });
 
+  it("uploads and orders where the description lists DPoP and Authorization as required headers, which the client sets itself", async () => {
+    // As print-with-poppy's description did from c147418 to cecb32f: kept as
+    // parameters, the model would be asked for a DPoP proof, and a call without
+    // one refused before its card ("Missing parameter DPoP").
+    const c = await company({ printShop: true, printShopListsTransportHeaders: true });
+    const a = await poppyAgent();
+    for (const operation of ["uploadPhoto", "orderPrints"]) {
+      const described = JSON.parse((await tool(a, "poppy_api_describe", { domain: c.domain, operation })).text) as { parameters: { name: string }[] };
+      expect(described.parameters.map((parameter) => parameter.name)).toEqual([]);
+    }
+    const info = await attached(a);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: info.id } })).text).toContain(
+      "Waiting for the User to approve sending the file"
+    );
+    const approval = (await cards(a)).find((card) => card.kind === "approval")!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
+    const uploads = await photoRequests(c);
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0]!.headers.authorization).toMatch(/^DPoP /);
+    expect(uploads[0]!.headers.dpop).toBeTruthy();
+    const photoId = /"id":"(pho_[A-Za-z0-9_-]+)"/.exec(await a.stub.poppyWaitForNotice("Done, as the User approved"))![1]!;
+    const order = JSON.parse((await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder(photoId) })).text);
+    expect(order).toMatchObject({ status: 202, proposed: { revision: 1 } });
+  });
+
   it("stops at an operation whose signed-out Session ended: nothing is confirmed, the User and model are told, and a new proposal can be asked for (N19)", async () => {
     const c = await company({ printShop: true });
     const a = await poppyAgent();
