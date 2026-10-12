@@ -31,18 +31,21 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Part | State |
 | --- | --- |
 | Chat with one durable agent per person | Built; tested with Pi's fake model |
-| App sign-in with Google and GitHub | Built and tested against fake providers that check PKCE and can refuse. GitHub's OAuth client is configured (the live redirect to GitHub checks out); Google's isn't registered yet, so Google sign-in fails with a 500 naming the missing setting |
-| Model access: own keys (Anthropic, OpenAI) and the operator-paid demo lane with daily caps | Built and tested against fake vendors and pi's fake model. Not yet run live: see Model access, "Check live" |
-| Claude through AI Gateway (the demo lane) | Built; a live call fails with `x-api-key header is required` until the demo gateway has Unified Billing credits |
+| App sign-in with Google and GitHub | Built and tested against fake providers that check PKCE and can refuse. Both are live: the owner signed in with each on 12 October. Not yet tried live: a Google Workspace account matched by its domain, and someone on no list being refused |
+| Model access: own keys (Anthropic, OpenAI) and the operator-paid demo lane with daily caps | Built and tested against fake vendors and pi's fake model. Live on 12 October: a real key of each vendor, checked with the vendor and streamed (the Anthropic one created inside a workspace). Not yet run live: the rest of Model access, "Check live" |
+| Claude through AI Gateway (the demo lane) | Built; answered live through the owner's gateway on Unified Billing on 12 October. Not yet tried live: the gateway's own spend rules, and a turn after a compaction |
 | Poppy client: every part in this spec | Built; passes the conformance tests against a strict mock Company, under six readings of the draft's open questions. In the [interop grid](docs/interop-results/README.md) (a snapshot of a 12 October run) it passes every scenario it shares with the Companies of seven other projects: Datalayer, pi-poppy, poppy-demo, poppyseed, Ilmer, print-with-poppy and adonis-agora. Not yet run against a live Company: Spot, a small deployed product, publishes valid discovery but isn't in the grid ([implementations.md](docs/implementations.md)) |
 | Poppy identity (`/poppy/client.json`, `/poppy/jwks.json`) | Live, with production signing keys |
-| Web browsing | Built on a fetch-based browser in the Durable Object, with no JavaScript; the production browser is tested against the mock Company's website. Not yet tried on a real Company's site |
+| Web browsing in a Session (`poppy_browse`) | Built on a fetch-based browser in the Durable Object, with no JavaScript; the production browser is tested against the mock Company's website. Not yet tried on a real Company's site |
 | Chat, Activity, Companies and Settings pages | Built; tested in happy-dom and checked in headless Chrome (light, dark, phone width). Not yet used with a real Company |
 | Photos in the chat, and uploads to a Company's API | Built: a photo attached to a message is kept in the agent, shown to the model, and sent to a Company only in an upload the User approves on a card. The demo journey, print-with-poppy's 6×4 print, passes end to end in the interop grid (scenario OU) against the store at its pinned commit in its demo mode, and in the Worker tests against the mock's print shop. Not yet tried against the live store, which must first allowlist our `client_id` (TODO.md) |
 | Sign-in allowlist (emails, Google Workspace domains, GitHub accounts), `OWNERS`, `SIGNUP` | Built and tested; set in the deployer's untracked `deployment.local.json`, changed by redeploying |
 | Discovery document validator (library, CLI, JSON API, form) | Built and tested; live at `/validator`; the client's discovery uses it as its ingestion gate |
-| General tools: `read_url`, memory (`remember`, `recall`, `forget`), `now`, `date_math`, `calculate` | Built and tested against a fake web, the faux model and property tests (General tools). Settings lists and deletes the notes. `read_url` renders pages that need JavaScript in Browser Run, tested against a fake browser; not yet run against Browser Run itself |
-| Reminders and scheduled tasks, with Web Push notifications | Built and tested with the faux model, a fake push service and RFC 8291's own example; Settings lists and cancels them. Not yet run live; notifications need `WEB_PUSH_VAPID_JWK` set ([deployment-tasks.md](docs/deployment-tasks.md)) |
+| General tools: `read_url`, memory (`remember`, `recall`, `forget`), `now`, `date_math`, `calculate` | Built and deployed; tested against a fake web, the faux model and property tests (General tools). Settings lists and deletes the notes. Not yet checked live: a real page or two, and a note kept across a redeploy |
+| Reading signed-out pages that need JavaScript (`read_url` in Browser Run) | Built and deployed with `BROWSER_RUN=on`; read only, tested against a fake browser. Not yet run against Browser Run itself |
+| Reminders and scheduled tasks (`remind_me`, `schedule_task`, `list_scheduled`, `cancel_scheduled`) | Built and deployed; tested with the faux model, the alarm run by hand on a set clock; Settings lists and cancels them. Not yet run live: one of each firing on time ([deployment-tasks.md](docs/deployment-tasks.md#2-live-checks)) |
+| Web Push notifications | Built and deployed, with `WEB_PUSH_VAPID_JWK` set; tested against a fake push service and RFC 8291's own example. Not yet tried on a real device or push service |
+| Privacy policy (`/privacy`) | Live, rendered from the template's text and the deployment's `PRIVACY_CONTACT` |
 | Skills (milestone 2) | Not started |
 
 With `SIGNUP=allowlist` (the committed value) only `OWNERS` and people on `SIGNIN_ALLOWLIST` can sign in. The operator pays only for `OWNERS` and `DEMO_ALLOWLIST`, up to the daily caps; everyone else needs their own key.
@@ -264,13 +267,13 @@ Who pays for a model call is decided before every call, in `src/model-router.ts`
 - **Never shown again.** The key isn't echoed to the page, logged, put in the transcript or the Activity log, or reachable by any model tool. A vendor error that reaches the transcript has anything shaped like a key redacted.
 - **Who can read it.** The deployment's operator (they hold `TOKEN_ENC_KEY` and choose the code) and Cloudflare, as the runtime. Settings says so and advises setting a spending limit on the key at the provider.
 
-**Check live.** These are faked in the tests and not yet run against the real services; each is an item in [`docs/deployment-tasks.md`](docs/deployment-tasks.md):
+**Check live.** These are faked in the tests; each is an item in [`docs/deployment-tasks.md`](docs/deployment-tasks.md), which records the three done on 12 October:
 
-- pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key.
-- Claude Sonnet 5.5 (and any other demo model) on Unified Billing through the binding.
+- Done: pi-ai's Anthropic and OpenAI SDKs streaming in workerd with a real key.
+- Done: Claude Sonnet 5.5 on Unified Billing through the binding.
 - A demo-lane turn after a compaction: that the gateway passes the `anthropic-beta` header and the body on unchanged, and Anthropic answers rather than refusing the kept thinking blocks (preserved thinking; see Compaction).
 - That `createAI` metadata reaches the gateway's spend rules, the 429s they return, and how far bursts overshoot.
-- The free key checks (`GET /v1/models`) at each vendor.
+- Done: the free key checks (`GET /v1/models`) at each vendor.
 - How the Deploy to Cloudflare button handles the deployer's vars.
 
 ## Chat transport and UI
@@ -907,7 +910,7 @@ Four extensions in `src/tools/`, beside `poppy`, so the agent is useful away fro
 
 ## Build plan
 
-1. **Chat demo.** Built. Remaining: register Google's OAuth client (GitHub's is configured), and create and fund the demo gateway ([`docs/deployment-tasks.md`](docs/deployment-tasks.md)).
+1. **Chat demo.** Built and live, with Google and GitHub sign-in and a funded demo gateway. Remaining: the live checks in [`docs/deployment-tasks.md`](docs/deployment-tasks.md).
 2. **Personal.** The sign-in allowlist, own model keys, the demo's daily caps, memory and the other general tools (`read_url`, time and maths), and reminders and scheduled tasks with Web Push, are built. Not started: skills. Memory's own test is "remember I'm vegetarian" surviving a week and a redeploy; the notes are in the agent's SQLite and in every prompt, so it should, but it hasn't been tried live.
 3. **Poppy core.** Built and passing against the mock: identity routes, discovery, User IDs, Sessions and DPoP, all three sign-in types, Account Tokens and sign-out, conversations with handoff and Direct Conversations, `CompanyLimiter`.
 4. **APIs and operations.** Built and passing against the mock: OpenAPI and MCP clients, the Operations extension, standing permissions, the local approval gate.

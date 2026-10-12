@@ -99,3 +99,31 @@ A deployment can run with only one provider: list the ones it offers in `SIGNIN_
 `read_url` renders pages that need JavaScript in Cloudflare Browser Run, through the `BROWSER` binding in `wrangler.jsonc`. There is nothing to create or set: the binding needs no API token, and Workers Paid includes 10 browser hours a month and 10 concurrent browsers (averaged over the month); beyond that Cloudflare charges $0.09 a browser hour and $2 a concurrent browser. Each agent renders at most 10 pages an hour, each in at most 20 seconds. On Workers Free, Browser Run allows 10 browser minutes a day, so renders fail once they are used up and `read_url` falls back to the plain read.
 
 To switch it off, set `"BROWSER_RUN": "off"` in `deployment.local.json` and redeploy. `read_url` then reads every page without JavaScript and tells the model when a page needed it. Usage shows in the dashboard under **Compute → Browser Run**. In `npm start` the binding is remote, so renders during development run in Browser Run and count against the same allowance.
+
+## 7. Switches and costs
+
+### Switches
+
+Every way to turn something off, in one place. A var goes in `deployment.local.json` and takes effect at the next `npm run deploy`; a secret takes effect as soon as it is set or deleted.
+
+| To stop | Set | What happens |
+| --- | --- | --- |
+| Rendering pages in Browser Run | `"BROWSER_RUN": "off"` | `read_url` reads every page without JavaScript and tells the model when a page needed it ([section 6](#6-browser-run-on-by-default)). |
+| The demo: model calls you pay for | `"DEMO_DAILY_USD_PER_USER": 0` and `"DEMO_DAILY_USD_PER_DOMAIN": 0` | Either cap at 0 refuses every demo call before it is made, because nobody's spend is below 0. Everyone then needs their own key, and a scheduled task with no key fails its run; three failures in a row pause it. |
+| One sign-in provider | `"SIGNIN_PROVIDERS": ["github"]` or `["google"]` | The sign-in page has no button for the other, and its `/auth/` routes answer 404. At least one must be listed. |
+| New people | `"SIGNUP": "allowlist"` (the committed value) | Only `OWNERS` and `SIGNIN_ALLOWLIST` sign in. Taking someone off a list shuts them out at their next request after the redeploy. Their agent keeps its storage, and its reminders and scheduled tasks still fire on its alarm; a task's run still uses the demo if they are still on `DEMO_ALLOWLIST`. |
+| Notifications | `npx wrangler secret delete WEB_PUSH_VAPID_JWK` | Settings stops offering notifications and the agent sends none. Reminders still show in the chat. Subscriptions stay in each agent's storage, unused. Putting the same key back brings them back; a new key means each person turns notifications on again ([section 2](#2-secrets)). |
+
+`OWNERS` can't be emptied: every route but the validator then answers with a config error. The validator has no switch; its URL checks are rate limited (below).
+
+### What a deployment costs
+
+These are Cloudflare's published prices on the day this was written; check the linked pages before relying on them. The live deployment runs on Workers Paid.
+
+- **Workers Paid:** a minimum of $5 a month per account, which covers Workers, Durable Objects and the allowances below ([Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)). On Workers Free, Durable Objects still work, with daily limits, and Browser Run gives 10 browser minutes a day.
+- **Durable Objects:** each person's agent is one SQLite-backed Durable Object, and so are `DomainBudget` and `CompanyLimiter`. Workers Paid includes 5 GB-month of stored data, then $0.20 a GB-month; 50 million rows written a month, then $1.00 a million; 25 billion rows read, then $0.001 a million; 1 million requests (alarm invocations count), then $0.15 a million; and 400,000 GB-s of duration, then $12.50 a million GB-s ([Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)). The largest thing an agent stores is photos: at most 100 MiB, each deleted after 30 days. Every person who signs in gets an agent, so `SIGNUP=open` costs storage for each one, even when they bring their own key.
+- **The demo lane:** model calls through AI Gateway are paid from credits you load, at the provider's own token prices, and Unified Billing adds a 5% fee to every credit purchase, so $100 of credit costs $105 ([Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/), [AI Gateway pricing](https://developers.cloudflare.com/ai-gateway/reference/pricing/)). The agent's caps bound a day's spend: at most `DEMO_DAILY_USD_PER_USER` a person, and at most `DEMO_DAILY_USD_PER_DOMAIN` for each Google Workspace domain, with everyone on a personal Google account or GitHub sharing one more budget of that size (`personal`). A cap is checked before each call, so the call that crosses it is paid in full. Own-key calls go straight to Anthropic or OpenAI and cost you nothing.
+- **Browser Run:** Workers Paid includes 10 browser hours a month and 10 concurrent browsers (averaged over the month); beyond that, $0.09 a browser hour and $2.00 for each concurrent browser over 10 ([Browser Run pricing](https://developers.cloudflare.com/browser-run/pricing/)). Each agent renders at most 10 pages an hour, each in at most 20 seconds, so one agent can use about 3.3 browser minutes an hour at most. There is no limit across the deployment: `BROWSER_RUN=off` is the brake.
+- **Scheduled tasks:** each run is a model call like a chat message, paid on the person's own key or under the demo's daily caps, never beyond them. An agent keeps at most 20 reminders and tasks waiting, none more often than daily. A reminder makes no model call.
+- **Web Push:** free. The browsers' own push services (Google, Mozilla, Apple, Microsoft) carry each notification; the agent's request to them is an outbound request from the Durable Object.
+- **The validator:** open to anyone. A check of a pasted document runs in the Worker; a URL check also fetches from the network, so each client address gets 20 URL checks a minute (the `VALIDATOR_LIMITER` rate-limit binding in `wrangler.jsonc`). Each check is an ordinary Worker request.

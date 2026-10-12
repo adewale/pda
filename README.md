@@ -51,7 +51,7 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 
 **Your data** stays in your own agent's storage; [the privacy policy](https://personal-agent.adewale-883.workers.dev/privacy) says what is kept and for how long.
 
-Which of these is a Poppy feature and which is ours, each tool the model can call, and what needs your approval: [docs/capabilities.md](docs/capabilities.md).
+Signing in for the first time, with a run-through that checks each part works: [docs/using.md](docs/using.md). Which of these is a Poppy feature and which is ours, each tool the model can call, and what needs your approval: [docs/capabilities.md](docs/capabilities.md).
 
 ## For implementers: test against us
 
@@ -90,18 +90,19 @@ None of this has been sent to the draft's authors yet.
 - **Approval stays on the page.** Company text reaches the model labelled as information, never as approval. A write waits for your approval of exactly what will be sent, unless the Company has the Operations extension and its own API description says that call only proposes an operation (an OpenAPI `202` carrying `operation`, or an MCP tool whose output declares one). Then you approve the Company's proposal and its terms instead. Sending your photo or file always waits for you. A standing permission covers a proposal only when the Company's summary begins with the permission's action and every term is an amount within its limit, a date, or one of the record ids in the draft's example (`order_id`, `item_id`, `replacement_sku`); anything else comes to you.
 - **Secrets stay out of the model.** Session Tokens and DPoP keys live only in memory; Account Tokens and pasted model keys are sealed with AES-GCM and bound to their row; the model's tools never take or return a credential.
 - **General tools beside Poppy.** `read_url` reads one public page as untrusted text with no cookies or credentials, and renders a page that needs JavaScript in Browser Run, where the page can send only GET and HEAD requests to public hosts; `remember`, `recall` and `forget` keep short notes in the agent's own SQLite, never secrets; `now`, `date_math` and `calculate` do time zones, calendar arithmetic and exact decimal sums. All are ours, in `src/tools/`; Browser Run is the only service they use beyond the page itself.
+- **Reminders and tasks on the agent's own alarm.** `remind_me`, `schedule_task`, `list_scheduled` and `cancel_scheduled` keep rows in the agent's SQLite, and the Durable Object's alarm runs each on time, with no page open. A reminder makes no model call; a task is a background turn with no extra powers, metered like any other. Only a turn the User's own message started can set or cancel one. Notifications go by Web Push, encrypted for each browser, only to the browsers' own push services.
 - **Two ways to pay for the model.** An operator-paid demo through AI Gateway, capped per person and per domain before every call, or your own Anthropic or OpenAI key, sent straight to the vendor. Compaction keeps each request under about 200k tokens.
 - **Everything is tested offline.** Five suites run with the model, the vendors, Google, GitHub and every Company faked, and every Poppy test fails if the strict mock Company records a violation or a warning. A second client in Python drives a stateful Hypothesis test of the mock, because a misreading our client and mock share is invisible to both.
 
-The design is [durable-personal-agent-spec.md](durable-personal-agent-spec.md); each capability and tool, and where it comes from, is [docs/capabilities.md](docs/capabilities.md); why it is built this way is [docs/decisions.md](docs/decisions.md).
+The design is [durable-personal-agent-spec.md](durable-personal-agent-spec.md); how to use the agent and check it works is [docs/using.md](docs/using.md); each capability and tool, and where it comes from, is [docs/capabilities.md](docs/capabilities.md); why it is built this way is [docs/decisions.md](docs/decisions.md).
 
 ## Status and limitations
 
-- **Live:** https://personal-agent.adewale-883.workers.dev, with sign-in limited to an allowlist, and the validator at `/validator`, open to anyone. GitHub sign-in works; Google sign-in isn't registered yet.
+- **Live:** https://personal-agent.adewale-883.workers.dev, with Google and GitHub sign-in limited to an allowlist, the validator at `/validator`, open to anyone, and the privacy policy at `/privacy`. Web Push and Browser Run are switched on there. Which parts have been checked live, and which haven't, is [deployment-tasks.md §2](docs/deployment-tasks.md#2-live-checks).
 - **Never run against a live Company.** Spot publishes valid discovery but has no Operations and isn't in the grid; everything else we know of is a demo or an SDK.
-- **Not tried live:** the demo lane's gateway and its spend limits are faked in the tests ([deployment-tasks.md](docs/deployment-tasks.md)).
-- **Browsing a Company's site runs no JavaScript,** so a site that needs it to show a page or send a form can't be browsed in a Session. `read_url` can render such a page, signed out and read only.
-- **Not built:** skills, web search and reminders.
+- **Not tried live:** the demo lane has answered through the live gateway, but its gateway-side spend rules, a turn after a compaction, reminders and tasks firing, notifications on real devices, and a Browser Run render are tested only against fakes so far ([deployment-tasks.md](docs/deployment-tasks.md#2-live-checks)).
+- **JavaScript:** `read_url` renders a page that needs it in Browser Run, signed out and read only. Browsing a Company's site in a Session (`poppy_browse`) still runs no JavaScript, so a site that needs it to show a page or send a form can't be used there.
+- **Not built:** skills, web search, reminders by email, and "delete my agent" (today the operator deletes an agent by hand when asked, as the privacy policy promises).
 - Everything still open is in [TODO.md](TODO.md).
 
 ## Run it yourself
@@ -126,14 +127,16 @@ src/index.ts        Worker routes (chat, sign-in, Poppy identity, validator)
 src/agent.ts        The per-person Durable Object
 src/model-*.ts      Who pays for each model call: own keys (sealed), the demo and its caps
 src/poppy/          The Poppy client, its tools, the fetch-based browser and the Activity log
-src/tools/          The general tools: read_url, memory, time and maths
+src/tools/          The general tools: read_url, memory, time and maths, reminders and tasks
+src/schedules.ts    Reminders and scheduled tasks on the Durable Object's alarm
+src/web-push.ts     Web Push: VAPID, payload encryption, the push-service allowlist
 src/ui/             The page: Chat, Activity, Companies, Settings
 src/validator/      The validator: parser, primitives, profiles, fetch, HTTP, HTML
 scripts/            The validator CLI, the deploy check, the docs check, the spec snapshot
 test/               The suites, the fakes, the mock Company, the Hypothesis client
 interop/            The interop runner, recording proxy, scenarios, adapters and cross-checks
 spec/               A dated copy of the draft, and what each of our claims rests on
-docs/               Decisions, capabilities, setup, spec issues, readings, interop, the ecosystem map, proposals
+docs/               The user guide, decisions, capabilities, setup, spec issues, readings, interop, the ecosystem map, proposals
 ```
 
 ## Security, contributing and licence

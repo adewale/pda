@@ -32,7 +32,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 
 | Project | What | Language, licence | Grid | Source | Checked |
 | --- | --- | --- | --- | --- | --- |
-| This project (dpa) | A hosted Personal Agent per User, on Durable Objects | TypeScript, none chosen | Yes | [adewale/dpa](https://github.com/adewale/dpa) | 12 Oct |
+| This project (dpa) | A hosted Personal Agent per User, on Durable Objects. Beyond Poppy: general tools (reading a public page, rendering it in Browser Run when it needs JavaScript; notes about the User; dates and exact sums) and reminders and scheduled tasks, with Web Push | TypeScript, none chosen | Yes | [adewale/dpa](https://github.com/adewale/dpa) | 12 Oct |
 | Datalayer SDK | Client side of a both-sides SDK | Python, TypeScript; BSD-3-Clause | Yes, pinned at `0c048aa` (0.10.0; was `12d7187`, 0.6.0) | [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol) | 12 Oct |
 | pi-poppy | An extension for the pi coding agent | TypeScript, MIT | Yes | [richardanaya/pi-poppy](https://github.com/richardanaya/pi-poppy) | 12 Oct (no commits since 10 Oct) |
 | adonis-agora agent | `poppy-client`, `poppy-agent` bin and "connections" in an AdonisJS agent library | TypeScript, MIT | Yes | [DavideCarvalho/adonis-agora-agent](https://github.com/DavideCarvalho/adonis-agora-agent) | 12 Oct |
