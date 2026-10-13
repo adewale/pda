@@ -510,7 +510,15 @@
         "invalid_client"
       ],
       "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
-      "reason": "Reading S1, blamed on the spec: Tipping Co checks every client assertion's aud against its token endpoint, at /oauth/revoke too (token.ts authenticateClient, revoke.ts), and answers 401 invalid_client to an assertion whose aud is the revocation endpoint. dpa, both Datalayer agents and pi-poppy send the endpoint called (S1 endpoint); adonis-agora and Tipping Co's own agent send the token endpoint and pass. The first signed-in Company in the grid with this reading."
+      "reason": "Reading S1, blamed on the spec: Tipping Co checks every client assertion's aud against its token endpoint, at /oauth/revoke too (token.ts authenticateClient, revoke.ts), and answers 401 invalid_client to an assertion whose aud is the revocation endpoint. Both Datalayer agents and pi-poppy send the endpoint called (S1 endpoint); dpa did too, and since 13 October tries the token endpoint after that invalid_client and passes; adonis-agora and Tipping Co's own agent send the token endpoint and pass. The first signed-in Company in the grid with this reading."
+    },
+    {
+      "agent": "dpa",
+      "company": "print-with-poppy",
+      "scenario": "OU",
+      "blame": "company",
+      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s22",
+      "reason": "Since 13 October our agent sends a write straight to a Company with Operations only when every success response its description declares is a proposal that requires `operation` (S22, after an audit found an optional `operation` let a write skip the User's approval). print-with-poppy's proposeOrder declares one 202 whose schema has an `operation` property but no `required`, so our agent asks the User on its own card first and the step returns `held`, not the 202 OU expects. A one-line fix in its description (`required: [\"operation\"]`) restores the direct proposal."
     },
     {
       "agent": "pi-poppy",

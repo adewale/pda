@@ -70,7 +70,8 @@ const MANIFEST = {
         // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
         "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE", "XR", "XT"
       ],
-  // S1 "endpoint": every client assertion's aud is the endpoint it is sent to (src/poppy/client.ts oauthRequest).
+  // S1 "endpoint": a client assertion's aud is the endpoint it is sent to, then, after an invalid_client at the
+  // device or revocation endpoint, the token endpoint (src/poppy/client.ts oauthRequest; docs/readings.md S1).
   readings: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
   relaxations: [] as string[],
   ...(ADVERSARY ? { attacks: [...ATTACKS], adversarial: true } : {}),

@@ -482,7 +482,11 @@ export class PoppyClient {
    * One request to the Company's token, device or revocation endpoint, with
    * our client assertion and (unless `dpop` is false) a DPoP proof. Nonces,
    * short `Retry-After` waits and fresh assertions on every attempt are
-   * handled here.
+   * handled here. The client assertion's `aud` is the endpoint called; the
+   * draft doesn't say (S1), and Companies differ, so at the device or
+   * revocation endpoint an `invalid_client` gets one more try with the token
+   * endpoint as `aud`, as RFC 7523 3 allows. Both name this Company, so
+   * neither can be replayed at another.
    */
   async oauthRequest(
     company: Company,
@@ -493,6 +497,7 @@ export class PoppyClient {
     const signing = await currentKey(this.host.env);
     // One retry for a new DPoP nonce, whenever it comes: after a 429 too.
     let nonceRetried = false;
+    let audience = endpoint;
     for (let attempt = 0; attempt < 3; attempt++) {
       await this.#respectLimit(company.issuer);
       // Each attempt gets new assertions and a new proof: Companies reject a reused jti.
@@ -501,7 +506,7 @@ export class PoppyClient {
         ...fields,
         client_id: this.identity.clientId,
         client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-        client_assertion: await clientAssertion(signing, this.identity.clientId, endpoint)
+        client_assertion: await clientAssertion(signing, this.identity.clientId, audience)
       });
       const headers = new Headers({
         "Content-Type": "application/x-www-form-urlencoded",
@@ -540,6 +545,11 @@ export class PoppyClient {
       if (error === "use_dpop_nonce" && nonce && !nonceRetried) {
         recordOauth(this.sql, company, logged, answer, { kind: "nonce" });
         nonceRetried = true;
+        continue;
+      }
+      if (error === "invalid_client" && response.status === 401 && audience !== company.endpoints.token) {
+        recordOauth(this.sql, company, logged, answer);
+        audience = company.endpoints.token;
         continue;
       }
       if (wait !== null) {

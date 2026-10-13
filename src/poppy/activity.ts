@@ -168,7 +168,7 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
       account: row.account === "default" ? null : row.account,
       scopes: row.scopes,
       state: row.status === "pending" || row.status === "code" ? "waiting for the User" : "finishing",
-      until: row.expires_at
+      until: new Date(row.expires_at).toISOString()
     }));
 
   const conversations = rows(
@@ -188,7 +188,12 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     accountsTable.pick("issuer", "account", "scope", "expires_at"),
     "SELECT issuer, account, scope, expires_at FROM poppy_accounts WHERE expires_at IS NULL OR expires_at > ?",
     now
-  ).map((row) => ({ ...where(row.issuer), account: row.account, scope: row.scope, expiresAt: row.expires_at }));
+  ).map((row) => ({
+    ...where(row.issuer),
+    account: row.account,
+    scope: row.scope,
+    ...(row.expires_at !== null ? { expires: new Date(row.expires_at).toISOString() } : {})
+  }));
 
   return { operations, approvals, signIns, conversations, accounts };
 }

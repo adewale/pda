@@ -152,7 +152,13 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           return {
             company: found.name,
             sessions: c.sessions(found.issuer).map((s) => ({ session: s.label, signedIn: !!s.signed_in, account: s.account, scope: s.scope })),
-            accounts: c.accounts(found.issuer).map((a) => ({ account: a.account, scope: a.scope, expiresAt: a.expires_at })),
+            accounts: c.accounts(found.issuer).map((a) => ({
+              account: a.account,
+              scope: a.scope,
+              ...(a.expires_at !== null ? { expires: new Date(a.expires_at).toISOString() } : {})
+            })),
+            // No tool signs out: the User does, on the page.
+            ...(c.accounts(found.issuer).length ? { signOut: `The User signs out on the Companies page: Companies, then ${found.name}, then "Sign out of ${found.name}".` } : {}),
             conversations: openConversations(c)
               .filter((row) => row.issuer === found.issuer)
               .map((row) => ({ conversation: row.id, status: row.status, responder: row.responder, direct: !!row.direct }))

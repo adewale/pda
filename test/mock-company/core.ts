@@ -654,7 +654,11 @@ export class Company {
     }
     // The draft never says what aud is (S1); exact Companies want the endpoint called.
     const exact = this.config.clientAssertionAud === "exact";
-    const audiences = exact ? [endpoint] : [endpoint, this.hosts.tokenEndpoint, this.hosts.issuer];
+    const ours = [endpoint, this.hosts.tokenEndpoint, this.hosts.issuer];
+    if (this.config.clientAssertionAud === "token-endpoint" && typeof payload.aud === "string" && ours.includes(payload.aud) && payload.aud !== this.hosts.tokenEndpoint) {
+      throw oauthError(401, "invalid_client", "client assertion aud must be the token endpoint");
+    }
+    const audiences = exact ? [endpoint] : ours;
     if (typeof payload.aud !== "string" || !audiences.includes(payload.aud)) {
       this.violation(
         "client-assertion.aud",

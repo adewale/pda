@@ -78,9 +78,12 @@ export type MockConfig = {
   /**
    * What a client assertion's `aud` may be, which the draft never says
    * (docs/spec-issues.md, S1). "lenient" accepts the endpoint called, the
-   * token endpoint or the issuer; "exact" only the endpoint called.
+   * token endpoint or the issuer; "exact" only the endpoint called;
+   * "token-endpoint" only the token endpoint, as Tipping Co and Alpine Retail
+   * do at revocation. Another of this Company's names is then refused as a
+   * reading, with no violation.
    */
-  readonly clientAssertionAud: "lenient" | "exact";
+  readonly clientAssertionAud: "lenient" | "exact" | "token-endpoint";
   /**
    * With `requireNonce`, which servers share a DPoP nonce (S23): one value
    * for every origin of the Company, or a different value per origin.

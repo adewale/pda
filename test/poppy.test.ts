@@ -668,6 +668,27 @@ describe.each(PROFILES)("4.8–4.9 Account Tokens and signing out ($name)", ({ c
     expect(status.sessions[0].signedIn).toBe(false);
   });
 
+  it("revokes at a Company that wants the token endpoint as aud, trying it after the endpoint's invalid_client (S1; Alpine Retail, 13 Oct)", async () => {
+    const c = await company({ clientAssertionAud: "token-endpoint" });
+    const a = await agent();
+    await signInDirect(a, c);
+    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+    expect((await c.stub.state()).accountTokens).toBe(0);
+    const revokes = (await requests(c)).filter((request) => request.url === c.hosts.revocationEndpoint);
+    expect(revokes.map((request) => request.status)).toEqual([401, 200]);
+  });
+
+  it("tells the model when access ends, as a date, and that the User signs out on the Companies page", async () => {
+    const c = await companyHere();
+    const a = await agent();
+    await signInDirect(a, c);
+    const status = JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text);
+    expect(status.accounts[0].expires).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(status.signOut).toContain(`Sign out of Mock Shop ${c.id}`);
+    const all = JSON.parse((await tool(a, "poppy_status", {})).text);
+    expect(JSON.stringify(all)).not.toMatch(/"(expiresAt|until)":\d/);
+  });
+
   it("continues signed out when the User disconnects the agent at the Company", async () => {
     const c = await companyHere();
     const a = await agent();
