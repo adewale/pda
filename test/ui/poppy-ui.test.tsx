@@ -15,7 +15,7 @@ import { toIssuer } from "../../src/poppy/issuer";
  * Company supplies becomes a dangerous link.
  */
 
-const EMPTY: PoppyView = { cards: [], accounts: [], permissions: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
+const EMPTY: PoppyView = { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
 
 function view(patch: Partial<PoppyView>): PoppyView {
   return { ...EMPTY, ...patch };

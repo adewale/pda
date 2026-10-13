@@ -152,6 +152,24 @@ export type Permission = {
   readonly expiresAt: number | null;
 };
 
+/**
+ * A sign-out the Company hasn't accepted yet (spec 4.9): the agent no longer
+ * uses the account, but the Account Token it held is still live there.
+ */
+export type PendingSignOut = {
+  readonly id: string;
+  readonly issuer: Issuer;
+  readonly company: string;
+  readonly account: string;
+  /** The code the Company last answered, or ours when no answer came. */
+  readonly error: string | null;
+  readonly attempts: number;
+  /** When the access ends by itself at the Company; null when it gave no expiry. */
+  readonly expiresAt: number | null;
+  /** When the agent tries again by itself; null once it has stopped trying. */
+  readonly nextAt: number | null;
+};
+
 /** How the agent reached the Company. */
 export type ActivityChannel = "api" | "company_agent" | "website" | "sign_in" | "direct" | "schedule";
 
@@ -177,7 +195,7 @@ export type ActivityEntry = {
   readonly id: string;
   readonly at: number;
   /** `scheduled`: a reminder or scheduled task ran (src/schedules.ts); its issuer is empty. */
-  readonly kind: "operation" | "approval" | "sign_in" | "conversation" | "message" | "scheduled";
+  readonly kind: "operation" | "approval" | "sign_in" | "sign_out" | "conversation" | "message" | "scheduled";
   readonly issuer: Issuer | "";
   readonly company: string;
   readonly account: string | null;
@@ -199,7 +217,7 @@ export type ActivityEntry = {
 /** Work running in the background now. */
 export type ActivityTask = {
   readonly id: string;
-  readonly kind: "conversation" | "device_sign_in" | "operation" | "approval";
+  readonly kind: "conversation" | "device_sign_in" | "sign_out" | "operation" | "approval";
   readonly issuer: Issuer;
   readonly company: string;
   readonly what: string;
@@ -272,6 +290,8 @@ export type PoppyServerFrame =
       readonly type: "poppy.settings";
       readonly accounts: readonly ConnectedAccount[];
       readonly permissions: readonly Permission[];
+      /** Sign-outs the Company hasn't accepted yet. */
+      readonly signOuts: readonly PendingSignOut[];
     }
   | {
       readonly type: "poppy.activity";

@@ -55,6 +55,8 @@ Nothing that changes your account at a company happens until you approve it. Eac
 
 Signing in to a company, signing out, and talking to a company's staff directly in a Direct Conversation are also yours to do on the page; the agent can only ask.
 
+**Signing out of a company.** On the **Companies** page, open the company and press **Sign out of** it. Your agent stops using that account at once, and asks the company to revoke the access it granted. If the company doesn't accept that request, a notice says so, with the company's error code. The agent no longer uses the account, but the access stays live at the company until the date the notice gives, unless you revoke it there. Your agent tries again after 1 minute, 10 minutes, 1 hour and 6 hours, then stops and says so. Until the company accepts, its page lists the sign-out with how many times your agent tried, and a **Try again** button.
+
 ## Photos
 
 Attach a photo with **Attach a photo** beside the message box, or paste or drop one in: JPEG, PNG, WebP or GIF, up to 10 MB each. The agent sees a smaller copy so it can talk about it. The photo stays in your own agent and is deleted 30 days after you attached it; after that it can't be seen, shown to the agent or sent anywhere. It goes to a company only when you approve a card that shows it, and only to that company's own servers. Your agent keeps up to 100 MB of photos. HEIC photos aren't taken yet; most browsers convert them when you pick a file, but a pasted HEIC is refused.
@@ -75,8 +77,8 @@ Attach a photo with **Attach a photo** beside the message box, or paste or drop 
 
 The **Activity** page shows what your agent is doing and has done.
 
-- **In progress:** conversations it is following, sign-ins it is waiting on and operations still open, each with a button to stop it: **End conversation**, **Cancel sign-in**, or ask the company to stop an operation.
-- **Log:** newest first, what it did at each company, how and with what access, and who decided (you or a standing permission). Each reminder and task run has a line too.
+- **In progress:** conversations it is following, sign-ins it is waiting on, sign-outs a company hasn't accepted yet, and operations still open. Each that can be stopped has a button: **End conversation**, **Cancel sign-in**, or ask the company to stop an operation.
+- **Log:** newest first, what it did at each company, how and with what access, and who decided (you or a standing permission). Each sign-out has a line, done or not accepted, and so does each reminder and task run.
 - **Protocol:** for each company, every Poppy request your agent made, oldest first, with the section of the spec it follows and what came back. It never records headers, bodies, tokens, keys or codes. **Copy as text** or **Download** it to send with a bug report.
 - **Diagnostics:** when something went wrong, press **Copy diagnostics** and paste the text into your message to whoever runs your deployment (or **Download diagnostics** for a file). It holds your agent's last 200 events and the protocol log: when and how it worked, which companies and tools it used, the model's usage and cost, and what failed with which error code. It never holds what you, your agent or anyone else said, page text, tokens, keys, codes or your email. The operator's own logs record the same kind of events and keep them for 7 days.
 

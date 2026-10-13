@@ -193,6 +193,8 @@ export class Company {
   readonly recorded: string[] = [];
   readonly requests: { -readonly [K in keyof MockRequest]: MockRequest[K] }[] = [];
   readonly revocationHints: (string | null)[] = [];
+  /** Revocation requests refused so far under `refuseRevocations`. */
+  revocationsRefused = 0;
   /** Documents tests serve in place of a client's metadata or JWKS, by URL. */
   readonly served = new Map<string, ServedDocument>();
   /** Exchanges actually made, by account, order and item, to catch one made twice. */

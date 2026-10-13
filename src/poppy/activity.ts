@@ -5,6 +5,7 @@ import { integer, nullable, one, rows, text } from "../rows";
 import { accountsTable, approvalsTable, conversationsTable, inboxTable, messagesTable, operationsTable, signInsTable } from "./store";
 import type { ActivityAccess, ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
 import type { Issuer } from "./issuer";
+import { pendingSignOuts, signOutForModel, signOutRecords } from "./signout";
 
 /**
  * The page's Activity view, built from the agent's own tables rather than
@@ -97,7 +98,8 @@ const SIGN_IN_WAY: Record<string, string> = {
 /**
  * Everything still open at every Company, for the model (`poppy_status` with
  * no domain): operations not final, approvals not decided or not finished,
- * sign-ins under way, open conversations, and the accounts signed in. From
+ * sign-ins under way, open conversations, the accounts signed in, and
+ * sign-outs the Company hasn't accepted (its access still live there). From
  * the same tables as the Activity view, naming only the columns it shows, so
  * it never holds a token, key, code, state hash or stored request. The
  * Company's own words are labelled as the Company's.
@@ -190,7 +192,10 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     now
   ).map((row) => ({ ...where(row.issuer), account: row.account, scope: row.scope, expiresAt: row.expires_at }));
 
-  return { operations, approvals, signIns, conversations, accounts };
+  // Signed out here, but the Company hasn't accepted revoking the token: its access is still live there.
+  const signOutsNotAccepted = pendingSignOuts(client).map((row) => ({ ...where(row.issuer), ...signOutForModel(row) }));
+
+  return { operations, approvals, signIns, conversations, accounts, signOutsNotAccepted };
 }
 
 export function buildActivity(client: PoppyClient, now = Date.now()): Extract<PoppyServerFrame, { type: "poppy.activity" }> {
@@ -366,6 +371,48 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
         since: row.created_at,
         until: row.expires_at,
         stop: { type: "poppy.signin.cancel", signInId: row.id }
+      });
+    }
+  }
+
+  // Sign-outs: the agent stops using the account at once; the Company may take longer to accept revoking it.
+  for (const row of signOutRecords(client)) {
+    const company = name(row.issuer);
+    const tries = `${row.attempts} ${row.attempts === 1 ? "try" : "tries"}`;
+    const code = row.last_error ?? "no_answer";
+    const outcome =
+      row.status === "pending"
+        ? `${company} hasn't accepted it yet (${code}) after ${tries}, so the access it granted is still live there. Your agent will try again.`
+        : row.status === "stopped"
+          ? `${company} didn't accept it (${code}) after ${tries}, and your agent has stopped trying. The access it granted stays live there until it expires or you revoke it at ${company}.`
+          : row.status === "expired"
+            ? "The access had already ended, so there was nothing to revoke."
+            : row.attempts > 1
+              ? `${company} accepted it after ${tries}.`
+              : undefined;
+    log.push({
+      id: `signout-${row.id}`,
+      at: row.created_at,
+      kind: "sign_out",
+      issuer: row.issuer,
+      company,
+      account: row.account === "default" ? null : row.account,
+      what: `Signed out of ${company}`,
+      how: "sign_in",
+      access: accessOf(row.scope),
+      decidedBy: "you",
+      result: row.status === "pending" ? "in_progress" : row.status === "stopped" ? "failed" : "done",
+      ...(outcome ? { outcome, outcomeBy: "agent" as const } : {})
+    });
+    if (row.status === "pending") {
+      inProgress.push({
+        id: `signout-${row.id}`,
+        kind: "sign_out",
+        issuer: row.issuer,
+        company,
+        what: `Asking ${company} to revoke the access you signed out of`,
+        note: `Not accepted yet (${code}). Your agent no longer uses the account; the access stays live at ${company} until it accepts.`,
+        since: row.created_at
       });
     }
   }

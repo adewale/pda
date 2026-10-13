@@ -251,6 +251,12 @@ export type MockConfig = {
    * one-time code, as RFC 6749 lets it (5.2). Null: each error's own.
    */
   readonly errorDescription: string | null;
+  /**
+   * Refuse this many revocation requests (4.9) with 401 `invalid_client`
+   * before accepting them, as a Company did live on 13 October 2026. Each
+   * is checked as usual first. 0: accept every one.
+   */
+  readonly refuseRevocations: number;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -346,7 +352,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   stuckInProgress: false,
   alterInPlace: false,
   reorderMembers: false,
-  errorDescription: null
+  errorDescription: null,
+  refuseRevocations: 0
 };
 
 /** One request the mock received, with secrets redacted. */

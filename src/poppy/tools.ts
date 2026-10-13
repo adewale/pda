@@ -18,6 +18,7 @@ import { toJson, type Json } from "./json";
 import { json } from "../decode";
 import { operation } from "./operations";
 import { startSignIn, describeScopes } from "./signin";
+import { pendingSignOuts, signOutForModel } from "./signout";
 
 const PREAMBLE = `You can work with companies that support the Personal Agent Protocol (Poppy) using the poppy_* tools.
 - Start with poppy_discover(domain). Prefer a company's APIs and its agent over its website; never suggest phoning a company that publishes poppy.json.
@@ -141,7 +142,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         {
           name: "poppy_status",
           description:
-            "What's open. With a domain: sessions, signed-in accounts and scopes, and open conversations at that company. Without one: everything still open at every company (operations, approvals waiting for the User, sign-ins, conversations) and the accounts signed in. Never approves anything.",
+            "What's open. With a domain: sessions, signed-in accounts and scopes, open conversations, and sign-outs the company hasn't accepted at that company. Without one: everything still open at every company (operations, approvals waiting for the User, sign-ins, conversations), the accounts signed in, and sign-outs not accepted. A sign-out not accepted means the agent no longer uses the account but the company's access is still live there: tell the User. Never approves anything.",
           parameters: Type.Object({ domain: Type.Optional(Domain) }),
           replay: "safe"
         },
@@ -155,7 +156,9 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             accounts: c.accounts(found.issuer).map((a) => ({ account: a.account, scope: a.scope, expiresAt: a.expires_at })),
             conversations: openConversations(c)
               .filter((row) => row.issuer === found.issuer)
-              .map((row) => ({ conversation: row.id, status: row.status, responder: row.responder, direct: !!row.direct }))
+              .map((row) => ({ conversation: row.id, status: row.status, responder: row.responder, direct: !!row.direct })),
+            // Signed out here; the company hasn't accepted revoking the access, so it is still live there.
+            signOutsNotAccepted: pendingSignOuts(c, found.issuer).map(signOutForModel)
           };
         }
       ),

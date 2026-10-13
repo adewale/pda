@@ -40,6 +40,20 @@ CREATE TABLE IF NOT EXISTS poppy_accounts (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (issuer, account)
 );
+CREATE TABLE IF NOT EXISTS poppy_signouts (
+  id TEXT PRIMARY KEY,
+  issuer TEXT NOT NULL,
+  account TEXT NOT NULL,
+  token TEXT,
+  scope TEXT NOT NULL,
+  expires_at INTEGER,
+  status TEXT NOT NULL,
+  attempts INTEGER NOT NULL,
+  last_error TEXT,
+  next_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS poppy_signins (
   id TEXT PRIMARY KEY,
   type TEXT NOT NULL,
@@ -178,6 +192,28 @@ export const accountsTable = table("poppy_accounts", {
   token: text,
   scope: text,
   expires_at: nullable(integer),
+  updated_at: integer
+});
+/**
+ * Sign-outs (spec 4.9). While the Company hasn't accepted the revocation,
+ * `token` holds the Account Token, still sealed as it was in
+ * `poppy_accounts`, so it can be sent again; once it has, or the token has
+ * expired, `token` is null and the row is only a record for Activity.
+ */
+export const signOutsTable = table("poppy_signouts", {
+  id: text,
+  issuer: issuerColumn,
+  account: text,
+  token: nullable(text),
+  scope: text,
+  expires_at: nullable(integer),
+  /** `pending`: the agent tries again at `next_at`. `stopped`: it has stopped trying. `revoked`, `expired`: done. */
+  status: textOf(literal("pending", "stopped", "revoked", "expired")),
+  attempts: integer,
+  /** The code the Company last answered, or ours when no answer came. */
+  last_error: nullable(text),
+  next_at: nullable(integer),
+  created_at: integer,
   updated_at: integer
 });
 export const signInsTable = table("poppy_signins", {
