@@ -57,7 +57,7 @@ Signing in to a company, signing out, and talking to a company's staff directly 
 
 ## Photos
 
-Attach a photo with **Attach a photo** beside the message box, or paste or drop one in: JPEG, PNG, WebP or GIF, up to 10 MB each. The agent sees a smaller copy so it can talk about it. The photo stays in your own agent and is deleted after 30 days. It goes to a company only when you approve a card that shows it, and only to that company's own servers. HEIC photos aren't taken yet; most browsers convert them when you pick a file, but a pasted HEIC is refused.
+Attach a photo with **Attach a photo** beside the message box, or paste or drop one in: JPEG, PNG, WebP or GIF, up to 10 MB each. The agent sees a smaller copy so it can talk about it. The photo stays in your own agent and is deleted 30 days after you attached it; after that it can't be seen, shown to the agent or sent anywhere. It goes to a company only when you approve a card that shows it, and only to that company's own servers. Your agent keeps up to 100 MB of photos. HEIC photos aren't taken yet; most browsers convert them when you pick a file, but a pasted HEIC is refused.
 
 ## Settings
 

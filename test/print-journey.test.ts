@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { attachmentMarker, MAX_ATTACHMENT_BYTES, type AttachmentInfo } from "../src/attachments";
+import { runDurableObjectAlarm } from "cloudflare:test";
+import { attachmentMarker, KEEP_MS, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES, type AttachmentInfo } from "../src/attachments";
 import { agent as poppyAgent, cards, chat, company, connect, fetchWorker, ORIGIN, person, requests, tool, until, type Company } from "./agent-helpers";
 import { obey } from "./worker";
 
@@ -137,6 +138,69 @@ describe("photos the User attaches", () => {
     expect(transcript).not.toContain(btoa(String.fromCharCode(...preview.slice(0, 60))));
   });
 
+  it("shows the model a photo the User sent without any words", async () => {
+    const a = await agent();
+    const info = await attached(a, jpeg(2000));
+    await chat(a.socket, a.client, attachmentMarker(info));
+    const request = (await a.stub.demoRequests()).at(-1)!;
+    expect(request.images).toEqual([{ mimeType: "image/jpeg", bytes: 2000, with: expect.stringMatching(/^\[attachment att_/) }]);
+  });
+
+  it("deletes a photo 30 days after it was attached: never served or shown to the model after", async () => {
+    const a = await agent();
+    const start = Date.UTC(2026, 9, 1, 12);
+    await a.stub.setClock(start);
+    const preview = jpeg(1500, 0x37);
+    const info = await attached(a, jpeg(200_000), { preview });
+    expect(await a.stub.attachmentStorage()).toMatchObject({ attachments: 1, file: 1, preview: 1 });
+    const get = () => fetchWorker(new Request(`${ORIGIN}/api/attachments/${info.id}`, { headers: { Cookie: a.cookie } }));
+
+    // A minute short of its 30 days: kept.
+    await a.stub.setClock(start + KEEP_MS - 60_000);
+    expect((await get()).status).toBe(200);
+
+    // Past them: the model's next request doesn't show it, and the file and its preview are gone.
+    await a.stub.setClock(start + KEEP_MS + 60_000);
+    await chat(a.socket, a.client, `Still there?\n\n${attachmentMarker(info)}`);
+    expect((await a.stub.demoRequests()).at(-1)!.images).toEqual([]);
+    expect(await a.stub.attachmentStorage()).toMatchObject({ attachments: 0, file: 0, preview: 0 });
+    expect((await get()).status).toBe(404);
+  });
+
+  it("deletes each photo when its 30 days are up, on the agent's alarm, without anything reading it", async () => {
+    const a = await poppyAgent();
+    const start = Date.UTC(2026, 9, 1, 12);
+    await a.stub.setClock(start);
+    await attached(a, jpeg(3000), { preview: jpeg(500, 0x37) });
+    await a.stub.setClock(start + 10 * 86_400_000);
+    const second = await attached(a, jpeg(3000));
+    expect(await a.stub.attachmentStorage()).toMatchObject({ attachments: 2, file: 2, preview: 1, job: expect.any(Number) });
+
+    // The first one's 30 days: it goes, its preview with it; the job waits for the second.
+    await a.stub.attachmentsAdvance(start + KEEP_MS + 60_000);
+    await runDurableObjectAlarm(a.stub);
+    expect(await a.stub.attachmentStorage()).toMatchObject({ attachments: 1, file: 1, preview: 0, job: expect.any(Number) });
+
+    // The second one's: nothing is left, and no job.
+    await a.stub.attachmentsAdvance(start + 10 * 86_400_000 + KEEP_MS + 60_000);
+    await runDurableObjectAlarm(a.stub);
+    expect(await a.stub.attachmentStorage()).toEqual({ attachments: 0, file: 0, preview: 0, job: null });
+    expect((await fetchWorker(new Request(`${ORIGIN}/api/attachments/${second.id}`, { headers: { Cookie: a.cookie } }))).status).toBe(404);
+  });
+
+  it("counts the model's previews in the 100 MB an agent keeps", async () => {
+    const a = await poppyAgent();
+    const preview = jpeg(MAX_PREVIEW_BYTES, 0x37);
+    // Nine 10 MB photos, each with a 1 MB preview: 99 MB kept.
+    for (let i = 0; i < 9; i++) await attached(a, jpeg(MAX_ATTACHMENT_BYTES), { preview });
+    const full = await attach(a, jpeg(MAX_ATTACHMENT_BYTES));
+    expect(full.status).toBe(507);
+    expect(((await full.json()) as { error: string }).error).toContain("99.0 MB");
+    // A last 1 MB fills it exactly; then nothing more fits, not even a preview's worth.
+    await attached(a, jpeg(MAX_PREVIEW_BYTES));
+    expect((await attach(a, jpeg(2000))).status).toBe(507);
+  });
+
   it("never shows the model a photo because a Company's text names it", async () => {
     const a = await agent();
     const info = await attached(a, jpeg(2000));
@@ -208,6 +272,28 @@ describe("printing a photo at a Company (the demo journey)", () => {
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "decline" });
     expect(await photoRequests(c)).toEqual([]);
     expect(await a.stub.poppyWaitForNotice("The User declined")).toContain("lake.jpg");
+  });
+
+  it("sends no photo past its 30 days: not asked for, and not sent once approved", async () => {
+    const c = await company({ printShop: true });
+    const a = await poppyAgent();
+    const old = await attached(a);
+    await a.stub.poppyAdvance(KEEP_MS + 60_000);
+    const refused = await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: old.id } });
+    expect(JSON.parse(refused.details)).toMatchObject({ error: "no_attachment" });
+    expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
+
+    // Asked for in time, approved after its 30 days: nothing is sent. (Attached on the Poppy client's clock, which the test moved on.)
+    await a.stub.setClock((await a.stub.poppyClock()).now);
+    const late = await attached(a);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: late.id } })).text).toContain(
+      "Waiting for the User to approve sending the file"
+    );
+    const approval = (await cards(a)).find((card) => card.kind === "approval" && card.open)!;
+    await a.stub.poppyAdvance(KEEP_MS + 60_000);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
+    expect(await a.stub.poppyWaitForNotice("The approved action failed")).toContain(`No attachment ${late.id}`);
+    expect(await photoRequests(c)).toEqual([]);
   });
 
   it("shows one card for a replayed upload call, and never a second upload", async () => {

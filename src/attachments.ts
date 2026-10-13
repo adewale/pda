@@ -13,7 +13,12 @@ import { base64url } from "./base64url";
  * - **What.** JPEG, PNG, WebP or GIF, by their first bytes (the type the
  *   browser declared is ignored), at most 10 MiB each, which also keeps them
  *   under the 20 MB print-with-poppy takes. An agent holds at most 100 MiB of
- *   them, and each is deleted 30 days after it was attached.
+ *   them, files and the model's copies together.
+ * - **How long.** 30 days from when it was attached (`KEEP_MS`). Every read
+ *   takes the agent's clock and first deletes whatever is past its 30 days,
+ *   so an older photo is never served, shown to the model or sent to a
+ *   Company; the agent's `attachments` job (`src/attachment-images.ts`)
+ *   deletes each one when its time comes, whether or not anything reads it.
  * - **Who sees them.** The User, on their own page (`GET /api/attachments/<id>`).
  *   The model sees a smaller copy as an image in the message it was attached
  *   to (`src/attachment-images.ts`), never the bytes in a tool argument: tools name
@@ -134,24 +139,35 @@ function readChunks(sql: SqlStorage, id: string, part: "file" | "preview"): Uint
 }
 
 export function deleteAttachment(sql: SqlStorage, id: string): boolean {
-  const found = attachmentInfo(sql, id) !== undefined;
+  const found = sql.exec("SELECT id FROM attachments WHERE id = ?", id).toArray().length > 0;
   sql.exec("DELETE FROM attachment_chunks WHERE id = ?", id);
   sql.exec("DELETE FROM attachments WHERE id = ?", id);
   return found;
 }
 
-/** Attachments past their 30 days, gone. */
-export function pruneAttachments(sql: SqlStorage, now: number): void {
-  for (const row of sql.exec("SELECT id FROM attachments WHERE created_at <= ?", now - KEEP_MS).toArray()) {
-    deleteAttachment(sql, String(row.id));
-  }
+/** Attachments past their 30 days at `now`, bytes and preview, gone. Returns how many. */
+export function pruneAttachments(sql: SqlStorage, now: number): number {
+  const expired = sql.exec("SELECT id FROM attachments WHERE created_at <= ?", now - KEEP_MS).toArray();
+  for (const row of expired) deleteAttachment(sql, String(row.id));
+  return expired.length;
+}
+
+/** When the oldest attachment kept reaches its 30 days, or null when there is none. */
+export function nextExpiry(sql: SqlStorage): number | null {
+  const oldest = sql.exec("SELECT MIN(created_at) AS oldest FROM attachments").one().oldest;
+  return oldest === null ? null : Number(oldest) + KEEP_MS;
+}
+
+/** Every byte the agent keeps of its attachments: files and the model's copies. */
+function heldBytes(sql: SqlStorage): number {
+  return Number(sql.exec("SELECT COALESCE(SUM(length(bytes)), 0) AS total FROM attachment_chunks").one().total);
 }
 
 /**
  * Keep a file the User attached, and the smaller copy the page made of it
  * for the model, if any. Refuses anything that isn't an image of a type we
- * take, an empty or oversized file, and a file that would take the agent past
- * what it keeps.
+ * take, an empty or oversized file, and a file that, with its preview, would
+ * take the agent past what it keeps.
  */
 export function saveAttachment(
   sql: SqlStorage,
@@ -165,12 +181,13 @@ export function saveAttachment(
   const type = sniffImage(input.bytes);
   if (!type) throw new AttachmentError(415, "Attach a photo: JPEG, PNG, WebP or GIF.");
   pruneAttachments(sql, now);
-  const held = Number(sql.exec("SELECT COALESCE(SUM(size), 0) AS total FROM attachments").one().total);
-  if (held + input.bytes.byteLength > MAX_TOTAL_BYTES) {
+  const offered = input.preview && input.preview.byteLength <= MAX_PREVIEW_BYTES ? input.preview : null;
+  const previewType = offered ? sniffImage(offered) : null;
+  const preview = previewType ? offered : null;
+  const held = heldBytes(sql);
+  if (held + input.bytes.byteLength + (preview?.byteLength ?? 0) > MAX_TOTAL_BYTES) {
     throw new AttachmentError(507, `Your agent already keeps ${humanSize(held)} of photos, the most it holds; older ones are deleted 30 days after you attached them.`);
   }
-  const preview = input.preview && input.preview.byteLength <= MAX_PREVIEW_BYTES ? input.preview : null;
-  const previewType = preview ? sniffImage(preview) : null;
   const id = `att_${base64url(crypto.getRandomValues(new Uint8Array(16)))}`;
   const name = cleanName(input.name, type);
   sql.exec(
@@ -183,19 +200,21 @@ export function saveAttachment(
     now
   );
   writeChunks(sql, id, "file", input.bytes);
-  if (preview && previewType) writeChunks(sql, id, "preview", preview);
+  if (preview) writeChunks(sql, id, "preview", preview);
   return { id, name, type, size: input.bytes.byteLength };
 }
 
-export function attachmentInfo(sql: SqlStorage, id: string): AttachmentInfo | undefined {
+/** An attachment kept at `now`: one past its 30 days is deleted first, and undefined. */
+export function attachmentInfo(sql: SqlStorage, id: string, now: number): AttachmentInfo | undefined {
+  pruneAttachments(sql, now);
   const row = sql.exec("SELECT id, name, type, size FROM attachments WHERE id = ?", id).toArray()[0];
   if (!row) return undefined;
   return { id: String(row.id), name: String(row.name), type: String(row.type) as AttachmentType, size: Number(row.size) };
 }
 
 /** The file as the User attached it. */
-export function readAttachment(sql: SqlStorage, id: string): { info: AttachmentInfo; bytes: Uint8Array<ArrayBuffer> } | undefined {
-  const info = attachmentInfo(sql, id);
+export function readAttachment(sql: SqlStorage, id: string, now: number): { info: AttachmentInfo; bytes: Uint8Array<ArrayBuffer> } | undefined {
+  const info = attachmentInfo(sql, id, now);
   const bytes = info ? readChunks(sql, id, "file") : null;
   return info && bytes ? { info, bytes } : undefined;
 }
@@ -209,7 +228,8 @@ function base64(bytes: Uint8Array): string {
 }
 
 /** What the model is shown of an attachment: the page's preview, else the file if it is small enough, else nothing. */
-export function modelImage(sql: SqlStorage, id: string): ImageContent | null {
+export function modelImage(sql: SqlStorage, id: string, now: number): ImageContent | null {
+  pruneAttachments(sql, now);
   const row = sql.exec("SELECT type, size, preview_type FROM attachments WHERE id = ?", id).toArray()[0];
   if (!row) return null;
   if (row.preview_type) {
@@ -246,11 +266,15 @@ function textOf(message: Message): string {
     : message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 }
 
+/** Text that starts with a marker: a message the User sent with photos and no words. */
+const STARTS_WITH_MARKER = new RegExp(`^${MARKER.source}`);
+
 /**
  * The messages a request sends, with each recent attachment shown to the
- * model as an image in the User's message that names it. Only the User's own
- * messages count: a Company's text or one of our notices (both start with
- * `[`) can't make the model look at a photo. Only the `MODEL_IMAGES` most
+ * model as an image in the User's message that names it, words or none. Only
+ * the User's own messages count: a Company's text or one of our notices (both
+ * start with a `[` label of ours, never a marker) can't make the model look at
+ * a photo. Only the `MODEL_IMAGES` most
  * recent attachments are shown, to keep requests small; older markers stay
  * as text. An attachment since deleted is just text.
  */
@@ -258,7 +282,8 @@ export function withAttachmentImages(messages: readonly Message[], image: (id: s
   const wanted: { index: number; id: string }[] = [];
   messages.forEach((message, index) => {
     const text = textOf(message);
-    if (!text || text.trimStart().startsWith("[")) return;
+    const lead = text.trimStart();
+    if (!lead || (lead.startsWith("[") && !STARTS_WITH_MARKER.test(lead))) return;
     for (const id of markersIn(text)) wanted.push({ index, id });
   });
   const shown = wanted.slice(-MODEL_IMAGES);
