@@ -187,7 +187,12 @@ export class Apis {
             operationId: "searchProducts",
             summary: "Search products. Works signed out.",
             ...secured(),
-            parameters: [{ name: "q", in: "query", required: false, schema: { type: "string" } }],
+            parameters: [
+              { name: "q", in: "query", required: false, schema: { type: "string" } },
+              // A header the model may fill, and one the agent never sends for it.
+              { name: "Accept-Language", in: "header", required: false, schema: { type: "string", maxLength: 35 } },
+              { name: "Cookie", in: "header", required: false, schema: { type: "string" } }
+            ],
             responses: { "200": { description: "Matching products" } }
           }
         },

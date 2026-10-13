@@ -163,6 +163,15 @@ type OpenApiDocument = { readonly base: string; readonly operations: readonly Op
  */
 const TRANSPORT_HEADERS = /^(accept|content-type|authorization|dpop)$/i;
 
+/**
+ * Header parameters the agent never sends for the model, whatever a
+ * description says: the platform's or the transport's own (hop-by-hop,
+ * framing, cookies, origin, proxies, MCP's session headers). A description
+ * that lists one is ignored for it, as for `TRANSPORT_HEADERS`.
+ */
+const RESERVED_HEADERS =
+  /^(host|cookie|set-cookie|content-length|transfer-encoding|connection|keep-alive|upgrade|te|trailer|origin|referer|forwarded|via|proxy-.*|sec-.*|x-forwarded-.*|mcp-.*)$/i;
+
 const documents = new Map<string, { document: OpenApiDocument; expiresAt: number }>();
 
 function resolveRef(root: Json, value: Json, depth = 0): Json {
@@ -308,7 +317,12 @@ export function checkParams(company: Pick<Company, "name">, op: OpenApiOperation
   const problems: string[] = [];
   for (const { name, schema } of op.parameters) {
     const value = given(params, name);
-    if (value === undefined || schema === undefined) continue;
+    if (value === undefined) continue;
+    if (op.parameters.some((parameter) => parameter.name === name && parameter.in === "header") && /[^\t\x20-\x7e]/.test(String(value))) {
+      problems.push(`params.${name}: a header value must be one line of printable ASCII`);
+      continue;
+    }
+    if (schema === undefined) continue;
     const errors = schemaErrors(schema, value, op.schemaDraft);
     if (!errors || errors.length === 0) continue;
     if (readings(value).some((reading) => schemaErrors(schema, reading, op.schemaDraft)?.length === 0)) continue;
@@ -366,7 +380,11 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
           path,
           summary: [op.summary, op.description].filter((text) => typeof text === "string").join(" — "),
           parameters: parameters.filter(
-            (parameter) => !(parameter.in === "header" && (/^idempotency-key$/i.test(parameter.name) || TRANSPORT_HEADERS.test(parameter.name)))
+            (parameter) =>
+              !(
+                parameter.in === "header" &&
+                (/^idempotency-key$/i.test(parameter.name) || TRANSPORT_HEADERS.test(parameter.name) || RESERVED_HEADERS.test(parameter.name))
+              )
           ),
           // Written out, so poppy_api_describe shows the fields to send, not a bare $ref.
           ...(requestBody !== undefined ? { requestBody: inlineRefs(json, requestBody) } : {}),
@@ -621,14 +639,26 @@ export class CheckedApiRequest {
    */
   get write(): string | null {
     if (this.method === "GET") return null;
-    return `${this.method} ${this.url} ${JSON.stringify(this.call.body ?? null)}${this.call.files ? ` ${JSON.stringify(this.call.files)}` : ""}`;
+    const headers = Object.keys(this.headers).length ? ` ${JSON.stringify(this.headers)}` : "";
+    return `${this.method} ${this.url} ${JSON.stringify(this.call.body ?? null)}${this.call.files ? ` ${JSON.stringify(this.call.files)}` : ""}${headers}`;
+  }
+
+  /** The header parameters the call gives, by their declared names: sent, and shown on the card. */
+  get headers(): Readonly<Record<string, string>> {
+    const out: Record<string, string> = {};
+    for (const parameter of this.op.parameters) {
+      const value = given(this.call.params, parameter.name);
+      if (parameter.in === "header" && value !== undefined) out[parameter.name] = String(value);
+    }
+    return out;
   }
 
   /** The approval card's words: the Company, the method, the exact path and query, and the body. */
   describe(): string {
     const url = new URL(this.url);
     const what = `${this.method} ${url.pathname}${url.search} (${this.op.summary || this.op.operationId})`;
-    const body = this.call.body !== undefined ? ` with ${JSON.stringify(this.call.body)}` : "";
+    const headers = Object.entries(this.headers).map(([name, value]) => ` · ${name}: ${value}`).join("");
+    const body = `${headers}${this.call.body !== undefined ? ` with ${JSON.stringify(this.call.body)}` : ""}`;
     if (!this.attachments.length) return `${this.company.name}: ${what}${body}`;
     const names = this.attachments.map((info) => `“${info.name}” (${info.type.replace("image/", "").toUpperCase()}, ${humanSize(info.size)})`).join(" and ");
     return `Send your ${this.attachments.length === 1 ? "photo" : "photos"} ${names} to ${this.company.name}: ${what}${body}`;
@@ -640,7 +670,8 @@ export class CheckedApiRequest {
    * file field the stored attachment it names, with its name and type.
    */
   init(): RequestInit {
-    const headers = this.call.idempotencyKey ? { headers: { "Idempotency-Key": this.call.idempotencyKey } } : {};
+    const given = { ...this.headers, ...(this.call.idempotencyKey ? { "Idempotency-Key": this.call.idempotencyKey } : {}) };
+    const headers = Object.keys(given).length ? { headers: given } : {};
     if (!this.multipart) return { method: this.method, url: this.url, ...(this.call.body !== undefined ? { body: this.call.body } : {}), ...headers };
     const form = new FormData();
     if (isObject(this.call.body ?? null)) {

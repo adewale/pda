@@ -2767,6 +2767,22 @@ describe("parsed once at the edge", () => {
     expect(refused(() => checkParams(shop, op({ $ref: "#/nowhere" }), { n: "x" }))).toBeNull();
   });
 
+  it("sends the header parameters a call gives, checked like any parameter, and never a reserved one", async () => {
+    const c = await company();
+    const a = await agent();
+    const described = JSON.parse((await tool(a, "poppy_api_describe", { domain: c.domain, operation: "searchProducts" })).text) as { parameters: { name: string }[] };
+    expect(described.parameters.map((parameter) => parameter.name)).toEqual(["q", "Accept-Language"]);
+    const sent = await tool(a, "poppy_api_call", { domain: c.domain, operation: "searchProducts", params: { q: "jacket", "Accept-Language": "en-GB", Cookie: "session=x" } });
+    expect(sent.isError).toBeFalsy();
+    const products = (await requests(c)).filter((request) => request.url.startsWith(`${c.hosts.api}/products`));
+    expect(products).toHaveLength(1);
+    expect(products[0]!.headers["accept-language"]).toBe("en-GB");
+    expect(products[0]!.headers.cookie).toBeUndefined();
+    const split = await tool(a, "poppy_api_call", { domain: c.domain, operation: "searchProducts", params: { "Accept-Language": "en\r\nX-Injected: 1" } });
+    expect(split.text).toContain("a header value must be one line of printable ASCII");
+    expect((await requests(c)).filter((request) => request.url.startsWith(`${c.hosts.api}/products`))).toHaveLength(1);
+  });
+
   it("decodes a token response whole: a member of the wrong type is malformed, an absent signed_in or scope is allowed", () => {
     const good = { access_token: "at", token_type: "DPoP", expires_in: 3600, session_id: "ses_1" };
     expect(tryDecode(tokenResponse, good, "token response").ok).toBe(true);
