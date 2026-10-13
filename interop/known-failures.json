@@ -99,7 +99,10 @@
       "agent": "datalayer-ts",
       "company": "*",
       "scenario": "CS",
-      "blame": null,
+      "blame": [
+        null,
+        "agent"
+      ],
       "errors": [
         "stream_unavailable"
       ],
@@ -337,7 +340,10 @@
       "agent": "datalayer-ts",
       "company": "dpa-mock",
       "scenario": "*",
-      "blame": null,
+      "blame": [
+        null,
+        "agent"
+      ],
       "errors": [
         "invalid_response"
       ],
@@ -348,7 +354,10 @@
       "agent": "datalayer-ts",
       "company": "dpa-mock-strict",
       "scenario": "*",
-      "blame": null,
+      "blame": [
+        null,
+        "agent"
+      ],
       "errors": [
         "invalid_response"
       ],
@@ -359,7 +368,10 @@
       "agent": "datalayer-py",
       "company": "dpa-mock",
       "scenario": "*",
-      "blame": null,
+      "blame": [
+        null,
+        "agent"
+      ],
       "errors": [
         "invalid_response"
       ],
@@ -370,7 +382,10 @@
       "agent": "datalayer-py",
       "company": "dpa-mock-strict",
       "scenario": "*",
-      "blame": null,
+      "blame": [
+        null,
+        "agent"
+      ],
       "errors": [
         "invalid_response"
       ],
