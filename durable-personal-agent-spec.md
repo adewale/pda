@@ -36,6 +36,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 | Claude through AI Gateway (the demo lane) | Built; answered live through the owner's gateway on Unified Billing on 12 October. Not yet tried live: the gateway's own spend rules, and a turn after a compaction |
 | Poppy client: every part in this spec | Built; passes the conformance tests against a strict mock Company, under six readings of the draft's open questions. In the [interop grid](docs/interop-results/README.md) (a snapshot of a 13 October run) it passes every scenario it shares with the Companies of nine other projects, Datalayer, pi-poppy, poppy-demo, poppyseed, Ilmer, print-with-poppy, adonis-agora, everruns and Tipping Co (print-with-poppy's sign-in too, since its accounts on 12 October), but one: SO at Tipping Co, a reading the draft leaves open ([S1](docs/spec-issues.md#s1)). Run against one live Company, print-with-poppy's store at printwithpoppy.com, on 12 October: discovery, a signed-out Session and a read of its catalogue. Not yet run live: sign-in, a conversation, an operation. Spot, a small deployed product, publishes valid discovery but isn't in the grid ([implementations.md](docs/implementations.md)) |
 | Poppy identity (`/poppy/client.json`, `/poppy/jwks.json`) | Live, with production signing keys |
+| Interop test client (`/poppy/interop/client.json`, `/poppy/interop/jwks.json`) | Built and tested; off until the deployer sets `INTEROP_LIVE_JWKS`. It gives the interop harness's live lane a `client_id` a public Company can fetch ([interop-spec §10](docs/interop-spec.md#10-lanes)) |
 | Web browsing in a Session (`poppy_browse`) | Built on a fetch-based browser in the Durable Object, with no JavaScript; the production browser is tested against the mock Company's website. Not yet tried on a real Company's site |
 | Chat, Activity, Companies and Settings pages | Built; tested in happy-dom and checked in headless Chrome (light, dark, phone width). Not yet used with a real Company |
 | Photos in the chat, and uploads to a Company's API | Built: a photo attached to a message is kept in the agent, shown to the model, and sent to a Company only in an upload the User approves on a card. The demo journey, print-with-poppy's 6×4 print, passes end to end in the interop grid (scenario OU) against the store at its pinned commit in its demo mode, and in the Worker tests against the mock's print shop. Live at printwithpoppy.com on 12 October, as far as the upload's approval card for a 3.7 MB PNG (the store has allowlisted our `client_id`). Not yet run live: the upload itself, the order, its approval and checkout; the live store takes real payments |
@@ -113,6 +114,7 @@ The Worker turns a verified app session into the person's Durable Object and for
 | `SIGNIN_ALLOWLIST`, `DEMO_ALLOWLIST` | deployer's var | Who may sign in with `SIGNUP=allowlist`; who the operator pays for |
 | `PUBLIC_ORIGIN` | deployer's var | The origin the Poppy `client_id`, `jwks_uri` and `redirect_uris` live on |
 | `POPPY_LOGO_URI` | deployer's var | Shown on Companies' consent pages; the logo is `/logo.svg` |
+| `INTEROP_LIVE_JWKS` | deployer's var, optional | The interop test client's public key set, `{"keys": [...]}`, as `scripts/interop-live-identity.mjs` prints it. Empty (the committed value): its two routes answer 404. The deploy check and the Worker refuse a private key; the Worker also refuses a key of `POPPY_SIGNING_JWKS` |
 | `SESSION_SECRET` | secret, set | HMAC key for the app's session cookie |
 | `POPPY_SIGNING_JWKS` | secret, set | JSON array of private ES256 JWKs with `kid`s; the first signs |
 | `TOKEN_ENC_KEY` | secret, set | 32 random bytes, base64: AES-GCM key for Account Tokens, pending sign-in secrets and model keys |
@@ -171,6 +173,7 @@ App sign-in is the Worker's own Google and GitHub OAuth. It is separate from Pop
 | `GET /poppy/client.json` | The Poppy client metadata document; its URL is our `client_id` | M3 |
 | `GET /poppy/jwks.json` | Our public signing keys | M3 |
 | `GET /poppy/callback` | Direct Sign-In redirect target; the app session picks the person's agent | M3 |
+| `GET /poppy/interop/client.json`, `GET /poppy/interop/jwks.json` | The interop test client's metadata and public keys (`src/poppy/interop-client.ts`), for the interop harness's live lane. A separate Poppy client: its own `client_id` and keys, no redirect URI, no other route, and nothing to do with anyone's agent. Its private key stays on the machine that runs the harness. 404 unless `INTEROP_LIVE_JWKS` is set | Built |
 | `GET /validator`, `POST /validator`, `GET`/`POST`/`OPTIONS /validator/api`, `GET /validator/messages` | The public discovery document validator: form, JSON API (any origin, no cookies), message docs. It answers before the deployment check, so it works on a copy nobody has configured | Built |
 
 ## The agent
@@ -374,6 +377,7 @@ The client targets **Draft 0.1** exactly, and treats the document's `protocol_ve
   Account Tokens survive rotation, because they belong to the `client_id`.
 - **Domain.** `client_id` is tied to `PUBLIC_ORIGIN` forever: changing the domain is a new Personal Agent to every Company. Choose the final domain before registering with any Company.
 - **Registration.** Some Companies require it, and the protocol leaves the process to them. `invalid_client` on starting a Session is recorded on the Company and reported to the User as "this Company hasn't approved this agent yet", with no retry loop.
+- **The interop test client** is a second identity, not this one. When `INTEROP_LIVE_JWKS` is set, the Worker also serves `https://{PUBLIC_ORIGIN}/poppy/interop/client.json` (its `client_id`, `client_name` "Durable Personal Agent (interop tests)", no `logo_uri`, no `redirect_uris`) and `/poppy/interop/jwks.json`. Only the interop harness's live lane signs as it, with a key that never leaves the machine running the harness; the agent never does. A Company that approves one has not approved the other.
 
 ### Discovery (§3)
 
@@ -901,7 +905,7 @@ A raw `string`, so an email, a token or anyone's words, is a compile error in an
 | Workers | `test/vitest.config.ts` | Every file in `test/` that isn't in another suite, in one workerd runtime |
 | Durability | `test/durability/vitest.config.ts` | Crashing every Durable Object and reloading the conversation; a runtime of its own, because a global abort would reset the objects other files are using |
 | Page | `test/ui/vitest.config.ts` | The chat page's cards and panels and the sign-in page, in happy-dom; the chat box with the real `usePiSession` over a fake socket (`chat-socket.test.tsx`) |
-| Interop | `interop/vitest.config.ts` | The interop runner's scenario interpreter, trace checks, readings, attribution and known failures, in Node |
+| Interop | `interop/vitest.config.ts` | The interop runner's scenario interpreter, trace checks, readings, attribution and known failures, and the live lane's identity, in Node |
 | Properties | `test/properties/vitest.config.ts` | Property-based tests with Hegel (`@hegeldev/hegel`, the Hypothesis team's library), in Node, because its engine loads by FFI: 100 cases a property by default; `HEGEL_CASES=5000 npm run test:properties` for a deep local run |
 
 | File | What |
@@ -914,6 +918,7 @@ A raw `string`, so an email, a token or anyone's words, is a compile error in an
 | `test/model-access.test.ts` | Own keys (Anthropic and OpenAI only), sealing, the demo's caps (the personal pool's refusal names no organisation), background turns, refused keys, no model call for someone taken off the lists, `SIGNUP`, against fake vendors |
 | `test/compaction.test.ts` | Compaction: the budget's thresholds, the summary in the next request, overflow summarised and retried once, a failed summary losing nothing, summaries counted against the demo's caps, a Company message or tool result that tries to forge a User line or close the summarizer's fence, an open approval and Activity unchanged, `poppy_status` with no domain, the page's earlier messages, and the demo request's thinking settings |
 | `test/template.test.ts` | No committed file but docs names the deployer's identities or hosts (read from the untracked `deployment.local.json`), and the template fails closed |
+| `test/interop-client.test.ts` | The interop test client's two routes: 404 when `INTEROP_LIVE_JWKS` is empty; when set, its metadata and public keys only, valid to the validator; a private key or one of the real client's refused; the real client's documents unchanged |
 | `test/properties/json.test.ts` | Both JSON parsers against `JSON.parse`, property-based: duplicates, depth, garbage |
 | `test/properties/discovery.test.ts` | Discovery and the validator: every generated valid Company is discovered as its documents say; each broken MUST refuses it; no document, however broken, makes either throw anything but a DiscoveryError |
 | `test/properties/poppy.test.ts` | The client's pure parts against their contracts, both ways: scopes, `WWW-Authenticate`, `Retry-After`, `RateLimit`, path templates, private hosts, body limits, cache lifetimes, `htu`, device links, Poppy endpoints, operation highlights |

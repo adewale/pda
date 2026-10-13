@@ -8,6 +8,7 @@ import { agentId, code, configureLog, currentEvent, id, inScope, literal, wideEv
 import { privacyPage } from "./privacy";
 import { parseSubscription, readVapidKey } from "./web-push";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
+import { handleInteropClientRoute } from "./poppy/interop-client";
 import { handleIdentityRoute } from "./poppy/routes";
 import { handleValidator } from "./validator/http.ts";
 import {
@@ -105,6 +106,8 @@ const EXACT_ROUTES = [
   "/poppy/callback",
   "/poppy/client.json",
   "/poppy/jwks.json",
+  "/poppy/interop/client.json",
+  "/poppy/interop/jwks.json",
   "/validator",
   "/validator/api",
   "/validator/messages"
@@ -436,6 +439,8 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname.startsWith("/api/push/")) return await handlePush(request, env);
     if (pathname === "/logout") return handleLogout(request);
     if (pathname.startsWith("/auth/")) return await handleAuth(request, env);
+    // The interop test client's two documents, only when the deployment sets INTEROP_LIVE_JWKS.
+    if (pathname.startsWith("/poppy/interop/")) return await handleInteropClientRoute(request, env);
     if (pathname.startsWith("/poppy/")) {
       return (await handleIdentityRoute(request, env)) ?? (await handlePoppy(request, env));
     }

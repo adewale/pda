@@ -56,6 +56,8 @@ const sources: Record<string, string> = {
       // Not committed (.gitignore).
       "!**/node_modules/**",
       "!../interop/results/**",
+      // The live lane's private key and client_id (scripts/interop-live-identity.mjs).
+      "!../interop/.live-identity.json",
       "!**/.venv/**",
       "!**/.hypothesis/**",
       "!**/__pycache__/**",
@@ -205,6 +207,7 @@ describe("the committed template", () => {
     expect(files.filter((file) => file.endsWith(".md"))).toEqual([]);
     expect(files.filter((file) => /(?:^|\/)(?:node_modules|interop\/results|\.venv|\.hypothesis|__pycache__|\.pytest_cache|\.hegel)\//.test(file))).toEqual([]);
     expect(files).not.toContain("deployment.local.json");
+    expect(files).not.toContain("interop/.live-identity.json");
   });
 
   it("holds none of the deployer's identities or origins (from deployment.local.json, when this checkout has one)", (context) => {
@@ -251,6 +254,9 @@ describe("the committed template", () => {
     expect(vars.DEMO_ALLOWLIST).toEqual({ emails: [], domains: [], github: {} });
     expect(vars.PUBLIC_ORIGIN).toBe("");
     expect(vars.POPPY_LOGO_URI).toBe("");
+    // The interop test client is off until a deployer sets its public keys.
+    expect(vars.INTEROP_LIVE_JWKS).toBe("");
+    expect(JSON.parse(deploymentExample).INTEROP_LIVE_JWKS).toBe("");
 
     // The example file and the test deployment show the shape with reserved names only.
     const testVars = JSON.parse(

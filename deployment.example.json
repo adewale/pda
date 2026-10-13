@@ -25,5 +25,6 @@
   },
   "PUBLIC_ORIGIN": "https://personal-agent.your-subdomain.workers.dev",
   "POPPY_LOGO_URI": "https://personal-agent.your-subdomain.workers.dev/logo.svg",
-  "PRIVACY_CONTACT": "privacy@example.com"
+  "PRIVACY_CONTACT": "privacy@example.com",
+  "INTEROP_LIVE_JWKS": ""
 }

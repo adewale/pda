@@ -13,6 +13,8 @@
  * its public-host check, and Node trusts the run's CA via NODE_EXTRA_CA_CERTS.
  * `INTEROP_FAULT` breaks the agent on purpose, to prove attribution; it lives
  * only here, in the adapter's network seam, never in src/poppy.
+ * In the live lane, `INTEROP_LIVE_CLIENT_ID` and `INTEROP_LIVE_KEY` give it
+ * the interop test client our deployed Worker publishes (live-identity.ts).
  */
 import { decodeJwt, decodeProtectedHeader, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { memoryState } from "../shared/cloudflare-workers.ts";
@@ -45,12 +47,18 @@ import { approvalsTable, inboxTable, intentsTable, migrate, operationsTable, sig
 import { rows } from "../../../src/rows.ts";
 import type { Card } from "../../../src/poppy/wire.ts";
 import { ATTACKS, runAttack, type AttackContext } from "./attacks.ts";
+import { LiveIdentityClient, liveIdentityFrom } from "./live-identity.ts";
 
 const NAME = process.env.INTEROP_NAME ?? "dpa";
 /** Interop-only: the adversarial Personal Agent (`evil-agent`). Off unless the registry sets it. */
 const ADVERSARY = process.env.INTEROP_ADVERSARY === "agent";
 const SECRET = setting("INTEROP_SECRET");
-const ORIGIN = process.env.INTEROP_ORIGIN ?? `https://${NAME}.agent.interop.test`;
+/** Live lane only: the interop test client's public client_id and its key, from the runner (live-identity.ts). */
+const LIVE = liveIdentityFrom({ INTEROP_LIVE_CLIENT_ID: process.env.INTEROP_LIVE_CLIENT_ID ?? "", INTEROP_LIVE_KEY: process.env.INTEROP_LIVE_KEY ?? "" });
+// Read once; nothing else in this process needs the key in its environment.
+delete process.env.INTEROP_LIVE_KEY;
+if (LIVE && ADVERSARY) throw new Error("The adversarial agent never takes the live identity");
+const ORIGIN = LIVE?.origin ?? process.env.INTEROP_ORIGIN ?? `https://${NAME}.agent.interop.test`;
 const COMMIT = process.env.INTEROP_COMMIT ?? "unknown";
 /** Interop-only: break the agent on purpose. `assertion-typ` drops `typ` from client and Session assertions. */
 const FAULT = process.env.INTEROP_FAULT ?? "";
@@ -171,9 +179,9 @@ async function newAgent(): Promise<Agent> {
   const limiters = new Map<string, CompanyLimiter>();
   const env = {
     PUBLIC_ORIGIN: ORIGIN,
-    POPPY_CLIENT_NAME: `Interop agent ${NAME} (Durable Personal Agent)`,
+    POPPY_CLIENT_NAME: LIVE ? "Durable Personal Agent (interop tests)" : `Interop agent ${NAME} (Durable Personal Agent)`,
     POPPY_LOGO_URI: `${ORIGIN}/logo.png`,
-    POPPY_SIGNING_JWKS: await signingKeys(),
+    POPPY_SIGNING_JWKS: LIVE ? LIVE.signingJwks : await signingKeys(),
     TOKEN_ENC_KEY: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"),
     CompanyLimiter: {
       getByName(name: string) {
@@ -212,7 +220,8 @@ async function newAgent(): Promise<Agent> {
     now: () => Date.now()
   };
   // The fetch-based browser of src/poppy (spec 5), on the adapter's network seam.
-  return { client: new PoppyClient(host), env, jobs, cards, notes, generation: randomId("", 4), browser: new FetchBrowser(host.fetcher) };
+  const client = LIVE ? new LiveIdentityClient(host, LIVE) : new PoppyClient(host);
+  return { client, env, jobs, cards, notes, generation: randomId("", 4), browser: new FetchBrowser(host.fetcher) };
 }
 
 let agent = await newAgent();
@@ -829,4 +838,4 @@ async function site(request: Request): Promise<Response> {
 
 serve(8080, site);
 serve(8081, control);
-console.log(`dpa-agent: ${ORIGIN} on 8080, control on 8081${FAULT ? `, fault ${FAULT}` : ""}`);
+console.log(`dpa-agent: ${LIVE ? `live identity ${LIVE.clientId}` : ORIGIN} on 8080, control on 8081${FAULT ? `, fault ${FAULT}` : ""}`);

@@ -34,6 +34,7 @@ import { dockerFreeGb, labelArgs, lowDisk, removeRun } from "./cleanup.ts";
 import { docker, dockerAsync, proxyAliases } from "./docker.ts";
 import { documentChecks } from "./documents.ts";
 import { exchanges, PROBE_HEADER, type Har } from "./har.ts";
+import { liveIdentityEnv, liveIdentityNotice, readLiveIdentity } from "./live-identity.ts";
 import {
   CONTROL_PORT,
   controlNetworkArgs,
@@ -476,8 +477,15 @@ export function gridCoverage(
   };
 }
 
-function selected(registry: Registry, role: Role, names: readonly string[] | null, lane: "local" | "live"): RegistryEntry[] {
-  const all = registry.implementations.filter((entry) => entry.role === role && (lane === "live" ? (role === "agent" ? !!entry.build : !!entry.url) : !!entry.build));
+/**
+ * The implementations a lane can run, by role. The live lane runs only our
+ * own agent (`owner: "self"`, built here) against Companies with a `url`
+ * (spec §10): no third-party image, and its identity's key goes to nothing else.
+ */
+export function selected(registry: Registry, role: Role, names: readonly string[] | null, lane: "local" | "live"): RegistryEntry[] {
+  const runs = (entry: RegistryEntry) =>
+    lane === "live" ? (role === "agent" ? !!entry.build && entry.owner === "self" : !!entry.url) : !!entry.build;
+  const all = registry.implementations.filter((entry) => entry.role === role && runs(entry));
   if (!names) return all;
   for (const name of names) {
     if (!all.some((entry) => entry.name === name)) throw new Error(`No ${role} ${name} in the registry for the ${lane} lane`);
@@ -661,10 +669,19 @@ export async function main(argv: readonly string[]): Promise<number> {
       // It never creates the local lane's network or runs a third-party image, and the local lane
       // never comes here: no option gives the local lane egress.
       const ports = new Map<string, number>();
+      // The live identity (live-identity.ts): a client_id a public Company can fetch, and its key, for our own agent only.
+      const identity = readLiveIdentity();
+      log(liveIdentityNotice(identity));
       for (const impl of implementations.filter((item) => item.entry.role === "agent" && !item.broken)) {
         const name = `${names.network}-${impl.target}`;
-        const env = { INTEROP_SECRET: secret, INTEROP_NAME: impl.entry.name, INTEROP_COMMIT: commitOf(impl.entry), INTEROP_PACE_MS: "1000", ...(options.set.get(impl.entry.name) ?? {}) };
-        docker(["run", "-d", "--name", name, ...label, "-p", "127.0.0.1::8081", ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), imageOf(impl.entry, registry, options.imageTag)], { quiet: true });
+        const live = liveIdentityEnv(options.lane, impl.entry, identity);
+        const env = { INTEROP_SECRET: secret, INTEROP_NAME: impl.entry.name, INTEROP_COMMIT: commitOf(impl.entry), INTEROP_PACE_MS: "1000", ...(options.set.get(impl.entry.name) ?? {}), ...live.public };
+        // The key goes through the docker CLI's environment (`-e NAME`), never its arguments, so `ps` doesn't show it.
+        const passed = Object.keys(live.secret).flatMap((key) => ["-e", key]);
+        docker(
+          ["run", "-d", "--name", name, ...label, "-p", "127.0.0.1::8081", ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), ...passed, imageOf(impl.entry, registry, options.imageTag)],
+          { quiet: true, env: live.secret }
+        );
         containers.push(name);
         ports.set(impl.target, Number(docker(["port", name, "8081/tcp"], { quiet: true }).split("\n")[0]!.split(":").at(-1)));
       }

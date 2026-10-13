@@ -76,7 +76,11 @@
     // How people reach the operator about privacy (an email address or an
     // https:// URL), shown on /privacy, the policy Google's consent screen links to.
     "PRIVACY_CONTACT": "",
-    "POPPY_LOGO_URI": ""
+    "POPPY_LOGO_URI": "",
+    // Optional: the interop harness's live-lane client, a separate Poppy
+    // client at /poppy/interop/client.json. Its public key set, as
+    // scripts/interop-live-identity.mjs prints it; empty, both routes 404.
+    "INTEROP_LIVE_JWKS": ""
   },
   // The deployment's version id and tag, on every wide event (src/log.ts).
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
