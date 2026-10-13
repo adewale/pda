@@ -21,6 +21,8 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
   - [ ] the account's credit limit;
   - [ ] no provider keys (BYOK) stored on any gateway;
   - [ ] no API tokens with "AI Gateway Run".
+  - [ ] a budget alert on the account (**Manage Account** > **Billing** > **Billable Usage** > **Set Budget Alert**). It only emails, once per billing cycle, when projected monthly spend crosses the threshold; it stops nothing. Not confirmed on 13 October: Wrangler's login token can't read Notifications.
+  - [ ] before 1 December 2026, when Workers Logs and AI Gateway logs move to Cloudflare Observability pricing (per GB ingested and stored, in one account-wide allowance), look at a month's ingestion. With gateway logging off or minimal, the wide events are almost all of it.
 - [ ] **Owner. OAuth apps** ([setup §4 and §5](setup.md#4-a-github-oauth-app)).
   - [x] GitHub: configured for the live deployment; the live redirect to GitHub checks out (spec, Status).
   - [x] Google: registered on 12 October; its two secrets are set in the dashboard, `SIGNIN_PROVIDERS` lists both providers again, and the live `/auth/google` redirects to Google with the right client and callback. The consent screen links `<origin>/privacy`.
