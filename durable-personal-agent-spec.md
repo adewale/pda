@@ -26,7 +26,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 
 ## Status
 
-**Deployed** at `https://personal-agent.adewale-883.workers.dev`. `npm test` passes: five suites, in the Workers runtime, happy-dom and Node (see Testing and conformance; Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.0`, Pi 1.1.0, Wrangler 4.149).
+**Deployed** at `https://personal-agent.adewale-883.workers.dev`. `npm test` passes: five suites, in the Workers runtime, happy-dom and Node (see Testing and conformance; Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.1`, Pi 1.1.0, Wrangler 4.149).
 
 | Part | State |
 | --- | --- |
@@ -129,11 +129,11 @@ The Worker turns a verified app session into the person's Durable Object and for
 
 | Package | Version | Why |
 | --- | --- | --- |
-| `agents` | 0.28.0 | Harness, Lifecycle, WebSockets, Pi AI provider, `useAgent` |
+| `agents` | 0.28.1, exact | Harness, Lifecycle, WebSockets, Pi AI provider, `useAgent` |
 | `@earendil-works/pi-durable`, `pi-ai`, `chord`, `pi-telemetry` | ^1.1.0 | Pi |
 | `jose` | ^6 | Session cookie claims, ID tokens, every Poppy JWT and JWK, the VAPID JWT |
 | `qrcode-generator` | 1.4.4 | QR code on the Device Sign-In card |
-| `@cloudflare/puppeteer` | 1.4.0, exact | Drives Browser Run for `read_url`'s renders; loaded only when a page is rendered |
+| `@cloudflare/puppeteer` | 1.4.0, exact | Drives Browser Run for `read_url`'s renders; loaded only when a page is rendered. `package.json` overrides its `@puppeteer/browsers` 2.2.4 with 3.2.4, which drops `extract-zip` and `proxy-agent`: every `extract-zip` release and the `basic-ftp` 5 that `proxy-agent` pulls in have high-severity advisories. That package downloads and launches a local Chrome; the Browser Run entry point never loads it |
 | `react`, `react-dom`, `@cloudflare/kumo`, `streamdown`, `@streamdown/code`, `@phosphor-icons/react` | as in the example | Chat page |
 | `vite`, `@cloudflare/vite-plugin`, `@vitejs/plugin-react`, `tailwindcss`, `@tailwindcss/vite`, `wrangler`, `typescript`, `vitest`, `@cloudflare/vitest-plugin` (dev) | as installed | Build and test |
 
