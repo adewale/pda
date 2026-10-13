@@ -81,6 +81,29 @@ async function unusableProposal(client: PoppyClient, company: Company, problem: 
   );
 }
 
+/**
+ * A write sent without our own card, because the Company's description says
+ * it answers with a proposal, came back a success with no operation: the
+ * Company broke its own description, and may have acted without the User's
+ * approval. The User and the model are told so, once; neither is told it
+ * was done or not done. `what` names the request for the User only.
+ */
+export async function actedWithoutProposal(client: PoppyClient, company: Company, what: string, status: number, value: Json): Promise<void> {
+  const tag = `${company.issuer}-${tagOf({ what, status, value })}`;
+  await client.host.showCard({
+    id: `op-unproposed-${tag}`,
+    kind: "notice",
+    company: company.name,
+    domain: company.domain,
+    open: false,
+    text: `${company.name} says ${what} only proposes an action for you to approve, but it answered ${status} with no proposal, so it may have done it without asking you. Check with ${company.name} before asking again.`
+  });
+  await client.host.notifyModel(
+    `[system] ${company.name}'s description says this write answers with a proposal for the User to approve, but it answered ${status} with no operation, so it may have acted without the User's approval. Tell the User; don't say it was done or not done until ${company.name} says which.`,
+    `poppy-op-unproposed-${tag}`
+  );
+}
+
 function stored(client: PoppyClient, issuer: Issuer, id: string): OperationRow | undefined {
   return one(
     client.sql,

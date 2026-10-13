@@ -8,6 +8,7 @@ import {
   type ResourceContext
 } from "./core";
 import type { Operations } from "./operations";
+import type { MockConfig } from "./types";
 
 const PRODUCTS = [
   { sku: "stormline-m", name: "Stormline Jacket (M)", price: { amount: "180.00", currency: "USD" } },
@@ -84,22 +85,37 @@ function parseMultipart(body: Uint8Array, boundary: string): Part[] | null {
   }
 }
 
-/** The Company's OpenAPI API and MCP server (spec section 6). */
 /**
  * A write's 202 answer in the description: a proposal (Ops 4.1), with the
  * operation in `operation`, as print-with-poppy describes `POST /api/orders`.
  * Ops 4.1: "The Company SHOULD say in its OpenAPI description which
  * endpoints return operations"; the agent sends such a write without its
- * own card first (`documentsProposals`).
+ * own card first (`documentsProposals`) only when every success response is
+ * a 202 that requires `operation`. `proposalDescription` says less on purpose.
  */
-const PROPOSED = {
-  description: "Operation proposed; confirm it at the operations endpoint",
-  content: {
-    "application/json": {
-      schema: { type: "object", required: ["operation"], properties: { operation: { $ref: "#/components/schemas/Operation" } } }
-    }
-  }
-};
+function proposalResponses(how: MockConfig["proposalDescription"]): Record<string, unknown> {
+  const operation = { $ref: "#/components/schemas/Operation" };
+  const proposed = (schema: unknown) => ({
+    description: "Operation proposed; confirm it at the operations endpoint",
+    content: { "application/json": { schema } }
+  });
+  const required = { type: "object", required: ["operation"], properties: { operation } };
+  if (how === "optional") return { "202": proposed({ type: "object", properties: { operation } }) };
+  if (how === "mixed") return { "201": { description: "Done at once" }, "202": proposed(required) };
+  if (how === "oneOf") return { "202": proposed({ oneOf: [required, { type: "object", required: ["exchange"], properties: { exchange: { type: "object" } } }] }) };
+  return { "202": proposed(required) };
+}
+
+/** The MCP exchange tool's `outputSchema`, as `proposalDescription` says. */
+function proposalOutputSchema(how: MockConfig["proposalDescription"]): Record<string, unknown> {
+  const operation = { type: "object", description: "The proposed operation, to confirm at the operations endpoint" };
+  const exchange = { type: "object", description: "The exchange, placed at once" };
+  if (how === "required") return { type: "object", required: ["operation"], properties: { operation } };
+  if (how === "oneOf") return { oneOf: [{ type: "object", required: ["operation"], properties: { operation } }, { type: "object", required: ["exchange"], properties: { exchange } }] };
+  return { type: "object", properties: { operation, exchange } };
+}
+
+/** The Company's OpenAPI API and MCP server (spec section 6). */
 
 export class Apis {
   readonly #idempotency = new Map<string, { hash: string; status: number; body: unknown }>();
@@ -255,10 +271,9 @@ export class Apis {
                 }
               }
             },
-            responses: {
-              "201": { description: "Exchange placed" },
-              ...(this.company.config.documentsProposals ? { "202": PROPOSED } : {})
-            }
+            responses: this.company.config.documentsProposals
+              ? proposalResponses(this.company.config.proposalDescription)
+              : { "201": { description: "Exchange placed" } }
           }
         },
         ...(this.company.config.openapiListsPoppyEndpoints ? this.#poppyPaths() : {}),
@@ -332,7 +347,7 @@ export class Apis {
             }
           },
           responses: {
-            ...(this.company.config.documentsProposals ? { "202": PROPOSED } : {}),
+            ...(this.company.config.documentsProposals ? proposalResponses(this.company.config.proposalDescription) : {}),
             "403": { description: "extension_required: the Operations extension" }
           }
         }
@@ -484,7 +499,7 @@ export class Apis {
     if (co.config.requiredExtension) {
       throw new HttpError(json({ error: "extension_required", extension: co.config.requiredExtension }, 403));
     }
-    if (co.config.operations && context.client.listsOperations) {
+    if (co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing) {
       return { status: 202, body: { operation: this.operations.proposeExchange(context) } };
     }
     if (co.config.requireOperationsExtension) {
@@ -640,17 +655,7 @@ export class Apis {
               }
             },
             // The tool answers with a proposal (Ops 4.2), as its output schema says.
-            ...(co.config.documentsProposals
-              ? {
-                  outputSchema: {
-                    type: "object",
-                    properties: {
-                      operation: { type: "object", description: "The proposed operation, to confirm at the operations endpoint" },
-                      exchange: { type: "object", description: "The exchange, placed at once for an agent without the Operations extension" }
-                    }
-                  }
-                }
-              : {}),
+            ...(co.config.documentsProposals ? { outputSchema: proposalOutputSchema(co.config.proposalDescription) } : {}),
             annotations: { readOnlyHint: false, destructiveHint: false }
           }
         ]

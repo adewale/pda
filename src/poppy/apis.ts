@@ -4,7 +4,7 @@ import { PoppyClient, PoppyError, scopeSet, withAnswer } from "./client";
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
-import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
+import { actedWithoutProposal, handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
 import type { Operation } from "./operation-value";
 import { randomId } from "./jwt";
 import { EndpointRequest, type RequestInit } from "./outgoing";
@@ -91,20 +91,45 @@ export function uploadOf(root: Json, requestBody: Json | undefined): Upload | un
 /**
  * Whether an OpenAPI operation says it answers with Operations' proposal, as
  * Ops 4.1 asks ("The Company SHOULD say in its OpenAPI description which
- * endpoints return operations", with no marker defined: S22): a `202` whose
- * `application/json` schema has an `operation` property, or poppyseed's
- * `x-poppy-operation: true`. A bare 202 isn't enough: "Accepted" also means
- * a job that will act without asking.
+ * endpoints return operations", with no marker defined: S22): poppyseed's
+ * `x-poppy-operation: true`, or every success response it declares is a
+ * `202` whose content is JSON with `operation` required. A bare 202 isn't
+ * enough: "Accepted" also means a job that will act without asking. Nor is
+ * an optional `operation`, or a 200 or 201 beside the 202: either lets the
+ * Company act at once and answer as usual, with no approval asked.
  */
 export function proposesOperation(root: Json, op: Json): boolean {
   if (!isObject(op)) return false;
   if (op["x-poppy-operation"] === true) return true;
   if (!isObject(op.responses ?? null)) return false;
-  const accepted = resolveRef(root, (op.responses as Record<string, Json>)["202"] ?? null);
-  if (!isObject(accepted) || !isObject(accepted.content)) return false;
-  const body = accepted.content["application/json"];
-  const schema = isObject(body) ? resolveRef(root, body.schema ?? null) : null;
-  return isObject(schema) && isObject(schema.properties) && schema.properties.operation !== undefined;
+  const successes = Object.entries(op.responses as Record<string, Json>).filter(([status]) => /^2(?:\d\d|XX)$/i.test(status));
+  return successes.length > 0 && successes.every(([status, response]) => status === "202" && proposalResponse(root, resolveRef(root, response)));
+}
+
+/** A response whose every media type is JSON with a schema that requires `operation`. */
+function proposalResponse(root: Json, response: Json): boolean {
+  if (!isObject(response) || !isObject(response.content)) return false;
+  const media = Object.entries(response.content);
+  return (
+    media.length > 0 &&
+    media.every(([type, body]) => /^application\/(?:[\w.-]+\+)?json\s*(?:;|$)/i.test(type) && isObject(body) && requiresOperation(root, body.schema ?? null))
+  );
+}
+
+/**
+ * Whether every value a JSON schema accepts has an `operation` member: it
+ * lists `operation` in `required`, or a part of its `allOf` does, or every
+ * branch of its `oneOf` or `anyOf` does. `$ref`s are followed in `root`.
+ */
+export function requiresOperation(root: Json, value: Json, depth = 0): boolean {
+  const schema = resolveRef(root, value);
+  if (depth > 8 || !isObject(schema)) return false;
+  if (Array.isArray(schema.required) && schema.required.includes("operation")) return true;
+  if (Array.isArray(schema.allOf) && schema.allOf.some((part) => requiresOperation(root, part, depth + 1))) return true;
+  return (["oneOf", "anyOf"] as const).some((key) => {
+    const branches = schema[key];
+    return Array.isArray(branches) && branches.length > 0 && branches.every((branch) => requiresOperation(root, branch, depth + 1));
+  });
 }
 
 /** The scopes of the first security requirement: `[{ scheme: [scopes] }]`. */
@@ -768,19 +793,28 @@ type ApiAnswer =
   /** A 202 with an operation we stored: nothing has happened yet (Ops 4.1). */
   | { readonly kind: "proposed"; readonly operation: Operation }
   /** A 202 with an operation we can't use: nothing was done, and the User has been told. */
-  | { readonly kind: "unusable"; readonly body: Json };
+  | { readonly kind: "unusable"; readonly body: Json }
+  /** A 2xx with no operation from a write the description says proposes: it may have been done, and the User has been told. */
+  | { readonly kind: "unproposed"; readonly status: number; readonly body: Json };
 
 const UNUSABLE = "The Company proposed an operation the agent can't use, so nothing was done and nothing can be approved; the User has been told.";
+const UNPROPOSED =
+  "The Company's description says this write answers with a proposal for the User to approve, but it answered without one, so it may have been done without the User's approval. The User has been told; don't say it was done or not done until the Company says which.";
 
 function answerForModel(answer: ApiAnswer): Json {
   if (answer.kind === "answered") return { status: answer.status, body: answer.body };
   if (answer.kind === "unusable") return { status: 202, unusable: true, note: UNUSABLE, body: answer.body };
+  if (answer.kind === "unproposed") return { status: answer.status, unproposed: true, note: UNPROPOSED, body: answer.body };
   const { operation_id, revision, summary } = answer.operation;
   return { status: 202, proposed: { operation_id, revision, summary }, note: "Nothing has happened yet; the User decides on the approval card." };
 }
 
-/** Send a checked call, and read what came back. */
-async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRequest): Promise<ApiAnswer> {
+/**
+ * Send a checked call, and read what came back. `expectsProposal` is set for
+ * a write sent without our card because its description says it proposes: a
+ * 2xx without an operation is then the Company breaking its description.
+ */
+async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRequest, expectsProposal = false): Promise<ApiAnswer> {
   const { company, op, api, write } = checked;
   if (write) refuseWhileConfirming(client, company.issuer, write);
   // Read-only lookups ask for a read-only token when the account allows (Guides).
@@ -815,6 +849,10 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
     if (!operation) return { kind: "unusable", body };
     if (write) rememberProposal(client, company.issuer, write, operation.operation_id);
     return { kind: "proposed", operation };
+  }
+  if (expectsProposal && response.status >= 200 && response.status < 300) {
+    await actedWithoutProposal(client, company, `${op.method} ${new URL(checked.url).pathname}`, response.status, body);
+    return { kind: "unproposed", status: response.status, body };
   }
   return { kind: "answered", status: response.status, body };
 }
@@ -871,7 +909,7 @@ export async function callOpenApi(
         0
       );
     }
-    return answerForModel(await sendApi(client, label, checked));
+    return answerForModel(await sendApi(client, label, checked, true));
   }
   return { proposed: await ask(), note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
@@ -1025,7 +1063,18 @@ export async function listMcpTools(client: PoppyClient, company: Company, label:
   return session.tools;
 }
 
-async function performMcp(client: PoppyClient, company: Company, label: string, call: { apiUrl: string; tool: string; args: Json }): Promise<Json> {
+/**
+ * Call an MCP tool. `expectsProposal` is set for a tool called without our
+ * card because its output schema says it proposes: a result that isn't an
+ * error and has no operation is then the Company breaking its description.
+ */
+async function performMcp(
+  client: PoppyClient,
+  company: Company,
+  label: string,
+  call: { apiUrl: string; tool: string; args: Json },
+  expectsProposal = false
+): Promise<Json> {
   const api = findApi(company, "mcp", call.apiUrl);
   const write = `MCP ${api.url} ${call.tool} ${JSON.stringify(call.args)}`;
   refuseWhileConfirming(client, company.issuer, write);
@@ -1039,18 +1088,20 @@ async function performMcp(client: PoppyClient, company: Company, label: string, 
     }
     return { unusable: true, note: UNUSABLE, result };
   }
+  if (expectsProposal && !(isObject(result) && result.isError === true)) {
+    await actedWithoutProposal(client, company, `its tool ${call.tool}`, 200, result);
+    return { unproposed: true, note: UNPROPOSED, result };
+  }
   return result;
 }
 
 /**
  * Whether an MCP tool says it answers with a proposal (Ops 4.2): its
- * `outputSchema` has an `operation` property, the MCP counterpart of an
- * OpenAPI 202 with one.
+ * `outputSchema` requires `operation`, the MCP counterpart of an OpenAPI
+ * 202 that does. An optional `operation` lets the tool act at once instead.
  */
 export function mcpToolProposes(tool: Json): boolean {
-  if (!isObject(tool) || !isObject(tool.outputSchema)) return false;
-  const { properties } = tool.outputSchema;
-  return isObject(properties) && properties.operation !== undefined;
+  return isObject(tool) && isObject(tool.outputSchema) && requiresOperation(tool.outputSchema, tool.outputSchema);
 }
 
 /**
@@ -1073,7 +1124,8 @@ export async function callMcpTool(
   checkMcpArgs(company, request.tool, tool.inputSchema, request.args);
   const readOnly = isObject(tool.annotations) && tool.annotations.readOnlyHint === true;
   const call = { apiUrl: api.url, tool: request.tool, args: request.args };
-  if (readOnly || (company.extensions.operations && mcpToolProposes(tool))) return performMcp(client, company, label, call);
+  if (readOnly) return performMcp(client, company, label, call);
+  if (company.extensions.operations && mcpToolProposes(tool)) return performMcp(client, company, label, call, true);
   const id = await proposeLocal(client, company, label, `${company.name}: run ${request.tool} with ${JSON.stringify(request.args)}`, { kind: "mcp", call });
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }

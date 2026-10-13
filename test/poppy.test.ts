@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
-import { checkParams, dpopSchemes, openApi, outsidePoppySession, proposesOperation, type OpenApiOperation } from "../src/poppy/apis";
+import { checkParams, dpopSchemes, mcpToolProposes, openApi, outsidePoppySession, proposesOperation, type OpenApiOperation } from "../src/poppy/apis";
 import { tokenResponse } from "../src/poppy/client";
 import { parseOperation } from "../src/poppy/operation-value";
 import { clientFrame, serverFrame } from "../src/poppy/frames";
@@ -1258,25 +1258,86 @@ describe("6 APIs", () => {
     expect((await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("op-unreadable-"))).toBeDefined();
   });
 
-  it("sends a write that proposes straight to a Company with operations, and reads only a 202 with an operation in the description as saying so", async () => {
+  it("sends a write that proposes straight to a Company with operations, and reads only a 202 that requires an operation, with no other success, as saying so", async () => {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
     expect(JSON.parse((await tool(a, "poppy_api_call", exchangeWrite(c))).text)).toMatchObject({ status: 202, proposed: { revision: 1 } });
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
     const operation = { $ref: "#/components/schemas/Operation" };
-    const root = { components: { schemas: { Operation: { type: "object" } }, responses: { Proposed: { content: { "application/json": { schema: { properties: { operation } } } } } } } };
+    const required = { type: "object", required: ["operation"], properties: { operation } };
+    const root = {
+      components: {
+        schemas: { Operation: { type: "object" }, Proposal: required, Job: { type: "object", required: ["job_id"] } },
+        responses: { Proposed: { content: { "application/json": { schema: { $ref: "#/components/schemas/Proposal" } } } } }
+      }
+    };
     const json = (schema: Json) => ({ content: { "application/json": { schema } } });
     expect(proposesOperation(root, { responses: { "202": { $ref: "#/components/responses/Proposed" } } })).toBe(true);
-    expect(proposesOperation(root, { responses: { "202": json({ type: "object", properties: { operation } }) } })).toBe(true);
+    expect(proposesOperation(root, { responses: { "202": json(required), "403": { description: "extension_required" } } })).toBe(true);
+    // Each part of allOf counts; every branch of oneOf or anyOf must require it.
+    expect(proposesOperation(root, { responses: { "202": json({ allOf: [{ $ref: "#/components/schemas/Proposal" }, { properties: { note: { type: "string" } } }] }) } })).toBe(true);
+    expect(proposesOperation(root, { responses: { "202": json({ oneOf: [required, { allOf: [required, { required: ["note"] }] }] }) } })).toBe(true);
     // poppyseed's marker says so too.
     expect(proposesOperation(root, { "x-poppy-operation": true, responses: { "200": { description: "OK" } } })).toBe(true);
     // "Accepted" alone may be a job that acts without asking.
     expect(proposesOperation(root, { responses: { "202": { description: "Accepted" } } })).toBe(false);
     expect(proposesOperation(root, { responses: { "202": json({ properties: { job_id: { type: "string" } } }) } })).toBe(false);
-    expect(proposesOperation(root, { responses: { "201": json({ properties: { operation } }) } })).toBe(false);
+    // An optional operation, or another success beside the 202, lets the Company act at once and answer as usual.
+    expect(proposesOperation(root, { responses: { "202": json({ type: "object", properties: { operation } }) } })).toBe(false);
+    expect(proposesOperation(root, { responses: { "200": json({ type: "object" }), "202": json(required) } })).toBe(false);
+    expect(proposesOperation(root, { responses: { "201": { description: "Done" }, "202": { $ref: "#/components/responses/Proposed" } } })).toBe(false);
+    expect(proposesOperation(root, { responses: { "2XX": json(required), "202": json(required) } })).toBe(false);
+    expect(proposesOperation(root, { responses: { "201": json(required) } })).toBe(false);
+    expect(proposesOperation(root, { responses: { "202": json({ oneOf: [required, { $ref: "#/components/schemas/Job" }] }) } })).toBe(false);
+    expect(proposesOperation(root, { responses: { "202": json({ anyOf: [required, { type: "object" }] }) } })).toBe(false);
+    expect(proposesOperation(root, { responses: { "202": { content: { "application/json": { schema: required }, "text/plain": { schema: { type: "string" } } } } } })).toBe(false);
     expect(proposesOperation(root, { "x-poppy-operation": "yes", responses: {} })).toBe(false);
     expect(proposesOperation(root, {})).toBe(false);
+    // MCP: the output schema must require operation.
+    expect(mcpToolProposes({ outputSchema: required })).toBe(true);
+    expect(mcpToolProposes({ outputSchema: { type: "object", properties: { operation: { type: "object" } } } })).toBe(false);
+    expect(mcpToolProposes({ outputSchema: { anyOf: [{ required: ["operation"] }, { required: ["exchange"] }] } })).toBe(false);
+    expect(mcpToolProposes({ outputSchema: { $defs: { P: { required: ["operation"] } }, $ref: "#/$defs/P" } })).toBe(true);
+  });
+
+  it("asks the User on its own card before a write whose description doesn't say every success is a proposal", async () => {
+    for (const proposalDescription of ["optional", "mixed", "oneOf"] as const) {
+      const c = await company({ proposalDescription });
+      const a = await agent();
+      await signInDirect(a, c);
+      expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text, proposalDescription).toContain("Waiting for the User's approval");
+      expect(await exchangeRequests(c), proposalDescription).toEqual([]);
+      const call = { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
+      expect((await tool(a, "poppy_mcp_call", call)).text, proposalDescription).toContain("Waiting for the User's approval");
+      const state = await c.stub.state();
+      expect(state.operations, proposalDescription).toEqual([]);
+      expect(state.performs, proposalDescription).toBe(0);
+      expect((await cards(a)).filter((item) => item.kind === "approval"), proposalDescription).toHaveLength(2);
+    }
+  });
+
+  it("tells the User and the model when a write its description says proposes comes back done without a proposal", async () => {
+    const c = await company({ actsWithoutProposing: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    const answer = JSON.parse((await tool(a, "poppy_api_call", exchangeWrite(c))).text);
+    expect(answer).toMatchObject({ status: 201, unproposed: true });
+    expect(answer.note).toContain("may have been done without the User's approval");
+    expect(answer.proposed).toBeUndefined();
+    const notice = (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("op-unproposed-"));
+    expect(notice?.text).toBe(
+      `Mock Shop ${c.id} says POST /orders/ord_7Hk2/exchanges only proposes an action for you to approve, but it answered 201 with no proposal, so it may have done it without asking you. Check with Mock Shop ${c.id} before asking again.`
+    );
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
+    // The same through MCP, at another Company (each exchanges the jacket once).
+    const m = await company({ actsWithoutProposing: true });
+    await signInDirect(a, m);
+    const call = { domain: m.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
+    expect(JSON.parse((await tool(a, "poppy_mcp_call", call)).text)).toMatchObject({ unproposed: true });
+    const mcpNotice = (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("op-unproposed-") && item.domain === m.domain);
+    expect(mcpNotice?.text).toContain(`Mock Shop ${m.id} says its tool exchange_item only proposes an action for you to approve`);
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
   });
 
   it("never sends a write that takes no Idempotency-Key twice when its tool call is replayed", async () => {
