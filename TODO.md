@@ -4,8 +4,8 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 
 ## Decisions for the owner
 
-- [ ] **A license.** None is chosen ([README](README.md#security-contributing-and-licence)). It blocks making the repository public, which the proposals and the interop harness's reuse depend on.
-- [ ] **Make the repository public, or not.** The proposals and `docs/interop-results/` link into it.
+- [x] **A licence.** Apache License 2.0, as the draft itself uses, chosen on 13 October ([LICENSE](LICENSE), [NOTICE.md](NOTICE.md)).
+- [ ] **Make the repository public, or not.** The proposals and `docs/interop-results/` link into it. First: send privately whatever the docs say about other projects that may be a vulnerability (SECURITY.md, points 1 to 3), turn on private vulnerability reporting and change SECURITY.md's "while the repository is private", and have the gateway's spend rules and a budget alert in place.
 - [ ] **The final domain for `client_id`**, before any Company registers the agent; it can't change afterwards ([deployment-tasks](docs/deployment-tasks.md#1-configuration-and-accounts)).
 - [x] **CI's runner image.** Pinned to `ubuntu-26.04` on 12 October (the LTS `ubuntu-latest` becomes on 19 October); CI and interop both passed on it at `fdb1a07`.
 - [x] **A known-good Company to verify against.** Chosen: print-with-poppy, the demo journey below. Its live store, printwithpoppy.com, allowlisted our `client_id`, and the deployed agent got a Session there on 12 October. It is in live payment mode, not demo.
@@ -17,7 +17,7 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 
 - [ ] **Owner. Back up `TOKEN_ENC_KEY`** (for example in a password manager). Losing it loses every sealed Account Token and model key ([setup](docs/setup.md)).
 - [ ] **Code. A runbook for rotating `POPPY_SIGNING_JWKS`**, and for a leaked signing key: add the new key, publish both, switch the signer, retire the old `kid` after Companies' caches expire, and give every new key a new `kid`.
-- [ ] **Owner. Spending alerts:** a Cloudflare billing notification, and provider-side limits and alerts on any funded key. Done so far: $100 of credits and a spend limit on `dpa-gateway`.
+- [ ] **Owner. Spending alerts:** a Cloudflare billing notification, and provider-side limits and alerts on any funded key. Done so far: credits and a spend limit on `dpa-gateway`.
 - [ ] **Owner. Check `dpa-gateway`'s settings in the dashboard:** Authenticated Gateway on with no tokens, logging off or short retention, caching off, auto top-up off. Wrangler's login token can't read AI Gateway settings, so this can't be checked from here.
 - [x] **Owner. The privacy contact** is the owner's GitHub profile (`https://github.com/adewale`), by the owner's choice on 12 October.
 - [ ] **Owner. Read the monthly dependency report.** `.github/workflows/deps.yml` runs `npm run deps:check` on the 1st (report only, no pull requests); it fails only on a high or critical audit finding.
@@ -39,7 +39,7 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 - [x] **Code. Keep the User's time zone in storage.** Done: the last zone a page sent is kept in `user_context`, so `now` and schedules use it after an eviction.
 - [ ] **Owner. Try `read_url` and memory live:** a real page or two (one large, one that redirects), and "remember I'm vegetarian" across a week and a redeploy.
 - [x] **Code. Hide Google sign-in while it isn't configured.** `SIGNIN_PROVIDERS` lists the providers a deployment offers. Google was registered on 12 October and the live deployment offers both; the owner signed in with Google.
-- [ ] **Code. Check the `pi report` log line** (`src/agent.ts`, `console.warn("pi report", error)`) can't carry request details or keys into Workers logs.
+- [x] **Code. Check the `pi report` log line.** Gone: nothing in `src/` calls `console` but `src/log.ts`, which `test/log.test.ts` enforces, and pi's reports reach the `turn` event through `src/agent-log.ts` with our own message only.
 - [ ] **Code. A sign-in finished by recovery doesn't run the after-sign-in step**, so operations approved while waiting on it wait for the next sign-in.
 - [x] **Code. A user guide to verifying the agent works.** Done: [docs/using.md](docs/using.md), for someone signing in for the first time, ends with a run-through (sign in, the model, chat, a page, memory, a reminder and a task, the validator, a Company, Activity).
 - [ ] **Code. The protocol log's gaps** ([decisions §25](docs/decisions.md#25-a-protocol-view-in-activity)): the OpenAPI description and MCP protected-resource metadata fetches (`apis.ts` fetches them with `fetchJson`, not the client) and website pages other than their 429 and 503 answers aren't logged; nor is the Direct Sign-In callback's `iss` check, only the sign-in's status change after it.
@@ -63,7 +63,7 @@ Built and passing in the grid (scenario OU, against the store at its pinned comm
 - [x] **Grounding questions decided by a policy**, [docs/conformance-levels.md](docs/conformance-levels.md): a check's basis sets its level in the mock, the validator and the grid; YK is `permitted_by: N5`. **Owner:** review its judgement calls. The full grid ran again under it on 12 October with every cell's outcome unchanged ([interop-results](docs/interop-results/README.md)).
 - [ ] **Owner. Re-check the spec** with `node scripts/spec-snapshot.mjs` before sending issues to its authors or submitting the proposals.
 - [x] **Code. Scenarios `H`, `DC`, `W`, `O2`, `CM`:** written and run on 12 October, each derived from the draft section it targets; results and the two bugs they found in our browser in [interop-testing.md](docs/interop-testing.md#h-dc-w-o2-and-cm-12-october).
-- [ ] **Code. Attacks not yet built:** `XM` (needs a two-Company cell), `XS` (needs N42's private test suffix), `YF` (a code only returns through the consent hook) and `YC` (needs a consent-page reader). Built: `XB`, `XN`, `XO`, `XP`, `XE`, `YM` ([adversarial-interop.md](docs/adversarial-interop.md)).
+- [ ] **Code. Attacks not yet built:** `XM` (needs a two-Company cell), `XS` (needs N42's private test suffix), `YF` (a code only returns through the consent hook) and `YC` (needs a consent-page reader). `XK` is dropped (our client never fetches the moved document; N44) and `XJ` is covered by `test/prompt-injection.test.ts`, since the harness has no model. Built: `XH`, `XI`, `BX`, `XB`, `XN`, `XO`, `XP`, `XE`, `XR`, `XT` and the Y attacks ([adversarial-interop.md](docs/adversarial-interop.md#malicious-company-scenarios)). Since 13 October the evil Company also runs against other projects' agents, locally; what it finds stays private until disclosed.
 - [x] **Code. The Hypothesis client's gaps** are closed: the Operations extension, MCP, browsing, handoff and Direct Conversations, rate limits and Device Sign-In polling each have a state machine ([test/hypothesis/README.md](test/hypothesis/README.md)). They found five mock bugs, now fixed with tests, and four questions for the draft's authors (listed in that README). By the owner's decision (12 October 2026) the client is now an occasional local check, run after a draft change or a large mock change, not expanded further; what it leaves out is listed in that README.
 - [x] **Code. The grid's rate-limit check** now reads 4.3 as the mock does: the same request sent again inside a `Retry-After` fails (`rate-limit.retry-after-ignored`, MUST); a different request to that Company is the Guides' warning (`rate-limit.shared-limit-ignored`).
 - [ ] **Owner then Code. The adapters not yet run:** typo3 (needs the private extension) and the live lane, kept until our own side is verified ([deployment-tasks](docs/deployment-tasks.md#3-then)). everruns ran on 12 October, both sides, at `f470ad7` ([interop-testing.md](docs/interop-testing.md#everruns-joins-the-grid)); its cells aren't yet in a full grid run.
@@ -73,9 +73,3 @@ Built and passing in the grid (scenario OU, against the store at its pinned comm
 - [ ] Eviction: whether idle agents stay resident, and how often DPoP keys and tokens are renewed as a result.
 - [ ] Push notifications are an open topic in the draft, so the agent polls.
 - [ ] Standing permissions need a checkable action field (we now require the summary to begin with the permission's action, and every term to be an amount within its limit, a date or a plain identifier); DPoP nonces per server; a standard marker for writes that propose (we now put on our own card any write whose description doesn't declare a proposal); local Personal Agents. All in the [spec's Open questions](durable-personal-agent-spec.md#open-questions-and-risks).
-
-## Environment (this machine)
-
-- [x] **Owner. Docker:** colima's disk is grown (157 GB), and on 12 October our leftover `ib-*` images and every side-tagged `poppy-interop` image (`:tg1`, `:ou`, `:rev`) were removed; the 17 `:latest` images the grid uses stay. Not ours, and left alone: 15 untagged images from two months ago and the shared build cache (`docker builder prune` would clear every project's). The colima swap file (`/swapfile-interop`) stays: rebuilding the everruns images needs it switched on (`colima ssh -- sudo swapon /swapfile-interop`), or the Rust build runs out of memory.
-- [ ] **Owner. Old git worktrees** from earlier sessions in `.claude/worktrees/`.
-- [ ] **Owner. The pre-push hook** is on only in this clone; a fresh clone needs `git config core.hooksPath .githooks`.

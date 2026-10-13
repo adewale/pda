@@ -2,6 +2,7 @@
   "name": "personal-agent",
   "description": "Durable Personal Agent on Cloudflare: one Pi agent per signed-in person",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "version": "0.0.0",
   "bin": {

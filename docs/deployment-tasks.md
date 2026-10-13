@@ -16,7 +16,7 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
 - [x] **Owner. `DEMO_GATEWAY_ID`.** The template says `demo`; the live deployment's `deployment.local.json` sets `"DEMO_GATEWAY_ID": "dpa-gateway"`, the gateway the owner created on 12 October ([setup §3](setup.md#3-the-demo-optional-claude-on-your-bill-capped)).
 - [ ] **Owner. The Cloudflare dashboard** ([setup §3](setup.md#3-the-demo-optional-claude-on-your-bill-capped)):
   - [x] a gateway (`dpa-gateway`) with Unified Billing; [ ] Authentication on and logging off or minimal, unconfirmed (Wrangler's login token can't read AI Gateway settings);
-  - [x] credits loaded ($100 on 12 October); [ ] auto top-up confirmed off;
+  - [x] credits loaded (12 October); [ ] auto top-up confirmed off;
   - [x] a spend limit (the owner added one on 12 October); [ ] spend rules as a backstop to the agent's own caps: one split by `metadata.u`, one by `metadata.d`, and a pooled daily cap;
   - [ ] the account's credit limit;
   - [ ] no provider keys (BYOK) stored on any gateway;
@@ -60,13 +60,4 @@ From the spec's Model access, "Check live", and the parts tested only in fakes o
 - [x] **Code. Update the OpenClaw and Hermes proposals**: re-researched at each project's `main`, counts and Datalayer facts brought up to 13 October ([proposals/README.md](proposals/README.md)).
 - [ ] **Owner. Submit them**, after the live Company Agent check above ([proposals/README.md](proposals/README.md) lists what to fold in first and what to do before posting). Nothing is posted without the owner.
 - [ ] **Owner. Run the live lane**: `npm run interop -- --lane live` (our agent against `ilmer-live` and `poppyseed-live`, signed-out scenarios only, one request a second).
-- [ ] **Code. The adapters not yet run:** `typo3-dirnbauer-company` needs the private extension first. (`everruns-agent` and `everruns-company` were built, registered and run on 12 October; their builds need the swap file below.)
-
-## 4. Environment cleanup
-
-On the machine that ran the interop grid. **Owner**; check `docker images` before removing anything.
-
-- [x] Remove the Docker images that are ours to remove: those named `ib-*`, and the `:adv` and `:audit` tags of `poppy-interop/*`. None were left on 13 October. To check again: `docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^ib-|:(adv|audit)$'`. The runner never removes images itself.
-- [x] Grow colima's disk, which filled during the grid and kept everruns out. It is 160 GiB; on 13 October Docker's disk had 51 GB free (100 GB used). To grow it again: `colima stop`, then `colima start --disk <GiB>` (colima grows a disk, it doesn't shrink one). Docker's build cache (about 25 GB reclaimable) is shared with other projects on this machine, so prune only what is ours.
-- [x] The swap file in the colima VM, `/swapfile-interop` (6 GB): kept. Compiling everruns-server is OOM-killed without it (12 October, at one job and at two). Since 13 October it is on permanently, through a line in the VM's `/etc/fstab`; that it survives a VM restart is unchecked, so run `colima ssh -- swapon --show` after one. To remove it: `colima ssh -- sudo sh -c 'swapoff /swapfile-interop && rm /swapfile-interop && sed -i "/swapfile-interop/d" /etc/fstab'`.
-- [ ] Remove the last agent worktree, `.claude/worktrees/agent-a9a0d4906d8c9d961`, once the Claude session that locks it (pid 66207, started 9 October) has ended: `git worktree remove --force` it, then `git branch -d worktree-agent-a9a0d4906d8c9d961`. Its commits are all on main. The other eleven were removed on 13 October.
+- [ ] **Code. The adapters not yet run:** `typo3-dirnbauer-company` needs the private extension first. (`everruns-agent` and `everruns-company` were built, registered and run on 12 October; their builds need about 6 GB of swap; see [interop/README.md](../interop/README.md#resources).)

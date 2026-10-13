@@ -63,6 +63,10 @@ Everything a run creates on Docker (its containers, two networks, the internal o
 
 Before it starts, the runner checks free space on Docker's data disk, running `df -Pk /` in a short-lived container of the proxy image, and refuses to start below `--min-free-gb` (2 GB by default), saying how much there is. A first run, before the proxy image is built, skips the check.
 
+### Resources
+
+A full grid builds about 20 images; with Docker's build cache they take roughly 100 GB, so give Docker's disk room (`--min-free-gb` refuses to start below a floor). Compiling `everruns-server` needs more memory than an 8 GB Linux VM has: in a colima or Docker Desktop VM of that size, add about 6 GB of swap first (for colima, a swap file in the VM listed in its `/etc/fstab`), or build without the everruns adapters. The runner never removes images; `docker images 'poppy-interop/*'` lists them, and a side tag (`--image-tag`) stays until you remove it.
+
 Results aren't committed. A summary of the last full grid, for readers who don't run it, is in [`docs/interop-results/README.md`](../docs/interop-results/README.md): a snapshot of one run, with the implementations and commits it covered, the totals, the matrix and the causes of each failure. For the full results, run the grid (output in `results/<run>/`, gitignored) or download the `interop-results` artifact that CI's Interop workflow (`.github/workflows/interop.yml`) uploads.
 
 ## How a cell runs
