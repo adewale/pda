@@ -265,8 +265,8 @@ async function handleMemories(request: Request, env: Env): Promise<Response> {
 
 /**
  * Reminders and scheduled tasks (src/schedules.ts), for Settings.
- * `GET /api/schedules` lists those waiting or paused; `DELETE
- * /api/schedules/<id>` cancels one, same origin only. Each person reaches
+ * `GET /api/schedules` lists those waiting, paused or failed; `DELETE
+ * /api/schedules/<id>` cancels or dismisses one, same origin only. Each person reaches
  * only their own agent's.
  */
 async function handleSchedules(request: Request, env: Env): Promise<Response> {

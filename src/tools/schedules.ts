@@ -138,12 +138,12 @@ export function scheduleExtension(options: ScheduleToolsOptions): Extension {
       tool(
         {
           name: "list_scheduled",
-          description: "List the User's reminders and scheduled tasks that are waiting or paused, soonest first, with their ids. Read only.",
+          description: "List the User's reminders and scheduled tasks that are waiting, paused or failed (a one-off whose reminder couldn't be shown or whose task didn't run), soonest first, with their ids. Read only.",
           parameters: Type.Object({})
         },
         async () => {
           const all = options.scheduler().list();
-          const text = all.length ? `${all.length} waiting or paused:\n${all.map(scheduleLine).join("\n")}` : "No reminders or scheduled tasks.";
+          const text = all.length ? `${all.length} waiting, paused or failed:\n${all.map(scheduleLine).join("\n")}` : "No reminders or scheduled tasks.";
           return { content: [{ type: "text", text }], details: { count: all.length } };
         }
       ),

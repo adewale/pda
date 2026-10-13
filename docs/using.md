@@ -39,7 +39,7 @@ One conversation, kept for good: it survives closing the tab, a deploy or a cras
 
 **Reminders and tasks.**
 
-- "Remind me at 5pm to call the bank." At that time a reminder card appears in the chat, and on your devices if you turned notifications on. No model call is made.
+- "Remind me at 5pm to call the bank." At that time a reminder card appears in the chat, and on your devices if you turned notifications on. No model call is made. If the card can't be shown, your agent tries again after 1, 5 and 30 minutes; if every try fails, Settings → Scheduled says the reminder didn't reach you, and Activity says why.
 - "Every weekday at 9, check whether my print order has shipped." A task runs your agent in the background with your words, as a model call on your key or the demo, and tells you when it has run. Anything it would change still waits for your approval. A task that fails three runs in a row is paused; cancel it and ask again.
 - Times are in your time zone, at most a year ahead, and nothing repeats more often than daily: once, daily, on weekdays, or weekly on a day. Up to 20 can wait at once.
 - Only you can set or cancel one, by asking in the chat. A company's message, a web page or a task's own run can't.
@@ -64,7 +64,7 @@ Attach a photo with **Attach a photo** beside the message box, or paste or drop 
 - **Account:** who you're signed in as, and sign out.
 - **Model:** the demo meter, or your key (add, replace, remove, and the Workspace ID).
 - **Memory:** every note your agent has saved, marked "You said" or "Your agent noted", each with **Delete**, and **Forget everything**.
-- **Scheduled:** each reminder and task waiting or paused, with when it runs next and how it repeats, and **Cancel**.
+- **Scheduled:** each reminder and task waiting, paused or failed, with when it runs next and how it repeats, and **Cancel**. A reminder being tried again says so. A one-off reminder that never reached you, or a one-off task that didn't run, stays here with **Dismiss** until you dismiss it.
 - **Notifications:** shown when the deployment has them and your browser supports them. **Notifications on this device** asks the browser's permission, then delivers reminders, and a word when a task has run, even with the page closed. Turn it on in each browser you want them in.
   - **On iPhone and iPad**, notifications reach only the app added to your Home Screen: in Safari, tap **Share**, then **Add to Home Screen**, open the agent from that icon, and turn notifications on there.
   - If you blocked notifications earlier, allow them in the browser's site settings first.
