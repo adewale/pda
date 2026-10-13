@@ -111,7 +111,7 @@ A security property the draft states as a MUST, RFC MUST or Rule stays a failure
 - 17 rest on a SHOULD (1) or the Guides (16) and are now warnings;
 - 10 rest on our readings and are now warnings, at the tentative level.
 
-Since then the print-with-poppy work added three: two RFC checks of a multipart upload (`upload.boundary`, `upload.part-name`) and one Guides warning (`idempotency.key-missing`). Today's 147 are 119 failures (MUST 51, RFC 21, Rule 47), 18 warnings (SHOULD 1, Guides 17) and 10 tentative.
+Since then the print-with-poppy work added three: two RFC checks of a multipart upload (`upload.boundary`, `upload.part-name`) and one Guides warning (`idempotency.key-missing`). The Hypothesis work added another Guides warning (`rate-limit.shared-limit-ignored`). Today's 148 are 119 failures (MUST 51, RFC 21, Rule 47), 19 warnings (SHOULD 1, Guides 18) and 10 tentative.
 
 `state()` has `recorded` (every check, in order), `violations` and `warnings`. The catalog test checks each check's basis, level and filing. Each `TAMPERS` row checks that its id lands in the right list.
 

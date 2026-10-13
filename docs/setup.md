@@ -54,7 +54,7 @@ Secrets take effect immediately; no redeploy is needed.
 
 The demo lane calls Claude through the AI Gateway named by `DEMO_GATEWAY_ID` (`demo` in `wrangler.jsonc`). Until a gateway named `demo` exists, set `"DEMO_GATEWAY_ID": "default"` in `deployment.local.json` to use the account's default gateway, and switch back once `demo` is set up. In the dashboard, **AI → AI Gateway**:
 
-1. Create a gateway named `demo`, with **Authentication** on.
+1. Create a gateway named `demo`, with **Authentication** on. Another name works if `deployment.local.json` sets it as `DEMO_GATEWAY_ID`; the live deployment's is `dpa-gateway`.
 2. Choose **Unified Billing**, load credits, and leave **auto top-up** off. Store no provider keys (BYOK) on any gateway: own keys never go through a gateway ([decisions §14](decisions.md#14-own-keys-pasted-sent-straight-to-the-vendor)).
 3. Add **spend limits** as a backstop to the agent's own caps: one split by `metadata.u` (per agent), one split by `metadata.d` (per Workspace domain, `personal` for everyone else), and a pooled daily limit.
 4. Set the account's credit limit.

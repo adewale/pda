@@ -92,7 +92,7 @@ A run-through that touches every part. Each step says what you should see; if yo
 6. **A reminder.** Say "Remind me in 3 minutes to stretch." The tool line reads "Set a reminder", and Settings → Scheduled lists it. Close the tab. After three minutes, a notification arrives if you turned them on; reopen the page and a "Reminder: …" card is in **Needs you**.
 7. **A task.** Say "In 5 minutes, tell me the time in Tokyo." Settings → Scheduled lists it as a task. After it runs, a notice says "Your scheduled task ran", and Activity's log has a line for it.
 8. **The validator.** Open `/validator` on the same address, which anyone can use without signing in, and check `spotmeplease.com` or `withpoppyseed.dev`. The report lists errors (a broken MUST) and warnings (a departed SHOULD).
-9. **A company.** Ask "Does withpoppyseed.dev support Poppy?" The tool line reads "Looked up what withpoppyseed.dev offers personal agents". Activity → Protocol lists the exchanges for that company with their spec sections. A company may not have approved this agent yet, and the agent then says so. It hasn't yet been tried against a live company, so whatever happens next is worth reporting.
+9. **A company.** Ask "Does withpoppyseed.dev support Poppy?" The tool line reads "Looked up what withpoppyseed.dev offers personal agents". Activity → Protocol lists the exchanges for that company with their spec sections. A company may not have approved this agent yet, and the agent then says so. It has run against only one live company so far, print-with-poppy's store, as far as asking to upload a photo, so whatever happens next is worth reporting.
 
 ## What it can't do yet
 
@@ -102,5 +102,5 @@ A run-through that touches every part. Each step says what you should see; if yo
 - **Browse a company's website when the site needs JavaScript.** Inside a company Session the agent's browser runs no scripts; only `read_url`, signed out and read only, renders pages.
 - **Resume a paused task:** cancel it in Settings and ask again.
 - **A proper iPhone home-screen icon:** iOS doesn't use the SVG logo.
-- **Run against a live company:** it has run only against our mock company and other projects' demos and SDKs.
+- **A whole task at a live company:** it has run against one, print-with-poppy's store, only as far as asking to upload a photo; everything else only against our mock company and other projects' demos and SDKs.
 - More than one conversation, or a choice of model: each deployment sets one model for the demo and one for each vendor's keys.

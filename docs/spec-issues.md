@@ -8,7 +8,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 - **Running it under different readings.** Our conformance tests run under six readings of the questions below.
 - **Reading other implementations.** We read the other implementations listed in [implementations.md](implementations.md); their issues are in [poppy-issues.md](poppy-issues.md). Their disagreements are often the evidence for an issue here.
 - **A discovery-document validator** ([`src/validator/`](../src/validator)).
-- **An interop grid.** Our [harness](interop-spec.md) runs agents against Companies from several projects, in containers, through a recording proxy; [a summary of the latest run](interop-results/README.md), from 12 October, is committed. Where two implementations that each pass alone fail together, the cause is usually one of the issues here, and the row says "Grid:".
+- **An interop grid.** Our [harness](interop-spec.md) runs agents against Companies from several projects, in containers, through a recording proxy; [a summary of the latest run](interop-results/README.md), from 13 October, is committed. Where two implementations that each pass alone fail together, the cause is usually one of the issues here, and the row says "Grid:".
 - **A full crawl of the site on 11 October 2026.**
   - The sitemap lists nine pages: home, overview, spec, extensions, Operations, guides, open topics, license, contributions.
   - There's no `llms.txt`, changelog or public source repository; the only copy of the source is in poppyseed.
@@ -202,7 +202,7 @@ Which attack exercises which issue, and its status, is kept in one place: the at
 ## Open topics, with our view
 
 - **Payments.** Ops already covers approval. A payment extension could sit on Ops, with amounts in a standard `{amount: string, currency}`, which would also fix S20 and N33.
-- **Push notifications.** We poll every 30 seconds to 15 minutes. Suggest a `notification_uri` in client metadata, receiving signed, content-free "events available" pings, after which the agent reads with its cursor.
+- **Push notifications.** We poll: every second for 2 minutes after activity in a busy conversation, otherwise every 30 seconds to 15 minutes, or hourly after a quiet day ([N46](#n46)). Suggest a `notification_uri` in client metadata, receiving signed, content-free "events available" pings, after which the agent reads with its cursor.
 - **Attachments.** HTTPS URLs on the Company's hosts, fetched with DPoP, with a declared type and size. Forms go through Ops or `url`.
 - **Missing from the list:**
   - version negotiation (N22);

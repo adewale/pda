@@ -2,7 +2,7 @@
 
 > **Draft for a GitHub issue on [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent), using its `feature_request.yml` template. Not posted.**
 >
-> - Hermes was researched against `main` at `97a9ae8e` (11 October 2026), and paths are relative to that tree. Facts about Poppy, Datalayer's SDK and the interop grid were last brought up to date on 12 October 2026, from adewale/dpa's docs.
+> - Hermes was researched against `main` at `97a9ae8e` (11 October 2026) and rechecked at `6e7b83a2` (13 October 2026), 542 commits later; paths are relative to that tree. Every cited file, hook and quote is still there. What moved: catalog rule 10 (a plugin's dependencies now install inside Hermes's exact pins), and `hermes plugins validate` now warns on imports of core modules the plugin docs don't name, `tools.url_safety` among them. The linked issues were rechecked the same day: #75576 is closed as completed, #130295 as not planned, and the other four are open. Facts about Poppy, Datalayer's SDK and the interop grid were last brought up to date on 13 October 2026, from adewale/dpa's docs.
 > - Items marked *(unverified)* are inferences from code or docs that I haven't run.
 > - CONTRIBUTING.md suggests GitHub Discussions for design proposals, so this may fit better there, with a short linked issue for the two seams.
 
@@ -20,12 +20,12 @@ Today Hermes users who want their agent to act at a business can browse anonymou
 Why now:
 
 - Draft 0.1 is the only version, and its open-topics page says "Every part of it can still change, including the parts the specification already covers" and that "other gaps will come up as people implement the protocol."
-- On 12 October 2026, adewale/dpa's survey (`docs/implementations.md`) listed 13 implementations, each "at most a few days old". The only one in Python is Datalayer's SDK; the other Python Poppy projects it found are two validators. It found no Poppy issue, pull request or proposal in Hermes Agent or the eight other agent frameworks it searched; the one framework that had one, OpenAgents, closed it as not planned.
+- adewale/dpa's survey (`docs/implementations.md`, last updated 13 October 2026) lists 14 implementations, each "at most a few days old". The only one in Python is Datalayer's SDK; the other Python Poppy projects it found are two validators. It found no Poppy issue, pull request or proposal in Hermes Agent or the eight other agent frameworks it searched; the one framework that had one, OpenAgents, closed it as not planned. A search of Hermes's issues, pull requests and Discussions on 13 October found none either.
 - Hermes's experience would reach the spec while it can still change, particularly what a self-hosted agent needs to host its identity, which Hermes already met with MCP CIMD (#75576, #130295).
 
 ## Proposed Solution
 
-Following CONTRIBUTING.md ("third-party product integrations … do not land in this repo"; "widen the generic plugin surface"), the proposal has two parts:
+Following CONTRIBUTING.md ("Third-Party Product Integrations: Ship as a Standalone Plugin"; "These do not land in this repo"; "widen the generic plugin surface"), the proposal has two parts:
 
 - a **standalone plugin**, `hermes-poppy`, in its own repository, installable with `hermes plugins install owner/repo`, and later offered to the catalog;
 - **two small generic seams in Hermes** that it can't work without, each useful beyond Poppy.
@@ -35,10 +35,10 @@ Following CONTRIBUTING.md ("third-party product integrations … do not land in 
 **Packaging and dependency.**
 
 - `plugin.yaml` declares `provides_tools`, `provides_hooks`, `config_schema` (a signing key as a `secret`), and `python_dependencies`.
-- The plugin uses Datalayer's [`personal-agent-protocol`](https://github.com/datalayer/personal-agent-protocol) Python SDK (BSD-3-Clause, on PyPI; 0.10.0, commit `0c048aa`, on 12 October). At that version its README claims Draft 0.1 plus the Operations extension v1. An earlier README listed Device and Mediated Sign-In, Account Token exchange, MCP Bearer, SSE, handoff and close, and Operations as not built, though our grid was already running its Device Sign-In, SSE and Operations code at 0.6.0 (adewale/dpa `docs/implementations.md`).
-- Our interop adapter drives the Python client through 23 of the grid's 24 interop scenarios (all but DP, which only our own pair runs): discovery, Sessions, Direct, Device and Mediated sign-in, Account Tokens, conversations with SSE, OpenAPI and MCP, and Operations; the adapter also calls its browser-Session join. Against ten Companies it passed 151 cells and failed 3; all three are the Device Sign-In nonce gap below.
-- `PyJWT[crypto]` and `cryptography` are already core Hermes dependencies (`pyproject.toml`), so nothing heavy is added for JOSE.
-- The SDK takes the HTTP client it is given, and its URL-safety policy is a replaceable contribution (`pap.urlSafetyPolicy`); our adapter replaces both. The plugin would pass Hermes's `create_ssrf_safe_async_client()` (`tools/url_safety.py`).
+- The plugin uses Datalayer's [`personal-agent-protocol`](https://github.com/datalayer/personal-agent-protocol) Python SDK (BSD-3-Clause, on PyPI). Our grid runs 0.17.0 (commit `00216eb`, 13 October). PyPI had 0.20.0 by 10:32 UTC that day, which our grid hasn't run: eleven releases, 0.10.0 to 0.20.0, came out on 12 and 13 October. At 0.10.0 its README claimed Draft 0.1 plus the Operations extension v1. An earlier README listed Device and Mediated Sign-In, Account Token exchange, MCP Bearer, SSE, handoff and close, and Operations as not built, though our grid was already running its Device Sign-In, SSE and Operations code at 0.6.0 (adewale/dpa `docs/implementations.md`). From 0.10.0 to 0.17.0 the agent modules our adapter calls didn't change.
+- Our interop adapter drives the Python client through 28 of the grid's 30 interop scenarios (all but DP and OU, which it doesn't claim): discovery, Sessions, Direct, Device and Mediated sign-in, Account Tokens, conversations with SSE, handoff and close, OpenAPI and MCP, and Operations; the adapter also calls its browser-Session join. Against twelve Companies on 13 October it passed 201 cells and failed 8: the Device Sign-In nonce gap below (3), the handoff and close answers at our two mocks (4, also below), and SO at Tipping Co, a reading the draft leaves open (spec issue S1).
+- `PyJWT[crypto]` and `cryptography` are already core Hermes dependencies (`pyproject.toml`), so nothing heavy is added for JOSE. Catalog rule 10 (`plugin-catalog/README.md`, changed on 12 October) installs a plugin's dependencies inside Hermes's exact pins. The SDK asks for `pyjwt[crypto]>=2.13`, `httpx>=0.27` and `pydantic>=2.10`, which Hermes's pins (2.13.0, 0.28.1, 2.13.4) meet; it also brings typer, PyYAML and Datalayer's `datalayer-reactor`. With eleven releases in two days, the plugin needs the tight floor and upper bound that rule asks for.
+- The SDK takes the HTTP client it is given, and its URL-safety policy is a replaceable contribution (`pap.urlSafetyPolicy`); our adapter replaces both. The plugin would pass Hermes's `create_ssrf_safe_async_client()` (`tools/url_safety.py`). Since 12 October `hermes plugins validate` warns on that import, because the plugin docs don't name `tools.url_safety` (`hermes_cli/plugin_validate_private_imports.py`). Either Hermes documents it for plugins, or the plugin uses the SDK's own opt-in `create_resolving_client` (0.16.0 and later), which resolves each Company host, refuses private addresses and pins the connection.
 
 **Tools.** They are registered with `ctx.register_tool` in a `poppy` toolset, so `hermes tools` and `platform_toolsets` control them. They take a `domain` and return JSON, and never take or return tokens, keys, codes or credentials.
 
@@ -56,7 +56,7 @@ Following CONTRIBUTING.md ("third-party product integrations … do not land in 
 
 **Company content is untrusted.** Company messages, API results and MCP tool descriptions go back as data, in the same `<untrusted_tool_result>` framing Hermes gives MCP and browser results (`agent/tool_dispatch_helpers.py`), *(unverified: whether a plugin can opt into it)*. Company MCP servers go through `poppy_mcp_call`, not `mcp_servers`, so the Company's tool descriptions never become first-class tools.
 
-**Approvals.** A `pre_tool_call` hook returns `{"action": "approve", ...}` for `poppy_confirm` and `poppy_cancel`, and for the writes listed below. That reaches `request_tool_approval` (`tools/approval.py`): "the SAME human gate as Tier-2 dangerous shell patterns … so the LLM cannot skip it", with Telegram buttons, `/approve` and `/deny` in the gateway, and fail-closed under cron.
+**Approvals.** A `pre_tool_call` hook returns `{"action": "approve", ...}` for `poppy_confirm` and `poppy_cancel`, and for the writes listed below. That reaches `request_tool_approval` (`tools/approval.py`): "the SAME human gate as Tier-2 dangerous shell patterns … so the LLM cannot skip it", with Telegram buttons, `/approve` and `/deny` in the gateway. Any non-interactive context without an approval bridge fails closed. Cron follows `approvals.cron_mode`, which is `deny` by default; an operator who sets `approve` would let a cron job confirm an operation, so the plugin should refuse `poppy_confirm` and `poppy_cancel` in cron itself.
 
 - The reason text is built by plugin code from the stored operation: the Company's `summary` **verbatim**, its verified `organization.domain`, the account and the terms.
 - `rule_key` includes the operation id and revision, so an "always" can't approve a different operation.
@@ -86,9 +86,11 @@ Catalog rule 11 (`plugin-catalog/README.md`) says a plugin "never refreshes, rot
 
 Today:
 
-- `plugin_data_dir` says "Secrets are deliberately NOT part of this convention".
+- `plugin_data_dir` (`plugins/plugin_storage.py`) says "Secrets are deliberately NOT part of this convention".
 - `.env`, `auth.json` and `mcp-tokens/` are plaintext with 0600 permissions.
 - Only the browser vault (`agent/vault_store.py`) is encrypted at rest.
+- Secret sources (`agent/secret_sources/base.py`) are read-only and fetched once at startup, so they can't hold a token that rotates.
+- `hermes_cli/auth_oauth_pkce_plugin.py` is for model-provider plugins: a public client, with a loopback redirect, which Poppy forbids (Seam 2).
 
 **Ask:** a profile-scoped `ctx` method to put, get, rotate and delete opaque secrets, sealed like the vault and never logged or shown to the model. Alternatively, a ruling that rule 11 allows a plugin to hold grants it obtained as its own client. #133512 asks for a similar seam for provider OAuth.
 
@@ -101,13 +103,13 @@ Hermes's existing CIMD (`website/static/oauth/client-metadata.json`, `token_endp
 - one shared document would mean one shared private key for every install;
 - Poppy forbids loopback redirects.
 
-There is no generic public route today: dashboard plugin routes sit behind auth, and the public-paths list is fixed. The options:
+There is no generic public route today: dashboard plugin routes sit behind auth, and the public-paths list (`hermes_cli/dashboard_auth/public_paths.py`) is fixed. The options:
 
 1. **The person's own origin** (a VPS, Tailscale Funnel, or a Cloudflare Tunnel). Each install gets its own `client_id` and key. This needs a plugin-registerable, unauthenticated, GET-only route for two documents plus one callback. **Ask:** such a seam, off by default.
 2. **A static identity host plus Device Sign-In only.** The client metadata and JWKS go on any HTTPS host the person controls, such as GitHub Pages or their domain. Hermes stays on loopback; Device needs no redirect. Hermes already does device flows (`hermes_cli/auth_device_flow.py`, `tools/mcp_oauth_device.py`). No seam is needed, but there is no Direct sign-in and key rotation is manual.
 3. **A Nous-run directory** of per-install documents plus a callback relay. The relay sees only codes that are useless without the install's PKCE verifier, client assertion and DPoP key, but the directory becomes a trust anchor, and running it is a product decision.
 
-Some Companies admit only agents they have listed: print-with-poppy keeps an allowlist of `client_id`s, and poppy-demo's Northstar accepts only its own caller. Whichever option is chosen, the `client_id` has to stay stable for a Company's operator to add it.
+Some Companies admit only agents they have listed: print-with-poppy keeps an allowlist of `client_id`s (it added ours on 12 October), and poppy-demo's Northstar accepts only its own caller. Whichever option is chosen, the `client_id` has to stay stable for a Company's operator to add it.
 
 ## Security and privacy
 
@@ -127,10 +129,10 @@ I'd offer the plugin a place in the M×N interop harness in [adewale/dpa](https:
 
 **What the harness is:**
 
-- 6 Personal Agents (ours, Datalayer TypeScript and Python, pi-poppy, poppy-demo's caller, adonis-agora) and 10 Companies: seven other projects' (Datalayer TypeScript and Python, pi-poppy's test Company, poppy-demo's Northstar, poppyseed, Ilmer, print-with-poppy, adonis-agora's AuthKit) plus our lenient and strict mocks.
-- 39 scenarios. 25 test interop between honest implementations. The other 14 are security scenarios: a malicious agent (7), a malicious Company (3) and network faults injected by the proxy (4).
+- 8 Personal Agents (ours, Datalayer TypeScript and Python, pi-poppy, poppy-demo's caller, adonis-agora, everruns, Tipping Co's) and 12 Companies: ten other projects' (Datalayer TypeScript and Python, pi-poppy's test Company, poppy-demo's Northstar, poppyseed, Ilmer, print-with-poppy, adonis-agora's AuthKit, everruns, Tipping Co) plus our lenient and strict mocks.
+- 52 scenarios. 30 test interop between honest implementations. The other 22 are security scenarios: a malicious agent (8), a malicious Company (10) and network faults injected by the proxy (4).
 - A recording TLS proxy, on a Docker network with no route to the internet, and per-cell blame by named attribution rules.
-- The last full grid (12 October 2026, 30 interop scenarios; `docs/interop-results/README.md`): 1,800 cells, 849 pass, 171 fail, 780 unsupported, 0 errors. Every failure is a known upstream or spec failure with a written cause. The security grid, run apart, passed 25 of 25 cells.
+- The last full grid (13 October 2026, every pin at its upstream's head; `docs/interop-results/README.md`): 8 agents × 12 Companies × 30 interop scenarios, 2,880 cells: 1,000 pass, 273 fail, 1,607 unsupported, 0 errors. Every failure is a known upstream or spec failure with a written cause. The same run's security grid passed all 32 of its cells. Since then our agent also passes XR and XT, two malicious-Company scenarios that try to keep it checking for ever (spec issue N46).
 
 **What joining takes:**
 
@@ -139,21 +141,23 @@ I'd offer the plugin a place in the M×N interop harness in [adewale/dpa](https:
 
 Our Datalayer Python adapter is a ready template. adewale/dpa also has a second Poppy client in Python, written from the draft for a Hypothesis stateful test of our mock Company (`test/hypothesis/`), which shows one way to drive a Poppy Company from Python tests.
 
-The security scenarios run only against our own implementations, never against another project's, and the plugin would be no exception. Anything the interop grid turns up in the plugin would go to its maintainers privately first, under adewale/dpa's SECURITY.md.
+The malicious-agent and fault scenarios run only against our own Companies. Since 13 October the malicious Company may also run against other projects' agents, built at their pinned commits in our own containers and never against a live service (adewale/dpa's SECURITY.md, point 5). The plugin would be no exception. Anything the grid turns up in the plugin stays private and goes to its maintainers first, under that SECURITY.md.
 
 **Lessons from the grid that apply directly:**
 
 - **Recovery is the host's job.** The SDK has no automatic recovery. On `invalid_token` or `invalid_session` (including from the token endpoint during renewal), renew, or start a new Session, and retry once. pi-poppy throws there (spec issue N39), and poppy-demo's caller never handles `invalid_session`.
 - **A lost code exchange.** If the answer to the code exchange or the final device poll is lost, the Company has issued an Account Token the agent never saw, and the draft has no way to get it back or revoke it (spec issue N45). Abandon that Session, start a new one, and tell the person the sign-in was interrupted.
-- **Assertion `typ` and lifetime.** Send `typ: "JWT"`, a `kid`, and a lifetime of 60 s or less. Strict Companies (our strict mock, poppy-demo's Northstar, Ilmer) refuse an assertion without `typ: "JWT"`; Datalayer 0.10.0 and print-with-poppy allow up to 120 s. The draft states none of this (spec issue S2). Datalayer's Python agent, as our adapter runs it, already sends `typ: "JWT"` and 60 s.
-- **Assertion `aud`.** The draft doesn't say what a client assertion's `aud` is at the token, device authorization and revocation endpoints (spec issue S1), so this is a reading. poppyseed and pi-poppy's Company accept only the endpoint the assertion is sent to; Datalayer's own Companies at 0.10.0 accept the issuer, the token endpoint or the endpoint called. The safe choice is the endpoint called, which every Company in the grid that checks `aud` accepts, and which Datalayer's Python agent sends in our grid.
+- **Assertion `typ` and lifetime.** Send `typ: "JWT"`, a `kid`, and a lifetime of 60 s or less. Strict Companies (our strict mock, poppy-demo's Northstar, Ilmer) refuse an assertion without `typ: "JWT"`; Datalayer's Companies (0.17.0) and print-with-poppy allow up to 120 s. The draft states none of this (spec issue S2). Datalayer's Python agent, as our adapter runs it, already sends `typ: "JWT"` and 60 s.
+- **Assertion `aud`.** The draft doesn't say what a client assertion's `aud` is at the token, device authorization and revocation endpoints (spec issue S1), so this is a reading. poppyseed, pi-poppy's Company and print-with-poppy accept only the endpoint the assertion is sent to; Tipping Co accepts only the token endpoint, at revocation too; Datalayer's own Companies at 0.17.0 accept the issuer, the token endpoint or the endpoint called. No one value works everywhere. The endpoint called works at every Company in the grid that checks `aud` except Tipping Co, where sign-out fails, and it's what Datalayer's Python agent sends in our grid.
 - **Issuer ≠ origin.** The issuer may be on another host or have a path; use RFC 8414 insertion.
 - **Optional members.** Accept `null` as absent. Datalayer's Companies still send `result.data: null` on a cancelled operation (spec issue N41).
 - **Signed-out operations.** print-with-poppy, a photo-printing store, proposes every order as an operation in a signed-out Session. If that Session ends first, the draft gives no way to finish the operation (spec issue N19); our reading treats `operation_not_found` as final.
 - **`wait` is a hint.** A `POST ?wait` may return `working` with no reply; read again. An empty `200` from revocation is success.
-- **SDK gaps still present at 0.10.0** (first found at 0.6.0; `interop/impls/datalayer-py-agent/README.md` in adewale/dpa):
-  - Device Sign-In polling (`DeviceSignInClient.poll`) sends one token request and never retries on `use_dpop_nonce`, so Device Sign-In fails at a Company that requires DPoP nonces, such as pi-poppy's (RFC 9449 section 8; Poppy 4.3). The TypeScript SDK has the same gap.
-  - Resuming an SSE stream at the latest event raises `stream_unavailable` against Datalayer's own Companies, which close a caught-up stream at once. Our adapter doesn't use the SDK's reconnect and reports zero events instead.
+- **Bound the checking.** The draft never says how long a conversation may stay `working` or report `has_more`, or an operation stay `in_progress` (spec issue N46). An agent that takes the Company at its word reads every second for ever; ours did until 13 October. Treat `Retry-After` as the least wait, read a busy conversation with nothing new at the idle pace, read an unchanged operation less often the longer it stays so, and cap the pages read per check. This matters most for a background reader.
+- **SDK gaps still present at 0.17.0** (`interop/impls/datalayer-py-agent/README.md` and `docs/poppy-issues.md` in adewale/dpa):
+  - Device Sign-In polling (`DeviceSignInClient.poll`) sends one token request and never retries on `use_dpop_nonce`, so Device Sign-In fails at a Company that requires DPoP nonces, such as pi-poppy's and our mocks (RFC 9449 section 8; Poppy 4.3). The TypeScript SDK has the same gap. First found at 0.6.0.
+  - Resuming an SSE stream at the latest event raises `stream_unavailable` against Datalayer's own Companies, which close a caught-up stream at once. Our adapter doesn't use the SDK's reconnect and reports zero events instead. First found at 0.6.0.
+  - The client refuses the answer to a handoff or a close as `invalid_response` unless it carries `conversation_id`. The draft has the Company return only `status` and `responder` (7.9, 7.12), as our mocks do; Datalayer's own Companies add `conversation_id`, so the client passes there.
 
 ## Alternatives Considered
 
@@ -210,14 +214,15 @@ Other: a standalone plugin, plus two generic plugin-surface seams.
 **Prior art:**
 
 - [pi-poppy](https://github.com/richardanaya/pi-poppy): an agent extension; note its loopback `client_id` and plaintext secrets.
-- [Datalayer](https://github.com/datalayer/personal-agent-protocol): Python and TypeScript SDKs, 0.10.0.
+- [Datalayer](https://github.com/datalayer/personal-agent-protocol): Python and TypeScript SDKs, 0.20.0 on PyPI on 13 October (our grid runs 0.17.0).
 - [everruns](https://github.com/everruns/everruns): Rust, signed-out Sessions only so far, with interop tests against pi-poppy and Datalayer (PR #4531).
 - [poppy-demo](https://github.com/irvinebroque/poppy-demo).
 - [print-with-poppy](https://github.com/spenciefy/print-with-poppy): a photo-printing store whose orders all go through the Operations extension.
-- [adewale/dpa](https://github.com/adewale/dpa): a Personal Agent on Cloudflare Workers (one Durable Object per person running Pi with Claude Sonnet 5.5, on an operator-paid demo lane or the person's own Anthropic or OpenAI key), a mock Company that names 147 checks graded by what each rests on, a validator with 76 messages, and the interop harness. `docs/spec-issues.md` lists 62 problems in the draft, each with a suggested fix: 5 Critical, 13 High, 29 Medium and 15 Low.
+- [adewale/dpa](https://github.com/adewale/dpa): a Personal Agent on Cloudflare Workers (one Durable Object per person running Pi with Claude Sonnet 5.5, on an operator-paid demo lane or the person's own Anthropic or OpenAI key), a mock Company that names 148 checks graded by what each rests on (119 failures, 19 warnings, 10 tentative), a validator with 76 messages, and the interop harness. `docs/spec-issues.md` lists 63 problems in the draft, each with a suggested fix: 5 Critical, 13 High, 30 Medium and 15 Low.
 
 **Caveats.**
 
 - Draft 0.1 will change, possibly incompatibly.
 - There are few live Companies yet. None of the hosts adewale/dpa's `docs/ecosystem.md` lists on 12 October 2026 is a large business, and none of the launch partners checked on 11 October served a `poppy.json`.
+- adewale/dpa's own agent has not yet been verified against a live Company Agent. print-with-poppy added its `client_id` on 12 October, and the live journey there ran as far as the photo upload's approval card. The order hasn't run live, because the store takes real payments, and the store has no conversations, so it isn't a Company Agent check.
 - Nothing here has been tested inside Hermes.

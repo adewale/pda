@@ -124,7 +124,7 @@ False positives in searches are listed in [implementations.md](implementations.m
 
 ## How they work together
 
-Our [interop grid](interop-results/README.md) ran eight Personal Agents against twelve Companies (our two mocks included) on 13 October, over 30 scenarios, on a network with no internet access, with every pin at its upstream's head that morning ([interop-testing.md](interop-testing.md#pins-moved-on-13-october)): **2,880 cells, 1,000 pass, 273 fail, 1,607 unsupported, 0 errors**. Every failure is a known upstream or spec failure. The separate security grid, which runs only against our own implementations, passed **32 of 32**. Against the 12 October grid, no cell changed with the pin moves; the new cells are everruns' (in the main grid for the first time) and Tipping Co's, which joined on both sides.
+Our [interop grid](interop-results/README.md) ran eight Personal Agents against twelve Companies (our two mocks included) on 13 October, over 30 scenarios, on a network with no internet access, with every pin at its upstream's head that morning ([interop-testing.md](interop-testing.md#pins-moved-on-13-october)): **2,880 cells, 1,000 pass, 273 fail, 1,607 unsupported, 0 errors**. Every failure is a known upstream or spec failure. The separate security grid, run against our own implementations, passed **32 of 32**; later that day, with the new attacks XR and XT, our agent passed all 78 cells it ran against both mocks and the malicious Company. Against the 12 October grid, no cell changed with the pin moves; the new cells are everruns' (in the main grid for the first time) and Tipping Co's, which joined on both sides.
 
 ### Scorecard
 
