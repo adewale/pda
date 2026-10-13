@@ -13,7 +13,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 ARG UPSTREAM=https://github.com/spenciefy/print-with-poppy.git
-ARG COMMIT=260dbb4634f5dc0026d790715304be9b78783ff2
+ARG COMMIT=246727d546be752916ecc667a902a87e94df6674
 WORKDIR /opt/pwp
 RUN git clone --quiet "$UPSTREAM" . && git checkout --quiet --detach "$COMMIT"
 
@@ -37,7 +37,7 @@ RUN mkdir -p /data && chown node:node /data
 # the run's CA through NODE_EXTRA_CA_CERTS, which the runner sets; the adapter passes it on.
 ENV PORT=8080 \
     ADAPTER_PORT=8081 \
-    INTEROP_COMMIT=260dbb4634f5dc0026d790715304be9b78783ff2
+    INTEROP_COMMIT=246727d546be752916ecc667a902a87e94df6674
 USER node
 EXPOSE 8080 8081
 CMD ["node", "/interop-adapter/adapter.mjs"]

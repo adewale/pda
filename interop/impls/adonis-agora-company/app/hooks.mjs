@@ -41,10 +41,10 @@ const MANIFEST = {
   interop: 1,
   name: 'adonis-agora',
   role: 'company',
-  commit: process.env.INTEROP_COMMIT || '97838853c44e55c5d4c71ac5741f26fc34f720dc',
+  commit: process.env.INTEROP_COMMIT || 'fe2a3ff453b469d759a9f9313be331f4324fa2bf',
   components: {
-    '@adonis-agora/authkit-server': '0.78.0 (DavideCarvalho/adonis-agora-authkit@97838853c44e)',
-    '@adonis-agora/agent': '0.79.0 (DavideCarvalho/adonis-agora-agent@e66a2329d436)',
+    '@adonis-agora/authkit-server': '0.80.0 (DavideCarvalho/adonis-agora-authkit@fe2a3ff453b4)',
+    '@adonis-agora/agent': '0.80.1 (DavideCarvalho/adonis-agora-agent@e139b9599e61)',
   },
   poppy: ['0.1'],
   extensions: [],
@@ -251,7 +251,9 @@ async function reset() {
   poppy.registry = new poppy.registry.constructor(poppy.cfg);
   state.limits = { token: null, resource: null };
   const db = await state.app.container.make('lucid.db');
-  for (const t of ['auth_poppy_tokens', 'auth_poppy_requests', 'auth_poppy_sessions', 'auth_agent_grants']) {
+  // auth_agent_registry (0.80.0) holds agents an admin allowed or blocked in AuthKit's console;
+  // the grid never writes it, but a reset leaves it empty too.
+  for (const t of ['auth_poppy_tokens', 'auth_poppy_requests', 'auth_poppy_sessions', 'auth_agent_grants', 'auth_agent_registry']) {
     try {
       await db.from(t).delete();
     } catch {

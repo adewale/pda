@@ -2,10 +2,20 @@
 
 A Poppy Company built from Davi de Carvalho's AdonisJS libraries, for the interop grid ([docs/interop-spec.md](../../../docs/interop-spec.md)):
 
-- **[`@adonis-agora/authkit-server`](https://github.com/DavideCarvalho/adonis-agora-authkit)** 0.78.0, commit `97838853c44e55c5d4c71ac5741f26fc34f720dc`: discovery, RFC 8414 metadata, the token and revocation endpoints, DPoP, Direct, Device and Mediated Sign-In, browser Sessions.
-- **[`@adonis-agora/agent`](https://github.com/DavideCarvalho/adonis-agora-agent)** 0.79.0, commit `e66a2329d436f603dd7c57a0ca81b36e65bd486f`: the conversation endpoint (`poppy_provider`), with the Session Token checked by AuthKit through the shared global slot.
+- **[`@adonis-agora/authkit-server`](https://github.com/DavideCarvalho/adonis-agora-authkit)** 0.80.0, commit `fe2a3ff453b469d759a9f9313be331f4324fa2bf`: discovery, RFC 8414 metadata, the token and revocation endpoints, DPoP, Direct, Device and Mediated Sign-In, browser Sessions.
+- **[`@adonis-agora/agent`](https://github.com/DavideCarvalho/adonis-agora-agent)** 0.80.1, commit `e139b9599e61db17f85fa186f4073f81ee6bc19b`: the conversation endpoint (`poppy_provider`), with the Session Token checked by AuthKit through the shared global slot.
 
 Licence: MIT for both (copies are in the image at `/licenses/`). Nothing upstream is vendored here.
+
+## What changed upstream (pins moved 13 October)
+
+AuthKit moved from 0.78.0 (`9783885`) to 0.80.0 (`fe2a3ff`, six commits, 12 October); the agent library from 0.79.0 (`e66a232`) to 0.80.1 (`e139b95`, eight commits, 11 and 12 October).
+
+- **AuthKit 0.79.0, an admin page for personal agents** (#247): an admin can allow or block an agent's `client_id` in a new table, `auth_agent_registry`, on top of the config's lists, and blocking one revokes its Account Tokens and ends its Sessions (`PoppyService.disconnectClient`, `PoppyStore.endSessionsOfClient`). With a database, every `isBlocked` and `isRegistered` check now also reads that table. The grid never writes it; `/reset` empties it with the other Poppy tables.
+- **AuthKit 0.80.0, Mediated Sign-In by emailed code** (#250): `poppyEmailCodeSignIn()`, a ready-made `verify` for Mediated Sign-In (one answer whether or not the account exists, five codes an hour per address). The host here keeps its own `verify`, so the grid's SM and SMC cells don't change.
+- **Agent 0.80.0 and 0.80.1**: generative-UI sandbox checks and telemetry, and a client fix that settles `send` and `resume` on abort before the request is sent. The conversation endpoint (`poppy_provider`) and `src/poppy-client/` are unchanged.
+
+Nothing in the token, revocation, DPoP, discovery or conversation code changed. No cell should change.
 
 ## How it's built
 

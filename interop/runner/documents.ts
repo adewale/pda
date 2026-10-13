@@ -5,7 +5,7 @@
  * bytes and headers the other side saw.
  */
 import { validateClient, validateCompany, type Fetcher, type Report } from "../../src/validator/index.ts";
-import { form, type Exchange } from "./har.ts";
+import { clientIdOf, form, type Exchange } from "./har.ts";
 import type { Check, Side } from "./types.ts";
 
 /** Answers each URL with its last recorded response; anything unrecorded fails like a network error. */
@@ -48,7 +48,7 @@ export async function documentChecks(all: readonly Exchange[]): Promise<Check[]>
   for (const x of all) {
     if (x.probe) continue;
     if (x.direction === "to-company" && x.method === "GET" && x.url.pathname === "/.well-known/poppy.json") domains.add(x.url.host);
-    const clientId = form(x)?.get("client_id");
+    const clientId = clientIdOf(form(x));
     if (x.direction === "to-company" && clientId) clientIds.add(clientId);
   }
   for (const domain of domains) checks.push(...toChecks(await validateCompany(fetcher, domain), "company", domain));

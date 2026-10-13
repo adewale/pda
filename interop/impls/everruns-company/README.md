@@ -4,9 +4,13 @@
 
 [everruns](https://github.com/everruns/everruns)' Poppy channel (a Company's front door for personal agents, `crates/server/src/channels/poppy/`) behind the interop adapter of [docs/interop-spec.md](../../../docs/interop-spec.md) (version 1, section 5.3).
 
-- **Upstream:** https://github.com/everruns/everruns at `f470ad7098863b92232f65a8890dedf8da2981c8` (12 October 2026, the head of `main` that day). The pin moved from `b09c922` (10 October, "Poppy conversations reach sessions through the channel port (#4558)"); `crates/server/src/channels/poppy/` is the same at both, and the move dropped the migration patch (fixed upstream in #4560, then squashed into one baseline by #4581). It includes PR #4531, which added everruns' own interop run against pi-poppy (`scripts/poppy-interop.sh`); this adapter takes the same approach (everruns' in-process server and a stand-in turn runner), but over the network.
+- **Upstream:** https://github.com/everruns/everruns at `aceb2e2fcfdf9c91022e390ee5efe5a773043bb2` (13 October 2026, the head of `main` that morning; [what changed](#what-changed-upstream-pin-moved-13-october)). Before that, `f470ad7` (12 October). The pin moved from `b09c922` (10 October, "Poppy conversations reach sessions through the channel port (#4558)"); `crates/server/src/channels/poppy/` is the same at both, and the move dropped the migration patch (fixed upstream in #4560, then squashed into one baseline by #4581). It includes PR #4531, which added everruns' own interop run against pi-poppy (`scripts/poppy-interop.sh`); this adapter takes the same approach (everruns' in-process server and a stand-in turn runner), but over the network.
 - **Licence:** MIT (everruns). Nothing is vendored: the Dockerfile fetches the commit, applies `patches/`, and compiles `adapter/main.rs` inside the workspace.
 - **Registry name:** `everruns`, role `company`; reached as `everruns.company.interop.test`.
+
+## What changed upstream (pin moved 13 October)
+
+60 commits from `f470ad7` to `aceb2e2`, 12 and 13 October. None touches the Poppy code: `crates/capabilities/src/capabilities/poppy_client/`, `crates/server/src/domains/poppy_agent/`, `crates/server/src/channels/poppy/`, `crates/contracts/src/url_validation.rs` (patch 0001) and `crates/server/tests/test_harness.rs` are byte for byte the same, so both patches apply unchanged and the known failures' links into `poppy_client` point at the same lines. The rest is platform work: platform turns now run only as session actors and the durable engine is retired (#4629; the `TurnBackend` trait the Company's stand-in runner implements changed only in its comments), read-only personal access tokens, bound secrets, web search drivers, attachments kept through compaction, GitHub App tokens and docs. The image rebuilt cleanly with the same `adapter/main.rs`, and the smoke test passed (13 October: D and S0 against dpa-mock as an agent, D, S0 and C against dpa as a Company).
 
 ## How it runs
 

@@ -176,6 +176,13 @@ describe("the Company's fetches of the agent's documents (4.1, scenario CM)", ()
     expect(clientFetched(recording(grant(0), metadata(10), keys(20)))).toMatchObject({ kind: "ok", result: { client_id: CLIENT_ID, metadata: 1, jwks: 2 } });
   });
 
+  it("client_fetched: an agent that sends no client_id (optional beside a client assertion, RFC 7521 4.2) is known by the assertion's iss", () => {
+    const { client_id: _omitted, ...rest } = grant(0).form as Record<string, string>;
+    const anonymous: Spec = { ...grant(0), form: rest };
+    expect(clientFetched(recording(anonymous, metadata(10), keys(20)))).toMatchObject({ kind: "ok", result: { client_id: CLIENT_ID, jwks: 2 } });
+    expect(metadataFetchChecks(recording(anonymous, metadata(10, { cookie: "s=1" }), keys(20)))).toHaveLength(1);
+  });
+
   it("client_fetched: failed when the keys came after, or held another kid; inapplicable when nothing was fetched", () => {
     expect(clientFetched(recording(grant(0), metadata(10), keys(500))).kind).toBe("failed");
     expect(clientFetched(recording(grant(0), metadata(10), keys(20, "k-old"))).kind).toBe("failed");
