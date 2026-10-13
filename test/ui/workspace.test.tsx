@@ -801,7 +801,8 @@ describe("scheduled settings", () => {
     open("/settings");
     const list = await screen.findByRole("list", { name: "Your reminders and tasks" });
     const items = within(list).getAllByRole("listitem").map((item) => item.textContent);
-    expect(items[0]).toMatch(/^ReminderCall the bankOnce · next .*17:00.* \(Europe\/London\)Cancel$/);
+    // In the item's own zone, in the browser's own locale: 17:00 or 05:00 PM (CI's default locale is en-US).
+    expect(items[0]).toMatch(/^ReminderCall the bankOnce · next .*(17:00|05:00\s?PM).* \(Europe\/London\)Cancel$/);
     expect(items[1]).toBe("TaskCheck whether my print order has shippedPaused after 3 failed runs in a rowCancel");
     expect(items[2]).toBe("ReminderBins outPaused: this account can no longer sign inCancel");
     expect(screen.getByText(/1 of 20 waiting/)).toBeTruthy();
