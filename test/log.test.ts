@@ -3,7 +3,10 @@
  * written when it ends, each with the deployment's environment; a turn's
  * event counts its model and tool calls; failures are level error with a
  * type and code; each agent keeps its newest events, pruned, for the User's
- * "Copy diagnostics"; and nothing but src/log.ts writes to the console.
+ * "Copy diagnostics"; a Company's error words (a name, a short password, a
+ * one-time code) reach no event, diagnostics, Activity or protocol log, its
+ * errors logged by class and code; and nothing but src/log.ts writes to the
+ * console.
  * The privacy check against every secret a Poppy flow carries is in
  * test/protocol-log.test.ts, with the protocol log's; that a raw string
  * is a type error in any event field is test/log-types.ts, under typecheck.
@@ -16,7 +19,9 @@ import { base64url } from "../src/base64url";
 import { agentId as pseudonym, code, domain, id, literal, message, modelId, origin, redact, SERVICE, toolName, wideEvent } from "../src/log";
 import { routeOf } from "../src/index";
 import { agentNameFor } from "../src/session";
-import { agent, chat, connect, fetchWorker, follow, ORIGIN, person, until, wideEvents, wsRequest, type Agent } from "./agent-helpers";
+import { PoppyError } from "../src/poppy/client";
+import { DiscoveryError } from "../src/poppy/discovery";
+import { agent, cards, chat, company, connect, fetchWorker, follow, ORIGIN, person, signInDirect, tool, until, wideEvents, wsRequest, type Agent } from "./agent-helpers";
 import { obey } from "./worker";
 
 type Event = Record<string, any>;
@@ -222,13 +227,81 @@ describe("diagnostics", () => {
 });
 
 describe("redaction", () => {
-  it("cuts URLs to their origin and drops emails, quoted text, credentials and long tokens", () => {
+  it("cuts URLs to their origin and drops emails, quoted text, credentials, long tokens and short codes", () => {
     expect(redact("GET https://shop.example/orders/ord_1?code=abc failed")).toBe("GET https://shop.example failed");
     expect(redact("ada@example.com is not on the allowlist")).toBe("[email] is not on the allowlist");
     expect(redact("Your task “Call Mum” didn't run")).toBe("Your task [text] didn't run");
     expect(redact("Authorization: Bearer eyJhbGciOi.payload.sig")).toBe("Authorization: Bearer [secret]");
     expect(redact(`token ${"x".repeat(40)} refused`)).toBe("token [secret] refused");
     expect(redact("a".repeat(500))).toHaveLength(8);
+    expect(redact("OTP 482913, PIN 1234, HTTP 401")).toBe("OTP [number], PIN [number], HTTP 401");
+  });
+
+  it("can't find a name or a short password in a sentence, so a Company's words never reach it", () => {
+    // Why errors built around a Company's words are logged by class and code alone (`ForeignText`).
+    expect(redact(COMPANY_SAID)).toContain("hunter2");
+    const error = new PoppyError("invalid_grant", `Mock Shop refused the token request (invalid_grant): ${COMPANY_SAID}`, 400);
+    const line = wideEvent("job", { job: literal("test") }).fail(error).emit();
+    expect(JSON.parse(line).error).toEqual({ type: "PoppyError", code: "invalid_grant" });
+    expect(leaked(line)).toEqual([]);
+    const discovery = JSON.parse(wideEvent("job", { job: literal("test") }).fail(new DiscoveryError(`organization.name is ${COMPANY_SAID}`)).emit());
+    expect(discovery.error).toEqual({ type: "DiscoveryError" });
+    // An error of ours keeps its message, redacted.
+    expect(JSON.parse(wideEvent("job", { job: literal("test") }).fail(new Error("Code 482913 refused")).emit()).error.message).toBe("Code [number] refused");
+  });
+});
+
+/** The audit's case: a Company's error description naming the User, with their short password and a one-time code. */
+const COMPANY_SAID = "Ada Lovelace's password hunter2 is wrong, OTP 482913";
+
+/** Which of the Company's words are in `text`. */
+function leaked(text: string): string[] {
+  return ["Ada", "Lovelace", "hunter2", "482913"].filter((words) => text.includes(words));
+}
+
+const exchange = {
+  operation: "POST /orders/{order_id}/exchanges",
+  params: { order_id: "ord_7Hk2" },
+  body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
+};
+
+describe("a Company's words", () => {
+  it("never reach an event, the diagnostics, Activity or the protocol log, though the model and the User see them", async () => {
+    // Every JSON error this Company answers carries its words as `error_description` (or a JSON-RPC error's `message`).
+    const c = await company({ errorDescription: COMPANY_SAID, ignoreWait: true });
+    const a = await agent();
+    const mark = await a.stub.poppyLogMark();
+    await signInDirect(a, c);
+    await tool(a, "poppy_message", { domain: c.domain, text: "Where is my order?" });
+    await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
+    const operation = (await cards(a)).find((item) => item.kind === "operation")!;
+    expect(operation).toBeDefined();
+    // Then its token endpoint refuses this agent (401 invalid_client), and every Session Token has expired.
+    await c.stub.configure({ requireRegistration: ["someone-else"] });
+    await c.stub.expireSessionTokens();
+    // A tool call: the model is told what the Company said.
+    const refused = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("hunter2");
+    // Frames of the User's that need a token (approving the operation) or the revocation endpoint (signing out).
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: operation.operationId, revision: operation.revision, decision: "approve" });
+    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+    // The background jobs, due now: the conversation's read fails on the refused token, and its job's event records why.
+    await a.stub.poppySql("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0", Date.now());
+    await runDurableObjectAlarm(a.stub);
+
+    const lines = (await a.stub.poppyLogsSince(mark)).join("\n");
+    const events = await wideEvents(a, mark);
+    const errors = events.flatMap((event) => (event.errors ?? []) as Array<Record<string, unknown>>);
+    // The refusals were logged, by class and code: never the Company's words.
+    expect(errors.some((error) => error.type === "PoppyError" && error.code === "invalid_client")).toBe(true);
+    expect(errors.filter((error) => error.type === "PoppyError" && "message" in error)).toEqual([]);
+    expect(leaked(lines)).toEqual([]);
+    expect(leaked(await a.stub.diagnostics())).toEqual([]);
+    expect(leaked(await a.stub.poppyActivity())).toEqual([]);
+    const protocol = await a.stub.poppySql("SELECT * FROM poppy_protocol_log");
+    expect(leaked(protocol)).toEqual([]);
+    expect((await a.stub.poppyProtocol(c.hosts.issuer)).some((entry) => entry.error === "invalid_client")).toBe(true);
   });
 });
 

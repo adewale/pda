@@ -2,6 +2,7 @@ import { summarize, validateCompany, type CompanyReport } from "../validator/ind
 import { bareHost } from "../validator/primitives.ts";
 import type { Fetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
+import { FOREIGN_TEXT, type ForeignText } from "../log";
 
 /** Extensions this client supports, with the major version it implements. */
 export const SUPPORTED_EXTENSIONS = { operations: "1" } as const;
@@ -62,8 +63,10 @@ export type WebsiteOnly = {
   readonly domain: string;
 };
 
-export class DiscoveryError extends Error {
+/** Discovery refused a Company. Its message quotes what the Company published (the validator's findings, its name), so a wide event records only its class (`ForeignText`, src/log.ts). */
+export class DiscoveryError extends Error implements ForeignText {
   override name = "DiscoveryError";
+  readonly [FOREIGN_TEXT] = true as const;
   /** The validator's report, when discovery refused what it read (for the protocol log). */
   constructor(message: string, readonly report?: CompanyReport) {
     super(message);

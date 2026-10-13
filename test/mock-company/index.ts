@@ -36,6 +36,19 @@ async function errorOf(response: Response): Promise<string | null> {
   return typeof body?.error === "string" ? body.error : null;
 }
 
+/** `response` with `description` as its error's words, when it is a JSON error (`errorDescription`); any other answer as it is. */
+async function describedAs(response: Response, description: string): Promise<Response> {
+  if (!(response.headers.get("Content-Type") ?? "").includes("application/json")) return response;
+  const body = (await response.clone().json().catch(() => null)) as Record<string, unknown> | null;
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return response;
+  const error = body.error;
+  let described: Record<string, unknown>;
+  if (typeof error === "string" && response.status >= 400) described = { ...body, error_description: description };
+  else if (typeof error === "object" && error !== null && !Array.isArray(error)) described = { ...body, error: { ...error, message: description } };
+  else return response;
+  return new Response(JSON.stringify(described), { status: response.status, headers: response.headers });
+}
+
 function bodyKeys(inbound: Inbound): string[] {
   if (!inbound.bodyText) return [];
   const type = inbound.request.headers.get("Content-Type") ?? "";
@@ -106,6 +119,8 @@ export class MockCompany extends DurableObject<Env> {
         response = json({ error: "server_error", error_description: String(error) }, 500);
       }
     }
+    const description = parts.company.config.errorDescription;
+    if (description !== null) response = await describedAs(response, description);
     logged.status = response.status;
     logged.error = await errorOf(response);
     return response;

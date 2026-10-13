@@ -221,6 +221,13 @@ export type MockConfig = {
   readonly endlessEvents: boolean;
   /** A confirmed operation stays `in_progress` with `Retry-After: 1` on every read, forever, to keep an agent polling (XT). */
   readonly stuckInProgress: boolean;
+  /**
+   * Every JSON error the Company answers says this as its `error_description`
+   * (a JSON-RPC error, as its `message`) in place of its own: words a
+   * Company chose, which may name the User or repeat their password or a
+   * one-time code, as RFC 6749 lets it (5.2). Null: each error's own.
+   */
+  readonly errorDescription: string | null;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -311,7 +318,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   opSwap: false,
   spoofUserText: null,
   endlessEvents: false,
-  stuckInProgress: false
+  stuckInProgress: false,
+  errorDescription: null
 };
 
 /** One request the mock received, with secrets redacted. */

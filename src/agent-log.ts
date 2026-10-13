@@ -199,7 +199,8 @@ export class AgentLog extends LifecycleCapability implements Units {
           break;
         }
         case "task_failed":
-          this.#openTurn("unknown").event.fail(named("TaskFailed", event.message), { code: code(event.kind) ?? literal("task_failed") });
+          // pi's message is the task's error's, which may be a tool's and so a Company's words: the task's kind only.
+          this.#openTurn("unknown").event.fail(named("TaskFailed", "A pi task faulted or was orphaned"), { code: code(event.kind) ?? literal("task_failed") });
           break;
         case "compaction_start": {
           const turn = this.#openTurn("compaction");

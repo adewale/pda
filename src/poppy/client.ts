@@ -26,6 +26,7 @@ import type { CheckedApiRequest } from "./apis";
 import { companyErrorCode, type KnownErrorCode, type PoppyErrorCode } from "./error-codes";
 import type { EndpointRequest } from "./outgoing";
 import type { Issuer } from "./issuer";
+import { FOREIGN_TEXT, type ForeignText } from "../log";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
 export type PoppyHost = {
@@ -59,9 +60,15 @@ export type PoppyHost = {
 
 export type JobName = "poppy-read" | "poppy-device" | "poppy-operation";
 
-/** An OAuth or Poppy error from a Company, with its code (spec 4.2, 6, 7.13). */
-export class PoppyError extends Error {
+/**
+ * An OAuth or Poppy error from a Company, with its code (spec 4.2, 6, 7.13).
+ * Its message is for the model and the User, and is often built from what
+ * the Company sent (its `error_description`, its body), so a wide event
+ * records only its class and code (`ForeignText`, src/log.ts).
+ */
+export class PoppyError extends Error implements ForeignText {
   override name = "PoppyError";
+  readonly [FOREIGN_TEXT] = true as const;
   constructor(
     readonly code: PoppyErrorCode,
     message: string,
