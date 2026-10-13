@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS poppy_operations (
   permission_id TEXT,
   confirmed INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL,
+  altered_summary TEXT,
   PRIMARY KEY (issuer, operation_id)
 );
 CREATE TABLE IF NOT EXISTS poppy_proposals (
@@ -146,6 +147,10 @@ export type Sql = SqlStorage;
 export function migrate(sql: Sql): void {
   for (const statement of SCHEMA.split(";")) {
     if (statement.trim()) sql.exec(statement);
+  }
+  // Agents created before 13 October 2026: add the column in place.
+  if (!sql.exec("PRAGMA table_info(poppy_operations)").toArray().some((column) => column.name === "altered_summary")) {
+    sql.exec("ALTER TABLE poppy_operations ADD COLUMN altered_summary TEXT");
   }
   // After the tables its triggers watch.
   migrateProtocolLog(sql);
@@ -216,7 +221,9 @@ export const operationsTable = table("poppy_operations", {
   approved_by: nullable(textOf(literal("user", "standing_permission"))),
   permission_id: nullable(text),
   confirmed: integer,
-  updated_at: integer
+  updated_at: integer,
+  /** Set when the Company changed a revision's terms in place (Ops 3.1 forbids it): what it then said. */
+  altered_summary: nullable(text)
 });
 export const proposalsTable = table("poppy_proposals", { issuer: issuerColumn, request: text, operation_id: text });
 export const permissionsTable = table("poppy_permissions", {

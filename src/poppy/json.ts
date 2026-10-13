@@ -146,6 +146,18 @@ function isList(value: readonly JsonLike[] | { readonly [key: string]: JsonLike 
   return Array.isArray(value);
 }
 
+/** A JSON value as text with every object's members sorted, so member order can't make two equal values differ. */
+export function canonicalJson(value: Json | undefined): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (isObject(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
 export function isObject(value: unknown): value is { [key: string]: Json } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

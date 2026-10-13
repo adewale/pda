@@ -1970,6 +1970,52 @@ describe("Operations extension", () => {
     expect(gaps.at(-1)!).toBeGreaterThanOrEqual(60_000);
   });
 
+  it("doesn't count members in a new order as progress, so the reads still slow down", async () => {
+    const { c, a, card } = await proposal({ stuckInProgress: true, reorderMembers: true });
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    for (let i = 0; i < 60; i++) await a.stub.poppyAdvance(10_000);
+    const operationUrl = `${c.hosts.operationsEndpoint}/${card.operationId}`;
+    const reads = (await c.stub.state()).requests.filter((request) => request.method === "GET" && request.url === operationUrl);
+    expect(reads.length).toBeLessThanOrEqual(15);
+    expect(reads.at(-1)!.at - reads.at(-2)!.at).toBeGreaterThanOrEqual(60_000);
+  });
+
+  it("never confirms a revision the Company changed in place after a lost confirm answer, and keeps the terms the User approved (Ops 3.1)", async () => {
+    const { c, a, card } = await proposal({ alterInPlace: true });
+    // The Company gets the confirm, changes the price under the same revision, and the answer is lost.
+    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "throw" });
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    // The check on the lost answer reads revision 1 with the new price, and confirms nothing more.
+    await a.stub.poppyAdvance(5_000);
+    await a.stub.poppyAdvance(60_000);
+    await a.stub.poppyWaitForNotice("without a new revision");
+    const state = await c.stub.state();
+    expect(state.operations[0]).toMatchObject({ state: "proposed", revision: 1, confirms: 1 });
+    expect(state.performs).toBe(0);
+    const shown = (await cards(a)).find((item) => item.kind === "operation")!;
+    expect(shown.open).toBe(false);
+    expect(shown.summary).toBe(card.summary);
+    expect(shown.summary).not.toContain("999");
+    expect(shown.alteredSummary).toContain("999.00");
+    // The card can't be approved again, and a later sign-in doesn't confirm it either.
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    await signInDirect(a, c, ["poppy:read", "poppy:write"], { account: "acct_bob" }, { account: "second", session: "second" });
+    await a.stub.poppyAdvance(60_000);
+    expect((await c.stub.state()).operations[0]).toMatchObject({ confirms: 1 });
+  });
+
+  it("never confirms again when the confirm's own answer carries changed terms under the same revision (Ops 3.1)", async () => {
+    const { c, a, card } = await proposal({ alterInPlace: true });
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    await a.stub.poppyWaitForNotice("without a new revision");
+    await a.stub.poppyAdvance(60_000);
+    const state = await c.stub.state();
+    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 1 });
+    expect(state.performs).toBe(0);
+    expect((await cards(a)).find((item) => item.kind === "operation")).toMatchObject({ open: false, summary: card.summary });
+  });
+
   it("doesn't ask for a new proposal while a confirmed operation isn't final (Ops 6)", async () => {
     const { c, a, card } = await proposal({ slowConfirm: true });
     await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
@@ -2069,6 +2115,12 @@ describe("Operations extension", () => {
     expect(termsCovered({ price_difference: { amount: "50.01", currency: "GBP" } }, limit)).toBe(false);
     expect(termsCovered({ price_difference: { amount: "20.00", currency: "USD" } }, limit)).toBe(false);
     expect(termsCovered({ price_difference: { amount: "twenty", currency: "GBP" } }, limit)).toBe(false);
+    // The maximum is what the operation costs in all, not each line: two terms of 30 pass neither half of a 50 limit.
+    expect(termsCovered({ price: { amount: "30.00", currency: "GBP" }, delivery: { amount: "30.00", currency: "GBP" } }, limit)).toBe(false);
+    expect(termsCovered({ price: { amount: "30.00", currency: "GBP" }, delivery: { amount: "20.00", currency: "GBP" } }, limit)).toBe(true);
+    // A credit counts as much as a charge: the limit bounds every amount that moves.
+    expect(termsCovered({ price: { amount: "30.00", currency: "GBP" }, refund: { amount: "-30.00", currency: "GBP" } }, limit)).toBe(false);
+    expect(termsCovered({ price: { amount: "8.00", currency: "USD" }, fee: { amount: "8.00", currency: "USD" } }, { maxAmount: "10.00", currency: "USD" })).toBe(false);
     expect(termsCovered({ order_id: "ord_1" }, limit)).toBe(false);
     expect(termsCovered({ order_id: "ord_1" }, { maxAmount: null, currency: null })).toBe(true);
     expect(termsCovered({ order_id: 7 }, { maxAmount: null, currency: null })).toBe(false);

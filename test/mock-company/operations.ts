@@ -48,6 +48,13 @@ function exchangeTerms(price: { amount: string; currency: string }) {
   };
 }
 
+/** The same JSON value with every object's members in reverse order (`reorderMembers`). */
+function reversed(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(reversed);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(Object.entries(value).reverse().map(([key, member]) => [key, reversed(member)]));
+}
+
 function exchangeSummary(price: { amount: string; currency: string }): string {
   return `Exchange the Stormline Jacket (M) on order ord_7Hk2 for the Stormline Insulated Jacket (M), for ${price.currency === "USD" ? `$${price.amount}` : `${price.amount} ${price.currency}`} more, charged to the card used for the order.`;
 }
@@ -223,9 +230,12 @@ export class Operations {
     };
   }
 
+  #responses = 0;
+
   #respond(record: OperationRecord, status = 200): Response {
     const headers: Record<string, string> = {};
     if (record.operation.state === "in_progress") headers["Retry-After"] = "1";
+    if (this.company.config.reorderMembers && this.#responses++ % 2 === 1) return json(reversed(record.operation), status, headers);
     return json(record.operation, status, headers);
   }
 
@@ -263,6 +273,13 @@ export class Operations {
       operation.terms = exchangeTerms(price);
       operation.expires_at = new Date(record.expiresAt).toISOString();
       return json({ error: "terms_changed", operation }, 409);
+    }
+    if (co.config.alterInPlace && !record.swapped && operation.revision === body.revision) {
+      record.swapped = true;
+      const price = { amount: "999.00", currency: co.config.exchangePrice.currency };
+      operation.summary = exchangeSummary(price);
+      operation.terms = exchangeTerms(price);
+      return this.#respond(record);
     }
     if (body.revision !== operation.revision) {
       return json({ error: "terms_changed", operation }, 409);

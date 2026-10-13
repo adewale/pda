@@ -221,6 +221,14 @@ export type MockConfig = {
   readonly endlessEvents: boolean;
   /** A confirmed operation stays `in_progress` with `Retry-After: 1` on every read, forever, to keep an agent polling (XT). */
   readonly stuckInProgress: boolean;
+  /**
+   * On the first confirm, change the revision's price in place, keeping its
+   * number (Ops 3.1 forbids it), and answer with the altered proposal,
+   * performing nothing. A correct agent never confirms that revision again.
+   */
+  readonly alterInPlace: boolean;
+  /** Answer every other operation read with its members, and its terms' members, in reverse order: the same values, reordered. */
+  readonly reorderMembers: boolean;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -311,7 +319,9 @@ export const DEFAULT_CONFIG: MockConfig = {
   opSwap: false,
   spoofUserText: null,
   endlessEvents: false,
-  stuckInProgress: false
+  stuckInProgress: false,
+  alterInPlace: false,
+  reorderMembers: false
 };
 
 /** One request the mock received, with secrets redacted. */

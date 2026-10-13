@@ -514,6 +514,21 @@ function ClosedCard({ card, send }: { card: Card; send: Send }) {
           </Receipt>
         );
       }
+      if (card.alteredSummary !== undefined) {
+        // The Company changed this revision's terms after they were shown (Operations 3.1 forbids it).
+        return (
+          <Receipt tone="danger" company={card.company} action={dismiss}>
+            {card.state === "proposed"
+              ? `${card.company} changed these terms after you saw them, without a new revision, so your agent won't confirm them: “${card.summary}”`
+              : `${card.company} now reports different terms from the ones ${decided ? "you approved" : "you saw"}: “${card.summary}”`}
+            <span className="block text-kumo-subtle">
+              {card.state === "proposed"
+                ? `It now says: “${card.alteredSummary}”. Ask your agent for a new proposal if you still want it.`
+                : `It says: “${card.alteredSummary}”. Check with ${card.company} what was done.`}
+            </span>
+          </Receipt>
+        );
+      }
       if (card.state === "in_progress") {
         return (
           <Receipt

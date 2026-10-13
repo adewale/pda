@@ -1,7 +1,7 @@
 import { approvalAttachments, readApproval, storedApproval, type ApprovalKind, type ApprovalOf, type NewApproval } from "./approvals";
 import { answerOf, hasCode, PoppyClient, PoppyError } from "./client";
 import { tokenHostAllowed, type Company } from "./discovery";
-import { isObject, type Json } from "./json";
+import { canonicalJson, isObject, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
 import { FINAL_STATES, parseOperation, type Operation } from "./operation-value";
 import { EndpointRequest } from "./outgoing";
@@ -151,7 +151,8 @@ export function resultLinks(company: Company, data: Json | undefined): { label: 
 async function showOperation(client: PoppyClient, company: Company, row: OperationRow): Promise<void> {
   const operation = row.operation;
   const lost = lostOutcome(row.confirmed) ?? undefined;
-  const open = !lost && operation.state === "proposed" && row.approved_revision !== operation.revision;
+  const altered = row.altered_summary ?? undefined;
+  const open = !lost && altered === undefined && operation.state === "proposed" && row.approved_revision !== operation.revision;
   const links = FINAL.has(operation.state) ? resultLinks(company, operation.result?.data) : [];
   await client.host.showCard({
     id: `op-${row.issuer}-${operation.operation_id}`,
@@ -174,6 +175,7 @@ async function showOperation(client: PoppyClient, company: Company, row: Operati
     ...(operation.result?.summary ? { result: operation.result.summary } : {}),
     ...(links.length ? { links } : {}),
     ...(lost ? { lost } : {}),
+    ...(altered !== undefined ? { alteredSummary: altered } : {}),
     ...(row.approved_by ? { approvedBy: row.approved_by } : {})
   });
 }
@@ -239,6 +241,59 @@ export function rememberProposal(client: PoppyClient, issuer: Issuer, request: s
   );
 }
 
+/** What an approval of a revision covers: its summary and terms, whatever their members' order (Ops 3.1, 5.1). */
+function termsOf(operation: Operation): string {
+  return canonicalJson({ summary: operation.summary, terms: operation.terms ?? null });
+}
+
+/** What counts as progress for an operation: its state, revision, result and confirmation, whatever their members' order. */
+function progressOf(operation: Operation): string {
+  return canonicalJson(
+    toJson({ state: operation.state, revision: operation.revision, result: operation.result ?? null, confirmation: operation.confirmation ?? null })
+  );
+}
+
+/**
+ * Each revision is fixed once issued; the Company MUST NOT change its terms
+ * (Ops 3.1). When it sends the revision we have with other terms, keep the
+ * ones the User saw, and never confirm that revision: an approval it carried
+ * is withdrawn, a permission use released, and a confirm still owed is not
+ * sent again. Returns the operation to store; `alteredNotice` tells the User
+ * and the model, once.
+ */
+function keepRevisionTerms(client: PoppyClient, existing: OperationRow, incoming: Operation): Operation {
+  const previous = existing.operation;
+  if (incoming.revision !== previous.revision || termsOf(incoming) === termsOf(previous)) return incoming;
+  const { terms: _, ...rest } = incoming;
+  const kept: Operation = { ...rest, summary: previous.summary, ...(previous.terms !== undefined ? { terms: previous.terms } : {}) };
+  if (existing.altered_summary === null) {
+    client.sql.exec(
+      "UPDATE poppy_operations SET altered_summary = ? WHERE issuer = ? AND operation_id = ?",
+      incoming.summary,
+      existing.issuer,
+      existing.operation_id
+    );
+    if (incoming.state === "proposed") {
+      releasePermission(client, existing);
+      clearApproval(client, existing.issuer, existing.operation_id);
+      if (!isLost(existing.confirmed)) setConfirmed(client, existing.issuer, existing.operation_id, NOT_SENT);
+    }
+  }
+  return kept;
+}
+
+/** Tell the model, once, that the Company changed a revision's terms in place (`keepRevisionTerms`). */
+async function alteredNotice(client: PoppyClient, company: Company, existing: OperationRow, incoming: Operation): Promise<void> {
+  if (existing.altered_summary !== null) return;
+  const what = `${company.name} changed the terms of operation ${incoming.operation_id} (revision ${incoming.revision}) without a new revision, which Operations 3.1 forbids. It now says: "${incoming.summary}". The terms the User ${existing.approved_revision !== null ? "approved" : "was shown"}: "${existing.operation.summary}".`;
+  await client.host.notifyModel(
+    incoming.state === "proposed"
+      ? `[system] ${what} It won't be confirmed. If the User still wants it, ask ${company.name} for a new proposal; the User decides on its card.`
+      : `[system] ${what} It is ${incoming.state}: tell the User to check with ${company.name} what was done.`,
+    `poppy-op-altered-${existing.issuer}-${incoming.operation_id}-${incoming.revision}`
+  );
+}
+
 /**
  * Record an operation from any channel (Ops 4): an OpenAPI 202, an MCP tool
  * result, or a Company message. A new revision of a proposal needs a new
@@ -260,12 +315,14 @@ export async function handleProposal(
     );
     return null;
   }
-  const { operation } = parsed;
+  let { operation } = parsed;
   const existing = stored(client, company.issuer, operation.operation_id);
   const previous = existing ? existing.operation : undefined;
   if (previous && previous.revision > operation.revision) return previous;
   if (previous && FINAL.has(previous.state)) return previous;
   const account = client.session(company.issuer, label)?.account ?? null;
+  const incoming = operation;
+  operation = existing ? keepRevisionTerms(client, existing, incoming) : incoming;
   const previousSummary =
     previous && previous.revision < operation.revision ? previous.summary : (existing?.previous_summary ?? null);
   client.sql.exec(
@@ -297,6 +354,7 @@ export async function handleProposal(
   } else {
     await afterUpdate(client, company, row, previous);
   }
+  if (existing && operation !== incoming) await alteredNotice(client, company, existing, incoming);
   return operation;
 }
 
@@ -331,13 +389,13 @@ async function afterUpdate(
 async function update(client: PoppyClient, company: Company, value: Json): Promise<Operation | null> {
   const parsed = parseOperation(value);
   if ("problem" in parsed) return null;
-  const { operation } = parsed;
-  const existing = stored(client, company.issuer, operation.operation_id);
+  const existing = stored(client, company.issuer, parsed.operation.operation_id);
   if (!existing) return null;
   const previous = existing.operation;
-  // `updated_at` is when the operation last changed, not when it was last read: Activity's
-  // "since", and the tracking job's backoff (`trackOperation`).
-  const changed = JSON.stringify(operation) !== JSON.stringify(previous);
+  const operation = keepRevisionTerms(client, existing, parsed.operation);
+  // `updated_at` is when the operation last made progress, not when it was last read:
+  // Activity's "since", and the tracking job's backoff (`trackOperation`).
+  const changed = progressOf(operation) !== progressOf(previous);
   client.sql.exec(
     "UPDATE poppy_operations SET operation = ?, updated_at = ? WHERE issuer = ? AND operation_id = ?",
     JSON.stringify(operation),
@@ -346,6 +404,7 @@ async function update(client: PoppyClient, company: Company, value: Json): Promi
     operation.operation_id
   );
   await afterUpdate(client, company, stored(client, company.issuer, operation.operation_id)!, previous);
+  if (operation !== parsed.operation) await alteredNotice(client, company, existing, parsed.operation);
   // Tracking starts when the operation goes in progress; after that the job sets its own pace.
   if (operation.state === "in_progress" && previous.state !== "in_progress") {
     await client.host.schedule(
@@ -374,8 +433,8 @@ export async function approveAndConfirm(
   const row = stored(client, issuer, operationId);
   if (!row || isLost(row.confirmed)) return;
   const operation = row.operation;
-  // An approval covers one revision; a stale card can't approve newer terms.
-  if (operation.revision !== revision || operation.state !== "proposed") return;
+  // An approval covers one revision; a stale card can't approve newer terms, nor a revision the Company changed in place.
+  if (operation.revision !== revision || operation.state !== "proposed" || row.altered_summary !== null) return;
   if (approvedBy === "standing_permission" && operation.user_approval_required) return;
   if (permissionId && !reserve(client, permissionId)) return;
   client.sql.exec(
@@ -407,7 +466,7 @@ const CONFIRMING = (issuer: Issuer, operationId: string) => `confirm|${issuer}|$
 export async function confirm(client: PoppyClient, issuer: Issuer, operationId: string): Promise<void> {
   const row = stored(client, issuer, operationId);
   if (!row || row.approved_revision === null || !row.approved_by || isLost(row.confirmed)) return;
-  if (FINAL.has(row.operation.state)) return;
+  if (FINAL.has(row.operation.state) || row.altered_summary !== null) return;
   const key = CONFIRMING(issuer, operationId);
   if (client.inFlight.has(key)) return;
   const company = client.companyByIssuer(issuer);
@@ -709,27 +768,34 @@ function isDateTerm(key: string, value: Json): boolean {
 
 /**
  * Whether a permission covers every term (Ops 5.1). `terms` must be a
- * non-empty object, every member of which is one of: a money term, in the
- * permission's currency and within its maximum when it has one (a
- * permission without one is for any amount, as the page offers it); a date;
- * or a descriptive key above, as a string. Anything else (a flag, a number
- * without a currency, a recurrence, a nested or unknown term) we can't
- * check, and a permission with a maximum needs at least one money term to
- * check it against. Otherwise the User decides (Guides, Operations).
+ * non-empty object, every member of which is one of: a money term; a date;
+ * or a descriptive key above, as a string. With a maximum, every money term
+ * is in the permission's currency and their amounts together, credits
+ * counted as charges, come to no more than it: the maximum is what the
+ * operation may cost in all, not what each line may (our reading of S20).
+ * A permission without a maximum is for any amount, as the page offers it.
+ * Anything else (a flag, a number without a currency, a recurrence, a nested
+ * or unknown term) we can't check, and a permission with a maximum needs at
+ * least one money term to check it against. Otherwise the User decides
+ * (Guides, Operations).
  */
 export function termsCovered(terms: Json | undefined, limit: { maxAmount: string | null; currency: string | null }): boolean {
   if (terms === undefined || !isObject(terms) || Object.keys(terms).length === 0) return false;
   let money = 0;
+  let total = 0;
   for (const [key, value] of Object.entries(terms)) {
     const found = moneyOf(value);
     if (found) {
-      if (limit.maxAmount !== null && (found.currency !== limit.currency || !(found.amount <= Number(limit.maxAmount)))) return false;
+      if (limit.maxAmount !== null && found.currency !== limit.currency) return false;
+      total += Math.abs(found.amount);
       money += 1;
     } else if (!(DESCRIPTIVE_TERMS.has(key) && typeof value === "string") && !isDateTerm(key, value)) {
       return false;
     }
   }
-  return limit.maxAmount === null || money > 0;
+  if (limit.maxAmount === null) return true;
+  // Amounts have at most a few decimal places; the epsilon absorbs binary rounding in the sum, never a cent.
+  return money > 0 && total <= Number(limit.maxAmount) + 1e-9;
 }
 
 /**

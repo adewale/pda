@@ -246,4 +246,11 @@ describe("cards about photos and orders", () => {
     rerender(<PoppyCards view={view([order({ state: "in_progress", lost: "unknown" })])} send={() => undefined} />);
     expect(screen.getByText(/It may have happened: check with Print with Poppy before asking again\./)).toBeTruthy();
   });
+
+  it("keeps the terms you saw when the Company changes them under the same revision, and offers no Approve (Ops 3.1)", () => {
+    render(<PoppyCards view={view([order({ state: "proposed", open: false, alteredSummary: "Print 1 copy for $999.00" })])} send={() => undefined} />);
+    expect(screen.getByText(/changed these terms after you saw them, without a new revision, so your agent won't confirm them/)).toBeTruthy();
+    expect(screen.getByText(/It now says: “Print 1 copy for \$999\.00”/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  });
 });

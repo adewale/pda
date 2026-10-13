@@ -76,6 +76,12 @@ export type Card =
        * confirm's answer never came) or wasn't done.
        */
       readonly lost?: "unknown" | "not_done";
+      /**
+       * The Company changed this revision's terms after it was shown (Ops 3.1
+       * forbids it): what it then said. The card keeps the terms the User saw,
+       * and the revision is never confirmed again.
+       */
+      readonly alteredSummary?: string;
       readonly approvedBy?: string;
     })
   | (CardBase & {
