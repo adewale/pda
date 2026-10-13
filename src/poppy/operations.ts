@@ -4,7 +4,8 @@ import { tokenHostAllowed, type Company } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId } from "./jwt";
 import { EndpointRequest } from "./outgoing";
-import { one, rows } from "./store";
+import { one, rows, type RowOf } from "../rows";
+import { approvalsTable, operationsTable, permissionsTable, proposalsTable } from "./store";
 import type { Issuer } from "./issuer";
 
 /** An operation as the Company sends it (Ops 3). */
@@ -21,18 +22,8 @@ export type Operation = {
   readonly result?: { readonly summary: string; readonly data?: Json } | null;
 };
 
-type OperationRow = {
-  issuer: Issuer;
-  operation_id: string;
-  label: string;
-  account: string | null;
-  operation: string;
-  previous_summary: string | null;
-  approved_revision: number | null;
-  approved_by: string | null;
-  permission_id: string | null;
-  confirmed: number;
-};
+const operationRow = operationsTable.row;
+type OperationRow = RowOf<typeof operationRow>;
 
 /**
  * `poppy_operations.confirmed`: whether a confirm is outstanding. `SENT` is
@@ -135,8 +126,9 @@ async function unusableProposal(client: PoppyClient, company: Company, problem: 
 }
 
 function stored(client: PoppyClient, issuer: Issuer, id: string): OperationRow | undefined {
-  return one<OperationRow>(
+  return one(
     client.sql,
+    operationRow,
     "SELECT * FROM poppy_operations WHERE issuer = ? AND operation_id = ?",
     issuer,
     id
@@ -262,8 +254,9 @@ async function markLost(client: PoppyClient, company: Company, row: OperationRow
  * `request` identifies the write: method, URL and body, or MCP tool and args.
  */
 export function refuseWhileConfirming(client: PoppyClient, issuer: Issuer, request: string): void {
-  const found = one<{ operation_id: string }>(
+  const found = one(
     client.sql,
+    proposalsTable.pick("operation_id"),
     "SELECT operation_id FROM poppy_proposals WHERE issuer = ? AND request = ?",
     issuer,
     request
@@ -566,8 +559,9 @@ async function readOperation(
  * only if it still awaits the approved revision. A final one never is.
  */
 export async function retryApproved(client: PoppyClient, issuer: Issuer): Promise<void> {
-  for (const row of rows<OperationRow>(
+  for (const row of rows(
     client.sql,
+    operationRow,
     "SELECT * FROM poppy_operations WHERE issuer = ? AND approved_revision IS NOT NULL AND confirmed = ?",
     issuer,
     NOT_SENT
@@ -665,18 +659,8 @@ export function operation(client: PoppyClient, issuer: Issuer, operationId: stri
 
 // ---------------------------------------------------------------- Standing permissions
 
-type PermissionRow = {
-  id: string;
-  issuer: Issuer;
-  account: string;
-  action: string;
-  max_amount: string | null;
-  currency: string | null;
-  max_uses: number | null;
-  uses: number;
-  reserved: number;
-  expires_at: number | null;
-};
+const permissionRow = permissionsTable.row;
+type PermissionRow = RowOf<typeof permissionRow>;
 
 export function addPermission(
   client: PoppyClient,
@@ -704,7 +688,7 @@ export function removePermission(client: PoppyClient, id: string): void {
 }
 
 export function permissions(client: PoppyClient): PermissionRow[] {
-  return rows<PermissionRow>(client.sql, "SELECT * FROM poppy_permissions ORDER BY created_at");
+  return rows(client.sql, permissionRow, "SELECT * FROM poppy_permissions ORDER BY created_at");
 }
 
 /**
@@ -790,8 +774,9 @@ export function termsCovered(terms: Json | undefined, limit: { maxAmount: string
  */
 function matchPermission(client: PoppyClient, company: Company, row: OperationRow, operation: Operation): string | undefined {
   if (!row.account) return undefined;
-  for (const permission of rows<PermissionRow>(
+  for (const permission of rows(
     client.sql,
+    permissionRow,
     "SELECT * FROM poppy_permissions WHERE issuer = ? AND account = ?",
     company.issuer,
     row.account
@@ -807,12 +792,12 @@ function matchPermission(client: PoppyClient, company: Company, row: OperationRo
 
 /** Reserve one use before confirming, so two tasks can't both take the last one. */
 function reserve(client: PoppyClient, id: string): boolean {
-  const before = one<{ reserved: number }>(client.sql, "SELECT reserved FROM poppy_permissions WHERE id = ?", id);
+  const before = one(client.sql, permissionsTable.pick("reserved"), "SELECT reserved FROM poppy_permissions WHERE id = ?", id);
   client.sql.exec(
     "UPDATE poppy_permissions SET reserved = reserved + 1 WHERE id = ? AND (max_uses IS NULL OR uses + reserved < max_uses)",
     id
   );
-  const after = one<{ reserved: number }>(client.sql, "SELECT reserved FROM poppy_permissions WHERE id = ?", id);
+  const after = one(client.sql, permissionsTable.pick("reserved"), "SELECT reserved FROM poppy_permissions WHERE id = ?", id);
   return !!before && !!after && after.reserved === before.reserved + 1;
 }
 
@@ -869,7 +854,7 @@ export async function proposeLocal(
   const id = fixedId ?? randomId("apr_");
   const stored = storedApproval(approval);
   const attachments = approvalAttachments(stored);
-  const existing = one<ApprovalRow>(client.sql, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  const existing = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (existing && existing.status !== "pending") return id;
   if (!existing) {
     client.sql.exec(
@@ -896,10 +881,10 @@ export async function proposeLocal(
   return id;
 }
 
-type ApprovalRow = { id: string; issuer: Issuer; label: string; summary: string; request: string; status: string };
+const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "request", "status");
 
 export async function decideLocal(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<void> {
-  const row = one<ApprovalRow>(client.sql, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!row || row.status !== "pending") return;
   const company = client.companyByIssuer(row.issuer);
   const card = (status: "approved" | "declined" | "done" | "refused" | "failed" | "unknown", result?: string, answer?: { status: number; error?: string }) =>
@@ -976,7 +961,7 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
 
 /** After a restart: approvals left mid-call have an unknown outcome; say so, never retry. */
 export async function recoverInterruptedApprovals(client: PoppyClient): Promise<void> {
-  for (const row of rows<ApprovalRow>(client.sql, "SELECT * FROM poppy_approvals WHERE status = 'executing'")) {
+  for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'executing'")) {
     let company = "the company";
     try {
       company = client.companyByIssuer(row.issuer).name;

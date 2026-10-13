@@ -1,6 +1,9 @@
 import { ConfigError } from "../config";
 import { base64url, fromBase64url } from "../base64url";
 import { migrateProtocolLog } from "./protocol-log";
+import { flag, literal } from "../decode";
+import { integer, integerOf, nullable, one, table, text, textOf } from "../rows";
+import { issuerDecoder } from "./issuer";
 
 /**
  * Poppy state in the person's SQLite, beside Pi's `pi_*` tables. Session
@@ -147,14 +150,99 @@ export function migrate(sql: Sql): void {
   migrateProtocolLog(sql);
 }
 
-/** Rows of a query as plain objects. */
-export function rows<T>(sql: Sql, query: string, ...bindings: unknown[]): T[] {
-  return sql.exec(query, ...bindings).toArray() as unknown as T[];
-}
+// ---------------------------------------------------------------- Rows
 
-export function one<T>(sql: Sql, query: string, ...bindings: unknown[]): T | undefined {
-  return rows<T>(sql, query, ...bindings)[0];
-}
+/** Each table's columns as `SCHEMA` declares them, so a row read back is decoded, not cast (src/rows.ts). */
+const issuerColumn = textOf(issuerDecoder);
+
+export const domainsTable = table("poppy_domains", { domain: text, issuer: nullable(issuerColumn), company: text, expires_at: integer });
+export const userIdsTable = table("poppy_user_ids", { issuer: issuerColumn, user_id: text });
+export const sessionsTable = table("poppy_sessions", {
+  issuer: issuerColumn,
+  label: text,
+  session_id: text,
+  account: nullable(text),
+  signed_in: integerOf(flag),
+  scope: text,
+  updated_at: integer
+});
+export const accountsTable = table("poppy_accounts", {
+  issuer: issuerColumn,
+  account: text,
+  token: text,
+  scope: text,
+  expires_at: nullable(integer),
+  updated_at: integer
+});
+export const signInsTable = table("poppy_signins", {
+  id: text,
+  type: textOf(literal("direct", "device", "mediated")),
+  issuer: issuerColumn,
+  label: text,
+  account: text,
+  scopes: text,
+  state_hash: nullable(text),
+  secret: text,
+  interval_seconds: nullable(integer),
+  expires_at: integer,
+  status: text,
+  created_at: integer
+});
+export const conversationsTable = table("poppy_conversations", {
+  id: text,
+  issuer: issuerColumn,
+  label: text,
+  parent: nullable(text),
+  direct: integer,
+  status: text,
+  responder: text,
+  cursor: nullable(text),
+  context: nullable(text),
+  last_event_at: integer,
+  created_at: integer
+});
+export const eventsTable = table("poppy_events", { conversation_id: text, event_id: text });
+export const inboxTable = table("poppy_inbox", { seq: integer, conversation_id: text, event: text, created_at: integer });
+export const messagesTable = table("poppy_messages", { id: text, issuer: issuerColumn, conversation_id: nullable(text), body: text, created_at: integer });
+export const operationsTable = table("poppy_operations", {
+  issuer: issuerColumn,
+  operation_id: text,
+  label: text,
+  account: nullable(text),
+  operation: text,
+  previous_summary: nullable(text),
+  approved_revision: nullable(integer),
+  approved_by: nullable(textOf(literal("user", "standing_permission"))),
+  permission_id: nullable(text),
+  confirmed: integer,
+  updated_at: integer
+});
+export const proposalsTable = table("poppy_proposals", { issuer: issuerColumn, request: text, operation_id: text });
+export const permissionsTable = table("poppy_permissions", {
+  id: text,
+  issuer: issuerColumn,
+  account: text,
+  action: text,
+  max_amount: nullable(text),
+  currency: nullable(text),
+  max_uses: nullable(integer),
+  uses: integer,
+  reserved: integer,
+  expires_at: nullable(integer),
+  created_at: integer
+});
+export const approvalsTable = table("poppy_approvals", {
+  id: text,
+  issuer: issuerColumn,
+  label: text,
+  summary: text,
+  request: text,
+  status: text,
+  result: nullable(text),
+  created_at: integer
+});
+export const intentsTable = table("poppy_intents", { call_key: text, value: text, created_at: integer });
+export const cardsTable = table("poppy_cards", { card: text, id: text, open: integer, updated_at: integer });
 
 /** The format of everything `Sealer.seal` writes: `v1.<base64url(iv | ciphertext)>`. */
 const SEALED_PREFIX = "v1.";
@@ -243,7 +331,7 @@ export class Sealer {
  * keys. This is what makes those tools `replay: "safe"`.
  */
 export function intent(sql: Sql, callKey: string, create: () => string): string {
-  const existing = one<{ value: string }>(sql, "SELECT value FROM poppy_intents WHERE call_key = ?", callKey);
+  const existing = one(sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", callKey);
   if (existing) return existing.value;
   const value = create();
   sql.exec(

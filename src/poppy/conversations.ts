@@ -5,22 +5,12 @@ import { isObject, parseStrictJson, type Json } from "./json";
 import { randomId } from "./jwt";
 import { handleProposal } from "./operations";
 import { EndpointRequest } from "./outgoing";
-import { intent, one, rows } from "./store";
+import { found, one, rows, type RowOf } from "../rows";
+import { conversationsTable, inboxTable, intent } from "./store";
 import type { DirectMessage } from "./wire";
-import type { Issuer } from "./issuer";
 
-export type ConversationRow = {
-  id: string;
-  issuer: Issuer;
-  label: string;
-  parent: string | null;
-  direct: number;
-  status: string;
-  responder: string;
-  cursor: string | null;
-  context: string | null;
-  last_event_at: number;
-};
+const conversationRow = conversationsTable.row;
+export type ConversationRow = RowOf<typeof conversationRow>;
 
 type Message = {
   id: string;
@@ -33,12 +23,13 @@ type Message = {
 const ID = /^[A-Za-z0-9_-]{1,256}$/;
 
 export function conversation(client: PoppyClient, id: string): ConversationRow | undefined {
-  return one<ConversationRow>(client.sql, "SELECT * FROM poppy_conversations WHERE id = ?", id);
+  return one(client.sql, conversationRow, "SELECT * FROM poppy_conversations WHERE id = ?", id);
 }
 
 export function openConversations(client: PoppyClient): ConversationRow[] {
-  return rows<ConversationRow>(
+  return rows(
     client.sql,
+    conversationRow,
     "SELECT * FROM poppy_conversations WHERE status != 'closed' ORDER BY last_event_at DESC"
   );
 }
@@ -351,7 +342,8 @@ async function handleEvents(
       if (!isObject(event) || typeof event.id !== "string" || typeof event.type !== "string") continue;
       const seen = one(
         client.sql,
-        "SELECT 1 AS seen FROM poppy_events WHERE conversation_id = ? AND event_id = ?",
+        found,
+        "SELECT 1 AS found FROM poppy_events WHERE conversation_id = ? AND event_id = ?",
         row.id,
         event.id
       );
@@ -389,7 +381,8 @@ async function handleEvent(
       if (!isObject(message)) return;
       const kept = one(
         client.sql,
-        "SELECT 1 AS kept FROM poppy_inbox WHERE conversation_id = ? AND json_extract(event, '$.id') = ?",
+        found,
+        "SELECT 1 AS found FROM poppy_inbox WHERE conversation_id = ? AND json_extract(event, '$.id') = ?",
         row.id,
         event.id
       );
@@ -667,8 +660,9 @@ export function pushDirect(
 ): void {
   const row = conversation(client, id);
   if (!row) return;
-  const messages: DirectMessage[] = rows<{ event: string }>(
+  const messages: DirectMessage[] = rows(
     client.sql,
+    inboxTable.pick("event"),
     "SELECT event FROM poppy_inbox WHERE conversation_id = ? ORDER BY seq",
     id
   ).flatMap(({ event }) => {
@@ -846,8 +840,9 @@ export async function updateAvailability(client: PoppyClient): Promise<void> {
 
 /** Company messages received in a conversation, newest last, for the model's `poppy_read`. */
 export function recentMessages(client: PoppyClient, id: string, limit = 20): Json[] {
-  return rows<{ event: string }>(
+  return rows(
     client.sql,
+    inboxTable.pick("event"),
     "SELECT event FROM (SELECT seq, event FROM poppy_inbox WHERE conversation_id = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq",
     id,
     limit

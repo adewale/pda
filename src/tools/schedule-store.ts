@@ -9,6 +9,8 @@
  */
 import { addToInstant, checkZone, civil, dayNumber, instantOf, parseDuration, parseMoment, TimeError, viewMoment, wallAt } from "./clock";
 import { secretProblem } from "./memory-store";
+import { literal } from "../decode";
+import { integer, nullable, one, rows, table, text, textOf, type RowOf } from "../rows";
 
 /** Most reminders and tasks waiting to run, per agent. */
 export const MAX_ACTIVE_SCHEDULES = 20;
@@ -217,23 +219,25 @@ export function describeRecurrence(recurrence: Recurrence): string {
 
 // ---------------------------------------------------------------- The store
 
-type Row = {
-  id: string;
-  kind: string;
-  text: string;
-  next_run: number | null;
-  recurrence: string;
-  local_time: string | null;
-  weekday: string | null;
-  time_zone: string;
-  created_at: number;
-  created_from: string;
-  status: string;
-  failures: number;
-  last_run: number | null;
-  last_outcome: string | null;
-  paused_reason: string | null;
-};
+export const schedulesTable = table("schedules", {
+  id: text,
+  kind: textOf(literal("reminder", "task")),
+  text,
+  next_run: nullable(integer),
+  recurrence: textOf(literal("none", "daily", "weekdays", "weekly")),
+  local_time: nullable(text),
+  weekday: nullable(text),
+  time_zone: text,
+  created_at: integer,
+  created_from: text,
+  status: textOf(literal("active", "paused", "done", "cancelled")),
+  failures: integer,
+  last_run: nullable(integer),
+  last_outcome: nullable(text),
+  paused_reason: nullable(text)
+});
+const scheduleRow = schedulesTable.row;
+type Row = RowOf<typeof scheduleRow>;
 
 const COLUMNS = "id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, status, failures, last_run, last_outcome, paused_reason";
 
@@ -245,35 +249,47 @@ function toRecurrence(row: Row): Recurrence {
 
 function toSchedule(row: Row): Schedule {
   return {
-    id: String(row.id),
-    kind: row.kind === "task" ? "task" : "reminder",
-    text: String(row.text),
-    nextRun: row.next_run === null ? null : Number(row.next_run),
+    id: row.id,
+    kind: row.kind,
+    text: row.text,
+    nextRun: row.next_run,
     recurrence: toRecurrence(row),
-    timeZone: String(row.time_zone),
-    createdAt: Number(row.created_at),
-    createdFrom: String(row.created_from),
-    status: (["active", "paused", "done", "cancelled"] as const).find((status) => status === row.status) ?? "cancelled",
-    failures: Number(row.failures),
-    lastRun: row.last_run === null ? null : Number(row.last_run),
-    lastOutcome: row.last_outcome === null ? null : String(row.last_outcome),
-    pausedReason: row.paused_reason === null || row.paused_reason === undefined ? null : String(row.paused_reason)
+    timeZone: row.time_zone,
+    createdAt: row.created_at,
+    createdFrom: row.created_from,
+    status: row.status,
+    failures: row.failures,
+    lastRun: row.last_run,
+    lastOutcome: row.last_outcome,
+    pausedReason: row.paused_reason
   };
 }
 
-type RunRow = { id: number; schedule_id: string; kind: string; text: string; due_at: number; ran_at: number; outcome: string; detail: string | null; operation_id: string };
+export const runsTable = table("schedule_runs", {
+  id: integer,
+  schedule_id: text,
+  kind: text,
+  text,
+  due_at: integer,
+  ran_at: integer,
+  outcome: textOf(literal("reminded", "started", "done", "failed")),
+  detail: nullable(text),
+  operation_id: text
+});
+const runRow = runsTable.row;
+type RunRow = RowOf<typeof runRow>;
 
 function toRun(row: RunRow): ScheduleRun {
   return {
-    id: Number(row.id),
-    scheduleId: String(row.schedule_id),
+    id: row.id,
+    scheduleId: row.schedule_id,
     kind: row.kind === "task" ? "task" : "reminder",
-    text: String(row.text),
-    dueAt: Number(row.due_at),
-    ranAt: Number(row.ran_at),
-    outcome: (["reminded", "started", "done", "failed"] as const).find((outcome) => outcome === row.outcome) ?? "failed",
-    detail: row.detail === null ? null : String(row.detail),
-    operationId: String(row.operation_id)
+    text: row.text,
+    dueAt: row.due_at,
+    ranAt: row.ran_at,
+    outcome: row.outcome,
+    detail: row.detail,
+    operationId: row.operation_id
   };
 }
 
@@ -304,16 +320,14 @@ export class ScheduleStore {
 
   get(id: string): Schedule | undefined {
     if (typeof id !== "string") return undefined;
-    const row = this.#sql.exec(`SELECT ${COLUMNS} FROM schedules WHERE id = ?`, id).toArray()[0] as Row | undefined;
+    const row = one(this.#sql, scheduleRow, `SELECT ${COLUMNS} FROM schedules WHERE id = ?`, id);
     return row ? toSchedule(row) : undefined;
   }
 
   /** Rows with these statuses, soonest first, then newest. */
   list(statuses: readonly ScheduleStatus[] = ["active", "paused"]): Schedule[] {
     const marks = statuses.map(() => "?").join(", ");
-    return (
-      this.#sql.exec(`SELECT ${COLUMNS} FROM schedules WHERE status IN (${marks}) ORDER BY next_run IS NULL, next_run, created_at DESC`, ...statuses).toArray() as Row[]
-    ).map(toSchedule);
+    return rows(this.#sql, scheduleRow, `SELECT ${COLUMNS} FROM schedules WHERE status IN (${marks}) ORDER BY next_run IS NULL, next_run, created_at DESC`, ...statuses).map(toSchedule);
   }
 
   activeCount(): number {
@@ -327,7 +341,7 @@ export class ScheduleStore {
    * year away, and any new row once 20 are active.
    */
   create(input: NewSchedule): { schedule: Schedule; created: boolean } {
-    const existing = this.#sql.exec(`SELECT ${COLUMNS} FROM schedules WHERE created_from = ?`, input.createdFrom).toArray()[0] as Row | undefined;
+    const existing = one(this.#sql, scheduleRow, `SELECT ${COLUMNS} FROM schedules WHERE created_from = ?`, input.createdFrom);
     if (existing) return { schedule: toSchedule(existing), created: false };
     const text = typeof input.text === "string" ? input.text.trim() : "";
     const what = input.kind === "task" ? "A task's instruction" : "A reminder";
@@ -346,22 +360,22 @@ export class ScheduleStore {
     if (this.activeCount() >= MAX_ACTIVE_SCHEDULES) {
       throw new ScheduleError(`There are already ${MAX_ACTIVE_SCHEDULES} reminders and tasks waiting, the most an agent keeps. Cancel one first`);
     }
-    const row = this.#sql
-      .exec(
-        `INSERT INTO schedules (id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active') RETURNING ${COLUMNS}`,
-        newId(),
-        input.kind,
-        text,
-        nextRun,
-        recurrence.repeat,
-        recurrence.repeat === "none" ? null : recurrence.time,
-        recurrence.repeat === "weekly" ? recurrence.weekday : null,
-        zone,
-        now,
-        input.createdFrom
-      )
-      .toArray()[0] as Row;
+    const row = one(
+      this.#sql,
+      scheduleRow,
+      `INSERT INTO schedules (id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active') RETURNING ${COLUMNS}`,
+      newId(),
+      input.kind,
+      text,
+      nextRun,
+      recurrence.repeat,
+      recurrence.repeat === "none" ? null : recurrence.time,
+      recurrence.repeat === "weekly" ? recurrence.weekday : null,
+      zone,
+      now,
+      input.createdFrom
+    )!;
     this.#prune();
     return { schedule: toSchedule(row), created: true };
   }
@@ -424,7 +438,7 @@ export class ScheduleStore {
    */
   resume(reason: string): Schedule[] {
     const now = this.#now();
-    const paused = (this.#sql.exec(`SELECT ${COLUMNS} FROM schedules WHERE status = 'paused' AND paused_reason = ?`, reason).toArray() as Row[]).map(toSchedule);
+    const paused = rows(this.#sql, scheduleRow, `SELECT ${COLUMNS} FROM schedules WHERE status = 'paused' AND paused_reason = ?`, reason).map(toSchedule);
     for (const schedule of paused) {
       const next =
         schedule.recurrence.repeat === "none"
@@ -441,7 +455,7 @@ export class ScheduleStore {
 
   /** The run for this operation id, if one was recorded (a repeated alarm finds it). */
   run(operationId: string): ScheduleRun | undefined {
-    const row = this.#sql.exec("SELECT * FROM schedule_runs WHERE operation_id = ?", operationId).toArray()[0] as RunRow | undefined;
+    const row = one(this.#sql, runRow, "SELECT * FROM schedule_runs WHERE operation_id = ?", operationId);
     return row ? toRun(row) : undefined;
   }
 
@@ -467,11 +481,11 @@ export class ScheduleStore {
 
   /** Task runs whose outcome isn't known yet. */
   started(): ScheduleRun[] {
-    return (this.#sql.exec("SELECT * FROM schedule_runs WHERE outcome = 'started' ORDER BY id").toArray() as RunRow[]).map(toRun);
+    return rows(this.#sql, runRow, "SELECT * FROM schedule_runs WHERE outcome = 'started' ORDER BY id").map(toRun);
   }
 
   runs(limit = KEEP_RUNS): ScheduleRun[] {
-    return (this.#sql.exec("SELECT * FROM schedule_runs ORDER BY id DESC LIMIT ?", limit).toArray() as RunRow[]).map(toRun);
+    return rows(this.#sql, runRow, "SELECT * FROM schedule_runs ORDER BY id DESC LIMIT ?", limit).map(toRun);
   }
 
   /** Keep the newest finished rows only. */

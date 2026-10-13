@@ -1,3 +1,5 @@
+import { literal } from "../decode";
+import { integer, one, rows, table, text, textOf, type RowOf } from "../rows";
 /**
  * The agent's memory: short notes in the person's own Durable Object SQLite,
  * kept until they forget them in Settings or ask the agent to. Each note is
@@ -100,10 +102,12 @@ export function secretProblem(text: string): string | null {
 
 // ---------------------------------------------------------------- The store
 
-type Row = { id: number; text: string; source: string; created_at: number };
+const memoriesTable = table("memories", { id: integer, text, source: textOf(literal("user", "agent")), created_at: integer });
+const memoryRow = memoriesTable.row;
+type Row = RowOf<typeof memoryRow>;
 
 function toMemory(row: Row): Memory {
-  return { id: Number(row.id), text: String(row.text), source: row.source === "user" ? "user" : "agent", createdAt: Number(row.created_at) };
+  return { id: row.id, text: row.text, source: row.source, createdAt: row.created_at };
 }
 
 /** Collapse whitespace, so a note is one line, and the same fact said twice is one note. */
@@ -127,11 +131,11 @@ export class MemoryStore {
 
   /** Every note, newest first. */
   all(): Memory[] {
-    return (this.#sql.exec("SELECT id, text, source, created_at FROM memories ORDER BY id DESC").toArray() as Row[]).map(toMemory);
+    return rows(this.#sql, memoryRow, "SELECT id, text, source, created_at FROM memories ORDER BY id DESC").map(toMemory);
   }
 
   get(id: number): Memory | undefined {
-    const row = this.#sql.exec("SELECT id, text, source, created_at FROM memories WHERE id = ?", id).toArray()[0] as Row | undefined;
+    const row = one(this.#sql, memoryRow, "SELECT id, text, source, created_at FROM memories WHERE id = ?", id);
     return row ? toMemory(row) : undefined;
   }
 
@@ -148,14 +152,12 @@ export class MemoryStore {
     if (problem) {
       throw new MemoryError(`Not saved: ${problem}. Your agent never keeps passwords, codes, keys, tokens or card numbers. Say the fact without the secret`);
     }
-    const existing = this.#sql.exec("SELECT id, text, source, created_at FROM memories WHERE text = ?", text).toArray()[0] as Row | undefined;
+    const existing = one(this.#sql, memoryRow, "SELECT id, text, source, created_at FROM memories WHERE text = ?", text);
     if (existing) return { memory: toMemory(existing), created: false };
     if (this.count() >= MAX_MEMORIES) {
       throw new MemoryError(`Memory is full (${MAX_MEMORIES} notes). Nothing was dropped to make room: forget a note first, or ask the User which to remove`);
     }
-    const row = this.#sql
-      .exec("INSERT INTO memories (text, source, created_at) VALUES (?, ?, ?) RETURNING id, text, source, created_at", text, source, this.#now())
-      .toArray()[0] as Row;
+    const row = one(this.#sql, memoryRow, "INSERT INTO memories (text, source, created_at) VALUES (?, ?, ?) RETURNING id, text, source, created_at", text, source, this.#now())!;
     return { memory: toMemory(row), created: true };
   }
 

@@ -16,6 +16,7 @@ import { importJWK, SignJWT, type JWK } from "jose";
 import { base64url, fromBase64url } from "./base64url";
 import { literal, reportError } from "./log";
 import { readPrivacyContact, type PrivacyEnv } from "./privacy";
+import { integer, nullable, rows, table, text } from "./rows";
 
 // ---------------------------------------------------------------- Push services
 
@@ -247,6 +248,15 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS push_subscriptions (
   last_sent_at INTEGER
 )`;
 
+const subscriptionsTable = table("push_subscriptions", {
+  endpoint: text,
+  p256dh: text,
+  auth: text,
+  created_at: integer,
+  last_status: nullable(integer),
+  last_sent_at: nullable(integer)
+});
+
 /** The browsers that turned notifications on, in the person's own agent. */
 export class PushSubscriptions {
   readonly #sql: SqlStorage;
@@ -257,7 +267,7 @@ export class PushSubscriptions {
   }
 
   all(): Subscription[] {
-    return this.#sql.exec("SELECT endpoint, p256dh, auth FROM push_subscriptions ORDER BY created_at").toArray() as Subscription[];
+    return rows(this.#sql, subscriptionsTable.pick("endpoint", "p256dh", "auth"), "SELECT endpoint, p256dh, auth FROM push_subscriptions ORDER BY created_at");
   }
 
   count(): number {

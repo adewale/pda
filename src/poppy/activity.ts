@@ -1,6 +1,8 @@
 import type { PoppyClient } from "./client";
 import { lostOutcome, type Operation } from "./operations";
-import { rows } from "./store";
+import { object } from "../decode";
+import { integer, nullable, one, rows, text } from "../rows";
+import { accountsTable, approvalsTable, conversationsTable, inboxTable, messagesTable, operationsTable, signInsTable } from "./store";
 import type { ActivityAccess, ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
 import type { Issuer } from "./issuer";
 
@@ -30,26 +32,28 @@ export function accessOf(scope: string): ActivityAccess | null {
   return null;
 }
 
-type OperationRow = {
-  issuer: Issuer;
-  operation_id: string;
-  account: string | null;
-  operation: string;
-  approved_revision: number | null;
-  approved_by: string | null;
-  confirmed: number;
-  updated_at: number;
-};
+const operationRow = operationsTable.pick("issuer", "operation_id", "account", "operation", "approved_revision", "approved_by", "confirmed", "updated_at");
 
-type ApprovalRow = { id: string; issuer: Issuer; summary: string; kind: string | null; status: string; result: string | null; created_at: number };
+/** `kind` is read out of the stored request (`json_extract`); the request itself never is. */
+const approvalColumns = approvalsTable.columns;
+const approvalRow = object({
+  id: approvalColumns.id,
+  issuer: approvalColumns.issuer,
+  summary: approvalColumns.summary,
+  status: approvalColumns.status,
+  result: approvalColumns.result,
+  created_at: approvalColumns.created_at,
+  kind: nullable(text)
+});
 
-type SignInRow = { id: string; type: string; issuer: Issuer; account: string; scopes: string; status: string; expires_at: number; created_at: number };
+const signInRow = signInsTable.pick("id", "type", "issuer", "account", "scopes", "status", "expires_at", "created_at");
 
-type ConversationRow = { id: string; issuer: Issuer; direct: number; status: string; responder: string; last_event_at: number; created_at: number };
+const conversationRow = conversationsTable.pick("id", "issuer", "direct", "status", "responder", "last_event_at", "created_at");
 
-type ScheduleRunRow = { id: number; kind: string; text: string; ran_at: number; outcome: string; detail: string | null };
+/** A reminder or task that ran (src/tools/schedule-store.ts `schedule_runs`). */
+const scheduleRunRow = object({ id: integer, kind: text, text, ran_at: integer, outcome: text, detail: nullable(text) });
 
-type MessageRow = { id: string; issuer: Issuer; conversation_id: string | null; body: string; created_at: number };
+const messageRow = messagesTable.pick("id", "issuer", "conversation_id", "body", "created_at");
 
 const OPERATION_RESULT: Record<string, ActivityResult> = {
   proposed: "waiting",
@@ -115,8 +119,9 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     return found;
   };
 
-  const operations = rows<OperationRow>(
+  const operations = rows(
     sql,
+    operationRow,
     "SELECT issuer, operation_id, account, operation, approved_revision, approved_by, confirmed, updated_at FROM poppy_operations ORDER BY updated_at DESC"
   ).flatMap((row) => {
     const operation = JSON.parse(row.operation) as Operation;
@@ -140,8 +145,9 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     ];
   });
 
-  const approvals = rows<{ id: string; issuer: Issuer; summary: string; status: string; created_at: number }>(
+  const approvals = rows(
     sql,
+    approvalsTable.pick("id", "issuer", "summary", "status", "created_at"),
     "SELECT id, issuer, summary, status, created_at FROM poppy_approvals WHERE status IN ('pending', 'executing') ORDER BY created_at DESC"
   ).map((row) => ({
     ...where(row.issuer),
@@ -150,8 +156,9 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     state: row.status === "pending" ? "waiting for the User, on a card on their page" : "approved by the User; being carried out"
   }));
 
-  const signIns = rows<{ id: string; type: string; issuer: Issuer; account: string; scopes: string; status: string; expires_at: number }>(
+  const signIns = rows(
     sql,
+    signInsTable.pick("id", "type", "issuer", "account", "scopes", "status", "expires_at"),
     "SELECT id, type, issuer, account, scopes, status, expires_at FROM poppy_signins WHERE status NOT IN ('done', 'failed', 'expired') ORDER BY created_at DESC"
   )
     .filter((row) => !((row.status === "pending" || row.status === "code") && row.expires_at <= now))
@@ -164,8 +171,9 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
       until: row.expires_at
     }));
 
-  const conversations = rows<{ id: string; issuer: Issuer; direct: number; status: string; responder: string }>(
+  const conversations = rows(
     sql,
+    conversationsTable.pick("id", "issuer", "direct", "status", "responder"),
     "SELECT id, issuer, direct, status, responder FROM poppy_conversations WHERE status != 'closed' ORDER BY last_event_at DESC"
   ).map((row) => ({
     ...where(row.issuer),
@@ -175,8 +183,9 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     direct: !!row.direct
   }));
 
-  const accounts = rows<{ issuer: Issuer; account: string; scope: string; expires_at: number | null }>(
+  const accounts = rows(
     sql,
+    accountsTable.pick("issuer", "account", "scope", "expires_at"),
     "SELECT issuer, account, scope, expires_at FROM poppy_accounts WHERE expires_at IS NULL OR expires_at > ?",
     now
   ).map((row) => ({ ...where(row.issuer), account: row.account, scope: row.scope, expiresAt: row.expires_at }));
@@ -204,7 +213,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
 
   // Operations (Ops): the Company's summary and result, verbatim.
   const operationsFromAgent = new Set(
-    rows<{ event: string }>(sql, "SELECT event FROM poppy_inbox WHERE instr(event, '\"operation\"') > 0").flatMap(({ event }) => {
+    rows(sql, inboxTable.pick("event"), "SELECT event FROM poppy_inbox WHERE instr(event, '\"operation\"') > 0").flatMap(({ event }) => {
       try {
         const parsed = JSON.parse(event) as { message?: { operation?: { operation_id?: unknown } } };
         const id = parsed.message?.operation?.operation_id;
@@ -214,8 +223,9 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       }
     })
   );
-  for (const row of rows<OperationRow>(
+  for (const row of rows(
     sql,
+    operationRow,
     "SELECT issuer, operation_id, account, operation, approved_revision, approved_by, confirmed, updated_at FROM poppy_operations"
   )) {
     const operation = JSON.parse(row.operation) as Operation;
@@ -285,8 +295,9 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   }
 
   // Local approvals: writes no operation covers, uploads and website submits.
-  for (const row of rows<ApprovalRow>(
+  for (const row of rows(
     sql,
+    approvalRow,
     "SELECT id, issuer, summary, json_extract(request, '$.kind') AS kind, status, result, created_at FROM poppy_approvals"
   )) {
     const company = name(row.issuer);
@@ -324,8 +335,9 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   }
 
   // Sign-ins: type, scopes and outcome only.
-  for (const row of rows<SignInRow>(
+  for (const row of rows(
     sql,
+    signInRow,
     "SELECT id, type, issuer, account, scopes, status, expires_at, created_at FROM poppy_signins"
   )) {
     const company = name(row.issuer);
@@ -360,8 +372,9 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
 
   // Conversations with the Company's agent, and Direct Conversations.
   const direct = new Set<string>();
-  for (const row of rows<ConversationRow>(
+  for (const row of rows(
     sql,
+    conversationRow,
     "SELECT id, issuer, direct, status, responder, last_event_at, created_at FROM poppy_conversations"
   )) {
     const company = name(row.issuer);
@@ -400,8 +413,9 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   }
 
   // Messages we sent; context-only updates aren't news.
-  for (const row of rows<MessageRow>(
+  for (const row of rows(
     sql,
+    messageRow,
     "SELECT id, issuer, conversation_id, body, created_at FROM poppy_messages ORDER BY created_at DESC LIMIT ?",
     ACTIVITY_LOG_LIMIT
   )) {
@@ -433,10 +447,11 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   }
 
   // Reminders and scheduled tasks that ran (src/schedules.ts): the User's own words, and how it went.
-  const hasRuns = rows(sql, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schedule_runs'").length > 0;
+  const hasRuns = one(sql, object({ name: text }), "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schedule_runs'") !== undefined;
   if (hasRuns) {
-    for (const row of rows<ScheduleRunRow>(
+    for (const row of rows(
       sql,
+      scheduleRunRow,
       "SELECT id, kind, text, ran_at, outcome, detail FROM schedule_runs ORDER BY id DESC LIMIT ?",
       ACTIVITY_LOG_LIMIT
     )) {

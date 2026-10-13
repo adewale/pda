@@ -1,6 +1,8 @@
 import type { AuthContext, Credential, CredentialInfo, CredentialStore } from "@earendil-works/pi-ai";
 import { isKeyProvider, type KeyProvider } from "./config";
 import type { Sealer } from "./poppy/store";
+import { literal } from "./decode";
+import { integer, nullable, one, table, text, textOf } from "./rows";
 
 /**
  * A person's own model key, in their own agent's SQLite, sealed with the
@@ -47,6 +49,23 @@ export function keyContext(provider: KeyProvider, agent: string): string {
   return `model-key:v1:${provider}:${agent}`;
 }
 
+/**
+ * `provider` and `source` are any text here: a key for a provider this agent
+ * no longer takes (OpenRouter's, connected rather than pasted) is found, and
+ * deleted, by `#row` before the rest of its row is read.
+ */
+const keysTable = table("model_keys", {
+  slot: integer,
+  provider: text,
+  sealed: text,
+  status: textOf(literal("valid", "invalid")),
+  source: text,
+  added_at: integer,
+  invalid_at: nullable(integer),
+  workspace: nullable(text)
+});
+const keyRow = keysTable.pick("provider", "sealed", "status", "source", "added_at", "workspace");
+
 type Row = {
   provider: KeyProvider;
   sealed: string;
@@ -74,17 +93,17 @@ export class ModelKeys {
   }
 
   #row(): Row | undefined {
-    const row = this.#sql.exec("SELECT provider, sealed, status, source, added_at, workspace FROM model_keys WHERE slot = 1").toArray()[0] as
-      | (Omit<Row, "provider"> & { provider: string })
-      | undefined;
-    if (row && !isKeyProvider(row.provider)) {
+    const row = one(this.#sql, keyRow, "SELECT provider, sealed, status, source, added_at, workspace FROM model_keys WHERE slot = 1");
+    if (!row) return undefined;
+    const { provider } = row;
+    if (!isKeyProvider(provider)) {
       // A key for a provider this agent no longer takes (an OpenRouter key
       // stored before that lane was removed): deleted unopened, so the agent
       // falls back to the demo or "needs a key" instead of failing every call.
-      this.#sql.exec("DELETE FROM model_keys WHERE slot = 1 AND provider = ?", row.provider);
+      this.#sql.exec("DELETE FROM model_keys WHERE slot = 1 AND provider = ?", provider);
       return undefined;
     }
-    return row as Row | undefined;
+    return { ...row, provider, source: literal("pasted")(row.source, "model_keys row.source") };
   }
 
   info(): KeyInfo | null {

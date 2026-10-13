@@ -36,7 +36,8 @@ import {
   submitSignInCode
 } from "./signin";
 import { protocolIndex, protocolLog, registerApiNamer } from "./protocol-log";
-import { migrate, rows } from "./store";
+import { rows } from "../rows";
+import { cardsTable, migrate } from "./store";
 import type { Card, PoppyClientFrame, PoppyServerFrame } from "./wire";
 import { issuerDecoder, parseIssuer, type Issuer } from "./issuer";
 import { object, optional, string, tryDecode } from "../decode";
@@ -315,8 +316,9 @@ export class PoppyCapability extends LifecycleCapability {
 
   /** Open cards, plus closed ones from the last hour so outcomes stay visible. */
   #sendCards(socket?: WebSocket): void {
-    const cards = rows<{ card: string }>(
+    const cards = rows(
       this.#options.storage.sql,
+      cardsTable.pick("card"),
       "SELECT card FROM poppy_cards WHERE open = 1 OR updated_at > ? ORDER BY updated_at",
       Date.now() - 60 * 60_000
     ).map((row) => JSON.parse(row.card) as Card);

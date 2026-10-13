@@ -2,7 +2,9 @@ import { code, literal, recordPoppyExchange, reportError } from "../log";
 import type { CompanyReport } from "../validator/index.ts";
 import type { Company } from "./discovery";
 import { PROTOCOL_LOG_LIMIT, type PoppyServerFrame, type ProtocolCompany, type ProtocolEntry, type ProtocolOutcome } from "./wire";
-import { domainOrigin, type Issuer, type Origin } from "./issuer";
+import { domainOrigin, issuerDecoder, type Issuer, type Origin } from "./issuer";
+import { object } from "../decode";
+import { integer, nullable, rows, table, text, textOf, type RowOf } from "../rows";
 
 /**
  * The protocol view: every Poppy exchange the agent made with each Company,
@@ -653,20 +655,26 @@ export function recordPageLimit(sql: Sql, issuer: Issuer, status: number, ms: nu
 
 // ---------------------------------------------------------------- Reading
 
-type LogRow = {
-  seq: number;
-  key: string;
-  issuer: Issuer | null;
-  at: number;
-  step: string;
-  method: string | null;
-  url: string | null;
-  status: number | null;
-  error: string | null;
-  outcome: string;
-  summary: string;
-  result: string;
-};
+/** `poppy_protocol_log`'s columns, as `migrateProtocolLog` declares them. */
+export const protocolLogTable = table("poppy_protocol_log", {
+  seq: integer,
+  key: text,
+  issuer: nullable(textOf(issuerDecoder)),
+  at: integer,
+  step: text,
+  method: nullable(text),
+  url: nullable(text),
+  status: nullable(integer),
+  error: nullable(text),
+  outcome: text,
+  summary: text,
+  result: text
+});
+const logRow = protocolLogTable.row;
+type LogRow = RowOf<typeof logRow>;
+
+/** A Company in the index: `issuer` is `MAX(issuer)` over its rows, the counts are aggregates. */
+const indexRow = object({ key: text, issuer: nullable(textOf(issuerDecoder)), count: integer, last_seq: integer, last_at: integer });
 
 const OUTCOMES = new Set<ProtocolOutcome>(["ok", "error", "retry", "failed", "refused", "info"]);
 
@@ -692,12 +700,10 @@ type Names = (issuer: Issuer) => { readonly name: string; readonly domain: strin
 
 /** The Companies with a log, the most recently active first. */
 export function protocolIndex(sql: Sql, names: Names): Extract<PoppyServerFrame, { type: "poppy.protocol.index" }> {
-  const companies: ProtocolCompany[] = (
-    sql
-      .exec(
-        "SELECT key, MAX(issuer) AS issuer, COUNT(*) AS count, MAX(seq) AS last_seq, MAX(at) AS last_at FROM poppy_protocol_log GROUP BY key ORDER BY last_seq DESC"
-      )
-      .toArray() as unknown as { key: string; issuer: Issuer | null; count: number; last_seq: number; last_at: number }[]
+  const companies: ProtocolCompany[] = rows(
+    sql,
+    indexRow,
+    "SELECT key, MAX(issuer) AS issuer, COUNT(*) AS count, MAX(seq) AS last_seq, MAX(at) AS last_at FROM poppy_protocol_log GROUP BY key ORDER BY last_seq DESC"
   ).map((row) => {
     const known = row.issuer ? names(row.issuer) : { name: keyHost(row.key), domain: keyHost(row.key) };
     return { key: row.key, company: known.name, domain: known.domain, issuer: row.issuer, count: row.count, lastSeq: row.last_seq, lastAt: row.last_at };
@@ -707,10 +713,8 @@ export function protocolIndex(sql: Sql, names: Names): Extract<PoppyServerFrame,
 
 /** One Company's log, oldest first. */
 export function protocolLog(sql: Sql, key: string, names: Names): Extract<PoppyServerFrame, { type: "poppy.protocol" }> {
-  const rows = sql
-    .exec("SELECT seq, key, issuer, at, step, method, url, status, error, outcome, summary, result FROM poppy_protocol_log WHERE key = ? ORDER BY seq", key)
-    .toArray() as unknown as LogRow[];
-  const issuer = rows.find((row) => row.issuer)?.issuer ?? null;
+  const logged = rows(sql, logRow, "SELECT seq, key, issuer, at, step, method, url, status, error, outcome, summary, result FROM poppy_protocol_log WHERE key = ? ORDER BY seq", key);
+  const issuer = logged.find((row) => row.issuer)?.issuer ?? null;
   const known = issuer ? names(issuer) : { name: keyHost(key), domain: keyHost(key) };
-  return { type: "poppy.protocol", key, company: known.name, domain: known.domain, issuer, entries: rows.map(entry) };
+  return { type: "poppy.protocol", key, company: known.name, domain: known.domain, issuer, entries: logged.map(entry) };
 }

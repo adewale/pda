@@ -18,7 +18,8 @@ import {
 } from "./jwt";
 import { currentKey, readIdentity, type AgentIdentity } from "./keys";
 import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup } from "./protocol-log";
-import { one, rows, Sealer, type Sql } from "./store";
+import { found, one, rows, type RowOf } from "../rows";
+import { accountsTable, domainsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
 import type { Card } from "./wire";
 import type { CheckedApiRequest } from "./apis";
 import type { EndpointRequest } from "./outgoing";
@@ -131,22 +132,11 @@ type TokenResponse = {
   readonly refresh_token_expires_in?: number;
 };
 
-type SessionRow = {
-  issuer: Issuer;
-  label: string;
-  session_id: string;
-  account: string | null;
-  signed_in: number;
-  scope: string;
-};
+const sessionRow = sessionsTable.pick("issuer", "label", "session_id", "account", "signed_in", "scope");
+type SessionRow = RowOf<typeof sessionRow>;
 
-type AccountRow = {
-  issuer: Issuer;
-  account: string;
-  token: string;
-  scope: string;
-  expires_at: number | null;
-};
+const accountRow = accountsTable.pick("issuer", "account", "token", "scope", "expires_at");
+type AccountRow = RowOf<typeof accountRow>;
 
 /** A Session Token in memory, bound to the DPoP key that was current when issued. */
 type HeldToken = {
@@ -342,8 +332,9 @@ export class PoppyClient {
    */
   async lookup(domain: string): Promise<Company | WebsiteOnly> {
     const key = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
-    const cached = one<{ company: string; expires_at: number }>(
+    const cached = one(
       this.sql,
+      domainsTable.pick("company", "expires_at"),
       "SELECT company, expires_at FROM poppy_domains WHERE domain = ?",
       key
     );
@@ -372,8 +363,9 @@ export class PoppyClient {
 
   /** The most recently discovered document for an issuer. */
   companyByIssuer(issuer: Issuer): Company {
-    const row = one<{ company: string }>(
+    const row = one(
       this.sql,
+      domainsTable.pick("company"),
       "SELECT company FROM poppy_domains WHERE issuer = ? ORDER BY expires_at DESC LIMIT 1",
       issuer
     );
@@ -386,8 +378,9 @@ export class PoppyClient {
    * never derived from who they are. Domains that share an issuer share it.
    */
   userId(issuer: Issuer): string {
-    const row = one<{ user_id: string }>(
+    const row = one(
       this.sql,
+      userIdsTable.pick("user_id"),
       "SELECT user_id FROM poppy_user_ids WHERE issuer = ?",
       issuer
     );
@@ -561,8 +554,9 @@ export class PoppyClient {
   // ---------------------------------------------------------------- Sessions
 
   session(issuer: Issuer, label: string): SessionRow | undefined {
-    return one<SessionRow>(
+    return one(
       this.sql,
+      sessionRow,
       "SELECT issuer, label, session_id, account, signed_in, scope FROM poppy_sessions WHERE issuer = ? AND label = ?",
       issuer,
       label
@@ -571,8 +565,8 @@ export class PoppyClient {
 
   sessions(issuer?: Issuer): SessionRow[] {
     return issuer
-      ? rows<SessionRow>(this.sql, "SELECT * FROM poppy_sessions WHERE issuer = ?", issuer)
-      : rows<SessionRow>(this.sql, "SELECT * FROM poppy_sessions");
+      ? rows(this.sql, sessionRow, "SELECT * FROM poppy_sessions WHERE issuer = ?", issuer)
+      : rows(this.sql, sessionRow, "SELECT * FROM poppy_sessions");
   }
 
   #saveSession(issuer: Issuer, label: string, response: TokenResponse, account: string | null): void {
@@ -607,12 +601,13 @@ export class PoppyClient {
    */
   async #recoverSignIns(issuer: Issuer): Promise<void> {
     if (!signInRecovery) return;
-    const found = one(
+    const pending = one(
       this.sql,
+      found,
       "SELECT 1 AS found FROM poppy_signins WHERE issuer = ? AND status IN ('exchanging', 'exchanged', 'stored') LIMIT 1",
       issuer
     );
-    if (found) await signInRecovery(this, issuer);
+    if (pending) await signInRecovery(this, issuer);
   }
 
   #forgetSession(issuer: Issuer, label: string): void {
@@ -625,8 +620,9 @@ export class PoppyClient {
   // ---------------------------------------------------------------- Account Tokens
 
   account(issuer: Issuer, account: string): AccountRow | undefined {
-    const row = one<AccountRow>(
+    const row = one(
       this.sql,
+      accountRow,
       "SELECT issuer, account, token, scope, expires_at FROM poppy_accounts WHERE issuer = ? AND account = ?",
       issuer,
       account
@@ -640,8 +636,8 @@ export class PoppyClient {
 
   accounts(issuer?: Issuer): AccountRow[] {
     return issuer
-      ? rows<AccountRow>(this.sql, "SELECT * FROM poppy_accounts WHERE issuer = ?", issuer)
-      : rows<AccountRow>(this.sql, "SELECT * FROM poppy_accounts");
+      ? rows(this.sql, accountRow, "SELECT * FROM poppy_accounts WHERE issuer = ?", issuer)
+      : rows(this.sql, accountRow, "SELECT * FROM poppy_accounts");
   }
 
   /** The Account Token itself, decrypted only for a token-endpoint request. */

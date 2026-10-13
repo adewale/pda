@@ -4,7 +4,8 @@ import type { Company, SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
 import { EndpointRequest } from "./outgoing";
-import { one, rows } from "./store";
+import { one, rows, type RowOf } from "../rows";
+import { signInsTable } from "./store";
 import type { ScopeInfo } from "./wire";
 import type { Issuer } from "./issuer";
 
@@ -16,18 +17,8 @@ export const BUILTIN_SCOPES: Readonly<Record<string, string>> = {
   "poppy:write": "Make changes, such as exchanging an item or updating a booking"
 };
 
-type SignInRow = {
-  id: string;
-  type: SignInType;
-  issuer: Issuer;
-  label: string;
-  account: string;
-  scopes: string;
-  secret: string;
-  interval_seconds: number | null;
-  expires_at: number;
-  status: string;
-};
+const signInRow = signInsTable.pick("id", "type", "issuer", "label", "account", "scopes", "secret", "interval_seconds", "expires_at", "status");
+type SignInRow = RowOf<typeof signInRow>;
 
 export type SignInStart =
   | { readonly status: "signed_in"; readonly scope: string }
@@ -71,7 +62,7 @@ function sealContext(row: { id: string; issuer: Issuer }): string {
 }
 
 function signIn(client: PoppyClient, id: string): SignInRow | undefined {
-  return one<SignInRow>(client.sql, "SELECT * FROM poppy_signins WHERE id = ?", id);
+  return one(client.sql, signInRow, "SELECT * FROM poppy_signins WHERE id = ?", id);
 }
 
 function setStatus(client: PoppyClient, id: string, status: string): void {
@@ -369,8 +360,9 @@ async function abandonExchange(client: PoppyClient, row: SignInRow): Promise<voi
  * the Company, on start, and on the next callback.
  */
 export async function recoverSignIns(client: PoppyClient, issuer?: Issuer): Promise<void> {
-  const pending = rows<SignInRow>(
+  const pending = rows(
     client.sql,
+    signInRow,
     `SELECT * FROM poppy_signins WHERE status IN ('exchanging', 'exchanged', 'stored')${issuer ? " AND issuer = ?" : ""}`,
     ...(issuer ? [issuer] : [])
   );
@@ -399,8 +391,9 @@ registerSignInRecovery(recoverSignIns);
 export async function completeDirectSignIn(client: PoppyClient, url: URL): Promise<{ ok: boolean; message: string }> {
   const state = url.searchParams.get("state");
   if (!state) return { ok: false, message: "This sign-in link is missing its state." };
-  const row = one<SignInRow>(
+  const row = one(
     client.sql,
+    signInRow,
     "SELECT * FROM poppy_signins WHERE state_hash = ? AND type = 'direct'",
     await sha256(state)
   );

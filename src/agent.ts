@@ -45,6 +45,7 @@ import { describeRecurrence, MAX_ACTIVE_SCHEDULES, type Schedule } from "./tools
 import { scheduleExtension } from "./tools/schedules";
 import { ReadLimiter, type Fetcher as WebFetcher } from "./tools/web";
 import type { Issuer } from "./poppy/issuer";
+import { integer, rows, table, text } from "./rows";
 
 const PREAMBLE =
   "You are the user's personal agent, in one long-running conversation with the person who owns you. Earlier turns are your memory of them, so use what they have told you. Be direct and brief, and say plainly when you do not know something.";
@@ -65,6 +66,8 @@ const SCHEMA = [
     created_at INTEGER NOT NULL
   )`
 ];
+
+const pausedTable = table("model_paused", { operation_id: text, text, created_at: integer });
 
 /** A reminder or task as Settings shows it. */
 export type ScheduleView = {
@@ -444,9 +447,7 @@ export class PersonalAgent extends DurableObject<Env> {
 
   /** Background notices held while model calls were refused, oldest first, once calls are allowed again. */
   async #resumePaused(requestId?: Safe<"id">): Promise<void> {
-    const held = this.ctx.storage.sql
-      .exec("SELECT operation_id, text FROM model_paused ORDER BY created_at")
-      .toArray() as Array<{ operation_id: string; text: string }>;
+    const held = rows(this.ctx.storage.sql, pausedTable.pick("operation_id", "text"), "SELECT operation_id, text FROM model_paused ORDER BY created_at");
     if (held.length === 0) return;
     if ((await this.access.entitlement()).lane === "none") return;
     for (const row of held) {

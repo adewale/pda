@@ -41,7 +41,8 @@ import {
   submitCredentials,
   submitSignInCode
 } from "../../../src/poppy/signin.ts";
-import { migrate, rows } from "../../../src/poppy/store.ts";
+import { approvalsTable, inboxTable, intentsTable, migrate, operationsTable, signInsTable } from "../../../src/poppy/store.ts";
+import { rows } from "../../../src/rows.ts";
 import type { Card } from "../../../src/poppy/wire.ts";
 import { ATTACKS, runAttack, type AttackContext } from "./attacks.ts";
 
@@ -272,8 +273,9 @@ async function drain(id: string, run: (job: Job) => Promise<number | null>, limi
 const pending = new Map<string, { id: string; type: string; issuer: string; label: string }>();
 
 function signInRow(id: string) {
-  return rows<{ status: string; account: string; label: string; issuer: string }>(
+  return rows(
     agent.client.sql,
+    signInsTable.pick("status", "account", "label", "issuer"),
     "SELECT status, account, label, issuer FROM poppy_signins WHERE id = ?",
     id
   )[0];
@@ -422,7 +424,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
       text: text(params.text, "text"),
       ...(typeof params.wait === "number" ? { wait: params.wait } : {})
     });
-    const intent = rows<{ value: string }>(agent.client.sql, "SELECT value FROM poppy_intents WHERE call_key = ?", `message|${callKey}`)[0];
+    const intent = rows(agent.client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `message|${callKey}`)[0];
     const messageId = intent ? (JSON.parse(intent.value) as { message: { id: string } }).message.id : null;
     return {
       conversation: sent.conversationId,
@@ -438,7 +440,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     if (!conversationRow(agent.client, id)) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
     await readConversation(agent.client, id, typeof params.wait === "number" ? params.wait : 0);
     const row = conversationRow(agent.client, id)!;
-    let events = rows<{ event: string }>(agent.client.sql, "SELECT event FROM poppy_inbox WHERE conversation_id = ? ORDER BY seq", id);
+    let events = rows(agent.client.sql, inboxTable.pick("event"), "SELECT event FROM poppy_inbox WHERE conversation_id = ? ORDER BY seq", id);
     // With a cursor, only what came after that event (the agent's inbox, in the order it arrived).
     const after = optional(params.cursor);
     const at = after ? events.findIndex((entry) => (JSON.parse(entry.event) as { id?: string }).id === after) : -1;
@@ -605,8 +607,9 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
   async confirm_again(domain, params) {
     const c = await company(domain);
     const id = text(params.operation, "operation");
-    const row = rows<{ approved_revision: number | null; approved_by: string | null; label: string }>(
+    const row = rows(
       agent.client.sql,
+      operationsTable.pick("approved_revision", "approved_by", "label"),
       "SELECT approved_revision, approved_by, label FROM poppy_operations WHERE issuer = ? AND operation_id = ?",
       c.issuer,
       id
@@ -745,7 +748,7 @@ function apiResult(result: Json): unknown {
 /** The User's decision on a held write, through the same path the approval card takes. */
 async function decideHeld(id: string, decision: "approve" | "decline") {
   await decideLocal(agent.client, id, decision);
-  const row = rows<{ status: string; result: string | null }>(agent.client.sql, "SELECT status, result FROM poppy_approvals WHERE id = ?", id)[0];
+  const row = rows(agent.client.sql, approvalsTable.pick("status", "result"), "SELECT status, result FROM poppy_approvals WHERE id = ?", id)[0];
   if (!row) throw new StepError(404, "unknown_operation", `The agent has no held write ${id}`);
   if (row.status === "failed") {
     const code = /\[([a-z_0-9]+)\]$/.exec(row.result ?? "")?.[1] ?? "approved_write_failed";

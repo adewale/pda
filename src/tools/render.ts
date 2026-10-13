@@ -20,6 +20,7 @@ import { readBrowserRun } from "../config";
 import { isPublicAddress } from "../validator/address";
 import { raceAbort, withDeadline } from "../validator/fetch";
 import { cutText, READ_LIMITS, ReadError, readableText, urlProblem, type PageKind, type PageRead } from "./web";
+import { integer, rows, table } from "../rows";
 
 export const RENDER_LIMITS = {
   /** For the whole render: launching, loading, waiting and reading. */
@@ -300,6 +301,8 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS read_url_renders (at INTEGER NOT NULL
  * starting a fresh minute costs a site a few requests; renders cost the
  * operator browser time, so their count survives an eviction.
  */
+const rendersTable = table("read_url_renders", { at: integer });
+
 export class RenderLimiter {
   constructor(
     readonly sql: SqlStorage,
@@ -313,8 +316,8 @@ export class RenderLimiter {
   take(): number {
     const now = this.now();
     this.sql.exec("DELETE FROM read_url_renders WHERE at <= ?", now - 3_600_000);
-    const rows = this.sql.exec("SELECT at FROM read_url_renders ORDER BY at").toArray() as { at: number }[];
-    if (rows.length >= this.limit) return Math.max(1, Math.ceil((rows[0]!.at + 3_600_000 - now) / 1000));
+    const renders = rows(this.sql, rendersTable.row, "SELECT at FROM read_url_renders ORDER BY at");
+    if (renders.length >= this.limit) return Math.max(1, Math.ceil((renders[0]!.at + 3_600_000 - now) / 1000));
     this.sql.exec("INSERT INTO read_url_renders (at) VALUES (?)", now);
     return 0;
   }
