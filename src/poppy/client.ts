@@ -22,6 +22,7 @@ import { found, one, rows, type RowOf } from "../rows";
 import { accountsTable, domainsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
 import type { Card } from "./wire";
 import type { CheckedApiRequest } from "./apis";
+import { companyErrorCode, type KnownErrorCode, type PoppyErrorCode } from "./error-codes";
 import type { EndpointRequest } from "./outgoing";
 import type { Issuer } from "./issuer";
 
@@ -61,7 +62,7 @@ export type JobName = "poppy-read" | "poppy-device" | "poppy-operation";
 export class PoppyError extends Error {
   override name = "PoppyError";
   constructor(
-    readonly code: string,
+    readonly code: PoppyErrorCode,
     message: string,
     readonly status: number,
     readonly detail: {
@@ -74,6 +75,16 @@ export class PoppyError extends Error {
   ) {
     super(message);
   }
+
+  /** Whether the code is one of these. Only codes we or the draft define can be named, so a misspelt one is a type error. */
+  is(...codes: readonly KnownErrorCode[]): boolean {
+    return (codes as readonly string[]).includes(this.code);
+  }
+}
+
+/** Whether `error` is a `PoppyError` with one of these codes. */
+export function hasCode(error: unknown, ...codes: readonly KnownErrorCode[]): error is PoppyError {
+  return error instanceof PoppyError && error.is(...codes);
 }
 
 /**
@@ -543,7 +554,7 @@ export class PoppyClient {
       }
       return response;
     }
-    const code = isObject(body) && typeof body.error === "string" ? body.error : "server_error";
+    const code = isObject(body) && body.error !== undefined ? companyErrorCode(body.error, status) : "server_error";
     const description =
       isObject(body) && typeof body.error_description === "string" ? `: ${body.error_description}` : "";
     throw new PoppyError(code, `${company.name} refused the token request (${code})${description}`, status, {
@@ -795,9 +806,9 @@ export class PoppyClient {
         return response;
       } catch (error) {
         if (!(error instanceof PoppyError)) throw error;
-        if (error.code === "invalid_grant") {
+        if (error.is("invalid_grant")) {
           await this.#accountGone(company, account.account);
-        } else if (error.code === "invalid_session" || error.code === "account_mismatch") {
+        } else if (error.is("invalid_session", "account_mismatch")) {
           this.#forgetSession(company.issuer, label);
           return this.#obtainToken(company, label, options);
         } else {
@@ -835,7 +846,7 @@ export class PoppyClient {
       if (
         current &&
         error instanceof PoppyError &&
-        (error.code === "invalid_session" || error.code === "account_mismatch")
+        (error.is("invalid_session", "account_mismatch"))
       ) {
         this.#forgetSession(company.issuer, label);
         return this.#obtainToken(company, label, options);
@@ -915,11 +926,11 @@ export class PoppyClient {
       return true;
     } catch (error) {
       if (!(error instanceof PoppyError)) throw error;
-      if (error.code === "invalid_grant") {
+      if (error.is("invalid_grant")) {
         await this.#accountGone(company, account.account);
         return false;
       }
-      if (error.code === "invalid_session" || error.code === "account_mismatch") {
+      if (error.is("invalid_session", "account_mismatch")) {
         this.#forgetSession(company.issuer, label);
         return this.#signInWithAccount(company, label, scopes, account.account);
       }
@@ -1082,7 +1093,7 @@ export class PoppyClient {
       if (challenge.error && (response.status === 401 || response.status === 403)) {
         await response.body?.cancel();
         throw withAnswer(
-          new PoppyError(challenge.error, `${company.name}: ${challenge.error}`, response.status, {
+          new PoppyError(companyErrorCode(challenge.error, response.status), `${company.name}: ${challenge.error}`, response.status, {
             ...(challenge.scope ? { scope: challenge.scope } : {})
           }),
           response.status
@@ -1102,7 +1113,7 @@ export class PoppyClient {
     const response = await this.resource(company, request, options);
     const body = await this.readJson(response);
     if (response.status >= 400) {
-      const code = isObject(body) && typeof body.error === "string" ? body.error : `http_${response.status}`;
+      const code = companyErrorCode(isObject(body) ? body.error : undefined, response.status);
       throw new PoppyError(code, `${company.name} returned ${code}`, response.status, {
         ...(body !== null ? { body } : {})
       });

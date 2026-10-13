@@ -226,7 +226,7 @@ describe("printing a photo at a Company (the demo journey)", () => {
     const info = await attached(a);
     const unknown = await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: "att_AAAAAAAAAAAAAAAAAAAAAA" } });
     expect(unknown.isError).toBe(true);
-    expect(unknown.text).toContain("[no_attachment]");
+    expect(JSON.parse(unknown.details)).toMatchObject({ error: "no_attachment" });
     const field = await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { avatar: info.id } });
     expect(field.text).toContain("has no file field avatar; its file fields are photo");
     const none = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder("pho_x"), files: { photo: info.id } });
@@ -241,7 +241,7 @@ describe("printing a photo at a Company (the demo journey)", () => {
     const a = await poppyAgent();
     const info = await attached(a);
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: info.id } });
-    expect(result.text).toContain("[untrusted_server]");
+    expect(JSON.parse(result.details)).toMatchObject({ error: "untrusted_server" });
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
     expect(await requests(elsewhere)).toEqual([]);
   });
@@ -271,7 +271,7 @@ describe("printing a photo at a Company (the demo journey)", () => {
     const order = printOrder("pho_1");
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: JSON.stringify(order) });
     expect(result.isError).toBe(true);
-    expect(result.text).toContain("[invalid_body]");
+    expect(JSON.parse(result.details)).toMatchObject({ error: "invalid_body" });
     expect(result.text).toContain("not a string containing serialised JSON: pass body as a structured object");
     expect(result.text).toContain("Nothing was sent.");
     expect(await cards(a)).toEqual([]);
@@ -283,7 +283,7 @@ describe("printing a photo at a Company (the demo journey)", () => {
     const a = await poppyAgent();
     const { ship_to: _, ...noAddress } = printOrder("pho_1");
     const missing = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: { ...noAddress, gift: true } });
-    expect(missing.text).toContain("[invalid_body]");
+    expect(JSON.parse(missing.details)).toMatchObject({ error: "invalid_body" });
     expect(missing.text).toContain("ship_to");
     expect(missing.text).toContain("gift");
     const none = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints" });

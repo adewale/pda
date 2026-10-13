@@ -1,5 +1,5 @@
 import { literal, reportError } from "../log";
-import { PoppyClient, PoppyError } from "./client";
+import { hasCode, PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
 import { isObject, parseStrictJson, type Json } from "./json";
 import { randomId } from "./jwt";
@@ -8,6 +8,7 @@ import { EndpointRequest } from "./outgoing";
 import { found, one, rows, type RowOf } from "../rows";
 import { conversationsTable, inboxTable, intent } from "./store";
 import type { DirectMessage } from "./wire";
+import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
 
 const conversationRow = conversationsTable.row;
 export type ConversationRow = RowOf<typeof conversationRow>;
@@ -162,8 +163,8 @@ export async function sendMessage(
     try {
       ({ body: response } = await post());
     } catch (error) {
-      const code = existing && error instanceof PoppyError ? error.code : null;
-      if (code !== "cursor_expired" && code !== "invalid_cursor") throw error;
+      if (!existing || !hasCode(error, "cursor_expired", "invalid_cursor")) throw error;
+      const code = error.is("cursor_expired") ? "cursor_expired" : "invalid_cursor";
       // The read that answers the send can't start at our cursor (7.5). Read from
       // the start instead, sending the same message again with the same id and
       // content: if the Company took it the first time, it answers as it did
@@ -235,7 +236,7 @@ function saveCursor(client: PoppyClient, id: string, cursor: string): void {
  * skipped. An expired one means the Company dropped events we may not have
  * seen, so the User is told part of the conversation may be missing.
  */
-async function restartFromBeginning(client: PoppyClient, company: Company, id: string, code: string): Promise<void> {
+async function restartFromBeginning(client: PoppyClient, company: Company, id: string, code: "cursor_expired" | "invalid_cursor"): Promise<void> {
   client.sql.exec("UPDATE poppy_conversations SET cursor = NULL WHERE id = ?", id);
   if (code !== "cursor_expired") return;
   await client.host.showCard({
@@ -262,12 +263,13 @@ async function sendRefused(
   error: PoppyError
 ): Promise<PoppyError> {
   const restart = "Start a new conversation (poppy_message without conversation) if the task still needs one.";
-  switch (error.code) {
+  // Over the draft's codes only, so a case naming a code it doesn't define is a type error.
+  switch (isProtocolErrorCode(error.code) ? error.code : null) {
     case "conversation_closed":
     case "conversation_not_found": {
       client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", row.id);
       if (row.direct) pushDirect(client, company, row.id);
-      const what = error.code === "conversation_closed" ? "has closed" : "no longer has";
+      const what = error.is("conversation_closed") ? "has closed" : "no longer has";
       return new PoppyError(
         error.code,
         `${company.name} ${what} conversation ${row.id}, so the message wasn't sent. ${restart}`,
@@ -517,10 +519,10 @@ export async function readConversation(
         tokenOptions(company, row.label)
       );
     } catch (error) {
-      if (error instanceof PoppyError && error.code === "rate_limited") {
+      if (hasCode(error, "rate_limited")) {
         return Date.now() + (error.detail.retryAfter ?? 60) * 1000;
       }
-      if (error instanceof PoppyError && (error.code === "sign_in_required" || error.code === "insufficient_scope")) {
+      if (hasCode(error, "sign_in_required", "insufficient_scope")) {
         // Signed out since the conversation used the account (7.11): wait for a new sign-in.
         await client.host.notifyModel(
           `[system] Conversation ${id} with ${company.name} needs the User signed in again (${error.code}).`,
@@ -537,7 +539,7 @@ export async function readConversation(
         await restartFromBeginning(client, company, id, body.error);
         continue;
       }
-      throw new PoppyError(body?.error ?? `http_${response.status}`, `${company.name} refused the read`, response.status);
+      throw new PoppyError(companyErrorCode(body?.error, response.status), `${company.name} refused the read`, response.status);
     }
     if (response.status === 404) {
       // `conversation_not_found` (7.13): nothing more will come. The model is
@@ -730,7 +732,7 @@ export async function closeConversation(client: PoppyClient, company: Company, i
     );
     if (isObject(body)) updateState(client, id, body);
   } catch (error) {
-    if (!(error instanceof PoppyError) || error.code !== "conversation_closed") throw error;
+    if (!hasCode(error, "conversation_closed")) throw error;
   }
   client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", id);
   if (row.direct) pushDirect(client, company, id);

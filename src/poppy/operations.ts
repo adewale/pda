@@ -1,5 +1,5 @@
 import { approvalAttachments, readApproval, storedApproval, type ApprovalKind, type ApprovalOf, type NewApproval } from "./approvals";
-import { answerOf, PoppyClient, PoppyError } from "./client";
+import { answerOf, hasCode, PoppyClient, PoppyError } from "./client";
 import { tokenHostAllowed, type Company } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId } from "./jwt";
@@ -477,30 +477,30 @@ export async function confirm(client: PoppyClient, issuer: Issuer, operationId: 
       );
     }
   } catch (error) {
-    if (!(error instanceof PoppyError) || error.status >= 500 || error.code === "invalid_response") {
+    if (!(error instanceof PoppyError) || error.status >= 500 || error.is("invalid_response")) {
       // No answer we can trust: read, then confirm again only if still needed, with the same id (Ops 6).
       await scheduleTracking(client, issuer, operationId, client.host.now() + 5_000);
       return;
     }
-    if (error.code === "rate_limited") {
+    if (error.is("rate_limited")) {
       // Not acted on: after Retry-After the tracking job reads, then confirms.
       await scheduleTracking(client, issuer, operationId, client.host.now() + (error.detail.retryAfter ?? 30) * 1000);
       return;
     }
-    if (error.code === "operation_not_found") {
+    if (error.is("operation_not_found")) {
       await markLost(client, company, row);
       return;
     }
     // The Company answered, so no confirm is outstanding.
     setConfirmed(client, issuer, operationId, NOT_SENT);
-    if (error.code === "terms_changed") {
+    if (error.is("terms_changed")) {
       releasePermission(client, row);
       clearApproval(client, issuer, operationId);
       const current = isObject(error.detail.body) ? error.detail.body.operation : undefined;
       if (current !== undefined) await handleProposal(client, company, row.label, current);
       return;
     }
-    if (error.code === "user_approval_required") {
+    if (error.is("user_approval_required")) {
       releasePermission(client, row);
       clearApproval(client, issuer, operationId);
       const current = { ...(JSON.parse(row.operation) as Operation), user_approval_required: true };
@@ -508,7 +508,7 @@ export async function confirm(client: PoppyClient, issuer: Issuer, operationId: 
       await showOperation(client, company, stored(client, issuer, operationId)!);
       return;
     }
-    if (error.code === "insufficient_scope" || error.code === "sign_in_required") {
+    if (error.is("insufficient_scope", "sign_in_required")) {
       // The approval stands; confirm again after sign-in (see retryApproved).
       await client.host.notifyModel(
         `[system] Confirming operation ${operationId} at ${company.name} needs the User signed in (${error.code}${error.detail.scope ? `, scopes "${error.detail.scope}"` : ""}). Call poppy_sign_in; it will be confirmed after sign-in.`,
@@ -572,7 +572,7 @@ export async function retryApproved(client: PoppyClient, issuer: Issuer): Promis
       ({ operation } = await readOperation(client, client.companyByIssuer(issuer), row));
     } catch (error) {
       if (!(error instanceof PoppyError)) throw error;
-      if (error.code === "operation_not_found") await markLost(client, client.companyByIssuer(issuer), row);
+      if (error.is("operation_not_found")) await markLost(client, client.companyByIssuer(issuer), row);
       continue;
     }
     const current = stored(client, issuer, row.operation_id);
@@ -600,10 +600,10 @@ export async function trackOperation(client: PoppyClient, issuer: Issuer, operat
   try {
     read = await readOperation(client, company, row);
   } catch (error) {
-    if (error instanceof PoppyError && error.code === "rate_limited") {
+    if (hasCode(error, "rate_limited")) {
       return client.host.now() + (error.detail.retryAfter ?? 30) * 1000;
     }
-    if (error instanceof PoppyError && error.code === "operation_not_found") {
+    if (hasCode(error, "operation_not_found")) {
       await markLost(client, company, row);
       return null;
     }
@@ -643,7 +643,7 @@ export async function cancelOperation(client: PoppyClient, issuer: Issuer, opera
       { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
     ));
   } catch (error) {
-    if (error instanceof PoppyError && error.code === "operation_not_found") {
+    if (hasCode(error, "operation_not_found")) {
       await markLost(client, company, row);
       return;
     }

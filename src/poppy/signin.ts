@@ -8,6 +8,7 @@ import { one, rows, type RowOf } from "../rows";
 import { signInsTable } from "./store";
 import type { ScopeInfo } from "./wire";
 import type { Issuer } from "./issuer";
+import { companyErrorCode } from "./error-codes";
 
 /** Pending sign-ins expire after this long (the Guides suggest Companies give a device code about 10 minutes). */
 const SIGN_IN_TTL_MS = 10 * 60 * 1000;
@@ -165,7 +166,7 @@ export async function startSignIn(
       typeof body.user_code !== "string" ||
       typeof body.verification_uri !== "string"
     ) {
-      const code = isObject(body) && typeof body.error === "string" ? body.error : "server_error";
+      const code = isObject(body) && body.error !== undefined ? companyErrorCode(body.error, status) : "server_error";
       throw new PoppyError(code, `${company.name} refused the device sign-in (${code})`, status);
     }
     const verificationUri = deviceLink(company, body.verification_uri);
@@ -506,14 +507,14 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
   } catch (error) {
     if (!(error instanceof PoppyError)) throw error;
     const interval = row.interval_seconds ?? 5;
-    if (error.code === "authorization_pending") return client.host.now() + interval * 1000;
-    if (error.code === "slow_down") {
+    if (error.is("authorization_pending")) return client.host.now() + interval * 1000;
+    if (error.is("slow_down")) {
       client.sql.exec("UPDATE poppy_signins SET interval_seconds = ? WHERE id = ?", interval + 5, id);
       return client.host.now() + (interval + 5) * 1000;
     }
-    if (error.code === "rate_limited") return client.host.now() + (error.detail.retryAfter ?? interval) * 1000;
-    if (error.code === "access_denied") await finish(client, row, { ok: false, message: "the User declined" });
-    else if (error.code === "expired_token") await finish(client, row, { ok: false, message: "the code expired", expired: true });
+    if (error.is("rate_limited")) return client.host.now() + (error.detail.retryAfter ?? interval) * 1000;
+    if (error.is("access_denied")) await finish(client, row, { ok: false, message: "the User declined" });
+    else if (error.is("expired_token")) await finish(client, row, { ok: false, message: "the code expired", expired: true });
     else await refused(client, row, error.code, `the company returned ${error.code}`);
     return null;
   }

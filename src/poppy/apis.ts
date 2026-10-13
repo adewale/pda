@@ -8,6 +8,7 @@ import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, 
 import { randomId } from "./jwt";
 import { EndpointRequest, type RequestInit } from "./outgoing";
 import { firstTime, intent, type Sql } from "./store";
+import { companyErrorCode } from "./error-codes";
 
 type Api = Company["apis"][number];
 
@@ -783,7 +784,7 @@ registerExecutor("openapi", async (client, company, approval, label) => {
   }
   if (answer.kind === "answered" && (answer.status < 200 || answer.status >= 300)) {
     const { status, body } = answer;
-    const code = isObject(body) && typeof body.error === "string" ? body.error : `http_${status}`;
+    const code = companyErrorCode(isObject(body) ? body.error : undefined, status);
     throw withAnswer(
       new PoppyError(code, `${company.name} answered ${status}: ${JSON.stringify(body).slice(0, 1_000)}`, status, body !== null ? { body } : {}),
       status
