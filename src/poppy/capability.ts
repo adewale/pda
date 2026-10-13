@@ -1,5 +1,5 @@
 import { LifecycleCapability, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle";
-import { code, plainUnits, recordCard, reportError, type Units } from "../log";
+import { code, id, literal, origin, plainUnits, recordCard, reportError, type Fields, type Units } from "../log";
 import { buildActivity } from "./activity";
 import { apiOperationFor } from "./apis";
 import type { PoppyBrowser } from "./browser";
@@ -202,10 +202,10 @@ export class PoppyCapability extends LifecycleCapability {
 
   override async onStart(): Promise<void> {
     if (!this.#hasPoppyState()) return;
-    await this.#units.job({ job: "poppy.recover" }, async () => {
+    await this.#units.job({ job: literal("poppy.recover") }, async () => {
       await recoverInterruptedApprovals(this.client);
       // A Direct Sign-In the restart interrupted: finish it, or start a new Session (4.5).
-      await recoverSignIns(this.client).catch((error: unknown) => reportError(error, { source: "poppy.signin_recovery" }));
+      await recoverSignIns(this.client).catch((error: unknown) => reportError(error, { source: literal("poppy.signin_recovery") }));
     });
   }
 
@@ -255,7 +255,7 @@ export class PoppyCapability extends LifecycleCapability {
       text = JSON.stringify(buildActivity(this.client));
     } catch (error) {
       // The log is a view; failing to build it must never stop the work it describes.
-      reportError(error, { source: "poppy.activity", severe: false });
+      reportError(error, { source: literal("poppy.activity"), severe: false });
       return;
     }
     if (socket) {
@@ -293,7 +293,7 @@ export class PoppyCapability extends LifecycleCapability {
     try {
       text = JSON.stringify(protocolIndex(this.client.sql, this.#companyNames));
     } catch (error) {
-      reportError(error, { source: "poppy.protocol_index", severe: false });
+      reportError(error, { source: literal("poppy.protocol_index"), severe: false });
       return;
     }
     if (socket) {
@@ -371,10 +371,10 @@ export class PoppyCapability extends LifecycleCapability {
     this.#lastActivity = Date.now();
     try {
       if (QUIET_FRAMES.has(frame.type)) await this.#handleFrame(socket, frame);
-      else await this.#units.frame(code(frame.type) ?? "poppy.unknown", frameFields(frame), () => this.#handleFrame(socket, frame));
+      else await this.#units.frame(code(frame.type) ?? literal("poppy.unknown"), frameFields(frame), () => this.#handleFrame(socket, frame));
       if (!QUIET_FRAMES.has(frame.type)) this.#sendActivity();
     } catch (error) {
-      if (QUIET_FRAMES.has(frame.type)) reportError(error, { source: frame.type, severe: false });
+      if (QUIET_FRAMES.has(frame.type)) reportError(error, { source: code(frame.type) ?? literal("poppy.unknown"), severe: false });
       this.#broadcast({
         type: "poppy.cards",
         cards: [
@@ -496,11 +496,11 @@ export class PoppyCapability extends LifecycleCapability {
   async onRequest({ request }: { request: Request }): Promise<Response | undefined> {
     const url = new URL(request.url);
     if (url.pathname !== "/poppy/callback") return undefined;
-    const requestId = code(request.headers.get("x-request-id"));
-    return this.#units.request({ hop: "agent", method: "GET", route: "/poppy/callback", ...(requestId ? { request_id: requestId } : {}) }, async (event) => {
+    const requestId = id(request.headers.get("x-request-id"));
+    return this.#units.request({ hop: literal("agent"), method: literal("GET"), route: literal("/poppy/callback"), ...(requestId ? { request_id: requestId } : {}) }, async (event) => {
       const result = await completeDirectSignIn(this.client, url);
       if (result.ok) await this.#afterSignIn();
-      event.set({ status: result.ok ? 200 : 400, outcome: result.ok ? "success" : "refused" });
+      event.set({ status: result.ok ? 200 : 400, outcome: literal(result.ok ? "success" : "refused") });
       return html(result.ok ? 200 : 400, result.message);
     });
   }
@@ -512,11 +512,10 @@ export class PoppyCapability extends LifecycleCapability {
     const fn = job.fn as JobName;
     const client = this.client;
     // Which job, and the Company's ids it works on; never a device sign-in's id.
-    const fields = {
-      job: fn,
-      ...(fn === "poppy-read" && code(payload.id) ? { conversation_id: payload.id } : {}),
-      ...(fn === "poppy-operation" && code(payload.id) ? { operation_id: payload.id } : {}),
-      ...(fn === "poppy-operation" && typeof payload.issuer === "string" ? { issuer: payload.issuer } : {})
+    const fields: Fields = {
+      job: literal(fn),
+      ...(fn === "poppy-read" ? { conversation_id: id(payload.id) } : {}),
+      ...(fn === "poppy-operation" ? { operation_id: id(payload.id), issuer: origin(payload.issuer) } : {})
     };
     return this.#units.job(fields, async (event) => {
       let next: number | null = null;
@@ -541,14 +540,14 @@ export class PoppyCapability extends LifecycleCapability {
 }
 
 /** What a frame's event records: which decision, and which Company. Never values, codes, text or ids the User typed. */
-function frameFields(frame: PoppyClientFrame): Record<string, unknown> {
-  const fields: Record<string, unknown> = {};
-  if ("decision" in frame && typeof frame.decision === "string") fields.decision = code(frame.decision);
-  if ("issuer" in frame && typeof frame.issuer === "string" && URL.canParse(frame.issuer)) fields.issuer = new URL(frame.issuer).origin;
-  if (frame.type === "poppy.operation" && code(frame.operationId)) fields.operation_id = frame.operationId;
-  if (frame.type === "poppy.approval" && code(frame.approvalId)) fields.approval_id = frame.approvalId;
-  if (frame.type === "poppy.permission.add" && code(frame.action)) fields.action = frame.action;
-  return fields;
+function frameFields(frame: PoppyClientFrame): Fields {
+  return {
+    ...("decision" in frame ? { decision: code(frame.decision) } : {}),
+    ...("issuer" in frame ? { issuer: origin(frame.issuer) } : {}),
+    ...(frame.type === "poppy.operation" ? { operation_id: id(frame.operationId) } : {}),
+    ...(frame.type === "poppy.approval" ? { approval_id: id(frame.approvalId) } : {}),
+    ...(frame.type === "poppy.permission.add" ? { action: code(frame.action) } : {})
+  };
 }
 
 export type { Json };

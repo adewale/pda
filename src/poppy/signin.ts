@@ -1,4 +1,4 @@
-import { reportError } from "../log";
+import { literal, reportError } from "../log";
 import { covers, grantedScope, PoppyClient, PoppyError, registerSignInRecovery, scopeSet } from "./client";
 import type { Company, SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
@@ -475,7 +475,7 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
     try {
       await finishExchange(client, signIn(client, row.id)!, answer);
     } catch (error) {
-      reportError(error, { source: "poppy.signin_finish" });
+      reportError(error, { source: literal("poppy.signin_finish") });
       return { ok: false, message: `Signing in to ${company.name} didn't finish here. Go back to the chat; the agent finishes it the next time it works with ${company.name}.` };
     }
     return { ok: true, message: `Connected to ${company.name}. You can close this tab.` };

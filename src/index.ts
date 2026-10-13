@@ -4,7 +4,7 @@ import { humanSize, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES } from "./attachment
 import { ConfigError, readSessionSecret, readSignInProviders } from "./config";
 import { checkDeployment } from "./deployment.ts";
 import { withPagePolicy } from "./csp";
-import { code, configureLog, currentEvent, inScope, wideEvent } from "./log";
+import { agentId, code, configureLog, currentEvent, id, inScope, literal, wideEvent, type Safe } from "./log";
 import { privacyPage } from "./privacy";
 import { parseSubscription, readVapidKey } from "./web-push";
 import { finishSignIn, isProvider, startSignIn } from "./oauth";
@@ -46,11 +46,11 @@ function sameOrigin(request: Request): boolean {
 async function signedIn(request: Request, env: Env): Promise<Caller> {
   const identity = await verifySession(request, readSessionSecret(env));
   const event = currentEvent();
-  event?.set({ sign_in_provider: identity.provider });
+  event?.set({ sign_in_provider: literal(identity.provider) });
   if (!maySignIn(identity, env)) throw new AuthError("Not allowed to sign in");
   // Pseudonymous: the agent's Durable Object id, as its events and the demo gateway's metadata carry it. Never the email or provider id.
-  event?.set({ signed_in: true, agent_id: env.PersonalAgent.idFromName(await agentNameFor(identity)).toString().slice(0, 32), is_owner: isAllowed(identity, readOwners(env)) });
-  const requestId = typeof event?.fields.request_id === "string" ? event.fields.request_id : undefined;
+  event?.set({ signed_in: true, agent_id: agentId(env.PersonalAgent.idFromName(await agentNameFor(identity))), is_owner: isAllowed(identity, readOwners(env)) });
+  const requestId = id(event?.fields.request_id);
   return requestId ? { ...identity, requestId } : identity;
 }
 
@@ -60,24 +60,35 @@ async function agentFor(identity: Identity, env: Env): Promise<DurableObjectStub
 }
 
 /** This request's id: Cloudflare's `cf-ray`, or a new one where there is none (local dev, tests). */
-function requestIdOf(request: Request): string {
-  return code(request.headers.get("cf-ray")) ?? crypto.randomUUID();
+function requestIdOf(request: Request): Safe<"id"> {
+  return id(request.headers.get("cf-ray")) ?? id(crypto.randomUUID())!;
 }
 
-/** The route a path takes, as a template: never an id, and never a query. */
-export function routeOf(pathname: string): string {
+/** The route a path takes, as a template written here: never an id, and never a query. */
+export function routeOf(pathname: string): Safe<"literal"> {
   const path = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
-  if (EXACT_ROUTES.has(path)) return path;
-  if (/^\/api\/(attachments|memories|schedules)\/[^/]+$/.test(path)) return `${path.slice(0, path.lastIndexOf("/"))}/{id}`;
-  if (/^\/auth\/(google|github)(\/callback)?$/.test(path)) return path;
-  if (path.startsWith("/auth/")) return "/auth/{other}";
-  if (path.startsWith("/api/")) return "/api/{other}";
-  if (path.startsWith("/poppy/")) return "/poppy/{other}";
-  if (path.startsWith("/validator/")) return "/validator/{other}";
-  return "{other}";
+  const exact = EXACT_ROUTES.find((route) => route === path);
+  if (exact) return literal(exact);
+  const collection = /^\/api\/(attachments|memories|schedules)\/[^/]+$/.exec(path)?.[1] as keyof typeof ITEM_ROUTES | undefined;
+  if (collection) return literal(ITEM_ROUTES[collection]);
+  if (path.startsWith("/auth/")) return literal("/auth/{other}");
+  if (path.startsWith("/api/")) return literal("/api/{other}");
+  if (path.startsWith("/poppy/")) return literal("/poppy/{other}");
+  if (path.startsWith("/validator/")) return literal("/validator/{other}");
+  return literal("{other}");
 }
 
-const EXACT_ROUTES = new Set([
+const ITEM_ROUTES = {
+  attachments: "/api/attachments/{id}",
+  memories: "/api/memories/{id}",
+  schedules: "/api/schedules/{id}"
+} as const;
+
+const EXACT_ROUTES = [
+  "/auth/google",
+  "/auth/google/callback",
+  "/auth/github",
+  "/auth/github/callback",
   "/",
   "/ws",
   "/api/me",
@@ -97,7 +108,7 @@ const EXACT_ROUTES = new Set([
   "/validator",
   "/validator/api",
   "/validator/messages"
-]);
+] as const;
 
 /** Verify the session, upgrade, and forward to the person's own agent. */
 async function handleWs(request: Request, env: Env): Promise<Response> {
@@ -139,7 +150,7 @@ async function handleEntitlement(request: Request, env: Env): Promise<Response> 
   if (request.method !== "GET") return text(405, "Method not allowed");
   const identity = await signedIn(request, env);
   const entitlement = await (await agentFor(identity, env)).entitlement(identity);
-  currentEvent()?.set({ lane: entitlement.lane });
+  currentEvent()?.set({ lane: literal(entitlement.lane) });
   return json(200, entitlement);
 }
 
@@ -163,7 +174,7 @@ async function handleModelKey(request: Request, env: Env): Promise<Response> {
     return json(400, { error: "Send JSON with provider and key." });
   }
   const result: KeyResult = await agent.setModelKey(identity, body?.provider, body?.key, body?.workspace);
-  if (result.ok) currentEvent()?.set({ lane: result.entitlement.lane });
+  if (result.ok) currentEvent()?.set({ lane: literal(result.entitlement.lane) });
   return result.ok ? json(200, result.entitlement) : json(result.status, { error: result.error });
 }
 
@@ -367,17 +378,17 @@ export default {
     configureLog(env);
     const cf = (request as { cf?: { colo?: unknown; country?: unknown } }).cf;
     const event = wideEvent("http", {
-      method: request.method,
+      method: code(request.method) ?? literal("other"),
       route: routeOf(new URL(request.url).pathname),
       request_id: requestIdOf(request),
       signed_in: false,
-      ...(typeof cf?.colo === "string" ? { colo: cf.colo } : {}),
-      ...(typeof cf?.country === "string" ? { country: cf.country } : {})
+      ...(code(cf?.colo) ? { colo: code(cf?.colo) } : {}),
+      ...(code(cf?.country) ? { country: code(cf?.country) } : {})
     });
     try {
       const response = await inScope(event, () => route(request, env));
       event.set({ status: response.status });
-      if (event.fields.outcome === undefined) event.set({ outcome: outcomeOf(response.status) });
+      if (event.fields.outcome === undefined) event.set({ outcome: literal(outcomeOf(response.status)) });
       if (response.status >= 500) event.level = "error";
       return withPagePolicy(response);
     } catch (error) {
@@ -390,7 +401,7 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 /** How a status reads in the event: refused for 401 and 403, rejected for other 4xx, error for 5xx. */
-function outcomeOf(status: number): string {
+function outcomeOf(status: number): "error" | "refused" | "rejected" | "success" {
   if (status >= 500) return "error";
   if (status === 401 || status === 403) return "refused";
   if (status >= 400) return "rejected";
@@ -439,7 +450,7 @@ async function route(request: Request, env: Env): Promise<Response> {
       return text(401, "Unauthorized");
     }
     // On the request's event: its class, and its message redacted.
-    currentEvent()?.fail(error, error instanceof ConfigError ? { code: "config" } : {});
+    currentEvent()?.fail(error, error instanceof ConfigError ? { code: literal("config") } : {});
     if (error instanceof ConfigError) return text(500, error.message);
     return text(500, "Internal error");
   }

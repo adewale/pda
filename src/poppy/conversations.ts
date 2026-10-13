@@ -1,4 +1,4 @@
-import { reportError } from "../log";
+import { literal, reportError } from "../log";
 import { PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
 import { isObject, parseStrictJson, type Json } from "./json";
@@ -290,7 +290,7 @@ async function sendRefused(
       );
     case "message_id_conflict":
       // Our ids are fixed per call with their content (7.3), so this is our bug: never "fixed" with a new id.
-      reportError(new PoppyError(error.code, "message_id_conflict: our own message id was refused", error.status), { source: "poppy.conversation_send", code: "message_id_conflict" });
+      reportError(new PoppyError(error.code, "message_id_conflict: our own message id was refused", error.status), { source: literal("poppy.conversation_send"), code: literal("message_id_conflict") });
       return new PoppyError(
         error.code,
         `${company.name} already has message ${messageId} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived.`,
