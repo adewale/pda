@@ -7,7 +7,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 ARG UPSTREAM=https://github.com/datalayer/personal-agent-protocol
-ARG COMMIT=0c048aa7fef8d98bbc23de5474220b6e7206384a
+ARG COMMIT=00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65
 
 WORKDIR /upstream
 RUN git init -q . \

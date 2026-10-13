@@ -3,7 +3,7 @@
 # Upstream: https://github.com/rbirkby/Ilmer.org (MIT). Nothing upstream is vendored.
 FROM node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
 
-ARG ILMER_COMMIT=4ca76e0026a1fa442f9430eddba61e82e6e4c9b4
+ARG ILMER_COMMIT=de0d1ec50f09906fedf26a83b7b88042ebfebd56
 ARG WRANGLER_VERSION=4.149.0
 ENV WRANGLER_SEND_METRICS=false \
     CI=1
@@ -17,7 +17,7 @@ WORKDIR /opt/ilmer/agent
 RUN npm ci --no-audit --no-fund \
  && npm install --no-save --no-audit --no-fund "wrangler@$WRANGLER_VERSION"
 
-COPY wrangler.jsonc /opt/ilmer/agent/wrangler.jsonc
+COPY wrangler.jsonc interop-main.js /opt/ilmer/agent/
 COPY adapter.mjs entrypoint.sh /interop-adapter/
 RUN chmod +x /interop-adapter/entrypoint.sh
 

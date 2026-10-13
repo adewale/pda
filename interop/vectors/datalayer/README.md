@@ -10,7 +10,7 @@ node interop/vectors/datalayer/run.mjs --json out.json
 node interop/vectors/datalayer/run.mjs --cases <clone>/protocol/fixtures/conformance
 ```
 
-- **Pinned:** commit `0c048aa7fef8d98bbc23de5474220b6e7206384a` (v0.10.0, 12 October 2026), the same commit as the four Datalayer adapters. The cases are fetched from raw.githubusercontent.com into `node_modules/.cache/datalayer-conformance/<commit>/`, not vendored. That commit has 124 cases, the same five files byte for byte as the previous pin, `12d71877` (v0.6.0).
+- **Pinned:** commit `00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65` (v0.17.0, 13 October 2026), the same commit as the four Datalayer adapters. The cases are fetched from raw.githubusercontent.com into `node_modules/.cache/datalayer-conformance/<commit>/`, not vendored. That commit has 124 cases, the same five files byte for byte as the two previous pins, `0c048aa7` (v0.10.0) and `12d71877` (v0.6.0); v0.11.0 to v0.17.0 added only three display fixtures beside them (`protocol/fixtures/pap-*-display.json`), which aren't conformance cases.
 - **Outcomes:** `pass`; `fail` with a category: `our-bug` (exit status 1), `reading` (we and Datalayer read the draft differently) or `harness`; `n/a` with the reason.
 - **Loading our code:** `src/` is written for workerd and Vite, so the script transpiles it with the repo's own TypeScript, resolves extensionless imports, stubs `cloudflare:workers`, and gives `PoppyClient` an in-memory host: `node:sqlite` for its SQL, an in-memory `CompanyLimiter`, a generated ES256 key, and a fake Company at `shop.example` whose token endpoint issues tokens without checking them.
 
@@ -36,7 +36,7 @@ Datalayer's TypeScript runner (`src/__tests__/conformance-fixtures.test.mjs`) de
 
 ## Results at the pinned commit
 
-124 cases: 24 pass, 2 fail (both `reading`), 98 n/a (91 Company-role, 7 DNS-level SSRF and pinning). Run on 12 October at `0c048aa`; the script exits 0. The cases didn't change with the pin: the old pin's cases, run with `--cases`, give the same counts.
+124 cases: 24 pass, 2 fail (both `reading`), 98 n/a (91 Company-role, 7 DNS-level SSRF and pinning). Run on 13 October at `00216eb`, as on 12 October at `0c048aa`; the script exits 0. The cases didn't change with either pin move.
 
 Under the conformance levels ([conformance-levels.md](../../../docs/conformance-levels.md)) a message's severity is the validator's verdict on the draft, and whether our client refuses a document is separate (`refuses` per message, `refused` on the report). The discovery cases test what an agent does, so they are judged by refusal. Judged by severity instead, four cases read as readings though both sides behave alike: `security.discovery-redirect-limit`, `security.oversized-metadata` and `security.slow-metadata`, which our client refuses over Guides-based messages that are warnings, and `protocol.unknown-api-type`, which our client uses (skipping the `graphql` API, as expected) while the validator calls the 0.1 document invalid, because 0.1 says each API's `type` "MUST be one of" `openapi` and `mcp`.
 

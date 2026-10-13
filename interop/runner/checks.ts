@@ -13,7 +13,7 @@
  */
 import { createHash } from "node:crypto";
 import { levelOf, severityOf, type Basis } from "../../src/validator/levels.ts";
-import { authorization, decodeJwt, direction, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
+import { authorization, clientIdOf, decodeJwt, direction, form, isServerMetadata, jsonBody, type Exchange } from "./har.ts";
 import type { Check, Side } from "./types.ts";
 
 export type CheckSpec = {
@@ -703,7 +703,7 @@ export function confirmRepeatChecks(all: readonly Exchange[]): Check[] {
 export function clientDocuments(all: readonly Exchange[]): { clientIds: Set<string>; jwksUris: Set<string> } {
   const clientIds = new Set<string>();
   for (const x of agentRequests(all)) {
-    const id = form(x)?.get("client_id");
+    const id = clientIdOf(form(x));
     if (id) clientIds.add(id);
   }
   const jwksUris = new Set<string>();

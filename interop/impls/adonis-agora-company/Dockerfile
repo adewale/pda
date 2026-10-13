@@ -6,8 +6,8 @@
 # and fails unless each package.json names the version installed, so the image runs exactly
 # the pinned source as its authors built it. Nothing upstream is vendored into this repository.
 FROM node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS build
-ARG AUTHKIT_COMMIT=97838853c44e55c5d4c71ac5741f26fc34f720dc
-ARG AGENT_COMMIT=e66a2329d436f603dd7c57a0ca81b36e65bd486f
+ARG AUTHKIT_COMMIT=fe2a3ff453b469d759a9f9313be331f4324fa2bf
+ARG AGENT_COMMIT=e139b9599e61db17f85fa186f4073f81ee6bc19b
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /upstream

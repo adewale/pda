@@ -37,7 +37,7 @@ import {
   ManzanitaPlugin,
 } from "../lib/demo/manzanita.js";
 
-const UPSTREAM_COMMIT = "0c048aa7fef8d98bbc23de5474220b6e7206384a";
+const UPSTREAM_COMMIT = "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65";
 const NAME = process.env.INTEROP_NAME || "datalayer-ts";
 const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${NAME}.company.interop.test`).replace(/\/$/, "");
 const DOMAIN = new URL(ORIGIN).hostname;

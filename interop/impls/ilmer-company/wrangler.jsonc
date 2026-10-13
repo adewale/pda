@@ -2,12 +2,14 @@
 // upstream's cf CLI config (cloudflare.config.ts) so it runs under `wrangler dev`
 // without a Cloudflare login. Bindings and Durable Object classes match upstream.
 // Differences, all interop-only: ORIGIN comes from the container (--var), LOCAL_DEV is
-// false (HTTPS client_ids only), and the Workers AI binding is left out, as upstream's
-// own ILMER_POPPY_OFFLINE=true does: conversations work, every model answer is
-// Ilmer's fixed apology.
+// false (HTTPS client_ids only), and there is no Workers AI binding, as upstream's own
+// ILMER_POPPY_OFFLINE=true leaves out: interop-main.js hands HistoryAgent a stand-in
+// that refuses every call, so conversations work and every model answer is Ilmer's
+// fixed apology.
 {
   "name": "ilmer-poppy",
-  "main": "src/index.ts",
+  // interop-main.js re-exports upstream's src/index.ts and gives HistoryAgent a stand-in AI binding.
+  "main": "interop-main.js",
   "compatibility_date": "2026-10-09",
   "assets": {
     "directory": "./public",

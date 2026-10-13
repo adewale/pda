@@ -2,7 +2,7 @@
 
 Datalayer's TypeScript Personal Agent SDK ([datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol), `src/`), behind an adapter for the interop harness ([spec](../../../docs/interop-spec.md) 5.2).
 
-- **Upstream commit:** `0c048aa7fef8d98bbc23de5474220b6e7206384a` (v0.10.0, 12 October 2026; moved from `12d71877`, v0.6.0), fetched inside the image. Nothing upstream is vendored here.
+- **Upstream commit:** `00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65` (v0.17.0, 13 October 2026; moved from `0c048aa7`, v0.10.0, on 13 October, and from `12d71877`, v0.6.0, on 12 October), fetched inside the image. Nothing upstream is vendored here.
 - **Licence:** BSD-3-Clause (upstream). The adapter is ours.
 - **Build:** the runner builds this directory. Upstream has no lockfile at this commit, so `npm install` resolves dependency versions within its `package.json` ranges; installs run with `--ignore-scripts`.
 - **Ports:** 8080 serves the agent's identity (`/agent.json` is the `client_id`, `/jwks.json`, `/oauth/callback`) at `INTEROP_ORIGIN`. 8081 is the control API.
@@ -46,14 +46,23 @@ Nothing the adapter calls changed its signature; the clients now trace through a
 - **Mediated Sign-In** may send credentials to the `auth.issuer` host as well as the Company's domain (`endpointOnCompanyDomain`).
 - **URL policy.** The portable check now refuses local names (`localhost`, `.local`, `.internal`, `home.arpa`, `localdomain`) and every non-global IP literal. `*.interop.test` isn't one, so nothing is relaxed.
 
+## Moving from v0.10.0 to v0.17.0 (what changed upstream)
+
+21 commits, seven releases, all on 12 and 13 October. Nothing in the agent SDK the adapter drives changed: `src/sessions.ts`, `src/conversations.ts`, `src/device.ts`, `src/auth.ts`, `src/operations.ts` and the MCP client are byte for byte the same. The new code on the agent side is outside the adapter's path:
+
+- **Reactor displays** (`src/ui.ts`): `PapConfirm` (an operation to confirm), `PapOutcome` (what it came to) and `PapReplies` (a Company's replies, each with who wrote it), for a page to render.
+- **`create_resolving_client`** (Python's `createResolvingFetch`): an opt-in transport that resolves each host and refuses private addresses (`unsafe_address`). The adapter doesn't use it; it would refuse every `*.interop.test` name, which resolves to the proxy on a private network.
+
+Still 124 conformance cases, the same five files. No cell should change.
+
 ## Relaxations and patches
 
 None. The SDK's default URL policy checks only host strings, so `*.interop.test` names on private addresses pass, and Node's `fetch` trusts the run's CA through `NODE_EXTRA_CA_CERTS`. `patches/` is empty.
 
 ## Known upstream issues seen in the grid
 
-Still present at `0c048aa7`:
+Still present at `00216eb7` (v0.17.0):
 
-- **SSE resume (CS).** `ConversationClient.stream` ([`src/conversations.ts` lines 405-481](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/conversations.ts#L405-L481)) reconnects immediately, with no delay and no `retry:` handling, and throws `stream_unavailable` after five reconnects that bring nothing new. A Company that closes an idle stream (dpa-mock after `wait`, Manzanita at once) fails it when the agent resumes at the latest event (Poppy 7.6).
-- **Device polling ignores `use_dpop_nonce`** ([`src/device.ts` lines 333-360](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/device.ts#L333-L360): one proof, no nonce, no retry), unlike the Session, code, refresh and revocation requests, so Device Sign-In fails at Companies that require nonces (pi-poppy, scenario SVN). The Python SDK has the same gap (Poppy 4.3, RFC 9449 section 8).
+- **SSE resume (CS).** `ConversationClient.stream` ([`src/conversations.ts` lines 405-481](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/src/conversations.ts#L405-L481)) reconnects immediately, with no delay and no `retry:` handling, and throws `stream_unavailable` after five reconnects that bring nothing new. A Company that closes an idle stream (dpa-mock after `wait`, Manzanita at once) fails it when the agent resumes at the latest event (Poppy 7.6).
+- **Device polling ignores `use_dpop_nonce`** ([`src/device.ts` lines 333-360](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/src/device.ts#L333-L360): one proof, no nonce, no retry), unlike the Session, code, refresh and revocation requests, so Device Sign-In fails at Companies that require nonces (pi-poppy, scenario SVN). The Python SDK has the same gap (Poppy 4.3, RFC 9449 section 8).
 - `validateDirectSignInCallback` (`src/auth.ts` lines 160-200) reports an `error` callback before checking `state`, after the pending state has been taken, so any `error=` callback to the redirect URI ends a pending sign-in. Low severity.

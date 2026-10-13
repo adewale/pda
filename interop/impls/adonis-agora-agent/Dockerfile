@@ -2,7 +2,7 @@
 # (packages/adonis/src/poppy-client), built from source at the pinned commit and driven by the
 # interop adapter. No model: the adapter calls the library's protocol functions directly.
 FROM node:22.20.0-bookworm-slim@sha256:b21fe589dfbe5cc39365d0544b9be3f1f33f55f3c86c87a76ff65a02f8f5848e AS build
-ARG AGENT_COMMIT=e66a2329d436f603dd7c57a0ca81b36e65bd486f
+ARG AGENT_COMMIT=e139b9599e61db17f85fa186f4073f81ee6bc19b
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /upstream

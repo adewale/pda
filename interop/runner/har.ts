@@ -115,6 +115,20 @@ export function form(exchange: Exchange): URLSearchParams | null {
   return exchange.method === "POST" && type.startsWith("application/x-www-form-urlencoded") ? new URLSearchParams(exchange.requestBody) : null;
 }
 
+/**
+ * The client a token or revocation request authenticates as: its `client_id`, or, when it
+ * sends none (RFC 7521 4.2 makes `client_id` optional beside a client assertion), the client
+ * assertion's `iss`, when `iss` and `sub` agree as RFC 7523 3 requires.
+ */
+export function clientIdOf(fields: URLSearchParams | null): string | null {
+  if (!fields) return null;
+  const id = fields.get("client_id");
+  if (id) return id;
+  const assertion = fields.get("client_assertion");
+  const payload = assertion ? decodeJwt(assertion)?.payload : undefined;
+  return typeof payload?.iss === "string" && payload.iss === payload.sub ? payload.iss : null;
+}
+
 export function jsonBody(body: string): unknown {
   try {
     return JSON.parse(body);

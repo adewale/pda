@@ -17,7 +17,7 @@ const SECRET = process.env.INTEROP_SECRET ?? '';
 const APP_DIR = '/opt/ilmer/agent';
 const STATE = '/tmp/ilmer-state';
 const INNER = `http://127.0.0.1:${PORT}`;
-const COMMIT = process.env.INTEROP_COMMIT ?? '4ca76e0026a1fa442f9430eddba61e82e6e4c9b4';
+const COMMIT = process.env.INTEROP_COMMIT ?? 'de0d1ec50f09906fedf26a83b7b88042ebfebd56';
 
 const MANIFEST = {
   interop: 1,
@@ -42,6 +42,7 @@ const MANIFEST = {
   relaxations: [
     'Runs under wrangler dev with a container-only wrangler.jsonc (upstream deploys with the cf CLI): ORIGIN is the interop origin, LOCAL_DEV=false',
     'No Workers AI binding (as upstream\'s ILMER_POPPY_OFFLINE=true): every Company Agent reply is Ilmer\'s fixed "Sorry, I could not answer that just now" message',
+    'A container-only entry module (interop-main.js) re-exports upstream\'s Worker and gives HistoryAgent a stand-in env.AI that refuses every call, because its web_search and web_fetch tools need a binding to be constructed',
     'workerd trusts the run CA through the system trust store, installed by the entrypoint, for fetching client metadata'
   ]
 };
