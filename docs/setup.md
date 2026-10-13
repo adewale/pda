@@ -112,6 +112,7 @@ Every way to turn something off, in one place. A var goes in `deployment.local.j
 | The demo: model calls you pay for | `"DEMO_DAILY_USD_PER_USER": 0` and `"DEMO_DAILY_USD_PER_DOMAIN": 0` | Either cap at 0 refuses every demo call before it is made, because nobody's spend is below 0. Everyone then needs their own key, and a scheduled task with no key fails its run; three failures in a row pause it. |
 | One sign-in provider | `"SIGNIN_PROVIDERS": ["github"]` or `["google"]` | The sign-in page has no button for the other, and its `/auth/` routes answer 404. At least one must be listed. |
 | New people | `"SIGNUP": "allowlist"` (the committed value) | Only `OWNERS` and `SIGNIN_ALLOWLIST` sign in. Taking someone off a list shuts them out at their next request after the redeploy. Their agent stops too: it makes no model call for them, on the demo or their own key, and each reminder or scheduled task pauses when it comes due ("this account can no longer sign in") with no notification. Company messages wait unread by the model. Nothing is deleted: put them back on the list, and their next sign-in starts the paused items again and hands the waiting messages to the model. Someone still allowed to sign in but taken off `DEMO_ALLOWLIST` keeps everything, on their own key or with "needs a key". |
+| The interop test client | `"INTEROP_LIVE_JWKS": ""` (the committed value) | `/poppy/interop/client.json` and `/poppy/interop/jwks.json` answer 404, and the interop live lane's `S0`, `N` and `C` fail with `invalid_client` at a Company that checks client metadata ([section 9](#9-the-interop-test-client-optional)). |
 | Notifications | `npx wrangler secret delete WEB_PUSH_VAPID_JWK` | Settings stops offering notifications and the agent sends none. Reminders still show in the chat. Subscriptions stay in each agent's storage, unused. Putting the same key back brings them back; a new key means each person turns notifications on again ([section 2](#2-secrets)). |
 
 `OWNERS` can't be emptied: every route but the validator then answers with a config error. The validator has no switch; its URL checks are rate limited (below).
@@ -147,3 +148,17 @@ The agent writes one structured event per unit of work to Workers Logs: `http` f
 **A read-only token for an assistant (optional).** To let a coding assistant or a script query the logs (the [Workers Observability API](https://developers.cloudflare.com/api/resources/workers/subresources/observability/), or the Cloudflare API MCP server), create an API token under **My Profile → API Tokens** with only **Account → Workers Observability → Read** for this account; on an account that uses Workers roles, the **Metadata Read-Only** role scoped to this Worker instead. It can read events and nothing else: no secret, no Durable Object, no deploy. Give it an expiry, and revoke it when the work is done.
 
 **Diagnostics from a person.** When someone reports a problem, ask them to press **Copy diagnostics** on their Activity page and paste the text to you. It holds their agent's newest 200 events and its Poppy protocol log, the same redacted fields as the logs, so you can debug without opening the logs or seeing their conversation.
+
+## 9. The interop test client (optional)
+
+The interop harness's live lane runs our agent's Poppy client against public Companies ([interop-spec §10](interop-spec.md#10-lanes)). A Company fetches the agent's `client_id`, so the live lane needs one on the internet. Your Worker can serve it: a second Poppy client, separate from the real one, at `<origin>/poppy/interop/client.json`, with its public keys at `<origin>/poppy/interop/jwks.json`. It has its own key and no redirect URI, so it can't sign anyone in, and it never touches a person's agent. Its private key stays on the machine that runs the harness; the Worker holds only the public key set, in the var `INTEROP_LIVE_JWKS`.
+
+To turn it on, in the checkout you run the harness from:
+
+```sh
+node scripts/interop-live-identity.mjs   # writes interop/.live-identity.json (git ignores it); prints the public key set
+```
+
+Put what it prints in `deployment.local.json` as `"INTEROP_LIVE_JWKS": {"keys": [...]}`, then `npm run deploy`. The script takes the origin from your `PUBLIC_ORIGIN`, or from `--origin`. It never prints the private key; don't copy `interop/.live-identity.json` anywhere, and never set it as a secret. The deploy check refuses a private key in `INTEROP_LIVE_JWKS`, and the Worker refuses a key of `POPPY_SIGNING_JWKS`.
+
+To turn it off, set `"INTEROP_LIVE_JWKS": ""` (the committed value) and deploy: both routes answer 404. To replace the key, run the script with `--new`, paste the new public key set and deploy. [interop/README.md](../interop/README.md#the-live-lanes-identity) has the harness's side.

@@ -1,5 +1,6 @@
 import { readOwners, readSigninAllowlist, readDemoAllowlist, type ListEnv } from "./allowlist.ts";
 import { ConfigError, readBrowserRun, readModelConfig, readSignInProviders, readSignup, readDemoCaps } from "./config.ts";
+import { readInteropKeys } from "./poppy/interop-client.ts";
 import { readIdentity } from "./poppy/keys.ts";
 import { readPrivacyContact } from "./privacy.ts";
 
@@ -18,6 +19,8 @@ export type DeploymentEnv = ListEnv & {
   readonly PUBLIC_ORIGIN?: string;
   readonly POPPY_CLIENT_NAME?: string;
   readonly POPPY_LOGO_URI?: string;
+  /** Optional: the interop test client's public key set; empty turns it off (src/poppy/interop-client.ts). */
+  readonly INTEROP_LIVE_JWKS?: unknown;
 };
 
 const CHECKS: ReadonlyArray<(env: DeploymentEnv) => unknown> = [
@@ -29,7 +32,8 @@ const CHECKS: ReadonlyArray<(env: DeploymentEnv) => unknown> = [
   readDemoCaps,
   readSignInProviders,
   readBrowserRun,
-  readPrivacyContact
+  readPrivacyContact,
+  readInteropKeys
 ];
 
 /** Every problem with the deployment's vars, each naming its setting; empty when it is configured. */

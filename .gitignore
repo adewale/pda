@@ -9,6 +9,8 @@ dist/
 # Agent worktrees
 .claude/worktrees/
 interop/results/
+# The interop live lane's private key (scripts/interop-live-identity.mjs)
+interop/.live-identity.json
 
 # The deployer's own vars (deployment.example.json shows the shape)
 deployment.local.json

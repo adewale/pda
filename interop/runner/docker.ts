@@ -1,9 +1,19 @@
 /** The `docker` CLI, as the runner uses it. */
 import { execFile, execFileSync } from "node:child_process";
 
-export function docker(args: string[], options: { quiet?: boolean } = {}): string {
+/**
+ * `env` adds to the docker CLI's own environment, for `-e NAME` arguments
+ * that take their value from it: a secret passed so stays out of the
+ * command line (and out of `ps`).
+ */
+export function docker(args: string[], options: { quiet?: boolean; env?: Readonly<Record<string, string>> } = {}): string {
   try {
-    return execFileSync("docker", args, { encoding: "utf8", stdio: ["ignore", "pipe", options.quiet ? "pipe" : "inherit"], maxBuffer: 64 * 1024 * 1024 }).trim();
+    return execFileSync("docker", args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", options.quiet ? "pipe" : "inherit"],
+      maxBuffer: 64 * 1024 * 1024,
+      ...(options.env && Object.keys(options.env).length ? { env: { ...process.env, ...options.env } } : {})
+    }).trim();
   } catch (error) {
     const stderr = (error as { stderr?: Buffer | string }).stderr?.toString() ?? "";
     throw new Error(`docker ${args.slice(0, 2).join(" ")} failed${stderr ? `: ${stderr.trim()}` : ""}`);
