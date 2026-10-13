@@ -2,9 +2,9 @@
 
 Datalayer's Python Personal Agent SDK (`personal_agent_protocol`) behind the interop control adapter of [docs/interop-spec.md](../../../docs/interop-spec.md) section 5.2. The adapter calls the SDK's protocol clients directly; no model is involved.
 
-- **Upstream:** [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol), commit `0c048aa7fef8d98bbc23de5474220b6e7206384a` (12 October 2026, v0.10.0; moved from `12d71877`, v0.6.0). The Dockerfile clones it at that commit; nothing upstream is copied into this repository.
+- **Upstream:** [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol), commit `00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65` (13 October 2026, v0.17.0; moved from `0c048aa7`, v0.10.0, on 13 October, and from `12d71877`, v0.6.0, on 12 October). The Dockerfile clones it at that commit; nothing upstream is copied into this repository.
 - **Licence:** BSD 3-Clause (upstream). The adapter is ours.
-- **Dependencies:** pinned in `constraints.txt`, from `pip freeze` of the first build. The SDK's dependencies and its `server` extra are the same at v0.10.0, so the file still covers them; `datalayer_reactor` 1.0.5 still meets `>=1.0.5` (1.1 is needed only by the `ui` extra, which the image doesn't install).
+- **Dependencies:** pinned in `constraints.txt`, from `pip freeze` of the first build. The SDK's dependencies and its `server` extra are the same at v0.17.0 (`pyproject.toml` is unchanged since v0.10.0), so the file still covers them; `datalayer_reactor` 1.0.5 still meets `>=1.0.5` (1.1 is needed only by the `ui` extra, which the image doesn't install).
 
 ## How it runs
 
@@ -51,17 +51,21 @@ None of the SDK calls the adapter makes changed signature, so `adapter.py` is un
 
 The assertions the agent sends are unchanged: `aud` is the endpoint called, `typ: JWT`, a 60-second lifetime and a 22-character `jti`, within the 120 s and 16-character minimum v0.10.0's Companies now require.
 
+## Moving from v0.10.0 to v0.17.0 (what changed upstream)
+
+21 commits, seven releases, on 12 and 13 October. The agent modules the adapter calls (`sessions.py`, `conversations.py`, `device.py`, `operations.py`, `mcp.py`) are unchanged, and so is `adapter.py`. New on the agent side, unused here: `create_resolving_client` (`ResolvingTransport` in `reactor.py`), an opt-in httpx transport that resolves each Company host, refuses private addresses with `unsafe_address` and pins the connection, and three Reactor displays in `ui.py` (`PapConfirm`, `PapOutcome`, `PapReplies`). The rest is on the Company side (see the datalayer-py Company's README). No cell should change.
+
 ## Relaxations
 
-All in the adapter, none in upstream code (`patches/` is empty at v0.10.0 too):
+All in the adapter, none in upstream code (`patches/` is empty at v0.17.0 too):
 
 - `INTEROP_ALLOW_TEST_HOSTS=1` (set in the image, off when unset): a Reactor `pap.urlSafetyPolicy` contribution at order 0 lets discovery and metadata fetches reach `*.interop.test` hosts that resolve to private addresses. Every other host keeps the SDK's `PublicUrlSafetyPolicy`.
 - The httpx client the SDK is given trusts `/interop/ca.pem` (or `SSL_CERT_FILE`).
 
 ## Findings
 
-- **Device Sign-In against a Company that requires DPoP nonces fails.** Still so at v0.10.0: `DeviceSignInClient.poll` and `_poll_token` ([`device.py` lines 200 to 287](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/device.py#L200-L287)) send one token request and never retry `use_dpop_nonce`, unlike the Session, code, refresh and revocation requests. Against pi-poppy's Company: `poppy_error: use_dpop_nonce`, status 400. RFC 9449 section 8; Poppy 4.3.
-- **SSE resumed from the latest event fails against Datalayer's own Companies**, which still close a caught-up stream at once at v0.10.0 (`CompanyService._stream`); the SDK's client reconnects and raises `stream_unavailable`. The adapter reports zero events instead.
+- **Device Sign-In against a Company that requires DPoP nonces fails.** Still so at v0.17.0: `DeviceSignInClient.poll` and `_poll_token` ([`device.py` lines 200 to 287](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/personal_agent_protocol/device.py#L200-L287)) send one token request and never retry `use_dpop_nonce`, unlike the Session, code, refresh and revocation requests. Against pi-poppy's Company: `poppy_error: use_dpop_nonce`, status 400. RFC 9449 section 8; Poppy 4.3.
+- **SSE resumed from the latest event fails against Datalayer's own Companies**, which still close a caught-up stream at once at v0.17.0 (`CompanyService._stream`); the SDK's client reconnects and raises `stream_unavailable`. The adapter reports zero events instead.
 
 ## Readings
 

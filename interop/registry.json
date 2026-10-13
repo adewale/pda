@@ -58,7 +58,7 @@
       "name": "datalayer-ts",
       "role": "agent",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "0c048aa7fef8d98bbc23de5474220b6e7206384a",
+      "commit": "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65",
       "build": "interop/impls/datalayer-ts-agent",
       "notes": "TypeScript SDK clients driven directly; no model. BSD-3-Clause."
     },
@@ -66,7 +66,7 @@
       "name": "datalayer-ts",
       "role": "company",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "0c048aa7fef8d98bbc23de5474220b6e7206384a",
+      "commit": "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65",
       "build": "interop/impls/datalayer-ts-company",
       "notes": "Manzanita reference Company on the TypeScript CompanyService. BSD-3-Clause."
     },
@@ -74,7 +74,7 @@
       "name": "datalayer-py",
       "role": "agent",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "0c048aa7fef8d98bbc23de5474220b6e7206384a",
+      "commit": "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65",
       "build": "interop/impls/datalayer-py-agent",
       "notes": "Python SDK clients driven directly; no model. BSD-3-Clause."
     },
@@ -82,7 +82,7 @@
       "name": "datalayer-py",
       "role": "company",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "0c048aa7fef8d98bbc23de5474220b6e7206384a",
+      "commit": "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65",
       "build": "interop/impls/datalayer-py-company",
       "notes": "Manzanita reference Company; hooks call the Python CompanyService in process. BSD-3-Clause."
     },
@@ -130,7 +130,7 @@
       "name": "ilmer",
       "role": "company",
       "source": "https://github.com/rbirkby/Ilmer.org",
-      "commit": "4ca76e0026a1fa442f9430eddba61e82e6e4c9b4",
+      "commit": "de0d1ec50f09906fedf26a83b7b88042ebfebd56",
       "build": "interop/impls/ilmer-company",
       "notes": "Signed-out only; wrangler dev without Workers AI, so replies are a fixed apology."
     },
@@ -138,7 +138,7 @@
       "name": "print-with-poppy",
       "role": "company",
       "source": "https://github.com/spenciefy/print-with-poppy",
-      "commit": "260dbb4634f5dc0026d790715304be9b78783ff2",
+      "commit": "246727d546be752916ecc667a902a87e94df6674",
       "build": "interop/impls/print-with-poppy-company",
       "notes": "Agent-first photo-print store in APP_MODE=demo (payments, prints and email simulated); guest Sessions, OpenAPI and Operations v1, and accounts by an emailed code (Direct and Mediated Sign-In; the adapter reads the code demo mode stores); the grid's agents on its AGENT_CLIENT_IDS allowlist. Unpatched; ALLOW_COMPAT_AGENT_SESSIONS=false turns its non-Poppy Bearer path off. MIT."
     },
@@ -146,15 +146,15 @@
       "name": "adonis-agora",
       "role": "company",
       "source": "https://github.com/DavideCarvalho/adonis-agora-authkit",
-      "commit": "97838853c44e55c5d4c71ac5741f26fc34f720dc",
+      "commit": "fe2a3ff453b469d759a9f9313be331f4324fa2bf",
       "build": "interop/impls/adonis-agora-company",
-      "notes": "authkit-server 0.78.0 + @adonis-agora/agent 0.79.0 (Company conversations, agent commit e66a2329d436f603dd7c57a0ca81b36e65bd486f) in a minimal AdonisJS host; scripted model; allowInsecureClientIds on for private-network peers."
+      "notes": "authkit-server 0.80.0 + @adonis-agora/agent 0.80.1 (Company conversations, agent commit e139b9599e61db17f85fa186f4073f81ee6bc19b) in a minimal AdonisJS host; scripted model; allowInsecureClientIds on for private-network peers."
     },
     {
       "name": "adonis-agora",
       "role": "agent",
       "source": "https://github.com/DavideCarvalho/adonis-agora-agent",
-      "commit": "e66a2329d436f603dd7c57a0ca81b36e65bd486f",
+      "commit": "e139b9599e61db17f85fa186f4073f81ee6bc19b",
       "build": "interop/impls/adonis-agora-agent",
       "notes": "Drives packages/adonis/src/poppy-client directly; no model."
     },
@@ -162,7 +162,7 @@
       "name": "everruns",
       "role": "agent",
       "source": "https://github.com/everruns/everruns",
-      "commit": "f470ad7098863b92232f65a8890dedf8da2981c8",
+      "commit": "aceb2e2fcfdf9c91022e390ee5efe5a773043bb2",
       "build": "interop/impls/everruns-agent",
       "notes": "The poppy_client capability: worker_poppy_call (what its tools run) in everruns-server, in-memory mode, through its real egress service; no model. Signed-out only. Patches: RFC 1918 addresses pass the SSRF guard (interop setting, off by default); the signing key loader made public. MIT."
     },
@@ -170,15 +170,31 @@
       "name": "everruns",
       "role": "company",
       "source": "https://github.com/everruns/everruns",
-      "commit": "f470ad7098863b92232f65a8890dedf8da2981c8",
+      "commit": "aceb2e2fcfdf9c91022e390ee5efe5a773043bb2",
       "build": "interop/impls/everruns-company",
       "notes": "A published poppy channel on everruns-server in in-memory mode, with a stand-in turn runner (\"Reply N\"); signed-out only. Patch: RFC 1918 addresses pass the SSRF guard (interop setting, off by default). MIT."
+    },
+    {
+      "name": "tipping-co",
+      "role": "agent",
+      "source": "https://github.com/timothyohare/personal-agent-protocol",
+      "commit": "fb7b4e64ad343d9406055a995f4beb06269c1ce6",
+      "build": "interop/impls/tipping-co-agent",
+      "notes": "packages/agent's CompanyClient driven directly, with packages/agent-host serving its client metadata; no model. Signed out, Direct Sign-In, OpenAPI. No licence declared: fetched at build, nothing kept."
+    },
+    {
+      "name": "tipping-co",
+      "role": "company",
+      "source": "https://github.com/timothyohare/personal-agent-protocol",
+      "commit": "fb7b4e64ad343d9406055a995f4beb06269c1ce6",
+      "build": "interop/impls/tipping-co-company",
+      "notes": "Tipping Co (packages/company, Hono, in-memory stores), signed out and Direct Sign-In, an OpenAPI API; the hooks sign in on its own pages. Relaxation: *.interop.test names pass its private-address check (INTEROP_ALLOW_TEST_HOSTS). No licence declared: fetched at build, nothing kept."
     },
     {
       "name": "ilmer-live",
       "role": "company",
       "source": "https://github.com/rbirkby/Ilmer.org",
-      "commit": "4ca76e0026a1fa442f9430eddba61e82e6e4c9b4",
+      "commit": "de0d1ec50f09906fedf26a83b7b88042ebfebd56",
       "url": "https://poppy.ilmer.org",
       "notes": "Live lane only: signed-out D, S0 and one or two C messages (a real model with a shared daily budget). Deployed commit not confirmed."
     },

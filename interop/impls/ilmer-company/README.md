@@ -3,8 +3,17 @@
 Ilmer Past's signed-out Poppy Company (the `agent/` Worker in rbirkby/Ilmer.org, live at poppy.ilmer.org), run under `wrangler dev`, behind an [interop spec](../../../docs/interop-spec.md) 5.3 adapter.
 
 - **Upstream:** [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org), MIT licence. The Dockerfile clones it at a pinned commit; nothing is vendored here.
-- **Pinned commit:** `4ca76e0026a1fa442f9430eddba61e82e6e4c9b4` (11 Oct 2026).
-- **Patches:** none. Upstream deploys with the `cf` CLI; [`wrangler.jsonc`](wrangler.jsonc) is a container-only config with the same bindings and Durable Object classes, and Wrangler 4.149.0 is installed beside upstream's lockfile.
+- **Pinned commit:** `de0d1ec50f09906fedf26a83b7b88042ebfebd56` (12 Oct 2026, upstream's head on 13 October; moved from `4ca76e0`, 11 Oct, on 13 October).
+- **Patches:** none. Upstream deploys with the `cf` CLI; [`wrangler.jsonc`](wrangler.jsonc) is a container-only config with the same bindings and Durable Object classes, and Wrangler 4.149.0 is installed beside upstream's lockfile. Its `main` is [`interop-main.js`](interop-main.js), a container-only entry module that re-exports upstream's `src/index.ts` unchanged and gives `HistoryAgent` a stand-in Workers AI binding ([below](#what-changed-upstream-pin-moved-13-october)).
+
+## What changed upstream (pin moved 13 October)
+
+12 commits on 12 October, `4ca76e0` to `de0d1ec`. In `agent/`:
+
+- **`poppy_domains`** now lists `ilmer.org` beside the issuer's own host (`src/poppy.ts`), because the main site, www.ilmer.org, began serving a static `poppy.json` naming the same issuer. In the grid the metadata lists `ilmer.company.interop.test` and `ilmer.org`; agents discover `ilmer.company.interop.test` and nothing else.
+- **Framing:** `X-Frame-Options: DENY` became `Content-Security-Policy: frame-ancestors 'self' https://www.ilmer.org https://ilmer.org http://localhost:8080`, for a chat popover on the main site.
+- **Web search and fetch tools** for the Company Agent (`src/agent.ts`): `webSearchTool({ binding: this.env.AI, provider: 'exa' })` and `webFetchTool({ binding: this.env.AI })` from `agents` 0.28.0. They take `env.AI` directly, not the `offline` stand-in the model call falls back to, and `webFetchTool` throws a `RangeError` at construction when the binding is undefined (`toSource` in `agents`' web-fetch core). The harness is built on the first message of each conversation, so without a binding every conversation would fail before the model is asked; upstream's own `ILMER_POPPY_OFFLINE=true` mode has the same gap. `interop-main.js` gives `HistoryAgent` an `env.AI` that rejects every call (`run`, `websearch`, `toMarkdown`, `gateway().run`), so the tools are built, the model call fails as before, and each reply is still the fixed apology. Nothing is fetched.
+- `ProtocolError` lost its TypeScript parameter properties (plain fields now), a `.npmrc` with `min-release-age=3`, and tests for the protocol and the page.
 
 ## Run
 
@@ -34,7 +43,7 @@ Scenarios: `D`, `S0`, `C`, `CI`, `CM`. Not `DC` (it answers `direct_conversation
 ## Relaxations
 
 - Runs under `wrangler dev` with the container-only config: `ORIGIN` is the interop origin, `LOCAL_DEV=false` (HTTPS `client_id`s only, as in production).
-- No Workers AI binding, as upstream's own `ILMER_POPPY_OFFLINE=true` does. The Company Agent's model call fails, so every reply is Ilmer's fixed "Sorry, I could not answer that just now. Please try again in a moment." That keeps cells deterministic, but it means the grid tests Ilmer's protocol layer, not its answers.
+- No Workers AI binding, as upstream's own `ILMER_POPPY_OFFLINE=true` leaves out; since `de0d1ec`, a stand-in `env.AI` from `interop-main.js` that refuses every call, so the web tools can be built. The Company Agent's model call fails, so every reply is Ilmer's fixed "Sorry, I could not answer that just now. Please try again in a moment." That keeps cells deterministic, but it means the grid tests Ilmer's protocol layer, not its answers.
 - The run CA in the system trust store.
 
 Ilmer accepts any HTTPS `client_id` whose host isn't an IP literal or loopback, so `*.agent.interop.test` needs no allowlist change.

@@ -1,10 +1,14 @@
 # adonis-agora (Personal Agent)
 
-The Poppy client of [`@adonis-agora/agent`](https://github.com/DavideCarvalho/adonis-agora-agent) (`packages/adonis/src/poppy-client`, version 0.79.0), for the interop grid ([docs/interop-spec.md](../../../docs/interop-spec.md)).
+The Poppy client of [`@adonis-agora/agent`](https://github.com/DavideCarvalho/adonis-agora-agent) (`packages/adonis/src/poppy-client`, version 0.80.1), for the interop grid ([docs/interop-spec.md](../../../docs/interop-spec.md)).
 
-- **Pinned commit:** `e66a2329d436f603dd7c57a0ca81b36e65bd486f`.
+- **Pinned commit:** `e139b9599e61db17f85fa186f4073f81ee6bc19b`.
 - **Licence:** MIT. A copy is in the image at `/licenses/`.
 - **Vendoring:** nothing upstream is vendored here.
+
+## What changed upstream (pin moved 13 October)
+
+From `e66a232` (0.79.0) to `e139b95` (0.80.1 plus four docs commits), eight commits on 11 and 12 October: generative-UI sandbox validation and telemetry (#373), a chat-client fix that settles `send` and `resume` when aborted before the request goes out (#375), and docs. `packages/adonis/src/poppy-client/`, the only code this image bundles, is byte for byte the same, and so are its dependency pins (`jose`, `@modelcontextprotocol/sdk`). No cell should change.
 
 ## How it's built
 

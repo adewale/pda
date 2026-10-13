@@ -1,5 +1,5 @@
 // Interop adapter (docs/interop-spec.md 5.1, 5.3) for print-with-poppy, an agent-first
-// photo-print store (spenciefy/print-with-poppy).
+// photo-print store (spenciefy/print-with-poppy), pinned at 246727d (13 Oct).
 //
 // Starts the store (server/index.ts under tsx) on PORT (8080) in its demo mode and serves
 // the control API on ADAPTER_PORT (8081). The store offers signed-out Sessions and, since
@@ -22,7 +22,7 @@ const ADAPTER_PORT = Number(process.env.ADAPTER_PORT ?? 8081);
 // The runner sets INTEROP_ORIGIN (spec section 3); the default is for running by hand.
 const ORIGIN = (process.env.INTEROP_ORIGIN ?? 'https://print-with-poppy.company.interop.test').replace(/\/+$/, '');
 const SECRET = process.env.INTEROP_SECRET ?? '';
-const COMMIT = process.env.INTEROP_COMMIT ?? '260dbb4634f5dc0026d790715304be9b78783ff2';
+const COMMIT = process.env.INTEROP_COMMIT ?? '246727d546be752916ecc667a902a87e94df6674';
 const APP_DIR = '/opt/pwp';
 const DATA = '/data/pwp';
 const INNER = `http://127.0.0.1:${PORT}`;

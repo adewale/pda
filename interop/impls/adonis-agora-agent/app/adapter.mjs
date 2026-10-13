@@ -36,8 +36,8 @@ const MANIFEST = {
   interop: 1,
   name: 'adonis-agora',
   role: 'agent',
-  commit: process.env.INTEROP_COMMIT || 'e66a2329d436f603dd7c57a0ca81b36e65bd486f',
-  components: { '@adonis-agora/agent/poppy-client': '0.79.0 (built from source)' },
+  commit: process.env.INTEROP_COMMIT || 'e139b9599e61db17f85fa186f4073f81ee6bc19b',
+  components: { '@adonis-agora/agent/poppy-client': '0.80.1 (built from source)' },
   poppy: ['0.1'],
   extensions: [],
   // No O/OX: the client has no Operations extension.

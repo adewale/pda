@@ -2,9 +2,9 @@
 
 Datalayer's TypeScript Company ([datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol), `src/company/`), running its reference Company, Manzanita Outfitters (`src/demo/manzanita.ts`), behind the hooks adapter for the interop harness ([spec](../../../docs/interop-spec.md) 5.3).
 
-- **Upstream commit:** `0c048aa7fef8d98bbc23de5474220b6e7206384a` (v0.10.0, 12 October 2026; moved from `12d71877`, v0.6.0), fetched inside the image. Nothing upstream is vendored here.
+- **Upstream commit:** `00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65` (v0.17.0, 13 October 2026; moved from `0c048aa7`, v0.10.0, on 13 October, and from `12d71877`, v0.6.0, on 12 October), fetched inside the image. Nothing upstream is vendored here.
 - **Licence:** BSD-3-Clause (upstream). The adapter is ours.
-- **Build:** the runner builds this directory (same base as the agent image; `npm install --ignore-scripts`, no upstream lockfile; `package.json` and the build script are unchanged at v0.10.0).
+- **Build:** the runner builds this directory (same base as the agent image; `npm install --ignore-scripts`, no upstream lockfile; `package.json`'s dependencies and the build script are unchanged at v0.17.0).
 - **Ports:** 8080 is the Company, served by the SDK's own `companyRequestListener` at `INTEROP_ORIGIN`. The listener rebuilds every request URL on `CompanyConfig.base`, so DPoP `htu` checks use the configured origin, not the proxy's inner request. 8081 is the hooks API.
 
 ## Hooks
@@ -26,7 +26,18 @@ The Company and the adapter run in one process; hooks call the `CompanyService` 
 | `require_nonce`, `rate_limit` | 501 | The service never sends DPoP nonces and has no rate limiter; the adapter doesn't fake either. |
 | `staff_join`, `staff_reply` | 501 | Manzanita has no staff. |
 
-**Manifest:** scenarios `D S0 SD SV SXV SMC SX SE SO R C CI CS CA AO AS O OX DC W O2 CM`: Manzanita has Direct Conversations and close (`service.ts:2025-2077`, `2264-2295`), a browser-session endpoint (`#browserSession`, `2801-2829`), a repeated confirm that returns the operation unchanged (`2640-2643`), and fetches each agent's `client_id` and keys when a Session starts. Not `H`: Manzanita has no staff, so nothing can play `staff_join`. Not `SM`: Manzanita's only account always asks for a one-time code (that's `SMC`). Not `N` or `RL`; not `AM`, since every Manzanita MCP tool needs a signed-in user. Readings: `S1: either` (the assertion `aud` may be the issuer, the token endpoint or the endpoint it's sent to, at the token, device and revocation endpoints alike), `S2: lenient-120s` (`typ` absent or `JWT`, at most 120 s, `jti` of 16 to 256 characters), `S3: insertion` (its issuer has no path, so both forms coincide), `S4: omit`.
+**Manifest:** scenarios `D S0 SD SV SXV SMC SX SE SO R C CI CS CA AO AS O OX DC W O2 CM`: Manzanita has Direct Conversations and close (`service.ts:2223-2275`, `2462-2493` at v0.17.0), a browser-session endpoint (`#browserSession`, `3000-3031`), a repeated confirm that returns the operation unchanged (`2838-2841`), and fetches each agent's `client_id` and keys when a Session starts. Not `H`: Manzanita has no staff, so nothing can play `staff_join`. Not `SM`: Manzanita's only account always asks for a one-time code (that's `SMC`). Not `N` or `RL`; not `AM`, since every Manzanita MCP tool needs a signed-in user. Readings: `S1: either` (the assertion `aud` may be the issuer, the token endpoint or the endpoint it's sent to, at the token, device and revocation endpoints alike), `S2: lenient-120s` (`typ` absent or `JWT`, at most 120 s, `jti` of 16 to 256 characters), `S3: insertion` (its issuer has no path, so both forms coincide), `S4: omit`.
+
+## Moving from v0.10.0 to v0.17.0 (what changed upstream)
+
+21 commits on 12 and 13 October. In the Company (`src/company/service.ts`, `store.ts`, `points.ts`, `index.ts`); `verify.ts` and `src/demo/manzanita.ts` are unchanged, and so is `adapter.mjs`:
+
+- **A scope no longer offered ends the Session** (0.13.0): `#offers` refuses a Session holding a scope the configuration doesn't offer with `invalid_token` (`#caller`, the MCP server), and a refresh asking for one with `invalid_scope`. Manzanita offers every scope the fixture names, so nothing in the grid reaches it.
+- **A password reset ends earlier sign-ins** (0.15.0): an `AccountDirectory` that also answers `signedOutBefore` makes the service refuse and revoke a sign-in from before that time; Account Tokens carry `signedInAt`. Manzanita's accounts don't answer it.
+- **Telemetry** (0.16.0): every request runs under an `AsyncLocalStorage` record, and identity checks, Sessions, interface switches, sign-outs and refusals are reported to `pap.telemetry`. The adapter contributes no sink.
+- **Reactor displays** (`src/ui.ts`): `PapConfirm`, `PapOutcome`, `PapReplies`.
+
+No cell should change.
 
 ## Moving from v0.6.0 to v0.10.0
 
@@ -54,12 +65,12 @@ The default client policy allows every agent.
 
 ## Known upstream issues seen in the grid
 
-Still present at `0c048aa7`:
+Still present at `00216eb7` (v0.17.0):
 
-- **The OpenAPI description** (`ManzanitaApi.openapi()`, [`src/demo/manzanita.ts` lines 203-223](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/demo/manzanita.ts#L203-L223)) has templated paths (`/api/orders/{order_id}/exchanges`) with no `parameters`, so a client that fills only declared parameters sends `{order_id}` literally and gets 404. Ours fills undeclared templates from the call's arguments by name, and refuses a call that leaves one unfilled.
-- **SSE** (`#stream`, [`src/company/service.ts` lines 2375-2396](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/company/service.ts#L2375-L2396)) sends the backlog after `Last-Event-ID` and closes, with no keep-alive and no live events; Datalayer's own client then gives up (`stream_unavailable`) when resuming at the latest event.
-- **Renewal requires `session_id`.** A `refresh_token` grant without one is `invalid_session` ([lines 870-877](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/company/service.ts#L870-L877)), where Poppy 4.8 says it starts a new signed-in Session.
-- **A cancelled Operation's `result.data` is `null`** ([line 2563](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/src/company/service.ts#L2563)).
-- Ended Sessions answer `401 invalid_token`, not `invalid_session` (`#caller`, lines 1729-1745).
+- **The OpenAPI description** (`ManzanitaApi.openapi()`, [`src/demo/manzanita.ts` lines 203-223](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/src/demo/manzanita.ts#L203-L223)) has templated paths (`/api/orders/{order_id}/exchanges`) with no `parameters`, so a client that fills only declared parameters sends `{order_id}` literally and gets 404. Ours fills undeclared templates from the call's arguments by name, and refuses a call that leaves one unfilled.
+- **SSE** (`#stream`, [`src/company/service.ts` lines 2573-2594](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/src/company/service.ts#L2573-L2594)) sends the backlog after `Last-Event-ID` and closes, with no keep-alive and no live events; Datalayer's own client then gives up (`stream_unavailable`) when resuming at the latest event.
+- **Renewal requires `session_id`.** A `refresh_token` grant without one is `invalid_session` ([lines 1009-1016](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/src/company/service.ts#L1009-L1016)), where Poppy 4.8 says it starts a new signed-in Session.
+- **A cancelled Operation's `result.data` is `null`** ([line 2761](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/src/company/service.ts#L2761)).
+- Ended Sessions answer `401 invalid_token`, not `invalid_session` (`#caller`, lines 1922-1942).
 
 Fixed by v0.10.0: device authorization and revocation requests had to name that endpoint as `aud` (now any of the three); a confirmed Operation's `expires_at` was `null` (now omitted); Mediated Sign-In without `scope` signed in with no scopes (now `invalid_scope`).

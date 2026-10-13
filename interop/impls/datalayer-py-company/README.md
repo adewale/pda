@@ -2,9 +2,20 @@
 
 Datalayer's Python reference Company, Manzanita Outfitters (`personal_agent_protocol.company` with `personal_agent_protocol/demo/manzanita.py`), behind the interop hooks adapter of [docs/interop-spec.md](../../../docs/interop-spec.md) section 5.3.
 
-- **Upstream:** [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol), commit `0c048aa7fef8d98bbc23de5474220b6e7206384a` (12 October 2026, v0.10.0). The Dockerfile clones it at that commit; nothing upstream is copied into this repository.
+- **Upstream:** [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol), commit `00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65` (13 October 2026, v0.17.0; moved from `0c048aa7`, v0.10.0, on 13 October). The Dockerfile clones it at that commit; nothing upstream is copied into this repository.
 - **Licence:** BSD 3-Clause (upstream). The adapter is ours.
-- **Dependencies:** pinned in `constraints.txt`, from `pip freeze` of the first build (at v0.6.0). v0.10.0 changes no runtime dependency: `datalayer_reactor>=1.0.5` is still the floor, and the new `ui` and `telemetry` extras (Reactor 1.1, OpenTelemetry) are imported only when used.
+- **Dependencies:** pinned in `constraints.txt`, from `pip freeze` of the first build (at v0.6.0). Neither v0.10.0 nor v0.17.0 changes a runtime dependency (`pyproject.toml` is the same at both): `datalayer_reactor>=1.0.5` is still the floor, and the new `ui` and `telemetry` extras (Reactor 1.1, OpenTelemetry) are imported only when used.
+
+## Moving from v0.10.0 to v0.17.0 (what changed upstream)
+
+21 commits on 12 and 13 October, in `company/service.py`, `company/store.py` and `company/points.py`; `asgi.py`, `verify.py` and `demo/manzanita.py` are unchanged, and so is `adapter.py`.
+
+- **A scope no longer offered ends the Session** (0.13.0): a Session holding a scope the configuration doesn't offer is `invalid_token` at every route and at the MCP server, and an Account Token refreshed for such a scope is `invalid_scope`. The adapter's fixture scopes are all offered, so nothing in the grid reaches it.
+- **A password reset ends earlier sign-ins** (0.15.0): when the host's `AccountDirectory` also answers `signed_out_before`, a sign-in from before that time is refused (`invalid_token`, `invalid_grant`) and revoked whole; Account Tokens now carry `signed_in_at`. Manzanita's directory doesn't answer it, so nothing changes here.
+- **Telemetry** (0.16.0): the service reports identity checks, Sessions started and renewed, interface switches, sign-outs and every refusal (code, route, status, whether a proof was a replay) to `pap.telemetry`. The adapter contributes no sink, so nothing is emitted.
+- **Reactor displays** (0.12.0, 0.13.0, 0.17.0): `PapConfirm`, `PapOutcome` and `PapReplies` in `ui.py`, for a host's page.
+
+No cell should change.
 
 ## Moving from v0.6.0 to v0.10.0
 
@@ -63,14 +74,14 @@ Claimed: D, S0, SD, SV, SMC, SX, SXV, R, SE, SO, C, CI, CS, CA, AO, AS, O, OX, a
 
 ## Findings
 
-Still so at v0.10.0:
+Still so at v0.17.0:
 
-- **DPoP `htu` is compared with the decoded path.** `company/asgi.py` rebuilds the URL from ASGI `scope["path"]` ([line 59](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/asgi.py#L59)), which is percent-decoded, so a request to `/api/orders/%7Border_id%7D/exchanges` is checked against `.../{order_id}/...` and refused with 401 `invalid_dpop_proof`. It should use `raw_path`: RFC 9449 section 4.3 and RFC 3986 section 6.2.2.2 only normalize unreserved characters. Seen with `dpa` in scenario AS.
-- **Its OpenAPI description doesn't declare path parameters.** `/api/orders/{order_id}/exchanges` has no `parameters` ([demo/manzanita.py lines 141-143](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/demo/manzanita.py#L141-L143)), which OpenAPI 3.x requires for path templates, so a client that fills only declared parameters sends the template literally.
-- **SSE closes when caught up.** `_stream` ([company/service.py lines 2034-2058](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/service.py#L2034-L2058)) sends the backlog after `Last-Event-ID` and ends, with no keep-alive and no live events. The SDK's own client reconnects and then raises `stream_unavailable`.
-- **Renewal requires `session_id`.** A `refresh_token` grant without one is `invalid_session` ([company/service.py lines 731-736](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/service.py#L731-L736)), where Poppy 4.8 says it starts a new signed-in Session.
-- **A cancelled Operation's `result.data` is `null`** ([company/service.py lines 2195-2213](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/service.py#L2195-L2213); `OperationResult.data` defaults to `None`, [models.py line 281](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/models.py#L281)). `expires_at`, `terms` and `url` are now omitted instead.
-- **An ended or expired Session gets 401 `invalid_token`** ([company/service.py lines 1446-1454](https://github.com/datalayer/personal-agent-protocol/blob/0c048aa7fef8d98bbc23de5474220b6e7206384a/personal_agent_protocol/company/service.py#L1446-L1454)), never `invalid_session`.
+- **DPoP `htu` is compared with the decoded path.** `company/asgi.py` rebuilds the URL from ASGI `scope["path"]` ([line 59](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/personal_agent_protocol/company/asgi.py#L59)), which is percent-decoded, so a request to `/api/orders/%7Border_id%7D/exchanges` is checked against `.../{order_id}/...` and refused with 401 `invalid_dpop_proof`. It should use `raw_path`: RFC 9449 section 4.3 and RFC 3986 section 6.2.2.2 only normalize unreserved characters. Seen with `dpa` in scenario AS.
+- **Its OpenAPI description doesn't declare path parameters.** `/api/orders/{order_id}/exchanges` has no `parameters` ([demo/manzanita.py lines 141-143](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/personal_agent_protocol/demo/manzanita.py#L141-L143)), which OpenAPI 3.x requires for path templates, so a client that fills only declared parameters sends the template literally.
+- **SSE closes when caught up.** `_stream` ([company/service.py lines 2232-2256](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/personal_agent_protocol/company/service.py#L2232-L2256)) sends the backlog after `Last-Event-ID` and ends, with no keep-alive and no live events. The SDK's own client reconnects and then raises `stream_unavailable`.
+- **Renewal requires `session_id`.** A `refresh_token` grant without one is `invalid_session` ([company/service.py lines 883-888](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/personal_agent_protocol/company/service.py#L883-L888)), where Poppy 4.8 says it starts a new signed-in Session.
+- **A cancelled Operation's `result.data` is `null`** ([company/service.py lines 2393-2411](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/personal_agent_protocol/company/service.py#L2393-L2411); `OperationResult.data` defaults to `None`, [models.py line 281](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/personal_agent_protocol/models.py#L281)). `expires_at`, `terms` and `url` are now omitted instead.
+- **An ended or expired Session gets 401 `invalid_token`** ([company/service.py lines 1640-1652](https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/personal_agent_protocol/company/service.py#L1640-L1652)), never `invalid_session`.
 
 Fixed by v0.10.0:
 
