@@ -31,7 +31,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
 - **Medium:** undefined behaviour that implementations already handle differently, or a failure on a rarer path.
 - **Low:** clarity, editorial or example fixes.
 
-By severity: 5 Critical, 13 High, 30 Medium, 15 Low.
+By severity: 5 Critical, 13 High, 31 Medium, 15 Low.
 
 ## The most important
 
@@ -61,7 +61,7 @@ Below, issues are listed by the date we first recorded them, newest first. This 
 | Discovery and metadata (3) | [S3](#s3), [S7](#s7), [S18](#s18), [N9](#n9), [N24](#n24), [N26](#n26), [N27](#n27), [N44](#n44) |
 | Agent identity and assertions (4.1, 4.2) | [S1](#s1), [S2](#s2), [N25](#n25), [N23](#n23), [S19](#s19) |
 | Sessions and tokens (4.2, 4.3, 4.8) | [S4](#s4), [N6](#n6), [S5](#s5), [N4](#n4), [N5](#n5), [N28](#n28), [S14](#s14), [N1](#n1), [S23](#s23), [N35](#n35), [N39](#n39) |
-| Sign-in (4.4 to 4.9) | [N2](#n2), [N3](#n3), [S16](#s16), [N7](#n7), [N8](#n8), [N14](#n14), [N32](#n32), [N45](#n45) |
+| Sign-in (4.4 to 4.9) | [N2](#n2), [N3](#n3), [S16](#s16), [N7](#n7), [N8](#n8), [N14](#n14), [N32](#n32), [N45](#n45), [N47](#n47) |
 | Web browsing (5) | [N13](#n13), [N43](#n43) |
 | APIs (6) | [N10](#n10), [N17](#n17), [N18](#n18), [S13](#s13), [S22](#s22) |
 | Conversations (7) | [N16](#n16), [S8](#s8), [S9](#s9), [S10](#s10), [N30](#n30), [S11](#s11), [S12](#s12), [S17](#s17), [N21](#n21), [N29](#n29), [N40](#n40), [N31](#n31), [N46](#n46) |
@@ -72,11 +72,12 @@ Below, issues are listed by the date we first recorded them, newest first. This 
 
 ## 13 October 2026
 
-One issue, from an audit of our Cloudflare costs and the adversarial scenarios it led to (XR, XT).
+Two issues: N46, from an audit of our Cloudflare costs and the adversarial scenarios it led to (XR, XT), and N47, from signing out of a live Company, Alpine Retail.
 
 | ID | Area | Kind | Severity | Problem | Suggested fix | What we do |
 | --- | --- | --- | --- | --- | --- | --- |
 | <a id="n46"></a>N46 | Conversations (7) and Operations | Security | Medium | **Nothing bounds how long a Company may keep an agent checking.** A conversation may say `working` or `queued` (7.7), or report `has_more` (7.5), for as long as it likes; an operation may stay `in_progress` with any `Retry-After` (Ops 6). The draft never says how long those states may last, that a Company should send events while it works, or that `Retry-After` is the least wait rather than a schedule. The Guides ask agents to "check for changes no more often than the task needs" but not what to do when the Company says it is busy. An agent that takes the Company at its word reads every second for ever, at its own cost (a hosted agent pays for the time it stays awake) and at the Company's. Our own agent did, until 13 October. Interop scenarios XR and XT. | Say a Company SHOULD send an event at least every few minutes while a conversation is `working` or `queued`, and SHOULD bound how long an operation stays `in_progress`; say `Retry-After` on a `200` is the least wait; say an agent MAY treat a busy conversation with no events as idle, MAY slow its reads of an unchanged operation, and SHOULD cap pages read per check. | `Retry-After` is the least wait; a busy conversation with nothing new for 2 minutes is read at the idle pace (30 s growing to 15 min, an hour after a day); an unchanged in-progress operation is read less often the longer it stays so; a read is at most 10 pages ([our reading](readings.md#pace)). |
+| <a id="n47"></a>N47 | Sign-out (4.9) | Security | Medium | **A refused revocation leaves a grant live with no way out.** 4.9 has the agent revoke the Account Token at sign-out, but says nothing when the Company refuses: a client assertion it doesn't accept (S1), an outage, a rate limit. The token stays live, the Sessions signed in with it stay signed in at the Company, and the agent can't end them another way: there's no revocation by `session_id`, and the User's only recourse is the Company's own account page, if it has one. Live at Alpine Retail on 13 October: a refused sign-out left the owner's Account Token live for a month. See also N45, which orphans a token the agent never received. | Say a Company MUST accept a revocation whose client assertion names any of its own endpoints or its issuer (S1); let an agent revoke a Session's grant by `session_id` with its client assertion; and say what an agent does when revocation fails: keep the token, retry, and tell the User the access is still live. | We keep the sealed token in `poppy_signouts`, stop using the account at once, retry after 1 minute, 10 minutes, 1 hour and 6 hours, and tell the User on a notice, the Companies page (with Try again), Activity and `poppy_status` that the access stays live until it expires or is revoked at the Company. |
 
 ## 12 October 2026
 

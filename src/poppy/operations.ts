@@ -768,15 +768,37 @@ export function summaryStartsWithAction(summary: string, action: string): boolea
   return next === undefined || !NEGATIONS.has(next);
 }
 
-/** A money term: an object of exactly `amount` (a decimal number) and `currency` (three capital letters). */
-function moneyOf(value: Json): { amount: number; currency: string } | null {
+/** The most digits a money amount may have before and after its point: beyond these we can't check it, and the User decides. */
+const MONEY_INTEGER_DIGITS = 15;
+const MONEY_FRACTION_DIGITS = 6;
+const MONEY_SCALE = 10n ** BigInt(MONEY_FRACTION_DIGITS);
+
+/**
+ * A decimal amount as an exact count of millionths, or null: a plain decimal
+ * (a string like "12.50", or a JSON number whose shortest form is one), at
+ * most 15 digits before the point and 6 after. No exponents, no rounding, so
+ * a limit check can't be fooled by a value a float can't hold.
+ */
+export function exactAmount(value: unknown): bigint | null {
+  const text = typeof value === "number" ? (Number.isFinite(value) ? String(value) : "") : typeof value === "string" ? value : "";
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(text);
+  if (!match) return null;
+  const [, sign, whole, fraction = ""] = match;
+  const digits = whole!.replace(/^0+(?=\d)/, "");
+  if (digits.length > MONEY_INTEGER_DIGITS || fraction.length > MONEY_FRACTION_DIGITS) return null;
+  const units = BigInt(digits) * MONEY_SCALE + BigInt(fraction.padEnd(MONEY_FRACTION_DIGITS, "0"));
+  return sign ? -units : units;
+}
+
+/** A money term: an object of exactly `amount` (a bounded decimal, `exactAmount`) and `currency` (three capital letters). */
+function moneyOf(value: Json): { units: bigint; currency: string } | null {
   if (!isObject(value)) return null;
   const keys = Object.keys(value);
   if (keys.length !== 2 || !("amount" in value) || !("currency" in value)) return null;
   const { amount, currency } = value;
   if (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency)) return null;
-  if (typeof amount === "number" ? !Number.isFinite(amount) : typeof amount !== "string" || !/^-?\d+(\.\d+)?$/.test(amount)) return null;
-  return { amount: Number(amount), currency };
+  const units = exactAmount(amount);
+  return units === null ? null : { units, currency };
 }
 
 /** A date or time term: a key that names one, never a renewal or repeat, with an ISO 8601 value. */
@@ -805,20 +827,21 @@ function isDateTerm(key: string, value: Json): boolean {
 export function termsCovered(terms: Json | undefined, limit: { maxAmount: string | null; currency: string | null }): boolean {
   if (terms === undefined || !isObject(terms) || Object.keys(terms).length === 0) return false;
   let money = 0;
-  let total = 0;
+  let total = 0n;
   for (const [key, value] of Object.entries(terms)) {
     const found = moneyOf(value);
     if (found) {
       if (limit.maxAmount !== null && found.currency !== limit.currency) return false;
-      total += Math.abs(found.amount);
+      total += found.units < 0n ? -found.units : found.units;
       money += 1;
     } else if (!(DESCRIPTIVE_TERMS.has(key) && typeof value === "string") && !isDateTerm(key, value)) {
       return false;
     }
   }
   if (limit.maxAmount === null) return true;
-  // Amounts have at most a few decimal places; the epsilon absorbs binary rounding in the sum, never a cent.
-  return money > 0 && total <= Number(limit.maxAmount) + 1e-9;
+  // Exact: millionths on both sides, so neither rounding nor an oversized value can pass a limit.
+  const max = exactAmount(limit.maxAmount);
+  return max !== null && max >= 0n && money > 0 && total <= max;
 }
 
 /**

@@ -2409,6 +2409,21 @@ describe("Operations extension", () => {
     // A credit counts as much as a charge: the limit bounds every amount that moves.
     expect(termsCovered({ price: { amount: "30.00", currency: "GBP" }, refund: { amount: "-30.00", currency: "GBP" } }, limit)).toBe(false);
     expect(termsCovered({ price: { amount: "8.00", currency: "USD" }, fee: { amount: "8.00", currency: "USD" } }, { maxAmount: "10.00", currency: "USD" })).toBe(false);
+    // Exact, not floating point: 0.1 + 0.2 is 0.3, and a value one past a float's integers isn't equal to it.
+    const usd = (amount: string | number) => ({ amount, currency: "USD" });
+    expect(termsCovered({ a: usd("0.1"), b: usd("0.2") }, { maxAmount: "0.3", currency: "USD" })).toBe(true);
+    expect(termsCovered({ a: usd("999999999999999.000001") }, { maxAmount: "999999999999999", currency: "USD" })).toBe(false);
+    expect(termsCovered({ a: usd("999999999999999") }, { maxAmount: "999999999999999", currency: "USD" })).toBe(true);
+    // Beyond 15 digits before the point or 6 after, or not a plain decimal, an amount can't be checked, and the User decides.
+    expect(termsCovered({ a: usd("9007199254740993") }, { maxAmount: "9007199254740992", currency: "USD" })).toBe(false);
+    expect(termsCovered({ a: usd("1".repeat(400)), b: usd("1".repeat(400)) }, { maxAmount: "10", currency: "USD" })).toBe(false);
+    expect(termsCovered({ a: usd(1e308) }, { maxAmount: "10", currency: "USD" })).toBe(false);
+    expect(termsCovered({ a: usd("1e2") }, { maxAmount: "1000", currency: "USD" })).toBe(false);
+    expect(termsCovered({ a: usd("0.0000001") }, { maxAmount: "10", currency: "USD" })).toBe(false);
+    expect(termsCovered({ a: usd(7.5) }, { maxAmount: "10", currency: "USD" })).toBe(true);
+    // A maximum that isn't a bounded decimal covers nothing.
+    expect(termsCovered({ a: usd("1") }, { maxAmount: "Infinity", currency: "USD" })).toBe(false);
+    expect(termsCovered({ a: usd("1") }, { maxAmount: "1".repeat(400), currency: "USD" })).toBe(false);
     expect(termsCovered({ order_id: "ord_1" }, limit)).toBe(false);
     expect(termsCovered({ order_id: "ord_1" }, { maxAmount: null, currency: null })).toBe(true);
     expect(termsCovered({ order_id: 7 }, { maxAmount: null, currency: null })).toBe(false);
