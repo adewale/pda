@@ -13,6 +13,7 @@ export const AGENT_ERROR_CODES = [
   "conversation_not_found",
   "extension_required",
   "interrupted",
+  "invalid_args",
   "invalid_body",
   "invalid_params",
   "invalid_request",

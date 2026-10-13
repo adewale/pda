@@ -312,7 +312,11 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           parameters: Type.Object({
             domain: Domain,
             tool: Type.String(),
-            args: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+            args: Type.Optional(
+              Type.Record(Type.String(), Type.Unknown(), {
+                description: "The tool's arguments as an object matching its inputSchema (from poppy_mcp_list), each value structured, never a string of serialised JSON. Checked before anything is asked or sent."
+              })
+            ),
             api: Type.Optional(Type.String()),
             session: Label
           }),
@@ -341,7 +345,11 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           let step: BrowseAction;
           if (action === "open") step = { kind: "open", url: url ?? "/" };
           else if (!selector) throw new PoppyError("invalid_request", "A selector is required", 0);
-          else if (action === "fill") step = { kind: "fill", selector, value: value ?? "" };
+          else if (action === "fill") {
+            // A missing value isn't an empty one: filling "" would clear the field the model meant to fill.
+            if (value === undefined) throw new PoppyError("invalid_request", 'fill needs a value; to clear a field, give value "".', 0);
+            step = { kind: "fill", selector, value };
+          }
           else step = { kind: action, selector };
           return browse(client(), browser(), await company(domain), session ?? "main", step);
         }

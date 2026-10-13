@@ -987,6 +987,8 @@ describe("5 web browsing", () => {
     await signInDirect(a, c);
     const browse = (args: Record<string, unknown>) => tool(a, "poppy_browse", { domain: c.domain, ...args });
     await browse({ action: "open", url: "/account/address" });
+    // A fill without a value is refused, not taken as an empty one.
+    expect((await browse({ action: "fill", selector: "#line1" })).text).toContain("fill needs a value");
     expect((await browse({ action: "fill", selector: "#line1", value: "1 High St" })).isError).toBe(false);
     expect((await browse({ action: "fill", selector: '[name="city"]', value: "Leeds" })).isError).toBe(false);
     expect((await browse({ action: "fill", selector: "country", value: "France" })).isError).toBe(false);
@@ -1319,6 +1321,24 @@ describe("6 APIs", () => {
     expect(state.operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
     expect(state.performs).toBe(0);
     expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
+  });
+
+  it("checks an MCP tool's args against its inputSchema before a card or a call", async () => {
+    const c = await company({ operations: false });
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_mcp_list", { domain: c.domain });
+    const before = (await requests(c)).length;
+    const missing = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa" } });
+    expect(JSON.parse(missing.details)).toMatchObject({ error: "invalid_args" });
+    expect(missing.text).toContain("replacement_sku");
+    expect(missing.text).toContain("Nothing was sent.");
+    const wrong = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: 42 } });
+    expect(JSON.parse(wrong.details)).toMatchObject({ error: "invalid_args" });
+    expect(wrong.text).toContain("args/query");
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
+    // The tools were listed once, before: nothing since.
+    expect((await requests(c)).length).toBe(before);
   });
 
   it("says which error refused an approved write", async () => {

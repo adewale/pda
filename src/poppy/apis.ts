@@ -49,7 +49,7 @@ export type OpenApiOperation = {
   /** Where its JSON request body's schema is, to check a body against before a card or a request. */
   readonly jsonBody?: JsonBody;
   /** How its parameters' schemas read: OpenAPI 3.0's as draft 4 (`nullable` folded in), 3.1's as 2020-12. */
-  readonly schemaDraft: "4" | "2020-12";
+  readonly schemaDraft: SchemaDraft;
 };
 
 /** An operation's `application/json` request body: whether it's required, and its schema's place in the description. */
@@ -258,21 +258,8 @@ function checkBody(company: Company, op: OpenApiOperation, body: Json | undefine
     return;
   }
   if (errors.length === 0) return;
-  if (typeof body === "string" && /^\s*[{[]/.test(body)) {
-    let parsed: Json | undefined;
-    try {
-      parsed = JSON.parse(body);
-    } catch {
-      parsed = undefined;
-    }
-    if (parsed !== undefined && typeof parsed === "object") {
-      throw new PoppyError(
-        "invalid_body",
-        `body for ${op.operationId} at ${company.name} must be the JSON value itself, such as {"product": "prints"}, not a string containing serialised JSON: pass body as a structured object. Nothing was sent.`,
-        0
-      );
-    }
-  }
+  const serialised = serialisedJson(errors, body, "body", `for ${op.operationId} at ${company.name}`);
+  if (serialised) throw new PoppyError("invalid_body", `${serialised} Nothing was sent.`, 0);
   const shown = leafErrors(errors, "body");
   throw new PoppyError(
     "invalid_body",
@@ -281,8 +268,49 @@ function checkBody(company: Company, op: OpenApiOperation, body: Json | undefine
   );
 }
 
+/**
+ * Where a schema refused a string of serialised JSON (an object or array),
+ * a correction naming each such place; null when there is none.
+ * The model serialised the value itself, at the top or deeper in, and our
+ * client would serialise it again. Strings are never parsed for it.
+ */
+function serialisedJson(errors: readonly OutputUnit[], value: Json, where: string, context: string): string | null {
+  const found = new Map<string, "object" | "array">();
+  for (const { instanceLocation } of errors) {
+    const at = atPointer(value, instanceLocation.replace(/^#/, ""));
+    if (typeof at !== "string" || !/^\s*[{[]/.test(at)) continue;
+    try {
+      const parsed: unknown = JSON.parse(at);
+      if (parsed !== null && typeof parsed === "object") {
+        found.set(`${where}${instanceLocation.replace(/^#/, "")}`, Array.isArray(parsed) ? "array" : "object");
+      }
+    } catch {
+      // Not JSON: the schema's own errors say what's wrong.
+    }
+  }
+  if (found.size === 0) return null;
+  const names = [...found.keys()].join(", ");
+  const as = found.size === 1 ? `a structured ${[...found.values()][0]}` : "structured values";
+  return `${names} ${context} must be the JSON value itself, such as {"product": "prints"}, not a string containing serialised JSON: pass ${names} as ${as}.`;
+}
+
+/** The value at a JSON Pointer (RFC 6901) in `value`, or undefined. */
+function atPointer(value: Json, pointer: string): Json | undefined {
+  let current: Json | undefined = value;
+  for (const part of pointer.split("/").slice(1)) {
+    const name = part.replace(/~1/g, "/").replace(/~0/g, "~");
+    if (Array.isArray(current)) current = current[Number(name)];
+    else if (isObject(current)) current = current[name];
+    else return undefined;
+  }
+  return current;
+}
+
+/** The JSON Schema dialects a description's schemas are read in. */
+type SchemaDraft = "4" | "7" | "2019-09" | "2020-12";
+
 /** A value's errors against a schema, the leaves first; null when the schema can't be read (which refuses nothing). */
-function schemaErrors(schema: Json, value: Json, draft: "4" | "2020-12"): readonly OutputUnit[] | null {
+function schemaErrors(schema: Json, value: Json, draft: SchemaDraft): readonly OutputUnit[] | null {
   try {
     return new Validator(schema as never, draft, false).validate(value).errors; // As in checkBody: the library's schema type is narrower than JSON.
   } catch {
@@ -1042,11 +1070,35 @@ export async function callMcpTool(
   const tools = await listMcpTools(client, company, label, api.url);
   const tool = tools.find((item) => isObject(item) && item.name === request.tool);
   if (!isObject(tool)) throw new PoppyError("no_tool", `${api.url} has no tool ${request.tool}`, 0);
+  checkMcpArgs(company, request.tool, tool.inputSchema, request.args);
   const readOnly = isObject(tool.annotations) && tool.annotations.readOnlyHint === true;
   const call = { apiUrl: api.url, tool: request.tool, args: request.args };
   if (readOnly || (company.extensions.operations && mcpToolProposes(tool))) return performMcp(client, company, label, call);
   const id = await proposeLocal(client, company, label, `${company.name}: run ${request.tool} with ${JSON.stringify(request.args)}`, { kind: "mcp", call });
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
+}
+
+/**
+ * An MCP tool's arguments are checked against its `inputSchema` before a card
+ * or a call, as an OpenAPI body is, so a mistake comes back to the model as a
+ * correction rather than reaching the Company after the User approved it.
+ * The schema is JSON Schema 2020-12 unless its `$schema` names another
+ * (MCP 2025-11-25). A schema we can't read refuses nothing: the Company decides.
+ */
+function checkMcpArgs(company: Company, name: string, inputSchema: Json | undefined, args: Json): void {
+  if (!isObject(inputSchema)) return;
+  const dialect = typeof inputSchema.$schema === "string" ? inputSchema.$schema : "";
+  const draft: SchemaDraft = /draft-0[34]/.test(dialect) ? "4" : /draft-0[67]/.test(dialect) ? "7" : /2019-09/.test(dialect) ? "2019-09" : "2020-12";
+  const errors = schemaErrors(inputSchema, args, draft);
+  if (!errors || errors.length === 0) return;
+  const context = `for ${name} at ${company.name}`;
+  const serialised = serialisedJson(errors, args, "args", context);
+  if (serialised) throw new PoppyError("invalid_args", `${serialised} Nothing was sent.`, 0);
+  throw new PoppyError(
+    "invalid_args",
+    `args ${context} don't match the tool's inputSchema: ${leafErrors(errors, "args").join("; ")}. See it in poppy_mcp_list. Nothing was sent.`,
+    0
+  );
 }
 
 /** An approved MCP call: sent only to an MCP server the Company still lists (`findApi`). */

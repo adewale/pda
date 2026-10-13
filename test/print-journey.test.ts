@@ -304,6 +304,17 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect((await requests(c)).filter((request) => request.url === `${c.hosts.api}/prints`)).toEqual([]);
   });
 
+  it("names a string of serialised JSON deeper in a body, as it does a whole body", async () => {
+    const c = await company({ printShop: true });
+    const a = await poppyAgent();
+    const order = printOrder("pho_1");
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: { ...order, ship_to: JSON.stringify(order.ship_to) } });
+    expect(JSON.parse(result.details)).toMatchObject({ error: "invalid_body" });
+    expect(result.text).toContain("body/ship_to for orderPrints");
+    expect(result.text).toContain("pass body/ship_to as a structured object. Nothing was sent.");
+    expect((await requests(c)).filter((request) => request.url === `${c.hosts.api}/prints`)).toEqual([]);
+  });
+
   it("refuses a body that doesn't match the operation's schema, naming what's wrong, and lets a right one through", async () => {
     const c = await company({ printShop: true });
     const a = await poppyAgent();
