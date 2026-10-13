@@ -508,7 +508,14 @@ export class PoppyCapability extends LifecycleCapability {
     if (url.pathname !== "/poppy/callback") return undefined;
     const requestId = id(request.headers.get("x-request-id"));
     return this.#units.request({ hop: literal("agent"), method: literal("GET"), route: literal("/poppy/callback"), ...(requestId ? { request_id: requestId } : {}) }, async (event) => {
-      const result = await completeDirectSignIn(this.client, url);
+      let result: Awaited<ReturnType<typeof completeDirectSignIn>>;
+      try {
+        result = await completeDirectSignIn(this.client, url);
+      } catch (error) {
+        // Recorded here, by class and code. Thrown on, it would reach the Worker's event as a plain error whose message may be a Company's words.
+        event.fail(error).set({ status: 500 });
+        return html(500, "Signing in didn't finish. Go back to the chat and start it again.");
+      }
       if (result.ok) await this.#afterSignIn();
       event.set({ status: result.ok ? 200 : 400, outcome: literal(result.ok ? "success" : "refused") });
       return html(result.ok ? 200 : 400, result.message);

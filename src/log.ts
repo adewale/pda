@@ -19,7 +19,9 @@
  * A raw `string` is a type error, so an email, a token, a URL with a query
  * or anyone's words can't reach an event by accident; `test/log-types.ts`
  * proves it under `npm run typecheck`. Free text goes only through
- * `message`, which `redact`s and bounds it. Portable (no Worker APIs), so
+ * `message`, which `redact`s and bounds it, and only for an error whose
+ * message is ours: one built around a Company's words (`ForeignText`) is
+ * logged by class and code alone. Portable (no Worker APIs), so
  * the Poppy client still runs in Node for the interop harness.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -168,10 +170,13 @@ export function environmentFields(): Fields {
 
 /**
  * Free text made fit to log: URLs cut to their origin, emails, quoted text,
- * credentials after an auth scheme, and long token-like runs replaced, then
- * cut to 200 characters. Reached through `message`, for error messages,
- * which are our own words around values we can't vouch for; a defence in
- * depth behind the types.
+ * credentials after an auth scheme, long token-like runs and standalone runs
+ * of 4 to 8 digits (a one-time code, a PIN) replaced, then cut to 200
+ * characters. Reached through `message`, for error messages, which are our
+ * own words around values we can't vouch for; a defence in depth behind the
+ * types. It can't tell a name or a short password in a sentence from our
+ * own words, which is why an error built around someone else's words
+ * (`ForeignText`) never reaches it.
  */
 export function redact(text: string): string {
   return text
@@ -180,22 +185,47 @@ export function redact(text: string): string {
     .replace(/“[^”]*”|‘[^’]*’|"[^"]*"|'[^'\s][^']*'|`[^`]*`/g, "[text]")
     .replace(/\b(Bearer|DPoP|Basic)\s+\S+/gi, "$1 [secret]")
     .replace(/[A-Za-z0-9_\-+/=~]{24,}/g, "[secret]")
+    .replace(/\b\d{4,8}\b/g, "[number]")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 200);
 }
 
-/** An error as an event records it: its class, a short code, a redacted message, and the step it failed in. */
+/**
+ * The mark of an error built around words that aren't ours: a Company's
+ * answer (an OAuth `error_description`, an error body, an MCP error's
+ * message, a `WWW-Authenticate` challenge), a document it serves, a page's
+ * text or the model's arguments. `Symbol.for`, so every copy of this module
+ * knows the same mark.
+ */
+export const FOREIGN_TEXT: unique symbol = Symbol.for("dpa.log.foreign-text") as never;
+
+/**
+ * An error whose message carries someone else's words (`PoppyError`,
+ * `DiscoveryError`). Its message still reaches the model and the User, who
+ * need it; an event records only its class and code. No redaction can find
+ * a name, a short password or a code in a Company's sentence, so the
+ * message is never logged at all.
+ */
+export interface ForeignText {
+  readonly [FOREIGN_TEXT]: true;
+}
+
+function isForeign(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as Partial<ForeignText>)[FOREIGN_TEXT] === true;
+}
+
+/** An error as an event records it: its class, a short code, its message (redacted) when the message is ours, and the step it failed in. */
 export type LoggedError = { readonly type: Safe; readonly code?: Safe; readonly message?: Safe<"message">; readonly step?: Safe };
 
 /** What a failure's record adds to the error: a code of ours, and the step. */
 export type FailureExtra = { readonly code?: Safe; readonly step?: Safe };
 
-/** An error as fields: its class name, its code when it has a short one, and its message redacted. */
+/** An error as fields: its class name, its code when it has a short one, and its message redacted, unless it is `ForeignText`, which gives none. */
 export function errorFields(error: unknown, extra: FailureExtra = {}): LoggedError {
   const type = error instanceof Error ? error.name || "Error" : typeof error === "string" ? "Message" : typeof error;
   const own = extra.code ?? code((error as { code?: unknown } | null)?.code);
-  const text = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const text = isForeign(error) ? "" : error instanceof Error ? error.message : typeof error === "string" ? error : "";
   return {
     type: code(type) ?? literal("Error"),
     ...(own ? { code: own } : {}),

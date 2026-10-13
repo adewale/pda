@@ -244,6 +244,13 @@ export type MockConfig = {
   readonly alterInPlace: boolean;
   /** Answer every other operation read with its members, and its terms' members, in reverse order: the same values, reordered. */
   readonly reorderMembers: boolean;
+  /**
+   * Every JSON error the Company answers says this as its `error_description`
+   * (a JSON-RPC error, as its `message`) in place of its own: words a
+   * Company chose, which may name the User or repeat their password or a
+   * one-time code, as RFC 6749 lets it (5.2). Null: each error's own.
+   */
+  readonly errorDescription: string | null;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -338,7 +345,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   endlessEvents: false,
   stuckInProgress: false,
   alterInPlace: false,
-  reorderMembers: false
+  reorderMembers: false,
+  errorDescription: null
 };
 
 /** One request the mock received, with secrets redacted. */
