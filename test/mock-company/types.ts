@@ -193,6 +193,21 @@ export type MockConfig = {
    * the agent can't tell, so it asks the User on its own card first.
    */
   readonly documentsProposals: boolean;
+  /**
+   * How a proposing write's description says so, with `documentsProposals`
+   * on. `required`, the honest one: only a 202 whose schema requires
+   * `operation`, and an MCP `outputSchema` that requires it. The others say
+   * less, and the agent asks the User on its own card first: `optional`, an
+   * `operation` that isn't required; `mixed`, a 201 beside the 202 (and an
+   * optional `operation` in MCP); `oneOf`, a schema with a branch without
+   * `operation`.
+   */
+  readonly proposalDescription: "required" | "optional" | "mixed" | "oneOf";
+  /**
+   * The exchange is done at once and answered 201, even for an agent that
+   * lists the Operations extension, whatever the description says.
+   */
+  readonly actsWithoutProposing: boolean;
   /** The exchange's description declares an `Idempotency-Key` header. */
   readonly exchangeTakesIdempotencyKey: boolean;
   /**
@@ -310,6 +325,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   printShopListsTransportHeaders: false,
   describesSecurity: true,
   documentsProposals: true,
+  proposalDescription: "required",
+  actsWithoutProposing: false,
   exchangeTakesIdempotencyKey: true,
   operationIdPrefix: null,
   exchangeOperation: null,
