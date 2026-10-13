@@ -506,7 +506,60 @@ describe("memory", () => {
       expect(result.isError, text).toBe(true);
       expect(result.text, text).toMatch(/^Not saved: It looks like .+\. Your agent never keeps passwords, codes, keys, tokens or card numbers/);
     }
+    // The refusal says why without repeating the secret.
+    const short = await stub.generalTool("remember", { text: "hunter2 is my password", source: "user" });
+    expect(short.isError).toBe(true);
+    expect(short.text).not.toContain("hunter2");
     expect((await stub.generalTool("recall", {})).text).toBe("No notes saved.");
+  });
+
+  it("refuses a short password or code named in either order, with or without 'is'", () => {
+    for (const text of [
+      "my password is hunter2",
+      "password hunter2",
+      "hunter2 is my password",
+      "my password's hunter2",
+      "Fluffy is my password",
+      "use hunter2 as the wifi password",
+      "Log in with hunter2, my password",
+      "the password is: swordfish",
+      "the password is \"hunter2\"",
+      "wifi password hunter2",
+      "My wifi password: hunter2",
+      "my password for Gmail is hunter2",
+      "password for the wifi: hunter2",
+      "password to my laptop is hunter2",
+      "Password is Password1",
+      "PASSWORD HUNTER2",
+      "pw: abc123",
+      "wifi pw abc123",
+      "my pwd = hunter2",
+      "pw p@ss",
+      "passwords: hunter2 and abc123",
+      "the PIN is 4821",
+      "My PIN is 4821",
+      "PIN 4821",
+      "my pin 4821",
+      "PIN 1990",
+      "pin number 4821",
+      "4821 is my bank PIN",
+      "passcode 1234",
+      "code 482913",
+      "482913 is the code",
+      "door code 4821",
+      "OTP 482913",
+      "the OTP from the bank 482913",
+      "2FA code 482913",
+      "login code 4821",
+      "the verification code in the email is 482913",
+      "cvv 123",
+      "security code 123",
+      "token abc123xyz",
+      "api key: abcdefg",
+      "secret: abc"
+    ]) {
+      expect(secretProblem(text), text).toMatch(/^It looks like a (?:password, code, key or token|one-time or security code)$/);
+    }
   });
 
   it("keeps ordinary facts that only resemble secrets", () => {
@@ -521,7 +574,31 @@ describe("memory", () => {
       "Prefers window seats; frequent flyer with BA",
       "Allergic to peanuts",
       "Secret santa is Bob",
-      "Order number 1234567890123 at the shop"
+      "Order number 1234567890123 at the shop",
+      "I prefer window seats",
+      "my PIN pad is broken",
+      "my PIN-pad is broken",
+      "Change my password next week",
+      "Forgot my password again",
+      "Bitwarden is my password manager",
+      "password manager is 1Password",
+      "Ask Bob for the wifi password",
+      "The wifi password is on the fridge",
+      "My password is the same as before",
+      "The password policy needs 12 characters",
+      "Change the password every 90 days",
+      "The PIN is 4 digits",
+      "My PIN expires in 2027",
+      "Change PIN on 2026-10-20",
+      "Pin 2 photos to the board",
+      "What is my password?",
+      "This is my password hint",
+      "password-protected PDF from the bank",
+      "Turn on 2FA for GitHub",
+      "2FA is enabled on my bank",
+      "The secret ingredient is cumin",
+      "Remind me to rotate the API key on the 1st",
+      "Token for the bus costs 2 pounds"
     ]) {
       expect(secretProblem(text), text).toBeNull();
     }

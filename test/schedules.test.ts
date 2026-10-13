@@ -128,6 +128,11 @@ describe("reminders", () => {
     expect(await make({ every: { repeat: "weekly", time: "09:00" } })).toMatchObject({ error: expect.stringMatching(/needs every.weekday/) });
     expect(await make({ every: { repeat: "daily", time: "25:00" } })).toMatchObject({ error: expect.stringMatching(/isn't a time of day/) });
     expect(await make({ in: "PT1H" }, "My PIN is 4821")).toMatchObject({ error: expect.stringMatching(/looks like a password/) });
+    expect(await make({ in: "PT1H" }, "Log in with hunter2, my password")).toMatchObject({ error: expect.stringMatching(/looks like a password/) });
+    const task = await stub.scheduleCreate({ kind: "task", text: "Sign in to the bank; pw abc123", when: { in: "PT1H" }, timeZone: "Europe/London" });
+    expect(task).toMatchObject({ error: expect.stringMatching(/^Not set: It looks like a password, code, key or token\. Reminders and tasks never keep/) });
+    expect(JSON.stringify(task)).not.toContain("abc123");
+    expect(await make({ in: "PT1H" }, "Change my PIN before it expires")).toMatchObject({ nextRun: NOON + 60 * MINUTE });
     expect(await make({ in: "PT90M" })).toMatchObject({ nextRun: NOON + 90 * MINUTE });
   });
 });

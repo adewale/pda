@@ -73,20 +73,102 @@ const KEY_PATTERNS: readonly (readonly [RegExp, string])[] = [
   [/\b(?:acct|ses|tok|at|rt)_[A-Za-z0-9_-]{20,}/, "a token"]
 ];
 
-/** A secret named, then given: "my password is hunter2", "PIN: 4821", "api key = …". */
-const NAMED_SECRET =
-  /\b(?:pass(?:word|phrase|code)|passwd|pwd|pin|otp|one[- ]?time (?:pass)?code|verification code|security code|2fa code|mfa code|auth(?:entication)? code|cvv|cvc|csc|secret(?: key)?|api[- ]?key|access key|private key|(?:access|refresh|session|bearer|auth) token|token|recovery code|backup code|seed phrase|recovery phrase)\b\s*(?:is|was|=|:|-)\s*\S/i;
+/** A word that names a credential: "password", "PIN", "pw", "OTP", "2FA code", "api key", "token". */
+const CREDENTIAL = String.raw`\b(?:pass(?:word|phrase|code)s?|passwd|pwd|pw|pins?(?:\s+(?:code|number)s?)?|otps?|one[- ]?time\s+(?:pass)?codes?|(?:verification|security|2fa|mfa|auth(?:entication)?|login|access|recovery|backup)\s+codes?|2fa|mfa|cvv2?|cvc2?|csc|secret(?:\s+key)?s?|api[- ]?keys?|(?:access|private|wi-?fi|network|wpa2?)\s+keys?|(?:access|refresh|session|bearer|auth|api)\s+tokens?|tokens?|(?:seed|recovery)\s+phrases?|credentials?)\b`;
+
+/** Credentials whose value is a few digits: a card's security code. */
+const CARD_CODE = /^(?:cvv2?|cvc2?|csc|security\s+codes?)$/i;
+/** Credentials whose value is never just a number, so digits near them are something else. */
+const NOT_NUMERIC = /key|token|secret|credential|phrase/i;
+
+/**
+ * A credential named, then given: "my password is hunter2", "PIN: 4821",
+ * "the password for the wifi: hunter2", "my password's hunter2".
+ */
+const NAMED = new RegExp(
+  `${CREDENTIAL}(?:\\s+(?:for|to|on|of|at|from|with|in)\\s+(?:[^\\s:=]+\\s+){0,2}[^\\s:=]+)?` +
+    String.raw`(?:\s+(?:is|was|are|were)(?:\s*[:=-])?\s+|\s*[:=]\s*|\s+[-–—]\s+|['’]s\s+)(\S+)`,
+  "gi"
+);
+
+/** A value given, then named: "hunter2 is my password", "use hunter2 as the wifi password", "hunter2, my password", "482913 is the code". */
+const REVERSED = new RegExp(
+  String.raw`(\S+)(?:\s+(?:is|was|=|as)|,)\s+(?:(?:my|the|our|your|his|her|their|a|an)\s+)?(?:[\w-]+\s+)?(${CREDENTIAL}|\bcodes?\b)` +
+    String.raw`(?=\s*(?:$|[.,;!?)]|(?:for|to|on|at|of|from|with|in|and|or|but|so)\b))`,
+  "gi"
+);
+const CREDENTIAL_WORD = new RegExp(CREDENTIAL, "gi");
+/** The credentials that are plainly the secret itself, so any word given as one is refused. */
+const PASSWORD = /^(?:pass(?:word|phrase|code)s?|passwd|pwd|pw|pins?(?:\s+(?:code|number)s?)?)$/i;
+
+/** Words that say something about a credential rather than give it: "the password is on the fridge". */
+const NOT_A_VALUE = new Set(
+  (
+    "a an the my your his her their our its this that these those it what which who where how why there here mine yours " +
+    "on in at under behind inside with by for from of to about as and or but if when not no never still now also too very so " +
+    "same different new old wrong incorrect correct right required needed due set reset saved stored kept written lost missing " +
+    "forgotten unknown long short weak strong secure safe valid invalid ok okay fine broken see ask somewhere below above attached"
+  ).split(" ")
+);
+
+/** `raw` without the punctuation around it. */
+function bare(raw: string): string {
+  return raw.replace(/^[\s"'“”‘’`([{<.,;:!?—–-]+|[\s"'“”‘’`)\]}>.,;:!?—–-]+$/g, "");
+}
+
+/** A word that could be what a credential is: anything but a word about it, a verb form, or a digit or two. */
+function anyValue(raw: string): boolean {
+  const value = bare(raw);
+  if (!value || NOT_A_VALUE.has(value.toLowerCase())) return false;
+  if (/^[a-z]+(?:ing|ed)$/.test(value)) return false;
+  return !/^\d{1,2}$/.test(value);
+}
+
+/**
+ * A word shaped like a password or code, so it counts without "is" or ":"
+ * between it and the credential: four or more digits, letters with digits
+ * ("hunter2", not "4pm" or "2fa"), or letters with symbols ("p@ss").
+ */
+function codeLike(raw: string): boolean {
+  const value = bare(raw);
+  if (/^\d{4,}$/.test(value)) return true;
+  if (/\d/.test(value) && /[A-Za-z]/.test(value)) {
+    return value.length >= 4 && !/^\d+(?:st|nd|rd|th|am|pm|h|hrs?|m|mins?|s|secs?|d|days?|x|k|gb|mb|kb|fa)$/i.test(value);
+  }
+  return /[A-Za-z]/.test(value) && /[!@#$%^&*+=?~|<>]/.test(value);
+}
+
+/** A credential with what looks like its value beside it, in either order. */
+function namedSecret(text: string): boolean {
+  for (const match of text.matchAll(NAMED)) if (anyValue(match[1]!)) return true;
+  for (const match of text.matchAll(REVERSED)) {
+    if (codeLike(match[1]!) || (PASSWORD.test(match[2]!) && anyValue(match[1]!))) return true;
+  }
+  for (const match of text.matchAll(CREDENTIAL_WORD)) {
+    const credential = match[0];
+    const after = text.slice(match.index + credential.length);
+    // "PIN-pad" and "password-protected" are words of their own.
+    if (/^-\w/.test(after)) continue;
+    const words = after.trim().split(/\s+/).slice(0, 4).map(bare);
+    if (words[0] && codeLike(words[0])) return true;
+    if (words[0] && CARD_CODE.test(credential) && /^\d{3,4}$/.test(words[0])) return true;
+    // "the OTP from the bank 482913", but not "my PIN expires in 2027".
+    if (!NOT_NUMERIC.test(credential) && words.some((word) => /^\d{4,8}$/.test(word) && !/^(?:19|20)\d\d$/.test(word))) return true;
+  }
+  return false;
+}
 
 /** A code: "code 482913", "the code was 4829", but not a postcode or area code. */
 const CODE = /(?<!\b(?:zip|post|postal|area|country|dial(?:l)?ing|sort|promo|discount|voucher|coupon|bar|qr|source|dress|colou?r|error|status|tax|product|style)\s?)\bcode\b\D{0,12}\d{4,8}\b/i;
 
 /**
  * Why `text` isn't kept, or null. Errs on refusing: the agent says why, and
- * the User can say the fact without the secret.
+ * the User can say the fact without the secret. The reason never repeats
+ * the text.
  */
 export function secretProblem(text: string): string | null {
   for (const [pattern, what] of KEY_PATTERNS) if (pattern.test(text)) return `It looks like ${what}`;
-  if (NAMED_SECRET.test(text)) return "It looks like a password, code, key or token";
+  if (namedSecret(text)) return "It looks like a password, code, key or token";
   if (CODE.test(text)) return "It looks like a one-time or security code";
   for (const match of text.matchAll(/(?<![\d+])\d(?:[ -]?\d){12,18}(?!\d)/g)) {
     const digits = match[0].replace(/[ -]/g, "");
