@@ -1,0 +1,93 @@
+import { ATTACHMENT_TYPES, type AttachmentInfo } from "../attachments";
+import { array, boolean, integer, json, literal, object, optional, record, string, tagged, tryDecode, type Decoded, type Decoder } from "../decode";
+import { isObject } from "./json";
+
+/**
+ * The form a local approval's request is stored in (`poppy_approvals.request`).
+ * A row in any other form, from before a deploy or tampered with, can't be
+ * sent: `readApproval` refuses it and the card says why. Version 1 was
+ * `{ kind, request: { issuer, call | submission }, attachments? }`, read back
+ * with a cast.
+ */
+export const APPROVAL_VERSION = 2;
+
+const scalar: Decoder<string | number | boolean> = (value, at) =>
+  typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))
+    ? value
+    : string(value, at);
+
+const attachment = object({
+  id: string,
+  name: string,
+  type: literal(...ATTACHMENT_TYPES),
+  size: integer
+});
+
+/** An OpenAPI call (apis.ts `OpenApiCall`), as the model asked for it. */
+const openApiCall = object({
+  apiUrl: string,
+  operation: string,
+  params: record(scalar),
+  body: optional(json),
+  files: optional(record(string)),
+  idempotencyKey: optional(string)
+});
+
+const mcpCall = object({ apiUrl: string, tool: string, args: json });
+
+/** Exactly what a website form sends (browser.ts `FormSubmission`). */
+const submission = object({
+  from: string,
+  method: literal("GET", "POST"),
+  action: string,
+  enctype: literal("application/x-www-form-urlencoded", "multipart/form-data"),
+  fields: array(object({ name: string, value: string, hidden: boolean }))
+});
+
+const approval = tagged("kind", {
+  /** `method` and `url` are what the card showed; the call is checked again and must still make exactly them. */
+  openapi: object({ v: literal(APPROVAL_VERSION), kind: literal("openapi"), call: openApiCall, method: string, url: string, attachments: optional(array(attachment)) }),
+  mcp: object({ v: literal(APPROVAL_VERSION), kind: literal("mcp"), call: mcpCall }),
+  "browse-submit": object({ v: literal(APPROVAL_VERSION), kind: literal("browse-submit"), submission })
+});
+
+export type StoredApproval = Decoded<typeof approval>;
+export type ApprovalKind = StoredApproval["kind"];
+export type ApprovalOf<K extends ApprovalKind> = Extract<StoredApproval, { kind: K }>;
+/** An approval as a caller makes one; the version is added when it is stored. */
+export type NewApproval = { [K in ApprovalKind]: Omit<ApprovalOf<K>, "v"> }[ApprovalKind];
+
+export function storedApproval(value: NewApproval): string {
+  return JSON.stringify({ v: APPROVAL_VERSION, ...value });
+}
+
+/** A stored approval, or why it can't be sent. */
+export function readApproval(text: string): { ok: true; value: StoredApproval } | { ok: false; problem: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, problem: "it isn't readable" };
+  }
+  const version = isObject(parsed) ? (parsed.v ?? 1) : null;
+  if (version !== APPROVAL_VERSION) {
+    return { ok: false, problem: `it was stored in a form (version ${typeof version === "number" ? version : "unknown"}) this version of the agent doesn't send` };
+  }
+  const decoded = tryDecode(approval, parsed, "approval");
+  return decoded.ok ? decoded : { ok: false, problem: `it isn't one this agent stored (${decoded.problem})` };
+}
+
+/**
+ * The User's files a stored approval sends or sent, for its card: read from
+ * any version, since only the card shows them; none if they can't be read.
+ */
+export function approvalAttachments(text: string): { attachments?: readonly AttachmentInfo[] } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return {};
+  }
+  const read = tryDecode(optional(array(attachment)), isObject(parsed) ? parsed.attachments : undefined, "attachments");
+  return read.ok && read.value?.length ? { attachments: read.value } : {};
+}

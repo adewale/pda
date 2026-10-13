@@ -286,26 +286,24 @@ export async function browse(
     return snapshotForModel(await handle.fill(action.selector, action.value));
   }
   const submission = await handle.prepareSubmit(action.selector);
-  const id = await proposeLocal(
-    client,
-    company,
-    label,
-    "browse-submit",
-    describeSubmission(company, action.selector, submission),
-    { issuer: company.issuer, submission: submission as unknown as Json }
-  );
+  const id = await proposeLocal(client, company, label, describeSubmission(company, action.selector, submission), { kind: "browse-submit", submission });
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
 
-/** An approved form submit: exactly the fields the User approved, in the same Session's context. */
-registerExecutor("browse-submit", async (client, request, label) => {
-  const { issuer, submission } = request as unknown as { issuer: string; submission?: FormSubmission };
-  const entry = contextsOf(client).get(`${issuer}|${label}`);
-  if (!entry || !submission) throw new Error("The page is no longer open");
-  if (entry.sessionId && entry.sessionId !== client.session(issuer, label)?.session_id) {
+/**
+ * An approved form submit: exactly the fields the User approved, in the same
+ * Session's context, and only where the browser may go for the Company now
+ * (its page and action checked again; the browser checks every hop too).
+ */
+registerExecutor("browse-submit", async (client, company, { submission }, label) => {
+  const guard = pageGuard(company);
+  guard(new URL(submission.from));
+  guard(new URL(submission.action));
+  const entry = contextsOf(client).get(`${company.issuer}|${label}`);
+  if (!entry) throw new Error("The page is no longer open");
+  if (entry.sessionId && entry.sessionId !== client.session(company.issuer, label)?.session_id) {
     throw new Error("The Session the form was in has ended; open the page again");
   }
-  const company = client.companyByIssuer(issuer);
   await client.beforeRequest(company);
   const snapshot = await (await entry.context).submit(submission);
   return `Now at ${snapshot.url} (HTTP ${snapshot.status}): ${snapshot.title}`;

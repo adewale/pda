@@ -1,4 +1,4 @@
-import type { AttachmentInfo } from "../attachments";
+import { approvalAttachments, readApproval, storedApproval, type ApprovalKind, type ApprovalOf, type NewApproval } from "./approvals";
 import { answerOf, PoppyClient, PoppyError } from "./client";
 import { tokenHostAllowed, type Company } from "./discovery";
 import { isObject, type Json } from "./json";
@@ -835,12 +835,18 @@ function settlePermission(client: PoppyClient, row: OperationRow, used: boolean)
 
 // ---------------------------------------------------------------- Local approvals
 
-/** How an approved local action is carried out, by kind (registered by the APIs and browser). */
-export type ApprovalExecutor = (client: PoppyClient, request: Json, label: string) => Promise<string>;
-const executors = new Map<string, ApprovalExecutor>();
+/** How an approved local action of one kind is carried out (registered by the APIs and browser). */
+export type ApprovalExecutor<K extends ApprovalKind> = (client: PoppyClient, company: Company, approval: ApprovalOf<K>, label: string) => Promise<string>;
+const executors: { [K in ApprovalKind]?: ApprovalExecutor<K> } = {};
 
-export function registerExecutor(kind: string, executor: ApprovalExecutor): void {
-  executors.set(kind, executor);
+export function registerExecutor<K extends ApprovalKind>(kind: K, executor: ApprovalExecutor<K>): void {
+  (executors as Record<K, ApprovalExecutor<K>>)[kind] = executor;
+}
+
+function run<K extends ApprovalKind>(client: PoppyClient, company: Company, approval: ApprovalOf<K>, label: string): Promise<string> {
+  const executor = executors[approval.kind] as ApprovalExecutor<K> | undefined;
+  if (!executor) throw new Error(`No executor for ${approval.kind}`);
+  return executor(client, company, approval, label);
 }
 
 /**
@@ -854,18 +860,14 @@ export async function proposeLocal(
   client: PoppyClient,
   company: Company,
   label: string,
-  kind: string,
   summary: string,
-  request: Json,
-  options: {
-    /** A fixed id, so a replayed tool call shows the same card rather than a second one. */
-    readonly id?: string;
-    /** The User's files the request would send, shown on the card (names and sizes; the page shows the photo). */
-    readonly attachments?: readonly AttachmentInfo[];
-  } = {}
+  approval: NewApproval,
+  /** A fixed id, so a replayed tool call shows the same card rather than a second one. */
+  fixedId?: string
 ): Promise<string> {
-  const id = options.id ?? randomId("apr_");
-  const attachments = options.attachments?.length ? options.attachments : undefined;
+  const id = fixedId ?? randomId("apr_");
+  const stored = storedApproval(approval);
+  const attachments = approvalAttachments(stored);
   const existing = one<ApprovalRow>(client.sql, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (existing && existing.status !== "pending") return id;
   if (!existing) {
@@ -875,7 +877,7 @@ export async function proposeLocal(
       company.issuer,
       label,
       summary,
-      JSON.stringify({ kind, request, ...(attachments ? { attachments } : {}) }),
+      stored,
       Date.now()
     );
   }
@@ -888,22 +890,12 @@ export async function proposeLocal(
     approvalId: id,
     summary,
     status: "pending",
-    ...(attachments ? { attachments } : {})
+    ...attachments
   });
   return id;
 }
 
 type ApprovalRow = { id: string; issuer: string; label: string; summary: string; request: string; status: string };
-
-/** The files an approval would send or sent, from its stored request. */
-function approvalAttachments(row: ApprovalRow): { attachments?: readonly AttachmentInfo[] } {
-  try {
-    const { attachments } = JSON.parse(row.request) as { attachments?: AttachmentInfo[] };
-    return attachments?.length ? { attachments } : {};
-  } catch {
-    return {};
-  }
-}
 
 export async function decideLocal(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<void> {
   const row = one<ApprovalRow>(client.sql, "SELECT * FROM poppy_approvals WHERE id = ?", id);
@@ -921,7 +913,7 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
       status,
       ...(result ? { result } : {}),
       ...(answer ? { answer } : {}),
-      ...approvalAttachments(row)
+      ...approvalAttachments(row.request)
     });
   if (decision === "decline") {
     client.sql.exec("UPDATE poppy_approvals SET status = 'declined' WHERE id = ?", id);
@@ -929,13 +921,19 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
     await client.host.notifyModel(`[system] The User declined: ${row.summary}`, `poppy-approval-${id}`);
     return;
   }
+  // A request stored in another form, or tampered with, is never sent.
+  const read = readApproval(row.request);
+  if (!read.ok) {
+    const result = `Not sent: this approval can't be sent, because ${read.problem}. Nothing was sent; ask again if you still want it.`;
+    client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = ? WHERE id = ?", result, id);
+    await card("failed", result);
+    await client.host.notifyModel(`[system] The User approved, but the stored request couldn't be sent (${read.problem}), so nothing was sent: ${row.summary}. Ask again if the User still wants it.`, `poppy-approval-${id}`);
+    return;
+  }
   // Marked before the call: if the object dies mid-call it is never retried (Safety).
   client.sql.exec("UPDATE poppy_approvals SET status = 'executing' WHERE id = ?", id);
-  const { kind, request } = JSON.parse(row.request) as { kind: string; request: Json };
-  const executor = executors.get(kind);
   try {
-    if (!executor) throw new Error(`No executor for ${kind}`);
-    const result = await executor(client, request, row.label);
+    const result = await run(client, company, read.value, row.label);
     client.sql.exec("UPDATE poppy_approvals SET status = 'done', result = ? WHERE id = ?", result, id);
     await card("done", result);
     await client.host.notifyModel(`[system] Done, as the User approved: ${row.summary}. Result: ${result}`, `poppy-approval-${id}`);
@@ -998,7 +996,7 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
       summary: row.summary,
       status: "unknown",
       result: `It may have happened: check with ${company} before asking again.`,
-      ...approvalAttachments(row)
+      ...approvalAttachments(row.request)
     });
     await client.host.notifyModel(
       `[system] An approved action was interrupted and its outcome is unknown: ${row.summary}. Tell the User to check with ${company}; it won't be retried automatically.`,

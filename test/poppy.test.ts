@@ -1328,6 +1328,65 @@ describe("6 APIs", () => {
     expect((await c.stub.state()).performs).toBe(0);
   });
 
+  describe("a stored approval is decoded and checked again before it is sent", () => {
+    /** A write waiting on its card, its stored request rewritten by `rewrite`, then approved. */
+    async function approveRewritten(rewrite: (stored: Record<string, any>) => unknown) {
+      const c = await company({ operations: false });
+      const a = await agent();
+      await signInDirect(a, c);
+      expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text).toContain("Waiting for the User's approval");
+      const card = (await cards(a)).find((item) => item.kind === "approval")!;
+      const [row] = JSON.parse(await a.stub.poppySql("SELECT request FROM poppy_approvals WHERE id = ?", card.approvalId)) as { request: string }[];
+      const rewritten = rewrite(JSON.parse(row!.request));
+      await a.stub.poppySql("UPDATE poppy_approvals SET request = ? WHERE id = ?", typeof rewritten === "string" ? rewritten : JSON.stringify(rewritten), card.approvalId);
+      await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+      const after = (await cards(a)).find((item) => item.kind === "approval")!;
+      // Nothing reached the Company's API, whatever the row said.
+      expect(await exchangeRequests(c)).toEqual([]);
+      expect((await c.stub.state()).performs).toBe(0);
+      return { c, a, after };
+    }
+
+    it("stores the request in its versioned form, with the method and URL the card showed", async () => {
+      const c = await company({ operations: false });
+      const a = await agent();
+      await signInDirect(a, c);
+      await tool(a, "poppy_api_call", exchangeWrite(c));
+      const card = (await cards(a)).find((item) => item.kind === "approval")!;
+      const [row] = JSON.parse(await a.stub.poppySql("SELECT request FROM poppy_approvals WHERE id = ?", card.approvalId)) as { request: string }[];
+      expect(JSON.parse(row!.request)).toEqual({
+        v: 2,
+        kind: "openapi",
+        method: "POST",
+        url: `${c.hosts.api}/orders/ord_7Hk2/exchanges`,
+        call: expect.objectContaining({ operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: exchangeWrite(c).body })
+      });
+    });
+
+    it("refuses an approval stored in an older form, and says so on its card", async () => {
+      const { after, a } = await approveRewritten((stored) => ({ kind: stored.kind, request: { issuer: "https://issuer.example", call: stored.call } }));
+      expect(after.status).toBe("failed");
+      expect(after.result).toBe(
+        "Not sent: this approval can't be sent, because it was stored in a form (version 1) this version of the agent doesn't send. Nothing was sent; ask again if you still want it."
+      );
+      expect(await a.stub.poppyWaitForNotice("couldn't be sent")).toContain("nothing was sent");
+    });
+
+    it("refuses a stored row that was tampered with: a call that no longer makes the URL approved, or one that isn't well formed", async () => {
+      const moved = await approveRewritten((stored) => ({ ...stored, call: { ...stored.call, params: { order_id: "ord_other" } } }));
+      expect(moved.after.status).toBe("failed");
+      expect(moved.after.result).toContain(`not the POST ${moved.c.hosts.api}/orders/ord_7Hk2/exchanges you approved`);
+      expect(moved.after.result).toContain("[approval_changed]");
+
+      const malformed = await approveRewritten((stored) => ({ ...stored, call: { ...stored.call, params: "order_id=ord_7Hk2" } }));
+      expect(malformed.after.status).toBe("failed");
+      expect(malformed.after.result).toContain("it isn't one this agent stored (approval.call.params: expected an object");
+
+      const unreadable = await approveRewritten(() => "{not json");
+      expect(unreadable.after).toMatchObject({ status: "failed", result: expect.stringContaining("because it isn't readable") });
+    });
+  });
+
   it("never uses a Company's own way in: a write its description leaves outside the Poppy Session is refused before a card or a request", async () => {
     // The print shop is described as print-with-poppy's store is: DPoP and a
     // Bearer guest scheme, a compatibility session endpoint with no security,

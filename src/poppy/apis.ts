@@ -732,15 +732,19 @@ export async function callOpenApi(
     ...request,
     idempotencyKey: () => intent(client.sql, `idem|${request.callKey}`, () => crypto.randomUUID())
   });
-  const approvalId = () => intent(client.sql, `approval|${request.callKey}`, () => randomId("apr_"));
+  const ask = () =>
+    proposeLocal(
+      client,
+      company,
+      label,
+      checked.describe(),
+      { kind: "openapi", call: checked.call, method: checked.method, url: checked.url, ...(checked.attachments.length ? { attachments: [...checked.attachments] } : {}) },
+      intent(client.sql, `approval|${request.callKey}`, () => randomId("apr_"))
+    );
   if (checked.attachments.length) {
     // The User's photo leaves their agent only when they say so, at any Company:
     // the Operations extension covers what a Company does, not what we send it.
-    const id = await proposeLocal(client, company, label, "openapi", checked.describe(), { issuer: company.issuer, call: checked.call } as unknown as Json, {
-      id: approvalId(),
-      attachments: checked.attachments
-    });
-    return { proposed: id, note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
+    return { proposed: await ask(), note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
   }
   if (checked.method === "GET") return answerForModel(await sendApi(client, label, checked));
   if (company.extensions.operations && checked.op.proposes) {
@@ -753,22 +757,27 @@ export async function callOpenApi(
     }
     return answerForModel(await sendApi(client, label, checked));
   }
-  const id = await proposeLocal(client, company, label, "openapi", checked.describe(), { issuer: company.issuer, call: checked.call } as unknown as Json, {
-    id: approvalId()
-  });
-  return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
+  return { proposed: await ask(), note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
 
 /**
- * An approved write: the stored call checked again, now, then sent. An answer
- * other than 2xx is an error the receipt names with its status and code
- * (operations.ts), never "done": the request was sent as approved, and the
- * Company didn't do it as far as it says. Nor is a proposal we can't use.
+ * An approved write: the stored call checked again, now, under today's rules
+ * and description, and sent only if it still makes exactly the request the
+ * card showed. An answer other than 2xx is an error the receipt names with
+ * its status and code (operations.ts), never "done": the request was sent as
+ * approved, and the Company didn't do it as far as it says. Nor is a
+ * proposal we can't use.
  */
-registerExecutor("openapi", async (client, request, label) => {
-  const { issuer, call } = request as unknown as { issuer: string; call: OpenApiCall };
-  const company = client.companyByIssuer(issuer);
-  const answer = await sendApi(client, label, await CheckedApiRequest.check(client, company, call));
+registerExecutor("openapi", async (client, company, approval, label) => {
+  const checked = await CheckedApiRequest.check(client, company, approval.call);
+  if (checked.method !== approval.method || checked.url !== approval.url) {
+    throw new PoppyError(
+      "approval_changed",
+      `Not sent: ${company.name}'s description now makes this ${checked.method} ${checked.url}, not the ${approval.method} ${approval.url} you approved. Ask again to see the request it would make now.`,
+      0
+    );
+  }
+  const answer = await sendApi(client, label, checked);
   if (answer.kind === "unusable") {
     throw withAnswer(new PoppyError("unusable_proposal", `${company.name} proposed an operation the agent can't use, so nothing was done`, 202), 202);
   }
@@ -948,13 +957,13 @@ export async function callMcpTool(
   const readOnly = isObject(tool.annotations) && tool.annotations.readOnlyHint === true;
   const call = { apiUrl: api.url, tool: request.tool, args: request.args };
   if (readOnly || (company.extensions.operations && mcpToolProposes(tool))) return performMcp(client, company, label, call);
-  const id = await proposeLocal(client, company, label, "mcp", `${company.name}: run ${request.tool} with ${JSON.stringify(request.args)}`, { issuer: company.issuer, call } as unknown as Json);
+  const id = await proposeLocal(client, company, label, `${company.name}: run ${request.tool} with ${JSON.stringify(request.args)}`, { kind: "mcp", call });
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
 
-registerExecutor("mcp", async (client, request, label) => {
-  const { issuer, call } = request as unknown as { issuer: string; call: { apiUrl: string; tool: string; args: Json } };
-  const result = await performMcp(client, client.companyByIssuer(issuer), label, call);
+/** An approved MCP call: sent only to an MCP server the Company still lists (`findApi`). */
+registerExecutor("mcp", async (client, company, approval, label) => {
+  const result = await performMcp(client, company, label, approval.call);
   return JSON.stringify(result).slice(0, 2_000);
 });
 
