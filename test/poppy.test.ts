@@ -447,6 +447,24 @@ describe.each(PROFILES)("4.4–4.5 Direct Sign-In ($name)", ({ config: profile }
     expect((await c.stub.state()).accountTokens).toBe(0);
   });
 
+  it("closes a Direct Sign-In nobody finishes when its ten minutes are up, rather than leaving it in Needs you (live, 13 Oct)", async () => {
+    const c = await companyHere();
+    const a = await agent();
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    const card = (await cards(a)).find((item) => item.kind === "signin_link")!;
+    await a.stub.poppyAdvance(10 * 60_000 - 1_000);
+    expect((await cards(a)).find((item) => item.id === `signin-${card.signInId}`)).toMatchObject({ kind: "signin_link", open: true });
+    await a.stub.poppyAdvance(1_000);
+    const ended = `Sign-in to Mock Shop ${c.id} didn't complete: the sign-in took too long`;
+    expect((await cards(a)).find((item) => item.id === `signin-${card.signInId}`)).toEqual(expect.objectContaining({ kind: "notice", open: false, text: ended }));
+    expect((await a.stub.poppyNotices()).filter((notice) => notice.includes("took too long"))).toEqual([`[system] ${ended}`]);
+    // Its link no longer signs anyone in.
+    const location = await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_ada" });
+    const callback = await worker.fetch(new Request(location, { headers: { Cookie: a.cookie } }), env);
+    expect(callback.status).toBe(400);
+    expect((await c.stub.state()).accountTokens).toBe(0);
+  });
+
   it("needs the person's own app session for the callback", async () => {
     const c = await companyHere();
     const a = await agent();

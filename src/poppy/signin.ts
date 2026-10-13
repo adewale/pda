@@ -132,8 +132,9 @@ export async function startSignIn(
       await client.sealer.seal(JSON.stringify({ state, verifier }), sealContext(base)),
       await sha256(state),
       null,
-      Date.now() + SIGN_IN_TTL_MS
+      client.host.now() + SIGN_IN_TTL_MS
     );
+    await scheduleExpiry(client, id, client.host.now() + SIGN_IN_TTL_MS);
     const url = new URL(company.endpoints.authorization!);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", client.identity.clientId);
@@ -201,7 +202,8 @@ export async function startSignIn(
     });
     await client.host.schedule("poppy-device", client.host.now() + interval * 1000, { id }, `device-${id}`);
   } else {
-    insert(await client.sealer.seal("{}", sealContext(base)), null, null, Date.now() + SIGN_IN_TTL_MS);
+    insert(await client.sealer.seal("{}", sealContext(base)), null, null, client.host.now() + SIGN_IN_TTL_MS);
+    await scheduleExpiry(client, id, client.host.now() + SIGN_IN_TTL_MS);
     await client.host.showCard({
       id: `signin-${id}`,
       kind: "signin_credentials",
@@ -218,6 +220,23 @@ export async function startSignIn(
 }
 
 type TokenResponse = Parameters<PoppyClient["completeSignIn"]>[3];
+
+/** Close a Direct or Mediated sign-in nobody finished at its deadline, so its card doesn't wait for ever. */
+async function scheduleExpiry(client: PoppyClient, id: string, at: number): Promise<void> {
+  await client.host.schedule("poppy-signin-expiry", at, { id }, `signin-expiry-${id}`);
+}
+
+/**
+ * The `poppy-signin-expiry` job: a Direct or Mediated sign-in still waiting
+ * when its time is up ends as expired, which closes its card and tells the
+ * model. One that finished meanwhile is left alone.
+ */
+export async function expireSignIn(client: PoppyClient, id: string): Promise<void> {
+  const row = signIn(client, id);
+  if (!row || (row.status !== "pending" && row.status !== "code")) return;
+  if (row.expires_at > client.host.now()) return;
+  await finish(client, row, { ok: false, message: "the sign-in took too long", expired: true });
+}
 
 /** What a finished sign-in granted: `who` is "you" on the User's card and "the User" for the model. */
 function signedInText(company: Company, row: SignInRow, scope: string, who: "you" | "the User"): string {
@@ -411,7 +430,7 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
     state: string;
     verifier: string;
   };
-  if (secret.state !== state || row.expires_at <= Date.now()) {
+  if (secret.state !== state || row.expires_at <= client.host.now()) {
     await finish(client, row, { ok: false, message: "the sign-in link expired", expired: true });
     return { ok: false, message: "This sign-in has expired. Start it again from the chat." };
   }

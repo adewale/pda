@@ -27,6 +27,7 @@ import {
   trackOperation
 } from "./operations";
 import {
+  expireSignIn,
   cancelSignIn,
   completeDirectSignIn,
   pollDeviceSignIn,
@@ -561,6 +562,8 @@ export class PoppyCapability extends LifecycleCapability {
           if (next === null) await this.#afterSignIn();
         } else if (fn === "poppy-operation" && payload.id && payload.issuer) {
           next = await trackOperation(client, payload.issuer, payload.id);
+        } else if (fn === "poppy-signin-expiry" && payload.id) {
+          await expireSignIn(client, payload.id);
         } else if (fn === "poppy-revoke" && payload.id) {
           // A sign-out the Company refused: try again (signout.ts). Its notice resends the Companies page.
           next = await retrySignOut(client, payload.id);

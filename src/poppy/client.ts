@@ -58,7 +58,7 @@ export type PoppyHost = {
   readonly timeouts?: PoppyTimeouts;
 };
 
-export type JobName = "poppy-read" | "poppy-device" | "poppy-operation" | "poppy-revoke";
+export type JobName = "poppy-read" | "poppy-device" | "poppy-operation" | "poppy-revoke" | "poppy-signin-expiry";
 
 /**
  * An OAuth or Poppy error from a Company, with its code (spec 4.2, 6, 7.13).
