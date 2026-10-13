@@ -187,7 +187,7 @@ function ToolEntry({ call, result, running, companies }: { call?: ToolCall; resu
   return <ToolCard name={name} call={call} result={result} running={running} />;
 }
 
-function UserMessage({ message }: { message: TranscriptMessage }) {
+export function UserMessage({ message }: { message: TranscriptMessage }) {
   // Photos the User attached are named by markers in the text (src/attachments.ts): show the photos, not the markers.
   const { text, photos } = splitMarkers(message.parts.map((part) => (part.type === "text" ? part.text : "")).join(""));
   return (

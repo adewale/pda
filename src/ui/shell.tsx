@@ -103,7 +103,7 @@ function ConnectionBanner({ status }: { status: PiSession["status"] }) {
       <p className="text-pretty">
         {status === "connecting"
           ? "Connecting to your agent."
-          : "Reconnecting to your agent. It keeps working meanwhile, and you can send messages once it's back."}
+          : "Reconnecting to your agent. It keeps working meanwhile, and what you send now goes once it's back."}
       </p>
     </div>
   );
