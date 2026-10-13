@@ -1,6 +1,8 @@
 import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { HistoryFrame, HistoryRequest } from "./history";
+import type { HistoryRequest } from "./history";
+import { tryDecode } from "./decode";
+import { historyFrame, serverFrame } from "./poppy/frames";
 import { projectEntries } from "./transcript";
 import { historyFromEvents, summaryIds, withEarlier } from "./ui/history";
 import { EMPTY_VIEW, reduceEvents } from "./view";
@@ -148,7 +150,9 @@ export function usePiSession() {
       }
       const type = (message as { type?: string }).type;
       if (type === "history") {
-        const frame = message as unknown as HistoryFrame;
+        const decoded = tryDecode(historyFrame, message, "history frame");
+        if (!decoded.ok) return;
+        const frame = decoded.value;
         if (frame.before !== historyRef.current) return;
         const entries = frame.entries;
         setState((current) => ({
@@ -160,7 +164,9 @@ export function usePiSession() {
         return;
       }
       if (typeof type === "string" && type.startsWith("poppy.")) {
-        const frame = message as unknown as PoppyServerFrame;
+        const decoded = tryDecode(serverFrame, message, "Poppy frame");
+        if (!decoded.ok) return;
+        const frame = decoded.value;
         setState((current) => ({ ...current, poppy: reducePoppy(current.poppy, frame) }));
         return;
       }

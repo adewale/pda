@@ -39,7 +39,8 @@ import { protocolIndex, protocolLog, registerApiNamer } from "./protocol-log";
 import { rows } from "../rows";
 import { cardsTable, migrate } from "./store";
 import type { Card, PoppyClientFrame, PoppyServerFrame } from "./wire";
-import { issuerDecoder, parseIssuer, type Issuer } from "./issuer";
+import { issuerDecoder, type Issuer } from "./issuer";
+import { clientFrame } from "./frames";
 import { object, optional, string, tryDecode } from "../decode";
 
 export type PoppyOptions = {
@@ -185,7 +186,7 @@ export class PoppyCapability extends LifecycleCapability {
         this.#sendActivity();
       },
       pushDirect: (update) => {
-        this.#broadcast({ type: "poppy.direct", update: update as never });
+        this.#broadcast({ type: "poppy.direct", update });
         this.#sendActivity();
       },
       userContext: () => ({
@@ -365,15 +366,18 @@ export class PoppyCapability extends LifecycleCapability {
   /** `poppy.*` frames from the page; everything else goes on to the chat. */
   async onWebSocketMessage(socket: WebSocket, message: string | ArrayBuffer | ArrayBufferView): Promise<boolean> {
     if (typeof message !== "string" || !message.includes('"poppy.')) return false;
-    let frame: PoppyClientFrame;
+    let parsed: unknown;
     try {
-      frame = JSON.parse(message) as PoppyClientFrame;
+      parsed = JSON.parse(message);
     } catch {
       return false;
     }
-    if (typeof frame?.type !== "string" || !frame.type.startsWith("poppy.")) return false;
-    // A frame that names a Company names it by an issuer; anything else is no Company's.
-    if ("issuer" in frame && parseIssuer(frame.issuer) === null) return true;
+    const type = typeof parsed === "object" && parsed !== null ? (parsed as { type?: unknown }).type : undefined;
+    if (typeof type !== "string" || !type.startsWith("poppy.")) return false;
+    // Every member checked (an issuer is an issuer, a decision one of the page's): a frame that isn't one is ignored.
+    const decoded = tryDecode(clientFrame, parsed, "page frame");
+    if (!decoded.ok) return true;
+    const frame = decoded.value;
     this.#lastActivity = Date.now();
     try {
       if (QUIET_FRAMES.has(frame.type)) await this.#handleFrame(socket, frame);

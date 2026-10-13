@@ -4,6 +4,7 @@ import { migrateProtocolLog } from "./protocol-log";
 import { flag, literal } from "../decode";
 import { integer, integerOf, nullable, one, table, text, textOf } from "../rows";
 import { issuerDecoder } from "./issuer";
+import { storedOperation } from "./operation-value";
 
 /**
  * Poppy state in the person's SQLite, beside Pi's `pi_*` tables. Session
@@ -209,7 +210,7 @@ export const operationsTable = table("poppy_operations", {
   operation_id: text,
   label: text,
   account: nullable(text),
-  operation: text,
+  operation: textOf(storedOperation),
   previous_summary: nullable(text),
   approved_revision: nullable(integer),
   approved_by: nullable(textOf(literal("user", "standing_permission"))),

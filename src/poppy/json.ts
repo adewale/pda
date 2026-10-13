@@ -124,6 +124,28 @@ export function parseStrictJson(text: string): Json {
   return result;
 }
 
+/**
+ * A value our own code built that is JSON in shape: typed objects (readonly,
+ * with optional members) and arrays of them. `toJson` takes one where a
+ * `Json` is wanted, so the compiler checks the shape instead of a cast.
+ */
+export type JsonLike = null | boolean | number | string | readonly JsonLike[] | { readonly [key: string]: JsonLike | undefined };
+
+/** `value` as `Json`: a copy, with members that are `undefined` left out, as `JSON.stringify` would. */
+export function toJson(value: JsonLike): Json {
+  if (value === null || typeof value !== "object") return value;
+  if (isList(value)) return value.map(toJson);
+  const out: { [key: string]: Json } = {};
+  for (const [key, member] of Object.entries(value)) {
+    if (member !== undefined) Object.defineProperty(out, key, { value: toJson(member), enumerable: true, writable: true, configurable: true });
+  }
+  return out;
+}
+
+function isList(value: readonly JsonLike[] | { readonly [key: string]: JsonLike | undefined }): value is readonly JsonLike[] {
+  return Array.isArray(value);
+}
+
 export function isObject(value: unknown): value is { [key: string]: Json } {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

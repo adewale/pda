@@ -338,7 +338,7 @@ export function timeExtension(options: TimeToolsOptions): Extension {
             zone,
             options.now()
           );
-          return json({ ...(result as unknown as { [key: string]: Json }), zone_from: source });
+          return json({ ...result, zone_from: source });
         }
       ),
       tool(

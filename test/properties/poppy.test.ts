@@ -55,7 +55,7 @@ describe("scopes (4.4, 4.8)", () => {
     property((tc) => {
       const held = tc.draw(gs.arrays(gs.oneOf(gs.sampledFrom(["poppy:read", "poppy:write"]), scopeTokens), { maxSize: 5 }));
       const declared = tc.draw(gs.arrays(gs.oneOf(gs.sampledFrom(held.length ? held : ["poppy:read"]), scopeTokens), { maxSize: 4 }));
-      const op = { operationId: "x", method: "GET", path: "/x", summary: "", parameters: [], acceptsIdempotencyKey: false, proposes: false, scopes: declared, outsidePoppy: false } satisfies OpenApiOperation;
+      const op = { operationId: "x", method: "GET", path: "/x", summary: "", parameters: [], acceptsIdempotencyKey: false, proposes: false, scopes: declared, outsidePoppy: false, schemaDraft: "2020-12" } satisfies OpenApiOperation;
       const wanted = new Set(declared.length ? declared : ["poppy:read"]);
       const have = new Set(held);
       const narrows = [...wanted].every((scope) => have.has(scope)) && wanted.size < have.size;
@@ -218,7 +218,8 @@ function operation(path: string, declared: readonly string[] = []): OpenApiOpera
     acceptsIdempotencyKey: false,
     proposes: false,
     scopes: [],
-    outsidePoppy: false
+    outsidePoppy: false,
+    schemaDraft: "2020-12"
   };
 }
 

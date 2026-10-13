@@ -3,7 +3,7 @@ import { attachmentInfo, humanSize, readAttachment, type AttachmentInfo } from "
 import { PoppyClient, PoppyError, scopeSet, withAnswer } from "./client";
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
-import { isObject, parseStrictJson, type Json } from "./json";
+import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal, type Operation } from "./operations";
 import { randomId } from "./jwt";
 import { EndpointRequest, type RequestInit } from "./outgoing";
@@ -47,6 +47,8 @@ export type OpenApiOperation = {
   readonly outsidePoppy: boolean;
   /** Where its JSON request body's schema is, to check a body against before a card or a request. */
   readonly jsonBody?: JsonBody;
+  /** How its parameters' schemas read: OpenAPI 3.0's as draft 4 (`nullable` folded in), 3.1's as 2020-12. */
+  readonly schemaDraft: "4" | "2020-12";
 };
 
 /** An operation's `application/json` request body: whether it's required, and its schema's place in the description. */
@@ -240,7 +242,7 @@ function checkBody(company: Company, op: OpenApiOperation, body: Json | undefine
   let errors: readonly OutputUnit[];
   try {
     const validator = new Validator({ $ref: `${BODY_BASE}#${spec.pointer}` }, spec.draft, false);
-    validator.addSchema(spec.root as never, BODY_BASE);
+    validator.addSchema(spec.root as never, BODY_BASE); // The library types a schema narrower than JSON; a schema it can't read throws, below.
     errors = validator.validate(body).errors;
   } catch {
     return;
@@ -249,7 +251,7 @@ function checkBody(company: Company, op: OpenApiOperation, body: Json | undefine
   if (typeof body === "string" && /^\s*[{[]/.test(body)) {
     let parsed: Json | undefined;
     try {
-      parsed = JSON.parse(body) as Json;
+      parsed = JSON.parse(body);
     } catch {
       parsed = undefined;
     }
@@ -261,12 +263,60 @@ function checkBody(company: Company, op: OpenApiOperation, body: Json | undefine
       );
     }
   }
-  // The leaves: the wrappers ($ref, properties, allOf…) only say a child failed.
-  const leaves = errors.filter((unit) => !/subschema had errors|does not match schema|did not match/i.test(unit.error));
-  const shown = (leaves.length ? leaves : errors).slice(0, 5).map((unit) => `${unit.instanceLocation.replace(/^#/, "body") || "body"}: ${unit.error}`);
+  const shown = leafErrors(errors, "body");
   throw new PoppyError(
     "invalid_body",
     `body for ${op.operationId} at ${company.name} doesn't match its request schema: ${shown.join("; ")}. See its requestBody in poppy_api_describe. Nothing was sent.`,
+    0
+  );
+}
+
+/** A value's errors against a schema, the leaves first; null when the schema can't be read (which refuses nothing). */
+function schemaErrors(schema: Json, value: Json, draft: "4" | "2020-12"): readonly OutputUnit[] | null {
+  try {
+    return new Validator(schema as never, draft, false).validate(value).errors; // As in checkBody: the library's schema type is narrower than JSON.
+  } catch {
+    return null;
+  }
+}
+
+/** The leaves of a validation: the wrappers ($ref, properties, allOf…) only say a child failed. */
+function leafErrors(errors: readonly OutputUnit[], where: string, limit = 5): string[] {
+  const leaves = errors.filter((unit) => !/subschema had errors|does not match schema|did not match/i.test(unit.error));
+  return (leaves.length ? leaves : errors).slice(0, limit).map((unit) => `${unit.instanceLocation.replace(/^#/, where) || where}: ${unit.error}`);
+}
+
+/**
+ * The other readings of a parameter value: a path or query value is text on
+ * the wire, so a number the model gives where the schema wants a string, or
+ * a string that reads as the number or boolean it wants, is that value.
+ */
+function readings(value: string | number | boolean): Json[] {
+  if (typeof value !== "string") return [String(value)];
+  if (value === "true" || value === "false") return [value === "true"];
+  return /^-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?$/.test(value) ? [Number(value)] : [];
+}
+
+/**
+ * Each parameter the call gives is checked against its schema before a card
+ * or a request, as a JSON body is, so a mistake comes back to the model as a
+ * correction. A value passes in any of its readings as text (`readings`).
+ * A schema we can't read refuses nothing: the Company decides.
+ */
+export function checkParams(company: Pick<Company, "name">, op: OpenApiOperation, params: OpenApiCall["params"]): void {
+  const problems: string[] = [];
+  for (const { name, schema } of op.parameters) {
+    const value = given(params, name);
+    if (value === undefined || schema === undefined) continue;
+    const errors = schemaErrors(schema, value, op.schemaDraft);
+    if (!errors || errors.length === 0) continue;
+    if (readings(value).some((reading) => schemaErrors(schema, reading, op.schemaDraft)?.length === 0)) continue;
+    problems.push(...leafErrors(errors, `params.${name}`, 3));
+  }
+  if (problems.length === 0) return;
+  throw new PoppyError(
+    "invalid_params",
+    `params for ${op.operationId} at ${company.name} don't match their schemas: ${problems.slice(0, 5).join("; ")}. See its parameters in poppy_api_describe. Nothing was sent.`,
     0
   );
 }
@@ -283,6 +333,9 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
   const base = new URL(server, finalUrl).href.replace(/\/+$/, "");
   const operations: OpenApiOperation[] = [];
   const dpop = dpopSchemes(json);
+  const v30 = json.openapi.startsWith("3.0.");
+  // A parameter's schema, written out (so poppy_api_describe shows it) and read as its version's JSON Schema.
+  const parameterSchema = (schema: Json) => (v30 ? foldNullable(inlineRefs(json, schema)) : inlineRefs(json, schema));
   if (isObject(json.paths)) {
     for (const [path, item] of Object.entries(json.paths)) {
       if (!isObject(item)) continue;
@@ -298,7 +351,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
                   name: parameter.name,
                   in: parameter.in,
                   required: parameter.required === true,
-                  ...(parameter.schema !== undefined ? { schema: resolveRef(json, parameter.schema) } : {}),
+                  ...(parameter.schema !== undefined ? { schema: parameterSchema(parameter.schema) } : {}),
                   ...(typeof parameter.description === "string" ? { description: parameter.description } : {})
                 }]
               : []
@@ -321,7 +374,8 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
           proposes: proposesOperation(json, op),
           scopes: declaredScopes(op.security ?? json.security),
           outsidePoppy: outsidePoppySession(dpop, method.toUpperCase(), op.security ?? json.security),
-          ...(jsonBody ? { jsonBody } : {})
+          ...(jsonBody ? { jsonBody } : {}),
+          schemaDraft: v30 ? "4" : "2020-12"
         });
       }
     }
@@ -378,7 +432,7 @@ export async function describeOpenApi(client: PoppyClient, company: Company, api
     path: op.path,
     summary: op.summary,
     ...(op.outsidePoppy ? { usable: false, note: OUTSIDE_POPPY } : {}),
-    parameters: op.parameters as unknown as Json,
+    parameters: toJson(op.parameters),
     ...(op.requestBody !== undefined ? { requestBody: op.requestBody } : {}),
     ...(op.upload
       ? {
@@ -623,6 +677,7 @@ export class CheckedApiRequest {
     const params = request.params ?? {};
     const url = new URL(document.base);
     url.pathname = `${url.pathname.replace(/\/+$/, "")}${pathFor(op, params)}`;
+    checkParams(company, op, params);
     for (const parameter of op.parameters) {
       const value = given(params, parameter.name);
       if (parameter.in === "query" && value !== undefined) url.searchParams.set(parameter.name, String(value));

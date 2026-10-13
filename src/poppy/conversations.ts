@@ -1,7 +1,7 @@
 import { literal, reportError } from "../log";
 import { hasCode, PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
-import { isObject, parseStrictJson, type Json } from "./json";
+import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
 import { handleProposal } from "./operations";
 import { EndpointRequest } from "./outgoing";
@@ -156,7 +156,7 @@ export async function sendMessage(
       url.searchParams.set("wait", String(request.wait));
       if (cursor) url.searchParams.set("cursor", cursor);
     }
-    return client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: url.href, body: body as unknown as Json }), tokenOptions(company, request.label));
+    return client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: url.href, body: toJson(body) }), tokenOptions(company, request.label));
   };
   let response: Json;
   try {
@@ -686,10 +686,10 @@ export function pushDirect(
     company: company.name,
     status: row.status,
     responder: row.responder,
-    messages: messages as unknown as Json,
+    messages,
     partial,
     closed: row.status === "closed"
-  } as unknown as Json);
+  });
 }
 
 /** Ask for a person at the Company, after a summary for them (spec 7.9). */

@@ -14,7 +14,8 @@ import {
   sendMessage
 } from "./conversations";
 import { DiscoveryError, isCompany } from "./discovery";
-import type { Json } from "./json";
+import { toJson, type Json } from "./json";
+import { json } from "../decode";
 import { operation } from "./operations";
 import { startSignIn, describeScopes } from "./signin";
 
@@ -32,7 +33,7 @@ function text(value: unknown): { content: { type: "text"; text: string }[]; deta
   const body = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   return {
     content: [{ type: "text", text: body }],
-    details: typeof value === "string" ? null : (JSON.parse(body ?? "null") as Json)
+    details: typeof value === "string" ? null : json(JSON.parse(body ?? "null"), "tool result")
   };
 }
 
@@ -102,7 +103,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             company: found.name,
             domain: found.domain,
             signIn: Object.keys(found.signIn),
-            scopes: describeScopes(found, [...scopes]) as unknown as Json,
+            scopes: toJson(describeScopes(found, [...scopes])),
             agent: found.conversations ? "available (poppy_message)" : "none",
             apis: found.apis.map((api) => ({ type: api.type, url: api.url, description: api.description })),
             website: found.web ? (found.web.browserSessionEndpoint ? "browsable in the session" : "browsable signed out") : "not offered",
@@ -145,7 +146,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           replay: "safe"
         },
         async ({ domain }) => {
-          if (domain === undefined) return openAtCompanies(client()) as unknown as Json;
+          if (domain === undefined) return openAtCompanies(client());
           const found = await company(domain);
           const c = client();
           return {
@@ -180,10 +181,10 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             ...(id ? { conversationId: id } : {}),
             sender: "agent",
             ...(message !== undefined ? { text: message } : {}),
-            ...(data !== undefined ? { data: data as Json } : {}),
+            ...(data !== undefined ? { data: json(data, "data") } : {}),
             wait: 10
           });
-          return result as unknown as Json;
+          return result;
         }
       ),
       tool(
@@ -209,7 +210,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         async ({ conversation: id, summary }, callKey) => {
           const row = conversation(client(), id);
           if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
-          return (await handoff(client(), client().companyByIssuer(row.issuer), id, summary, callKey)) as unknown as Json;
+          return handoff(client(), client().companyByIssuer(row.issuer), id, summary, callKey);
         }
       ),
       tool(
@@ -281,7 +282,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             callKey,
             ...(api ? { apiUrl: api } : {}),
             ...(params ? { params } : {}),
-            ...(body !== undefined ? { body: body as Json } : {}),
+            ...(body !== undefined ? { body: json(body, "body") } : {}),
             ...(files ? { files } : {})
           })
       ),
@@ -309,7 +310,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           replay: "unsafe"
         },
         async ({ domain, tool: name, args, api, session }) =>
-          callMcpTool(client(), await company(domain), session ?? "main", { tool: name, args: (args ?? {}) as Json, ...(api ? { apiUrl: api } : {}) })
+          callMcpTool(client(), await company(domain), session ?? "main", { tool: name, args: json(args ?? {}, "args"), ...(api ? { apiUrl: api } : {}) })
       ),
       tool(
         {
@@ -346,7 +347,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           const found = await company(domain);
           const op = operation(client(), found.issuer, id);
           if (!op) throw new PoppyError("operation_not_found", `No operation ${id}`, 404);
-          return op as unknown as Json;
+          return op;
         }
       )
     ]

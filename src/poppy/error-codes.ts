@@ -14,6 +14,7 @@ export const AGENT_ERROR_CODES = [
   "extension_required",
   "interrupted",
   "invalid_body",
+  "invalid_params",
   "invalid_request",
   "invalid_response",
   "invalid_scope",

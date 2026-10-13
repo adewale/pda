@@ -1,5 +1,5 @@
 import type { PoppyClient } from "./client";
-import { lostOutcome, type Operation } from "./operations";
+import { lostOutcome } from "./operations";
 import { object } from "../decode";
 import { integer, nullable, one, rows, text } from "../rows";
 import { accountsTable, approvalsTable, conversationsTable, inboxTable, messagesTable, operationsTable, signInsTable } from "./store";
@@ -124,7 +124,7 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     operationRow,
     "SELECT issuer, operation_id, account, operation, approved_revision, approved_by, confirmed, updated_at FROM poppy_operations ORDER BY updated_at DESC"
   ).flatMap((row) => {
-    const operation = JSON.parse(row.operation) as Operation;
+    const operation = row.operation;
     // One the Company no longer has (N19) is final for us, whatever its last state said.
     if (lostOutcome(row.confirmed) || (operation.state !== "proposed" && operation.state !== "in_progress")) return [];
     const approved = row.approved_revision !== null && row.approved_revision === operation.revision;
@@ -228,7 +228,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
     operationRow,
     "SELECT issuer, operation_id, account, operation, approved_revision, approved_by, confirmed, updated_at FROM poppy_operations"
   )) {
-    const operation = JSON.parse(row.operation) as Operation;
+    const operation = row.operation;
     const company = name(row.issuer);
     const approved = row.approved_revision !== null && row.approved_revision === operation.revision;
     // The Company no longer has it (N19): final for us, done or not as far as we know.

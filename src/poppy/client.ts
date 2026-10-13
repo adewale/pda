@@ -8,6 +8,7 @@ import {
 } from "./discovery";
 import { POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type Fetcher, type PoppyTimeouts } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
+import { boolean, number, object, optional, string, tryDecode, type Decoded } from "../decode";
 import {
   clientAssertion,
   dpopProof,
@@ -20,7 +21,7 @@ import { currentKey, readIdentity, type AgentIdentity } from "./keys";
 import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup } from "./protocol-log";
 import { found, one, rows, type RowOf } from "../rows";
 import { accountsTable, domainsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
-import type { Card } from "./wire";
+import type { Card, DirectUpdate } from "./wire";
 import type { CheckedApiRequest } from "./apis";
 import { companyErrorCode, type KnownErrorCode, type PoppyErrorCode } from "./error-codes";
 import type { EndpointRequest } from "./outgoing";
@@ -38,7 +39,7 @@ export type PoppyHost = {
   /** Run a durable job later; the same `id` replaces an earlier one. */
   readonly schedule: (fn: JobName, at: number, payload: Json, id: string) => Promise<void>;
   /** Push live updates for an open Direct Conversation to the page. */
-  readonly pushDirect: (update: Json) => void;
+  readonly pushDirect: (update: DirectUpdate) => void;
   /** The person's situation, for conversation `context` (spec 7.4). */
   readonly userContext: () => {
     locale?: string;
@@ -132,16 +133,23 @@ const INLINE_WAIT_MS = 5_000;
 /** Renew a Session Token this long before it expires. */
 const RENEW_EARLY_MS = 30_000;
 
-type TokenResponse = {
-  readonly access_token: string;
-  readonly token_type: string;
-  readonly expires_in: number;
-  readonly scope?: string;
-  readonly session_id: string;
-  readonly signed_in: boolean;
-  readonly refresh_token?: string;
-  readonly refresh_token_expires_in?: number;
-};
+/**
+ * A token response (spec 4.2, RFC 6749 5.1), decoded whole: a member of the
+ * wrong type is a malformed response, not a value to coerce. `signed_in`
+ * and `scope` may be absent (the draft doesn't mark them required, N6):
+ * absent `signed_in` is a signed-out Session.
+ */
+export const tokenResponse = object({
+  access_token: string,
+  token_type: optional(string),
+  expires_in: number,
+  scope: optional(string),
+  session_id: string,
+  signed_in: optional(boolean),
+  refresh_token: optional(string),
+  refresh_token_expires_in: optional(number)
+});
+type TokenResponse = Decoded<typeof tokenResponse>;
 
 const sessionRow = sessionsTable.pick("issuer", "label", "session_id", "account", "signed_in", "scope");
 type SessionRow = RowOf<typeof sessionRow>;
@@ -548,11 +556,11 @@ export class PoppyClient {
   ): Promise<TokenResponse> {
     const { status, body } = await this.oauthRequest(company, company.endpoints.token, params, options);
     if (status === 200 && isObject(body) && typeof body.access_token === "string") {
-      const response = body as unknown as TokenResponse;
-      if (!(response.expires_in > 0) || typeof response.session_id !== "string") {
-        throw new PoppyError("invalid_response", "The company's token response is malformed", status);
+      const decoded = tryDecode(tokenResponse, body, "token response");
+      if (!decoded.ok || !(decoded.value.expires_in > 0)) {
+        throw new PoppyError("invalid_response", `The company's token response is malformed${decoded.ok ? ": expires_in isn't positive" : ` (${decoded.problem})`}`, status);
       }
-      return response;
+      return decoded.value;
     }
     const code = isObject(body) && body.error !== undefined ? companyErrorCode(body.error, status) : "server_error";
     const description =
@@ -760,7 +768,7 @@ export class PoppyClient {
       type: options.bearer ? "Bearer" : "DPoP",
       expiresAt: Date.now() + response.expires_in * 1000,
       scope: response.scope ?? "",
-      signedIn: response.signed_in,
+      signedIn: response.signed_in === true,
       keyThumbprint: dpop?.thumbprint ?? null
     };
     // The newest token for a Session replaces every older one (spec 4.3).

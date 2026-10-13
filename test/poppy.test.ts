@@ -1,12 +1,15 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
-import { dpopSchemes, openApi, outsidePoppySession, proposesOperation } from "../src/poppy/apis";
+import { checkParams, dpopSchemes, openApi, outsidePoppySession, proposesOperation, type OpenApiOperation } from "../src/poppy/apis";
+import { tokenResponse } from "../src/poppy/client";
+import { parseOperation } from "../src/poppy/operation-value";
+import { clientFrame, serverFrame } from "../src/poppy/frames";
 import type { Json } from "../src/poppy/json";
 import { summaryStartsWithAction, termsCovered } from "../src/poppy/operations";
-import type { PoppyClient } from "../src/poppy/client";
+import { PoppyError, type PoppyClient } from "../src/poppy/client";
 import { tokenHostAllowed, type Company as PoppyCompany } from "../src/poppy/discovery";
 import { domainOrigin, originOf, parseIssuer, toIssuer } from "../src/poppy/issuer";
-import { DecodeError } from "../src/decode";
+import { DecodeError, tryDecode } from "../src/decode";
 import { AGENT_ERROR_CODES, companyErrorCode } from "../src/poppy/error-codes";
 import { origin } from "../src/log";
 import { isSignInPage } from "../src/poppy/browser";
@@ -2447,7 +2450,10 @@ describe("7.13 conversation errors", () => {
         `Mock Shop ${c.id} already has message ${message} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived. [message_id_conflict]`
       );
       // On the tool call's turn event, at level error, by its code (src/log.ts).
-      const turn = (await wideEvents(a, logMark)).find((event) => event.kind === "turn");
+      // The turn that made the call: a background turn (a Company's message) may be written first under load.
+      const turn = await until(async () =>
+        (await wideEvents(a, logMark)).find((event) => event.kind === "turn" && String(event.tool_outcomes ?? "").includes("poppy_message"))
+      );
       expect(turn).toMatchObject({ level: "error", tool_outcomes: expect.stringContaining("poppy_message:error") });
       expect(turn!.errors).toContainEqual(expect.objectContaining({ type: "PoppyError", code: "message_id_conflict", step: "poppy.conversation_send" }));
       // Two sends of that id, the second refused; nothing under another id, and the Company kept the first.
@@ -2708,5 +2714,74 @@ describe("error codes, a closed set of ours and the Company's as tokens", () => 
     expect(companyErrorCode("x".repeat(65), 500)).toBe("http_500");
     expect(companyErrorCode(undefined, 502)).toBe("http_502");
     expect(companyErrorCode({ code: 1 }, 400)).toBe("http_400");
+  });
+});
+
+describe("parsed once at the edge", () => {
+  const op = (schema: Json): OpenApiOperation => ({
+    operationId: "listOrders",
+    method: "GET",
+    path: "/orders",
+    summary: "",
+    parameters: [{ name: "n", in: "query", required: false, schema }],
+    acceptsIdempotencyKey: false,
+    proposes: false,
+    scopes: [],
+    outsidePoppy: false,
+    schemaDraft: "2020-12"
+  });
+  const shop = { name: "Shop" };
+  const refused = (run: () => void) => {
+    try {
+      run();
+    } catch (error) {
+      return error instanceof PoppyError ? { code: error.code, message: error.message } : { code: "other", message: String(error) };
+    }
+    return null;
+  };
+
+  it("checks a call's params against their schemas, reading each as the text a URL carries", () => {
+    expect(refused(() => checkParams(shop, op({ type: "integer", minimum: 1 }), { n: 3 }))).toBeNull();
+    expect(refused(() => checkParams(shop, op({ type: "integer", minimum: 1 }), { n: "3" }))).toBeNull();
+    expect(refused(() => checkParams(shop, op({ type: "string" }), { n: 42 }))).toBeNull();
+    expect(refused(() => checkParams(shop, op({ type: "boolean" }), { n: "true" }))).toBeNull();
+    expect(refused(() => checkParams(shop, op({ type: "integer", minimum: 1 }), { n: 0 }))).toMatchObject({ code: "invalid_params", message: expect.stringContaining("params.n") });
+    expect(refused(() => checkParams(shop, op({ enum: ["small", "large"] }), { n: "huge" }))).toMatchObject({ code: "invalid_params", message: expect.stringContaining("Nothing was sent") });
+    // A schema it can't read refuses nothing; the Company decides.
+    expect(refused(() => checkParams(shop, op({ $ref: "#/nowhere" }), { n: "x" }))).toBeNull();
+  });
+
+  it("decodes a token response whole: a member of the wrong type is malformed, an absent signed_in or scope is allowed", () => {
+    const good = { access_token: "at", token_type: "DPoP", expires_in: 3600, session_id: "ses_1" };
+    expect(tryDecode(tokenResponse, good, "token response").ok).toBe(true);
+    expect(tryDecode(tokenResponse, { ...good, signed_in: true, scope: "poppy:read", refresh_token: "rt", refresh_token_expires_in: 60 }, "token response").ok).toBe(true);
+    for (const bad of [{ ...good, refresh_token_expires_in: "3600" }, { ...good, signed_in: "true" }, { ...good, session_id: 7 }, { ...good, expires_in: "3600" }]) {
+      expect(tryDecode(tokenResponse, bad, "token response").ok, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("decodes an operation: its four required members checked, an optional one of the wrong type left out", () => {
+    const base = { operation_id: "op_1", revision: 2, state: "proposed", summary: "Exchange the jacket" };
+    expect(parseOperation({ ...base, url: 5, user_approval_required: "yes", expires_at: "2026-10-20T00:00:00Z", result: { summary: 3 }, extra: 1 })).toEqual({
+      operation: { ...base, expires_at: "2026-10-20T00:00:00Z" }
+    });
+    expect(parseOperation({ ...base, result: { summary: "Done", data: { order: "ord_1" } } })).toEqual({ operation: { ...base, result: { summary: "Done", data: { order: "ord_1" } } } });
+    expect(parseOperation({ ...base, state: "done" })).toEqual({ problem: "its state isn't one the Operations extension defines" });
+  });
+
+  it("decodes the page's frames to the agent member by member, and the agent's to the page by type", () => {
+    const issuer = "https://auth.shop.example";
+    expect(tryDecode(clientFrame, { type: "poppy.operation", issuer, operationId: "op_1", revision: 1, decision: "approve" }, "frame").ok).toBe(true);
+    for (const bad of [
+      { type: "poppy.operation", issuer, operationId: "op_1", revision: 1, decision: "yes" },
+      { type: "poppy.operation", issuer, operationId: "op_1", revision: "1", decision: "approve" },
+      { type: "poppy.approval", approvalId: 7, decision: "approve" },
+      { type: "poppy.credentials", signInId: "si_1", values: { password: 1 } },
+      { type: "poppy.unknown" }
+    ]) {
+      expect(tryDecode(clientFrame, bad, "frame").ok, JSON.stringify(bad)).toBe(false);
+    }
+    expect(tryDecode(serverFrame, { type: "poppy.cards", cards: [{ id: "c1", kind: "notice" }] }, "frame").ok).toBe(true);
+    expect(tryDecode(serverFrame, { type: "poppy.cards", cards: "none" }, "frame").ok).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
 import { literal, reportError } from "../log";
-import { covers, grantedScope, PoppyClient, PoppyError, registerSignInRecovery, scopeSet } from "./client";
+import { covers, grantedScope, PoppyClient, PoppyError, registerSignInRecovery, scopeSet, tokenResponse } from "./client";
+import { tryDecode } from "../decode";
 import type { Company, SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
@@ -242,14 +243,14 @@ async function report(client: PoppyClient, row: SignInRow, text: string, cardTex
 async function finish(
   client: PoppyClient,
   row: SignInRow,
-  outcome: { ok: true; response: Json } | { ok: false; message: string; expired?: boolean }
+  outcome: { ok: true; response: TokenResponse } | { ok: false; message: string; expired?: boolean }
 ): Promise<void> {
   const company = client.companyByIssuer(row.issuer);
   setStatus(client, row.id, outcome.ok ? "done" : outcome.expired ? "expired" : "failed");
   let text: string;
   let cardText: string | undefined;
   if (outcome.ok) {
-    const raw = outcome.response as TokenResponse;
+    const raw = outcome.response;
     // An omitted `scope` grants what was asked for (RFC 6749 §5.1, N6).
     const response = { ...raw, scope: grantedScope(raw, row.scopes) };
     await client.completeSignIn(company, row.label, row.account, response);
@@ -326,7 +327,7 @@ async function finishExchange(client: PoppyClient, row: SignInRow, answer?: Kept
   } else {
     const kept = answer ?? (JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as KeptAnswer);
     // An omitted `scope` grants what was asked for (RFC 6749 §5.1, N6).
-    const response = { ...kept, access_token: "", scope: grantedScope(kept, row.scopes) } as TokenResponse;
+    const response: TokenResponse = { ...kept, access_token: "", scope: grantedScope(kept, row.scopes) };
     await client.completeSignIn(company, row.label, row.account, response);
     scope = response.scope ?? "";
     // The Account Token is in poppy_accounts now; this row keeps only the scope.
@@ -502,7 +503,7 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
         ...(session ? { session_id: session.session_id } : {})
       };
     });
-    await finish(client, row, { ok: true, response: response as unknown as Json });
+    await finish(client, row, { ok: true, response });
     return null;
   } catch (error) {
     if (!(error instanceof PoppyError)) throw error;
@@ -532,9 +533,16 @@ async function mediatedResponse(
   }
   const company = client.companyByIssuer(row.issuer);
   switch (body.status) {
-    case "complete":
-      await finish(client, row, { ok: true, response: body });
+    case "complete": {
+      // Its tokens, decoded as any token response is: a malformed one signs nobody in.
+      const tokens = tryDecode(tokenResponse, body, "Mediated Sign-In reply");
+      if (!tokens.ok || !(tokens.value.expires_in > 0)) {
+        await finish(client, row, { ok: false, message: "the company's reply was malformed" });
+        return "failed";
+      }
+      await finish(client, row, { ok: true, response: tokens.value });
       return "done";
+    }
     case "code_required": {
       const signInId = typeof body.sign_in_id === "string" ? body.sign_in_id : null;
       if (!signInId || !/^[A-Za-z0-9_-]{1,256}$/.test(signInId)) {

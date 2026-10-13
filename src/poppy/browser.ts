@@ -1,7 +1,7 @@
 import { PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
 import { assertPublicHost, PoppyFetchError } from "./fetch";
-import type { Json } from "./json";
+import { toJson, type Json } from "./json";
 import { browserAssertion } from "./jwt";
 import { currentKey } from "./keys";
 import { proposeLocal, registerExecutor } from "./operations";
@@ -213,8 +213,8 @@ function snapshotForModel(snapshot: PageSnapshot): Json {
     status: snapshot.status,
     title: snapshot.title,
     text: snapshot.text.slice(0, 8_000),
-    links: snapshot.links.slice(0, 50) as unknown as Json,
-    forms: snapshot.forms as unknown as Json
+    links: toJson(snapshot.links.slice(0, 50)),
+    forms: toJson(snapshot.forms)
   };
 }
 

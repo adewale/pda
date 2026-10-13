@@ -3,24 +3,12 @@ import { answerOf, hasCode, PoppyClient, PoppyError } from "./client";
 import { tokenHostAllowed, type Company } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId } from "./jwt";
+import { FINAL_STATES, parseOperation, type Operation } from "./operation-value";
 import { EndpointRequest } from "./outgoing";
 import { one, rows, type RowOf } from "../rows";
 import { approvalsTable, operationsTable, permissionsTable, proposalsTable } from "./store";
 import type { Issuer } from "./issuer";
 
-/** An operation as the Company sends it (Ops 3). */
-export type Operation = {
-  readonly operation_id: string;
-  readonly revision: number;
-  readonly state: "proposed" | "in_progress" | "succeeded" | "failed" | "cancelled" | "expired";
-  readonly summary: string;
-  readonly terms?: Json;
-  readonly expires_at?: string;
-  readonly user_approval_required?: boolean;
-  readonly url?: string;
-  readonly confirmation?: Json;
-  readonly result?: { readonly summary: string; readonly data?: Json } | null;
-};
 
 const operationRow = operationsTable.row;
 type OperationRow = RowOf<typeof operationRow>;
@@ -52,6 +40,9 @@ function isLost(confirmed: number): boolean {
   return confirmed === LOST || confirmed === LOST_NOT_DONE;
 }
 
+export type { Operation } from "./operation-value";
+export { operationIdProblem } from "./operation-value";
+
 /** For a lost operation, whether it may have happened; null when it isn't lost. */
 export function lostOutcome(confirmed: number): "unknown" | "not_done" | null {
   return confirmed === LOST ? "unknown" : confirmed === LOST_NOT_DONE ? "not_done" : null;
@@ -59,40 +50,7 @@ export function lostOutcome(confirmed: number): "unknown" | "not_done" | null {
 /** When the tracking job checks on a confirm whose answer never came. */
 const CONFIRM_CHECK_MS = 60_000;
 
-const FINAL = new Set(["succeeded", "failed", "cancelled", "expired"]);
-const STATES = new Set(["proposed", "in_progress", ...FINAL]);
-/**
- * Why an `operation_id` can't be used, or null if it can. It is the
- * Company's own (it MAY be its record's id, Ops 3), so any text is taken:
- * 1 to 256 characters, none a control character, no space at either end,
- * not `.` or `..` (which a URL would resolve away), and well-formed Unicode.
- * It goes into URLs percent-encoded.
- */
-export function operationIdProblem(id: unknown): string | null {
-  if (typeof id !== "string") return "it has no operation_id";
-  const length = [...id].length;
-  if (length < 1 || length > 256) return "its operation_id isn't 1 to 256 characters";
-  if (/\p{Cc}/u.test(id)) return "its operation_id has a control character";
-  if (id.trim() !== id) return "its operation_id starts or ends with a space";
-  if (id === "." || id === "..") return "its operation_id is a dot segment";
-  try {
-    encodeURIComponent(id);
-  } catch {
-    return "its operation_id isn't well-formed Unicode";
-  }
-  return null;
-}
-
-function parseOperation(value: Json): { operation: Operation } | { problem: string } {
-  if (!isObject(value)) return { problem: "it isn't an object" };
-  const { operation_id, revision, state, summary } = value;
-  const idProblem = operationIdProblem(operation_id);
-  if (idProblem) return { problem: idProblem };
-  if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 1) return { problem: "its revision isn't a whole number from 1" };
-  if (typeof state !== "string" || !STATES.has(state)) return { problem: "its state isn't one the Operations extension defines" };
-  if (typeof summary !== "string") return { problem: "it has no summary" };
-  return { operation: value as unknown as Operation };
-}
+const FINAL = FINAL_STATES;
 
 /** A short, stable tag for a value (FNV-1a of its JSON), so a notice about it is given once. */
 function tagOf(value: Json): string {
@@ -193,7 +151,7 @@ export function resultLinks(company: Company, data: Json | undefined): { label: 
 }
 
 async function showOperation(client: PoppyClient, company: Company, row: OperationRow): Promise<void> {
-  const operation = JSON.parse(row.operation) as Operation;
+  const operation = row.operation;
   const lost = lostOutcome(row.confirmed) ?? undefined;
   const open = !lost && operation.state === "proposed" && row.approved_revision !== operation.revision;
   const links = FINAL.has(operation.state) ? resultLinks(company, operation.result?.data) : [];
@@ -231,7 +189,7 @@ async function showOperation(client: PoppyClient, company: Company, row: Operati
 async function markLost(client: PoppyClient, company: Company, row: OperationRow): Promise<void> {
   if (isLost(row.confirmed)) return;
   // It may have happened if it was being performed, or an earlier confirm's answer never came.
-  const uncertain = row.confirmed === SENT || (JSON.parse(row.operation) as Operation).state === "in_progress";
+  const uncertain = row.confirmed === SENT || row.operation.state === "in_progress";
   const approved = row.approved_revision !== null;
   releasePermission(client, row);
   setConfirmed(client, row.issuer, row.operation_id, uncertain ? LOST : LOST_NOT_DONE);
@@ -263,7 +221,7 @@ export function refuseWhileConfirming(client: PoppyClient, issuer: Issuer, reque
   );
   const row = found ? stored(client, issuer, found.operation_id) : undefined;
   if (!row || row.approved_revision === null || isLost(row.confirmed)) return;
-  const operation = JSON.parse(row.operation) as Operation;
+  const operation = row.operation;
   if (FINAL.has(operation.state)) return;
   throw new PoppyError(
     "operation_open",
@@ -306,7 +264,7 @@ export async function handleProposal(
   }
   const { operation } = parsed;
   const existing = stored(client, company.issuer, operation.operation_id);
-  const previous = existing ? (JSON.parse(existing.operation) as Operation) : undefined;
+  const previous = existing ? existing.operation : undefined;
   if (previous && previous.revision > operation.revision) return previous;
   if (previous && FINAL.has(previous.state)) return previous;
   const account = client.session(company.issuer, label)?.account ?? null;
@@ -358,7 +316,7 @@ async function afterUpdate(
   row: OperationRow,
   previous: Operation | undefined
 ): Promise<void> {
-  const operation = JSON.parse(row.operation) as Operation;
+  const operation = row.operation;
   await showOperation(client, company, row);
   if (FINAL.has(operation.state) && previous?.state !== operation.state) {
     settlePermission(client, row, operation.state === "succeeded" || operation.state === "in_progress");
@@ -378,7 +336,7 @@ async function update(client: PoppyClient, company: Company, value: Json): Promi
   const { operation } = parsed;
   const existing = stored(client, company.issuer, operation.operation_id);
   if (!existing) return null;
-  const previous = JSON.parse(existing.operation) as Operation;
+  const previous = existing.operation;
   client.sql.exec(
     "UPDATE poppy_operations SET operation = ?, updated_at = ? WHERE issuer = ? AND operation_id = ?",
     JSON.stringify(operation),
@@ -413,7 +371,7 @@ export async function approveAndConfirm(
 ): Promise<void> {
   const row = stored(client, issuer, operationId);
   if (!row || isLost(row.confirmed)) return;
-  const operation = JSON.parse(row.operation) as Operation;
+  const operation = row.operation;
   // An approval covers one revision; a stale card can't approve newer terms.
   if (operation.revision !== revision || operation.state !== "proposed") return;
   if (approvedBy === "standing_permission" && operation.user_approval_required) return;
@@ -447,7 +405,7 @@ const CONFIRMING = (issuer: Issuer, operationId: string) => `confirm|${issuer}|$
 export async function confirm(client: PoppyClient, issuer: Issuer, operationId: string): Promise<void> {
   const row = stored(client, issuer, operationId);
   if (!row || row.approved_revision === null || !row.approved_by || isLost(row.confirmed)) return;
-  if (FINAL.has((JSON.parse(row.operation) as Operation).state)) return;
+  if (FINAL.has(row.operation.state)) return;
   const key = CONFIRMING(issuer, operationId);
   if (client.inFlight.has(key)) return;
   const company = client.companyByIssuer(issuer);
@@ -503,7 +461,7 @@ export async function confirm(client: PoppyClient, issuer: Issuer, operationId: 
     if (error.is("user_approval_required")) {
       releasePermission(client, row);
       clearApproval(client, issuer, operationId);
-      const current = { ...(JSON.parse(row.operation) as Operation), user_approval_required: true };
+      const current = { ...row.operation, user_approval_required: true };
       client.sql.exec("UPDATE poppy_operations SET operation = ? WHERE issuer = ? AND operation_id = ?", JSON.stringify(current), issuer, operationId);
       await showOperation(client, company, stored(client, issuer, operationId)!);
       return;
@@ -566,7 +524,7 @@ export async function retryApproved(client: PoppyClient, issuer: Issuer): Promis
     issuer,
     NOT_SENT
   )) {
-    if (FINAL.has((JSON.parse(row.operation) as Operation).state)) continue;
+    if (FINAL.has(row.operation.state)) continue;
     let operation: Operation | null;
     try {
       ({ operation } = await readOperation(client, client.companyByIssuer(issuer), row));
@@ -591,7 +549,7 @@ export async function retryApproved(client: PoppyClient, issuer: Issuer): Promis
 export async function trackOperation(client: PoppyClient, issuer: Issuer, operationId: string): Promise<number | null> {
   const row = stored(client, issuer, operationId);
   if (!row || isLost(row.confirmed)) return null;
-  const known = JSON.parse(row.operation) as Operation;
+  const known = row.operation;
   if (FINAL.has(known.state)) return null;
   // A proposal with no confirm outstanding has nothing to follow up.
   if (known.state === "proposed" && row.confirmed !== SENT) return null;
@@ -654,7 +612,7 @@ export async function cancelOperation(client: PoppyClient, issuer: Issuer, opera
 
 export function operation(client: PoppyClient, issuer: Issuer, operationId: string): Operation | undefined {
   const row = stored(client, issuer, operationId);
-  return row ? (JSON.parse(row.operation) as Operation) : undefined;
+  return row ? row.operation : undefined;
 }
 
 // ---------------------------------------------------------------- Standing permissions
