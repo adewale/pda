@@ -55,7 +55,10 @@ function session(patch: Partial<PiSession> = {}, poppy: Partial<PoppyView> = {})
     status: "open",
     catalog: [],
     poppy: { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
+    outbox: [],
     submit: (text: string) => void submitted.push(text),
+    resend: () => undefined,
+    discard: () => undefined,
     abort: () => undefined,
     reset: () => undefined,
     sendPoppy: (frame: PoppyClientFrame) => void sent.push(frame),
@@ -307,11 +310,37 @@ describe("chat", () => {
     expect(submitted).toEqual(["Hello"]);
   });
 
-  it("says quietly when it isn't connected, and why sending waits", () => {
-    open("/", session({ status: "closed" }));
+  it("says quietly when it isn't connected, and that what is sent meanwhile waits", () => {
+    const { submitted } = open("/", session({ status: "closed" }));
     expect(screen.getByRole("status").textContent).toMatch(/Reconnecting to your agent/);
-    expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("You can send once your agent is connected.")).toBeTruthy();
+    expect(screen.getByText("Not connected yet. What you send waits in the chat and goes once your agent is connected.")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Message your agent" }), { target: { value: "Still there?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(submitted).toEqual(["Still there?"]);
+  });
+
+  it("shows a message the agent hasn't taken yet as pending, and one it refused with a way to try again", () => {
+    const resent: string[] = [];
+    const discarded: string[] = [];
+    open(
+      "/",
+      session({
+        status: "closed",
+        outbox: [
+          { id: "op-1", text: "Book the table", whenBusy: "followUp", state: "waiting" },
+          { id: "op-2", text: "And a taxi", whenBusy: "followUp", state: "failed", error: "Unknown pi session 7" }
+        ],
+        resend: (id: string) => void resent.push(id),
+        discard: (id: string) => void discarded.push(id)
+      })
+    );
+    expect(screen.getByText("Book the table")).toBeTruthy();
+    expect(screen.getByText("Waiting to connect. It goes once your agent is connected.")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Your agent works with companies for you" })).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain("Your agent didn't take this message: Unknown pi session 7");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect([resent, discarded]).toEqual([["op-2"], ["op-2"]]);
   });
 });
 

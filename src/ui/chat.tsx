@@ -7,7 +7,7 @@ import type { PiSession } from "../use-pi-session";
 import { attachProblem, PendingAttachments, removeAttachment, uploadAttachment, withMarkers, type PendingAttachment } from "./attachments";
 import { Action, IconAction, useNow } from "./controls";
 import { countdown } from "./format";
-import { Transcript } from "./transcript";
+import { Transcript, UserMessage } from "./transcript";
 
 function Capability({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
@@ -66,6 +66,41 @@ function Working({ session }: { session: PiSession }) {
       <Loader size={16} />
       <span>{text}</span>
       {queued > 0 ? <span>· {queued === 1 ? "1 message waits" : `${queued} messages wait`} for this to finish</span> : null}
+    </div>
+  );
+}
+
+/**
+ * What the User sent that the agent hasn't taken yet: shown under the
+ * conversation, each with why it is still here, until the agent answers.
+ */
+function Pending({ session }: { session: PiSession }) {
+  const { outbox, status } = session;
+  if (outbox.length === 0) return null;
+  return (
+    <div className="space-y-5">
+      {outbox.map((item) => (
+        <div key={item.id} className="flex flex-col items-end gap-1.5">
+          <div className={cn(item.state === "failed" ? undefined : "opacity-70")}>
+            <UserMessage message={{ id: item.id, role: "user", parts: [{ type: "text", text: item.text }], timestamp: 0 }} />
+          </div>
+          {item.state === "failed" ? (
+            <div role="alert" className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+              <p className="text-[13px] text-pretty text-kumo-danger">Your agent didn't take this message: {item.error}</p>
+              <Action variant="secondary" onClick={() => session.resend(item.id)}>
+                Try again
+              </Action>
+              <Action variant="ghost" onClick={() => session.discard(item.id)}>
+                Remove
+              </Action>
+            </div>
+          ) : (
+            <p role="status" className="text-[13px] text-kumo-subtle">
+              {status === "open" ? "Sending" : "Waiting to connect. It goes once your agent is connected."}
+            </p>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -135,9 +170,14 @@ function Composer({ session }: { session: PiSession }) {
   const connected = session.status === "open";
   const hintId = "composer-hint";
   const sendable = (prompt.trim() !== "" || attachments.ready.length > 0) && !attachments.uploading;
-  /** While a run is going, Enter queues a follow-up and Steer joins the run. */
+  /**
+   * While a run is going, Enter queues a follow-up and Steer joins the run.
+   * Enter and the Send button both come here. Sending doesn't wait for the
+   * connection: the message moves from the box into the chat as pending,
+   * and goes once the agent is connected.
+   */
   const submit = (whenBusy: "followUp" | "steer" = "followUp") => {
-    if (!sendable || !connected) return;
+    if (!sendable) return;
     const text = withMarkers(prompt, attachments.ready);
     setPrompt("");
     attachments.clear();
@@ -181,7 +221,6 @@ function Composer({ session }: { session: PiSession }) {
             label="Attach a photo"
             type="button"
             variant="ghost"
-            disabled={!connected}
             icon={<ImageIcon size={16} />}
             onClick={() => picker.current?.click()}
           />
@@ -203,7 +242,6 @@ function Composer({ session }: { session: PiSession }) {
             placeholder={session.running ? "Add to what it's doing, or queue a follow-up" : "Message your agent"}
             aria-label="Message your agent"
             aria-describedby={hintId}
-            disabled={!connected}
             rows={2}
             className="flex-1 resize-none bg-transparent! text-base shadow-none! ring-0! outline-none! focus:ring-0!"
           />
@@ -219,7 +257,7 @@ function Composer({ session }: { session: PiSession }) {
               label="Send message"
               type="submit"
               variant="primary"
-              disabled={!connected || !sendable}
+              disabled={!sendable}
               icon={<PaperPlaneRightIcon size={16} />}
             />
           )}
@@ -229,7 +267,7 @@ function Composer({ session }: { session: PiSession }) {
             ? session.running
               ? "Enter queues a follow-up · Steer adds it to the current answer"
               : "Enter to send · Shift+Enter for a new line · Attach, paste or drop a photo"
-            : "You can send once your agent is connected."}
+            : "Not connected yet. What you send waits in the chat and goes once your agent is connected."}
         </p>
       </form>
     </div>
@@ -253,8 +291,8 @@ export function ChatPage({
 }) {
   const { poppy, sendPoppy, messages, live, running, tools, error } = session;
   const runningTools = tools.map((tool) => tool.name);
-  const scroller = useStickToBottom(messages, live, running, poppy.cards);
-  const empty = messages.length === 0 && !live && !running;
+  const scroller = useStickToBottom(messages, live, running, poppy.cards, session.outbox);
+  const empty = messages.length === 0 && !live && !running && session.outbox.length === 0;
   const direct = openDirect(poppy);
   const shown = direct.filter((update) => !hidden.has(update.conversationId));
   const put = direct.filter((update) => hidden.has(update.conversationId));
@@ -287,6 +325,7 @@ export function ChatPage({
           <div className="mx-auto max-w-3xl space-y-5 px-4 py-6 sm:px-6">
             {empty ? <Welcome /> : null}
             <Transcript messages={messages} live={live} runningTools={runningTools} onRetry={(text) => session.submit(text)} summaries={session.summaries} />
+            <Pending session={session} />
             <Working session={session} />
             <Receipts view={poppy} send={sendPoppy} />
             {error ? (

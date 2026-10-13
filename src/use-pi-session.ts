@@ -62,6 +62,48 @@ export type PoppyView = {
 
 export const EMPTY_PROTOCOL: ProtocolView = { companies: null, logs: {} };
 
+/**
+ * A message the User sent that the agent hasn't answered yet. The page keeps
+ * it until the agent's `result` for it arrives, so a message sent before the
+ * socket opens, or on a socket that drops before the agent answers, shows as
+ * pending and goes once a socket is open; it is never dropped.
+ */
+export type Outgoing = {
+  /** The submit's id and operation id, the same on every send: pi takes an operation id once, however often it arrives. */
+  readonly id: string;
+  readonly text: string;
+  readonly whenBusy: "followUp" | "steer";
+  /** `waiting`: not on an open socket yet. `sent`: on one, no answer yet. `failed`: the agent answered with an error. */
+  readonly state: "waiting" | "sent" | "failed";
+  readonly error?: string;
+};
+
+/** The messages to send now that a socket is open, and the outbox with them marked sent. */
+export function takeWaiting(outbox: readonly Outgoing[]): { readonly send: readonly Outgoing[]; readonly outbox: readonly Outgoing[] } {
+  return {
+    send: outbox.filter((item) => item.state === "waiting"),
+    outbox: outbox.map((item) => (item.state === "waiting" ? { ...item, state: "sent" } : item))
+  };
+}
+
+/**
+ * The socket closed: a message sent on it without an answer may never have
+ * arrived, so it waits to go again, with the same operation id.
+ */
+export function unanswered(outbox: readonly Outgoing[]): readonly Outgoing[] {
+  return outbox.map((item) => (item.state === "sent" ? { ...item, state: "waiting" } : item));
+}
+
+/** The agent answered `id`: a result takes it out of the outbox, an error marks it failed. */
+export function answered(outbox: readonly Outgoing[], id: string, error?: string): readonly Outgoing[] {
+  if (error === undefined) return outbox.filter((item) => item.id !== id);
+  return outbox.map((item) => (item.id === id ? { ...item, state: "failed", error } : item));
+}
+
+function submitFrame(item: Outgoing): ClientMessage {
+  return { type: "submit", id: item.id, input: item.text, whenBusy: item.whenBusy, operationId: item.id };
+}
+
 type State = SessionView & {
   readonly status: ConnectionStatus;
   /** Every registered tool, from the server's hello. */
@@ -71,6 +113,8 @@ type State = SessionView & {
   readonly earlier: readonly TranscriptMessage[];
   /** Ids of the messages that are summaries of earlier conversation, shown as notices. */
   readonly summaries: readonly string[];
+  /** What the User sent that the agent hasn't answered, oldest first. */
+  readonly outbox: readonly Outgoing[];
 };
 
 const INITIAL_STATE: State = {
@@ -79,7 +123,8 @@ const INITIAL_STATE: State = {
   catalog: [],
   poppy: { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
   earlier: [],
-  summaries: []
+  summaries: [],
+  outbox: []
 };
 
 export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView {
@@ -120,7 +165,22 @@ const PRESENCE_EVERY_MS = 2 * 60_000;
  */
 export function usePiSession() {
   const [state, setState] = useState<State>(INITIAL_STATE);
-  const agentRef = useRef<{ send(data: string): void } | null>(null);
+  const agentRef = useRef<{ send(data: string): void; readonly readyState: number } | null>(null);
+  /** The outbox as it is now, for the socket's handlers; `state.outbox` is its copy for rendering. */
+  const outboxRef = useRef<readonly Outgoing[]>([]);
+  const setOutbox = (next: readonly Outgoing[]) => {
+    outboxRef.current = next;
+    setState((current) => ({ ...current, outbox: next }));
+  };
+  /** Sends every waiting message, oldest first, if the socket is open; otherwise they wait for `onOpen`. */
+  const flush = () => {
+    const socket = agentRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    const { send, outbox } = takeWaiting(outboxRef.current);
+    if (send.length === 0) return;
+    setOutbox(outbox);
+    for (const item of send) socket.send(JSON.stringify(submitFrame(item)));
+  };
   /** The `history.before` the page is waiting for, so an answer a newer snapshot overtook is dropped. */
   const historyRef = useRef<number | null>(null);
   const askHistory = (before: number | null) => {
@@ -142,8 +202,12 @@ export function usePiSession() {
         time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone
       };
       agentRef.current?.send(JSON.stringify(frame));
+      flush();
     },
-    onClose: () => setState((current) => ({ ...current, status: "closed" })),
+    onClose: () => {
+      setOutbox(unanswered(outboxRef.current));
+      setState((current) => ({ ...current, status: "closed" }));
+    },
     onMessage: (event) => {
       let message: ServerMessage;
       try {
@@ -188,9 +252,20 @@ export function usePiSession() {
           if (history.clear) askHistory(history.askBefore);
           return;
         }
-        case "error":
-          setState((current) => ({ ...current, error: message.message }));
+        case "result": {
+          const { id } = message;
+          if (outboxRef.current.some((item) => item.id === id)) setOutbox(answered(outboxRef.current, id));
           return;
+        }
+        case "error": {
+          const { id, message: text } = message;
+          if (id !== undefined && outboxRef.current.some((item) => item.id === id)) {
+            setOutbox(answered(outboxRef.current, id, text));
+            return;
+          }
+          setState((current) => ({ ...current, error: text }));
+          return;
+        }
         default:
           return;
       }
@@ -216,12 +291,29 @@ export function usePiSession() {
     [agent]
   );
 
-  /** Idle: starts a run. Busy: queued as a follow-up, or steers the run. */
-  const submit = useCallback(
-    (text: string, whenBusy: "followUp" | "steer" = "followUp") =>
-      send({ type: "submit", id: crypto.randomUUID(), input: text, whenBusy }),
-    [send]
-  );
+  /**
+   * Idle: starts a run. Busy: queued as a follow-up, or steers the run.
+   * Never dropped: it goes into the outbox, shown as pending, and is sent
+   * now if the socket is open, or as soon as one opens.
+   */
+  const submit = useCallback((text: string, whenBusy: "followUp" | "steer" = "followUp") => {
+    setOutbox([...outboxRef.current, { id: crypto.randomUUID(), text, whenBusy, state: "waiting" }]);
+    flush();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Sends a message the agent refused again, with the same operation id. */
+  const resend = useCallback((id: string) => {
+    setOutbox(outboxRef.current.map((item) => (item.id === id && item.state === "failed" ? { id: item.id, text: item.text, whenBusy: item.whenBusy, state: "waiting" } : item)));
+    flush();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Drops a message the agent refused. */
+  const discard = useCallback((id: string) => {
+    setOutbox(outboxRef.current.filter((item) => item.id !== id || item.state !== "failed"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const abort = useCallback(
     () => send({ type: "abort", id: crypto.randomUUID() }),
@@ -252,7 +344,7 @@ export function usePiSession() {
   const messages = useMemo(() => withEarlier(state.earlier, state.messages), [state.earlier, state.messages]);
   const summaries = useMemo(() => new Set(state.summaries), [state.summaries]);
 
-  return { ...state, messages, summaries, submit, abort, reset, sendPoppy };
+  return { ...state, messages, summaries, submit, resend, discard, abort, reset, sendPoppy };
 }
 
 /** Everything the page gets from its agent, as `usePiSession` returns it. */

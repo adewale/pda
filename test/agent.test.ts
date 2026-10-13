@@ -224,6 +224,25 @@ describe("the conversation", () => {
     github.socket.close();
   });
 
+  it("runs a message the page sends again after a reconnect once, by its operation id", async () => {
+    const identity = person();
+    const first = await connect(identity);
+    const operationId = crypto.randomUUID();
+    const submit = JSON.stringify({ type: "submit", id: operationId, input: "only once", operationId });
+    first.socket.send(submit);
+    await first.client.until(() => first.client.texts().includes("assistant: echo: only once (turn 1)"));
+    await first.client.until(() => !first.client.view().running);
+    first.socket.close();
+
+    // The page didn't hear the answer, so it sends the same frame on its next socket.
+    const second = await connect(identity);
+    second.socket.send(submit);
+    await second.client.until(() => second.client.frames.some((frame) => frame.type === "result" && (frame as { id?: string }).id === operationId));
+    await chat(second.socket, second.client, "next", "echo: next (turn 2)");
+    expect(second.client.texts().filter((text) => text === "user: only once")).toHaveLength(1);
+    second.socket.close();
+  });
+
   it("answers on an open socket after the object is evicted", async () => {
     const identity = person();
     const { socket, client } = await connect(identity);

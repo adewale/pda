@@ -327,6 +327,7 @@ The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line 
   - **One status line** while the agent works.
   - **A notice where earlier conversation was summarised** ("Earlier conversation summarised", the summary behind a disclosure), with the messages before it still above it after a reload (see Compaction).
   - **An empty state** that says what the agent does.
+  - **A message is never dropped.** Enter and the Send button both move the message from the box into the chat, shown as pending, whether or not the socket is open (`usePiSession`'s outbox). It is sent when a socket is open and stays pending until the agent's `result` for it arrives. A socket that closes first leaves it waiting, and the next one sends it again with the same id as its `operationId`, so the harness takes it once however often it arrives. An `error` for it keeps it in the chat with the reason, **Try again** and **Remove**. Before this, the page sent only on an open socket and dropped the frame otherwise, after clearing the box: on 14 October a message sent right after a reload vanished that way, twice.
   - **Photos.** The composer attaches JPEG, PNG, WebP or GIF photos by a labelled button, by pasting or by dropping, up to 10 MB each; each goes to the agent at once, shows as it is attached, and can be removed before sending. A sent photo shows in the User's message.
 - **Cards** in the tray:
   - **Sign-in:** a link to the Company's page, a QR code with its user code, a credentials form, or a one-time-code form. Links are shown only when HTTPS.
@@ -899,7 +900,7 @@ A raw `string`, so an email, a token or anyone's words, is a compile error in an
 | --- | --- | --- |
 | Workers | `test/vitest.config.ts` | Every file in `test/` that isn't in another suite, in one workerd runtime |
 | Durability | `test/durability/vitest.config.ts` | Crashing every Durable Object and reloading the conversation; a runtime of its own, because a global abort would reset the objects other files are using |
-| Page | `test/ui/vitest.config.ts` | The chat page's cards and panels and the sign-in page, in happy-dom |
+| Page | `test/ui/vitest.config.ts` | The chat page's cards and panels and the sign-in page, in happy-dom; the chat box with the real `usePiSession` over a fake socket (`chat-socket.test.tsx`) |
 | Interop | `interop/vitest.config.ts` | The interop runner's scenario interpreter, trace checks, readings, attribution and known failures, in Node |
 | Properties | `test/properties/vitest.config.ts` | Property-based tests with Hegel (`@hegeldev/hegel`, the Hypothesis team's library), in Node, because its engine loads by FFI: 100 cases a property by default; `HEGEL_CASES=5000 npm run test:properties` for a deep local run |
 
