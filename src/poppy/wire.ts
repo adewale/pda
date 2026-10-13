@@ -161,6 +161,8 @@ export type PendingSignOut = {
   readonly issuer: Issuer;
   readonly company: string;
   readonly account: string;
+  /** `sign_out`: the User signed out. `step_up`: more access replaced this token, and the account stays signed in. */
+  readonly reason: "sign_out" | "step_up";
   /** The code the Company last answered, or ours when no answer came. */
   readonly error: string | null;
   readonly attempts: number;
@@ -341,6 +343,8 @@ export type PoppyClientFrame =
   | { readonly type: "poppy.direct.say"; readonly conversationId: string; readonly text: string }
   | { readonly type: "poppy.direct.close"; readonly conversationId: string }
   | { readonly type: "poppy.signout"; readonly issuer: Issuer; readonly account: string }
+  /** Try again: one revocation the Company hasn't accepted (`PendingSignOut.id`), never an account still in use. */
+  | { readonly type: "poppy.revoke.retry"; readonly id: string }
   | {
       readonly type: "poppy.permission.add";
       readonly issuer: Issuer;

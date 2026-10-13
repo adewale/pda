@@ -761,6 +761,12 @@ export class PersonalAgent extends ProductionAgent {
     (this.poppy as unknown as { forgetForTests(): void }).forgetForTests();
   }
 
+  /** A restart, as far as Poppy sees one: memory forgotten, then its start-up recovery run. */
+  async poppyRestart(): Promise<void> {
+    await this.poppyForgetMemory();
+    await this.poppy.onStart();
+  }
+
   #faux: ReturnType<typeof fauxProvider> | undefined;
 
   /**

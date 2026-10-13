@@ -31,6 +31,7 @@ export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
   "poppy.direct.say": object({ type: literal("poppy.direct.say"), conversationId: string, text: string }),
   "poppy.direct.close": object({ type: literal("poppy.direct.close"), conversationId: string }),
   "poppy.signout": object({ type: literal("poppy.signout"), issuer: issuerDecoder, account: string }),
+  "poppy.revoke.retry": object({ type: literal("poppy.revoke.retry"), id: string }),
   "poppy.permission.add": object({
     type: literal("poppy.permission.add"),
     issuer: issuerDecoder,

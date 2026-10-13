@@ -36,7 +36,7 @@ import {
   submitCredentials,
   submitSignInCode
 } from "./signin";
-import { pendingSignOuts, recoverSignOuts, retrySignOut } from "./signout";
+import { pendingSignOuts, recoverSignOuts, retryRevocation, retrySignOut } from "./signout";
 import { protocolIndex, protocolLog, registerApiNamer } from "./protocol-log";
 import { rows } from "../rows";
 import { cardsTable, migrate } from "./store";
@@ -187,6 +187,7 @@ export class PoppyCapability extends LifecycleCapability {
         // Scheduled after a message, a new conversation or an operation update.
         this.#sendActivity();
       },
+      hasJob: (id) => this.lifecycle.jobs.get(id) !== undefined,
       pushDirect: (update) => {
         this.#broadcast({ type: "poppy.direct", update });
         this.#sendActivity();
@@ -212,7 +213,7 @@ export class PoppyCapability extends LifecycleCapability {
       await recoverInterruptedApprovals(this.client);
       // A Direct Sign-In the restart interrupted: finish it, or start a new Session (4.5).
       await recoverSignIns(this.client).catch((error: unknown) => reportError(error, { source: literal("poppy.signin_recovery") }));
-      // A sign-out the restart caught before its first try: try it now.
+      // A revocation still pending whose job is missing: schedule it again.
       await recoverSignOuts(this.client).catch((error: unknown) => reportError(error, { source: literal("poppy.signout_recovery") }));
     });
   }
@@ -368,6 +369,7 @@ export class PoppyCapability extends LifecycleCapability {
         issuer: row.issuer,
         company: name(row.issuer),
         account: row.account,
+        reason: row.reason,
         error: row.last_error,
         attempts: row.attempts,
         expiresAt: row.expires_at,
@@ -481,6 +483,10 @@ export class PoppyCapability extends LifecycleCapability {
       }
       case "poppy.signout":
         await signOut(client, frame.issuer, frame.account);
+        this.#sendSettings();
+        return;
+      case "poppy.revoke.retry":
+        await retryRevocation(client, frame.id);
         this.#sendSettings();
         return;
       case "poppy.permission.add":

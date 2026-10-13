@@ -39,6 +39,8 @@ export type PoppyHost = {
   readonly notifyModel: (text: string, operationId: string) => Promise<void>;
   /** Run a durable job later; the same `id` replaces an earlier one. */
   readonly schedule: (fn: JobName, at: number, payload: Json, id: string) => Promise<void>;
+  /** Whether a durable job with this `id` is waiting or running. */
+  readonly hasJob: (id: string) => boolean;
   /** Push live updates for an open Direct Conversation to the page. */
   readonly pushDirect: (update: DirectUpdate) => void;
   /** The person's situation, for conversation `context` (spec 7.4). */
@@ -162,7 +164,7 @@ const sessionRow = sessionsTable.pick("issuer", "label", "session_id", "account"
 type SessionRow = RowOf<typeof sessionRow>;
 
 const accountRow = accountsTable.pick("issuer", "account", "token", "scope", "expires_at");
-type AccountRow = RowOf<typeof accountRow>;
+export type AccountRow = RowOf<typeof accountRow>;
 
 /** A Session Token in memory, bound to the DPoP key that was current when issued. */
 type HeldToken = {
@@ -969,14 +971,24 @@ export class PoppyClient {
     }
   }
 
-  /** Record a completed sign-in: Account Token, signed-in Session (spec 4.4). */
+  /**
+   * Record a completed sign-in: Account Token, signed-in Session (spec 4.4).
+   * Returns the account as it was when a step-up replaced its Account Token
+   * with another, still holding the old token sealed, for the caller to
+   * revoke (signout.ts); null when nothing was replaced.
+   */
   async completeSignIn(
     company: Company,
     label: string,
     account: string,
     response: TokenResponse
-  ): Promise<void> {
+  ): Promise<AccountRow | null> {
     const previous = this.account(company.issuer, account);
+    // Compared before the new token is stored, so nothing awaits between storing it and the caller recording the old one.
+    // One that won't open is taken as replaced: its revocation then says it can't be sent.
+    const same = async (sealed: string, token: string) =>
+      (await this.sealer.open(sealed, this.accountContext(company.issuer, account)).catch(() => null)) === token;
+    const replaced = previous && response.refresh_token && !(await same(previous.token, response.refresh_token)) ? previous : null;
     if (response.refresh_token) {
       await this.storeAccountToken(
         company.issuer,
@@ -988,18 +1000,7 @@ export class PoppyClient {
     }
     this.#forgetTokens(company.issuer, label);
     this.#saveSession(company.issuer, label, response, account);
-    // After a step-up the old Account Token is replaced; revoke it (4.4).
-    if (previous && response.refresh_token) {
-      const oldToken = await this.sealer.open(previous.token, this.accountContext(company.issuer, account));
-      if (oldToken !== response.refresh_token) {
-        await this.oauthRequest(
-          company,
-          company.endpoints.revocation,
-          async () => ({ token: oldToken, token_type_hint: "refresh_token" }),
-          { dpop: false }
-        ).catch(() => undefined);
-      }
-    }
+    return replaced;
   }
 
   // ---------------------------------------------------------------- Resources
