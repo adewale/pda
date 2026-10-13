@@ -1,6 +1,7 @@
 import { summarize, validateCompany, type CompanyReport } from "../validator/index.ts";
 import { bareHost } from "../validator/primitives.ts";
 import type { Fetcher } from "./fetch";
+import { parseIssuer, type Issuer } from "./issuer";
 
 /** Extensions this client supports, with the major version it implements. */
 export const SUPPORTED_EXTENSIONS = { operations: "1" } as const;
@@ -16,7 +17,7 @@ export type MediatedField = {
 /** Everything a Personal Agent needs about one Company, verified (spec 3). */
 export type Company = {
   /** `auth.issuer`: what identifies the Company (3.2). */
-  readonly issuer: string;
+  readonly issuer: Issuer;
   readonly name: string;
   /** `organization.domain` of the document this came from. */
   readonly domain: string;
@@ -133,7 +134,9 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
     return { result: { websiteOnly: true, name, domain: orgDomain }, cacheSeconds, report: checked };
   }
   const metadata = checked.metadata;
-  const issuer = auth.issuer as string;
+  const issuer = parseIssuer(auth.issuer);
+  // The validator has refused anything else already; this keeps the type honest.
+  if (!issuer) throw new DiscoveryError("auth.issuer isn't an https URL without a query or fragment", checked);
 
   const signIn: { -readonly [K in keyof Company["signIn"]]: Company["signIn"][K] } = {};
   if (isObj(auth.direct)) signIn.direct = { scopes: strings(auth.direct.scopes) };

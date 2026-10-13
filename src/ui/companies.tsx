@@ -5,20 +5,21 @@ import type { ConnectedAccount, Permission, PoppyClientFrame } from "../poppy/wi
 import type { PoppyView } from "../use-pi-session";
 import { Action, EmptyState, PageHeader, Section, Truncated } from "./controls";
 import { ACCESS, accessOfScope, ago, untilDate } from "./format";
+import type { Issuer } from "../poppy/issuer";
 
 type Send = (frame: PoppyClientFrame) => void;
 
 /** One Company the agent knows the User at: its accounts, permissions and open conversations. */
 type CompanyRow = {
-  readonly issuer: string;
+  readonly issuer: Issuer;
   readonly name: string;
   readonly accounts: readonly ConnectedAccount[];
   readonly permissions: readonly Permission[];
 };
 
 function companiesOf(view: PoppyView): CompanyRow[] {
-  const byIssuer = new Map<string, { name: string; accounts: ConnectedAccount[]; permissions: Permission[] }>();
-  const entry = (issuer: string, name: string) => {
+  const byIssuer = new Map<Issuer, { name: string; accounts: ConnectedAccount[]; permissions: Permission[] }>();
+  const entry = (issuer: Issuer, name: string) => {
     let found = byIssuer.get(issuer);
     if (!found) byIssuer.set(issuer, (found = { name, accounts: [], permissions: [] }));
     return found;
@@ -272,7 +273,7 @@ export function CompaniesPage({
   view: PoppyView;
   send: Send;
   selected: string | null;
-  onSelect: (issuer: string | null) => void;
+  onSelect: (issuer: Issuer | null) => void;
 }) {
   const companies = companiesOf(view);
   const company = selected ? companies.find((item) => item.issuer === selected) : undefined;

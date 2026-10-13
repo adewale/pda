@@ -6,6 +6,7 @@ import { randomId, sha256 } from "./jwt";
 import { EndpointRequest } from "./outgoing";
 import { one, rows } from "./store";
 import type { ScopeInfo } from "./wire";
+import type { Issuer } from "./issuer";
 
 /** Pending sign-ins expire after this long (the Guides suggest Companies give a device code about 10 minutes). */
 const SIGN_IN_TTL_MS = 10 * 60 * 1000;
@@ -18,7 +19,7 @@ export const BUILTIN_SCOPES: Readonly<Record<string, string>> = {
 type SignInRow = {
   id: string;
   type: SignInType;
-  issuer: string;
+  issuer: Issuer;
   label: string;
   account: string;
   scopes: string;
@@ -65,7 +66,7 @@ export function chooseSignInType(company: Company, scopes: readonly string[]): S
   return null;
 }
 
-function sealContext(row: { id: string; issuer: string }): string {
+function sealContext(row: { id: string; issuer: Issuer }): string {
   return `signin|${row.id}|${row.issuer}`;
 }
 
@@ -367,7 +368,7 @@ async function abandonExchange(client: PoppyClient, row: SignInRow): Promise<voi
  * answer was kept, otherwise start a new Session. Runs before any token for
  * the Company, on start, and on the next callback.
  */
-export async function recoverSignIns(client: PoppyClient, issuer?: string): Promise<void> {
+export async function recoverSignIns(client: PoppyClient, issuer?: Issuer): Promise<void> {
   const pending = rows<SignInRow>(
     client.sql,
     `SELECT * FROM poppy_signins WHERE status IN ('exchanging', 'exchanged', 'stored')${issuer ? " AND issuer = ?" : ""}`,
@@ -647,7 +648,7 @@ export async function cancelSignIn(client: PoppyClient, id: string): Promise<voi
 }
 
 /** Sign out of one account: revoke its Account Token (spec 4.9). */
-export async function signOut(client: PoppyClient, issuer: string, account: string): Promise<void> {
+export async function signOut(client: PoppyClient, issuer: Issuer, account: string): Promise<void> {
   const company = client.companyByIssuer(issuer);
   await client.revokeAccount(company, account);
   await client.host.showCard({

@@ -24,6 +24,7 @@ import { LifecycleCapability } from "agents/lifecycle";
 import { code, currentEvent, domain, id, inScope, join, LIMITS, literal, modelId, toolName, unit, wideEvent, type EventKind, type Fields, type Safe, type ToolCall, type Units, type WideEvent } from "./log";
 import type { ModelCall } from "./model-router";
 import { protocolIndex, protocolLog } from "./poppy/protocol-log";
+import type { Issuer } from "./poppy/issuer";
 
 /** How many of its own events an agent keeps for "Copy diagnostics". */
 export const DIAGNOSTIC_EVENTS = 200;
@@ -79,7 +80,7 @@ export type AgentLogOptions = {
   /** The agent's pseudonymous id (`agentId` in src/log.ts): its Durable Object id's first 32 hex digits, as AI Gateway's `u`. */
   readonly agentId: Safe<"agent">;
   /** Each Company's protocol log, by issuer, for the diagnostics; names the Companies. */
-  readonly companyName?: (issuer: string) => { name: string; domain: string | null };
+  readonly companyName?: (issuer: Issuer) => { name: string; domain: string | null };
 };
 
 export class AgentLog extends LifecycleCapability implements Units {
@@ -435,7 +436,7 @@ export class AgentLog extends LifecycleCapability implements Units {
     const sql = this.#options.sql;
     const exists = sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'poppy_protocol_log'").toArray().length > 0;
     if (!exists) return ["Poppy protocol log: no exchanges yet."];
-    const names = this.#options.companyName ?? ((issuer: string) => ({ name: issuer, domain: null }));
+    const names = this.#options.companyName ?? ((issuer: Issuer) => ({ name: issuer, domain: null }));
     const out: string[] = [];
     for (const company of protocolIndex(sql, names).companies) {
       const log = protocolLog(sql, company.key, names);

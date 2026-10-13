@@ -5,6 +5,7 @@ import { isObject, type Json } from "./json";
 import { randomId } from "./jwt";
 import { EndpointRequest } from "./outgoing";
 import { one, rows } from "./store";
+import type { Issuer } from "./issuer";
 
 /** An operation as the Company sends it (Ops 3). */
 export type Operation = {
@@ -21,7 +22,7 @@ export type Operation = {
 };
 
 type OperationRow = {
-  issuer: string;
+  issuer: Issuer;
   operation_id: string;
   label: string;
   account: string | null;
@@ -133,7 +134,7 @@ async function unusableProposal(client: PoppyClient, company: Company, problem: 
   );
 }
 
-function stored(client: PoppyClient, issuer: string, id: string): OperationRow | undefined {
+function stored(client: PoppyClient, issuer: Issuer, id: string): OperationRow | undefined {
   return one<OperationRow>(
     client.sql,
     "SELECT * FROM poppy_operations WHERE issuer = ? AND operation_id = ?",
@@ -260,7 +261,7 @@ async function markLost(client: PoppyClient, company: Company, row: OperationRow
  * instead, and MUST NOT ask for a new proposal of the same action (Ops 6).
  * `request` identifies the write: method, URL and body, or MCP tool and args.
  */
-export function refuseWhileConfirming(client: PoppyClient, issuer: string, request: string): void {
+export function refuseWhileConfirming(client: PoppyClient, issuer: Issuer, request: string): void {
   const found = one<{ operation_id: string }>(
     client.sql,
     "SELECT operation_id FROM poppy_proposals WHERE issuer = ? AND request = ?",
@@ -279,7 +280,7 @@ export function refuseWhileConfirming(client: PoppyClient, issuer: string, reque
 }
 
 /** Remember which API write proposed an operation, for `refuseWhileConfirming`. */
-export function rememberProposal(client: PoppyClient, issuer: string, request: string, operationId: string): void {
+export function rememberProposal(client: PoppyClient, issuer: Issuer, request: string, operationId: string): void {
   client.sql.exec(
     `INSERT INTO poppy_proposals (issuer, request, operation_id) VALUES (?, ?, ?)
      ON CONFLICT (issuer, request) DO UPDATE SET operation_id = excluded.operation_id`,
@@ -411,7 +412,7 @@ async function update(client: PoppyClient, company: Company, value: Json): Promi
  */
 export async function approveAndConfirm(
   client: PoppyClient,
-  issuer: string,
+  issuer: Issuer,
   operationId: string,
   revision: number,
   approvedBy: "user" | "standing_permission",
@@ -435,22 +436,22 @@ export async function approveAndConfirm(
   await confirm(client, issuer, operationId);
 }
 
-function setConfirmed(client: PoppyClient, issuer: string, operationId: string, value: number): void {
+function setConfirmed(client: PoppyClient, issuer: Issuer, operationId: string, value: number): void {
   client.sql.exec("UPDATE poppy_operations SET confirmed = ? WHERE issuer = ? AND operation_id = ?", value, issuer, operationId);
 }
 
-async function scheduleTracking(client: PoppyClient, issuer: string, operationId: string, at: number): Promise<void> {
+async function scheduleTracking(client: PoppyClient, issuer: Issuer, operationId: string, at: number): Promise<void> {
   await client.host.schedule("poppy-operation", at, { issuer, id: operationId }, `op-${issuer}-${operationId}`);
 }
 
-const CONFIRMING = (issuer: string, operationId: string) => `confirm|${issuer}|${operationId}`;
+const CONFIRMING = (issuer: Issuer, operationId: string) => `confirm|${issuer}|${operationId}`;
 
 /**
  * POST `/confirm` for the approved revision (Ops 5.2). Never for a final
  * operation, and never twice at once. The intent and its follow-up are
  * recorded before sending, so a lost answer is checked on (Ops 6).
  */
-export async function confirm(client: PoppyClient, issuer: string, operationId: string): Promise<void> {
+export async function confirm(client: PoppyClient, issuer: Issuer, operationId: string): Promise<void> {
   const row = stored(client, issuer, operationId);
   if (!row || row.approved_revision === null || !row.approved_by || isLost(row.confirmed)) return;
   if (FINAL.has((JSON.parse(row.operation) as Operation).state)) return;
@@ -532,7 +533,7 @@ export async function confirm(client: PoppyClient, issuer: string, operationId: 
   }
 }
 
-function clearApproval(client: PoppyClient, issuer: string, operationId: string): void {
+function clearApproval(client: PoppyClient, issuer: Issuer, operationId: string): void {
   client.sql.exec(
     "UPDATE poppy_operations SET approved_revision = NULL, approved_by = NULL, permission_id = NULL WHERE issuer = ? AND operation_id = ?",
     issuer,
@@ -564,7 +565,7 @@ async function readOperation(
  * have been confirmed elsewhere, revised or ended meanwhile, and confirm it
  * only if it still awaits the approved revision. A final one never is.
  */
-export async function retryApproved(client: PoppyClient, issuer: string): Promise<void> {
+export async function retryApproved(client: PoppyClient, issuer: Issuer): Promise<void> {
   for (const row of rows<OperationRow>(
     client.sql,
     "SELECT * FROM poppy_operations WHERE issuer = ? AND approved_revision IS NOT NULL AND confirmed = ?",
@@ -593,7 +594,7 @@ export async function retryApproved(client: PoppyClient, issuer: string): Promis
  * revision again. A final operation is neither read nor confirmed again.
  * Returns when to run next.
  */
-export async function trackOperation(client: PoppyClient, issuer: string, operationId: string): Promise<number | null> {
+export async function trackOperation(client: PoppyClient, issuer: Issuer, operationId: string): Promise<number | null> {
   const row = stored(client, issuer, operationId);
   if (!row || isLost(row.confirmed)) return null;
   const known = JSON.parse(row.operation) as Operation;
@@ -634,7 +635,7 @@ export async function trackOperation(client: PoppyClient, issuer: string, operat
 }
 
 /** Decline a proposal, or ask the Company to stop one in progress (Ops 7). */
-export async function cancelOperation(client: PoppyClient, issuer: string, operationId: string): Promise<void> {
+export async function cancelOperation(client: PoppyClient, issuer: Issuer, operationId: string): Promise<void> {
   const row = stored(client, issuer, operationId);
   if (!row || isLost(row.confirmed)) return;
   const company = client.companyByIssuer(issuer);
@@ -657,7 +658,7 @@ export async function cancelOperation(client: PoppyClient, issuer: string, opera
   await update(client, company, body);
 }
 
-export function operation(client: PoppyClient, issuer: string, operationId: string): Operation | undefined {
+export function operation(client: PoppyClient, issuer: Issuer, operationId: string): Operation | undefined {
   const row = stored(client, issuer, operationId);
   return row ? (JSON.parse(row.operation) as Operation) : undefined;
 }
@@ -666,7 +667,7 @@ export function operation(client: PoppyClient, issuer: string, operationId: stri
 
 type PermissionRow = {
   id: string;
-  issuer: string;
+  issuer: Issuer;
   account: string;
   action: string;
   max_amount: string | null;
@@ -679,7 +680,7 @@ type PermissionRow = {
 
 export function addPermission(
   client: PoppyClient,
-  permission: { issuer: string; account: string; action: string; maxAmount?: string; currency?: string; maxUses?: number; expiresAt?: number }
+  permission: { issuer: Issuer; account: string; action: string; maxAmount?: string; currency?: string; maxUses?: number; expiresAt?: number }
 ): string {
   const id = randomId("perm_");
   client.sql.exec(
@@ -895,7 +896,7 @@ export async function proposeLocal(
   return id;
 }
 
-type ApprovalRow = { id: string; issuer: string; label: string; summary: string; request: string; status: string };
+type ApprovalRow = { id: string; issuer: Issuer; label: string; summary: string; request: string; status: string };
 
 export async function decideLocal(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<void> {
   const row = one<ApprovalRow>(client.sql, "SELECT * FROM poppy_approvals WHERE id = ?", id);

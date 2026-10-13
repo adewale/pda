@@ -23,6 +23,7 @@
  * the Poppy client still runs in Node for the interop harness.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import { originOf, type Issuer, type Origin } from "./poppy/issuer";
 
 declare const __DPA_COMMIT__: string | undefined;
 declare const __DPA_COMPATIBILITY_DATE__: string | undefined;
@@ -89,14 +90,13 @@ export function id(value: unknown): Safe<"id"> | undefined {
 }
 
 /**
- * An http(s) URL cut to its origin (an issuer, a Company), or undefined: no
- * path, query, fragment or credentials. Takes a plain string for now; once
- * src/poppy has its branded `Issuer` and `Origin` types, it can take those.
+ * An issuer, origin or http(s) URL cut to its origin (`originOf`, the one
+ * place an origin is made), or undefined: no path, query, fragment or
+ * credentials.
  */
-export function origin(value: unknown): Safe<"origin"> | undefined {
-  if (typeof value !== "string" || !URL.canParse(value)) return undefined;
-  const url = new URL(value);
-  return (url.protocol === "https:" || url.protocol === "http:") && url.origin !== "null" ? made(url.origin) : undefined;
+export function origin(value: Issuer | Origin | URL | string | null | undefined): Safe<"origin"> | undefined {
+  const cut = typeof value === "string" || value instanceof URL ? originOf(value) : null;
+  return cut === null ? undefined : made(cut);
 }
 
 const DOMAIN = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
@@ -209,9 +209,9 @@ export function errorFields(error: unknown, extra: FailureExtra = {}): LoggedErr
 /** The most errors, issuers and tool calls one event keeps; the rest are counted, not listed. */
 export const LIMITS = { errors: 10, issuers: 10, toolCalls: 30, statuses: 20 } as const;
 
-/** One Poppy exchange, from the protocol log's allowlisted row. */
+/** One Poppy exchange, from the protocol log's allowlisted row; its issuer is logged as its origin. */
 export type PoppyExchange = {
-  readonly issuer: Safe<"origin"> | null;
+  readonly issuer: Issuer | null;
   readonly step: Safe;
   readonly status: number | null;
   readonly error: Safe<"code"> | null;
@@ -295,7 +295,8 @@ export class WideEvent {
     const tally = (this.#poppy ??= { requests: 0, failed: 0, issuers: new Set(), steps: {} });
     tally.requests++;
     if (exchange.outcome === "error" || exchange.outcome === "failed" || exchange.outcome === "refused") tally.failed++;
-    if (exchange.issuer && tally.issuers.size < LIMITS.issuers) tally.issuers.add(exchange.issuer);
+    const issuer = origin(exchange.issuer);
+    if (issuer && tally.issuers.size < LIMITS.issuers) tally.issuers.add(issuer);
     const step = (tally.steps[exchange.step] ??= { count: 0, status: {}, errors: {} });
     step.count++;
     const status = exchange.status === null ? "none" : String(exchange.status);
@@ -429,9 +430,10 @@ export function recordPoppyExchange(exchange: PoppyExchange): void {
   const scope = scopes.getStore();
   if (!scope) return;
   scope.event.poppy(exchange);
-  if (scope.tool && exchange.issuer) {
+  const issuer = origin(exchange.issuer);
+  if (scope.tool && issuer) {
     const issuers = (scope.tool.issuers ??= []);
-    if (!issuers.includes(exchange.issuer) && issuers.length < 3) issuers.push(exchange.issuer);
+    if (!issuers.includes(issuer) && issuers.length < 3) issuers.push(issuer);
   }
 }
 

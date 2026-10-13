@@ -6,6 +6,7 @@ import { gs, property } from "../properties/hegel";
 import { CompaniesPage } from "../../src/ui/companies";
 import type { Card, ConnectedAccount, DirectUpdate, Permission, PoppyClientFrame } from "../../src/poppy/wire";
 import type { PoppyView } from "../../src/use-pi-session";
+import { toIssuer } from "../../src/poppy/issuer";
 
 /**
  * Poppy's cards and panels, rendered straight from a view with a recording
@@ -75,7 +76,7 @@ const operationCard = (patch: Partial<Extract<Card, { kind: "operation" }>> = {}
   kind: "operation",
   company: "Acme",
   open: true,
-  issuer: "https://auth.acme.example",
+  issuer: toIssuer("https://auth.acme.example"),
   operationId: "op_7Hq",
   revision: 3,
   state: "proposed",
@@ -259,7 +260,7 @@ describe("operation card (Operations extension 5.1)", () => {
     const { sent } = renderCards(operationCard());
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(sent).toEqual([
-      { type: "poppy.operation", issuer: "https://auth.acme.example", operationId: "op_7Hq", revision: 3, decision: "approve" }
+      { type: "poppy.operation", issuer: toIssuer("https://auth.acme.example"), operationId: "op_7Hq", revision: 3, decision: "approve" }
     ]);
   });
 
@@ -267,7 +268,7 @@ describe("operation card (Operations extension 5.1)", () => {
     const { sent } = renderCards(operationCard());
     fireEvent.click(screen.getByRole("button", { name: "Decline" }));
     expect(sent).toEqual([
-      { type: "poppy.operation", issuer: "https://auth.acme.example", operationId: "op_7Hq", revision: 3, decision: "decline" }
+      { type: "poppy.operation", issuer: toIssuer("https://auth.acme.example"), operationId: "op_7Hq", revision: 3, decision: "decline" }
     ]);
   });
 
@@ -276,7 +277,7 @@ describe("operation card (Operations extension 5.1)", () => {
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Ask Acme to stop" }));
     expect(sent).toEqual([
-      { type: "poppy.operation", issuer: "https://auth.acme.example", operationId: "op_7Hq", revision: 3, decision: "cancel" }
+      { type: "poppy.operation", issuer: toIssuer("https://auth.acme.example"), operationId: "op_7Hq", revision: 3, decision: "cancel" }
     ]);
   });
 
@@ -470,13 +471,13 @@ describe("DirectConversations", () => {
 
 describe("Companies page", () => {
   const accounts: ConnectedAccount[] = [
-    { issuer: "https://auth.acme.example", company: "Acme", account: "a***@example.com", scope: "poppy:read poppy:write", expiresAt: null },
-    { issuer: "https://auth.globex.example", company: "Globex", account: "g***@example.com", scope: "poppy:read", expiresAt: null }
+    { issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***@example.com", scope: "poppy:read poppy:write", expiresAt: null },
+    { issuer: toIssuer("https://auth.globex.example"), company: "Globex", account: "g***@example.com", scope: "poppy:read", expiresAt: null }
   ];
   const permissions: Permission[] = [
     {
       id: "perm_1",
-      issuer: "https://auth.acme.example",
+      issuer: toIssuer("https://auth.acme.example"),
       company: "Acme",
       account: "a***@example.com",
       action: "exchange",
@@ -516,7 +517,7 @@ describe("Companies page", () => {
     expect(screen.getByText(/1 of 3 uses, 2 left/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove standing permission" }));
     expect(sent).toEqual([
-      { type: "poppy.signout", issuer: "https://auth.globex.example", account: "g***@example.com" },
+      { type: "poppy.signout", issuer: toIssuer("https://auth.globex.example"), account: "g***@example.com" },
       { type: "poppy.permission.remove", id: "perm_1" }
     ]);
   });
@@ -534,7 +535,7 @@ describe("Companies page", () => {
     expect(sent).toEqual([
       {
         type: "poppy.permission.add",
-        issuer: "https://auth.globex.example",
+        issuer: toIssuer("https://auth.globex.example"),
         account: "g***@example.com",
         action: "rebook",
         maxAmount: "50",

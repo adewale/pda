@@ -5,6 +5,9 @@ import type { Json } from "../src/poppy/json";
 import { summaryStartsWithAction, termsCovered } from "../src/poppy/operations";
 import type { PoppyClient } from "../src/poppy/client";
 import { tokenHostAllowed, type Company as PoppyCompany } from "../src/poppy/discovery";
+import { domainOrigin, originOf, parseIssuer, toIssuer } from "../src/poppy/issuer";
+import { DecodeError } from "../src/decode";
+import { origin } from "../src/log";
 import { isSignInPage } from "../src/poppy/browser";
 import { assertPublicHost, fetchJson, PoppyFetchError, type Fetcher } from "../src/poppy/fetch";
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
@@ -1818,6 +1821,14 @@ describe("Operations extension", () => {
     return { c, a, card };
   }
 
+  it("ignores a page frame that names a Company by anything but an issuer", async () => {
+    const { c, a, card } = await proposal();
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.domain, operationId: card.operationId, revision: card.revision, decision: "approve" } as never);
+    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    expect((await c.stub.state()).operations[0]).toMatchObject({ confirms: 1 });
+  });
+
   it("shows the Company's summary verbatim and confirms once after the User approves", async () => {
     const { c, a, card } = await proposal();
     expect(card.summary).toMatch(/Exchange/);
@@ -2655,4 +2666,24 @@ describe("Guides: a Company that stops answering", () => {
     expect(result.text).toMatch(/timed out after 0\.3 seconds/);
     expect(await a.stub.poppyReleaseHeld()).toBe(1);
   });
+});
+
+describe("issuers and origins, made by one normaliser each", () => {
+  it("keeps an issuer exactly as published (S7), and refuses what isn't one: a bare domain, http, a query, a fragment, credentials", () => {
+    for (const exact of ["https://auth.shop.example", "https://auth.shop.example/", "https://shop.example/tenant"]) expect(parseIssuer(exact)).toBe(exact);
+    for (const not of ["shop.example", "http://auth.shop.example", "https://auth.shop.example?x=1", "https://auth.shop.example#x", "https://a:b@auth.shop.example", "", 7, null]) {
+      expect(parseIssuer(not), String(not)).toBeNull();
+    }
+    expect(() => toIssuer("shop.example")).toThrow(DecodeError);
+  });
+
+  it("makes an origin from a URL, and a domain's https origin, never a bare domain", () => {
+    expect(originOf("https://Shop.Example:443/orders?q=1")).toBe("https://shop.example");
+    expect(originOf("javascript:alert(1)")).toBeNull();
+    expect(domainOrigin(" Shop.Example ")).toBe("https://shop.example");
+    expect(domainOrigin("shop.example/path")).toBeNull();
+    // The log's origin is the same one.
+    expect(origin(toIssuer("https://auth.shop.example/tenant"))).toBe("https://auth.shop.example");
+  });
+
 });

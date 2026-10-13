@@ -7,6 +7,7 @@ import type { TranscriptMessage } from "../../src/protocol";
 import { ChatPage } from "../../src/ui/chat";
 import { Transcript } from "../../src/ui/transcript";
 import type { PiSession, PoppyView } from "../../src/use-pi-session";
+import { toIssuer } from "../../src/poppy/issuer";
 
 /**
  * Photos on the page (src/ui/attachments.tsx): attaching one in the
@@ -213,7 +214,7 @@ describe("cards about photos and orders", () => {
     company: "Print with Poppy",
     domain: "print-with-poppy.example",
     open: false,
-    issuer: "https://print-with-poppy.example",
+    issuer: toIssuer("https://print-with-poppy.example"),
     operationId: "op_1",
     revision: 1,
     state: "succeeded",

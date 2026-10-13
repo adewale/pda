@@ -38,6 +38,8 @@ import {
 import { protocolIndex, protocolLog, registerApiNamer } from "./protocol-log";
 import { migrate, rows } from "./store";
 import type { Card, PoppyClientFrame, PoppyServerFrame } from "./wire";
+import { issuerDecoder, parseIssuer, type Issuer } from "./issuer";
+import { object, optional, string, tryDecode } from "../decode";
 
 export type PoppyOptions = {
   readonly env: Env;
@@ -274,7 +276,7 @@ export class PoppyCapability extends LifecycleCapability {
   }
 
   /** A Company's name and verified domain, by issuer, for the protocol view. */
-  #companyNames = (issuer: string): { name: string; domain: string | null } => {
+  #companyNames = (issuer: Issuer): { name: string; domain: string | null } => {
     try {
       const company = this.client.companyByIssuer(issuer);
       return { name: company.name, domain: company.domain };
@@ -325,7 +327,7 @@ export class PoppyCapability extends LifecycleCapability {
 
   #sendSettings(socket?: WebSocket): void {
     const client = this.client;
-    const name = (issuer: string) => {
+    const name = (issuer: Issuer) => {
       try {
         return client.companyByIssuer(issuer).name;
       } catch {
@@ -368,6 +370,8 @@ export class PoppyCapability extends LifecycleCapability {
       return false;
     }
     if (typeof frame?.type !== "string" || !frame.type.startsWith("poppy.")) return false;
+    // A frame that names a Company names it by an issuer; anything else is no Company's.
+    if ("issuer" in frame && parseIssuer(frame.issuer) === null) return true;
     this.#lastActivity = Date.now();
     try {
       if (QUIET_FRAMES.has(frame.type)) await this.#handleFrame(socket, frame);
@@ -508,7 +512,9 @@ export class PoppyCapability extends LifecycleCapability {
   // ---------------------------------------------------------------- Jobs
 
   async onJob({ job }: LifecycleJobContext): Promise<LifecycleJobOutcome | void> {
-    const payload = job.payload as { id?: string; issuer?: string };
+    // A job's payload is ours, stored before a restart or a deploy: read, not trusted.
+    const decoded = tryDecode(object({ id: optional(string), issuer: optional(issuerDecoder) }), job.payload, "job payload");
+    const payload: { id?: string; issuer?: Issuer } = decoded.ok ? decoded.value : {};
     const fn = job.fn as JobName;
     const client = this.client;
     // Which job, and the Company's ids it works on; never a device sign-in's id.

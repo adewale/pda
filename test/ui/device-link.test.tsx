@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Company } from "../../src/poppy/discovery";
 import { deviceLink } from "../../src/poppy/signin";
 import { gs, property } from "../properties/hegel";
+import { toIssuer } from "../../src/poppy/issuer";
 
 /**
  * Which device sign-in links reach a card at all (spec 4.6). The page checks
@@ -10,7 +11,7 @@ import { gs, property } from "../properties/hegel";
  */
 
 const company = {
-  issuer: "https://login.acme-id.example",
+  issuer: toIssuer("https://login.acme-id.example"),
   name: "Acme",
   domain: "acme.example",
   endpoints: {

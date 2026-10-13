@@ -2,6 +2,7 @@ import type { PoppyClient } from "./client";
 import { lostOutcome, type Operation } from "./operations";
 import { rows } from "./store";
 import type { ActivityAccess, ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
+import type { Issuer } from "./issuer";
 
 /**
  * The page's Activity view, built from the agent's own tables rather than
@@ -30,7 +31,7 @@ export function accessOf(scope: string): ActivityAccess | null {
 }
 
 type OperationRow = {
-  issuer: string;
+  issuer: Issuer;
   operation_id: string;
   account: string | null;
   operation: string;
@@ -40,15 +41,15 @@ type OperationRow = {
   updated_at: number;
 };
 
-type ApprovalRow = { id: string; issuer: string; summary: string; kind: string | null; status: string; result: string | null; created_at: number };
+type ApprovalRow = { id: string; issuer: Issuer; summary: string; kind: string | null; status: string; result: string | null; created_at: number };
 
-type SignInRow = { id: string; type: string; issuer: string; account: string; scopes: string; status: string; expires_at: number; created_at: number };
+type SignInRow = { id: string; type: string; issuer: Issuer; account: string; scopes: string; status: string; expires_at: number; created_at: number };
 
-type ConversationRow = { id: string; issuer: string; direct: number; status: string; responder: string; last_event_at: number; created_at: number };
+type ConversationRow = { id: string; issuer: Issuer; direct: number; status: string; responder: string; last_event_at: number; created_at: number };
 
 type ScheduleRunRow = { id: number; kind: string; text: string; ran_at: number; outcome: string; detail: string | null };
 
-type MessageRow = { id: string; issuer: string; conversation_id: string | null; body: string; created_at: number };
+type MessageRow = { id: string; issuer: Issuer; conversation_id: string | null; body: string; created_at: number };
 
 const OPERATION_RESULT: Record<string, ActivityResult> = {
   proposed: "waiting",
@@ -100,7 +101,7 @@ const SIGN_IN_WAY: Record<string, string> = {
 export function openAtCompanies(client: PoppyClient, now = Date.now()) {
   const sql = client.sql;
   const known = new Map<string, { company: string; domain: string | null }>();
-  const where = (issuer: string) => {
+  const where = (issuer: Issuer) => {
     let found = known.get(issuer);
     if (!found) {
       try {
@@ -139,7 +140,7 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     ];
   });
 
-  const approvals = rows<{ id: string; issuer: string; summary: string; status: string; created_at: number }>(
+  const approvals = rows<{ id: string; issuer: Issuer; summary: string; status: string; created_at: number }>(
     sql,
     "SELECT id, issuer, summary, status, created_at FROM poppy_approvals WHERE status IN ('pending', 'executing') ORDER BY created_at DESC"
   ).map((row) => ({
@@ -149,7 +150,7 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     state: row.status === "pending" ? "waiting for the User, on a card on their page" : "approved by the User; being carried out"
   }));
 
-  const signIns = rows<{ id: string; type: string; issuer: string; account: string; scopes: string; status: string; expires_at: number }>(
+  const signIns = rows<{ id: string; type: string; issuer: Issuer; account: string; scopes: string; status: string; expires_at: number }>(
     sql,
     "SELECT id, type, issuer, account, scopes, status, expires_at FROM poppy_signins WHERE status NOT IN ('done', 'failed', 'expired') ORDER BY created_at DESC"
   )
@@ -163,7 +164,7 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
       until: row.expires_at
     }));
 
-  const conversations = rows<{ id: string; issuer: string; direct: number; status: string; responder: string }>(
+  const conversations = rows<{ id: string; issuer: Issuer; direct: number; status: string; responder: string }>(
     sql,
     "SELECT id, issuer, direct, status, responder FROM poppy_conversations WHERE status != 'closed' ORDER BY last_event_at DESC"
   ).map((row) => ({
@@ -174,7 +175,7 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     direct: !!row.direct
   }));
 
-  const accounts = rows<{ issuer: string; account: string; scope: string; expires_at: number | null }>(
+  const accounts = rows<{ issuer: Issuer; account: string; scope: string; expires_at: number | null }>(
     sql,
     "SELECT issuer, account, scope, expires_at FROM poppy_accounts WHERE expires_at IS NULL OR expires_at > ?",
     now
@@ -186,7 +187,7 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
 export function buildActivity(client: PoppyClient, now = Date.now()): Extract<PoppyServerFrame, { type: "poppy.activity" }> {
   const sql = client.sql;
   const names = new Map<string, string>();
-  const name = (issuer: string): string => {
+  const name = (issuer: Issuer): string => {
     let found = names.get(issuer);
     if (found === undefined) {
       try {

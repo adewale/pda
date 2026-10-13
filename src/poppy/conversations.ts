@@ -7,10 +7,11 @@ import { handleProposal } from "./operations";
 import { EndpointRequest } from "./outgoing";
 import { intent, one, rows } from "./store";
 import type { DirectMessage } from "./wire";
+import type { Issuer } from "./issuer";
 
 export type ConversationRow = {
   id: string;
-  issuer: string;
+  issuer: Issuer;
   label: string;
   parent: string | null;
   direct: number;

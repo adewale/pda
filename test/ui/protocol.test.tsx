@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PoppyClientFrame, ProtocolCompany, ProtocolEntry } from "../../src/poppy/wire";
 import { ActivityPage } from "../../src/ui/activity";
 import { protocolText } from "../../src/ui/protocol";
+import { toIssuer } from "../../src/poppy/issuer";
 import { reducePoppy, type PoppyView, type ProtocolLogView, type ProtocolView } from "../../src/use-pi-session";
 
 /**
@@ -13,7 +14,7 @@ import { reducePoppy, type PoppyView, type ProtocolLogView, type ProtocolView } 
  */
 
 const AT = Date.UTC(2026, 9, 12, 9, 30, 5, 120);
-const ISSUER = "https://auth.print.example";
+const ISSUER = toIssuer("https://auth.print.example");
 
 const company: ProtocolCompany = { key: ISSUER, company: "Print with Poppy", domain: "print.example", issuer: ISSUER, count: 3, lastSeq: 3, lastAt: AT + 2000 };
 

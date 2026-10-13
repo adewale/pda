@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Card, DirectUpdate } from "../../src/poppy/wire";
 import { reducePoppy, type PoppyView } from "../../src/use-pi-session";
+import { toIssuer } from "../../src/poppy/issuer";
 
 /** How the page folds Poppy frames from the agent into what it shows. */
 
@@ -35,7 +36,7 @@ describe("reducePoppy", () => {
 
   it("replaces settings whole and leaves cards alone", () => {
     const before = { ...EMPTY, cards: [approval("a")] };
-    const accounts = [{ issuer: "https://auth.acme.example", company: "Acme", account: "a***", scope: "poppy:read", expiresAt: null }];
+    const accounts = [{ issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***", scope: "poppy:read", expiresAt: null }];
     const after = reducePoppy(before, { type: "poppy.settings", accounts, permissions: [] });
     expect(after).toEqual({ ...before, accounts, permissions: [] });
     expect(reducePoppy(after, { type: "poppy.settings", accounts: [], permissions: [] }).accounts).toEqual([]);
@@ -58,7 +59,7 @@ describe("reducePoppy", () => {
       id: "signin-1",
       at: 1,
       kind: "sign_in" as const,
-      issuer: "https://auth.acme.example",
+      issuer: toIssuer("https://auth.acme.example"),
       company: "Acme",
       account: null,
       what: "Sign-in at Acme on its own page",

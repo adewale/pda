@@ -5,6 +5,7 @@ import type { ActivityEntry, ActivityTask, Card, PoppyClientFrame } from "../../
 import type { Entitlement } from "../../src/model-router";
 import { Workspace } from "../../src/ui/shell";
 import type { PiSession, PoppyView } from "../../src/use-pi-session";
+import { toIssuer } from "../../src/poppy/issuer";
 
 /**
  * The signed-in page (`src/ui/shell.tsx`) with a fixture in place of the
@@ -335,7 +336,7 @@ describe("activity page", () => {
       {
         id: "signin-1",
         kind: "device_sign_in",
-        issuer: "https://auth.acme.example",
+        issuer: toIssuer("https://auth.acme.example"),
         company: "Acme",
         what: "Waiting for you to sign in at Acme on another device",
         since: now - 60_000,
@@ -345,7 +346,7 @@ describe("activity page", () => {
       {
         id: "conversation-c1",
         kind: "conversation",
-        issuer: "https://auth.acme.example",
+        issuer: toIssuer("https://auth.acme.example"),
         company: "Acme",
         what: "Listening for replies from Acme's agent",
         since: now - 120_000,
@@ -357,7 +358,7 @@ describe("activity page", () => {
         id: "op-1",
         at: now - 5_000,
         kind: "operation",
-        issuer: "https://auth.acme.example",
+        issuer: toIssuer("https://auth.acme.example"),
         company: "Acme",
         account: "a***@example.com",
         what: "Acme proposed",
@@ -398,7 +399,7 @@ describe("activity page", () => {
       id,
       at,
       kind: "approval",
-      issuer: "https://auth.acme.example",
+      issuer: toIssuer("https://auth.acme.example"),
       company: "Acme",
       account: null,
       what: "Asked you to approve",
@@ -427,7 +428,7 @@ describe("activity page", () => {
       id: "signin-2",
       at: Date.now(),
       kind: "sign_in",
-      issuer: "https://auth.acme.example",
+      issuer: toIssuer("https://auth.acme.example"),
       company: "Acme",
       account: null,
       what: "Sign-in at Acme on its own page",
@@ -443,7 +444,7 @@ describe("activity page", () => {
     const task = {
       id: "t",
       kind: "conversation",
-      issuer: "https://auth.acme.example",
+      issuer: toIssuer("https://auth.acme.example"),
       company: "Acme",
       what: "Listening for replies from Acme's agent",
       since: Date.now(),
@@ -460,7 +461,7 @@ describe("activity page", () => {
 });
 
 describe("companies page", () => {
-  const accounts = [{ issuer: "https://auth.acme.example", company: "Acme", account: "a***@example.com", scope: "poppy:read poppy:write", expiresAt: null }];
+  const accounts = [{ issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***@example.com", scope: "poppy:read poppy:write", expiresAt: null }];
 
   it("opens a Company from the table, with its own address, and ends an open conversation", () => {
     const activity = {
@@ -468,7 +469,7 @@ describe("companies page", () => {
         {
           id: "conversation-c1",
           kind: "conversation" as const,
-          issuer: "https://auth.acme.example",
+          issuer: toIssuer("https://auth.acme.example"),
           company: "Acme",
           what: "Listening for replies from Acme's agent",
           since: Date.now(),
@@ -485,7 +486,7 @@ describe("companies page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign out of Acme" }));
     expect(sent).toEqual([
       { type: "poppy.direct.close", conversationId: "c1" },
-      { type: "poppy.signout", issuer: "https://auth.acme.example", account: "a***@example.com" }
+      { type: "poppy.signout", issuer: toIssuer("https://auth.acme.example"), account: "a***@example.com" }
     ]);
   });
 

@@ -9,6 +9,7 @@ import { chooseSignInType, deviceLink } from "../../src/poppy/signin";
 import { cacheSeconds as validatorCacheSeconds, isPublicHost, metadataUrl } from "../../src/validator/fetch";
 import { hosts, SCOPE_ALPHABET } from "./companies";
 import { gs, jsonValues, property, propertyAsync, type Json } from "./hegel";
+import { toIssuer } from "../../src/poppy/issuer";
 
 /** The pure parts of the Poppy client, each against its documented contract, in both directions. */
 
@@ -406,7 +407,7 @@ describe("DPoP htu (spec 4.3)", () => {
 /** A Company with the hosts device links and endpoints are checked against. */
 function companyAt(domain: string): Company {
   return {
-    issuer: `https://auth.${domain}`,
+    issuer: toIssuer(`https://auth.${domain}`),
     name: "Shop",
     domain,
     protocolVersion: "0.1",

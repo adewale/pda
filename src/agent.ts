@@ -44,6 +44,7 @@ import { puppeteerLauncher, renderAvailability, RenderLimiter, type BrowserLaunc
 import { describeRecurrence, MAX_ACTIVE_SCHEDULES, type Schedule } from "./tools/schedule-store";
 import { scheduleExtension } from "./tools/schedules";
 import { ReadLimiter, type Fetcher as WebFetcher } from "./tools/web";
+import type { Issuer } from "./poppy/issuer";
 
 const PREAMBLE =
   "You are the user's personal agent, in one long-running conversation with the person who owns you. Earlier turns are your memory of them, so use what they have told you. Be direct and brief, and say plainly when you do not know something.";
@@ -432,7 +433,7 @@ export class PersonalAgent extends DurableObject<Env> {
   }
 
   /** A Company's name and verified domain, for the diagnostics' protocol log. */
-  #companyName(issuer: string): { name: string; domain: string | null } {
+  #companyName(issuer: Issuer): { name: string; domain: string | null } {
     try {
       const company = this.poppy.client.companyByIssuer(issuer);
       return { name: company.name, domain: company.domain };

@@ -1,7 +1,8 @@
-import { code, literal, origin, recordPoppyExchange, reportError } from "../log";
+import { code, literal, recordPoppyExchange, reportError } from "../log";
 import type { CompanyReport } from "../validator/index.ts";
 import type { Company } from "./discovery";
 import { PROTOCOL_LOG_LIMIT, type PoppyServerFrame, type ProtocolCompany, type ProtocolEntry, type ProtocolOutcome } from "./wire";
+import { domainOrigin, type Issuer, type Origin } from "./issuer";
 
 /**
  * The protocol view: every Poppy exchange the agent made with each Company,
@@ -201,9 +202,16 @@ const isObj = (value: unknown): value is Record<string, unknown> => typeof value
 
 // ---------------------------------------------------------------- Writing
 
+/**
+ * What a Company's log is kept under: its issuer once discovery accepted it,
+ * else the https origin of the domain discovery refused, which joins the log
+ * of an issuer at that origin. Never a bare domain.
+ */
+type LogKey = Issuer | Origin;
+
 type Row = {
-  readonly key: string;
-  readonly issuer: string | null;
+  readonly key: LogKey;
+  readonly issuer: Issuer | null;
   readonly step: ProtocolStep;
   readonly method?: string | null;
   readonly url?: string | null;
@@ -230,7 +238,7 @@ function insert(sql: Sql, row: Row): void {
     line(row.result)
   );
   // The same allowlisted fields, counted on the wide event of the work that made the request (src/log.ts).
-  recordPoppyExchange({ issuer: origin(row.issuer) ?? null, step: literal(row.step), status: row.status ?? null, error: code(row.error) ?? null, outcome: literal(row.outcome) });
+  recordPoppyExchange({ issuer: row.issuer, step: literal(row.step), status: row.status ?? null, error: code(row.error) ?? null, outcome: literal(row.outcome) });
 }
 
 /**
@@ -253,16 +261,6 @@ function answered(status: number, error: string | null): string {
 // ---------------------------------------------------------------- Discovery (§3)
 
 const VERDICT: Record<string, string> = { valid: "valid", invalid: "invalid", indeterminate: "indeterminate (not checked)" };
-
-/** The key for a domain whose discovery gave no Company: its https origin, which joins the log of an issuer at that origin. */
-function domainKey(domain: string): string {
-  const host = domain.trim().toLowerCase();
-  try {
-    return new URL(`https://${host}`).origin;
-  } catch {
-    return host;
-  }
-}
 
 /** The host a key names, for a log with no issuer: `https://shop.example` is shop.example. */
 function keyHost(key: string): string {
@@ -290,10 +288,12 @@ function unanswered(report: CompanyReport, kind: CompanyReport["documents"][numb
  * document claiming another Company's issuer can't write into that
  * Company's log.
  */
-export function recordDiscovery(sql: Sql, domain: string, report: CompanyReport | undefined, company: { readonly issuer?: string } | null): void {
+export function recordDiscovery(sql: Sql, domain: string, report: CompanyReport | undefined, company: { readonly issuer?: Issuer } | null): void {
   safely(() => {
     const issuer = company?.issuer ?? null;
-    const key = issuer ?? domainKey(domain);
+    // A "domain" that isn't a host name has no Company to show it under.
+    const key: LogKey | null = issuer ?? domainOrigin(domain);
+    if (!key) return;
     if (!report) {
       insert(sql, { key, issuer, step: "discovery.verdict", outcome: "failed", summary: `Discovery of ${label(keyHost(key), 253) ?? "the domain"}`, result: "No report: discovery stopped before the validator ran" });
       return;
@@ -623,7 +623,7 @@ export function recordResource(
 }
 
 /** A wait on the Company's shared limit before a request (4.3): every agent's `Retry-After`, through `CompanyLimiter`. */
-export function recordLimitWait(sql: Sql, issuer: string, ms: number, waited: boolean): void {
+export function recordLimitWait(sql: Sql, issuer: Issuer, ms: number, waited: boolean): void {
   safely(() =>
     insert(sql, {
       key: issuer,
@@ -637,7 +637,7 @@ export function recordLimitWait(sql: Sql, issuer: string, ms: number, waited: bo
 }
 
 /** A website page answered 429 or 503 (5, 4.3). */
-export function recordPageLimit(sql: Sql, issuer: string, status: number, ms: number | null, retrying: boolean): void {
+export function recordPageLimit(sql: Sql, issuer: Issuer, status: number, ms: number | null, retrying: boolean): void {
   safely(() =>
     insert(sql, {
       key: issuer,
@@ -656,7 +656,7 @@ export function recordPageLimit(sql: Sql, issuer: string, status: number, ms: nu
 type LogRow = {
   seq: number;
   key: string;
-  issuer: string | null;
+  issuer: Issuer | null;
   at: number;
   step: string;
   method: string | null;
@@ -688,7 +688,7 @@ function entry(row: LogRow): ProtocolEntry {
   };
 }
 
-type Names = (issuer: string) => { readonly name: string; readonly domain: string | null };
+type Names = (issuer: Issuer) => { readonly name: string; readonly domain: string | null };
 
 /** The Companies with a log, the most recently active first. */
 export function protocolIndex(sql: Sql, names: Names): Extract<PoppyServerFrame, { type: "poppy.protocol.index" }> {
@@ -697,7 +697,7 @@ export function protocolIndex(sql: Sql, names: Names): Extract<PoppyServerFrame,
       .exec(
         "SELECT key, MAX(issuer) AS issuer, COUNT(*) AS count, MAX(seq) AS last_seq, MAX(at) AS last_at FROM poppy_protocol_log GROUP BY key ORDER BY last_seq DESC"
       )
-      .toArray() as unknown as { key: string; issuer: string | null; count: number; last_seq: number; last_at: number }[]
+      .toArray() as unknown as { key: string; issuer: Issuer | null; count: number; last_seq: number; last_at: number }[]
   ).map((row) => {
     const known = row.issuer ? names(row.issuer) : { name: keyHost(row.key), domain: keyHost(row.key) };
     return { key: row.key, company: known.name, domain: known.domain, issuer: row.issuer, count: row.count, lastSeq: row.last_seq, lastAt: row.last_at };

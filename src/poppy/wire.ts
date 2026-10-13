@@ -1,3 +1,4 @@
+import type { Issuer } from "./issuer";
 /**
  * Poppy's messages on the chat WebSocket, beside the Pi protocol in
  * `protocol.ts` (which stays an unchanged copy). Frames whose `type` starts
@@ -53,7 +54,7 @@ export type Card =
     })
   | (CardBase & {
       readonly kind: "operation";
-      readonly issuer: string;
+      readonly issuer: Issuer;
       readonly operationId: string;
       readonly revision: number;
       readonly state: string;
@@ -125,7 +126,7 @@ export type DirectUpdate = {
 };
 
 export type ConnectedAccount = {
-  readonly issuer: string;
+  readonly issuer: Issuer;
   readonly company: string;
   readonly account: string;
   readonly scope: string;
@@ -134,7 +135,7 @@ export type ConnectedAccount = {
 
 export type Permission = {
   readonly id: string;
-  readonly issuer: string;
+  readonly issuer: Issuer;
   readonly company: string;
   readonly account: string;
   readonly action: string;
@@ -171,7 +172,7 @@ export type ActivityEntry = {
   readonly at: number;
   /** `scheduled`: a reminder or scheduled task ran (src/schedules.ts); its issuer is empty. */
   readonly kind: "operation" | "approval" | "sign_in" | "conversation" | "message" | "scheduled";
-  readonly issuer: string;
+  readonly issuer: Issuer | "";
   readonly company: string;
   readonly account: string | null;
   /** What happened, in plain words. */
@@ -193,7 +194,7 @@ export type ActivityEntry = {
 export type ActivityTask = {
   readonly id: string;
   readonly kind: "conversation" | "device_sign_in" | "operation" | "approval";
-  readonly issuer: string;
+  readonly issuer: Issuer;
   readonly company: string;
   readonly what: string;
   readonly quote?: string;
@@ -246,11 +247,11 @@ export const PROTOCOL_LOG_LIMIT = 500;
 
 /** One Company in the protocol view, without its entries: the page asks for those. */
 export type ProtocolCompany = {
-  /** The Company's issuer; a domain when discovery refused it before an issuer was known. */
+  /** The Company's issuer; the https origin of its domain when discovery refused it before an issuer was known. */
   readonly key: string;
   readonly company: string;
   readonly domain: string | null;
-  readonly issuer: string | null;
+  readonly issuer: Issuer | null;
   readonly count: number;
   /** The newest entry's `seq`: when it changes, an open log asks again. */
   readonly lastSeq: number;
@@ -280,7 +281,7 @@ export type PoppyServerFrame =
       readonly key: string;
       readonly company: string;
       readonly domain: string | null;
-      readonly issuer: string | null;
+      readonly issuer: Issuer | null;
       readonly entries: readonly ProtocolEntry[];
     }
   /**
@@ -303,7 +304,7 @@ export type PoppyClientFrame =
   | { readonly type: "poppy.signin.cancel"; readonly signInId: string }
   | {
       readonly type: "poppy.operation";
-      readonly issuer: string;
+      readonly issuer: Issuer;
       readonly operationId: string;
       readonly revision: number;
       readonly decision: "approve" | "decline" | "cancel";
@@ -313,10 +314,10 @@ export type PoppyClientFrame =
   | { readonly type: "poppy.direct.decline"; readonly conversationId: string }
   | { readonly type: "poppy.direct.say"; readonly conversationId: string; readonly text: string }
   | { readonly type: "poppy.direct.close"; readonly conversationId: string }
-  | { readonly type: "poppy.signout"; readonly issuer: string; readonly account: string }
+  | { readonly type: "poppy.signout"; readonly issuer: Issuer; readonly account: string }
   | {
       readonly type: "poppy.permission.add";
-      readonly issuer: string;
+      readonly issuer: Issuer;
       readonly account: string;
       readonly action: string;
       readonly maxAmount?: string;
