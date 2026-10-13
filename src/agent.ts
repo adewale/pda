@@ -7,7 +7,7 @@ import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { AgentLog, type Trigger } from "./agent-log";
 import { maySignIn, type ListEnv } from "./allowlist";
-import { attachmentsExtension } from "./attachment-images";
+import { AttachmentExpiry, attachmentsExtension } from "./attachment-images";
 import { AttachmentError, attachmentInfo, deleteAttachment, migrateAttachments, readAttachment, saveAttachment, type AttachmentInfo } from "./attachments";
 import { Ledger } from "./budget";
 import { COMPACTION_POLICY, compactionExtension } from "./compaction";
@@ -128,6 +128,8 @@ export class PersonalAgent extends DurableObject<Env> {
   readonly memories: MemoryStore;
   /** Reminders and scheduled tasks, on the Durable Object's alarm (src/schedules.ts). */
   readonly schedules: Scheduler;
+  /** Deletes each attached photo 30 days after it was attached (src/attachment-images.ts). */
+  readonly attachmentExpiry: AttachmentExpiry;
   /** The browsers that turned notifications on (src/web-push.ts). */
   readonly pushSubscriptions: PushSubscriptions;
   /**
@@ -198,6 +200,12 @@ export class PersonalAgent extends DurableObject<Env> {
       changed: () => this.poppy.refreshActivity(),
       units: this.log
     });
+    this.attachmentExpiry = new AttachmentExpiry({
+      sql: () => ctx.storage.sql,
+      now: () => this.clockNow(),
+      jobTime: (at) => this.scheduleJobTime(at),
+      units: this.log
+    });
     this.generalTools = [
       // Its own fetcher, never the Poppy client's: no Session, cookie or token can reach it.
       webExtension({
@@ -229,7 +237,7 @@ export class PersonalAgent extends DurableObject<Env> {
         // read_url, memory, time and maths, reminders and tasks: useful outside Poppy, and kept apart from it.
         for (const extension of this.generalTools) this.registry.install(this.log.instrument(extension));
         // The User's attached photos, shown to the model as images in the messages that name them.
-        this.registry.install(this.log.instrument(attachmentsExtension(() => this.ctx.storage.sql)));
+        this.registry.install(this.log.instrument(attachmentsExtension(() => this.ctx.storage.sql, () => this.clockNow())));
         // Our summariser for pi's compaction: Company text stays labelled as the Company's (compaction.ts).
         this.registry.install(compactionExtension(ROUTER_MODEL, (outcome) => this.log.compactionSummary(outcome)));
         // One provider, the router: it picks the lane at every call (model-router.ts).
@@ -265,6 +273,7 @@ export class PersonalAgent extends DurableObject<Env> {
       .use(this.log)
       .use(this.poppy)
       .use(this.schedules)
+      .use(this.attachmentExpiry)
       .use(this.history)
       .use(this.webSockets)
       .use(this.harness);
@@ -330,12 +339,12 @@ export class PersonalAgent extends DurableObject<Env> {
     return renderAvailability(this.env) === "on" ? puppeteerLauncher(this.env.BROWSER) : null;
   }
 
-  /** Now, for the now and date_math tools, and read_url's render limit. */
+  /** Now, for the now and date_math tools, read_url's render limit, and when an attached photo is 30 days old. */
   protected clockNow(): number {
     return Date.now();
   }
 
-  /** When the job queue wakes for a reminder or task due at `at`. Tests move it out of the way and run jobs themselves. */
+  /** When the job queue wakes for a reminder, a task or a photo's deletion due at `at`. Tests move it out of the way and run jobs themselves. */
   protected scheduleJobTime(at: number): number {
     return at;
   }
@@ -527,8 +536,10 @@ export class PersonalAgent extends DurableObject<Env> {
       const attachment = saveAttachment(this.ctx.storage.sql, {
         name,
         bytes: new Uint8Array(bytes),
-        preview: preview ? new Uint8Array(preview) : null
+        preview: preview ? new Uint8Array(preview) : null,
+        now: this.clockNow()
       });
+      await this.attachmentExpiry.arm();
       return { ok: true, attachment };
     } catch (error) {
       if (error instanceof AttachmentError) return { ok: false, status: error.status, error: error.message };
@@ -539,15 +550,17 @@ export class PersonalAgent extends DurableObject<Env> {
   /** An attachment's bytes, for the User's own page. */
   async attachment(identity: Profile, id: string): Promise<{ info: AttachmentInfo; bytes: ArrayBuffer } | null> {
     await this.recordIdentity(identity);
-    const found = readAttachment(this.ctx.storage.sql, id);
+    const found = readAttachment(this.ctx.storage.sql, id, this.clockNow());
     return found ? { info: found.info, bytes: found.bytes.slice().buffer } : null;
   }
 
   /** Delete one, as when the User removes it before sending. */
   async removeAttachment(identity: Profile, id: string): Promise<boolean> {
     await this.recordIdentity(identity);
-    if (!attachmentInfo(this.ctx.storage.sql, id)) return false;
-    return deleteAttachment(this.ctx.storage.sql, id);
+    if (!attachmentInfo(this.ctx.storage.sql, id, this.clockNow())) return false;
+    const deleted = deleteAttachment(this.ctx.storage.sql, id);
+    await this.attachmentExpiry.arm();
+    return deleted;
   }
 
   // ---------------------------------------------------------------- Memory (src/tools/memory-store.ts)

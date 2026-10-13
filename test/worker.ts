@@ -857,6 +857,29 @@ export class PersonalAgent extends ProductionAgent {
     this.ctx.storage.sql.exec("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'schedules' AND running = 0", Date.now());
   }
 
+  /**
+   * Set the clock (`setClock`) to `at` and make the job that deletes photos
+   * past their 30 days due on the real clock; the test then runs the alarm
+   * (`runDurableObjectAlarm`).
+   */
+  async attachmentsAdvance(at: number): Promise<void> {
+    fixedClocks.set(this.ctx.id.toString(), at);
+    this.ctx.storage.sql.exec("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'attachments' AND running = 0", Date.now());
+  }
+
+  /** What the agent stores of its photos: rows, chunks of each part, and the attachments job's due time on the real clock. */
+  async attachmentStorage(): Promise<{ attachments: number; file: number; preview: number; job: number | null }> {
+    const sql = this.ctx.storage.sql;
+    const count = (query: string) => Number(sql.exec(query).one().n);
+    const job = sql.exec("SELECT time FROM cf_agents_jobs WHERE capability = 'attachments'").toArray()[0];
+    return {
+      attachments: count("SELECT COUNT(*) AS n FROM attachments"),
+      file: count("SELECT COUNT(*) AS n FROM attachment_chunks WHERE part = 'file'"),
+      preview: count("SELECT COUNT(*) AS n FROM attachment_chunks WHERE part = 'preview'"),
+      job: job ? Number(job.time) : null
+    };
+  }
+
   /** A reminder or task made straight in the store, without the tools' check of whose turn it is (test setup). */
   async scheduleCreate(input: { kind: "reminder" | "task"; text: string; when: Record<string, unknown>; timeZone: string }): Promise<{ id: string; nextRun: number | null; error?: string }> {
     try {

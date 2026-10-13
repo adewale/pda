@@ -613,7 +613,7 @@ function uploadedFiles(client: PoppyClient, company: Company, op: OpenApiOperati
       throw new PoppyError("invalid_request", `${op.method} ${op.path} has no file field ${field}; its file fields are ${upload.files.join(", ")}`, 0);
     }
     if (typeof id !== "string") throw new PoppyError("invalid_request", `files.${field} must be an attachment id (att_…)`, 0);
-    const info = attachmentInfo(client.sql, id);
+    const info = attachmentInfo(client.sql, id, client.host.now());
     if (!info) {
       throw new PoppyError("no_attachment", `No attachment ${id}: name one the User attached (att_…, in their message)`, 0);
     }
@@ -637,9 +637,11 @@ function uploadedFiles(client: PoppyClient, company: Company, op: OpenApiOperati
  */
 export class CheckedApiRequest {
   readonly #sql: Sql;
+  readonly #now: () => number;
 
   private constructor(
     sql: Sql,
+    now: () => number,
     readonly company: Company,
     readonly api: Api,
     readonly op: OpenApiOperation,
@@ -650,6 +652,7 @@ export class CheckedApiRequest {
     readonly attachments: readonly AttachmentInfo[]
   ) {
     this.#sql = sql;
+    this.#now = now;
   }
 
   get method(): string {
@@ -708,7 +711,7 @@ export class CheckedApiRequest {
       }
     }
     for (const [field, id] of Object.entries(this.call.files ?? {})) {
-      const found = readAttachment(this.#sql, id);
+      const found = readAttachment(this.#sql, id, this.#now());
       if (!found) throw new PoppyError("no_attachment", `The User's attachment ${id} is gone (deleted, or past its 30 days), so nothing was sent`, 0);
       form.append(field, new Blob([found.bytes], { type: found.info.type }), found.info.name);
     }
@@ -755,7 +758,7 @@ export class CheckedApiRequest {
       ...(files ? { files } : {}),
       ...(key !== undefined ? { idempotencyKey: typeof key === "string" ? key : key() } : {})
     };
-    const checked = new CheckedApiRequest(client.sql, company, api, op, call, url.href, files ? uploadedFiles(client, company, op, files) : []);
+    const checked = new CheckedApiRequest(client.sql, () => client.host.now(), company, api, op, call, url.href, files ? uploadedFiles(client, company, op, files) : []);
     // A JSON body (not a form's fields) is checked against the operation's schema.
     if (!checked.multipart) checkBody(company, op, call.body);
     return checked;
