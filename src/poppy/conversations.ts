@@ -561,7 +561,9 @@ export async function readConversation(
     if (type.includes("text/event-stream")) {
       await readStream(client, company, id, response, waitSeconds);
     } else {
-      const body = JSON.parse(await client.readBody(response)) as { [key: string]: Json };
+      // A Company's answer, read as the Guides ask (no duplicate members) and refused unless it is an object.
+      const body = parseStrictJson(await client.readBody(response));
+      if (!isObject(body)) throw new PoppyError("invalid_response", `${company.name}'s events answer isn't a JSON object`, response.status);
       const events = Array.isArray(body.events) ? body.events : [];
       await handleEvents(client, company, conversation(client, id)!, events);
       if (typeof body.cursor === "string") saveCursor(client, id, body.cursor);

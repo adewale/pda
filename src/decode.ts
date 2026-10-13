@@ -123,12 +123,7 @@ export function tagged<K extends string, M extends Record<string, Decoder<unknow
   };
 }
 
-/** A value decoded, or a `DecodeError` that names `what` it was. */
-export function decode<T>(decoder: Decoder<T>, value: unknown, what: string): T {
-  return decoder(value, what);
-}
-
-/** Like `decode`, for a caller that refuses instead of throwing: the value, or why not. */
+/** A value decoded, or why not, for a caller that refuses rather than throws. */
 export function tryDecode<T>(decoder: Decoder<T>, value: unknown, what: string): { ok: true; value: T } | { ok: false; problem: string } {
   try {
     return { ok: true, value: decoder(value, what) };

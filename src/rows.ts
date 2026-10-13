@@ -1,4 +1,4 @@
-import { DecodeError, integer as wholeNumber, number, object, string, type Decoded, type Decoder, type ObjectOf } from "./decode";
+import { DecodeError, integer as wholeNumber, object, string, type Decoded, type Decoder, type ObjectOf } from "./decode";
 
 /**
  * Rows read back from the agent's SQLite, decoded rather than cast. Each table
@@ -9,7 +9,7 @@ import { DecodeError, integer as wholeNumber, number, object, string, type Decod
  * every declaration against the migrated schema.
  */
 
-type SqlType = "TEXT" | "INTEGER" | "REAL";
+type SqlType = "TEXT" | "INTEGER";
 
 /** A column's decoder, with what it says about the schema. */
 export type Column<T> = Decoder<T> & { readonly sqlType: SqlType; readonly nullable: boolean };
@@ -20,7 +20,6 @@ function column<T>(sqlType: SqlType, decoder: Decoder<T>, nullable = false): Col
 
 export const text: Column<string> = column("TEXT", string);
 export const integer: Column<number> = column("INTEGER", wholeNumber);
-export const real: Column<number> = column("REAL", number);
 
 /** A TEXT column whose values pass `decoder` (an issuer, say). */
 export function textOf<T>(decoder: Decoder<T>): Column<T> {

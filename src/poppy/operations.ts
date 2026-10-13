@@ -40,9 +40,6 @@ function isLost(confirmed: number): boolean {
   return confirmed === LOST || confirmed === LOST_NOT_DONE;
 }
 
-export type { Operation } from "./operation-value";
-export { operationIdProblem } from "./operation-value";
-
 /** For a lost operation, whether it may have happened; null when it isn't lost. */
 export function lostOutcome(confirmed: number): "unknown" | "not_done" | null {
   return confirmed === LOST ? "unknown" : confirmed === LOST_NOT_DONE ? "not_done" : null;

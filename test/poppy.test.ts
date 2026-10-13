@@ -2363,6 +2363,22 @@ describe("7.13 conversation errors", () => {
     };
   };
 
+  it("refuses an events answer that isn't a JSON object as malformed, rather than failing on it", async () => {
+    const { a, id, release } = await started();
+    try {
+      // Before, the read failed with a TypeError on `null.events`.
+      await a.stub.poppyFault({ method: "GET", url: `/${id}/events`, mode: "null" });
+      const failed = await a.stub.poppyReadNow(id).then(
+        () => "read",
+        (error: unknown) => String(error)
+      );
+      expect(failed).toContain("events answer isn't a JSON object");
+      expect(failed).not.toContain("TypeError");
+    } finally {
+      await release();
+    }
+  });
+
   it.each([
     { code: "conversation_closed", status: 409, refuse: (c: Company, id: string) => c.stub.closeConversation(id), says: "has closed" },
     { code: "conversation_not_found", status: 404, refuse: (c: Company, id: string) => c.stub.forgetConversation(id), says: "no longer has" }

@@ -73,7 +73,7 @@ export type NetworkFault = {
   readonly method: string;
   readonly url: string;
   readonly grant?: string;
-  readonly mode: "throw" | "gateway" | "hold" | "lose" | "stall" | "error";
+  readonly mode: "throw" | "gateway" | "hold" | "lose" | "stall" | "error" | "null";
 };
 
 type Faults = { pending: NetworkFault[]; held: (() => void)[]; stalled: { cancelled: boolean }[] };
@@ -102,6 +102,7 @@ function faultyFetcher(fetcher: Fetcher, faults: () => Faults): Fetcher {
     const [fault] = pending.splice(index, 1);
     if (fault!.mode === "lose") throw new Error("Network connection lost before the request was sent");
     if (fault!.mode === "error") return Response.json({ error: "server_error" }, { status: 500 });
+    if (fault!.mode === "null") return Response.json(null);
     const response = await fetcher(request);
     if (fault!.mode === "stall") {
       const first = new Uint8Array((await response.arrayBuffer()).slice(0, 1));

@@ -1,6 +1,6 @@
 # Architecture and decisions
 
-Why the Durable Personal Agent is built the way it is. The [spec](../durable-personal-agent-spec.md) says what is built and how; this file records the choices behind it, as decision records: the context, the choice, the alternatives and why they lost, the consequences, and when it was made. Commits are on `main`; every decision here was made between 9 and 12 October 2026. Where the commits and docs record the alternatives weighed, they are given as recorded; where they don't, the alternatives listed are the obvious ones and why they would lose, not a record of a debate.
+Why the Durable Personal Agent is built the way it is. The [spec](../durable-personal-agent-spec.md) says what is built and how; this file records the choices behind it, as decision records: the context, the choice, the alternatives and why they lost, the consequences, and when it was made. Commits are on `main`; every decision here was made between 9 and 13 October 2026. Where the commits and docs record the alternatives weighed, they are given as recorded; where they don't, the alternatives listed are the obvious ones and why they would lose, not a record of a debate.
 
 Back to the [README](../README.md) · What's left to deploy and check: [deployment-tasks.md](deployment-tasks.md)
 
@@ -40,6 +40,7 @@ One Cloudflare Worker serves the page, signs people in with Google or GitHub, se
 28. [Browser Run for read_url, read only; not for Poppy browsing](#28-browser-run-for-read_url-read-only-not-for-poppy-browsing)
 29. [Reminders and scheduled tasks on the Durable Object's alarm, and Web Push](#29-reminders-and-scheduled-tasks-on-the-durable-objects-alarm-and-web-push)
 30. [Logging: one wide event per unit of work, and diagnostics the User can copy](#30-logging-one-wide-event-per-unit-of-work-and-diagnostics-the-user-can-copy)
+31. [Correctness by construction](#31-correctness-by-construction)
 
 ## 1. A Worker and one Durable Object per person
 
@@ -291,7 +292,7 @@ Each of these closed a specific gap, and each has a test:
 - **Decision.** A per-agent, per-Company log in the agent's own SQLite (`poppy_protocol_log`, `src/poppy/protocol-log.ts`), shown in Activity as a "Protocol" disclosure per Company, with "Copy as text" and "Download .txt" for interop reports.
   - **Where it's written.** In the one Poppy HTTP client (`client.ts`), one row per attempt, so nonce retries, `Retry-After` waits and Session restarts show; and in discovery, from the validator's report. Triggers on the sign-in, conversation and operation tables add state changes no request makes, so `signin.ts`, `conversations.ts` and `operations.ts` need no hooks. `apis.ts` only exports a function that names a call by its `operationId` and path template.
   - **What's in it.** A whitelist: a step that maps to its spec section, method, origin and path, status, error code, and two lines built field by field from named values. Never a header, body, token, assertion, proof, key, code, `state`, verifier, sign-in value, cursor or query string. The one-time-code URL, which holds the sealed `sign_in_id`, is logged as a template.
-  - **Bounds.** 500 rows per Company, pruned by a trigger. Keyed by issuer, or by domain for a Company discovery refused.
+  - **Bounds.** 500 rows per Company, pruned by a trigger. Keyed by issuer, or by the https origin of the domain for a Company discovery refused (never a bare domain, decision [31](#31-correctness-by-construction)).
   - **To the page.** A small index frame on connect and when it changes; a Company's entries only when its disclosure opens, and again when its newest row moves.
 - **Alternatives.**
   - *Log through the existing Activity frame.* The frame is sent on every change; 500 rows per Company in it would go out after every conversation read.
@@ -405,3 +406,26 @@ Each of these closed a specific gap, and each has a test:
   - *Copy diagnostics from the operator's side:* needs the logs, which keep 7 days, and the agent's id; the User has neither problem.
 - **Consequences.** Every request, turn, job and working frame writes one event; Workers Paid includes 20 million log events a month (7 days' retention) until 1 December 2026, and 50 GB of ingestion and 10 GB-month of storage a billing cycle after it, far beyond this deployment's volume. Per-invocation CPU and wall time, which invocation logs carried, are gone from Workers Logs; the dashboard's metrics still have them. A turn's event is built in memory: an eviction mid-run loses what was counted before it, and the resumed run starts a new event marked `resumed`. A tool call a test makes outside a run is a turn of its own (`trigger: "tool"`). The privacy test runs every Poppy flow the protocol log's secret test runs and checks that no secret that crossed the wire, nothing the User or the model said and no tool argument is in any line written or in the diagnostics.
 - **When.** 12 October 2026.
+
+## 31. Correctness by construction
+
+- **Context.** A review on 13 October found rules kept by remembering them at each call site. An API call was checked in two places against two URLs built two ways, so what was checked could differ from what was sent, and a write's server was checked only after the User had approved its card. Stored approvals were read back with a cast, and a result with no status read as 200. `issuer` was a plain string in 82 places; a bare domain beside an https origin had once shown one Company twice. SQL rows, token responses, operations and the page's frames were cast to their types, and a Company's `error` text became a code as it came.
+- **Decision.** Make each rule something a type or a single constructor holds, so a call site can't skip it. Seven changes:
+  1. **One constructor for a request to a Company.** `CheckedApiRequest.check` (`apis.ts`) is the only way to make an API request, and runs every check once: the operation, Poppy endpoints, the Poppy Session, the server (HTTPS, one of the Company's hosts), the filled path and query, the params and the body or upload. The card shows its method, path and query. `PoppyClient.resource` takes that or an `EndpointRequest` (`outgoing.ts`: at or under an endpoint `poppy.json` names, or a listed MCP server), and nothing else.
+  2. **Stored approvals decoded, not cast.** A versioned form (`approvals.ts`), decoded before it is sent. A row in another form, or tampered with, is refused on its card. An approved call goes through the constructor again and is sent only if it makes the request the card showed. The send returns a typed answer, so there is no default status.
+  3. **`Issuer` and `Origin`.** Branded types, each made by one parser (`issuer.ts`), for every Company key, row, limiter, token and protocol-log key. The logger's `origin()` uses the same parser.
+  4. **Typed rows.** Each table declares its columns once (`rows.ts`), and `rows()` and `one()` take a decoder. A test checks every declaration against the migrated schema and decodes every row a journey writes.
+  5. **Error codes as a union.** `PoppyErrorCode` (`error-codes.ts`): the agent's own codes are a closed list, and a Company's `error` is a code only if the draft defines it or it is a short token. Comparisons go through `is()` and `hasCode()`, which take only known codes, so a misspelt one doesn't compile.
+  6. **Parsed once at the edge.** Tool params against their schemas, token responses (a Mediated Sign-In's too), operations (from the Company and from their row) and the page's frames both ways are decoded where they arrive. `toJson` replaces casts to `Json`.
+  7. **Typed log fields** (the same day, `687068a`): a wide event's fields take only `Safe` values, which only the logger's constructors make, so a raw string in a log field is a type error.
+- **Alternatives.**
+  - *Keep the checks at call sites, each with a test.* Tests prove the paths someone wrote; a new path that skips a check passes them.
+  - *A validation library (zod, valibot).* A dependency for what came to about 150 lines of decoders.
+  - *An ORM or a query builder for SQLite.* The tables are few and the queries plain; declaring each table's columns gives the decoding without one.
+  - *Reading approvals stored before the change.* A card stored before a deploy would skip any rule added since. Refusing costs the User one more request.
+- **Consequences.**
+  - Bugs found on the way, each with a test: a write's server checked only after approval (now before the card); an approved write the Company answered with a proposal the agent can't use read "Done" (now refused, 202 `unusable_proposal`); an events answer that wasn't a JSON object failed with a TypeError, and duplicate members were accepted there against the Guides; a Mediated Sign-In's token reply was used unchecked.
+  - Stricter at the edges: a token response with a member of the wrong type is `invalid_response`; an approval stored before this change is refused when approved; a page frame that doesn't decode is ignored; a Company's error that isn't a token becomes `http_<status>`; a param that doesn't match its schema is refused with `invalid_params` before a card.
+  - In `src/`: `as unknown as` from 28 to 2 (each with its reason), `as Json` from 21 to 0, `issuer: string` from 82 to 1 (the validator's, which fetches metadata for an issuer not yet accepted), and every `rows<T>()` call replaced by a decoder.
+  - Left as they were: the agent's frames to the page are checked by type and item, not member by member, since the server and page ship together; the Company document cached in `poppy_domains` is still parsed with a cast; sealed sign-in secrets too, since AES-GCM with their row as additional data already refuses a changed one.
+- **When.** 13 October 2026.
