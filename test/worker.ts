@@ -268,10 +268,23 @@ function summaryScript(context: TranscriptContext): AssistantMessage {
   if (source.includes("[summary fails]")) {
     return fauxAssistantMessage([], { stopReason: "error", errorMessage: "The summarizer is down (a test fault)" });
   }
+  // One JSON message a line (src/compaction.ts); a line that isn't one fails the summary, so every compaction test checks the format.
   const conversation = /<conversation>\n([\s\S]*)\n<\/conversation>/.exec(source)?.[1] ?? "";
-  const lines = conversation.split("\n\n").filter(Boolean).length;
+  const lines = conversation.split("\n").filter(Boolean);
+  if (!lines.every(isSummaryLine)) {
+    return fauxAssistantMessage([], { stopReason: "error", errorMessage: "The summary's source isn't one JSON message a line (a test fault)" });
+  }
   const cost = /\[summary cost ([\d.]+)\]/.exec(source)?.[1];
-  return fauxAssistantMessage([fauxText(`Faux summary of ${lines} lines.${cost ? ` [cost ${cost}]` : ""}`)]);
+  return fauxAssistantMessage([fauxText(`Faux summary of ${lines.length} lines.${cost ? ` [cost ${cost}]` : ""}`)]);
+}
+
+function isSummaryLine(line: string): boolean {
+  try {
+    const value: unknown = JSON.parse(line);
+    return typeof value === "object" && value !== null && "role" in value && typeof value.role === "string" && line.startsWith('{"role":"');
+  } catch {
+    return false;
+  }
 }
 
 /** A request for a host that is neither ours nor a mock Company's, which tests never answer. */
