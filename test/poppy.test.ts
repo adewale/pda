@@ -741,9 +741,9 @@ describe.each(PROFILES)("4.8–4.9 Account Tokens and signing out ($name)", ({ c
 });
 
 describe("4.9 a sign-out the Company doesn't accept", () => {
-  type SignOutRow = { id: string; status: string; attempts: number; last_error: string | null; held: number; next_at: number | null };
+  type SignOutRow = { id: string; reason: string; status: string; attempts: number; last_error: string | null; held: number; next_at: number | null };
   const signOuts = async (a: Agent): Promise<SignOutRow[]> =>
-    JSON.parse(await a.stub.poppySql("SELECT id, status, attempts, last_error, token IS NOT NULL AS held, next_at FROM poppy_signouts ORDER BY created_at"));
+    JSON.parse(await a.stub.poppySql("SELECT id, reason, status, attempts, last_error, token IS NOT NULL AS held, next_at FROM poppy_signouts ORDER BY created_at"));
   /** Each revocation request the Company answered: its status, and the error it gave. */
   const revocations = async (c: Company) =>
     (await requests(c)).filter((request) => request.url === c.hosts.revocationEndpoint).map((request) => `${request.status}${request.error ? ` ${request.error}` : ""}`);
@@ -754,6 +754,8 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
   // Each refused try is two requests: the revocation endpoint as aud, then the token endpoint (S1).
   const refused = (tries: number) => Array.from({ length: tries * 2 }, () => "401 invalid_client");
   const signOut = (a: Agent, c: Company) => a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+  /** The Companies page's Try again: one frame naming the revocation. */
+  const tryAgain = (a: Agent, id: string) => a.stub.poppyFrame({ type: "poppy.revoke.retry", id });
 
   it("stops using the account at once, keeps the token sealed, says the access is still live, and revokes it on the retry", async () => {
     const c = await company({ refuseRevocations: 2 });
@@ -842,12 +844,12 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
     expect((await activity(a)).inProgress.filter((task) => task.kind === "sign_out")).toEqual([]);
     expect((await status(a)).signOutsNotAccepted).toEqual([expect.objectContaining({ attempts: 5, nextTry: null, accessLiveUntil: Date.UTC(2099, 0, 2, 3, 4) })]);
 
-    // Try again, from the Companies page: the same frame. Refused once more, it stays stopped.
-    await signOut(a, c);
+    // Try again, from the Companies page. Refused once more, it stays stopped.
+    await tryAgain(a, (await signOuts(a))[0]!.id);
     expect(await revocations(c)).toHaveLength(12);
     expect(await signOuts(a)).toEqual([expect.objectContaining({ status: "stopped", attempts: 6, held: 1 })]);
     expect(await retryJobs(a)).toEqual([]);
-    // Accepted the next time.
+    // Accepted the next time: signing out again of an account no longer held tries it too.
     await c.stub.configure({ refuseRevocations: 0 });
     await signOut(a, c);
     expect((await revocations(c)).at(-1)).toBe("200");
@@ -925,6 +927,162 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
     expect(await revocations(c)).toEqual(refused(1));
     expect((await signOuts(a)).map((row) => [row.status, row.held])).toEqual([["expired", 0], ["expired", 0]]);
     expect((await activity(a)).log.filter((entry) => entry.kind === "sign_out").map((entry) => entry.result)).toEqual(["done", "done"]);
+  });
+
+  it("puts a pending revocation whose job is missing back on the queue at start, sign-outs and step-ups alike", async () => {
+    const c = await company({ refuseRevocations: 2 });
+    const a = await agent();
+    await signInDirect(a, c, ["poppy:read"]);
+    await signInDirect(a, c, ["poppy:read", "poppy:write"]);
+    await c.stub.configure({ refuseRevocations: 4 });
+    await signOut(a, c);
+    expect(await revocations(c)).toEqual(refused(2));
+    expect((await signOuts(a)).map((row) => [row.reason, row.status])).toEqual([["step_up", "pending"], ["sign_out", "pending"]]);
+    // Scheduling the retries failed, or the jobs were lost: the notices promise a try nothing will run.
+    await a.stub.poppySql("DELETE FROM cf_agents_jobs WHERE id LIKE 'signout-%'");
+    await a.stub.poppyAdvance(60_000);
+    expect(await revocations(c)).toHaveLength(4);
+    // A restart puts each back, due at once since its time has passed, and the next alarm runs them.
+    await a.stub.poppyRestart();
+    expect(await retryJobs(a)).toHaveLength(2);
+    await a.stub.poppyAdvance(0);
+    expect(await revocations(c)).toEqual([...refused(2), "200", "200"]);
+    expect((await signOuts(a)).map((row) => [row.status, row.held])).toEqual([["revoked", 0], ["revoked", 0]]);
+    // A second restart finds nothing to put back.
+    await a.stub.poppyRestart();
+    expect(await retryJobs(a)).toEqual([]);
+  });
+
+  it("puts a missing job back at its next try, not before", async () => {
+    const c = await company({ refuseRevocations: 2 });
+    const a = await agent();
+    await signInDirect(a, c);
+    await signOut(a, c);
+    const [{ next_at: next }] = JSON.parse(await a.stub.poppySql("SELECT next_at FROM poppy_signouts")) as { next_at: number }[];
+    await a.stub.poppySql("DELETE FROM cf_agents_jobs WHERE id LIKE 'signout-%'");
+    await a.stub.poppyRestart();
+    const [job] = JSON.parse(await a.stub.poppySql("SELECT time FROM cf_agents_jobs WHERE id LIKE 'signout-%'")) as { time: number }[];
+    expect(job!.time).toBe(next);
+    await a.stub.poppyAdvance(59_000);
+    expect(await revocations(c)).toEqual(refused(1));
+    await a.stub.poppyAdvance(1_000);
+    expect(await revocations(c)).toEqual([...refused(1), "200"]);
+  });
+});
+
+describe("4.4 a step-up's replaced Account Token the Company doesn't revoke", () => {
+  type Row = { id: string; reason: string; status: string; attempts: number; last_error: string | null; held: number; next_at: number | null };
+  const revocationRows = async (a: Agent): Promise<Row[]> =>
+    JSON.parse(await a.stub.poppySql("SELECT id, reason, status, attempts, last_error, token IS NOT NULL AS held, next_at FROM poppy_signouts ORDER BY created_at"));
+  const revocations = async (c: Company) =>
+    (await requests(c)).filter((request) => request.url === c.hosts.revocationEndpoint).map((request) => `${request.status}${request.error ? ` ${request.error}` : ""}`);
+  // Each refused try is two requests: the revocation endpoint as aud, then the token endpoint (S1).
+  const refused = (tries: number) => Array.from({ length: tries * 2 }, () => "401 invalid_client");
+  const notices = async (a: Agent) => (await cards(a)).filter((card) => card.kind === "notice" && card.id.startsWith("signout-"));
+  const activity = async (a: Agent) => JSON.parse(await a.stub.poppyActivity()) as { inProgress: Record<string, any>[]; log: Record<string, any>[] };
+  const status = async (a: Agent, domain?: string) => JSON.parse((await tool(a, "poppy_status", domain ? { domain } : {})).text);
+  /** Signed in with read access, then stepped up to read and write; the first Account Token's access ends at a known time. */
+  const steppedUp = async (config: Partial<MockConfig>) => {
+    const c = await company(config);
+    const a = await agent();
+    await signInDirect(a, c, ["poppy:read"]);
+    await a.stub.poppySql("UPDATE poppy_accounts SET expires_at = ?", Date.UTC(2099, 0, 2, 3, 4));
+    await signInDirect(a, c, ["poppy:read", "poppy:write"]);
+    return { a, c, shop: `Mock Shop ${c.id}` };
+  };
+  /** Still signed in, with the new scopes: the step-up stands whatever became of the old token. */
+  const signedInWithMore = async (a: Agent, c: Company) => {
+    expect(JSON.parse(await a.stub.poppySql("SELECT account, scope FROM poppy_accounts"))).toEqual([{ account: "default", scope: "poppy:read poppy:write" }]);
+    await a.stub.poppyForgetMemory();
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "still there?" })).isError).toBe(false);
+    expect((await status(a, c.domain)).sessions[0]).toMatchObject({ signedIn: true, scope: "poppy:read poppy:write" });
+  };
+
+  it("revokes it at once when the Company accepts, and tells the User nothing more", async () => {
+    const { a, c, shop } = await steppedUp({});
+    expect(await revocations(c)).toEqual(["200"]);
+    expect((await c.stub.state()).accountTokens).toBe(1);
+    expect(await revocationRows(a)).toEqual([expect.objectContaining({ reason: "step_up", status: "revoked", attempts: 1, held: 0 })]);
+    expect(await notices(a)).toEqual([]);
+    // A quiet line in Activity, the agent's own doing.
+    expect((await activity(a)).log.find((entry) => entry.kind === "sign_out")).toMatchObject({
+      what: `Revoking the access at ${shop} that more access replaced`,
+      decidedBy: null,
+      result: "done"
+    });
+    await signedInWithMore(a, c);
+  });
+
+  it("keeps the old token sealed when the Company refuses, says its access is still live, and revokes it on the retry", async () => {
+    const { a, c, shop } = await steppedUp({ refuseRevocations: 2 });
+    expect(await revocations(c)).toEqual(refused(1));
+    // The old token is still live at the Company; the agent holds it, sealed, to try again.
+    expect((await c.stub.state()).accountTokens).toBe(2);
+    const [pending] = await revocationRows(a);
+    expect(pending).toMatchObject({ reason: "step_up", status: "pending", attempts: 1, last_error: "invalid_client", held: 1 });
+    expect(await notices(a)).toEqual([
+      expect.objectContaining({
+        id: `signout-${pending!.id}`,
+        open: true,
+        text: `After you gave your agent more access to your account at ${shop}, ${shop} didn't accept its request to revoke the access it had before (invalid_client). Your agent uses only the new access, but the old access stays live there until 2 Jan 2099, 03:04 UTC, unless you revoke it at ${shop}. Your agent will try again in 1 minute.`
+      })
+    ]);
+    // Not called a sign-out anywhere: Activity, the model.
+    const during = await activity(a);
+    expect(during.inProgress.filter((task) => task.kind === "sign_out")).toEqual([
+      expect.objectContaining({ what: `Asking ${shop} to revoke the access that more access replaced` })
+    ]);
+    expect(during.log.find((entry) => entry.kind === "sign_out")).toMatchObject({ result: "in_progress", decidedBy: null });
+    const [model] = (await status(a, c.domain)).signOutsNotAccepted;
+    expect(model).toMatchObject({ reason: "step_up", error: "invalid_client", attempts: 1, accessLiveUntil: Date.UTC(2099, 0, 2, 3, 4) });
+    expect(model.state).toContain("The account stays signed in with the new access");
+    // The account itself was never signed out.
+    await signedInWithMore(a, c);
+
+    await a.stub.poppyAdvance(60_000);
+    expect(await revocations(c)).toEqual([...refused(1), "200"]);
+    expect((await c.stub.state()).accountTokens).toBe(1);
+    expect(await revocationRows(a)).toEqual([expect.objectContaining({ reason: "step_up", status: "revoked", attempts: 2, held: 0, next_at: null })]);
+    // The notice that said the old access was live now says it isn't.
+    expect(await notices(a)).toEqual([
+      expect.objectContaining({
+        open: false,
+        text: `${shop} has now revoked the access your agent had to your account at ${shop} before you gave it more. Your agent uses only the new access.`
+      })
+    ]);
+    expect((await status(a)).signOutsNotAccepted).toEqual([]);
+    await signedInWithMore(a, c);
+  });
+
+  it("stops after five tries and says so; Try again revokes it and leaves the account signed in", async () => {
+    const { a, c, shop } = await steppedUp({ refuseRevocations: 1_000 });
+    for (const wait of [60_000, 10 * 60_000, 60 * 60_000, 6 * 60 * 60_000]) await a.stub.poppyAdvance(wait);
+    expect(await revocations(c)).toEqual(refused(5));
+    const [stopped] = await revocationRows(a);
+    expect(stopped).toMatchObject({ reason: "step_up", status: "stopped", attempts: 5, held: 1, next_at: null });
+    expect(JSON.parse(await a.stub.poppySql("SELECT id FROM cf_agents_jobs WHERE id LIKE 'signout-%'"))).toEqual([]);
+    expect(await notices(a)).toEqual([
+      expect.objectContaining({
+        open: true,
+        text: `After you gave your agent more access to your account at ${shop}, ${shop} didn't accept its request to revoke the access it had before (invalid_client). Your agent uses only the new access, but the old access stays live there until 2 Jan 2099, 03:04 UTC, unless you revoke it at ${shop}. Your agent tried 5 times and has stopped trying. To try again, open Companies, then ${shop}, and press Try again.`
+      })
+    ]);
+    expect((await activity(a)).log.find((entry) => entry.kind === "sign_out")).toMatchObject({
+      result: "failed",
+      outcome: `${shop} didn't accept it (invalid_client) after 5 tries, and your agent has stopped trying. The access it replaced stays live there until it expires or you revoke it at ${shop}.`
+    });
+    await a.stub.poppyAdvance(48 * 60 * 60_000);
+    expect(await revocations(c)).toHaveLength(10);
+    await signedInWithMore(a, c);
+
+    // Try again, from the Companies page, names the revocation: the account stays signed in.
+    await c.stub.configure({ refuseRevocations: 0 });
+    await a.stub.poppyFrame({ type: "poppy.revoke.retry", id: stopped!.id });
+    expect((await revocations(c)).at(-1)).toBe("200");
+    expect((await c.stub.state()).accountTokens).toBe(1);
+    expect(await revocationRows(a)).toEqual([expect.objectContaining({ status: "revoked", attempts: 6, held: 0 })]);
+    expect((await notices(a))[0]).toMatchObject({ open: false });
+    await signedInWithMore(a, c);
   });
 });
 

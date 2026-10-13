@@ -10,6 +10,7 @@ import { signInsTable } from "./store";
 import type { ScopeInfo } from "./wire";
 import type { Issuer } from "./issuer";
 import { companyErrorCode } from "./error-codes";
+import { keepReplaced, revokeReplaced } from "./signout";
 
 /** Pending sign-ins expire after this long (the Guides suggest Companies give a device code about 10 minutes). */
 const SIGN_IN_TTL_MS = 10 * 60 * 1000;
@@ -272,7 +273,8 @@ async function finish(
     const raw = outcome.response;
     // An omitted `scope` grants what was asked for (RFC 6749 §5.1, N6).
     const response = { ...raw, scope: grantedScope(raw, row.scopes) };
-    await client.completeSignIn(company, row.label, row.account, response);
+    // A step-up's replaced Account Token is kept to revoke before anything else is awaited (4.4, signout.ts).
+    await revokeReplaced(client, keepReplaced(client, await client.completeSignIn(company, row.label, row.account, response)));
     text = signedInText(company, row, response.scope, "the User");
     cardText = signedInText(company, row, response.scope, "you");
   } else {
@@ -347,7 +349,7 @@ async function finishExchange(client: PoppyClient, row: SignInRow, answer?: Kept
     const kept = answer ?? (JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as KeptAnswer);
     // An omitted `scope` grants what was asked for (RFC 6749 §5.1, N6).
     const response: TokenResponse = { ...kept, access_token: "", scope: grantedScope(kept, row.scopes) };
-    await client.completeSignIn(company, row.label, row.account, response);
+    const replaced = keepReplaced(client, await client.completeSignIn(company, row.label, row.account, response));
     scope = response.scope ?? "";
     // The Account Token is in poppy_accounts now; this row keeps only the scope.
     client.sql.exec(
@@ -355,6 +357,8 @@ async function finishExchange(client: PoppyClient, row: SignInRow, answer?: Kept
       await client.sealer.seal(JSON.stringify({ scope }), sealContext(row)),
       row.id
     );
+    // A step-up's replaced Account Token: revoked now, or retried (4.4, signout.ts).
+    await revokeReplaced(client, replaced);
   }
   await report(client, row, signedInText(company, row, scope, "the User"), signedInText(company, row, scope, "you"));
   setStatus(client, row.id, "done");

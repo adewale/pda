@@ -380,16 +380,19 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
     }
   }
 
-  // Sign-outs: the agent stops using the account at once; the Company may take longer to accept revoking it.
+  // Revocations: the User's sign-outs, where the agent stops using the account at once, and the tokens a
+  // step-up replaced, where the account stays signed in with the new one. The Company may take longer to accept.
   for (const row of signOutRecords(client)) {
     const company = name(row.issuer);
+    const stepUp = row.reason === "step_up";
+    const access = stepUp ? "the access it replaced" : "the access it granted";
     const tries = `${row.attempts} ${row.attempts === 1 ? "try" : "tries"}`;
     const code = row.last_error ?? "no_answer";
     const outcome =
       row.status === "pending"
-        ? `${company} hasn't accepted it yet (${code}) after ${tries}, so the access it granted is still live there. Your agent will try again.`
+        ? `${company} hasn't accepted it yet (${code}) after ${tries}, so ${access} is still live there. Your agent will try again.`
         : row.status === "stopped"
-          ? `${company} didn't accept it (${code}) after ${tries}, and your agent has stopped trying. The access it granted stays live there until it expires or you revoke it at ${company}.`
+          ? `${company} didn't accept it (${code}) after ${tries}, and your agent has stopped trying. ${access[0]!.toUpperCase()}${access.slice(1)} stays live there until it expires or you revoke it at ${company}.`
           : row.status === "expired"
             ? "The access had already ended, so there was nothing to revoke."
             : row.attempts > 1
@@ -402,10 +405,11 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       issuer: row.issuer,
       company,
       account: row.account === "default" ? null : row.account,
-      what: `Signed out of ${company}`,
+      what: stepUp ? `Revoking the access at ${company} that more access replaced` : `Signed out of ${company}`,
       how: "sign_in",
       access: accessOf(row.scope),
-      decidedBy: "you",
+      // The User asked for a sign-out; a step-up's revocation is the agent's own.
+      decidedBy: stepUp ? null : "you",
       result: row.status === "pending" ? "in_progress" : row.status === "stopped" ? "failed" : "done",
       ...(outcome ? { outcome, outcomeBy: "agent" as const } : {})
     });
@@ -415,8 +419,10 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
         kind: "sign_out",
         issuer: row.issuer,
         company,
-        what: `Asking ${company} to revoke the access you signed out of`,
-        note: `Not accepted yet (${code}). Your agent no longer uses the account; the access stays live at ${company} until it accepts.`,
+        what: stepUp ? `Asking ${company} to revoke the access that more access replaced` : `Asking ${company} to revoke the access you signed out of`,
+        note: stepUp
+          ? `Not accepted yet (${code}). Your agent uses only the new access; the old access stays live at ${company} until it accepts.`
+          : `Not accepted yet (${code}). Your agent no longer uses the account; the access stays live at ${company} until it accepts.`,
         since: row.created_at
       });
     }

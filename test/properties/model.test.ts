@@ -69,6 +69,7 @@ async function world(config: Record<string, unknown>) {
     showCard: async (card) => void cards.set(card.id, card),
     notifyModel: async () => undefined,
     schedule: async () => undefined,
+    hasJob: () => false,
     pushDirect: () => undefined,
     userContext: () => ({ locale: "en-GB", time_zone: "Europe/London", user_available: true }),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

@@ -37,7 +37,7 @@ describe("reducePoppy", () => {
   it("replaces settings whole and leaves cards alone", () => {
     const before = { ...EMPTY, cards: [approval("a")] };
     const accounts = [{ issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***", scope: "poppy:read", expiresAt: null }];
-    const signOuts = [{ id: "so_1", issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "b***", error: "invalid_client", attempts: 1, expiresAt: null, nextAt: 1 }];
+    const signOuts = [{ id: "so_1", issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "b***", reason: "sign_out" as const, error: "invalid_client", attempts: 1, expiresAt: null, nextAt: 1 }];
     const after = reducePoppy(before, { type: "poppy.settings", accounts, permissions: [], signOuts });
     expect(after).toEqual({ ...before, accounts, permissions: [], signOuts });
     const cleared = reducePoppy(after, { type: "poppy.settings", accounts: [], permissions: [], signOuts: [] });

@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS poppy_signouts (
   id TEXT PRIMARY KEY,
   issuer TEXT NOT NULL,
   account TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT 'sign_out',
   token TEXT,
   scope TEXT NOT NULL,
   expires_at INTEGER,
@@ -166,6 +167,10 @@ export function migrate(sql: Sql): void {
   if (!sql.exec("PRAGMA table_info(poppy_operations)").toArray().some((column) => column.name === "altered_summary")) {
     sql.exec("ALTER TABLE poppy_operations ADD COLUMN altered_summary TEXT");
   }
+  // Agents created before 14 October 2026: every revocation till then was a sign-out.
+  if (!sql.exec("PRAGMA table_info(poppy_signouts)").toArray().some((column) => column.name === "reason")) {
+    sql.exec("ALTER TABLE poppy_signouts ADD COLUMN reason TEXT NOT NULL DEFAULT 'sign_out'");
+  }
   // After the tables its triggers watch.
   migrateProtocolLog(sql);
 }
@@ -195,8 +200,9 @@ export const accountsTable = table("poppy_accounts", {
   updated_at: integer
 });
 /**
- * Sign-outs (spec 4.9). While the Company hasn't accepted the revocation,
- * `token` holds the Account Token, still sealed as it was in
+ * Account Tokens to revoke (spec 4.9, 4.4): the User's sign-outs, and the
+ * tokens a step-up replaced. While the Company hasn't accepted the
+ * revocation, `token` holds the Account Token, still sealed as it was in
  * `poppy_accounts`, so it can be sent again; once it has, or the token has
  * expired, `token` is null and the row is only a record for Activity.
  */
@@ -204,6 +210,8 @@ export const signOutsTable = table("poppy_signouts", {
   id: text,
   issuer: issuerColumn,
   account: text,
+  /** `sign_out`: the User signed out of the account. `step_up`: a sign-in for more scopes replaced this token, and the account stays signed in with the new one. */
+  reason: textOf(literal("sign_out", "step_up")),
   token: nullable(text),
   scope: text,
   expires_at: nullable(integer),

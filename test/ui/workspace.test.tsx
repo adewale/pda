@@ -495,8 +495,8 @@ describe("companies page", () => {
     const issuer = toIssuer("https://auth.globex.example");
     const expiresAt = Date.UTC(2026, 10, 12, 9, 30);
     const signOuts = [
-      { id: "so_1", issuer, company: "Globex", account: "g***@example.com", error: "invalid_client", attempts: 2, expiresAt, nextAt: Date.now() + 10 * 60_000 },
-      { id: "so_2", issuer, company: "Globex", account: "work", error: "invalid_client", attempts: 5, expiresAt: null, nextAt: null }
+      { id: "so_1", issuer, company: "Globex", account: "g***@example.com", reason: "sign_out" as const, error: "invalid_client", attempts: 2, expiresAt, nextAt: Date.now() + 10 * 60_000 },
+      { id: "so_2", issuer, company: "Globex", account: "work", reason: "sign_out" as const, error: "invalid_client", attempts: 5, expiresAt: null, nextAt: null }
     ];
     const { sent } = open("/companies", session({}, { accounts, signOuts }));
     // In the table: no account there, but not simply signed out either.
@@ -515,8 +515,29 @@ describe("companies page", () => {
     expect(second!.textContent).toContain("Tried 5 times · Your agent has stopped trying");
     // No empty "Not signed in" state while access is still live.
     expect(screen.queryByText("Not signed in")).toBeNull();
+    // Try again names the sign-out, not the account, so it never signs out of an account signed in again since.
     fireEvent.click(within(second!).getByRole("button", { name: "Try again" }));
-    expect(sent).toEqual([{ type: "poppy.signout", issuer, account: "work" }]);
+    expect(sent).toEqual([{ type: "poppy.revoke.retry", id: "so_2" }]);
+  });
+
+  it("lists access a step-up replaced that the Company hasn't revoked, apart from sign-outs, beside the account still signed in", () => {
+    const issuer = toIssuer("https://auth.acme.example");
+    const expiresAt = Date.UTC(2026, 10, 12, 9, 30);
+    const signOuts = [{ id: "so_9", issuer, company: "Acme", account: "a***@example.com", reason: "step_up" as const, error: "invalid_client", attempts: 1, expiresAt, nextAt: Date.now() + 60_000 }];
+    const { sent } = open("/companies", session({}, { accounts, signOuts }));
+    const table = screen.getByRole("table");
+    // Still signed in: the table shows the account, not a sign-out.
+    expect(within(table).getByText("a***@example.com")).toBeTruthy();
+    expect(within(table).queryByText("Sign-out not accepted yet")).toBeNull();
+    fireEvent.click(within(table).getByRole("button", { name: "Acme" }));
+    expect(screen.getByRole("button", { name: "Sign out of Acme" })).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Sign-outs not accepted by Acme" })).toBeNull();
+    const [item] = within(screen.getByRole("list", { name: "Replaced access not revoked by Acme" })).getAllByRole("listitem");
+    expect(within(item!).getByText("Revoking replaced access not accepted by Acme yet (invalid_client)")).toBeTruthy();
+    expect(item!.textContent).toContain("You gave your agent more access to this account, and it uses only the new access, but the access it had before stays live there until");
+    expect(item!.textContent).toContain(", unless you revoke it at Acme.");
+    fireEvent.click(within(item!).getByRole("button", { name: "Try again" }));
+    expect(sent).toEqual([{ type: "poppy.revoke.retry", id: "so_9" }]);
   });
 
   it("says what will appear when there are no Companies", () => {

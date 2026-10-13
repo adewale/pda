@@ -286,6 +286,7 @@ async function clientWith(routes = {}) {
     showCard: async (card) => void cards.push(card),
     notifyModel: async (text) => void notes.push(text),
     schedule: async () => {},
+    hasJob: () => false,
     pushDirect: () => {},
     userContext: () => ({ user_available: true }),
     sleep: async () => {},

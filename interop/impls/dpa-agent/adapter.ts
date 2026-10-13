@@ -205,6 +205,7 @@ async function newAgent(): Promise<Agent> {
     schedule: async (fn, at, payload, id) => {
       jobs.set(id, { fn, at, payload });
     },
+    hasJob: (id) => jobs.has(id),
     pushDirect: () => undefined,
     userContext: () => ({ locale: "en-GB", time_zone: "Europe/London", user_available: true }),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

@@ -1,5 +1,5 @@
 import { literal, reportError } from "../log";
-import { PoppyError, type PoppyClient } from "./client";
+import { PoppyError, type AccountRow, type PoppyClient } from "./client";
 import type { Company } from "./discovery";
 import { companyErrorCode } from "./error-codes";
 import type { Issuer } from "./issuer";
@@ -22,6 +22,12 @@ import { signOutsTable } from "./store";
  *                ▼  │ retry, Try again
  *              pending … ─▶ stopped ─▶ revoked   (Try again)
  *                                    └▶ expired  (the token ran out first)
+ *
+ * A step-up (4.4) replaces an account's Account Token with one for more
+ * scopes, and the old token is revoked the same way, from a `step_up` row.
+ * The account stays signed in with the new token, so no Session is left.
+ * The User didn't ask for this revocation, so they hear of it only when the
+ * Company doesn't accept it.
  */
 
 /** After a refused revocation, try again after these waits; after the last, stop. */
@@ -30,7 +36,7 @@ export const SIGN_OUT_RETRY_MS: readonly number[] = [60_000, 10 * 60_000, 60 * 6
 /** Finished sign-outs kept for Activity; older ones are deleted. */
 const FINISHED_KEPT = 50;
 
-const signOutRow = signOutsTable.pick("id", "issuer", "account", "token", "scope", "expires_at", "status", "attempts", "last_error", "next_at", "created_at", "updated_at");
+const signOutRow = signOutsTable.pick("id", "issuer", "account", "reason", "token", "scope", "expires_at", "status", "attempts", "last_error", "next_at", "created_at", "updated_at");
 export type SignOutRow = RowOf<typeof signOutRow>;
 
 /** How a sign-out went: the Company accepted it, the token had expired, or the Company didn't accept it (yet). */
@@ -41,35 +47,60 @@ function signOutById(client: PoppyClient, id: string): SignOutRow | undefined {
 }
 
 /** A sign-out without its token, which never leaves this module: for the page, Activity and the model. */
-const recordRow = signOutsTable.pick("id", "issuer", "account", "scope", "expires_at", "status", "attempts", "last_error", "next_at", "created_at", "updated_at");
+const recordRow = signOutsTable.pick("id", "issuer", "account", "reason", "scope", "expires_at", "status", "attempts", "last_error", "next_at", "created_at", "updated_at");
 export type SignOutRecord = RowOf<typeof recordRow>;
-const RECORD_COLUMNS = "id, issuer, account, scope, expires_at, status, attempts, last_error, next_at, created_at, updated_at";
+const RECORD_COLUMNS = "id, issuer, account, reason, scope, expires_at, status, attempts, last_error, next_at, created_at, updated_at";
 
-/** Sign-outs whose Account Token the Company hasn't accepted to revoke: still trying, or stopped. Oldest first. */
+/** Revocations the Company hasn't accepted, sign-outs and step-ups alike: still trying, or stopped. Oldest first. */
 export function pendingSignOuts(client: PoppyClient, issuer?: Issuer): SignOutRecord[] {
   return issuer
     ? rows(client.sql, recordRow, `SELECT ${RECORD_COLUMNS} FROM poppy_signouts WHERE token IS NOT NULL AND issuer = ? ORDER BY created_at`, issuer)
     : rows(client.sql, recordRow, `SELECT ${RECORD_COLUMNS} FROM poppy_signouts WHERE token IS NOT NULL ORDER BY created_at`);
 }
 
-/** A sign-out the Company hasn't accepted, for the model (`poppy_status`): so it can tell the User their access there is still live. */
+/** A revocation the Company hasn't accepted, for the model (`poppy_status`): so it can tell the User their access there is still live. */
 export function signOutForModel(row: SignOutRecord) {
+  const what =
+    row.reason === "step_up"
+      ? "When the User gave the agent more access to this account, the new access replaced the old, but the company didn't accept revoking the old access, so it is still live there. The account stays signed in with the new access; the agent no longer uses the old."
+      : "The agent no longer uses this account, but the company didn't accept revoking its access, so that access is still live there.";
   return {
     account: row.account,
+    reason: row.reason,
     error: row.last_error,
     attempts: row.attempts,
     accessLiveUntil: row.expires_at,
     nextTry: row.next_at,
     state:
       row.next_at === null
-        ? "The agent no longer uses this account, but the company didn't accept revoking its access, so that access is still live there. The agent has stopped trying: the User can press Try again on the Companies page, or revoke the access at the company."
-        : "The agent no longer uses this account, but the company hasn't accepted revoking its access yet, so that access is still live there. The agent will try again by itself."
+        ? `${what} The agent has stopped trying: the User can press Try again on the Companies page, or revoke the access at the company.`
+        : `${what} The agent will try again by itself.`
   };
 }
 
 /** Every sign-out kept, newest first: for Activity. */
 export function signOutRecords(client: PoppyClient): SignOutRecord[] {
   return rows(client.sql, recordRow, `SELECT ${RECORD_COLUMNS} FROM poppy_signouts ORDER BY created_at DESC`);
+}
+
+/** Keep an account's Account Token, still sealed, to revoke. */
+function keep(client: PoppyClient, row: AccountRow, reason: SignOutRow["reason"]): string {
+  const id = randomId("so_");
+  const now = Date.now();
+  client.sql.exec(
+    `INSERT INTO poppy_signouts (id, issuer, account, reason, token, scope, expires_at, status, attempts, last_error, next_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, ?, ?)`,
+    id,
+    row.issuer,
+    row.account,
+    reason,
+    row.token,
+    row.scope,
+    row.expires_at,
+    now,
+    now
+  );
+  return id;
 }
 
 /**
@@ -81,20 +112,7 @@ function stopUsing(client: PoppyClient, issuer: Issuer, account: string): string
   // Read without `account()`, which deletes an expired token unseen: an expired one is recorded too.
   const row = client.accounts(issuer).find((item) => item.account === account);
   if (!row) return null;
-  const id = randomId("so_");
-  const now = Date.now();
-  client.sql.exec(
-    `INSERT INTO poppy_signouts (id, issuer, account, token, scope, expires_at, status, attempts, last_error, next_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, ?, ?)`,
-    id,
-    issuer,
-    account,
-    row.token,
-    row.scope,
-    row.expires_at,
-    now,
-    now
-  );
+  const id = keep(client, row, "sign_out");
   client.deleteAccount(issuer, account);
   return id;
 }
@@ -167,14 +185,14 @@ async function attempt(client: PoppyClient, id: string): Promise<{ outcome: Sign
     if (row.expires_at !== null && row.expires_at <= Date.now()) {
       if (row.attempts === 0) leaveSessions(client, row);
       finish(client, id, "expired", row.attempts);
-      await signedOutNotice(client, company, row, "expired");
+      await doneNotice(client, company, row, "expired");
       return { outcome: "expired", next: null };
     }
     const attempts = row.attempts + 1;
     const refusal = await revoke(client, company, { ...row, token: row.token });
     if (!refusal) {
       finish(client, id, "revoked", attempts);
-      await signedOutNotice(client, company, row, "revoked");
+      await doneNotice(client, company, row, "revoked");
       return { outcome: "revoked", next: null };
     }
     if (row.attempts === 0) leaveSessions(client, row);
@@ -204,21 +222,39 @@ async function attempt(client: PoppyClient, id: string): Promise<{ outcome: Sign
  * renews only with its Account Token (4.2), which the agent no longer uses,
  * never with the assertion (spec-issues S5). So they are left, and the next
  * request starts a new, signed-out Session. Only on the first try: by a
- * retry, a Session signed in to that account may be a new sign-in's.
+ * retry, a Session signed in to that account may be a new sign-in's. Never
+ * after a step-up: the account is still signed in, with the new token.
  */
-function leaveSessions(client: PoppyClient, row: Pick<SignOutRow, "issuer" | "account">): void {
+function leaveSessions(client: PoppyClient, row: Pick<SignOutRow, "issuer" | "account" | "reason">): void {
+  if (row.reason === "step_up") return;
   for (const session of client.sessions(row.issuer)) {
     if (session.signed_in && session.account === row.account) client.abandonSession(row.issuer, session.label);
   }
 }
 
+/** The `poppy-revoke` job's id for a sign-out. */
+const jobId = (id: string) => `signout-${id}`;
+
+/** Try each now, under `client.exclusive` for their Company, and schedule the next try for each the Company refused. */
+async function tryNow(client: PoppyClient, ids: readonly string[]): Promise<SignOutOutcome | null> {
+  let outcome: SignOutOutcome | null = null;
+  for (const id of ids) {
+    const tried = await attempt(client, id);
+    if (!tried) continue;
+    outcome = tried.outcome;
+    const issuer = signOutById(client, id)?.issuer;
+    if (tried.next !== null && issuer) await client.host.schedule("poppy-revoke", tried.next, { id, issuer }, jobId(id));
+  }
+  return outcome;
+}
+
 /**
  * Sign out of one account (spec 4.9), from the User's "Sign out" on the
- * Companies page. With no such account, it is "Try again" on a sign-out the
- * Company hasn't accepted: each of that account's is tried again now.
- * Returns how the last one went; null when there was nothing to sign out.
- * No renewal for the Company runs beside it (`client.exclusive`), so none
- * uses the account, or renews its Sessions, mid-way.
+ * Companies page. With no such account, it tries again each revocation of
+ * that account's the Company hasn't accepted. Returns how the last one went;
+ * null when there was nothing to sign out. No renewal for the Company runs
+ * beside it (`client.exclusive`), so none uses the account, or renews its
+ * Sessions, mid-way.
  */
 export function signOut(client: PoppyClient, issuer: Issuer, account: string): Promise<SignOutOutcome | null> {
   return client.exclusive(issuer, () => signOutNow(client, issuer, account));
@@ -239,26 +275,52 @@ async function signOutNow(client: PoppyClient, issuer: Issuer, account: string):
     });
     return null;
   }
-  let outcome: SignOutOutcome | null = null;
-  for (const id of ids) {
-    const tried = await attempt(client, id);
-    if (!tried) continue;
-    outcome = tried.outcome;
-    if (tried.next !== null) await client.host.schedule("poppy-revoke", tried.next, { id, issuer }, `signout-${id}`);
-  }
-  return outcome;
+  return tryNow(client, ids);
 }
 
 /**
- * On start: a sign-out the object stopped before its first try (no try
- * recorded, none scheduled) gets one now. Ones with a try behind them have
- * their job, or have stopped.
+ * "Try again" on the Companies page: one revocation the Company hasn't
+ * accepted, a sign-out or a step-up's, tried again now. It never touches an
+ * account the agent is signed in to. Null when there was nothing to try.
+ */
+export async function retryRevocation(client: PoppyClient, id: string): Promise<SignOutOutcome | null> {
+  const row = signOutById(client, id);
+  if (!row || row.token === null) return null;
+  return client.exclusive(row.issuer, () => tryNow(client, [id]));
+}
+
+/**
+ * After a step-up (4.4): keep the Account Token the new one replaced, to
+ * revoke. Called as soon as the new token is stored, with nothing awaited
+ * between, so the old one is never held nowhere. Null when nothing was
+ * replaced.
+ */
+export function keepReplaced(client: PoppyClient, replaced: AccountRow | null): string | null {
+  return replaced ? keep(client, replaced, "step_up") : null;
+}
+
+/**
+ * Revoke a token `keepReplaced` kept, now. The sign-in has finished either
+ * way, so this never throws: a try that fails part-way is picked up again on
+ * the next start (`recoverSignOuts`).
+ */
+export async function revokeReplaced(client: PoppyClient, id: string | null): Promise<void> {
+  if (id === null) return;
+  await retryRevocation(client, id).catch((error: unknown) => reportError(error, { source: literal("poppy.signout"), severe: false }));
+}
+
+/**
+ * On start: every revocation still pending (a token held, the agent still
+ * trying) has its `poppy-revoke` job. One whose job is missing, because the
+ * object stopped before its first try, or before or while scheduling the
+ * next, gets it back: at its next try, or now when that is due or none was
+ * set. A stopped one has none, by design.
  */
 export async function recoverSignOuts(client: PoppyClient): Promise<void> {
   for (const row of pendingSignOuts(client)) {
-    if (row.status === "pending" && row.attempts === 0 && row.next_at === null) {
-      await client.host.schedule("poppy-revoke", client.host.now(), { id: row.id, issuer: row.issuer }, `signout-${row.id}`);
-    }
+    if (row.status !== "pending" || client.host.hasJob(jobId(row.id))) continue;
+    const at = Math.max(row.next_at ?? 0, client.host.now());
+    await client.host.schedule("poppy-revoke", at, { id: row.id, issuer: row.issuer }, jobId(row.id));
   }
 }
 
@@ -294,35 +356,47 @@ function inTime(ms: number): string {
   return `in ${hours} ${hours === 1 ? "hour" : "hours"}`;
 }
 
-async function signedOutNotice(client: PoppyClient, company: Company, row: SignOutRow, how: "revoked" | "expired"): Promise<void> {
-  await client.host.showCard({
-    id: `signout-${row.id}`,
-    kind: "notice",
-    company: company.name,
-    domain: company.domain,
-    open: false,
-    text:
-      how === "revoked"
+/**
+ * The revocation is done. A sign-out says so. A step-up's says nothing the
+ * first time, since the User didn't ask for it; after a refusal it closes the
+ * notice that said the old access was still live.
+ */
+async function doneNotice(client: PoppyClient, company: Company, row: SignOutRow, how: "revoked" | "expired"): Promise<void> {
+  if (row.reason === "step_up" && row.attempts === 0) return;
+  const text =
+    row.reason === "step_up"
+      ? how === "revoked"
+        ? `${company.name} has now revoked the access your agent had to ${yourAccount(company, row.account)} before you gave it more. Your agent uses only the new access.`
+        : `The access your agent had to ${yourAccount(company, row.account)} before you gave it more has ended there, so there is nothing left to revoke.`
+      : how === "revoked"
         ? `Signed out of ${company.name}. Open tasks there continue signed out.`
-        : `Signed out of ${company.name}. The access it granted had already ended, so there was nothing to revoke. Open tasks there continue signed out.`
-  });
+        : `Signed out of ${company.name}. The access it granted had already ended, so there was nothing to revoke. Open tasks there continue signed out.`;
+  await client.host.showCard({ id: `signout-${row.id}`, kind: "notice", company: company.name, domain: company.domain, open: false, text });
 }
 
-/** Said plainly: the agent has stopped, the Company's access hasn't, and what happens next. */
+/** Said plainly: what the agent no longer uses, that the Company's access is still live, and what happens next. */
 export function notAcceptedText(
   client: PoppyClient,
   company: Company,
-  row: Pick<SignOutRow, "account" | "attempts" | "last_error" | "next_at" | "expires_at">
+  row: Pick<SignOutRow, "account" | "reason" | "attempts" | "last_error" | "next_at" | "expires_at">
 ): string {
-  const live =
-    row.expires_at === null
-      ? `The access ${company.name} granted stays live there until you revoke it at ${company.name}.`
-      : `The access ${company.name} granted stays live there until ${dateText(client, row.expires_at)}, unless you revoke it at ${company.name}.`;
+  const code = row.last_error ?? "no_answer";
   const next =
     row.next_at === null
       ? `Your agent tried ${row.attempts} ${row.attempts === 1 ? "time" : "times"} and has stopped trying. To try again, open Companies, then ${company.name}, and press Try again.`
       : `Your agent will try again ${inTime(row.next_at - client.host.now())}.`;
-  return `Your agent no longer uses ${yourAccount(company, row.account)}, but ${company.name} didn't accept its request to revoke that access (${row.last_error ?? "no_answer"}). ${live} ${next}`;
+  if (row.reason === "step_up") {
+    const live =
+      row.expires_at === null
+        ? `until you revoke it at ${company.name}`
+        : `until ${dateText(client, row.expires_at)}, unless you revoke it at ${company.name}`;
+    return `After you gave your agent more access to ${yourAccount(company, row.account)}, ${company.name} didn't accept its request to revoke the access it had before (${code}). Your agent uses only the new access, but the old access stays live there ${live}. ${next}`;
+  }
+  const live =
+    row.expires_at === null
+      ? `The access ${company.name} granted stays live there until you revoke it at ${company.name}.`
+      : `The access ${company.name} granted stays live there until ${dateText(client, row.expires_at)}, unless you revoke it at ${company.name}.`;
+  return `Your agent no longer uses ${yourAccount(company, row.account)}, but ${company.name} didn't accept its request to revoke that access (${code}). ${live} ${next}`;
 }
 
 async function notAcceptedNotice(

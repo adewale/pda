@@ -172,25 +172,33 @@ function AddPermission({ company, send }: { company: CompanyRow; send: Send }) {
 }
 
 /**
- * Sign-outs the Company hasn't accepted: the agent no longer uses the
- * account, but the access it granted is still live there. Said plainly, with
- * until when, and a way to try again.
+ * Revocations the Company hasn't accepted. A sign-out's: the agent no longer
+ * uses the account, but the access it granted is still live there. A
+ * step-up's: the account stays signed in with the new access, but the access
+ * it replaced is still live there. Each said plainly, with until when, and a
+ * way to try again that never signs out of an account in use.
  */
-function SignOutsNotAccepted({ company, send }: { company: CompanyRow; send: Send }) {
+function NotAccepted({ company, reason, send }: { company: CompanyRow; reason: PendingSignOut["reason"]; send: Send }) {
+  const stepUp = reason === "step_up";
   return (
-    <ul className="divide-y divide-kumo-hairline rounded-xl ring ring-kumo-danger" aria-label={`Sign-outs not accepted by ${company.name}`}>
-      {company.signOuts.map((signOut) => (
+    <ul
+      className="divide-y divide-kumo-hairline rounded-xl ring ring-kumo-danger"
+      aria-label={stepUp ? `Replaced access not revoked by ${company.name}` : `Sign-outs not accepted by ${company.name}`}
+    >
+      {company.signOuts.filter((signOut) => signOut.reason === reason).map((signOut) => (
         <li key={signOut.id} className="flex flex-wrap items-center gap-x-6 gap-y-2 p-4">
           <div className="min-w-0 flex-1 space-y-1">
             <p className="flex items-center gap-1.5 text-base font-medium text-kumo-danger">
               <WarningCircleIcon size={16} aria-hidden />
               <span>
-                Sign-out not accepted by {company.name} yet ({signOut.error ?? "no_answer"})
+                {stepUp ? "Revoking replaced access" : "Sign-out"} not accepted by {company.name} yet ({signOut.error ?? "no_answer"})
               </span>
             </p>
             <Truncated text={signOut.account} className="text-[13px] text-kumo-subtle" />
             <p className="text-[13px] text-pretty text-kumo-default">
-              Your agent no longer uses this account, but the access {company.name} granted stays live there{" "}
+              {stepUp
+                ? "You gave your agent more access to this account, and it uses only the new access, but the access it had before stays live there "
+                : `Your agent no longer uses this account, but the access ${company.name} granted stays live there `}
               {signOut.expiresAt === null ? (
                 <>until you revoke it at {company.name}.</>
               ) : (
@@ -204,7 +212,7 @@ function SignOutsNotAccepted({ company, send }: { company: CompanyRow; send: Sen
               {signOut.nextAt === null ? "Your agent has stopped trying" : <>Trying again at {when(signOut.nextAt)}</>}
             </p>
           </div>
-          <Action variant="secondary" onClick={() => send({ type: "poppy.signout", issuer: signOut.issuer, account: signOut.account })}>
+          <Action variant="secondary" onClick={() => send({ type: "poppy.revoke.retry", id: signOut.id })}>
             Try again
           </Action>
         </li>
@@ -247,7 +255,8 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
             ))}
           </ul>
         )}
-        {company.signOuts.length ? <SignOutsNotAccepted company={company} send={send} /> : null}
+        {company.signOuts.some((signOut) => signOut.reason === "sign_out") ? <NotAccepted company={company} reason="sign_out" send={send} /> : null}
+        {company.signOuts.some((signOut) => signOut.reason === "step_up") ? <NotAccepted company={company} reason="step_up" send={send} /> : null}
       </Section>
 
       <Section title="Standing permissions" description={`Your agent approves ${company.name}'s proposals that match, within these limits. Anything else still asks you.`}>
@@ -362,7 +371,9 @@ export function CompaniesPage({
                       {account ? (
                         <Truncated text={account.account} />
                       ) : row.signOuts.length ? (
-                        <span className="text-kumo-danger">Sign-out not accepted yet</span>
+                        <span className="text-kumo-danger">
+                          {row.signOuts.some((signOut) => signOut.reason === "sign_out") ? "Sign-out not accepted yet" : "Revoking replaced access not accepted yet"}
+                        </span>
                       ) : (
                         <span className="text-kumo-subtle">Signed out</span>
                       )}
