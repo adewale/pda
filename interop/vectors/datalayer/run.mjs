@@ -448,10 +448,14 @@ const CHECKS = {
     const { client, company } = await clientWith();
     const operation = await handleProposal(client, company, "main", input);
     check(operation !== null, ourBug("the proposal was rejected"));
-    for (const [key, value] of Object.entries(expect.extra ?? {})) {
-      check(JSON.stringify(operation[key]) === JSON.stringify(value), ourBug(`${key} not kept: ${JSON.stringify(operation[key])}`));
-    }
-    return `accepted; ${Object.keys(expect.extra ?? {}).join(", ")} kept`;
+    // The draft has both sides "ignore ... fields they don't recognize" (3.3). Since the
+    // operation is parsed at the edge (src/poppy/operation-value.ts) ours drops them, as
+    // discovery does, so `extra` is checked as accepted, not as carried.
+    const extra = Object.keys(expect.extra ?? {});
+    const kept = extra.filter((key) => JSON.stringify(operation[key]) === JSON.stringify(expect.extra[key]));
+    return extra.length
+      ? `accepted; unknown ${extra.join(", ")} ${kept.length === extra.length ? "kept" : "ignored, not preserved"}`
+      : "accepted";
   },
 
   async discovery(input, expect) {

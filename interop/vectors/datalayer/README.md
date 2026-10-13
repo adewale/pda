@@ -26,7 +26,7 @@ Datalayer's TypeScript runner (`src/__tests__/conformance-fixtures.test.mjs`) de
 | `extension_names` | 1 | `validateText()`: `extension-name` is invalid; otherwise a name with `/` is third-party, without is plain. |
 | `extension_required` | 1 | `callOpenApi()` against an API that answers 403 `extension_required`. |
 | `conversation_page` | 1 | `readConversation()` on the page; the message is kept, the unknown event skipped, the cursor saved. |
-| `operation` | 1 | `handleProposal()`. |
+| `operation` | 1 | `handleProposal()`. Like discovery's, `extra` is checked as accepted: since operations are parsed at the edge (13 October), ours ignores members it doesn't know rather than carrying them, which is what the draft asks (3.3: "ignore ... fields they don't recognize"). |
 | `message_context` | 1 | We never parse a received `context`; we send our own. Locale and time zone are filtered by two regular expressions inline in `src/poppy/capability.ts` (not importable under Node), so the script reads those expressions from the source and applies them. |
 | `strict_json` | 1 | Both `src/poppy/json.ts` (`parseStrictJson` must throw) and `src/validator/json.ts` (`parseJson` must report the duplicate). |
 | `rate_limited` | 1 | `client.token()` (a Session request) and `readConversation()`, each against a 429 with `Retry-After: 30`: one attempt, `rate_limited` with 30 s, the read rescheduled 30 s later. |
@@ -36,7 +36,7 @@ Datalayer's TypeScript runner (`src/__tests__/conformance-fixtures.test.mjs`) de
 
 ## Results at the pinned commit
 
-124 cases: 24 pass, 2 fail (both `reading`), 98 n/a (91 Company-role, 7 DNS-level SSRF and pinning). Run on 13 October at `00216eb`, as on 12 October at `0c048aa`; the script exits 0. The cases didn't change with either pin move.
+124 cases: 24 pass, 2 fail (both `reading`), 98 n/a (91 Company-role, 7 DNS-level SSRF and pinning). Run on 13 October at `00216eb`, as on 12 October at `0c048aa`; the script exits 0. The cases didn't change with either pin move. After the refactors merged that day, `protocol.unknown-operation-fields` briefly failed as `our-bug` ("loyalty_points not kept"): the operation is now decoded to its known members. That is the draft's "ignore", so the check now asks only that the operation be accepted, as the discovery `extra` cases do.
 
 Under the conformance levels ([conformance-levels.md](../../../docs/conformance-levels.md)) a message's severity is the validator's verdict on the draft, and whether our client refuses a document is separate (`refuses` per message, `refused` on the report). The discovery cases test what an agent does, so they are judged by refusal. Judged by severity instead, four cases read as readings though both sides behave alike: `security.discovery-redirect-limit`, `security.oversized-metadata` and `security.slow-metadata`, which our client refuses over Guides-based messages that are warnings, and `protocol.unknown-api-type`, which our client uses (skipping the `graphql` API, as expected) while the validator calls the 0.1 document invalid, because 0.1 says each API's `type` "MUST be one of" `openapi` and `mcp`.
 

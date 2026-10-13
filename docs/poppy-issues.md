@@ -2,7 +2,7 @@
 
 This file lists what we found by reading other implementations of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1 (updated 9 October 2026), and the gaps in the specification that their differences expose. It also lists what the comparison found in our own client.
 
-- **Date.** Everything here was checked on 11 October 2026, two days after the draft was published, when every implementation was days old. The notes on Datalayer 0.10.0 are from 12 October.
+- **Date.** Everything here was checked on 11 October 2026, two days after the draft was published, when every implementation was days old. The notes on Datalayer 0.10.0 are from 12 October; the Tipping Co section, and the rows marked 13 Oct, from the pin moves and full grid of 13 October.
 - **Method.** We read the code and compared it with the text of the specification, the Guides and the Operations extension. Later the same day we ran seven of the projects against each other in our [interop grid](interop-spec.md) ([summary of the results](interop-results/README.md)); rows marked "Grid:" come from those runs. Live documents were fetched from public URLs. File and line references are to each repository's default branch on that date.
 - **Severity** is how much an issue matters to interoperability or security, not a judgement of the project. Many of these are demos, and several were built in a day.
 
@@ -182,11 +182,11 @@ An agent-first photo-printing store: guest (signed-out) Sessions, an OpenAPI API
 
 ## Tipping Co (timothyohare/personal-agent-protocol)
 
-A learning demo with both sides: Tipping Co, a Company for an NRL tipping service, and a CLI Personal Agent. In our grid as `tipping-co`, both sides, at `fb7b4e6` since 13 October ([interop-testing.md](interop-testing.md#tipping-co-joins-the-grid)). No licence is declared. Rows are from the grid on 13 October, or from reading the code at that commit.
+A learning demo with both sides: Tipping Co, a Company for an NRL tipping service, and a CLI Personal Agent. In our grid as `tipping-co`, both sides, at `fb7b4e6` since 13 October ([interop-testing.md](interop-testing.md#tipping-co-joins-the-grid)); in the full grid that day its agent had 29 pass, 70 fail, 261 unsupported, and its Company 50 pass, 13 fail, 177 unsupported. No licence is declared. Rows are from the grid on 13 October, or from reading the code at that commit.
 
 | Issue | Where | Section | Severity |
 | --- | --- | --- | --- |
-| Grid: the agent sends no `client_id` at the token endpoint, only the client assertion. RFC 7521 4.2 makes it optional, and the draft never requires it, but every token request in the draft's examples carries one and every other Company in the grid refuses a request without it, so its first Session fails everywhere but at its own Company. | `packages/agent/src/company.ts:124-128` | 4.1, 4.2 | High (interop) |
+| Grid: the agent sends no `client_id` at the token endpoint, only the client assertion. RFC 7521 4.2 makes it optional, and the draft never requires it, but every token request in the draft's examples carries one and every third-party Company in the grid refuses a request without it, so its first Session fails everywhere but at its own Company and our lenient mock (which accepts it since 13 October; [readings.md](readings.md)). | `packages/agent/src/company.ts:124-128` | 4.1, 4.2 | High (interop) |
 | Grid: the agent refuses OAuth metadata without `authorization_endpoint`, which RFC 8414 2 requires only when a grant type uses it, so it can't discover a signed-out Company (Ilmer, everruns). | `packages/agent/src/discover.ts:74-76` | 3.2 | Medium |
 | Grid: the Company wants the token endpoint as every client assertion's `aud`, at the revocation endpoint too, so agents that use the endpoint called (ours, Datalayer's, pi-poppy) can't sign out there ([S1](spec-issues.md#s1)). A reading the draft leaves open, not a fault. | `packages/company/src/token.ts:71-72`, `revoke.ts` | 4.1, 4.9 | Medium (spec) |
 | Source: the agent's assertions carry a `kid` but no `typ`, so Companies that require `typ: JWT` refuse them ([S2](spec-issues.md#s2)). | `packages/poppy-core/src/assertions.ts` | 4.1, 4.2 | Medium (spec) |

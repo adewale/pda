@@ -124,51 +124,44 @@ False positives in searches are listed in [implementations.md](implementations.m
 
 ## How they work together
 
-Our [interop grid](interop-results/README.md) ran six Personal Agents against ten Companies (our two mocks included) on 12 October, over 30 scenarios, on a network with no internet access: **1,800 cells, 849 pass, 171 fail, 780 unsupported, 0 errors**. Every failure is a known upstream or spec failure. The separate security grid, which runs only against our own implementations, passed **25 of 25**. Datalayer is at 0.10.0 (`0c048aa`); every other project is at the commit in [`interop/registry.json`](../interop/registry.json). everruns joined later that day, in two separate runs of its own row and column ([below](#everruns-run-apart)); the totals and tables here leave those cells out. On 13 October six pins moved and Tipping Co joined, both sides ([interop-testing.md](interop-testing.md#pins-moved-on-13-october)); each moved image was smoke-tested, but the full grid hasn't been run at the new pins yet, so everything below is still the 12 October grid.
+Our [interop grid](interop-results/README.md) ran eight Personal Agents against twelve Companies (our two mocks included) on 13 October, over 30 scenarios, on a network with no internet access, with every pin at its upstream's head that morning ([interop-testing.md](interop-testing.md#pins-moved-on-13-october)): **2,880 cells, 1,000 pass, 273 fail, 1,607 unsupported, 0 errors**. Every failure is a known upstream or spec failure. The separate security grid, which runs only against our own implementations, passed **32 of 32**. Against the 12 October grid, no cell changed with the pin moves; the new cells are everruns' (in the main grid for the first time) and Tipping Co's, which joined on both sides.
 
 ### Scorecard
 
 Each implementation's cells, as pass / fail / unsupported, summed over the grid's row (as a Personal Agent) or column (as a Company). The percentage is passes among the cells that ran, because an unsupported cell means one side doesn't offer that feature, which is no failure. A failure counts against both ends of its cell, so read the last column before blaming a side: the [attribution rules](interop-spec.md) decide whose it is, and [the results](interop-results/README.md) list every failure by rule.
 
-**As a Personal Agent** (against all ten Companies):
+**As a Personal Agent** (against all twelve Companies):
 
 | Agent | Pass / fail / unsupported | Passes where run | What its failures are |
 | --- | --- | --- | --- |
-| dpa (ours) | 195 / 0 / 105 | 100% of 195 | None. Its unsupported cells are signed-out Companies and features a Company lacks. |
-| Datalayer Python | 183 / 7 / 110 | 96% of 190 | Device Sign-In polling ignores `use_dpop_nonce` (SVN), and it requires `conversation_id` in handoff and close answers, which our mocks don't send (7.9, 7.12). |
-| Datalayer TS | 179 / 11 / 110 | 94% of 190 | The same SVN failure; its event stream gives up after five quick reconnects (CS); and both SDKs require `conversation_id` in handoff and close answers, which our mocks don't send (7.9, 7.12). |
-| adonis-agora | 123 / 46 / 131 | 73% of 169 | Its assertions carry no `typ`, which three Companies refuse ([S2](spec-issues.md#s2), the spec's); its device and revocation `aud` ([S1](spec-issues.md#s1)); renewal without `session_id` at Datalayer. |
-| pi-poppy | 130 / 53 / 117 | 71% of 183 | No `typ` (S2); it resends the Session assertion on a nonce retry; it throws when a Company ends the Session ([N39](spec-issues.md#n39)). |
-| poppy-demo caller | 39 / 54 / 207 | 42% of 93 | It requires the issuer to be the Company's origin, though the draft's examples put it elsewhere, always asks for its hard-coded scopes, and crashes on a missing `authorization_endpoint`. |
+| dpa (ours) | 213 / 1 / 146 | 99.5% of 214 | SO at Tipping Co: it signs the revocation request's client assertion for the revocation endpoint, and Tipping Co wants its token endpoint there too ([S1](spec-issues.md#s1), the spec's). |
+| Datalayer Python | 201 / 8 / 151 | 96% of 209 | Device Sign-In polling ignores `use_dpop_nonce` (SVN); it requires `conversation_id` in handoff and close answers, which our mocks don't send (7.9, 7.12); SO at Tipping Co (S1). |
+| Datalayer TS | 197 / 12 / 151 | 94% of 209 | The same SVN failure; its event stream gives up after five quick reconnects (CS); the handoff and close answers; SO at Tipping Co (S1). |
+| adonis-agora | 141 / 47 / 172 | 75% of 188 | Its assertions carry no `typ`, which three Companies refuse ([S2](spec-issues.md#s2), the spec's); its device and revocation `aud` ([S1](spec-issues.md#s1)); renewal without `session_id` at Datalayer. |
+| everruns | 33 / 11 / 316 | 75% of 44 | Its Session assertion has no `typ` (S2); it fetches metadata only at the appended location, so DP fails at both our mocks ([S3](spec-issues.md#s3)). Signed-out only, conversations and no APIs. |
+| pi-poppy | 147 / 55 / 158 | 73% of 202 | No `typ` (S2); it resends the Session assertion on a nonce retry, and at the token endpoint retries only when `WWW-Authenticate` names the nonce error; it throws when a Company ends the Session ([N39](spec-issues.md#n39)). |
+| poppy-demo caller | 39 / 69 / 252 | 36% of 108 | It requires the issuer to be the Company's origin, though the draft's examples put it elsewhere, needs an `agent` member and an `authorization_endpoint`, and always asks for its hard-coded scopes. |
+| Tipping Co's agent | 29 / 70 / 261 | 29% of 99 | It sends no `client_id` at the token endpoint (RFC 7521 4.2 allows that), which every third-party Company refuses; it requires `authorization_endpoint`, so it can't discover a signed-out Company. It passes everything it claims at its own Company and at dpa-mock. |
 
-**As a Company** (against all six agents):
+**As a Company** (against all eight agents):
 
 | Company | Pass / fail / unsupported | Passes where run | What its failures are |
 | --- | --- | --- | --- |
-| poppyseed | 121 / 5 / 54 | 96% of 126 | Mostly the agents': adonis-agora's `aud` (S1), poppy-demo's parse of an empty revocation answer. |
-| pi-poppy Company | 118 / 7 / 55 | 94% of 125 | The agents': Datalayer's SVN polling, pi-poppy's own nonce retry, adonis-agora's `aud`. |
-| Datalayer TS / Python | 107 / 9 / 64 each | 92% of 116 | Its renewal requires `session_id`; its cancel sends `result.data: null` ([N41](spec-issues.md#n41)); poppy-demo's hard-coded scopes. |
-| adonis-agora AuthKit | 107 / 14 / 59 | 88% of 121 | The agents': poppy-demo's issuer-origin rule, pi-poppy's nonce retry. |
-| dpa-mock (lenient reference) | 127 / 22 / 31 | 85% of 149 | The agents': nonce retries, Datalayer's SVN polling, CS stream and handoff and close answers, poppy-demo's issuer rule. |
-| print-with-poppy | 45 / 8 / 127 | 85% of 53 | Its column rerun at `260dbb4` (12 Oct), which added sign-in; the agents' rows above are still from the full grid at `7ef69be`. poppy-demo's crash on its missing `agent` member (7 cells), and adonis-agora's revocation `aud` ([S1](spec-issues.md#s1)), which the store answers with 500, not `invalid_client` (SO). No conversations, so most scenarios don't apply. OU, which only dpa claims, passes. everruns: D passes, 29 unsupported. |
-| poppy-demo Northstar | 48 / 22 / 110 | 69% of 70 | It refuses assertions without `typ` (S2 `jwt-60s`); poppy-demo's own agent passes there. |
-| Ilmer | 17 / 12 / 151 | 59% of 29 | It refuses assertions without `typ` (S2), and poppy-demo's crash. Signed-out only. |
-| dpa-mock-strict | 81 / 68 / 31 | 54% of 149 | It refuses assertions without `typ`, our strict reading of S2, so pi-poppy and adonis-agora fail almost every cell. |
+| poppyseed | 126 / 12 / 102 | 91% of 138 | Mostly the agents': adonis-agora's `aud` (S1), poppy-demo's parse of an empty revocation answer, Tipping Co's agent's missing `client_id`. |
+| pi-poppy Company | 123 / 13 / 104 | 90% of 136 | The agents': Datalayer's SVN polling, pi-poppy's own nonce retry, adonis-agora's `aud`, Tipping Co's agent's missing `client_id`. |
+| Datalayer TS / Python | 112 / 17 / 111 each | 87% of 129 | Its renewal requires `session_id`; its cancel sends `result.data: null` ([N41](spec-issues.md#n41)); poppy-demo's hard-coded scopes; Tipping Co's agent's missing `client_id`. |
+| dpa-mock (lenient reference) | 143 / 23 / 74 | 86% of 166 | The agents': nonce retries, Datalayer's SVN polling, CS stream and handoff and close answers, poppy-demo's issuer rule, everruns' S3 reading (DP). |
+| everruns channel | 24 / 5 / 211 | 83% of 29 | poppy-demo's issuer-origin rule (D, S0, C) and Tipping Co's agent's need for `authorization_endpoint`. |
+| adonis-agora AuthKit | 112 / 24 / 104 | 82% of 136 | The agents': poppy-demo's issuer-origin rule, pi-poppy's nonce retry, Tipping Co's agent's missing `client_id`. |
+| Tipping Co | 50 / 13 / 177 | 79% of 63 | It wants the token endpoint as `aud` at revocation (S1), so four agents fail SO; pi-poppy's nonce retry; poppy-demo's missing `agent` member. |
+| print-with-poppy | 47 / 16 / 177 | 75% of 63 | poppy-demo's crash on its missing `agent` member (7 cells), adonis-agora's revocation `aud` (S1), which the store answers with 500, not `invalid_client` (SO), and Tipping Co's agent's missing `client_id`. No conversations, so most scenarios don't apply. OU, which only dpa claims, passes. |
+| poppy-demo Northstar | 50 / 32 / 158 | 61% of 82 | It refuses assertions without `typ` (S2 `jwt-60s`); poppy-demo's own agent passes there. |
+| Ilmer | 18 / 18 / 204 | 50% of 36 | It refuses assertions without `typ` (S2); poppy-demo's crash; Tipping Co's agent's need for `authorization_endpoint`. Signed-out only. |
+| dpa-mock-strict | 83 / 83 / 74 | 50% of 166 | It refuses assertions without `typ`, our strict reading of S2, so pi-poppy, adonis-agora, everruns and Tipping Co's agent fail almost every cell. |
 
 Not in the grid: nestjs-agent (its Company needs adonis-agora's AuthKit, which the grid already runs), Spot (it publishes valid discovery, but has no adapter), the TYPO3 lab (private), Atlas and Flight Sector (an open pull request), and the live Companies with no public code (Salespeak, Emora Health, Tilopay, Northlight Flowers). [interop-testing.md](interop-testing.md#candidates-from-the-12-october-survey) says what the 12 October candidates would need.
 
-#### everruns, run apart
-
-everruns' agent and Company joined the registry on 12 October, after the grid above, and ran in two runs of their own over the same 25 scenarios (its agent against all eleven Companies, everruns' own included; the six other agents against its Company; [interop-testing.md](interop-testing.md#everruns-joins-the-grid)). Their cells are not in the totals or percentages above; adding them would change those rows only by the everruns column or row.
-
-| everruns as | Pass / fail / unsupported | Passes where run | What its failures are |
-| --- | --- | --- | --- |
-| Personal Agent (against eleven Companies) | 32 / 11 / 232 | 74% of 43 | Its Session assertion has no `typ`, which three Companies refuse ([S2](spec-issues.md#s2), the spec's); it fetches metadata only at the appended location, so DP fails at both our mocks ([S3](spec-issues.md#s3)). Signed-out only, with conversations and no APIs, so 21 of 25 scenarios don't apply at most Companies. |
-| Company (against seven agents) | 24 / 3 / 148 | 89% of 27 | poppy-demo's issuer-origin rule (D, S0, C). Every other agent passes D, S0, C and CI. |
-
-The other agents' cells against everruns' Company: dpa, Datalayer TS and Python, pi-poppy and adonis-agora each 4 / 0 / 21; poppy-demo 0 / 3 / 22.
-
-An edge below means no cell between that pair failed; a missing edge means at least one did. Unsupported cells count for nothing either way, so an edge between two small implementations can rest on a few cells: each signed-out Company's edges rest on two to four.
+An edge below means no cell between that pair failed; a missing edge means at least one did. Unsupported cells count for nothing either way, so an edge between two small implementations can rest on a few cells: each signed-out Company's edges rest on one to four, and every edge to everruns' channel or from everruns' agent on at most four.
 
 ```mermaid
 flowchart LR
@@ -180,6 +173,7 @@ flowchart LR
     demo[poppy-demo caller]
     adonis[adonis-agora agent]
     evag[everruns agent]
+    tcag[Tipping Co agent]
   end
   subgraph Companies
     mock[dpa-mock]
@@ -193,20 +187,21 @@ flowchart LR
     pwp[print-with-poppy]
     authkit[adonis-agora AuthKit]
     evco[everruns channel]
+    tcco[Tipping Co]
   end
-  dpa --> mock & strict & mts & mpy & pico & north & seed & ilmer & pwp & authkit
-  dlts --> north & seed & ilmer & pwp & authkit
-  dlpy --> mts & mpy & north & seed & ilmer & pwp & authkit
-  pi --> pwp
+  dpa --> mock & strict & mts & mpy & pico & north & seed & ilmer & pwp & authkit & evco
+  dlts --> north & seed & ilmer & pwp & authkit & evco
+  dlpy --> mts & mpy & north & seed & ilmer & pwp & authkit & evco
+  pi --> pwp & evco
   demo --> pico & north
-  adonis --> mock & authkit
-  evag --> mts & mpy & pico & seed & pwp & authkit & evco
-  dpa & dlts & dlpy & pi & adonis --> evco
+  adonis --> mock & authkit & evco & tcco
+  evag --> mts & mpy & pico & seed & pwp & authkit & evco & tcco
+  tcag --> mock & tcco
 ```
 
-The everruns edges come from its own runs. At print-with-poppy only D ran (everruns starts a Session only for a conversation); at dpa-mock everything but DP passed.
+At print-with-poppy and Tipping Co, everruns' agent runs only D (it starts a Session only for a conversation). dpa's one missing edge is Tipping Co, over SO and the S1 reading; Tipping Co's agent reaches dpa-mock only since our mock stopped requiring `client_id` on 13 October.
 
-pi-poppy's only clean pair is print-with-poppy, where nine scenarios run (sign-in among them since the store's `260dbb4`; the print-with-poppy edges are from that rerun). At every other Company one of three habits fails a cell: it resends the Session assertion on a nonce retry, gives up when a Session ends, and sends no `typ`.
+pi-poppy's only clean pairs are print-with-poppy and everruns' channel. At every other Company one of four habits fails a cell: it resends the Session assertion on a nonce retry, retries a token request only when `WWW-Authenticate` names the nonce error, gives up when a Session ends, and sends no `typ`.
 
 What the grid found in each project is in [poppy-issues.md](poppy-issues.md); the failures by rule are in [interop-results/](interop-results/README.md).
 

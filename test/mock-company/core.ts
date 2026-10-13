@@ -614,15 +614,20 @@ export class Company {
   /**
    * Client authentication at the token, device and revocation endpoints:
    * `private_key_jwt` (RFC 7523) against the client's `jwks_uri`.
+   *
+   * `client_id` is optional beside a client assertion (RFC 7521 4.2: the
+   * assertion's subject names the client), and the draft doesn't require it, so
+   * a request without one is the client its assertion's `iss` and `sub` both
+   * name (RFC 7523 3). One that sends it must name that same client.
    */
   async authenticateClient(form: URLSearchParams, endpoint: string): Promise<ClientInfo> {
-    const clientId = form.get("client_id");
     const assertion = form.get("client_assertion");
-    if (!clientId) throw oauthError(401, "invalid_client", "client_id is required");
     if (form.get("client_assertion_type") !== CLIENT_ASSERTION_TYPE || !assertion) {
       this.violation("client-assertion.missing", `no client assertion at ${endpoint}`);
       throw oauthError(401, "invalid_client", "client assertion is required");
     }
+    const clientId = form.get("client_id") ?? this.#assertedClient(assertion);
+    if (!clientId) throw oauthError(401, "invalid_client", "no client_id, and the client assertion's iss and sub don't name one client");
     const registered = this.config.requireRegistration;
     if (registered && !registered.includes(clientId)) {
       throw oauthError(401, "invalid_client", "this Personal Agent is not registered");
@@ -668,6 +673,16 @@ export class Company {
       throw oauthError(401, "invalid_client", "assertion jti already used");
     }
     return client;
+  }
+
+  /** The client an unverified client assertion names: its `iss`, when `sub` is the same (RFC 7523 3). */
+  #assertedClient(assertion: string): string | null {
+    try {
+      const { iss, sub } = decodeJwt(assertion);
+      return typeof iss === "string" && iss !== "" && iss === sub ? iss : null;
+    } catch {
+      return null;
+    }
   }
 
   /** The Session assertion of the JWT bearer grant (4.2). Returns the User ID. */

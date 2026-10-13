@@ -150,7 +150,8 @@ type FormOptions = {
   readonly dpop?: string | null;
   /** The client assertion: correct by default, none with null, or this exact value. */
   readonly client?: string | null;
-  readonly clientId?: string;
+  /** The client_id field: ours by default, none with null (optional beside an assertion, RFC 7521 4.2), or this value. */
+  readonly clientId?: string | null;
   readonly contentType?: string;
   readonly headers?: Record<string, string>;
 };
@@ -160,7 +161,7 @@ async function form(c: C, url: string, fields: Record<string, string>, key: Key 
   const client = options.client === undefined ? await clientAssertion(url) : options.client;
   const body = new URLSearchParams({
     ...fields,
-    client_id: options.clientId ?? CLIENT_ID,
+    ...(options.clientId === null ? {} : { client_id: options.clientId ?? CLIENT_ID }),
     ...(client !== null ? { client_assertion_type: ASSERTION_TYPE, client_assertion: client } : {})
   });
   const dpop = options.dpop !== undefined ? options.dpop : key ? await proof(key, "POST", url) : null;
@@ -2033,6 +2034,22 @@ describe("the mock Company", () => {
     expect(state.requests).toEqual([
       expect.objectContaining({ method: "POST", url: c.hosts.tokenEndpoint, grant: JWT_BEARER, status: 200, error: null, proofNonce: null })
     ]);
+  });
+
+  it("takes the client from the client assertion when client_id is left out (RFC 7521 4.2, RFC 7523 3)", async () => {
+    const c = company();
+    const response = await startSession(c, await dpopKey(), { clientId: null });
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as Record<string, unknown>).signed_in).toBe(false);
+    expect((await c.stub.state()).recorded).toEqual([]);
+    // Without client_id, an assertion whose iss and sub differ names no client.
+    const unnamed = await startSession(c, await dpopKey(), {
+      clientId: null,
+      client: await clientAssertion(c.hosts.tokenEndpoint, { claims: { sub: USER_ID } })
+    });
+    expect(unnamed.status).toBe(401);
+    expect(((await unnamed.json()) as Record<string, unknown>).error).toBe("invalid_client");
+    // A client_id that is sent must still be the assertion's: the client-assertion.iss-sub row.
   });
 
   it("asks for a DPoP nonce per origin or per Company, as configured (S23)", async () => {
