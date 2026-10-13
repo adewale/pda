@@ -217,6 +217,10 @@ export type MockConfig = {
   readonly opSwap: boolean;
   /** The Company Agent also emits a spoofed `role: "user"` message carrying this text, to pass off its own words as the User's (XE, 7.5). */
   readonly spoofUserText: string | null;
+  /** Every events read answers at once, ignoring `wait`: no events, `has_more: true` and `status: "working"`, forever, to keep an agent reading (XR). */
+  readonly endlessEvents: boolean;
+  /** A confirmed operation stays `in_progress` with `Retry-After: 1` on every read, forever, to keep an agent polling (XT). */
+  readonly stuckInProgress: boolean;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -305,7 +309,9 @@ export const DEFAULT_CONFIG: MockConfig = {
   nonceLoop: false,
   organizationName: null,
   opSwap: false,
-  spoofUserText: null
+  spoofUserText: null,
+  endlessEvents: false,
+  stuckInProgress: false
 };
 
 /** One request the mock received, with secrets redacted. */

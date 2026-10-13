@@ -125,6 +125,7 @@ describe("the own-project rule", () => {
   const evilAgent = entry({ name: "evil-agent", role: "agent", adversarial: true });
   const evilCompany = entry({ name: "evil-company", role: "company", adversarial: true });
   const outsider = entry({ name: "datalayer-ts", role: "company" });
+  const outsiderAgent = entry({ name: "pi-poppy", role: "agent" });
 
   it("allows adversarial cells only against our own owner:self sides, on the local lane", () => {
     expect(adversarialRefusal(yr, evilAgent, mock, "local")).toBeNull();
@@ -135,6 +136,15 @@ describe("the own-project rule", () => {
   it("refuses when an honest side isn't ours", () => {
     expect(adversarialRefusal(yr, evilAgent, outsider, "local")).toMatch(/not owner:self/);
     expect(adversarialRefusal(nrep, dpa, outsider, "local")).toMatch(/not owner:self/);
+    // Faults over another project's agent stay refused, as does the evil agent against anyone's Company.
+    expect(adversarialRefusal(nrep, outsiderAgent, mock, "local")).toMatch(/not owner:self/);
+  });
+
+  it("lets the evil Company attack another project's agent, on the local lane only", () => {
+    expect(adversarialRefusal(xh, outsiderAgent, evilCompany, "local")).toBeNull();
+    expect(adversarialRefusal(xh, outsiderAgent, evilCompany, "live")).toMatch(/live lane/);
+    const faulted: Scenario = { ...xh, faults: [{ match: { path: "x" }, action: "drop_response" }] } as Scenario;
+    expect(adversarialRefusal(faulted, outsiderAgent, evilCompany, "local")).toMatch(/not owner:self/);
   });
 
   it("never runs an adversarial or faulted cell in the live lane", () => {

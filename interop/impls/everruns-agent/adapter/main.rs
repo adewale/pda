@@ -571,7 +571,7 @@ async fn manifest(State(app): State<Arc<App>>) -> Json<Value> {
         "poppy": ["0.1"],
         "extensions": [],
         // DP needs only discover and session, which everruns has.
-        "scenarios": ["D", "S0", "C", "CI", "DP"],
+        "scenarios": ["D", "S0", "C", "CI", "DP", "XI", "BX", "XB", "XN", "XR"],
         "readings": { "S1": "token-endpoint", "S2": "any", "S3": "append", "S4": "omit", "S23": "per-origin" },
         "relaxations": [
             "EVERRUNS_INTEROP_ALLOW_PRIVATE_NETWORKS=1 (patches/0001): RFC 1918 addresses pass the egress SSRF guard, because *.interop.test resolves to the proxy's private address",

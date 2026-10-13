@@ -455,6 +455,18 @@ export class Conversations {
   async events(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
     const { cursor, wait } = this.#params(inbound);
+    // XR: once the agent has read everything, every read answers at once, as JSON: no events,
+    // still working, and more to come, with a real cursor, so that is the only thing wrong.
+    if (this.company.config.endlessEvents && conversation.events.length <= this.#from(conversation, cursor)) {
+      return json({
+        conversation_id: conversation.id,
+        events: [],
+        cursor: cursor ?? conversation.events.at(-1)?.id ?? null,
+        has_more: true,
+        status: "working",
+        responder: conversation.responder
+      });
+    }
     const page = await this.#read(conversation, cursor, wait);
     const wantsStream = (inbound.request.headers.get("Accept") ?? "").includes("text/event-stream");
     if (!wantsStream || !this.company.config.streaming) return json(page);

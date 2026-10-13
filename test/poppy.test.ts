@@ -6,6 +6,8 @@ import { parseOperation } from "../src/poppy/operation-value";
 import { clientFrame, serverFrame } from "../src/poppy/frames";
 import type { Json } from "../src/poppy/json";
 import { summaryStartsWithAction, termsCovered } from "../src/poppy/operations";
+import { BUSY_WINDOW_MS, nextRead } from "../src/poppy/conversations";
+import { backoff } from "../src/poppy/pace";
 import { PoppyError, type PoppyClient } from "../src/poppy/client";
 import { tokenHostAllowed, type Company as PoppyCompany } from "../src/poppy/discovery";
 import { domainOrigin, originOf, parseIssuer, toIssuer } from "../src/poppy/issuer";
@@ -1952,6 +1954,22 @@ describe("Operations extension", () => {
     expect(read.at - confirmed.at).toBeGreaterThanOrEqual(1000);
   });
 
+  it("polls an operation the Company keeps in progress less and less often, never sooner than Retry-After (interop XT)", async () => {
+    const { c, a, card } = await proposal({ stuckInProgress: true });
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    // Ten minutes of the fake clock, ten seconds at a time; every read says "in progress, come back in a second".
+    for (let i = 0; i < 60; i++) await a.stub.poppyAdvance(10_000);
+    const operationUrl = `${c.hosts.operationsEndpoint}/${card.operationId}`;
+    const reads = (await c.stub.state()).requests.filter((request) => request.method === "GET" && request.url === operationUrl);
+    expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");
+    // At one a second it would be 600; backing off with the time since anything changed, it is a handful.
+    expect(reads.length).toBeGreaterThan(3);
+    expect(reads.length).toBeLessThanOrEqual(15);
+    const gaps = reads.slice(1).map((read, i) => read.at - reads[i]!.at);
+    expect(gaps.every((gap) => gap >= 1000)).toBe(true);
+    expect(gaps.at(-1)!).toBeGreaterThanOrEqual(60_000);
+  });
+
   it("doesn't ask for a new proposal while a confirmed operation isn't final (Ops 6)", async () => {
     const { c, a, card } = await proposal({ slowConfirm: true });
     await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
@@ -2315,6 +2333,50 @@ const ownReads = async (c: Company, id: string) =>
     .map((request) => new URL(request.url))
     .filter((url) => url.searchParams.get("wait") === "0")
     .map((url) => url.searchParams.get("cursor"));
+
+describe("Guides: reading a conversation no more often than it needs", () => {
+  const at = 1_000_000_000_000;
+  const row = (status: string, quietMs: number, extra: { responder?: string; direct?: number } = {}) => ({
+    status,
+    responder: extra.responder ?? "agent",
+    direct: extra.direct ?? 0,
+    last_event_at: at - quietMs
+  });
+
+  it("reads a busy conversation every second only while something happened in the last two minutes (interop XR)", () => {
+    for (const busy of [row("working", 0), row("queued", 10_000), row("idle", 60_000, { responder: "human" }), row("idle", 90_000, { direct: 1 })]) {
+      expect(nextRead(busy, at)).toBe(at + 1_000);
+    }
+    // Still "working", but nothing for two minutes: the idle backoff, as for any quiet conversation.
+    expect(nextRead(row("working", BUSY_WINDOW_MS), at)).toBe(at + BUSY_WINDOW_MS / 4);
+    expect(nextRead(row("working", BUSY_WINDOW_MS), at)).toBe(nextRead(row("idle", BUSY_WINDOW_MS), at));
+  });
+
+  it("backs off with the quiet time: at least the floor, at most 15 minutes, then an hour after a day", () => {
+    expect(backoff(0, 30_000)).toBe(30_000);
+    expect(backoff(10 * 60_000, 30_000)).toBe(150_000);
+    expect(backoff(23 * 60 * 60_000, 30_000)).toBe(15 * 60_000);
+    expect(backoff(24 * 60 * 60_000, 30_000)).toBe(60 * 60_000);
+    expect(backoff(30 * 24 * 60 * 60_000, 30_000)).toBe(60 * 60_000);
+  });
+
+  it("doesn't count a read that repeats the status as activity, so a Company saying \"working\" and sending nothing gets slower reads", async () => {
+    const c = await company({ endlessEvents: true });
+    const a = await agent();
+    await signInDirect(a, c);
+    await tool(a, "poppy_message", { domain: c.domain, text: "Where is my order?" });
+    const since = async () =>
+      (JSON.parse(await a.stub.poppyActivity()) as { inProgress: { kind: string; since: number }[] }).inProgress.find((item) => item.kind === "conversation")!.since;
+    // The background reads run on the real clock. The first hands over the real events and says
+    // "working", which is activity; every read after that repeats it, which isn't.
+    const reads = async () => (await requests(c)).filter((request) => request.url.includes("/events")).length;
+    await until(async () => (await reads()) >= 3);
+    const first = await since();
+    const seen = await reads();
+    await until(async () => (await reads()) >= seen + 3);
+    expect(await since()).toBe(first);
+  });
+});
 
 describe("7.5 reading again while has_more", () => {
   it("reads page after page at once while has_more is true, handling each event once and in order, saving the cursor only after", async () => {

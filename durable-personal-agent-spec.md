@@ -633,8 +633,8 @@ Once approved, the stored request is decoded (one stored in another form, or tam
 
 - **Background reading.** Each open conversation is read by a durable background loop, never by the model polling.
   - Every read asks for a stream (`Accept: text/event-stream, application/json`) with `wait=20`; a Company that doesn't stream answers JSON. Reads resume from the saved cursor, sent as `cursor` and as `Last-Event-ID`.
-  - The next read comes after a second while the Company is working, queued, or has a person on, and after 30 s to 15 min, growing with time since the last event, while it's idle.
-  - It reads again at once while `has_more` is true.
+  - The next read comes after a second while the Company is working, queued or has a person on, or the conversation is Direct, and something happened in the last 2 minutes: an event arrived, the status or responder changed, or the agent sent something. Otherwise it backs off with the time since then: a quarter of it, 30 s at least, 15 min at most, or an hour once it has been quiet a day. A read that repeats what we knew isn't activity, so a Company that says "working" and sends nothing gets slower reads, not a read a second for ever (interop XR, `src/poppy/pace.ts`).
+  - It reads again at once while `has_more` is true, up to 10 pages a read.
 - **Handling events.** Events are handled strictly in order.
   - Ids already handled are skipped, and unknown event types are skipped.
   - An event is recorded as handled only after it is handled, and the cursor saved only after its events are. A failure in between means the event is seen again, so handling one is safe to repeat: notices to the model carry an id derived from the event, cards are replaced by id, the inbox keeps one copy, and a proposal seen again is the same operation. A failed event stops the batch, so the ones after it wait.
@@ -712,7 +712,7 @@ All four go to one handler. It stores the operation and its revision, and pushes
   | `terms_changed` | Show the new revision for approval |
   | `user_approval_required` | Ask the User directly |
   | `insufficient_scope` / `sign_in_required` | Step-up, then confirm the same revision |
-  | `in_progress` | Read again after `Retry-After` |
+  | `in_progress` | Read again after `Retry-After`, or later the longer nothing changes: a quarter of the time since the operation last changed, up to 15 min (an hour after a day). `Retry-After` is the least wait, not a schedule (interop XT). |
 
 - **Timeouts.** A timeout leads to a read of the operation or a repeat confirm, with the same operation id. A new proposal of the same action is never requested until this one is final.
   - Before a confirm is sent, the intent is stored and a tracking job scheduled, so a lost answer, an exception or a restart mid-call is followed up: the job reads the operation first, and confirms the approved revision again only if it is still proposed.

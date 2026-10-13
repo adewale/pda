@@ -41,7 +41,7 @@ const MANIFEST = {
   poppy: ['0.1'],
   extensions: [],
   // No O/OX: the client has no Operations extension.
-  scenarios: ['D', 'CM', 'S0', 'N', 'SD', 'SV', 'SXV', 'SM', 'SMC', 'SX', 'R', 'SE', 'SO', 'C', 'CI', 'CS', 'CA', 'H', 'DC', 'AO', 'AM', 'AS', 'RL', 'W'],
+  scenarios: ['D', 'CM', 'S0', 'N', 'SD', 'SV', 'SXV', 'SM', 'SMC', 'SX', 'R', 'SE', 'SO', 'C', 'CI', 'CS', 'CA', 'H', 'DC', 'AO', 'AM', 'AS', 'RL', 'W', 'XH', 'XI', 'BX', 'XB', 'XN', 'XE', 'XR'],
   readings: { S1: 'token-endpoint', S2: 'any', S3: 'insertion', S4: 'omit', S23: 'per-origin' },
   relaxations: ['Container trusts the run CA (/interop/ca.pem) through NODE_EXTRA_CA_CERTS and the system store'],
   notes:

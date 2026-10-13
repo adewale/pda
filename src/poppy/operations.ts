@@ -5,6 +5,7 @@ import { isObject, type Json } from "./json";
 import { randomId } from "./jwt";
 import { FINAL_STATES, parseOperation, type Operation } from "./operation-value";
 import { EndpointRequest } from "./outgoing";
+import { backoff } from "./pace";
 import { one, rows, type RowOf } from "../rows";
 import { approvalsTable, operationsTable, permissionsTable, proposalsTable } from "./store";
 import type { Issuer } from "./issuer";
@@ -277,7 +278,7 @@ export async function handleProposal(
     account,
     JSON.stringify(operation),
     previousSummary,
-    Date.now()
+    client.host.now()
   );
   const row = stored(client, company.issuer, operation.operation_id)!;
   const isNewRevision = !previous || previous.revision !== operation.revision;
@@ -334,15 +335,19 @@ async function update(client: PoppyClient, company: Company, value: Json): Promi
   const existing = stored(client, company.issuer, operation.operation_id);
   if (!existing) return null;
   const previous = existing.operation;
+  // `updated_at` is when the operation last changed, not when it was last read: Activity's
+  // "since", and the tracking job's backoff (`trackOperation`).
+  const changed = JSON.stringify(operation) !== JSON.stringify(previous);
   client.sql.exec(
     "UPDATE poppy_operations SET operation = ?, updated_at = ? WHERE issuer = ? AND operation_id = ?",
     JSON.stringify(operation),
-    Date.now(),
+    changed ? client.host.now() : existing.updated_at,
     company.issuer,
     operation.operation_id
   );
   await afterUpdate(client, company, stored(client, company.issuer, operation.operation_id)!, previous);
-  if (operation.state === "in_progress") {
+  // Tracking starts when the operation goes in progress; after that the job sets its own pace.
+  if (operation.state === "in_progress" && previous.state !== "in_progress") {
     await client.host.schedule(
       "poppy-operation",
       client.host.now() + 5_000,
@@ -579,7 +584,12 @@ export async function trackOperation(client: PoppyClient, issuer: Issuer, operat
     await confirm(client, issuer, operationId);
     return null;
   }
-  if (operation.state === "in_progress") return client.host.now() + read.retryAfter * 1000;
+  if (operation.state === "in_progress") {
+    // At least the Company's Retry-After, and slower the longer nothing changes: a
+    // Company can't keep the agent polling every second (interop scenario XT).
+    const quietFor = client.host.now() - stored(client, issuer, operationId)!.updated_at;
+    return client.host.now() + Math.max(read.retryAfter * 1000, backoff(quietFor, 0));
+  }
   return null;
 }
 

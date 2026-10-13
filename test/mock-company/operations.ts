@@ -284,6 +284,8 @@ export class Operations {
       confirmed_at: new Date().toISOString()
     };
     operation.state = "in_progress";
+    // XT: in progress for ever; every read says to come back in a second.
+    if (co.config.stuckInProgress) return this.#respond(record);
     if (co.config.slowConfirm) {
       record.pending = true;
       return this.#respond(record);

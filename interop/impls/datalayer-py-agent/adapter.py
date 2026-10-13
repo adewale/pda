@@ -112,6 +112,8 @@ MANIFEST = {
     "scenarios": [
         "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "R", "SE", "SO",
         "C", "CI", "CS", "CA", "AO", "AM", "AS", "RL", "O", "OX", "H", "DC", "W", "O2", "CM",
+        # Against the adversarial Company (docs/adversarial-interop.md; the 13 October exception in SECURITY.md).
+        "XH", "XI", "BX", "XB", "XN", "XO", "XE", "XR", "XT",
     ],
     "readings": {"S1": "endpoint", "S2": "jwt-60s", "S3": "insertion", "S4": "omit"},
     "relaxations": [

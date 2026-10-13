@@ -25,7 +25,7 @@ const MANIFEST = {
   commit: process.env.INTEROP_COMMIT,
   poppy: ['0.1'],
   extensions: [],
-  scenarios: ['D', 'S0', 'N', 'SD', 'SX', 'SO', 'C', 'CA', 'AO', 'H', 'DC', 'CM'],
+  scenarios: ['D', 'S0', 'N', 'SD', 'SX', 'SO', 'C', 'CA', 'AO', 'H', 'DC', 'CM', 'XH', 'XI', 'BX', 'XB', 'XN', 'XE', 'XR'],
   // S1: client assertions name the endpoint they're sent to (token or revocation endpoint).
   // S3: OAuth metadata is fetched at `${auth.issuer}/.well-known/oauth-authorization-server`.
   // S4: signed-out Session requests carry no scope. Nonces are not cached (S23 n/a).

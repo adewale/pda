@@ -68,7 +68,7 @@ function harnessFile(name: string): Uint8Array | null {
 export const SCENARIO_ORDER = [
   "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "O2", "OX", "OU", "RL", "DP", "CM",
   // Adversarial (docs/adversarial-interop.md): network faults, then malicious agent and Company.
-  "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE"
+  "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE", "XR", "XT"
 ];
 
 export type Options = {
@@ -274,9 +274,13 @@ const domainOf = (entry: RegistryEntry, lane: "local" | "live") =>
  * The own-project rule (docs/adversarial-interop.md, Part B): a cell with an
  * adversarial side, or a proxy `faults` list, runs only on the local lane and
  * only when every honest side is an implementation this project owns
- * (`owner: "self"`). No flag lifts this; lifting it is a code change that
- * needs the disclosure process (see SECURITY.md). Returns why a cell must be
- * refused, or null when it may run.
+ * (`owner: "self"`). One exception, approved by the owner on 13 October
+ * 2026: the adversarial Company may attack another project's agent, built at
+ * its pinned commit and run in our own containers, so we learn which clients
+ * refuse a malicious Company. What those cells find stays out of the
+ * repository until that project's maintainers have heard privately
+ * (SECURITY.md). No flag lifts the rest; that is a code change that needs the
+ * same process. Returns why a cell must be refused, or null when it may run.
  */
 export function adversarialRefusal(
   scenario: Scenario,
@@ -288,7 +292,11 @@ export function adversarialRefusal(
   if (!isSecurity) return null;
   if (lane === "live") return "adversarial cells never run in the live lane";
   const honest = [agent, company].filter((entry) => !entry.adversarial);
-  const outsiders = honest.filter((entry) => entry.owner !== "self").map((entry) => entry.name);
+  // Only the evil Company against an agent: no evil agent, no network faults, no attack by the agent side.
+  const evilCompanyOnly = !!company.adversarial && !agent.adversarial && !scenario.faults?.length && scenario.adversary !== "agent";
+  const outsiders = honest
+    .filter((entry) => entry.owner !== "self" && !(evilCompanyOnly && entry === agent))
+    .map((entry) => entry.name);
   if (outsiders.length) return `adversarial cells run only against our own implementations; ${outsiders.join(", ")} is not owner:self`;
   return null;
 }

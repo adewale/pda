@@ -1,0 +1,16 @@
+{
+  "id": "XR",
+  "title": "Adversarial Company: a conversation always working, always with more to read, and nothing in it",
+  "requirements": ["7.5", "Guides: Rate limits"],
+  "adversary": "company",
+  "needs": { "agent": ["discover", "send", "read"], "company": ["arm"] },
+  "steps": [
+    { "company": "arm", "params": { "attack": "XR" } },
+    { "agent": "discover" },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}" }, "save": "m" },
+    { "agent": "read", "params": { "conversation": "${m.conversation}", "wait": 2 }, "save": "r" },
+    { "agent": "read", "params": { "conversation": "${m.conversation}", "cursor": "${r.cursor}", "wait": 2 }, "save": "r2" },
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "/events", "body_contains": "\"has_more\":true" } },
+    { "runner": "assert_trace", "params": { "check": "bounded_requests", "path": "/events$", "method": "GET", "max": 12 } }
+  ]
+}

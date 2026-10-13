@@ -4,6 +4,7 @@ import type { Company } from "./discovery";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
 import { handleProposal } from "./operations";
+import { backoff } from "./pace";
 import { EndpointRequest } from "./outgoing";
 import { found, one, rows, type RowOf } from "../rows";
 import { conversationsTable, inboxTable, intent } from "./store";
@@ -196,7 +197,7 @@ export async function sendMessage(
     );
   }
   if (body.message.context && isObject(body.message.context)) rememberContext(client, id, body.message.context);
-  updateState(client, id, response);
+  updateState(client, id, response, true);
 
   // The background read is scheduled first, so events a failure below leaves unhandled are read again.
   await scheduleRead(client, id, 0);
@@ -212,18 +213,21 @@ export async function sendMessage(
   return { conversationId: id, status: row.status, responder: row.responder, replies };
 }
 
-function updateState(client: PoppyClient, id: string, response: { [key: string]: Json }): void {
-  if (typeof response.status === "string" || typeof response.responder === "string") {
-    const row = conversation(client, id);
-    if (!row) return;
-    client.sql.exec(
-      "UPDATE poppy_conversations SET status = ?, responder = ?, last_event_at = ? WHERE id = ?",
-      typeof response.status === "string" ? response.status : row.status,
-      typeof response.responder === "string" ? response.responder : row.responder,
-      Date.now(),
-      id
-    );
-  }
+/**
+ * Store a conversation's status and responder. `last_event_at` is when the
+ * conversation last did something: it moves when either changes, when the
+ * agent itself sent or asked for something (`active`), or when an event
+ * arrives (`handleEvents`), never because a read repeated what we knew.
+ * The read loop's pace depends on it (`nextRead`).
+ */
+function updateState(client: PoppyClient, id: string, response: { [key: string]: Json }, active = false): void {
+  const row = conversation(client, id);
+  if (!row) return;
+  const status = typeof response.status === "string" ? response.status : row.status;
+  const responder = typeof response.responder === "string" ? response.responder : row.responder;
+  const changed = status !== row.status || responder !== row.responder;
+  if (!changed && !active) return;
+  client.sql.exec("UPDATE poppy_conversations SET status = ?, responder = ?, last_event_at = ? WHERE id = ?", status, responder, Date.now(), id);
 }
 
 function saveCursor(client: PoppyClient, id: string, cursor: string): void {
@@ -356,6 +360,7 @@ async function handleEvents(
         row.id,
         event.id
       );
+      client.sql.exec("UPDATE poppy_conversations SET last_event_at = ? WHERE id = ?", Date.now(), row.id);
     }
     return replies;
   });
@@ -574,13 +579,28 @@ export async function readConversation(
   }
   const after = conversation(client, id);
   if (!after || after.status === "closed") return null;
-  // Busy or with a person: keep reading; idle: back off with time since the last event.
-  if (after.status === "working" || after.status === "queued" || after.responder === "human" || after.direct) {
-    return Date.now() + 1_000;
-  }
-  const idleFor = Date.now() - after.last_event_at;
-  return Date.now() + Math.min(15 * 60_000, Math.max(idleMinMs, idleFor / 4));
+  return nextRead(after, Date.now(), idleMinMs);
 }
+
+/** How long a busy conversation is read every second after its last activity. */
+export const BUSY_WINDOW_MS = 2 * 60_000;
+
+/**
+ * When to read a conversation next. Busy (working, queued, with a person,
+ * or Direct) and active in the last `BUSY_WINDOW_MS`: in a second. Otherwise
+ * back off with the time since its last activity: a quarter of it, at least
+ * `idleMinMs`, at most 15 minutes, or an hour once it has been quiet a day.
+ * A Company can't hold the agent at the fast pace by saying "working" and
+ * sending nothing (interop scenario XR; the Guides' "check for changes no
+ * more often than the task needs").
+ */
+export function nextRead(row: Pick<ConversationRow, "status" | "responder" | "direct" | "last_event_at">, now: number, idleMinMs = 30_000): number {
+  const quietFor = Math.max(0, now - row.last_event_at);
+  const busy = row.status === "working" || row.status === "queued" || row.responder === "human" || !!row.direct;
+  if (busy && quietFor < BUSY_WINDOW_MS) return now + 1_000;
+  return now + backoff(quietFor, idleMinMs);
+}
+
 
 /**
  * Server-sent events (spec 7.6): each event's id is a cursor, saved after it
@@ -716,7 +736,7 @@ export async function handoff(
     EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(id)}/handoff`, body: {} }),
     tokenOptions(company, row.label)
   );
-  if (isObject(body)) updateState(client, id, body);
+  if (isObject(body)) updateState(client, id, body, true);
   await scheduleRead(client, id, 0);
   const after = conversation(client, id)!;
   return { status: after.status, responder: after.responder };

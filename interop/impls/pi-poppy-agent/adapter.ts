@@ -539,7 +539,7 @@ const manifest = {
 	commit: COMMIT,
 	poppy: ["0.1"],
 	extensions: ["operations"],
-	scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "SO", "SE", "R", "C", "CI", "CA", "AO", "AM", "AS", "RL", "O", "OX", "H", "DC", "W", "O2", "CM"],
+	scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "SO", "SE", "R", "C", "CI", "CA", "AO", "AM", "AS", "RL", "O", "OX", "H", "DC", "W", "O2", "CM", "XH", "XI", "BX", "XB", "XN", "XO", "XE", "XR", "XT"],
 	readings: { S1: "endpoint", S2: "any", S3: "append", S4: "omit", S23: "per-origin" },
 	relaxations: [
 		"PI_POPPY_INTEROP_PRIVATE_SUFFIX=.interop.test (patches/0001): host names under .interop.test may resolve to private addresses; unset by default, loopback still refused",

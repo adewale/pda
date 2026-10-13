@@ -41,6 +41,15 @@ const cert = fs.readFileSync(`${DIR}/proxy.pem`);
 
 /** The current cell's entries, in the order requests arrived. */
 let entries = [];
+/**
+ * At most this many entries a cell. An agent that loops on an adversarial
+ * Company (XR, XT) can make hundreds of thousands of requests before its step
+ * times out; past the cap requests still pass through, uncounted but for
+ * `dropped`, so the HAR stays small enough to send and a bounded_requests
+ * check still fails.
+ */
+const MAX_ENTRIES = 2_000;
+let dropped = 0;
 let cell = null;
 /** The current cell's faults, and a per-fault count of matches so far (for `nth`). */
 let faults = [];
@@ -158,7 +167,8 @@ function startEntry(req, url, body, interop = null) {
     _interop: interop,
     _complete: false
   };
-  entries.push(entry);
+  if (entries.length < MAX_ENTRIES) entries.push(entry);
+  else dropped++;
   return { entry, started };
 }
 
@@ -318,6 +328,7 @@ function har() {
       version: "1.2",
       creator: { name: "poppy-interop-proxy", version: "1" },
       pages: [],
+      ...(dropped ? { comment: `${dropped} more requests in this cell weren't recorded (cap ${MAX_ENTRIES})` } : {}),
       entries: entries.map((entry) => ({ ...entry }))
     }
   };
@@ -378,6 +389,7 @@ const controlServer = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/healthz") return sendJson(res, 200, { ok: true });
     if (req.method === "POST" && url.pathname === "/cell") {
       entries = [];
+      dropped = 0;
       cell = typeof json.id === "string" ? json.id : null;
       faults = Array.isArray(json.faults) ? json.faults : [];
       faultCounts = faults.map(() => 0);

@@ -33,7 +33,7 @@ const MANIFEST = {
   // Discovery, signed-out Sessions, Direct Sign-In, renewal with the Account Token, sign-out and
   // OpenAPI calls. No conversations, device or mediated sign-in, MCP, browser joins or
   // Operations.
-  scenarios: ['D', 'DP', 'S0', 'N', 'CM', 'SD', 'SX', 'SO', 'R', 'AO', 'AS', 'RL'],
+  scenarios: ['D', 'DP', 'S0', 'N', 'CM', 'SD', 'SX', 'SO', 'R', 'AO', 'AS', 'RL', 'XH', 'XI', 'BX', 'XB', 'XN'],
   readings: {
     // clientAssertion's aud is the token endpoint everywhere, at /oauth/revoke too (company.ts signOut).
     S1: 'token-endpoint',
