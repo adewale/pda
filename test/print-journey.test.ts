@@ -278,6 +278,32 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect((await requests(c)).filter((request) => request.url === `${c.hosts.api}/prints`)).toEqual([]);
   });
 
+  it("refuses a string body the model sends in the tool's own schema, before the agent's check is reached", async () => {
+    // body is an object in poppy_api_call's parameters, so pi refuses a string before the tool runs.
+    const c = await company({ printShop: true });
+    const a = await agent();
+    await chat(a.socket, a.client, `Order it. ${obey("poppy_api_call", { domain: c.domain, operation: "orderPrints", body: JSON.stringify(printOrder("pho_1")) })}`);
+    const transcript = await a.stub.poppyTranscript();
+    expect(transcript).toContain("Validation failed for tool");
+    expect(transcript).not.toContain("invalid_body");
+    expect(await cards(a)).toEqual([]);
+    expect((await requests(c)).filter((request) => request.url === `${c.hosts.api}/prints`)).toEqual([]);
+  });
+
+  it("checks a bodyValue against the operation's schema as it does a body, and refuses the two together", async () => {
+    const c = await company({ printShop: true });
+    const a = await poppyAgent();
+    const both = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder("pho_1"), bodyValue: null });
+    expect(JSON.parse(both.details)).toMatchObject({ error: "invalid_body" });
+    expect(both.text).toContain("Pass either body or bodyValue, not both. Nothing was sent.");
+    // bodyValue is for a body that isn't an object; an order is one, so a string of it is refused as body's would be.
+    const value = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", bodyValue: JSON.stringify(printOrder("pho_1")) });
+    expect(JSON.parse(value.details)).toMatchObject({ error: "invalid_body" });
+    expect(value.text).toContain("not a string containing serialised JSON");
+    expect(await cards(a)).toEqual([]);
+    expect((await requests(c)).filter((request) => request.url === `${c.hosts.api}/prints`)).toEqual([]);
+  });
+
   it("refuses a body that doesn't match the operation's schema, naming what's wrong, and lets a right one through", async () => {
     const c = await company({ printShop: true });
     const a = await poppyAgent();

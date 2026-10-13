@@ -260,9 +260,14 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             api: Type.Optional(Type.String()),
             params: Type.Optional(Type.Record(Type.String(), Type.Union([Type.String(), Type.Number(), Type.Boolean()]))),
             body: Type.Optional(
-              Type.Unknown({
+              Type.Record(Type.String(), Type.Unknown(), {
                 description:
-                  "The request body as a structured JSON value, usually an object such as { \"product\": \"prints\" }; never a string of serialised JSON. It is checked against the operation's request schema before anything is asked or sent."
+                  "The request body as an object, such as { \"product\": \"prints\" }; never stringify it. Checked against the operation's request schema before anything is asked or sent. For a non-object JSON body, use bodyValue instead."
+              })
+            ),
+            bodyValue: Type.Optional(
+              Type.Union([Type.Array(Type.Unknown()), Type.String(), Type.Number(), Type.Boolean(), Type.Null()], {
+                description: "Only for operations whose request schema takes a non-object JSON value (array, string, number, boolean or null). Do not use with body; do not put serialised objects here."
               })
             ),
             files: Type.Optional(
@@ -276,15 +281,20 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           // Idempotency-Key or are sent at most once per call; every other write only shows a card fixed per call.
           replay: "safe"
         },
-        async ({ domain, operation: name, api, params, body, files, session }, callKey) =>
-          callOpenApi(client(), await company(domain), session ?? "main", {
+        async ({ domain, operation: name, api, params, body, bodyValue, files, session }, callKey) => {
+          if (body !== undefined && bodyValue !== undefined) {
+            throw new PoppyError("invalid_body", "Pass either body or bodyValue, not both. Nothing was sent.", 0);
+          }
+          const requestBody = body !== undefined ? body : bodyValue;
+          return callOpenApi(client(), await company(domain), session ?? "main", {
             operation: name,
             callKey,
             ...(api ? { apiUrl: api } : {}),
             ...(params ? { params } : {}),
-            ...(body !== undefined ? { body: json(body, "body") } : {}),
+            ...(requestBody !== undefined ? { body: json(requestBody, "body") } : {}),
             ...(files ? { files } : {})
-          })
+          });
+        }
       ),
       tool(
         {
