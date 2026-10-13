@@ -239,7 +239,7 @@ A run writes `interop/results/<run>/results.json`:
 {
   "interop": 1,
   "run": "2026-10-11T12:00:00Z",
-  "spec": "Draft 0.1, Oct 9 2026",
+  "spec": "Personal Agent Protocol Draft 0.1",
   "implementations": [{ "name": "dpa", "role": "agent", "commit": "850860c", "readings": {} }],
   "cells": [
     {

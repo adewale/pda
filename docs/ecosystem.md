@@ -1,6 +1,6 @@
 # The Poppy ecosystem
 
-A map of everything around [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/), as of **13 October 2026** (pins and upstream heads; the rest as of the evening of 12 October), four days after Draft 0.1 was published. It is meant to be kept up to date: each row says where it comes from and when it was last checked, and [the last section](#how-to-update-this-map) says how to check again.
+A map of everything around [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/), as of **13 October 2026** (pins, upstream heads and the spec site; the rest as of the evening of 12 October), four days after Draft 0.1 was published. It is meant to be kept up to date: each row says where it comes from and when it was last checked, and [the last section](#how-to-update-this-map) says how to check again.
 
 The detail lives elsewhere. Every implementation, with licences and maturity, is in [implementations.md](implementations.md); what we found in their code is in [poppy-issues.md](poppy-issues.md); the spec's problems are in [spec-issues.md](spec-issues.md), with our chosen readings in [readings.md](readings.md); how our harness pairs them is in [interop-testing.md](interop-testing.md), and its last run in [interop-results/](interop-results/README.md). This page is the index.
 
@@ -8,14 +8,14 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 
 ## The spec
 
-| Item | State on 12 October | Source | Checked |
+| Item | State on 13 October | Source | Checked |
 | --- | --- | --- | --- |
-| Draft 0.1, "Updated Oct 9, 2026" | The only version. Nine pages: home (with walkthroughs), overview, spec, extensions, Operations extension v1, Guides, open topics, licence, contributions. | [personalagentprotocol.org](https://personalagentprotocol.org/) | 12 Oct, morning and evening, `node scripts/spec-snapshot.mjs`: no body or text changes since our snapshot |
-| Authors | Led by Sierra and Meta, with 35 named design partners (Sierra's post) | [sierra.ai/blog/poppy](https://sierra.ai/blog/poppy) | 12 Oct |
+| Draft 0.1, "Updated Oct 12, 2026" | The only version. The 12 October update changed no wire rule: the spec changed one link, and Extensions, Operations and the Guides only their date ([what changed](../spec/grounding.md#the-12-october-update)). Nine pages: home (with walkthroughs), introduction (was overview), spec, extensions, Operations extension v1, Guides, Path to 1.0 (new: the road to 1.0, the feedback process, the open topics and the design partners), licence, contributions. `/docs/overview` and `/docs/open-topics` redirect to their new places. | [personalagentprotocol.org](https://personalagentprotocol.org/) | 13 Oct, `node scripts/spec-snapshot.mjs`: the 12 October update found and stored (12 Oct, morning and evening: no changes) |
+| Authors | Led by Sierra and Meta, with 35 named design partners (Sierra's post). Path to 1.0 lists 43 partners that agreed to be named: three personal agents (Instinct, Meta, OpenAI), 21 Companies and 19 technology providers, and invites more by email. | [sierra.ai/blog/poppy](https://sierra.ai/blog/poppy), [Path to 1.0](https://personalagentprotocol.org/docs/path-to-1#partners) ([our copy](../spec/draft-0.1-2026-10-12/pages/path-to-1.md)) | 12 Oct; Path to 1.0 13 Oct |
 | Licence | Apache 2.0 for the specification, documentation and examples; not the names, logo or site design. Feedback is licensed to all members and users. | [licence](https://personalagentprotocol.org/license), [contributions](https://personalagentprotocol.org/license/contributions) | 12 Oct |
-| Where it lives | Only on the website. No public source repository, issue tracker, changelog or `llms.txt`; the site links to none, and a GitHub search on the evening of 12 Oct found none. A copy of the source is in poppyseed's `spec/`. | [spec-issues.md](spec-issues.md#how-we-found-them) | 12 Oct, evening |
-| Our copy | A dated snapshot of every page, for citing | [spec/draft-0.1-2026-10-09](../spec/draft-0.1-2026-10-09/README.md), [spec/grounding.md](../spec/grounding.md) | Snapshot taken 12 Oct |
-| Change tracking | `node scripts/spec-snapshot.mjs` compares the live site with the newest snapshot (read-only); `--save` stores a new dated one | [`scripts/spec-snapshot.mjs`](../scripts/spec-snapshot.mjs) | Run 12 Oct, twice |
+| Where it lives | Only on the website. No public source repository, issue tracker, changelog or `llms.txt`; the site links to none, and a GitHub search on the evening of 12 Oct found none. A copy of the source is in poppyseed's `spec/`. Feedback goes by email to feedback-personal-agent-protocol@sierra.ai, as inline comments exported from the site or written with the site's agent kit (Path to 1.0). | [spec-issues.md](spec-issues.md#how-we-found-them), [Path to 1.0](https://personalagentprotocol.org/docs/path-to-1#feedback) | 12 Oct, evening; the site 13 Oct |
+| Our copy | A dated snapshot of every page, for citing | [spec/draft-0.1-2026-10-12](../spec/draft-0.1-2026-10-12/README.md) (the newest), [spec/draft-0.1-2026-10-09](../spec/draft-0.1-2026-10-09/README.md), [spec/grounding.md](../spec/grounding.md) | Snapshots taken 12 and 13 Oct |
+| Change tracking | `node scripts/spec-snapshot.mjs` compares the live site with the newest snapshot (read-only); `--save` stores a new dated one | [`scripts/spec-snapshot.mjs`](../scripts/spec-snapshot.mjs) | Run 12 Oct, twice, and 13 Oct |
 
 ## Promised, not released
 
@@ -24,7 +24,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 | Sierra's reference implementation | Promised "over the next month", with design workshops. Not published. Sierra's GitHub organisation is [sierra-inc](https://github.com/sierra-inc) (7 public repositories, all SDKs and forks; none for Poppy). | [Sierra's post](https://sierra.ai/blog/poppy) | 12 Oct, evening |
 | Partner launches | None of the launch or design partners we know of serves a `poppy.json`: we checked Sierra and seven partners on 11 October ([implementations.md](implementations.md#not-found)), and PAP Checker's author checked them on 11 October too. | [dev.to article](https://dev.to/benjifisher/what-is-poppyjson-a-personal-agent-protocol-example-and-how-to-validate-yours-3d5m) | 12 Oct (no new fetch) |
 | Muse with Redfin and Rocket | A video demo; no code, no endpoints, no spec version | [video](https://x.com/SierraPlatform/status/2108245197440307584), via [poppy.md](https://poppy.md/implementations) | 11 Oct |
-| A shared conformance suite | None exists, and the draft doesn't mention one: its open topics are payments, push notifications and attachments. Datalayer's 124 JSON cases are the nearest thing. | [open topics](https://personalagentprotocol.org/docs/open-topics), [our copy](../spec/draft-0.1-2026-10-09/pages/open-topics.md) | 12 Oct |
+| A shared conformance suite | None exists, and the draft doesn't mention one: its open topics are payments, push notifications and attachments, and Path to 1.0 plans implementation with design partners and feedback, not a test suite. Datalayer's 124 JSON cases are the nearest thing. | [open topics](https://personalagentprotocol.org/docs/path-to-1#open-topics), [our copy](../spec/draft-0.1-2026-10-12/pages/path-to-1.md) | 13 Oct |
 
 ## Personal Agents
 

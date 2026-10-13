@@ -1,6 +1,6 @@
 # Problems in the Personal Agent Protocol specification
 
-Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1 ("Updated Oct 9, 2026"), its Guides and the Operations extension v1, written so they can go to the spec's authors. Each has a suggested fix and says what our client does meanwhile. [readings.md](readings.md) records, for the S-numbered questions, which reading our client and our strict and lenient mock Companies take, and why.
+Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1 ("Updated Oct 12, 2026"; the 12 October update changed no wire rule of the 9 October text these issues were found in), its Guides and the Operations extension v1, written so they can go to the spec's authors. The authors take feedback by email at feedback-personal-agent-protocol@sierra.ai, as inline comments exported from the site, or written with their agent kit ([Path to 1.0](https://personalagentprotocol.org/docs/path-to-1#feedback), 12 October). None has been sent yet; sending one needs the owner's approval ([SECURITY.md](../SECURITY.md)). Each has a suggested fix and says what our client does meanwhile. [readings.md](readings.md) records, for the S-numbered questions, which reading our client and our strict and lenient mock Companies take, and why.
 
 ## How we found them
 
@@ -15,6 +15,7 @@ Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org
   - The home page's walkthrough traces exist only in a JavaScript bundle.
   - The spec has 107 sentences with RFC 2119 keywords, Operations has 20, and the Guides 138 bullet points, nearly all recommendations. Many more requirements carry no keyword, such as 4.4's "the Personal Agent starts a new Session" on `account_mismatch`. Which party each keyword sentence binds is a judgement; [spec/grounding.md](../spec/grounding.md#counts) lists them.
 - **A snapshot of the site on 12 October 2026**, in [spec/draft-0.1-2026-10-09](../spec/draft-0.1-2026-10-09/README.md). Nothing had changed since 9 and 10 October, so nothing had changed since our crawl either. [spec/grounding.md](../spec/grounding.md) quotes the text each issue below rests on and gives a verdict; issues the text partly addresses, or that we had misread, say so in their rows, dated 12 October. Checked again on the evening of 12 October: no page's body or text had changed, and the site still links to no source repository or issue tracker.
+- **The 12 October update**, stored on 13 October in [spec/draft-0.1-2026-10-12](../spec/draft-0.1-2026-10-12/README.md). It changed no wire rule: the spec's only change is a link in section 1, and Extensions, Operations and the Guides changed only their date. Overview became Introduction, and Open topics moved into a new page, [Path to 1.0](https://personalagentprotocol.org/docs/path-to-1), which adds the feedback process, the agent kit and the list of design partners. Every quotation in [spec/grounding.md](../spec/grounding.md#the-12-october-update) is in the new text, so every verdict stands. There is still no source repository or issue tracker; feedback goes by email.
 
 **IDs.** S-numbers came from comparing implementations, N-numbers from the crawl and later work, including the grid. Our tests and docs cite them, so they don't change. Six were our own misreadings of the draft and are withdrawn: S6, S15, S21, N36, N37 and N38. Their numbers aren't reused, and [spec/grounding.md](../spec/grounding.md) quotes the text that answers each.
 
@@ -200,6 +201,8 @@ Which attack exercises which issue, and its status, is kept in one place: the at
 - [N46](#n46): `XR` and `XT`.
 
 ## Open topics, with our view
+
+The draft lists these three on [Path to 1.0](https://personalagentprotocol.org/docs/path-to-1#open-topics); until 12 October they had a page of their own.
 
 - **Payments.** Ops already covers approval. A payment extension could sit on Ops, with amounts in a standard `{amount: string, currency}`, which would also fix S20 and N33.
 - **Push notifications.** We poll: every second for 2 minutes after activity in a busy conversation, otherwise every 30 seconds to 15 minutes, or hourly after a quiet day ([N46](#n46)). Suggest a `notification_uri` in client metadata, receiving signed, content-free "events available" pings, after which the agent reads with its cursor.
