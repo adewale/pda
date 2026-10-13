@@ -268,3 +268,12 @@ The ones that happened: every project except ours and Ilmer needed a relaxation 
 - **Non-determinism.** LLM-backed Companies, timing, staff queues. Use stand-in runners and hooks rather than real time.
 - **Wrong blame.** Our mock's readings could pass for the spec's. Keep its seven profiles, and label every attribution with the rule that made it.
 - **Licences and goodwill.** Check licences before vendoring. Present the grid as being about the spec, not about anyone's project.
+
+## The live lane: first run, 13 October
+
+Our agent against Alpine Retail's live deployment (`alpine-retail-live`), with its developer's approval, one request a second, signed out: `npm run interop -- --lane live --agents dpa --companies alpine-retail-live`.
+
+- **D passes.** Discovery, the OAuth metadata and the OpenAPI description are all valid; the validator CLI agrees (0 errors, 0 warnings, 0 info).
+- **S0, N and C fail at the same place, and correctly.** Alpine's token endpoint answers `invalid_client`: "Couldn't resolve the client metadata document host: https://dpa.agent.interop.test/poppy/client.json". The live lane runs our agent's container on Docker's bridge, but the agent still names itself by its private interop host, which no public Company can fetch. Fixing that needs a live-lane identity at a public URL whose key only the runner holds; until then only `D` says anything about a live Company, and a live conversation is checked through the deployed agent instead.
+- **Three runner bugs, fixed:** the lane tried to reset a live Company, which has no adapter (every cell was an error before anything was sent); a trace check made a cell unsupported, though the lane records nothing and section 10 says only steps and expectations decide; and C had no greeting without a fixture hook. Nothing reached Alpine but D's discovery fetches and three token requests.
+

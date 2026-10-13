@@ -356,7 +356,8 @@ async function runOne(
   options: { control: Control; proxy: Proxy | null; resultsDir: string; attempt?: number }
 ): Promise<void> {
   const { control, proxy } = options;
-  for (const impl of [agent, company]) {
+  // A live Company (spec §10) is a public deployment with no adapter, so there's nothing to reset.
+  for (const impl of [agent, company].filter((item) => !!item.entry.build)) {
     const reset = await control(impl.target, "POST", "/reset").catch((error: unknown) => ({ status: 0, body: String(error) }));
     if (reset.status !== 200) {
       cell.outcome = "error";
@@ -371,6 +372,8 @@ async function runOne(
     const answer = await control(company.target, "POST", "/hooks/fixture", {});
     if (answer.status === 200) fixture = answer.body;
   }
+  // A live Company has no fixture hook; the live scenarios need only a greeting (spec §10).
+  if (!company.entry.build) fixture = { prompts: { hello: "Hello" }, ...(fixture as Record<string, unknown>) };
   fixture = withWebPage(fixture, company.domain);
 
   const callbacks: string[] = [];
@@ -404,7 +407,8 @@ async function runOne(
         return { kind: "ok", result: { status: answer.status, headers: answer.headers, body: parse(answer.body) ?? answer.body } };
       }
       if (op === "assert_trace") {
-        if (!proxy) return { kind: "inapplicable", detail: "no recording in this lane" };
+        // The live lane records nothing, so only steps and expectations decide a cell (spec §10).
+        if (!proxy) return { kind: "ok", result: { unrecorded: true } };
         return assertTrace(exchanges(await proxy.har()), params);
       }
       return { kind: "failed", detail: `unknown runner op ${op}` };
@@ -666,7 +670,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       }
       control = async (target, method, pathname, body) => {
         const port = ports.get(target);
-        if (!port) return { status: 404, body: { error: "no_adapter", detail: `${target} has no control API in the live lane` } };
+        // A live Company has no adapter: a hook is unsupported (501), so an optional step is skipped (spec §5).
+        if (!port) return { status: 501, body: { error: "unsupported", detail: `${target} has no control API in the live lane` } };
         const response = await fetch(`http://127.0.0.1:${port}${pathname}`, {
           method,
           headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
