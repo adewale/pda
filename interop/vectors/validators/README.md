@@ -18,7 +18,7 @@ node interop/vectors/validators/run.mjs --json out.json
 - **The verdict** is "valid": no error-severity finding. Ours is graded by [the conformance levels](../../../docs/conformance-levels.md), so a warning our client still refuses (such as a plain `http` API URL) counts as valid here.
 - **Output:** agreement for each pair and for all three, then every document where they differ. Information only: the exit status is 0 unless the harness failed (a fetch, the build or the container).
 
-Each difference is judged by hand against [the stored draft](../../../spec/draft-0.1-2026-10-09/pages/spec.md) in [interop-testing.md](../../../docs/interop-testing.md#validator-cross-check). To move a pin, change `PINS` in `run.mjs` (and the dependency versions in the `Dockerfile` if poppy-validator's `uv.lock` changed), run it, and update that table.
+Each difference is judged by hand against [the stored draft](../../../spec/draft-0.1-2026-10-12/pages/spec.md) in [interop-testing.md](../../../docs/interop-testing.md#validator-cross-check). To move a pin, change `PINS` in `run.mjs` (and the dependency versions in the `Dockerfile` if poppy-validator's `uv.lock` changed), run it, and update that table.
 
 ## Results
 

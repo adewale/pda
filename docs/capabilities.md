@@ -1,6 +1,6 @@
 # What the agent can do, and where each part comes from
 
-The [README](../README.md#what-you-can-do-with-it) says what a person can ask for. This page maps each capability to its source: a Poppy feature, with the section of [Draft 0.1](../spec/draft-0.1-2026-10-09/README.md) or the Operations extension (Ops, version 1) it implements, or a feature of this project. Each model tool is listed once, beside the feature it serves, with what needs the User's approval and the file that defines it. How each part works is in the [spec](../durable-personal-agent-spec.md); why it was built that way is in [decisions.md](decisions.md).
+The [README](../README.md#what-you-can-do-with-it) says what a person can ask for. This page maps each capability to its source: a Poppy feature, with the section of [Draft 0.1](../spec/draft-0.1-2026-10-12/README.md) or the Operations extension (Ops, version 1) it implements, or a feature of this project. Each model tool is listed once, beside the feature it serves, with what needs the User's approval and the file that defines it. How each part works is in the [spec](../durable-personal-agent-spec.md); why it was built that way is in [decisions.md](decisions.md).
 
 Back to the [README](../README.md)
 

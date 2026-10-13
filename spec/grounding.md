@@ -2,12 +2,12 @@
 
 What the Personal Agent Protocol (Poppy) says, quoted, for every claim we make about it: the spec issues in [docs/spec-issues.md](../docs/spec-issues.md), the readings in [docs/readings.md](../docs/readings.md), the rows of Appendix A in [durable-personal-agent-spec.md](../durable-personal-agent-spec.md#appendix-a-personal-agent-requirements), the mock Company's checks, the validator's messages, and the section numbers our code cites.
 
-The text is the snapshot in [draft-0.1-2026-10-09/](draft-0.1-2026-10-09/README.md), retrieved on 12 October 2026. Quotations are verbatim from its `pages/*.md`, with "…" for omissions; Guides quotations show code as backticks. Anchors are the site's: `spec#sending-tokens` is <https://personalagentprotocol.org/docs/spec#sending-tokens>, `ops#confirm` is the Operations page, `guides#agent-dpop` the Guides. The anchors for each section are in the snapshot's `html/*.html`.
+The text is the snapshot in [draft-0.1-2026-10-12/](draft-0.1-2026-10-12/README.md), retrieved on 13 October 2026. The rows below were written against the earlier snapshot, [draft-0.1-2026-10-09/](draft-0.1-2026-10-09/README.md) (retrieved 12 October), and every quotation in them is also in the newer one, word for word ([below](#has-the-spec-changed-since-9-and-11-october)). Quotations are verbatim from its `pages/*.md`, with "…" for omissions; Guides quotations show code as backticks. Anchors are the site's: `spec#sending-tokens` is <https://personalagentprotocol.org/docs/spec#sending-tokens>, `ops#confirm` is the Operations page, `guides#agent-dpop` the Guides. The anchors for each section are in the snapshot's `html/*.html`.
 
 **Verdicts** for the spec issues:
 - **Still applies:** the text says what the issue says it does, and the problem stands.
 - **Partly addressed:** the text already covers part of the problem; the issue's row now says which part.
-- **Fixed:** the text has changed and the problem is gone. None are, because the text hasn't changed (below).
+- **Fixed:** the text has changed and the problem is gone. None are: no requirement has changed (below).
 - **Misread:** the issue misstated the text.
 
 The six misread issues, S6, S15, S21, N36, N37 and N38, were withdrawn from docs/spec-issues.md on 12 October, which leaves it 62 (20 S, 42 N). Their rows stay below, with the counts as they were, as the record of why: each quotes the text that answers the issue. S6 was misread only in part; the rest of its row, that "same domain" is undefined, is our reading in readings.md.
@@ -21,26 +21,42 @@ The six misread issues, S6, S15, S21, N36, N37 and N38, were withdrawn from docs
 
 ## Has the spec changed since 9 and 11 October?
 
-No. Every page is as it was when it was last deployed, between 9 October 23:08 and 10 October 13:52 UTC, which is before our crawl of 11 October:
+Not in any wire rule. The site was updated on 12 October (below), and that update changed the documentation around the specification, not the specification's requirements.
 
-- Every page still shows "Updated Oct 9, 2026", and the sitemap still lists the same nine pages: home, overview, spec, extensions, Operations, guides, open topics, license, contributions.
+Up to the evening of 12 October, every page was as it was when it was last deployed, between 9 October 23:08 and 10 October 13:52 UTC, which is before our crawl of 11 October:
+
+- Every page showed "Updated Oct 9, 2026", and the sitemap listed the same nine pages: home, overview, spec, extensions, Operations, guides, open topics, license, contributions.
 - Each response's `Last-Modified` is between Fri, 09 Oct 2026 23:08:24 GMT (the spec) and Sat, 10 Oct 2026 13:52:43 GMT (contributions), and each came from the CDN's cache (`x-vercel-cache: HIT`) with an `Age` of 34 to 49 hours, so the same bytes had been served since then. The spec page's `Age` of 176,194 seconds puts its cached copy at 9 October 23:08 UTC.
 - The counts we recorded on 11 October come out the same (next section).
 - Checked again on the evening of 12 October with `node scripts/spec-snapshot.mjs`: every page's body and text were the same as the snapshot's.
 - No later text contradicts a quotation in our docs: where a row misstated the text, it misstated the text of 9 October (the "misread" verdicts below).
 
-We have no copy of the 11 October crawl to compare byte for byte; from now on, `node scripts/spec-snapshot.mjs` compares the live site with this snapshot.
+We have no copy of the 11 October crawl to compare byte for byte; from 12 October, `node scripts/spec-snapshot.mjs` compares the live site with the newest snapshot.
+
+### The 12 October update
+
+On 13 October `node scripts/spec-snapshot.mjs` found the site changed, and `--save` stored [draft-0.1-2026-10-12/](draft-0.1-2026-10-12/README.md). It is still Draft 0.1. Every docs page (Introduction, spec, Extensions, Operations, Guides, Path to 1.0) now shows "Updated Oct 12, 2026". What changed:
+
+- **Spec.** One sentence in section 1: "Areas it doesn't cover yet are listed in Open topics" now ends "listed in Path to 1.0", linking to `/docs/path-to-1#open-topics` instead of `/docs/open-topics`. Nothing else on the page changed; its 107 keyword sentences are the same sentences.
+- **Extensions, Operations, Guides.** The date only. Their text and content HTML are byte for byte the same as in the 9 October snapshot.
+- **Overview** is renamed **Introduction** (`/docs/introduction`); only its heading changed. `/docs/overview` redirects there (308).
+- **Open topics** is gone; `/docs/open-topics` redirects (308) to the "Open topics" section of a new page, **Path to 1.0** (`/docs/path-to-1`). The three topics (payments, push notifications, attachments) are worded as before. The old page's opening, "Every part of it can still change, including the parts the specification already covers", is gone; Path to 1.0 says instead "Until 1.0, a revision can break compatibility with earlier drafts."
+- **Path to 1.0** is new. It says how the draft gets to 1.0 (anyone can implement it; the authors implement it with design partners; the spec changes with what they learn), what feedback they want (privacy and security, gaps, simplification, broadly useful extensions), and how to send it: inline comments on the site, exported, or an "agent kit" of the docs with an `AGENTS.md` that tells an agent how to write feedback, either kind emailed to feedback-personal-agent-protocol@sierra.ai and licensed under the [contribution terms](https://personalagentprotocol.org/license/contributions). It lists 43 design partners that agreed to be named (3 personal agents, 21 Companies, 19 technology providers) and how to become one. The agent kit is a download button, not a page, so the snapshot doesn't hold it.
+- **Home.** The links to "Read the docs" go to Introduction, and the closing paragraph now points to Path to 1.0 instead of describing what a Company starts with. The walkthroughs are unchanged.
+- **License, contributions.** Unchanged.
+
+Every quotation in this file, and in the docs it grounds, was checked by script against both snapshots: each one in the 9 October text is in the 12 October text too. The one quotation in our docs that had left the site, the old Open topics opening in `docs/proposals/`, now quotes the spec and Path to 1.0 instead.
 
 ## Counts
 
-Recounted from the snapshot by `keywordSentences` in [scripts/spec-snapshot.mjs](../scripts/spec-snapshot.mjs): a sentence counts if it has a BCP 14 keyword in capitals outside code, and the sentence that defines the keywords doesn't count. Each table cell is a sentence of its own. The counts are in the snapshot's `manifest.json`.
+Recounted from the 9 October snapshot by `keywordSentences` in [scripts/spec-snapshot.mjs](../scripts/spec-snapshot.mjs): a sentence counts if it has a BCP 14 keyword in capitals outside code, and the sentence that defines the keywords doesn't count. Each table cell is a sentence of its own. The counts are in each snapshot's `manifest.json`, and the 12 October snapshot's are the same.
 
 | Page | Keyword sentences | Keywords | Recorded 11 October |
 | --- | --- | --- | --- |
 | Specification | 107 | MUST 57, MUST NOT 15, SHOULD 13, SHOULD NOT 1, MAY 30 | 107 |
 | Operations extension | 20 | MUST 9, MUST NOT 6, SHOULD 3, MAY 3 | 20 |
 | Guides | 18 sentences that restate a spec MUST; 138 bullet points, the recommendations | MUST 15, MUST NOT 5 | "about 138 recommendations" |
-| Overview, Extensions, Open topics, home | 0 | | |
+| Introduction (was Overview), Extensions, Path to 1.0 (was Open topics), home | 0 | | |
 
 **Which party.** On 11 October we split the spec's 107 as Personal Agent 43, Company 51, both 13. Recounting by the party each sentence binds or permits (its subject, or who acts) gives Personal Agent 45, Company 55, both 7, listed [at the end](#the-107-keyword-sentences). The total is the same; the split is a judgement, so the docs now give only the total.
 
@@ -164,7 +180,7 @@ Verdicts: 34 still apply, 8 partly addressed, 3 misread, 0 fixed.
 
 ## Appendix A
 
-Each row of Appendix A in `durable-personal-agent-spec.md`, against Draft 0.1 and Operations v1 as retrieved on 12 October 2026 ([pages/spec.md](draft-0.1-2026-10-09/pages/spec.md), [pages/operations.md](draft-0.1-2026-10-09/pages/operations.md), [pages/guides.md](draft-0.1-2026-10-09/pages/guides.md)). "Keyword" is the RFC 2119 keyword the text uses for the Personal Agent's part. "Matches" is whether the row's wording, as now edited, says the same: keyword strength, scope and section. Rows marked "edited" were corrected in this pass.
+Each row of Appendix A in `durable-personal-agent-spec.md`, against Draft 0.1 and Operations v1 as retrieved on 12 October 2026; the same text is in the 12 October update ([pages/spec.md](draft-0.1-2026-10-12/pages/spec.md), [pages/operations.md](draft-0.1-2026-10-12/pages/operations.md), [pages/guides.md](draft-0.1-2026-10-12/pages/guides.md)). "Keyword" is the RFC 2119 keyword the text uses for the Personal Agent's part. "Matches" is whether the row's wording, as now edited, says the same: keyword strength, scope and section. Rows marked "edited" were corrected in this pass.
 
 ### Specification
 
@@ -505,7 +521,7 @@ The questions as asked:
 
 ## Code citations
 
-Swept `src/poppy/`, `src/validator/`, `scripts/poppy-validate.ts`, `interop/runner/` (not `cli.ts`, `docker.ts`), `interop/scenarios/`, `interop/impls/dpa-agent/`, `interop/impls/dpa-mock/` and `interop/vectors/datalayer/` against the snapshot (Draft 0.1, Operations v1, Guides, all "Updated Oct 9, 2026"). About 160 comments or messages cite a Poppy section, Ops section, the Guides, or an RFC as the spec's requirement; the interop runner's "spec section N" / "spec §N" citations (about 25) refer to `docs/interop-spec.md` and all point at the right section. Only the wrong or questionable ones are listed; every other citation names the right section and the code does what the text says.
+Swept `src/poppy/`, `src/validator/`, `scripts/poppy-validate.ts`, `interop/runner/` (not `cli.ts`, `docker.ts`), `interop/scenarios/`, `interop/impls/dpa-agent/`, `interop/impls/dpa-mock/` and `interop/vectors/datalayer/` against the snapshot (Draft 0.1, Operations v1, Guides, all "Updated Oct 9, 2026" when swept; their text is the same in the 12 October update). About 160 comments or messages cite a Poppy section, Ops section, the Guides, or an RFC as the spec's requirement; the interop runner's "spec section N" / "spec §N" citations (about 25) refer to `docs/interop-spec.md` and all point at the right section. Only the wrong or questionable ones are listed; every other citation names the right section and the code does what the text says.
 
 | File:line | Cites | Correct? | Behaviour matches text? | Note |
 | --- | --- | --- | --- | --- |
@@ -638,7 +654,7 @@ The questions as asked:
 
 ## The 107 keyword sentences
 
-The specification's sentences with an RFC 2119 keyword, as `keywordSentences` in [scripts/spec-snapshot.mjs](../scripts/spec-snapshot.mjs) finds them in [pages/spec.md](draft-0.1-2026-10-09/pages/spec.md), with the party each binds or permits by our reading. A sentence that binds the Company's document, such as 3.1's `organization.domain`, counts as the Company's; one whose subject is both, or anyone, counts as both.
+The specification's sentences with an RFC 2119 keyword, as `keywordSentences` in [scripts/spec-snapshot.mjs](../scripts/spec-snapshot.mjs) finds them in [pages/spec.md](draft-0.1-2026-10-12/pages/spec.md) (the same 107 as on 9 October), with the party each binds or permits by our reading. A sentence that binds the Company's document, such as 3.1's `organization.domain`, counts as the Company's; one whose subject is both, or anyone, counts as both.
 
 | # | Section | Binds | Sentence |
 | --- | --- | --- | --- |

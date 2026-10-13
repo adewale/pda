@@ -4,7 +4,7 @@ What a finding rests on decides how much it counts, in all three places that jud
 
 ## What the draft says about its own words
 
-- **BCP 14, capitals only.** Poppy Draft 0.1 says: "The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as described in BCP 14 ([RFC 2119], [RFC 8174]) when they appear in capitals, as shown here." (spec section 1, [snapshot](../spec/draft-0.1-2026-10-09/pages/spec.md)). RFC 8174 adds: "When these words are not capitalized, they have their normal English meanings."
+- **BCP 14, capitals only.** Poppy Draft 0.1 says: "The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as described in BCP 14 ([RFC 2119], [RFC 8174]) when they appear in capitals, as shown here." (spec section 1, [snapshot](../spec/draft-0.1-2026-10-12/pages/spec.md)). RFC 8174 adds: "When these words are not capitalized, they have their normal English meanings."
 - **Normative text without key words.** RFC 8174 also says: "Specifically, normative text does not require the use of these key words. … a lot of normative text does not use them and is still normative." The draft states most of the protocol that way: "the Personal Agent sends `session_id` when it exchanges the code" (4.5); "Each has a `type` …, a `url`, and a short `description`" (3.1).
 - **What is non-normative.** The draft doesn't say which of its sections are non-normative. The Guides say it about themselves: "Following the guides is not required to comply with the protocol. Each item is a recommendation, in the sense of SHOULD: do it unless you have a good reason not to. Where a guide repeats something the specification requires, it says MUST and links to the section that requires it."
 

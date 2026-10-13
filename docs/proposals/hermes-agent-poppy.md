@@ -19,7 +19,7 @@ Today Hermes users who want their agent to act at a business can browse anonymou
 
 Why now:
 
-- Draft 0.1 is the only version, and its open-topics page says "Every part of it can still change, including the parts the specification already covers" and that "other gaps will come up as people implement the protocol."
+- Draft 0.1 is the only version. The spec says "Any part of it can change before a stable version, including in ways that aren't backward compatible", and its [Path to 1.0](https://personalagentprotocol.org/docs/path-to-1) page (12 October) says "other gaps will come up as people implement the protocol" and that "Feedback is welcome from anyone, whether or not you're a partner."
 - adewale/dpa's survey (`docs/implementations.md`, last updated 13 October 2026) lists 14 implementations, each "at most a few days old". The only one in Python is Datalayer's SDK; the other Python Poppy projects it found are two validators. It found no Poppy issue, pull request or proposal in Hermes Agent or the eight other agent frameworks it searched; the one framework that had one, OpenAgents, closed it as not planned. A search of Hermes's issues, pull requests and Discussions on 13 October found none either.
 - Hermes's experience would reach the spec while it can still change, particularly what a self-hosted agent needs to host its identity, which Hermes already met with MCP CIMD (#75576, #130295).
 

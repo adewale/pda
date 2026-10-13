@@ -1,5 +1,5 @@
 /**
- * Rules for major version 0 of the protocol (Draft 0.1, updated 9 Oct 2026).
+ * Rules for major version 0 of the protocol (Draft 0.1, updated 12 Oct 2026; its rules are those of 9 Oct).
  *
  * Each rule is its own exported function, so the profile for a later
  * version can reuse the ones that still apply, replace the ones that
