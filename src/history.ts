@@ -2,7 +2,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { ROOT_CONVERSATION_ID, type Cursor, type EntryId, type EntryRecord } from "@earendil-works/pi-durable";
 import type { PiHarness } from "agents/harness/pi";
 import { LifecycleCapability } from "agents/lifecycle";
-import { plainUnits, type Units } from "./log";
+import { literal, plainUnits, type Units } from "./log";
 
 /**
  * The messages before a summary, for the page. pi's snapshot holds only the
@@ -87,7 +87,7 @@ export class TranscriptHistory extends LifecycleCapability {
       socket.send(JSON.stringify(answer));
     } catch (error) {
       // A read that worked needs no event; one that failed gets its own.
-      await this.#units.frame("history.before", {}, async (event) => void event.fail(error));
+      await this.#units.frame(literal("history.before"), {}, async (event) => void event.fail(error));
     }
     return true;
   }

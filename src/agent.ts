@@ -12,7 +12,7 @@ import { AttachmentError, attachmentInfo, deleteAttachment, migrateAttachments, 
 import { Ledger } from "./budget";
 import { COMPACTION_POLICY, compactionExtension } from "./compaction";
 import { TranscriptHistory } from "./history";
-import { code, configureLog, currentEvent } from "./log";
+import { agentId as pseudonym, configureLog, currentEvent, id, literal, type Safe } from "./log";
 import { isKeyProvider, readModelConfig, type KeyProvider } from "./config";
 import { checkKey, keyFormatProblem, ModelKeys, NO_AMBIENT_AUTH, PROVIDER_LABEL, workspaceProblem } from "./model-keys";
 import {
@@ -144,7 +144,7 @@ export class PersonalAgent extends DurableObject<Env> {
     configureLog(env);
     for (const statement of SCHEMA) ctx.storage.sql.exec(statement);
     // The same pseudonymous id the demo gateway's metadata carries (`u`): never who the person is.
-    const agentId = ctx.id.toString().slice(0, 32);
+    const agentId = pseudonym(ctx.id);
     this.log = new AgentLog({ sql: ctx.storage.sql, agentId, companyName: (issuer) => this.#companyName(issuer) });
     migrateAttachments(ctx.storage.sql);
     this.memories = new MemoryStore(ctx.storage.sql);
@@ -244,7 +244,7 @@ export class PersonalAgent extends DurableObject<Env> {
               compaction: COMPACTION_POLICY
             },
             // pi's own background reports: an event of their own, at level error.
-            onReport: (error) => void this.log.event("job", { job: "pi.report", outcome: "error" }).fail(error).emit()
+            onReport: (error) => void this.log.event("job", { job: literal("pi.report"), outcome: literal("error") }).fail(error).emit()
           },
           context
         );
@@ -345,7 +345,7 @@ export class PersonalAgent extends DurableObject<Env> {
     const { entitlement } = await this.access.decide();
     if (entitlement.lane === "none") {
       await this.#modelNotice(entitlement);
-      currentEvent()?.set({ model_refused: entitlement.reason });
+      currentEvent()?.set({ model_refused: entitlement.reason ? literal(entitlement.reason) : null });
       return { ok: false, reason: refusalText(entitlement) };
     }
     await this.#resumePaused();
@@ -377,7 +377,7 @@ export class PersonalAgent extends DurableObject<Env> {
           else this.pushSubscriptions.sent(subscription.endpoint, status);
           event?.count(status === 404 || status === 410 ? "push.gone" : status >= 200 && status < 300 ? "push.sent" : "push.failed");
         } catch (error) {
-          event?.count("push.failed").fail(error, { step: "web_push", severe: false });
+          event?.count("push.failed").fail(error, { step: literal("web_push"), severe: false });
         }
       })
     );
@@ -418,7 +418,7 @@ export class PersonalAgent extends DurableObject<Env> {
         Date.now()
       );
       await this.#modelNotice(entitlement);
-      currentEvent()?.set({ model_refused: entitlement.reason }).count("notices_held");
+      currentEvent()?.set({ model_refused: entitlement.reason ? literal(entitlement.reason) : null }).count("notices_held");
       return;
     }
     await this.#resumePaused();
@@ -426,7 +426,7 @@ export class PersonalAgent extends DurableObject<Env> {
   }
 
   /** Hand pi a background input, saying first who started it, for its turn's event. */
-  async #submit(text: string, operationId: string, trigger: Trigger, requestId?: string): Promise<void> {
+  async #submit(text: string, operationId: string, trigger: Trigger, requestId?: Safe<"id">): Promise<void> {
     this.log.submitted(operationId, trigger, requestId);
     await this.harness.submit(text, { operationId, whenBusy: "followUp" });
   }
@@ -442,7 +442,7 @@ export class PersonalAgent extends DurableObject<Env> {
   }
 
   /** Background notices held while model calls were refused, oldest first, once calls are allowed again. */
-  async #resumePaused(requestId?: string): Promise<void> {
+  async #resumePaused(requestId?: Safe<"id">): Promise<void> {
     const held = this.ctx.storage.sql
       .exec("SELECT operation_id, text FROM model_paused ORDER BY created_at")
       .toArray() as Array<{ operation_id: string; text: string }>;
@@ -485,7 +485,7 @@ export class PersonalAgent extends DurableObject<Env> {
       Date.now()
     );
     if (await this.schedules.resumeSignedIn()) this.poppy.refreshActivity();
-    await this.#resumePaused(code(identity.requestId));
+    await this.#resumePaused(id(identity.requestId));
   }
 
   /** Which lane, today's demo spend, the key's provider and state. Never the key. */
@@ -513,7 +513,7 @@ export class PersonalAgent extends DurableObject<Env> {
     const checked = await checkKey(provider, trimmed, this.modelFetcher(), space);
     if (!checked.ok) return checked;
     await this.keys.put(provider, trimmed, space);
-    return this.#keyChanged(code(identity.requestId));
+    return this.#keyChanged(id(identity.requestId));
   }
 
   // ---------------------------------------------------------------- Attachments (src/attachments.ts)
@@ -590,7 +590,7 @@ export class PersonalAgent extends DurableObject<Env> {
     return this.access.entitlement();
   }
 
-  async #keyChanged(requestId?: string): Promise<KeyResult> {
+  async #keyChanged(requestId?: Safe<"id">): Promise<KeyResult> {
     await this.#closeModelNotice();
     await this.#resumePaused(requestId);
     return { ok: true, entitlement: await this.access.entitlement() };

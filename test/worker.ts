@@ -15,6 +15,7 @@ import { PersonalAgent as ProductionAgent } from "../src/agent";
 import type { ListEnv } from "../src/allowlist";
 import { SUMMARY_MESSAGE_PREFIX, SUMMARY_SYSTEM_PROMPT } from "../src/compaction";
 import worker from "../src/index";
+import { toolName } from "../src/log";
 import { demoCatalogModel, gatewayDemoLane, routerProvider, type DemoRoute, type LaneModel } from "../src/model-router";
 import { POPPY_TIMEOUTS, type Fetcher, type PoppyTimeouts } from "../src/poppy/fetch";
 import { buildActivity } from "../src/poppy/activity";
@@ -485,7 +486,7 @@ export class PersonalAgent extends ProductionAgent {
       }
     } as unknown as ToolExecutionApi;
     // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
-    const result = await this.log.tool(name, () => tool.execute(args as never, api, {} as never));
+    const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never));
     const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }
@@ -664,7 +665,7 @@ export class PersonalAgent extends ProductionAgent {
     if (!tool) throw new Error(`No tool ${name}`);
     const api = { conversationId: "test", callId } as unknown as ToolExecutionApi;
     // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
-    const result = await this.log.tool(name, () => tool.execute(args as never, api, {} as never));
+    const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never));
     const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }

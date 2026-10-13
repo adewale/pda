@@ -1,6 +1,6 @@
 import { decodeJwt } from "jose";
 import { maySignIn } from "./allowlist";
-import { currentEvent } from "./log";
+import { currentEvent, literal } from "./log";
 import {
   readProviderConfig,
   readSessionSecret,
@@ -28,10 +28,12 @@ type Flow = {
   readonly exp: number;
 };
 
+type SignInErrorCode = "denied" | "state" | "code" | "not_allowed" | "token" | "profile";
+
 /** Why a sign-in stopped: `code` goes to the page as `?signin_error=` and to the request's event; `message` is for debugging, never logged. */
 class SignInError extends Error {
   override name = "SignInError";
-  constructor(readonly code: string, message: string) {
+  constructor(readonly code: SignInErrorCode, message: string) {
     super(message);
   }
 }
@@ -136,12 +138,12 @@ export async function finishSignIn(
       const who = provider === "github" ? `GitHub id ${identity.sub}` : identity.email ?? `Google ${identity.sub}`;
       throw new SignInError("not_allowed", `${who} is not on the allowlist`);
     }
-    currentEvent()?.set({ sign_in_provider: provider, sign_in: "success" });
+    currentEvent()?.set({ sign_in_provider: literal(provider), sign_in: literal("success") });
     return redirect("/", [clearFlow, await createSession(identity, secret)]);
   } catch (error) {
     if (!(error instanceof SignInError)) throw error;
     // Its code only: the message can name the person (their email or GitHub id).
-    currentEvent()?.set({ outcome: "refused", sign_in_provider: provider, sign_in: "refused", sign_in_error: error.code });
+    currentEvent()?.set({ outcome: literal("refused"), sign_in_provider: literal(provider), sign_in: literal("refused"), sign_in_error: literal(error.code) });
     return redirect(`/?signin_error=${error.code}`, [clearFlow]);
   }
 }

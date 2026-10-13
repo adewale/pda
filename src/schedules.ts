@@ -21,7 +21,7 @@
  * back on a list) starts it again (`resumeSignedIn`).
  */
 import { LifecycleCapability, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle";
-import { plainUnits, reportError, type Units } from "./log";
+import { id as loggedId, literal, plainUnits, reportError, type Units } from "./log";
 import type { Card } from "./poppy/wire";
 import { formatDate, wallAt } from "./tools/clock";
 import { PAUSE_AFTER_FAILURES, ScheduleError, ScheduleStore, type NewSchedule, type Schedule } from "./tools/schedule-store";
@@ -138,12 +138,12 @@ export class Scheduler extends LifecycleCapability {
     if (schedule.nextRun > this.#options.now()) return { rescheduleAt: this.#options.jobTime(schedule.nextRun) };
     const dueAt = schedule.nextRun;
     const units = this.#options.units ?? plainUnits;
-    return units.job({ job: JOB, schedule_id: schedule.id, schedule_kind: schedule.kind }, async (event) => {
+    return units.job({ job: literal(JOB), schedule_id: loggedId(schedule.id), schedule_kind: literal(schedule.kind) }, async (event) => {
       if (!this.#maySignIn()) {
         // Taken off the lists: nothing runs, nothing is sent, and the row waits, paused, until they sign in again.
         this.store.pause(schedule.id, SIGNED_OUT);
         this.#options.changed();
-        event.set({ outcome: "refused", reason: "signed_out" });
+        event.set({ outcome: literal("refused"), reason: literal("signed_out") });
         return;
       }
       try {
@@ -153,7 +153,7 @@ export class Scheduler extends LifecycleCapability {
       }
       const run = this.store.run(`schedule:${schedule.id}:${dueAt}`);
       if (run?.outcome === "failed") event.level = "error";
-      else if (run && event.level !== "error") event.set({ outcome: run.outcome === "started" ? "started" : "success", run: run.outcome });
+      else if (run && event.level !== "error") event.set({ outcome: literal(run.outcome === "started" ? "started" : "success"), run: literal(run.outcome) });
       return this.#afterRun(schedule.id, dueAt);
     });
   }
@@ -204,7 +204,7 @@ export class Scheduler extends LifecycleCapability {
   #settle(scheduleId: string, operationId: string): void {
     if (this.#waiting.has(operationId)) return;
     const units = this.#options.units ?? plainUnits;
-    const waiting = units.job({ job: "schedule-settle", schedule_id: scheduleId, operation_id: operationId }, async (event) => {
+    const waiting = units.job({ job: literal("schedule-settle"), schedule_id: loggedId(scheduleId), operation_id: loggedId(operationId) }, async (event) => {
       let end: TaskEnd;
       try {
         end = await this.#options.taskEnded(operationId);
@@ -223,7 +223,7 @@ export class Scheduler extends LifecycleCapability {
         const reason = end.reason ? `The turn ended without an answer: ${end.reason}` : "The turn ended without an answer";
         this.store.finishRun(operationId, "failed", reason);
         if (schedule) await this.#failed(schedule, run.dueAt, reason);
-        event.fail(new Error("The turn ended without an answer"), { code: "unanswered" });
+        event.fail(new Error("The turn ended without an answer"), { code: literal("unanswered") });
       }
       this.#options.changed();
     })
@@ -238,7 +238,7 @@ export class Scheduler extends LifecycleCapability {
     try {
       return this.#options.maySignIn();
     } catch (error) {
-      reportError(error, { source: "schedules.sign_in_check" });
+      reportError(error, { source: literal("schedules.sign_in_check") });
       return false;
     }
   }
@@ -283,7 +283,7 @@ export class Scheduler extends LifecycleCapability {
       await this.#options.push(message);
     } catch (error) {
       // A notification that didn't go is never a failed run.
-      reportError(error, { source: "web_push", severe: false });
+      reportError(error, { source: literal("web_push"), severe: false });
     }
   }
 

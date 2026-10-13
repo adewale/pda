@@ -14,7 +14,7 @@
  */
 import { importJWK, SignJWT, type JWK } from "jose";
 import { base64url, fromBase64url } from "./base64url";
-import { reportError } from "./log";
+import { literal, reportError } from "./log";
 import { readPrivacyContact, type PrivacyEnv } from "./privacy";
 
 // ---------------------------------------------------------------- Push services
@@ -102,7 +102,7 @@ export function readVapidKey(env: PushEnv): Promise<VapidKey | null> {
       } catch (error) {
         // Web Push is off; the event says why (its message names the problem, never the key).
         // A JSON parse error quotes its input, which is the private key: name the problem only.
-        reportError(error instanceof SyntaxError ? new Error("not JSON") : error, { source: "web_push.vapid_key", code: "vapid_key_unusable" });
+        reportError(error instanceof SyntaxError ? new Error("not JSON") : error, { source: literal("web_push.vapid_key"), code: literal("vapid_key_unusable") });
         return null;
       }
     })();

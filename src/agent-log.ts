@@ -21,7 +21,7 @@
 import type { AgentEvent, AgentEventStream, Extension, ToolRegistration } from "@earendil-works/pi-durable";
 import type { PiHarness } from "agents/harness/pi";
 import { LifecycleCapability } from "agents/lifecycle";
-import { code, currentEvent, inScope, LIMITS, unit, wideEvent, type EventKind, type ToolCall, type Units, type WideEvent } from "./log";
+import { code, currentEvent, domain, id, inScope, join, LIMITS, literal, modelId, toolName, unit, wideEvent, type EventKind, type Fields, type Safe, type ToolCall, type Units, type WideEvent } from "./log";
 import type { ModelCall } from "./model-router";
 import { protocolIndex, protocolLog } from "./poppy/protocol-log";
 
@@ -44,7 +44,7 @@ const SCHEMA = [
 /** What started a turn. */
 export type Trigger = "user" | "company" | "schedule" | "held" | "compaction" | "tool" | "unknown";
 
-type Registered = { readonly trigger: Trigger; readonly requestId?: string; readonly startedBy?: string };
+type Registered = { readonly trigger: Trigger; readonly requestId?: Safe<"id">; readonly startedBy?: Safe };
 
 /** Codes a tool's failure carries when the answer was a refusal, ours or a Company's. */
 const REFUSAL = /refus|denied|forbidden|not_allowed|blocked|insufficient_scope|unauthori[sz]ed|declined/i;
@@ -59,7 +59,7 @@ type ModelTally = {
   cache_write_tokens: number;
   cost_usd: number;
   latency_ms: number;
-  errors: Record<string, number>;
+  errors: Record<Safe, number>;
 };
 
 type TurnState = {
@@ -68,22 +68,22 @@ type TurnState = {
   model: ModelTally;
   tools: ToolCall[];
   toolCount: number;
-  readUrl: { count: number; rendered: number; statuses: number[]; errors: Record<string, number> } | null;
-  compaction: { count: number; reasons: string[]; blocking: boolean; summary?: "ok" | "failed" } | null;
-  stopReason: string | null;
+  readUrl: { count: number; rendered: number; statuses: number[]; errors: Record<Safe, number> } | null;
+  compaction: { count: number; reasons: Safe[]; blocking: boolean; summary?: Safe } | null;
+  stopReason: Safe | null;
   last: ModelCall | null;
 };
 
 export type AgentLogOptions = {
   readonly sql: SqlStorage;
-  /** The agent's pseudonymous id: its Durable Object id's first 32 hex digits, as AI Gateway's `u`. */
-  readonly agentId: string;
+  /** The agent's pseudonymous id (`agentId` in src/log.ts): its Durable Object id's first 32 hex digits, as AI Gateway's `u`. */
+  readonly agentId: Safe<"agent">;
   /** Each Company's protocol log, by issuer, for the diagnostics; names the Companies. */
   readonly companyName?: (issuer: string) => { name: string; domain: string | null };
 };
 
 export class AgentLog extends LifecycleCapability implements Units {
-  readonly agentId: string;
+  readonly agentId: Safe<"agent">;
   readonly #options: AgentLogOptions;
   #turn: TurnState | null = null;
   /** Our own submissions, by operation id: who started them. Bounded. */
@@ -91,7 +91,7 @@ export class AgentLog extends LifecycleCapability implements Units {
   /** pi's submission ids to their operation ids, from pi's `submission` events. Bounded. */
   readonly #submissions = new Map<string, string>();
   /** The request that opened the page's socket, for the User's turns: its last `submit`. */
-  #userRequestId: string | null = null;
+  #userRequestId: Safe<"id"> | null = null;
   #watch: AgentEventStream | null = null;
 
   constructor(options: AgentLogOptions) {
@@ -104,19 +104,19 @@ export class AgentLog extends LifecycleCapability implements Units {
   // ---------------------------------------------------------------- Units
 
   /** A new event for this agent: its id, and a copy kept for the diagnostics. */
-  event(kind: EventKind, fields: Record<string, unknown> = {}): WideEvent {
+  event(kind: EventKind, fields: Fields = {}): WideEvent {
     return wideEvent(kind, { agent_id: this.agentId, ...fields }, { sink: (line, event) => this.#keep(line, event) });
   }
 
-  job<T>(fields: Record<string, unknown>, fn: (event: WideEvent) => Promise<T>): Promise<T> {
+  job<T>(fields: Fields, fn: (event: WideEvent) => Promise<T>): Promise<T> {
     return unit(this.event("job", fields), fn);
   }
 
-  frame<T>(type: string, fields: Record<string, unknown>, fn: (event: WideEvent) => Promise<T>): Promise<T> {
+  frame<T>(type: Safe, fields: Fields, fn: (event: WideEvent) => Promise<T>): Promise<T> {
     return unit(this.event("ws", { frame: type, ...fields }), fn);
   }
 
-  request<T>(fields: Record<string, unknown>, fn: (event: WideEvent) => Promise<T>): Promise<T> {
+  request<T>(fields: Fields, fn: (event: WideEvent) => Promise<T>): Promise<T> {
     return unit(this.event("http", fields), fn);
   }
 
@@ -131,10 +131,11 @@ export class AgentLog extends LifecycleCapability implements Units {
    * Called inside the unit doing it (a job, a frame, a request), whose
    * request id and name the turn keeps.
    */
-  submitted(operationId: string, trigger: Trigger, requestId?: string): void {
+  submitted(operationId: string, trigger: Trigger, requestId?: Safe<"id">): void {
     const parent = currentEvent();
-    const fromParent = typeof parent?.fields.request_id === "string" ? parent.fields.request_id : undefined;
-    const startedBy = parent ? [parent.kind, parent.fields.job ?? parent.fields.frame ?? parent.fields.route].filter((part) => typeof part === "string").join(":") : undefined;
+    const fromParent = id(parent?.fields.request_id);
+    const name = parent?.fields.job ?? parent?.fields.frame ?? parent?.fields.route;
+    const startedBy = parent ? join(typeof name === "string" ? [literal(parent.kind), name] : [literal(parent.kind)], ":") : undefined;
     this.#registered.set(operationId, {
       trigger,
       ...((requestId ?? fromParent) ? { requestId: requestId ?? fromParent } : {}),
@@ -193,17 +194,17 @@ export class AgentLog extends LifecycleCapability implements Units {
           break;
         case "message_end": {
           const message = event.entry.model?.[0];
-          if (this.#turn && message?.role === "assistant") this.#turn.stopReason = message.stopReason;
+          if (this.#turn && message?.role === "assistant") this.#turn.stopReason = literal(message.stopReason);
           break;
         }
         case "task_failed":
-          this.#openTurn("unknown").event.fail(named("TaskFailed", event.message), { code: code(event.kind) ?? "task_failed" });
+          this.#openTurn("unknown").event.fail(named("TaskFailed", event.message), { code: code(event.kind) ?? literal("task_failed") });
           break;
         case "compaction_start": {
           const turn = this.#openTurn("compaction");
           const compaction = (turn.compaction ??= { count: 0, reasons: [], blocking: false });
           compaction.count++;
-          if (compaction.reasons.length < 5) compaction.reasons.push(String(event.reason));
+          if (compaction.reasons.length < 5) compaction.reasons.push(literal(event.reason));
           compaction.blocking ||= event.blocking;
           break;
         }
@@ -223,7 +224,7 @@ export class AgentLog extends LifecycleCapability implements Units {
   /** The turn running now, opened if there is none (a call that came before its run's event). */
   #openTurn(trigger: Trigger): TurnState {
     if (this.#turn) return this.#turn;
-    const event = this.event("turn", { trigger });
+    const event = this.event("turn", { trigger: literal(trigger) });
     this.#turn = {
       event,
       run: false,
@@ -248,10 +249,11 @@ export class AgentLog extends LifecycleCapability implements Units {
     turn.run = true;
     const trigger: Trigger = registered?.trigger ?? "user";
     const requestId = registered ? registered.requestId : this.#userRequestId ?? undefined;
+    const turnId = id(first);
     turn.event.set({
-      trigger,
-      ...(first !== undefined ? { turn_id: first } : {}),
-      operation_ids: operations.slice(0, 10),
+      trigger: literal(trigger),
+      ...(turnId ? { turn_id: turnId } : {}),
+      operation_ids: operations.slice(0, 10).flatMap((operation) => id(operation) ?? []),
       ...(requestId ? { request_id: requestId } : {}),
       ...(registered?.startedBy ? { started_by: registered.startedBy } : {}),
       ...(resumed ? { resumed: true } : {})
@@ -267,12 +269,12 @@ export class AgentLog extends LifecycleCapability implements Units {
     const { event, model, last } = turn;
     if (last) {
       event.set({
-        lane: last.lane,
-        provider: last.provider,
-        model: last.model,
-        budget_pool: last.budgetPool,
+        lane: literal(last.lane),
+        provider: modelId(last.provider) ?? null,
+        model: modelId(last.model) ?? null,
+        budget_pool: last.budgetPool === "personal" ? literal("personal") : (domain(last.budgetPool) ?? null),
         ...(last.demoSpentUsd !== null ? { demo_spent_today_usd: round(last.demoSpentUsd + last.costUsd) } : {}),
-        ...(last.refused ? { refused_reason: last.refused } : {})
+        ...(last.refused ? { refused_reason: literal(last.refused) } : {})
       });
     }
     event.set({
@@ -280,17 +282,17 @@ export class AgentLog extends LifecycleCapability implements Units {
       tool_count: turn.toolCount,
       tool_calls: turn.tools,
       // Strings, for `contains(...)` in the Query Builder.
-      tools_used: [...new Set(turn.tools.map((call) => call.name))].join(" "),
-      tool_outcomes: [...new Set(turn.tools.map((call) => `${call.name}:${call.outcome}${call.issuers?.length ? `@${call.issuers.join(",")}` : ""}`))].join(" "),
+      tools_used: join([...new Set(turn.tools.map((call) => call.name))], " "),
+      tool_outcomes: join([...new Set(turn.tools.map(toolOutcome))], " "),
       ...(turn.readUrl ? { read_url: turn.readUrl } : {}),
       ...(turn.compaction ? { compaction: turn.compaction } : {}),
       ...(turn.stopReason ? { stop_reason: turn.stopReason } : {})
     });
     const errorCodes = Object.keys(model.errors);
-    if (model.count > 0 && model.refused === model.count) event.set({ outcome: "refused" });
-    else if (turn.stopReason === "aborted") event.set({ outcome: "aborted" });
+    if (model.count > 0 && model.refused === model.count) event.set({ outcome: literal("refused") });
+    else if (turn.stopReason === "aborted") event.set({ outcome: literal("aborted") });
     else if (turn.stopReason === "error" || (turn.stopReason === null && errorCodes.length > 0)) {
-      event.fail(named("ModelError", "The model call failed"), { code: last?.errorCode ?? errorCodes[0] ?? "error" });
+      event.fail(named("ModelError", "The model call failed"), { code: code(last?.errorCode) ?? code(errorCodes[0]) ?? literal("error") });
     }
     event.emit();
   }
@@ -307,8 +309,8 @@ export class AgentLog extends LifecycleCapability implements Units {
     tally.cache_write_tokens += call.cacheWriteTokens;
     tally.cost_usd += call.costUsd;
     tally.latency_ms += call.latencyMs;
-    const failed = call.lane === "none" ? `refused_${call.refused ?? "none"}` : call.errorCode;
-    if (failed && code(failed)) tally.errors[failed] = (tally.errors[failed] ?? 0) + 1;
+    const failed = call.lane === "none" ? code(`refused_${call.refused ?? "none"}`) : code(call.errorCode);
+    if (failed) tally.errors[failed] = (tally.errors[failed] ?? 0) + 1;
     turn.last = call;
   }
 
@@ -316,37 +318,37 @@ export class AgentLog extends LifecycleCapability implements Units {
   compactionSummary(outcome: { readonly summary: "ok" | "failed"; readonly stopReason?: string; readonly error?: unknown }): void {
     const turn = this.#openTurn("compaction");
     const compaction = (turn.compaction ??= { count: 0, reasons: [], blocking: false });
-    compaction.summary = outcome.summary;
+    compaction.summary = literal(outcome.summary);
     if (outcome.summary === "failed") {
-      turn.event.fail(outcome.error ?? named("SummaryFailed", "No usable summary"), { code: code(outcome.stopReason) ?? "summary_failed", step: "compaction", severe: false });
+      turn.event.fail(outcome.error ?? named("SummaryFailed", "No usable summary"), { code: code(outcome.stopReason) ?? literal("summary_failed"), step: literal("compaction"), severe: false });
     }
   }
 
-  /** `extension` with each tool's call counted on the turn running it. */
+  /** `extension` with each tool's call counted on the turn running it, by the name it is registered under. */
   instrument(extension: Extension): Extension {
     if (!extension.tools?.length) return extension;
     return {
       ...extension,
-      tools: extension.tools.map((tool) => ({
-        ...tool,
-        execute: (args, api, context) => this.tool(tool.name, () => tool.execute(args, api, context))
-      })) as ToolRegistration[]
+      tools: extension.tools.map((tool) => {
+        const name = toolName(tool.name) ?? UNNAMED_TOOL;
+        return { ...tool, execute: (args, api, context) => this.tool(name, () => tool.execute(args, api, context)) };
+      }) as ToolRegistration[]
     };
   }
 
   /** Run one tool call as part of the turn running now; outside any (a test calling a tool), as a turn of its own. */
-  async tool<R>(name: string, run: () => Promise<R>): Promise<R> {
+  async tool<R>(name: Safe<"tool">, run: () => Promise<R>): Promise<R> {
     const owned = this.#turn === null;
     const turn = this.#openTurn(owned ? "tool" : "unknown");
-    const call: ToolCall = { name: code(name) ?? "tool", outcome: "success", duration_ms: 0 };
+    const call: ToolCall = { name, outcome: literal("success"), duration_ms: 0 };
     const started = Date.now();
     try {
       const result = await inScope(turn.event, run, call);
       this.#classify(turn, call, result);
       return result;
     } catch (error) {
-      call.outcome = "error";
-      call.error_code = code((error as Error)?.name) ?? "error";
+      call.outcome = literal("error");
+      call.error_code = code((error as Error)?.name) ?? literal("error");
       throw error;
     } finally {
       call.duration_ms = Date.now() - started;
@@ -360,18 +362,19 @@ export class AgentLog extends LifecycleCapability implements Units {
   #classify(turn: TurnState, call: ToolCall, result: unknown): void {
     const { isError, details } = (result ?? {}) as { isError?: boolean; details?: unknown };
     const facts = (typeof details === "object" && details !== null && !Array.isArray(details) ? details : {}) as Record<string, unknown>;
+    const error = code(facts.error) ?? literal("error");
     if (isError) {
-      call.error_code = code(facts.error) ?? "error";
-      call.outcome = REFUSAL.test(call.error_code) ? "refused" : "error";
+      call.error_code = error;
+      call.outcome = REFUSAL.test(error) ? literal("refused") : literal("error");
     } else if (call.held) {
-      call.outcome = "held";
+      call.outcome = literal("held");
     }
     if (call.name === "read_url") {
       const read = (turn.readUrl ??= { count: 0, rendered: 0, statuses: [], errors: {} });
       read.count++;
       if (facts.via === "browser") read.rendered++;
       if (typeof facts.status === "number" && read.statuses.length < LIMITS.statuses) read.statuses.push(facts.status);
-      if (isError) read.errors[call.error_code ?? "error"] = (read.errors[call.error_code ?? "error"] ?? 0) + 1;
+      if (isError) read.errors[error] = (read.errors[error] ?? 0) + 1;
     }
   }
 
@@ -392,7 +395,7 @@ export class AgentLog extends LifecycleCapability implements Units {
     if (type === "abort" || type === "reset") {
       // Done by pi's socket glue after us; the event says it was asked for.
       const requestId = requestIdOf(socket);
-      this.event("ws", { frame: type, ...(requestId ? { request_id: requestId } : {}) }).emit();
+      this.event("ws", { frame: literal(type), ...(requestId ? { request_id: requestId } : {}) }).emit();
     }
     return false;
   }
@@ -455,7 +458,7 @@ export class AgentLog extends LifecycleCapability implements Units {
 }
 
 /** The request id the Worker put on the socket's upgrade URL (`/ws?request_id=`), kept across hibernation. */
-function requestIdOf(socket: WebSocket): string | null {
+function requestIdOf(socket: WebSocket): Safe<"id"> | null {
   let uri: unknown = (socket as { uri?: unknown }).uri;
   if (typeof uri !== "string") {
     try {
@@ -465,8 +468,17 @@ function requestIdOf(socket: WebSocket): string | null {
     }
   }
   if (typeof uri !== "string" || !URL.canParse(uri)) return null;
-  return code(new URL(uri).searchParams.get("request_id")) ?? null;
+  return id(new URL(uri).searchParams.get("request_id")) ?? null;
 }
+
+/** A tool call as `tool_outcomes` lists it: `name:outcome`, and `@` the Companies it reached. */
+function toolOutcome(call: ToolCall): Safe {
+  const outcome = join([call.name, call.outcome], ":");
+  return call.issuers?.length ? join([outcome, join(call.issuers, ",")], "@") : outcome;
+}
+
+/** The name a tool whose registered name isn't a plain identifier is counted under. */
+const UNNAMED_TOOL = toolName("tool")!;
 
 function named(name: string, message: string): Error {
   const error = new Error(message);

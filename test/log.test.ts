@@ -5,14 +5,15 @@
  * type and code; each agent keeps its newest events, pruned, for the User's
  * "Copy diagnostics"; and nothing but src/log.ts writes to the console.
  * The privacy check against every secret a Poppy flow carries is in
- * test/protocol-log.test.ts, with the protocol log's.
+ * test/protocol-log.test.ts, with the protocol log's; that a raw string
+ * is a type error in any event field is test/log-types.ts, under typecheck.
  */
 import { env } from "cloudflare:workers";
 import { runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { DIAGNOSTIC_EVENTS } from "../src/agent-log";
 import { base64url } from "../src/base64url";
-import { redact, SERVICE } from "../src/log";
+import { agentId as pseudonym, code, domain, id, literal, message, modelId, origin, redact, SERVICE, toolName, wideEvent } from "../src/log";
 import { routeOf } from "../src/index";
 import { agentNameFor } from "../src/session";
 import { agent, chat, connect, fetchWorker, follow, ORIGIN, person, until, wideEvents, wsRequest, type Agent } from "./agent-helpers";
@@ -228,6 +229,51 @@ describe("redaction", () => {
     expect(redact("Authorization: Bearer eyJhbGciOi.payload.sig")).toBe("Authorization: Bearer [secret]");
     expect(redact(`token ${"x".repeat(40)} refused`)).toBe("token [secret] refused");
     expect(redact("a".repeat(500))).toHaveLength(8);
+  });
+});
+
+describe("safe values", () => {
+  const email = "ada@example.com";
+  const token = `sk-ant-${"Ab3".repeat(12)}`;
+
+  it("are made only by constructors that refuse emails, tokens, URLs with queries and text", () => {
+    for (const unsafe of [email, token, "https://shop.example/orders?code=abc", "Call Mum at six", "x".repeat(200)]) {
+      expect(code(unsafe)).toBeUndefined();
+      expect(toolName(unsafe)).toBeUndefined();
+      expect(modelId(unsafe)).toBeUndefined();
+      expect(domain(unsafe)).toBeUndefined();
+      // An id may be a long random run (a Company's operation id), so only its field's name keeps a token out of it.
+      if (unsafe !== token) expect(id(unsafe)).toBeUndefined();
+    }
+    expect(code("insufficient_scope")).toBe("insufficient_scope");
+    expect(code("TypeError")).toBe("TypeError");
+    expect(id("schedule:sch_abc:1760270400000")).toBe("schedule:sch_abc:1760270400000");
+    expect(id(crypto.randomUUID())).toMatch(/^[0-9a-f-]{36}$/);
+    expect(origin("https://shop.example/orders/ord_1?code=abc#x")).toBe("https://shop.example");
+    expect(origin("https://ada:secret@shop.example/")).toBe("https://shop.example");
+    expect(origin(email)).toBeUndefined();
+    expect(origin("javascript:alert(1)")).toBeUndefined();
+    expect(domain("workspace.example")).toBe("workspace.example");
+    expect(toolName("read_url")).toBe("read_url");
+    expect(modelId("anthropic/claude-sonnet-5-5")).toBe("anthropic/claude-sonnet-5-5");
+    expect(() => pseudonym("not-an-id")).toThrow(TypeError);
+    expect(pseudonym("a".repeat(64))).toBe("a".repeat(32));
+  });
+
+  it("let free text in only redacted and bounded, and a literal that slipped past the types only as `unlisted`", () => {
+    expect(message(`${email} sent Bearer ${token} to https://shop.example/x?y=z`)).toBe("[email] sent Bearer [secret] to https://shop.example");
+    expect(message("w ".repeat(400)).length).toBeLessThanOrEqual(200);
+    expect(literal("/api/memories/{id}")).toBe("/api/memories/{id}");
+    expect(literal(email as "cast")).toBe("unlisted");
+  });
+
+  it("leave a field a constructor refused out of the event", () => {
+    const event = wideEvent("job", { job: literal("test"), operation_id: id(email), issuer: origin("https://shop.example/a") });
+    const line = JSON.parse(event.emit()) as Event;
+    expect(line.job).toBe("test");
+    expect(line.issuer).toBe("https://shop.example");
+    expect("operation_id" in line).toBe(false);
+    expect(JSON.stringify(line)).not.toContain(email);
   });
 });
 

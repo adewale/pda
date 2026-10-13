@@ -1,4 +1,4 @@
-import { recordPoppyExchange, reportError } from "../log";
+import { code, literal, origin, recordPoppyExchange, reportError } from "../log";
 import type { CompanyReport } from "../validator/index.ts";
 import type { Company } from "./discovery";
 import { PROTOCOL_LOG_LIMIT, type PoppyServerFrame, type ProtocolCompany, type ProtocolEntry, type ProtocolOutcome } from "./wire";
@@ -230,7 +230,7 @@ function insert(sql: Sql, row: Row): void {
     line(row.result)
   );
   // The same allowlisted fields, counted on the wide event of the work that made the request (src/log.ts).
-  recordPoppyExchange({ issuer: row.issuer, step: row.step, status: row.status ?? null, error: token(row.error), outcome: row.outcome });
+  recordPoppyExchange({ issuer: origin(row.issuer) ?? null, step: literal(row.step), status: row.status ?? null, error: code(row.error) ?? null, outcome: literal(row.outcome) });
 }
 
 /**
@@ -241,7 +241,7 @@ function safely(write: () => void): void {
   try {
     write();
   } catch (error) {
-    reportError(error, { source: "poppy.protocol_log", severe: false });
+    reportError(error, { source: literal("poppy.protocol_log"), severe: false });
   }
 }
 
