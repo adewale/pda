@@ -83,6 +83,10 @@ export type ScheduleView = {
   readonly lastOutcome: string | null;
   /** Why it is paused, when failed runs didn't pause it. */
   readonly pausedReason: string | null;
+  /** Tries at showing a reminder that failed: those of a retry waiting, or all of a failed one-off's. */
+  readonly attempts: number;
+  /** When the reminder being retried was due; null when none is. */
+  readonly retryDue: number | null;
 };
 
 function scheduleView(schedule: Schedule): ScheduleView {
@@ -97,7 +101,9 @@ function scheduleView(schedule: Schedule): ScheduleView {
     failures: schedule.failures,
     lastRun: schedule.lastRun,
     lastOutcome: schedule.lastOutcome,
-    pausedReason: schedule.pausedReason
+    pausedReason: schedule.pausedReason,
+    attempts: schedule.attempts,
+    retryDue: schedule.retryDue
   };
 }
 
@@ -189,7 +195,7 @@ export class PersonalAgent extends DurableObject<Env> {
       storage: ctx.storage,
       now: () => this.clockNow(),
       jobTime: (at) => this.scheduleJobTime(at),
-      showCard: (card) => this.poppy.client.host.showCard(card),
+      showCard: (card) => this.scheduleCard(card),
       startTask: (text, operationId) => this.scheduledTurn(text, operationId),
       taskEnded: async (operationId) => {
         const result = await this.harness.wait(operationId);
@@ -342,6 +348,11 @@ export class PersonalAgent extends DurableObject<Env> {
   /** Now, for the now and date_math tools, read_url's render limit, and when an attached photo is 30 days old. */
   protected clockNow(): number {
     return Date.now();
+  }
+
+  /** A reminder's or task's card, shown as every card is. Tests make it fail. */
+  protected async scheduleCard(card: Card): Promise<void> {
+    await this.poppy.client.host.showCard(card);
   }
 
   /** When the job queue wakes for a reminder, a task or a photo's deletion due at `at`. Tests move it out of the way and run jobs themselves. */
@@ -585,13 +596,13 @@ export class PersonalAgent extends DurableObject<Env> {
 
   // ---------------------------------------------------------------- Reminders and tasks (src/schedules.ts)
 
-  /** Every reminder and task waiting or paused, soonest first, for Settings. */
+  /** Every reminder and task waiting, paused or failed, soonest first, for Settings. */
   async listSchedules(identity: Profile): Promise<{ schedules: ScheduleView[]; limit: number }> {
     await this.recordIdentity(identity);
     return { schedules: this.schedules.list().map(scheduleView), limit: MAX_ACTIVE_SCHEDULES };
   }
 
-  /** Cancel one, as Settings' Cancel button does. */
+  /** Cancel one, or dismiss a failed one, as Settings' Cancel and Dismiss buttons do. */
   async cancelSchedule(identity: Profile, id: string): Promise<boolean> {
     await this.recordIdentity(identity);
     const cancelled = (await this.schedules.cancel(id)) !== null;

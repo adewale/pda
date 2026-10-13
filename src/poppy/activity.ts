@@ -463,7 +463,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
         issuer: "",
         company: "Your agent",
         account: null,
-        what: reminder ? "Reminded you" : row.outcome === "failed" ? "Couldn't run your scheduled task" : "Ran your scheduled task",
+        what: reminder ? (row.outcome === "failed" ? "Couldn't remind you" : "Reminded you") : row.outcome === "failed" ? "Couldn't run your scheduled task" : "Ran your scheduled task",
         quote: clip(row.text),
         quoteBy: "you",
         how: "schedule",

@@ -57,10 +57,10 @@ No tool approves, confirms or cancels anything. A scheduled task's run is a back
 | The date and time in the User's time zone, or another | `now` | No | `src/tools/clock.ts` |
 | Date arithmetic and differences, with weekdays | `date_math` | No | `src/tools/clock.ts` |
 | Exact sums, including money | `calculate` | No | `src/tools/calculate.ts` |
-| Remind the User at a time, once or daily, on weekdays or weekly: a card in the tray and a notification on their devices | `remind_me` | Only the User's own message sets one; no model call when it fires | `src/tools/schedules.ts`, `src/schedules.ts` |
+| Remind the User at a time, once or daily, on weekdays or weekly: a card in the tray and a notification on their devices; a card that can't be shown is tried again after 1, 5 and 30 minutes, then marked failed | `remind_me` | Only the User's own message sets one; no model call when it fires | `src/tools/schedules.ts`, `src/schedules.ts` |
 | Run the agent in the background at a time, or on a repeat, with the User's instruction | `schedule_task` | Only the User's own message sets one; the run's writes need approval as any turn's do, and its model calls count against the demo's caps | `src/tools/schedules.ts`, `src/schedules.ts` |
-| List reminders and tasks | `list_scheduled` | No | `src/tools/schedules.ts` |
-| Cancel one | `cancel_scheduled` | Only in a turn the User started; also Settings' Cancel | `src/tools/schedules.ts` |
+| List reminders and tasks waiting, paused or failed | `list_scheduled` | No | `src/tools/schedules.ts` |
+| Cancel one, or dismiss a failed one | `cancel_scheduled` | Only in a turn the User started; also Settings' Cancel and Dismiss | `src/tools/schedules.ts` |
 | Notifications on the User's devices (Web Push), for reminders and tasks | None: Settings' toggle | Turning them on is the User's action | `src/web-push.ts`, `src/ui/notifications.tsx`, `public/sw.js` |
 | Photos in the chat: kept in the agent, shown to the model, sent to a Company only in an approved upload | None: the composer, the agent's storage and a request hook | Sending one, on our own card | `src/attachments.ts`, `src/attachment-images.ts`, `src/ui/attachments.tsx` |
 | One never-ending conversation, summarised past about 150,000 tokens | None: a compaction hook | No | `src/compaction.ts` |

@@ -6,6 +6,7 @@ import type { Entitlement } from "../../src/model-router";
 import { Workspace } from "../../src/ui/shell";
 import type { PiSession, PoppyView } from "../../src/use-pi-session";
 import { toIssuer } from "../../src/poppy/issuer";
+import type { ScheduledItem } from "../../src/ui/scheduled";
 
 /**
  * The signed-in page (`src/ui/shell.tsx`) with a fixture in place of the
@@ -736,7 +737,7 @@ describe("memory settings", () => {
 });
 
 describe("scheduled settings", () => {
-  const ITEMS = [
+  const ITEMS: ScheduledItem[] = [
     {
       id: "sch_aaaaaaaaaa",
       kind: "reminder",
@@ -777,7 +778,7 @@ describe("scheduled settings", () => {
   ];
 
   /** `/api/schedules` answering `items`, recording each call; cancelling removes one as the agent would. */
-  function stubSchedules(items = ITEMS) {
+  function stubSchedules(items: readonly ScheduledItem[] = ITEMS) {
     let held = [...items];
     const calls: string[] = [];
     vi.stubGlobal(
@@ -809,6 +810,24 @@ describe("scheduled settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel reminder: Call the bank" }));
     await waitFor(() => expect(screen.queryByText("Call the bank")).toBeNull());
     expect(calls).toEqual(["GET /api/schedules", "DELETE /api/schedules/sch_aaaaaaaaaa", "GET /api/schedules"]);
+  });
+
+  it("says when a reminder couldn't be shown: a retry waiting, a one-off that failed with Dismiss, a repeat's missed one", async () => {
+    const base = { kind: "reminder", timeZone: "UTC", failures: 0, lastRun: null } as const;
+    const calls = stubSchedules([
+      { ...base, id: "sch_dddddddddd", text: "Call the bank", nextRun: Date.UTC(2026, 9, 12, 16, 1), repeats: "once", status: "active", lastOutcome: "retrying", attempts: 1, retryDue: Date.UTC(2026, 9, 12, 16, 0) },
+      { ...base, id: "sch_eeeeeeeeee", text: "Stretch", nextRun: Date.UTC(2026, 9, 13, 9, 0), repeats: "every day at 09:00", status: "active", lastOutcome: "failed", attempts: 0, retryDue: null },
+      { ...base, id: "sch_ffffffffff", text: "Post the letter", nextRun: null, repeats: "once", status: "failed", lastOutcome: "failed", attempts: 4, retryDue: null }
+    ]);
+    open("/settings");
+    const list = await screen.findByRole("list", { name: "Your reminders and tasks" });
+    const items = within(list).getAllByRole("listitem").map((item) => item.textContent);
+    expect(items[0]).toMatch(/^ReminderCall the bankCouldn't be shown at .*(16:00|04:00\s?PM).*; trying again at .*(16:01|04:01\s?PM).* \(UTC\)Cancel$/);
+    expect(items[1]).toMatch(/^ReminderStretchEvery day at 09:00 · next .* \(UTC\) · the last one couldn't be shownCancel$/);
+    expect(items[2]).toBe("ReminderPost the letterDidn't reach you: it couldn't be shown after 4 triesDismiss");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss reminder: Post the letter" }));
+    await waitFor(() => expect(screen.queryByText("Post the letter")).toBeNull());
+    expect(calls).toContain("DELETE /api/schedules/sch_ffffffffff");
   });
 
   it("says how to ask for one when nothing is scheduled", async () => {

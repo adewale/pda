@@ -5,7 +5,13 @@
  *
  * - A **reminder** shows an open notice card ("Reminder: …"), which the
  *   page puts in the needs-you tray, and goes to the User's devices by Web
- *   Push when they turned notifications on. No model call.
+ *   Push when they turned notifications on. No model call. The card is the
+ *   delivery: the run is recorded only once it is shown. A card that can't
+ *   be shown is tried again after a minute, five and thirty, under the same
+ *   card id, so a retry never shows two; after the fourth try the run is
+ *   `failed`, and a one-off reminder's row too. A push goes after the run
+ *   is recorded, so a retry never sends one twice, and a push that fails
+ *   never fails the run.
  * - A **task** starts a background model turn, as a Company message does,
  *   labelled `[scheduled task you set on <date>]` with the User's words
  *   verbatim. It gains no powers: writes still need an approval card or a
@@ -24,7 +30,7 @@ import { LifecycleCapability, type LifecycleJobContext, type LifecycleJobOutcome
 import { id as loggedId, literal, plainUnits, reportError, type Units } from "./log";
 import type { Card } from "./poppy/wire";
 import { formatDate, wallAt } from "./tools/clock";
-import { PAUSE_AFTER_FAILURES, ScheduleError, ScheduleStore, type NewSchedule, type Schedule } from "./tools/schedule-store";
+import { PAUSE_AFTER_FAILURES, REMINDER_ATTEMPTS, ScheduleError, ScheduleStore, type NewSchedule, type Schedule } from "./tools/schedule-store";
 
 import type { PushMessage } from "./web-push";
 
@@ -105,8 +111,9 @@ export class Scheduler extends LifecycleCapability {
     return cancelled;
   }
 
+  /** Every row waiting, paused or failed, for Settings and `list_scheduled`. */
   list(): Schedule[] {
-    return this.store.list();
+    return this.store.list(["active", "paused", "failed"]);
   }
 
   async #arm(schedule: Schedule): Promise<void> {
@@ -136,7 +143,8 @@ export class Scheduler extends LifecycleCapability {
     if (!schedule || schedule.status !== "active" || schedule.nextRun === null) return;
     // Woken early (another clock, a stale job): wait for the row's own time.
     if (schedule.nextRun > this.#options.now()) return { rescheduleAt: this.#options.jobTime(schedule.nextRun) };
-    const dueAt = schedule.nextRun;
+    const woke = schedule.nextRun;
+    const dueAt = this.store.dueAt(schedule)!;
     const units = this.#options.units ?? plainUnits;
     return units.job({ job: literal(JOB), schedule_id: loggedId(schedule.id), schedule_kind: literal(schedule.kind) }, async (event) => {
       if (!this.#maySignIn()) {
@@ -154,32 +162,40 @@ export class Scheduler extends LifecycleCapability {
       const run = this.store.run(`schedule:${schedule.id}:${dueAt}`);
       if (run?.outcome === "failed") event.level = "error";
       else if (run && event.level !== "error") event.set({ outcome: literal(run.outcome === "started" ? "started" : "success"), run: literal(run.outcome) });
-      return this.#afterRun(schedule.id, dueAt);
+      return this.#afterRun(schedule.id, woke);
     });
   }
 
   /** After a run: Activity changed, and the row's next job, if it still has one. */
-  #afterRun(id: string, dueAt: number): LifecycleJobOutcome | void {
+  #afterRun(id: string, woke: number): LifecycleJobOutcome | void {
     this.#options.changed();
     const after = this.store.get(id);
     if (!after || after.status !== "active" || after.nextRun === null) return;
     // A run that failed before the row moved on would wake again at once, and again: end the job instead (onStart re-arms it).
-    if (after.nextRun <= dueAt) return;
+    if (after.nextRun <= woke) return;
     return { rescheduleAt: this.#options.jobTime(after.nextRun) };
   }
 
   async #run(schedule: Schedule): Promise<void> {
-    const dueAt = schedule.nextRun!;
+    const dueAt = this.store.dueAt(schedule)!;
     const operationId = `schedule:${schedule.id}:${dueAt}`;
     // An alarm that ran this before, up to a crash: finish moving it on, nothing more.
-    if (this.store.run(operationId)) {
-      this.store.advance(schedule.id, dueAt, this.store.run(operationId)!.outcome);
+    const ran = this.store.run(operationId);
+    if (ran) {
+      this.store.advance(schedule.id, dueAt, ran.outcome, ran.outcome === "failed" ? "failed" : "done");
       return;
     }
     if (schedule.kind === "reminder") {
+      try {
+        // The same id on every try: showing it again replaces it rather than adding a second.
+        await this.#options.showCard({ id: `reminder-${schedule.id}-${dueAt}`, kind: "notice", company: "", open: true, text: `Reminder: ${schedule.text}` });
+      } catch (error) {
+        this.#undelivered(schedule, dueAt, operationId, error);
+        // On the job's event; the row already says when it is tried again.
+        throw error;
+      }
       this.store.recordRun(schedule, dueAt, "reminded", operationId);
       this.store.advance(schedule.id, dueAt, "reminded");
-      await this.#options.showCard({ id: `reminder-${schedule.id}-${dueAt}`, kind: "notice", company: "", open: true, text: `Reminder: ${schedule.text}` });
       await this.#push({ title: "Reminder", body: short(schedule.text), tag: `reminder-${schedule.id}` });
       return;
     }
@@ -191,13 +207,25 @@ export class Scheduler extends LifecycleCapability {
     }
     if (!start.ok) {
       this.store.recordRun(schedule, dueAt, "failed", operationId, start.reason);
-      this.store.advance(schedule.id, dueAt, "failed");
+      this.store.advance(schedule.id, dueAt, "failed", "failed");
       await this.#failed(schedule, dueAt, start.reason);
       return;
     }
     this.store.recordRun(schedule, dueAt, "started", operationId);
     this.store.advance(schedule.id, dueAt, "started");
     this.#settle(schedule.id, operationId);
+  }
+
+  /**
+   * A reminder's card couldn't be shown: wait and try again, or, once every
+   * try has failed, record the run as failed. A one-off's row is then
+   * `failed`, never `done`; a repeat goes on to its next time.
+   */
+  #undelivered(schedule: Schedule, dueAt: number, operationId: string, error: unknown): void {
+    if (this.store.retry(schedule.id, dueAt) !== null) return;
+    const reason = `The reminder couldn't be shown after ${REMINDER_ATTEMPTS} tries: ${error instanceof Error ? error.message : String(error)}`;
+    this.store.recordRun(schedule, dueAt, "failed", operationId, reason);
+    this.store.advance(schedule.id, dueAt, "failed", "failed");
   }
 
   /** Wait for a task's turn to end, then record how it went. */

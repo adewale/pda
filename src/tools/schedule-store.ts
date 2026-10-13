@@ -20,8 +20,15 @@ export const MAX_SCHEDULE_CHARS = 1000;
 export const MAX_AHEAD_MS = 366 * 86_400_000;
 /** A task that fails this many runs in a row is paused. */
 export const PAUSE_AFTER_FAILURES = 3;
-/** Finished rows (done or cancelled) kept, newest first, so the list stays bounded. */
+/** Finished rows (done, failed or cancelled) kept, the most recently finished first, so the list stays bounded. */
 export const KEEP_FINISHED = 100;
+/**
+ * How long to wait before showing a reminder again after its card couldn't
+ * be shown: a minute, five, then thirty. After the last, the run has failed.
+ */
+export const REMINDER_RETRIES_MS = [60_000, 5 * 60_000, 30 * 60_000] as const;
+/** Tries at showing one reminder: the first and each retry. */
+export const REMINDER_ATTEMPTS = REMINDER_RETRIES_MS.length + 1;
 /** Run records kept, newest first, for Activity. */
 export const KEEP_RUNS = 200;
 
@@ -30,7 +37,8 @@ export type Weekday = (typeof WEEKDAYS)[number];
 
 export type ScheduleKind = "reminder" | "task";
 export type Repeat = "daily" | "weekdays" | "weekly";
-export type ScheduleStatus = "active" | "paused" | "done" | "cancelled";
+/** `failed`: a one-off whose run failed (a reminder that couldn't be shown, a task that didn't run). */
+export type ScheduleStatus = "active" | "paused" | "done" | "failed" | "cancelled";
 
 /** How a row repeats: never, or at `time` (HH:MM) every day, every weekday (Monday to Friday) or every `weekday`. */
 export type Recurrence =
@@ -43,7 +51,7 @@ export type Schedule = {
   readonly kind: ScheduleKind;
   /** The reminder's text or the task's instruction, as the User said it. */
   readonly text: string;
-  /** When it runs next, in UTC ms; null once done or cancelled. */
+  /** When it runs next, in UTC ms (a retry's time while one waits); null once finished. */
   readonly nextRun: number | null;
   readonly recurrence: Recurrence;
   /** The IANA zone its times are in: the User's when it was set. */
@@ -58,6 +66,12 @@ export type Schedule = {
   readonly lastOutcome: string | null;
   /** Why it is paused, when something other than failed runs paused it. */
   readonly pausedReason: string | null;
+  /** Tries at showing the reminder now due that failed; 0 when none is being retried. */
+  readonly attempts: number;
+  /** When the run being retried was due; null when none is. `nextRun` is then the retry's time. */
+  readonly retryDue: number | null;
+  /** When it was done, failed or cancelled; null while active or paused. */
+  readonly finishedAt: number | null;
 };
 
 export type RunOutcome = "reminded" | "started" | "done" | "failed";
@@ -79,8 +93,7 @@ export class ScheduleError extends Error {
   override name = "ScheduleError";
 }
 
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS schedules (
+const SCHEDULES = `CREATE TABLE IF NOT EXISTS schedules (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('reminder', 'task')),
     text TEXT NOT NULL,
@@ -91,12 +104,17 @@ const SCHEMA = [
     time_zone TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     created_from TEXT NOT NULL UNIQUE,
-    status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'done', 'cancelled')),
+    status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'done', 'failed', 'cancelled')),
     failures INTEGER NOT NULL DEFAULT 0,
     last_run INTEGER,
-    last_outcome TEXT
-  )`,
-  `CREATE TABLE IF NOT EXISTS schedule_runs (
+    last_outcome TEXT,
+    paused_reason TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    retry_due INTEGER,
+    finished_at INTEGER
+  )`;
+
+const RUNS = `CREATE TABLE IF NOT EXISTS schedule_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     schedule_id TEXT NOT NULL,
     kind TEXT NOT NULL,
@@ -106,13 +124,25 @@ const SCHEMA = [
     outcome TEXT NOT NULL CHECK (outcome IN ('reminded', 'started', 'done', 'failed')),
     detail TEXT,
     operation_id TEXT NOT NULL UNIQUE
-  )`
-];
+  )`;
 
+/**
+ * Make the tables, or bring an older `schedules` up to date. One made before
+ * reminders were retried has neither `failed` in its status check nor the
+ * retry columns, and SQLite can't change a check in place: its rows are
+ * copied into a new table, with every column it had.
+ */
 export function migrateSchedules(sql: SqlStorage): void {
-  for (const statement of SCHEMA) sql.exec(statement);
-  const columns = sql.exec("PRAGMA table_info(schedules)").toArray() as { name: string }[];
-  if (!columns.some((column) => column.name === "paused_reason")) sql.exec("ALTER TABLE schedules ADD COLUMN paused_reason TEXT");
+  sql.exec(SCHEDULES);
+  sql.exec(RUNS);
+  const columns = (sql.exec("PRAGMA table_info(schedules)").toArray() as { name: string }[]).map((column) => column.name);
+  if (columns.includes("finished_at")) return;
+  sql.exec("ALTER TABLE schedules RENAME TO schedules_before_retries");
+  sql.exec(SCHEDULES);
+  const kept = columns.join(", ");
+  sql.exec(`INSERT INTO schedules (${kept}) SELECT ${kept} FROM schedules_before_retries`);
+  sql.exec("UPDATE schedules SET finished_at = COALESCE(last_run, created_at) WHERE status IN ('done', 'cancelled')");
+  sql.exec("DROP TABLE schedules_before_retries");
 }
 
 // ---------------------------------------------------------------- When
@@ -230,16 +260,19 @@ export const schedulesTable = table("schedules", {
   time_zone: text,
   created_at: integer,
   created_from: text,
-  status: textOf(literal("active", "paused", "done", "cancelled")),
+  status: textOf(literal("active", "paused", "done", "failed", "cancelled")),
   failures: integer,
   last_run: nullable(integer),
   last_outcome: nullable(text),
-  paused_reason: nullable(text)
+  paused_reason: nullable(text),
+  attempts: integer,
+  retry_due: nullable(integer),
+  finished_at: nullable(integer)
 });
 const scheduleRow = schedulesTable.row;
 type Row = RowOf<typeof scheduleRow>;
 
-const COLUMNS = "id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, status, failures, last_run, last_outcome, paused_reason";
+const COLUMNS = "id, kind, text, next_run, recurrence, local_time, weekday, time_zone, created_at, created_from, status, failures, last_run, last_outcome, paused_reason, attempts, retry_due, finished_at";
 
 function toRecurrence(row: Row): Recurrence {
   if (row.recurrence === "weekly") return { repeat: "weekly", time: String(row.local_time), weekday: (WEEKDAYS.find((day) => day === row.weekday) ?? "Monday") as Weekday };
@@ -261,7 +294,10 @@ function toSchedule(row: Row): Schedule {
     failures: row.failures,
     lastRun: row.last_run,
     lastOutcome: row.last_outcome,
-    pausedReason: row.paused_reason
+    pausedReason: row.paused_reason,
+    attempts: row.attempts,
+    retryDue: row.retry_due,
+    finishedAt: row.finished_at
   };
 }
 
@@ -380,31 +416,64 @@ export class ScheduleStore {
     return { schedule: toSchedule(row), created: true };
   }
 
-  /** Cancel an active or paused row; null if there is none to cancel. */
+  /** Cancel an active or paused row, or dismiss a failed one; null if there is none to cancel. */
   cancel(id: string): Schedule | null {
     const found = this.get(id);
-    if (!found || (found.status !== "active" && found.status !== "paused")) return null;
-    this.#sql.exec("UPDATE schedules SET status = 'cancelled', next_run = NULL WHERE id = ?", id);
+    if (!found || (found.status !== "active" && found.status !== "paused" && found.status !== "failed")) return null;
+    this.#sql.exec("UPDATE schedules SET status = 'cancelled', next_run = NULL, finished_at = ? WHERE id = ?", this.#now(), id);
     this.#prune();
     return this.get(id)!;
   }
 
+  /** When the run a row's job is for was due: the retried run's time while a retry waits, else its next run. */
+  dueAt(schedule: Schedule): number | null {
+    return schedule.retryDue ?? schedule.nextRun;
+  }
+
   /**
-   * After a run that was due at `dueAt`: a one-off is done; a repeat moves to
-   * its next time after both `dueAt` and now, so a late alarm doesn't run it
-   * twice to catch up.
+   * After a run that was due at `dueAt`: a one-off is done, or failed when
+   * `finish` says so; a repeat moves to its next time after both `dueAt` and
+   * now, so a late alarm doesn't run it twice to catch up. A retry ends.
    */
-  advance(id: string, dueAt: number, outcome: string): Schedule | undefined {
+  advance(id: string, dueAt: number, outcome: string, finish: "done" | "failed" = "done"): Schedule | undefined {
     const found = this.get(id);
     if (!found) return undefined;
     const now = this.#now();
     if (found.recurrence.repeat === "none") {
-      this.#sql.exec("UPDATE schedules SET status = CASE WHEN status = 'active' THEN 'done' ELSE status END, next_run = NULL, last_run = ?, last_outcome = ? WHERE id = ?", now, outcome, id);
+      this.#sql.exec(
+        "UPDATE schedules SET status = CASE WHEN status = 'active' THEN ? ELSE status END, next_run = NULL, last_run = ?, last_outcome = ?, retry_due = NULL, finished_at = ? WHERE id = ?",
+        finish,
+        now,
+        outcome,
+        now,
+        id
+      );
+      this.#prune();
     } else {
       const next = nextOccurrence(found.recurrence, Math.max(dueAt, now), found.timeZone);
-      this.#sql.exec("UPDATE schedules SET next_run = ?, last_run = ?, last_outcome = ? WHERE id = ?", next, now, outcome, id);
+      this.#sql.exec("UPDATE schedules SET next_run = ?, last_run = ?, last_outcome = ?, attempts = 0, retry_due = NULL WHERE id = ?", next, now, outcome, id);
     }
     return this.get(id);
+  }
+
+  /**
+   * The card for a reminder due at `dueAt` couldn't be shown: count the try
+   * and, while tries are left, run it again after the next wait
+   * (`REMINDER_RETRIES_MS`). Returns the retry's time, or null when every
+   * try has failed and the caller records the run as failed.
+   */
+  retry(id: string, dueAt: number): number | null {
+    const found = this.get(id);
+    if (!found) return null;
+    const attempts = found.attempts + 1;
+    const wait = REMINDER_RETRIES_MS[attempts - 1];
+    if (wait === undefined) {
+      this.#sql.exec("UPDATE schedules SET attempts = ? WHERE id = ?", attempts, id);
+      return null;
+    }
+    const at = this.#now() + wait;
+    this.#sql.exec("UPDATE schedules SET attempts = ?, retry_due = ?, next_run = ?, last_outcome = 'retrying' WHERE id = ?", attempts, dueAt, at, id);
+    return at;
   }
 
   /** A task run went well: its count of failures in a row starts again. */
@@ -412,9 +481,16 @@ export class ScheduleStore {
     this.#sql.exec("UPDATE schedules SET failures = 0, last_outcome = ? WHERE id = ?", outcome, id);
   }
 
-  /** A task run failed: count it, and pause the task at the third in a row. Returns whether this paused it. */
+  /**
+   * A task run failed: count it, mark a one-off failed rather than done, and
+   * pause the task at the third in a row. Returns whether this paused it.
+   */
   failed(id: string, outcome: string): boolean {
-    this.#sql.exec("UPDATE schedules SET failures = failures + 1, last_outcome = ? WHERE id = ?", outcome, id);
+    this.#sql.exec(
+      "UPDATE schedules SET failures = failures + 1, last_outcome = ?, status = CASE WHEN status = 'done' AND recurrence = 'none' THEN 'failed' ELSE status END WHERE id = ?",
+      outcome,
+      id
+    );
     const found = this.get(id);
     if (found && found.status === "active" && found.failures >= PAUSE_AFTER_FAILURES) {
       this.#sql.exec("UPDATE schedules SET status = 'paused' WHERE id = ?", id);
@@ -440,13 +516,16 @@ export class ScheduleStore {
     const now = this.#now();
     const paused = rows(this.#sql, scheduleRow, `SELECT ${COLUMNS} FROM schedules WHERE status = 'paused' AND paused_reason = ?`, reason).map(toSchedule);
     for (const schedule of paused) {
-      const next =
-        schedule.recurrence.repeat === "none"
-          ? Math.max(schedule.nextRun ?? now, now)
-          : schedule.nextRun !== null && schedule.nextRun > now
-            ? schedule.nextRun
-            : nextOccurrence(schedule.recurrence, now, schedule.timeZone);
-      this.#sql.exec("UPDATE schedules SET status = 'active', paused_reason = NULL, next_run = ? WHERE id = ?", next, schedule.id);
+      if (schedule.recurrence.repeat === "none") {
+        // A one-off keeps a retry it was waiting on, so its card keeps its id.
+        this.#sql.exec("UPDATE schedules SET status = 'active', paused_reason = NULL, next_run = ? WHERE id = ?", Math.max(schedule.nextRun ?? now, now), schedule.id);
+      } else if (schedule.nextRun !== null && schedule.nextRun > now) {
+        this.#sql.exec("UPDATE schedules SET status = 'active', paused_reason = NULL WHERE id = ?", schedule.id);
+      } else {
+        // A repeat goes on to its next time, and a retry of a time it missed is dropped.
+        const next = nextOccurrence(schedule.recurrence, now, schedule.timeZone);
+        this.#sql.exec("UPDATE schedules SET status = 'active', paused_reason = NULL, next_run = ?, attempts = 0, retry_due = NULL WHERE id = ?", next, schedule.id);
+      }
     }
     return paused.map((schedule) => this.get(schedule.id)!);
   }
@@ -488,10 +567,15 @@ export class ScheduleStore {
     return rows(this.#sql, runRow, "SELECT * FROM schedule_runs ORDER BY id DESC LIMIT ?", limit).map(toRun);
   }
 
-  /** Keep the newest finished rows only. */
+  /**
+   * Keep only the `KEEP_FINISHED` most recently finished rows, in one
+   * statement. Every change that finishes a row calls it, so however many
+   * finish together (one alarm running many due jobs), no more are kept.
+   */
   #prune(): void {
     this.#sql.exec(
-      "DELETE FROM schedules WHERE status IN ('done', 'cancelled') AND id NOT IN (SELECT id FROM schedules WHERE status IN ('done', 'cancelled') ORDER BY created_at DESC LIMIT ?)",
+      `DELETE FROM schedules WHERE status IN ('done', 'failed', 'cancelled') AND id NOT IN (
+         SELECT id FROM schedules WHERE status IN ('done', 'failed', 'cancelled') ORDER BY COALESCE(finished_at, created_at) DESC, rowid DESC LIMIT ?)`,
       KEEP_FINISHED
     );
   }

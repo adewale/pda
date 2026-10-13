@@ -21,7 +21,7 @@ import { POPPY_TIMEOUTS, type Fetcher, type PoppyTimeouts } from "../src/poppy/f
 import { buildActivity } from "../src/poppy/activity";
 import { readConversation } from "../src/poppy/conversations";
 import { protocolIndex, protocolLog } from "../src/poppy/protocol-log";
-import type { ProtocolCompany, ProtocolEntry } from "../src/poppy/wire";
+import type { Card, ProtocolCompany, ProtocolEntry } from "../src/poppy/wire";
 import { Sealer } from "../src/poppy/store";
 import { poppyExtension } from "../src/poppy/tools";
 import type { BrowserLauncher } from "../src/tools/render";
@@ -891,6 +891,23 @@ export class PersonalAgent extends ProductionAgent {
       preview: count("SELECT COUNT(*) AS n FROM attachment_chunks WHERE part = 'preview'"),
       job: job ? Number(job.time) : null
     };
+  }
+
+  /** `scheduleFailReminderCards`: reminder cards still to fail. */
+  #failingReminderCards = 0;
+
+  /** A reminder's card fails while `scheduleFailReminderCards` has any left, as if storing it had thrown. */
+  protected override async scheduleCard(card: Card): Promise<void> {
+    if (this.#failingReminderCards > 0 && card.id.startsWith("reminder-")) {
+      this.#failingReminderCards--;
+      throw new Error("The card couldn't be stored (a test fault)");
+    }
+    await super.scheduleCard(card);
+  }
+
+  /** The next `count` reminder cards fail. */
+  async scheduleFailReminderCards(count: number): Promise<void> {
+    this.#failingReminderCards = count;
   }
 
   /** A reminder or task made straight in the store, without the tools' check of whose turn it is (test setup). */

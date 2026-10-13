@@ -6,12 +6,12 @@
  * and runs the Durable Object's alarm itself (`runDurableObjectAlarm`).
  * Nothing calls the network: the model is the faux model.
  */
-import { evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
+import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { Identity } from "../src/session";
 import { base64url } from "../src/base64url";
 import { SIGNED_OUT } from "../src/schedules";
-import { MAX_ACTIVE_SCHEDULES } from "../src/tools/schedule-store";
+import { KEEP_FINISHED, MAX_ACTIVE_SCHEDULES, migrateSchedules, REMINDER_ATTEMPTS } from "../src/tools/schedule-store";
 import { agent, cards, chat, company, connect, fetchWorker, ORIGIN, person, sessionCookie, signInDirect, until, type Company } from "./agent-helpers";
 import { obey } from "./worker";
 
@@ -46,6 +46,18 @@ async function advanceTo(stub: Stub, at: number): Promise<void> {
 
 async function jobFor(stub: Stub, id: string): Promise<number> {
   return (await rows<{ n: number }>(stub, "SELECT COUNT(*) AS n FROM cf_agents_jobs WHERE id = ?", `schedule:${id}`))[0]!.n;
+}
+
+/** A browser's push subscription, with keys the push encryption accepts. */
+async function device(endpoint: string) {
+  const pair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
+  const p256dh = base64url(new Uint8Array((await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer));
+  return { endpoint, p256dh, auth: base64url(crypto.getRandomValues(new Uint8Array(16))) };
+}
+
+/** The reminder cards shown for one row. */
+async function reminderCards(stub: Stub, id: string) {
+  return (await cards({ stub })).filter((card) => String(card.id).startsWith(`reminder-${id}-`));
 }
 
 describe("the User's time zone", () => {
@@ -333,7 +345,8 @@ describe("a task that can't run", () => {
     expect(await runs(stub)).toEqual([
       { schedule_id: task.id, outcome: "failed", due_at: NOON + 60 * MINUTE, detail: expect.stringContaining("you've used today's demo allowance") }
     ]);
-    expect(await schedule(stub, task.id)).toMatchObject({ status: "done", failures: 1, last_outcome: "failed" });
+    // A one-off that didn't run is failed, not done.
+    expect(await schedule(stub, task.id)).toMatchObject({ status: "failed", failures: 1, last_outcome: "failed" });
     expect(await rows(stub, "SELECT operation_id FROM model_paused")).toEqual([]);
     socket.close();
   });
@@ -342,13 +355,6 @@ describe("a task that can't run", () => {
 describe("someone taken off the lists", () => {
   /** `SIGNIN_ALLOWLIST` naming nobody: with `SIGNUP` at `allowlist`, only `OWNERS` sign in. */
   const NOBODY = { emails: [], domains: [], github: {} };
-
-  /** A browser's push subscription, with keys the push encryption accepts. */
-  async function device(endpoint: string) {
-    const pair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
-    const p256dh = base64url(new Uint8Array((await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer));
-    return { endpoint, p256dh, auth: base64url(crypto.getRandomValues(new Uint8Array(16))) };
-  }
 
   it("pauses their due reminder and task: no card, no push, no model call, nothing deleted; back on the list, they start again", async () => {
     const identity = person();
@@ -417,5 +423,179 @@ describe("someone taken off the lists", () => {
     await advanceTo(stub, NOON + 120 * MINUTE);
     expect(await schedule(stub, dropped.id)).toMatchObject({ status: "paused" });
     expect((await runs(stub)).map((run) => run.schedule_id)).toEqual([kept.id]);
+  });
+});
+
+describe("a reminder whose card can't be shown", () => {
+  /** 17:00 in London, 16:00 UTC. */
+  const DUE = Date.UTC(2026, 9, 12, 16, 0);
+  const OK = "https://fcm.googleapis.com/fcm/send/ok";
+  const BROKEN = "https://fcm.googleapis.com/fcm/send/broken";
+  /** Each try's time: when due, then after a minute, five and thirty more. */
+  const TRIES = [DUE, DUE + MINUTE, DUE + 6 * MINUTE, DUE + 36 * MINUTE];
+
+  async function triesAttempted(stub: Stub, id: string) {
+    return (await rows<{ attempts: number; retry_due: number | null }>(stub, "SELECT attempts, retry_due FROM schedules WHERE id = ?", id))[0];
+  }
+
+  it("is tried again after a minute and then five, under the same card id, and recorded and pushed only once shown", async () => {
+    const identity = person();
+    const { stub } = await agent(identity);
+    await stub.addPushSubscription(identity, await device(OK));
+    await stub.addPushSubscription(identity, await device(BROKEN));
+    await stub.pushServe(BROKEN, 500);
+    await stub.setClock(NOON);
+    const reminder = await stub.scheduleCreate({ kind: "reminder", text: "Call the bank", when: { at: "2026-10-12T17:00" }, timeZone: "Europe/London" });
+    await stub.scheduleFailReminderCards(2);
+
+    await advanceTo(stub, DUE);
+    expect(await schedule(stub, reminder.id)).toMatchObject({ status: "active", next_run: DUE + MINUTE, last_outcome: "retrying" });
+    expect(await triesAttempted(stub, reminder.id)).toEqual({ attempts: 1, retry_due: DUE });
+    expect(await runs(stub)).toEqual([]);
+    expect(await reminderCards(stub, reminder.id)).toEqual([]);
+    expect(await stub.pushRequests()).toEqual([]);
+    expect(await jobFor(stub, reminder.id)).toBe(1);
+
+    // Not before the retry's time.
+    await advanceTo(stub, DUE + 30_000);
+    expect(await triesAttempted(stub, reminder.id)).toEqual({ attempts: 1, retry_due: DUE });
+
+    await advanceTo(stub, DUE + MINUTE);
+    expect(await schedule(stub, reminder.id)).toMatchObject({ status: "active", next_run: DUE + 6 * MINUTE });
+    expect(await triesAttempted(stub, reminder.id)).toEqual({ attempts: 2, retry_due: DUE });
+
+    await advanceTo(stub, DUE + 6 * MINUTE);
+    expect(await reminderCards(stub, reminder.id)).toEqual([expect.objectContaining({ id: `reminder-${reminder.id}-${DUE}`, open: true, text: "Reminder: Call the bank" })]);
+    expect(await runs(stub)).toEqual([{ schedule_id: reminder.id, outcome: "reminded", detail: null, due_at: DUE }]);
+    expect(await schedule(stub, reminder.id)).toMatchObject({ status: "done", next_run: null, last_outcome: "reminded" });
+    // One push to each device. The push service that failed doesn't fail the run or bring the card back; its device keeps the status.
+    expect((await stub.pushRequests()).map((request) => request.url).sort()).toEqual([BROKEN, OK]);
+    expect(await rows(stub, "SELECT endpoint, last_status FROM push_subscriptions ORDER BY endpoint")).toEqual([
+      { endpoint: BROKEN, last_status: 500 },
+      { endpoint: OK, last_status: 201 }
+    ]);
+    await advanceTo(stub, DUE + DAY);
+    expect(await runs(stub)).toHaveLength(1);
+    expect(await stub.pushRequests()).toHaveLength(2);
+    expect(await reminderCards(stub, reminder.id)).toHaveLength(1);
+  });
+
+  it(`fails after ${REMINDER_ATTEMPTS} tries: the run and the row say so, Settings lists it to dismiss, and nothing is pushed`, async () => {
+    const identity = person();
+    const { stub, cookie } = await agent(identity);
+    await stub.addPushSubscription(identity, await device(OK));
+    await stub.setClock(NOON);
+    const reminder = await stub.scheduleCreate({ kind: "reminder", text: "Call the bank", when: { at: "2026-10-12T17:00" }, timeZone: "Europe/London" });
+    await stub.scheduleFailReminderCards(REMINDER_ATTEMPTS);
+    for (const at of TRIES) await advanceTo(stub, at);
+
+    expect(await runs(stub)).toEqual([
+      { schedule_id: reminder.id, outcome: "failed", due_at: DUE, detail: `The reminder couldn't be shown after ${REMINDER_ATTEMPTS} tries: The card couldn't be stored (a test fault)` }
+    ]);
+    expect(await schedule(stub, reminder.id)).toMatchObject({ status: "failed", next_run: null, last_outcome: "failed" });
+    expect(await triesAttempted(stub, reminder.id)).toEqual({ attempts: REMINDER_ATTEMPTS, retry_due: null });
+    expect(await jobFor(stub, reminder.id)).toBe(0);
+    expect(await reminderCards(stub, reminder.id)).toEqual([]);
+    expect(await stub.pushRequests()).toEqual([]);
+    const activity = JSON.parse(await stub.poppyActivity()) as { log: Array<Record<string, unknown>> };
+    expect(activity.log.find((entry) => entry.kind === "scheduled")).toMatchObject({ what: "Couldn't remind you", quote: "Call the bank", result: "failed" });
+
+    const api = (path: string, init: RequestInit = {}) => fetchWorker(new Request(`${ORIGIN}${path}`, { ...init, headers: { Cookie: cookie, ...(init.headers ?? {}) } }));
+    const listed = (await (await api("/api/schedules")).json()) as { schedules: Array<Record<string, unknown>> };
+    expect(listed.schedules).toEqual([expect.objectContaining({ id: reminder.id, status: "failed", attempts: REMINDER_ATTEMPTS, nextRun: null, lastOutcome: "failed" })]);
+    expect((await api(`/api/schedules/${reminder.id}`, { method: "DELETE", headers: { Origin: ORIGIN } })).status).toBe(204);
+    expect(((await (await api("/api/schedules")).json()) as { schedules: unknown[] }).schedules).toEqual([]);
+    expect(await schedule(stub, reminder.id)).toMatchObject({ status: "cancelled" });
+    // Nothing more runs.
+    await advanceTo(stub, DUE + DAY);
+    expect(await runs(stub)).toHaveLength(1);
+  });
+
+  it("records a repeating reminder's failed run, and its next time still comes", async () => {
+    const { stub } = await agent();
+    await stub.setClock(NOON);
+    const reminder = await stub.scheduleCreate({ kind: "reminder", text: "Stretch", when: { every: { repeat: "daily", time: "16:00" } }, timeZone: "UTC" });
+    expect(reminder.nextRun).toBe(DUE);
+    await stub.scheduleFailReminderCards(REMINDER_ATTEMPTS);
+    for (const at of TRIES) await advanceTo(stub, at);
+    expect(await schedule(stub, reminder.id)).toMatchObject({ status: "active", next_run: DUE + DAY, last_outcome: "failed" });
+    expect(await triesAttempted(stub, reminder.id)).toEqual({ attempts: 0, retry_due: null });
+    expect(await jobFor(stub, reminder.id)).toBe(1);
+
+    await advanceTo(stub, DUE + DAY);
+    expect((await reminderCards(stub, reminder.id)).map((card) => card.id)).toEqual([`reminder-${reminder.id}-${DUE + DAY}`]);
+    expect((await runs(stub)).map((run) => [run.outcome, run.due_at])).toEqual([
+      ["failed", DUE],
+      ["reminded", DUE + DAY]
+    ]);
+    expect(await schedule(stub, reminder.id)).toMatchObject({ status: "active", next_run: DUE + 2 * DAY, last_outcome: "reminded" });
+  });
+});
+
+describe("finished reminders and tasks", () => {
+  const FINISHED = "SELECT id FROM schedules WHERE status IN ('done', 'failed', 'cancelled')";
+
+  it(`keeps only the ${KEEP_FINISHED} most recently finished, however many finish at once`, async () => {
+    const { stub } = await agent();
+    await stub.setClock(NOON);
+    // 110 finished long ago, written in place: through the tools, the cap of 20 waiting makes that a long setup.
+    await stub.poppySql(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 110)
+       INSERT INTO schedules (id, kind, text, recurrence, time_zone, created_at, created_from, status, finished_at)
+       SELECT 'sch_old' || i, 'reminder', 'Old ' || i, 'none', 'UTC', i, 'old:' || i, 'done', i FROM n`
+    );
+    const made: string[] = [];
+    for (let i = 0; i < MAX_ACTIVE_SCHEDULES; i++) made.push((await stub.scheduleCreate({ kind: "reminder", text: `Batch ${i}`, when: { in: "PT1H" }, timeZone: "UTC" })).id);
+    expect(await rows(stub, FINISHED)).toHaveLength(KEEP_FINISHED);
+
+    // All 20 come due together and finish in one alarm.
+    await advanceTo(stub, NOON + 60 * MINUTE);
+    expect(await runs(stub)).toHaveLength(MAX_ACTIVE_SCHEDULES);
+    const kept = (await rows<{ id: string }>(stub, FINISHED)).map((row) => row.id);
+    expect(kept).toHaveLength(KEEP_FINISHED);
+    expect(made.filter((id) => !kept.includes(id))).toEqual([]);
+    // The oldest went first.
+    expect(await rows(stub, "SELECT MIN(finished_at) AS oldest, COUNT(*) AS n FROM schedules WHERE id LIKE 'sch_old%'")).toEqual([{ oldest: 31, n: 80 }]);
+  });
+
+  it("brings a table made before retries up to date, keeping every row, so a one-off can be failed", async () => {
+    const { stub } = await agent();
+    const after = await runInDurableObject(stub, (_, state) => {
+      const sql = state.storage.sql;
+      sql.exec("DROP TABLE schedules");
+      sql.exec(`CREATE TABLE schedules (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('reminder', 'task')),
+        text TEXT NOT NULL,
+        next_run INTEGER,
+        recurrence TEXT NOT NULL CHECK (recurrence IN ('none', 'daily', 'weekdays', 'weekly')),
+        local_time TEXT,
+        weekday TEXT,
+        time_zone TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        created_from TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'done', 'cancelled')),
+        failures INTEGER NOT NULL DEFAULT 0,
+        last_run INTEGER,
+        last_outcome TEXT
+      )`);
+      sql.exec("ALTER TABLE schedules ADD COLUMN paused_reason TEXT");
+      sql.exec(
+        `INSERT INTO schedules (id, kind, text, next_run, recurrence, local_time, time_zone, created_at, created_from, status, failures, last_run, last_outcome) VALUES
+         ('sch_aaaaaaaaaa', 'reminder', 'Call the bank', NULL, 'none', NULL, 'UTC', 1, 'test:a', 'done', 0, 5, 'reminded'),
+         ('sch_bbbbbbbbbb', 'task', 'Check my parcel', NULL, 'none', NULL, 'UTC', 2, 'test:b', 'done', 1, 6, 'failed')`
+      );
+      migrateSchedules(sql);
+      sql.exec("UPDATE schedules SET status = 'failed' WHERE id = 'sch_bbbbbbbbbb'");
+      return {
+        rows: sql.exec("SELECT id, status, failures, last_outcome, attempts, retry_due, finished_at FROM schedules ORDER BY id").toArray(),
+        tables: sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'schedules%'").toArray()
+      };
+    });
+    expect(after.rows).toEqual([
+      { id: "sch_aaaaaaaaaa", status: "done", failures: 0, last_outcome: "reminded", attempts: 0, retry_due: null, finished_at: 5 },
+      { id: "sch_bbbbbbbbbb", status: "failed", failures: 1, last_outcome: "failed", attempts: 0, retry_due: null, finished_at: 6 }
+    ]);
+    expect(after.tables).toEqual([{ name: "schedules" }]);
   });
 });
