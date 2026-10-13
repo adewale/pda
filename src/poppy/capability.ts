@@ -35,6 +35,7 @@ import {
   submitCredentials,
   submitSignInCode
 } from "./signin";
+import { pendingSignOuts, recoverSignOuts, retrySignOut } from "./signout";
 import { protocolIndex, protocolLog, registerApiNamer } from "./protocol-log";
 import { rows } from "../rows";
 import { cardsTable, migrate } from "./store";
@@ -90,7 +91,7 @@ function html(status: number, message: string): Response {
 
 /**
  * Poppy as a Lifecycle capability on the person's Durable Object: it owns
- * the client, runs its durable jobs (conversation reads, device polling,
+ * the client, runs its durable jobs (conversation reads, device polling, sign-out retries,
  * operation tracking), takes `poppy.*` frames from the page before the chat
  * sees them, answers the Direct Sign-In callback, and pushes cards.
  */
@@ -210,6 +211,8 @@ export class PoppyCapability extends LifecycleCapability {
       await recoverInterruptedApprovals(this.client);
       // A Direct Sign-In the restart interrupted: finish it, or start a new Session (4.5).
       await recoverSignIns(this.client).catch((error: unknown) => reportError(error, { source: literal("poppy.signin_recovery") }));
+      // A sign-out the restart caught before its first try: try it now.
+      await recoverSignOuts(this.client).catch((error: unknown) => reportError(error, { source: literal("poppy.signout_recovery") }));
     });
   }
 
@@ -357,6 +360,17 @@ export class PoppyCapability extends LifecycleCapability {
         maxUses: row.max_uses,
         uses: row.uses,
         expiresAt: row.expires_at
+      })),
+      // Never the token: what the page shows about each sign-out the Company hasn't accepted.
+      signOuts: pendingSignOuts(client).map((row) => ({
+        id: row.id,
+        issuer: row.issuer,
+        company: name(row.issuer),
+        account: row.account,
+        error: row.last_error,
+        attempts: row.attempts,
+        expiresAt: row.expires_at,
+        nextAt: row.next_at
       }))
     };
     if (socket) socket.send(JSON.stringify(frame));
@@ -534,7 +548,8 @@ export class PoppyCapability extends LifecycleCapability {
     const fields: Fields = {
       job: literal(fn),
       ...(fn === "poppy-read" ? { conversation_id: id(payload.id) } : {}),
-      ...(fn === "poppy-operation" ? { operation_id: id(payload.id), issuer: origin(payload.issuer) } : {})
+      ...(fn === "poppy-operation" ? { operation_id: id(payload.id), issuer: origin(payload.issuer) } : {}),
+      ...(fn === "poppy-revoke" ? { issuer: origin(payload.issuer) } : {})
     };
     return this.#units.job(fields, async (event) => {
       let next: number | null = null;
@@ -546,6 +561,9 @@ export class PoppyCapability extends LifecycleCapability {
           if (next === null) await this.#afterSignIn();
         } else if (fn === "poppy-operation" && payload.id && payload.issuer) {
           next = await trackOperation(client, payload.issuer, payload.id);
+        } else if (fn === "poppy-revoke" && payload.id) {
+          // A sign-out the Company refused: try again (signout.ts). Its notice resends the Companies page.
+          next = await retrySignOut(client, payload.id);
         }
       } catch (error) {
         event.fail(error);

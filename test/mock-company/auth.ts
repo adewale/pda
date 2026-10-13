@@ -329,6 +329,11 @@ export class AuthServer {
     const client = await co.authenticateClient(form, co.hosts.revocationEndpoint);
     // RFC 7009 makes the hint optional: recorded, never required.
     co.revocationHints.push(form.get("token_type_hint"));
+    // A Company that won't accept it yet: the token stays live (a test sets how many times).
+    if (co.revocationsRefused < co.config.refuseRevocations) {
+      co.revocationsRefused += 1;
+      throw oauthError(401, "invalid_client", "Client authentication failed");
+    }
     const token = co.accountTokens.get(form.get("token") ?? "");
     // RFC 7009: unknown tokens still get 200.
     if (token && token.clientId === client.clientId) this.revokeToken(token.value);

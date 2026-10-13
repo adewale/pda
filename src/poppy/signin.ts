@@ -649,16 +649,5 @@ export async function cancelSignIn(client: PoppyClient, id: string): Promise<voi
   await finish(client, row, { ok: false, message: "the User cancelled it" });
 }
 
-/** Sign out of one account: revoke its Account Token (spec 4.9). */
-export async function signOut(client: PoppyClient, issuer: Issuer, account: string): Promise<void> {
-  const company = client.companyByIssuer(issuer);
-  await client.revokeAccount(company, account);
-  await client.host.showCard({
-    id: `signout-${issuer}-${account}`,
-    kind: "notice",
-    company: company.name,
-    domain: company.domain,
-    open: false,
-    text: `Signed out of ${company.name}. Open tasks there continue signed out.`
-  });
-}
+/** Signing out (spec 4.9) lives in signout.ts. */
+export { signOut } from "./signout";

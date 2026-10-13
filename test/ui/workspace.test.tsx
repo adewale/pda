@@ -54,7 +54,7 @@ function session(patch: Partial<PiSession> = {}, poppy: Partial<PoppyView> = {})
     error: null,
     status: "open",
     catalog: [],
-    poppy: { cards: [], accounts: [], permissions: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
+    poppy: { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
     submit: (text: string) => void submitted.push(text),
     abort: () => undefined,
     reset: () => undefined,
@@ -489,6 +489,34 @@ describe("companies page", () => {
       { type: "poppy.direct.close", conversationId: "c1" },
       { type: "poppy.signout", issuer: toIssuer("https://auth.acme.example"), account: "a***@example.com" }
     ]);
+  });
+
+  it("lists a sign-out the Company hasn't accepted, says the access is still live, and tries again", () => {
+    const issuer = toIssuer("https://auth.globex.example");
+    const expiresAt = Date.UTC(2026, 10, 12, 9, 30);
+    const signOuts = [
+      { id: "so_1", issuer, company: "Globex", account: "g***@example.com", error: "invalid_client", attempts: 2, expiresAt, nextAt: Date.now() + 10 * 60_000 },
+      { id: "so_2", issuer, company: "Globex", account: "work", error: "invalid_client", attempts: 5, expiresAt: null, nextAt: null }
+    ];
+    const { sent } = open("/companies", session({}, { accounts, signOuts }));
+    // In the table: no account there, but not simply signed out either.
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("Sign-out not accepted yet")).toBeTruthy();
+    fireEvent.click(within(table).getByRole("button", { name: "Globex" }));
+    // Its page: what happened, the code, the tries, until when access stays live, and what the agent does next.
+    const list = screen.getByRole("list", { name: "Sign-outs not accepted by Globex" });
+    const [first, second] = within(list).getAllByRole("listitem");
+    expect(within(first!).getByText("Sign-out not accepted by Globex yet (invalid_client)")).toBeTruthy();
+    expect(first!.textContent).toContain("Your agent no longer uses this account, but the access Globex granted stays live there until");
+    expect(first!.querySelector("time")!.getAttribute("dateTime")).toBe(new Date(expiresAt).toISOString());
+    expect(first!.textContent).toContain(", unless you revoke it at Globex.");
+    expect(first!.textContent).toContain("Tried 2 times · Trying again at");
+    expect(second!.textContent).toContain("stays live there until you revoke it at Globex.");
+    expect(second!.textContent).toContain("Tried 5 times · Your agent has stopped trying");
+    // No empty "Not signed in" state while access is still live.
+    expect(screen.queryByText("Not signed in")).toBeNull();
+    fireEvent.click(within(second!).getByRole("button", { name: "Try again" }));
+    expect(sent).toEqual([{ type: "poppy.signout", issuer, account: "work" }]);
   });
 
   it("says what will appear when there are no Companies", () => {

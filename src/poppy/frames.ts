@@ -68,7 +68,8 @@ export const serverFrame: Decoder<PoppyServerFrame> = tagged("type", {
   "poppy.settings": object({
     type: literal("poppy.settings"),
     accounts: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["accounts"][number]>()),
-    permissions: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["permissions"][number]>())
+    permissions: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["permissions"][number]>()),
+    signOuts: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["signOuts"][number]>())
   }),
   "poppy.activity": object({
     type: literal("poppy.activity"),

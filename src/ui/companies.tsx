@@ -1,10 +1,10 @@
 import { Table } from "@cloudflare/kumo";
-import { ArrowLeftIcon, ChatsIcon, ShieldCheckIcon, StorefrontIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, ChatsIcon, ShieldCheckIcon, StorefrontIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useId, useState, type FormEvent } from "react";
-import type { ConnectedAccount, Permission, PoppyClientFrame } from "../poppy/wire";
+import type { ConnectedAccount, PendingSignOut, Permission, PoppyClientFrame } from "../poppy/wire";
 import type { PoppyView } from "../use-pi-session";
 import { Action, EmptyState, PageHeader, Section, Truncated } from "./controls";
-import { ACCESS, accessOfScope, ago, untilDate } from "./format";
+import { ACCESS, accessOfScope, ago, fullDate, untilDate, when } from "./format";
 import type { Issuer } from "../poppy/issuer";
 
 type Send = (frame: PoppyClientFrame) => void;
@@ -15,17 +15,20 @@ type CompanyRow = {
   readonly name: string;
   readonly accounts: readonly ConnectedAccount[];
   readonly permissions: readonly Permission[];
+  /** Sign-outs this Company hasn't accepted yet. */
+  readonly signOuts: readonly PendingSignOut[];
 };
 
 function companiesOf(view: PoppyView): CompanyRow[] {
-  const byIssuer = new Map<Issuer, { name: string; accounts: ConnectedAccount[]; permissions: Permission[] }>();
+  const byIssuer = new Map<Issuer, { name: string; accounts: ConnectedAccount[]; permissions: Permission[]; signOuts: PendingSignOut[] }>();
   const entry = (issuer: Issuer, name: string) => {
     let found = byIssuer.get(issuer);
-    if (!found) byIssuer.set(issuer, (found = { name, accounts: [], permissions: [] }));
+    if (!found) byIssuer.set(issuer, (found = { name, accounts: [], permissions: [], signOuts: [] }));
     return found;
   };
   for (const account of view.accounts) entry(account.issuer, account.company).accounts.push(account);
   for (const permission of view.permissions) entry(permission.issuer, permission.company).permissions.push(permission);
+  for (const signOut of view.signOuts) entry(signOut.issuer, signOut.company).signOuts.push(signOut);
   return [...byIssuer.entries()]
     .map(([issuer, row]) => ({ issuer, ...row }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -168,6 +171,48 @@ function AddPermission({ company, send }: { company: CompanyRow; send: Send }) {
   );
 }
 
+/**
+ * Sign-outs the Company hasn't accepted: the agent no longer uses the
+ * account, but the access it granted is still live there. Said plainly, with
+ * until when, and a way to try again.
+ */
+function SignOutsNotAccepted({ company, send }: { company: CompanyRow; send: Send }) {
+  return (
+    <ul className="divide-y divide-kumo-hairline rounded-xl ring ring-kumo-danger" aria-label={`Sign-outs not accepted by ${company.name}`}>
+      {company.signOuts.map((signOut) => (
+        <li key={signOut.id} className="flex flex-wrap items-center gap-x-6 gap-y-2 p-4">
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="flex items-center gap-1.5 text-base font-medium text-kumo-danger">
+              <WarningCircleIcon size={16} aria-hidden />
+              <span>
+                Sign-out not accepted by {company.name} yet ({signOut.error ?? "no_answer"})
+              </span>
+            </p>
+            <Truncated text={signOut.account} className="text-[13px] text-kumo-subtle" />
+            <p className="text-[13px] text-pretty text-kumo-default">
+              Your agent no longer uses this account, but the access {company.name} granted stays live there{" "}
+              {signOut.expiresAt === null ? (
+                <>until you revoke it at {company.name}.</>
+              ) : (
+                <>
+                  until <time dateTime={new Date(signOut.expiresAt).toISOString()}>{fullDate(signOut.expiresAt)}</time>, unless you revoke it at {company.name}.
+                </>
+              )}
+            </p>
+            <p className="text-[13px] text-kumo-subtle tabular-nums">
+              Tried {signOut.attempts} {signOut.attempts === 1 ? "time" : "times"} ·{" "}
+              {signOut.nextAt === null ? "Your agent has stopped trying" : <>Trying again at {when(signOut.nextAt)}</>}
+            </p>
+          </div>
+          <Action variant="secondary" onClick={() => send({ type: "poppy.signout", issuer: signOut.issuer, account: signOut.account })}>
+            Try again
+          </Action>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; view: PoppyView; send: Send; onBack: () => void }) {
   const conversations = (view.activity?.inProgress ?? []).filter((task) => task.kind === "conversation" && task.issuer === company.issuer);
   return (
@@ -179,8 +224,8 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
         <PageHeader title={company.name} description={<code className="font-mono text-[13px] break-all">{company.issuer}</code>} />
       </div>
 
-      <Section title="Accounts" description="Accounts your agent is signed in to. Signing out removes its access there.">
-        {company.accounts.length === 0 ? (
+      <Section title="Accounts" description="Accounts your agent is signed in to. Signing out stops your agent using the account at once, and asks the Company to revoke the access it granted.">
+        {company.accounts.length === 0 && company.signOuts.length === 0 ? (
           <EmptyState icon={<StorefrontIcon size={20} />} title="Not signed in">
             Your agent asks you to sign in at {company.name} when a task needs your account.
           </EmptyState>
@@ -202,6 +247,7 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
             ))}
           </ul>
         )}
+        {company.signOuts.length ? <SignOutsNotAccepted company={company} send={send} /> : null}
       </Section>
 
       <Section title="Standing permissions" description={`Your agent approves ${company.name}'s proposals that match, within these limits. Anything else still asks you.`}>
@@ -312,7 +358,15 @@ export function CompaniesPage({
                         </button>
                       ) : null}
                     </Table.Cell>
-                    <Table.Cell className="max-w-56 max-md:max-w-none max-md:p-0!">{account ? <Truncated text={account.account} /> : <span className="text-kumo-subtle">Signed out</span>}</Table.Cell>
+                    <Table.Cell className="max-w-56 max-md:max-w-none max-md:p-0!">
+                      {account ? (
+                        <Truncated text={account.account} />
+                      ) : row.signOuts.length ? (
+                        <span className="text-kumo-danger">Sign-out not accepted yet</span>
+                      ) : (
+                        <span className="text-kumo-subtle">Signed out</span>
+                      )}
+                    </Table.Cell>
                     <Table.Cell className="max-md:p-0!">{account ? <AccessCell scope={account.scope} /> : null}</Table.Cell>
                     <Table.Cell className="whitespace-nowrap max-md:hidden">{account ? untilDate(account.expiresAt) : null}</Table.Cell>
                     <Table.Cell className="tabular-nums max-sm:hidden">{index === 0 ? row.permissions.length : null}</Table.Cell>

@@ -651,8 +651,9 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     const c = await company(domain);
     const session = agent.client.session(c.issuer, label(params));
     if (!session?.account) return { revoked: false };
-    await signOut(agent.client, c.issuer, session.account);
-    return { revoked: true };
+    // The agent stops using the account either way; `revoked` says whether the Company accepted the revocation.
+    const outcome = await signOut(agent.client, c.issuer, session.account);
+    return { revoked: outcome !== "not_accepted" };
   },
 
   /**

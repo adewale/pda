@@ -58,7 +58,7 @@ export type PoppyHost = {
   readonly timeouts?: PoppyTimeouts;
 };
 
-export type JobName = "poppy-read" | "poppy-device" | "poppy-operation";
+export type JobName = "poppy-read" | "poppy-device" | "poppy-operation" | "poppy-revoke";
 
 /**
  * An OAuth or Poppy error from a Company, with its code (spec 4.2, 6, 7.13).
@@ -304,6 +304,17 @@ export class PoppyClient {
     const next = previous.then(work, work);
     this.#locks.set(issuer, next.catch(() => undefined));
     return next;
+  }
+
+  /**
+   * Run `work` with no other token-endpoint exchange for this Company beside
+   * it: renewals and sign-ins with an Account Token wait until it is done.
+   * Signing out (signout.ts) runs so, so no renewal uses the account, or
+   * renews its Sessions, while the revocation is under way. `work` must not
+   * itself ask for a token.
+   */
+  exclusive<T>(issuer: Issuer, work: () => Promise<T>): Promise<T> {
+    return this.#serial(issuer, work);
   }
 
   constructor(host: PoppyHost) {
@@ -676,9 +687,18 @@ export class PoppyClient {
       : rows(this.sql, accountRow, "SELECT * FROM poppy_accounts");
   }
 
+  /**
+   * The additional data an Account Token is sealed with: its issuer, the
+   * User ID there and its account, so it opens only for its own account. A
+   * token waiting to be revoked (signout.ts) keeps it.
+   */
+  accountContext(issuer: Issuer, account: string): string {
+    return `account|${issuer}|${this.userId(issuer)}|${account}`;
+  }
+
   /** The Account Token itself, decrypted only for a token-endpoint request. */
   async #accountToken(row: AccountRow): Promise<string> {
-    const context = `account|${row.issuer}|${this.userId(row.issuer)}|${row.account}`;
+    const context = this.accountContext(row.issuer, row.account);
     const { plaintext, current } = await this.sealer.openChecked(row.token, context);
     // Sealed under TOKEN_ENC_KEY_PREVIOUS, or before values were versioned: seal it again under the current key.
     if (!current) {
@@ -701,7 +721,7 @@ export class PoppyClient {
     scope: string,
     expiresInSeconds: number | undefined
   ): Promise<void> {
-    const sealed = await this.sealer.seal(token, `account|${issuer}|${this.userId(issuer)}|${account}`);
+    const sealed = await this.sealer.seal(token, this.accountContext(issuer, account));
     this.sql.exec(
       `INSERT OR REPLACE INTO poppy_accounts (issuer, account, token, scope, expires_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -726,20 +746,6 @@ export class PoppyClient {
     for (const key of [...this.#tokens.keys()]) {
       if (key.startsWith(`${issuer}|${label}|`)) this.#tokens.delete(key);
     }
-  }
-
-  /** Revoke an Account Token at the Company (spec 4.9); local state goes regardless. */
-  async revokeAccount(company: Company, account: string): Promise<void> {
-    const row = this.account(company.issuer, account);
-    if (!row) return;
-    const token = await this.#accountToken(row);
-    this.deleteAccount(company.issuer, account);
-    await this.oauthRequest(
-      company,
-      company.endpoints.revocation,
-      async () => ({ token, token_type_hint: "refresh_token" }),
-      { dpop: false }
-    );
   }
 
   // ---------------------------------------------------------------- Session Tokens
@@ -984,10 +990,7 @@ export class PoppyClient {
     this.#saveSession(company.issuer, label, response, account);
     // After a step-up the old Account Token is replaced; revoke it (4.4).
     if (previous && response.refresh_token) {
-      const oldToken = await this.sealer.open(
-        previous.token,
-        `account|${company.issuer}|${this.userId(company.issuer)}|${account}`
-      );
+      const oldToken = await this.sealer.open(previous.token, this.accountContext(company.issuer, account));
       if (oldToken !== response.refresh_token) {
         await this.oauthRequest(
           company,
