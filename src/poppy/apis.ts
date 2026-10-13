@@ -4,9 +4,10 @@ import { PoppyClient, PoppyError, scopeSet, withAnswer } from "./client";
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
-import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
+import { handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal, type Operation } from "./operations";
 import { randomId } from "./jwt";
-import { firstTime, intent } from "./store";
+import { EndpointRequest, type RequestInit } from "./outgoing";
+import { firstTime, intent, type Sql } from "./store";
 
 type Api = Company["apis"][number];
 
@@ -390,8 +391,10 @@ export async function describeOpenApi(client: PoppyClient, company: Company, api
   };
 }
 
-type OpenApiCall = {
+/** An OpenAPI call as the model asked for it, and as an approval stores it. */
+export type OpenApiCall = {
   readonly apiUrl: string;
+  /** The operation's `operationId`, or `METHOD /path` when it has none. */
   readonly operation: string;
   readonly params: Readonly<Record<string, string | number | boolean>>;
   readonly body?: Json;
@@ -399,26 +402,6 @@ type OpenApiCall = {
   readonly files?: Readonly<Record<string, string>>;
   readonly idempotencyKey?: string;
 };
-
-/**
- * A `multipart/form-data` body: `body`'s members as text fields, and each
- * file field the stored attachment it names, with its name and type. The
- * bytes are read here, as the request is made, never earlier.
- */
-function multipartBody(client: PoppyClient, call: OpenApiCall): FormData {
-  const form = new FormData();
-  if (isObject(call.body ?? null)) {
-    for (const [name, value] of Object.entries(call.body as Record<string, Json>)) {
-      if (value !== null && value !== undefined) form.append(name, typeof value === "string" ? value : JSON.stringify(value));
-    }
-  }
-  for (const [field, id] of Object.entries(call.files ?? {})) {
-    const found = readAttachment(client.sql, id);
-    if (!found) throw new PoppyError("no_attachment", `The User's attachment ${id} is gone (deleted, or past its 30 days), so nothing was sent`, 0);
-    form.append(field, new Blob([found.bytes], { type: found.info.type }), found.info.name);
-  }
-  return form;
-}
 
 /**
  * The narrower scope a read-only lookup asks for (Guides), or null to use
@@ -446,7 +429,6 @@ function given(params: OpenApiCall["params"], name: string): OpenApiCall["params
  * only reach the wrong resource. So is a value that fills a whole segment
  * with nothing, `.` or `..`.
  */
-
 export function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): string {
   for (const parameter of op.parameters) {
     if (parameter.required && given(params, parameter.name) === undefined) {
@@ -481,6 +463,22 @@ export function pathFor(op: OpenApiOperation, params: OpenApiCall["params"]): st
 }
 
 /**
+ * The description's server must be one the agent may send a Session Token:
+ * one of the Company's hosts, since `servers` can name any host and Session
+ * Tokens (and the User's files) go only to the Company's (N10), over HTTPS (4.3).
+ */
+function refuseServer(company: Company, api: Api, url: URL): void {
+  if (!tokenHostAllowed(company, url)) {
+    throw new PoppyError(
+      "untrusted_server",
+      `${api.url} names the server ${url.origin}, which isn't one of ${company.name}'s hosts (not listed in its poppy.json, nor under ${company.domain} or its poppy_domains), so the agent won't send it a Session Token`,
+      0
+    );
+  }
+  if (url.protocol !== "https:") throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
+}
+
+/**
  * An API call never reaches a Poppy endpoint, whatever the description lists:
  * the model could otherwise confirm an operation itself (Ops 5.1) or send a
  * message as the User (7.8).
@@ -497,185 +495,12 @@ function refuseProtocolEndpoint(company: Company, url: URL): void {
 }
 
 /**
- * The description's server, if it is one of the Company's hosts: `servers`
- * can name any host, and Session Tokens (and the User's files) go only to the
- * Company's (N10).
- */
-function serverOf(company: Company, api: Api, document: OpenApiDocument): URL {
-  const url = new URL(document.base);
-  if (!tokenHostAllowed(company, url)) {
-    throw new PoppyError(
-      "untrusted_server",
-      `${api.url} names the server ${url.origin}, which isn't one of ${company.name}'s hosts (not listed in its poppy.json, nor under ${company.domain} or its poppy_domains), so the agent won't send it a Session Token`,
-      0
-    );
-  }
-  return url;
-}
-
-async function performOpenApi(client: PoppyClient, company: Company, label: string, call: OpenApiCall): Promise<Json> {
-  const api = findApi(company, "openapi", call.apiUrl);
-  const document = await openApi(client, api);
-  const op = findOperation(document, call.operation);
-  // Checked again as the request is made: a card shown before this check existed may still be approved.
-  refuseOutsidePoppy(company, op);
-  const url = serverOf(company, api, document);
-  const path = pathFor(op, call.params);
-  for (const parameter of op.parameters) {
-    const value = given(call.params, parameter.name);
-    if (parameter.in === "query" && value !== undefined) url.searchParams.set(parameter.name, String(value));
-  }
-  url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
-  refuseProtocolEndpoint(company, url);
-  // Read-only lookups ask for a read-only token when the account allows (Guides).
-  const write =
-    op.method === "GET"
-      ? null
-      : `${op.method} ${url.href} ${JSON.stringify(call.body ?? null)}${call.files ? ` ${JSON.stringify(call.files)}` : ""}`;
-  if (write) refuseWhileConfirming(client, company.issuer, write);
-  const readOnly = op.method === "GET" ? readOnlyScope(client.session(company.issuer, label)?.scope, op) : null;
-  // An upload, or an operation that takes only multipart/form-data, sends a form; anything else JSON.
-  const form = call.files || (op.upload && !op.upload.json && call.body !== undefined) ? multipartBody(client, call) : null;
-  const response = await client.resource(
-    company,
-    {
-      method: op.method,
-      url: url.href,
-      ...(form ? { form } : call.body !== undefined ? { body: call.body } : {}),
-      ...(call.idempotencyKey ? { headers: { "Idempotency-Key": call.idempotencyKey } } : {})
-    },
-    {
-      label,
-      ...(api.resource ? { resource: api.resource } : {}),
-      ...(readOnly ? { scope: readOnly } : {})
-    }
-  );
-  const text = await client.readBody(response);
-  let body: Json = null;
-  try {
-    body = text ? parseStrictJson(text) : null;
-  } catch {
-    body = text.slice(0, 4_000);
-  }
-  if (response.status === 403 && isObject(body) && body.error === "extension_required") {
-    const extension = typeof body.extension === "string" ? body.extension : undefined;
-    throw withAnswer(
-      new PoppyError(
-        "extension_required",
-        `${company.name} requires the extension ${extension ?? "(unnamed)"}, which this agent doesn't support`,
-        403,
-        { body, ...(extension ? { extension } : {}) }
-      ),
-      403
-    );
-  }
-  // An endpoint that would perform an action proposes an operation instead (Ops 4.1).
-  if (response.status === 202 && isObject(body) && isObject(body.operation)) {
-    const operation = await handleProposal(client, company, label, body.operation);
-    if (operation) {
-      if (write) rememberProposal(client, company.issuer, write, operation.operation_id);
-      return { status: 202, proposed: { operation_id: operation.operation_id, revision: operation.revision, summary: operation.summary }, note: "Nothing has happened yet; the User decides on the approval card." };
-    }
-    return { status: 202, unusable: true, note: UNUSABLE, body };
-  }
-  return { status: response.status, body };
-}
-
-const UNUSABLE = "The Company proposed an operation the agent can't use, so nothing was done and nothing can be approved; the User has been told.";
-
-/**
- * Call an OpenAPI operation with a DPoP Session Token. Reads go straight
- * through. A write goes straight to the Company only when it has the
- * Operations extension and the description says this operation answers with
- * a proposal (`proposes`); any other write, and every upload, waits for the
- * User's approval on our own card first, fixed per tool call. A write sent
- * straight through carries a stored `Idempotency-Key` where the API accepts
- * one; where it doesn't, it is sent at most once per tool call, so a replay
- * after a crash says so instead of sending it again.
- */
-export async function callOpenApi(
-  client: PoppyClient,
-  company: Company,
-  label: string,
-  request: {
-    apiUrl?: string;
-    operation: string;
-    params?: Record<string, string | number | boolean>;
-    body?: Json;
-    /** For a `multipart/form-data` upload: each file field's attachment id. */
-    files?: Record<string, string>;
-    callKey: string;
-  }
-): Promise<Json> {
-  const api = findApi(company, "openapi", request.apiUrl);
-  const document = await openApi(client, api);
-  const op = findOperation(document, request.operation);
-  // A call that can't fill the path, one that would reach a Poppy endpoint,
-  // or a write outside the Poppy Session is refused now, before a token
-  // request or an approval card.
-  refuseProtocolEndpoint(company, new URL(`${document.base}${pathFor(op, request.params ?? {})}`));
-  refuseOutsidePoppy(company, op);
-  const files = request.files && Object.keys(request.files).length ? request.files : undefined;
-  // A JSON body (not a form's fields) is checked against the operation's schema, before a card.
-  if (!(files || (op.upload && !op.upload.json && request.body !== undefined))) checkBody(company, op, request.body);
-  // A file the User would be asked to send must be one we'd send: to the Company's own host, checked before the card.
-  if (files) serverOf(company, api, document);
-  const attached = files ? uploadedFiles(client, company, op, files) : [];
-  const call: OpenApiCall = {
-    apiUrl: api.url,
-    operation: op.operationId,
-    params: request.params ?? {},
-    ...(request.body !== undefined ? { body: request.body } : {}),
-    ...(files ? { files } : {}),
-    ...(op.method !== "GET" && op.acceptsIdempotencyKey
-      ? { idempotencyKey: intent(client.sql, `idem|${request.callKey}`, () => crypto.randomUUID()) }
-      : {})
-  };
-  if (files) {
-    // The User's photo leaves their agent only when they say so, at any Company:
-    // the Operations extension covers what a Company does, not what we send it.
-    const names = attached.map((info) => `“${info.name}” (${info.type.replace("image/", "").toUpperCase()}, ${humanSize(info.size)})`).join(" and ");
-    const id = await proposeLocal(
-      client,
-      company,
-      label,
-      "openapi",
-      `Send your ${attached.length === 1 ? "photo" : "photos"} ${names} to ${company.name}: ${op.method} ${op.path} (${op.summary || op.operationId})${request.body !== undefined ? ` with ${JSON.stringify(request.body)}` : ""}`,
-      { issuer: company.issuer, call } as unknown as Json,
-      { id: intent(client.sql, `approval|${request.callKey}`, () => randomId("apr_")), attachments: attached }
-    );
-    return { proposed: id, note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
-  }
-  if (op.method === "GET") return performOpenApi(client, company, label, call);
-  if (company.extensions.operations && op.proposes) {
-    if (!call.idempotencyKey && !firstTime(client.sql, `sent|${request.callKey}`)) {
-      throw new PoppyError(
-        "interrupted",
-        `This call to ${company.name} was interrupted after it may have been sent, and the operation takes no Idempotency-Key, so it isn't sent again. Check poppy_status for a proposal from ${company.name} before asking again.`,
-        0
-      );
-    }
-    return performOpenApi(client, company, label, call);
-  }
-  const id = await proposeLocal(
-    client,
-    company,
-    label,
-    "openapi",
-    `${company.name}: ${op.method} ${op.path} (${op.summary || op.operationId}) with ${JSON.stringify({ params: call.params, body: call.body ?? null })}`,
-    { issuer: company.issuer, call } as unknown as Json,
-    { id: intent(client.sql, `approval|${request.callKey}`, () => randomId("apr_")) }
-  );
-  return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
-}
-
-/**
  * The attachments an upload names, checked before anything is asked or sent:
  * the operation takes `multipart/form-data`, each field is one of its file
  * fields, each id is an attachment this agent holds, and every required file
  * field is given.
  */
-function uploadedFiles(client: PoppyClient, company: Company, op: OpenApiOperation, files: Record<string, string>): AttachmentInfo[] {
+function uploadedFiles(client: PoppyClient, company: Company, op: OpenApiOperation, files: Readonly<Record<string, string>>): AttachmentInfo[] {
   const upload = op.upload;
   if (!upload) {
     throw new PoppyError("invalid_request", `${op.method} ${op.path} at ${company.name} takes no file: its request body isn't multipart/form-data`, 0);
@@ -698,24 +523,264 @@ function uploadedFiles(client: PoppyClient, company: Company, op: OpenApiOperati
 }
 
 /**
- * An approved write. An answer other than 2xx is an error the receipt names
- * with its status and code (operations.ts), never "done": the request was
- * sent as approved, and the Company didn't do it as far as it says.
+ * An OpenAPI call the agent may send, exactly as it will be sent. Only
+ * `check` makes one, and it runs every rule once: the operation is in the
+ * Company's description and inside its Poppy Session, the server is HTTPS on
+ * one of the Company's hosts, the path and query are filled from the call,
+ * the URL is no Poppy endpoint, and a JSON body matches its schema or an
+ * upload names the User's attachments. The approval card shows it, an
+ * approved call goes through `check` again before it is sent, and
+ * `PoppyClient.resource` takes nothing else for an API, so what was checked
+ * is what is sent.
+ */
+export class CheckedApiRequest {
+  readonly #sql: Sql;
+
+  private constructor(
+    sql: Sql,
+    readonly company: Company,
+    readonly api: Api,
+    readonly op: OpenApiOperation,
+    readonly call: OpenApiCall,
+    /** The full URL: server, filled path and query. */
+    readonly url: string,
+    /** The User's files an upload sends: names, types and sizes, never the bytes. */
+    readonly attachments: readonly AttachmentInfo[]
+  ) {
+    this.#sql = sql;
+  }
+
+  get method(): string {
+    return this.op.method;
+  }
+
+  /** An upload, or an operation that takes only `multipart/form-data`, sends a form; anything else JSON. */
+  get multipart(): boolean {
+    return this.call.files !== undefined || (this.op.upload !== undefined && !this.op.upload.json && this.call.body !== undefined);
+  }
+
+  /**
+   * What identifies a write for `refuseWhileConfirming`: method, URL, body and
+   * files. Null for a read. Stored in `poppy_proposals`, so its form is fixed.
+   */
+  get write(): string | null {
+    if (this.method === "GET") return null;
+    return `${this.method} ${this.url} ${JSON.stringify(this.call.body ?? null)}${this.call.files ? ` ${JSON.stringify(this.call.files)}` : ""}`;
+  }
+
+  /** The approval card's words: the Company, the method, the exact path and query, and the body. */
+  describe(): string {
+    const url = new URL(this.url);
+    const what = `${this.method} ${url.pathname}${url.search} (${this.op.summary || this.op.operationId})`;
+    const body = this.call.body !== undefined ? ` with ${JSON.stringify(this.call.body)}` : "";
+    if (!this.attachments.length) return `${this.company.name}: ${what}${body}`;
+    const names = this.attachments.map((info) => `“${info.name}” (${info.type.replace("image/", "").toUpperCase()}, ${humanSize(info.size)})`).join(" and ");
+    return `Send your ${this.attachments.length === 1 ? "photo" : "photos"} ${names} to ${this.company.name}: ${what}${body}`;
+  }
+
+  /**
+   * The request itself. A `multipart/form-data` body is built here, as the
+   * request is made, never earlier: `body`'s members as text fields, and each
+   * file field the stored attachment it names, with its name and type.
+   */
+  init(): RequestInit {
+    const headers = this.call.idempotencyKey ? { headers: { "Idempotency-Key": this.call.idempotencyKey } } : {};
+    if (!this.multipart) return { method: this.method, url: this.url, ...(this.call.body !== undefined ? { body: this.call.body } : {}), ...headers };
+    const form = new FormData();
+    if (isObject(this.call.body ?? null)) {
+      for (const [name, value] of Object.entries(this.call.body as Record<string, Json>)) {
+        if (value !== null && value !== undefined) form.append(name, typeof value === "string" ? value : JSON.stringify(value));
+      }
+    }
+    for (const [field, id] of Object.entries(this.call.files ?? {})) {
+      const found = readAttachment(this.#sql, id);
+      if (!found) throw new PoppyError("no_attachment", `The User's attachment ${id} is gone (deleted, or past its 30 days), so nothing was sent`, 0);
+      form.append(field, new Blob([found.bytes], { type: found.info.type }), found.info.name);
+    }
+    return { method: this.method, url: this.url, form, ...headers };
+  }
+
+  /**
+   * Check a call against the Company's description, now. `idempotencyKey`
+   * is asked for only for a write whose description declares the header.
+   */
+  static async check(
+    client: PoppyClient,
+    company: Company,
+    request: {
+      readonly apiUrl?: string;
+      readonly operation: string;
+      readonly params?: OpenApiCall["params"];
+      readonly body?: Json;
+      readonly files?: OpenApiCall["files"];
+      readonly idempotencyKey?: string | (() => string);
+    }
+  ): Promise<CheckedApiRequest> {
+    const api = findApi(company, "openapi", request.apiUrl);
+    const document = await openApi(client, api);
+    const op = findOperation(document, request.operation);
+    const params = request.params ?? {};
+    const url = new URL(document.base);
+    url.pathname = `${url.pathname.replace(/\/+$/, "")}${pathFor(op, params)}`;
+    for (const parameter of op.parameters) {
+      const value = given(params, parameter.name);
+      if (parameter.in === "query" && value !== undefined) url.searchParams.set(parameter.name, String(value));
+    }
+    refuseProtocolEndpoint(company, url);
+    refuseOutsidePoppy(company, op);
+    refuseServer(company, api, url);
+    const files = request.files && Object.keys(request.files).length ? request.files : undefined;
+    const key = op.method !== "GET" && op.acceptsIdempotencyKey ? request.idempotencyKey : undefined;
+    const call: OpenApiCall = {
+      apiUrl: api.url,
+      operation: op.operationId,
+      params,
+      ...(request.body !== undefined ? { body: request.body } : {}),
+      ...(files ? { files } : {}),
+      ...(key !== undefined ? { idempotencyKey: typeof key === "string" ? key : key() } : {})
+    };
+    const checked = new CheckedApiRequest(client.sql, company, api, op, call, url.href, files ? uploadedFiles(client, company, op, files) : []);
+    // A JSON body (not a form's fields) is checked against the operation's schema.
+    if (!checked.multipart) checkBody(company, op, call.body);
+    return checked;
+  }
+}
+
+/** What a sent API call got back. */
+type ApiAnswer =
+  | { readonly kind: "answered"; readonly status: number; readonly body: Json }
+  /** A 202 with an operation we stored: nothing has happened yet (Ops 4.1). */
+  | { readonly kind: "proposed"; readonly operation: Operation }
+  /** A 202 with an operation we can't use: nothing was done, and the User has been told. */
+  | { readonly kind: "unusable"; readonly body: Json };
+
+const UNUSABLE = "The Company proposed an operation the agent can't use, so nothing was done and nothing can be approved; the User has been told.";
+
+function answerForModel(answer: ApiAnswer): Json {
+  if (answer.kind === "answered") return { status: answer.status, body: answer.body };
+  if (answer.kind === "unusable") return { status: 202, unusable: true, note: UNUSABLE, body: answer.body };
+  const { operation_id, revision, summary } = answer.operation;
+  return { status: 202, proposed: { operation_id, revision, summary }, note: "Nothing has happened yet; the User decides on the approval card." };
+}
+
+/** Send a checked call, and read what came back. */
+async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRequest): Promise<ApiAnswer> {
+  const { company, op, api, write } = checked;
+  if (write) refuseWhileConfirming(client, company.issuer, write);
+  // Read-only lookups ask for a read-only token when the account allows (Guides).
+  const readOnly = op.method === "GET" ? readOnlyScope(client.session(company.issuer, label)?.scope, op) : null;
+  const response = await client.resource(company, checked, {
+    label,
+    ...(api.resource ? { resource: api.resource } : {}),
+    ...(readOnly ? { scope: readOnly } : {})
+  });
+  const text = await client.readBody(response);
+  let body: Json = null;
+  try {
+    body = text ? parseStrictJson(text) : null;
+  } catch {
+    body = text.slice(0, 4_000);
+  }
+  if (response.status === 403 && isObject(body) && body.error === "extension_required") {
+    const extension = typeof body.extension === "string" ? body.extension : undefined;
+    throw withAnswer(
+      new PoppyError(
+        "extension_required",
+        `${company.name} requires the extension ${extension ?? "(unnamed)"}, which this agent doesn't support`,
+        403,
+        { body, ...(extension ? { extension } : {}) }
+      ),
+      403
+    );
+  }
+  // An endpoint that would perform an action proposes an operation instead (Ops 4.1).
+  if (response.status === 202 && isObject(body) && isObject(body.operation)) {
+    const operation = await handleProposal(client, company, label, body.operation);
+    if (!operation) return { kind: "unusable", body };
+    if (write) rememberProposal(client, company.issuer, write, operation.operation_id);
+    return { kind: "proposed", operation };
+  }
+  return { kind: "answered", status: response.status, body };
+}
+
+/**
+ * Call an OpenAPI operation with a DPoP Session Token. Every rule is checked
+ * first (`CheckedApiRequest.check`), before a token request or a card. Reads
+ * go straight through. A write goes straight to the Company only when it has
+ * the Operations extension and the description says this operation answers
+ * with a proposal (`proposes`); any other write, and every upload, waits for
+ * the User's approval on our own card first, fixed per tool call. A write
+ * sent straight through carries a stored `Idempotency-Key` where the API
+ * accepts one; where it doesn't, it is sent at most once per tool call, so a
+ * replay after a crash says so instead of sending it again.
+ */
+export async function callOpenApi(
+  client: PoppyClient,
+  company: Company,
+  label: string,
+  request: {
+    apiUrl?: string;
+    operation: string;
+    params?: Record<string, string | number | boolean>;
+    body?: Json;
+    /** For a `multipart/form-data` upload: each file field's attachment id. */
+    files?: Record<string, string>;
+    callKey: string;
+  }
+): Promise<Json> {
+  const checked = await CheckedApiRequest.check(client, company, {
+    ...request,
+    idempotencyKey: () => intent(client.sql, `idem|${request.callKey}`, () => crypto.randomUUID())
+  });
+  const approvalId = () => intent(client.sql, `approval|${request.callKey}`, () => randomId("apr_"));
+  if (checked.attachments.length) {
+    // The User's photo leaves their agent only when they say so, at any Company:
+    // the Operations extension covers what a Company does, not what we send it.
+    const id = await proposeLocal(client, company, label, "openapi", checked.describe(), { issuer: company.issuer, call: checked.call } as unknown as Json, {
+      id: approvalId(),
+      attachments: checked.attachments
+    });
+    return { proposed: id, note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
+  }
+  if (checked.method === "GET") return answerForModel(await sendApi(client, label, checked));
+  if (company.extensions.operations && checked.op.proposes) {
+    if (!checked.call.idempotencyKey && !firstTime(client.sql, `sent|${request.callKey}`)) {
+      throw new PoppyError(
+        "interrupted",
+        `This call to ${company.name} was interrupted after it may have been sent, and the operation takes no Idempotency-Key, so it isn't sent again. Check poppy_status for a proposal from ${company.name} before asking again.`,
+        0
+      );
+    }
+    return answerForModel(await sendApi(client, label, checked));
+  }
+  const id = await proposeLocal(client, company, label, "openapi", checked.describe(), { issuer: company.issuer, call: checked.call } as unknown as Json, {
+    id: approvalId()
+  });
+  return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
+}
+
+/**
+ * An approved write: the stored call checked again, now, then sent. An answer
+ * other than 2xx is an error the receipt names with its status and code
+ * (operations.ts), never "done": the request was sent as approved, and the
+ * Company didn't do it as far as it says. Nor is a proposal we can't use.
  */
 registerExecutor("openapi", async (client, request, label) => {
   const { issuer, call } = request as unknown as { issuer: string; call: OpenApiCall };
   const company = client.companyByIssuer(issuer);
-  const result = await performOpenApi(client, company, label, call);
-  const status = isObject(result) && typeof result.status === "number" ? result.status : 200;
-  if (status < 200 || status >= 300) {
-    const body = isObject(result) ? (result.body ?? null) : null;
+  const answer = await sendApi(client, label, await CheckedApiRequest.check(client, company, call));
+  if (answer.kind === "unusable") {
+    throw withAnswer(new PoppyError("unusable_proposal", `${company.name} proposed an operation the agent can't use, so nothing was done`, 202), 202);
+  }
+  if (answer.kind === "answered" && (answer.status < 200 || answer.status >= 300)) {
+    const { status, body } = answer;
     const code = isObject(body) && typeof body.error === "string" ? body.error : `http_${status}`;
     throw withAnswer(
       new PoppyError(code, `${company.name} answered ${status}: ${JSON.stringify(body).slice(0, 1_000)}`, status, body !== null ? { body } : {}),
       status
     );
   }
-  return JSON.stringify(result).slice(0, 2_000);
+  return JSON.stringify(answerForModel(answer)).slice(0, 2_000);
 });
 
 // ---------------------------------------------------------------- MCP
@@ -774,7 +839,7 @@ async function mcpRequest(client: PoppyClient, company: Company, label: string, 
   // MCP uses Bearer tokens, each issued for this server's url only (spec 4.3).
   const response = await client.resource(
     company,
-    {
+    EndpointRequest.mcp(company, {
       method: "POST",
       url: api.url,
       body: { jsonrpc: "2.0", id, method, params },
@@ -783,7 +848,7 @@ async function mcpRequest(client: PoppyClient, company: Company, label: string, 
         "MCP-Protocol-Version": MCP_VERSION,
         ...(session?.sessionId ? { "Mcp-Session-Id": session.sessionId } : {})
       }
-    },
+    }),
     { label, bearer: true, resource: api.url }
   );
   if (response.status === 404 && session?.sessionId) {
@@ -811,13 +876,13 @@ async function mcpSession(client: PoppyClient, company: Company, label: string, 
   // `notifications/initialized` is a notification: no id, and no answer to wait for.
   const response = await client.resource(
     company,
-    {
+    EndpointRequest.mcp(company, {
       method: "POST",
       url: api.url,
       body: { jsonrpc: "2.0", method: "notifications/initialized" },
       accept: "application/json, text/event-stream",
       headers: { "MCP-Protocol-Version": MCP_VERSION, ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}) }
-    },
+    }),
     { label, bearer: true, resource: api.url }
   );
   await response.body?.cancel();

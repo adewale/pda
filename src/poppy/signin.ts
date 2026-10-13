@@ -3,6 +3,7 @@ import { covers, grantedScope, PoppyClient, PoppyError, registerSignInRecovery, 
 import type { Company, SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
+import { EndpointRequest } from "./outgoing";
 import { one, rows } from "./store";
 import type { ScopeInfo } from "./wire";
 
@@ -598,7 +599,7 @@ export async function submitCredentials(
   try {
     const { body } = await client.resourceJson(
       company,
-      { method: "POST", url: mediated.endpoint, body: { scope: row.scopes, credentials } },
+      EndpointRequest.to(company, { method: "POST", url: mediated.endpoint, body: { scope: row.scopes, credentials } }),
       { label: row.label }
     );
     return mediatedResponse(client, row, body);
@@ -624,11 +625,11 @@ export async function submitSignInCode(
   try {
     const { body } = await client.resourceJson(
       company,
-      {
+      EndpointRequest.to(company, {
         method: "POST",
         url: `${company.signIn.mediated!.endpoint}/${encodeURIComponent(sign_in_id)}`,
         body: { code }
-      },
+      }),
       { label: row.label }
     );
     return mediatedResponse(client, row, body);

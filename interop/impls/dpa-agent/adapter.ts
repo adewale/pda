@@ -31,6 +31,7 @@ import { randomId } from "../../../src/poppy/jwt.ts";
 import { currentKey } from "../../../src/poppy/keys.ts";
 import { CompanyLimiter } from "../../../src/poppy/limiter.ts";
 import { approveAndConfirm, cancelOperation, decideLocal, operation as operationOf, trackOperation } from "../../../src/poppy/operations.ts";
+import { EndpointRequest } from "../../../src/poppy/outgoing.ts";
 import { handleIdentityRoute } from "../../../src/poppy/routes.ts";
 import {
   completeDirectSignIn,
@@ -471,7 +472,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     url.searchParams.set("wait", String(typeof params.wait === "number" ? params.wait : 1));
     const opened = agent.client.resource(
       c,
-      { method: "GET", url: url.href, accept: "text/event-stream", ...(cursor ? { headers: { "Last-Event-ID": cursor } } : {}) },
+      EndpointRequest.to(c, { method: "GET", url: url.href, accept: "text/event-stream", ...(cursor ? { headers: { "Last-Event-ID": cursor } } : {}) }),
       { label: label(params), ...(c.conversations?.resource ? { resource: c.conversations.resource } : {}) }
     );
     // A Company may hold an idle stream's headers until its first event: that is a stream with nothing new yet.
@@ -615,11 +616,11 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     if (!endpoint) throw new PoppyStepError("no_operations", 0, `${c.name} has no operations endpoint`);
     const { status, body } = await agent.client.resourceJson(
       c,
-      {
+      EndpointRequest.to(c, {
         method: "POST",
         url: `${endpoint.endpoint.replace(/\/+$/, "")}/${encodeURIComponent(id)}/confirm`,
         body: { revision: row.approved_revision, approved_by: row.approved_by }
-      },
+      }),
       { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
     );
     const operation = isRecord(body) ? body : {};

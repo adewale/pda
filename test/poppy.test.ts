@@ -1208,7 +1208,7 @@ describe("6 APIs", () => {
     expect(result.text).toContain("Waiting for the User's approval");
     expect(await exchangeRequests(c)).toEqual([]);
     const approval = (await cards(a)).find((item) => item.kind === "approval")!;
-    expect(approval.summary).toContain("POST /orders/{order_id}/exchanges");
+    expect(approval.summary).toContain("POST /orders/ord_7Hk2/exchanges");
     // Approved, the write goes out once; this Company proposes all the same, so its terms get their own card.
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
     expect(await exchangeRequests(c)).toHaveLength(1);
@@ -1216,6 +1216,35 @@ describe("6 APIs", () => {
     expect(state.performs).toBe(0);
     expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
     expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
+  });
+
+  it("checks a write's server before its card: one on another host, or over plain HTTP, is refused and no card is shown", async () => {
+    // Before one constructor checked every request, a write's server was checked only when the approved write was sent.
+    for (const server of ["another host", "plain HTTP"] as const) {
+      const elsewhere = await company();
+      const c = await company({ operations: false });
+      await c.stub.configure({ openapiServerOverride: server === "another host" ? elsewhere.hosts.api : c.hosts.api.replace(/^https:/, "http:") });
+      const a = await agent();
+      await signInDirect(a, c);
+      const result = await tool(a, "poppy_api_call", exchangeWrite(c));
+      expect(result.isError, server).toBe(true);
+      expect(JSON.parse(result.details)).toEqual({ error: server === "another host" ? "untrusted_server" : "invalid_request" });
+      expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
+      expect(await requests(elsewhere)).toEqual([]);
+    }
+  });
+
+  it("never calls an approved write done when the Company answers with a proposal the agent can't use", async () => {
+    const c = await company({ documentsProposals: false, operationIdPrefix: "ord\u0007" });
+    const a = await agent();
+    await signInDirect(a, c);
+    expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text).toContain("Waiting for the User's approval");
+    const card = (await cards(a)).find((item) => item.kind === "approval")!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    const after = (await cards(a)).find((item) => item.kind === "approval")!;
+    expect(after).toMatchObject({ status: "refused", answer: { status: 202, error: "unusable_proposal" } });
+    expect(after.result).toBe(`Sent as you approved, but Mock Shop ${c.id} answered 202 (unusable_proposal). Nothing changed unless Mock Shop ${c.id} says otherwise.`);
+    expect((await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("op-unreadable-"))).toBeDefined();
   });
 
   it("sends a write that proposes straight to a Company with operations, and reads only a 202 with an operation in the description as saying so", async () => {

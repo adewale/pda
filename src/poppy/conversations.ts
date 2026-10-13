@@ -4,6 +4,7 @@ import type { Company } from "./discovery";
 import { isObject, parseStrictJson, type Json } from "./json";
 import { randomId } from "./jwt";
 import { handleProposal } from "./operations";
+import { EndpointRequest } from "./outgoing";
 import { intent, one, rows } from "./store";
 import type { DirectMessage } from "./wire";
 
@@ -162,7 +163,7 @@ export async function sendMessage(
       url.searchParams.set("wait", String(request.wait));
       if (cursor) url.searchParams.set("cursor", cursor);
     }
-    return client.resourceJson(company, { method: "POST", url: url.href, body: body as unknown as Json }, tokenOptions(company, request.label));
+    return client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: url.href, body: body as unknown as Json }), tokenOptions(company, request.label));
   };
   let response: Json;
   try {
@@ -512,13 +513,13 @@ export async function readConversation(
     try {
       response = await client.resource(
         company,
-        {
+        EndpointRequest.to(company, {
           method: "GET",
           url: url.href,
           accept: "text/event-stream, application/json",
           waitMs: waitSeconds * 1000,
           ...(current.cursor ? { headers: { "Last-Event-ID": current.cursor } } : {})
-        },
+        }),
         tokenOptions(company, row.label)
       );
     } catch (error) {
@@ -713,7 +714,7 @@ export async function handoff(
   });
   const { body } = await client.resourceJson(
     company,
-    { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(id)}/handoff`, body: {} },
+    EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(id)}/handoff`, body: {} }),
     tokenOptions(company, row.label)
   );
   if (isObject(body)) updateState(client, id, body);
@@ -729,7 +730,7 @@ export async function closeConversation(client: PoppyClient, company: Company, i
   try {
     const { body } = await client.resourceJson(
       company,
-      { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(id)}/close`, body: {} },
+      EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(id)}/close`, body: {} }),
       tokenOptions(company, row.label)
     );
     if (isObject(body)) updateState(client, id, body);

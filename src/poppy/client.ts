@@ -20,6 +20,8 @@ import { currentKey, readIdentity, type AgentIdentity } from "./keys";
 import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup } from "./protocol-log";
 import { one, rows, Sealer, type Sql } from "./store";
 import type { Card } from "./wire";
+import type { CheckedApiRequest } from "./apis";
+import type { EndpointRequest } from "./outgoing";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
 export type PoppyHost = {
@@ -970,27 +972,12 @@ export class PoppyClient {
    * One request to a Company API, conversation or operations endpoint, with
    * the Session Token in `Authorization: DPoP` and a fresh proof (spec 4.3).
    * Nonces, `invalid_token` renewals and short `Retry-After` waits are
-   * handled; other auth errors come back as `PoppyError`s.
+   * handled; other auth errors come back as `PoppyError`s. It takes only a
+   * request one of the checking constructors made: an `EndpointRequest` to
+   * an endpoint `poppy.json` names, or a `CheckedApiRequest` (apis.ts).
    */
-  async resource(
-    company: Company,
-    request: {
-      method: string;
-      url: string;
-      body?: Json;
-      /**
-       * A `multipart/form-data` body instead of JSON (an OpenAPI upload). The
-       * runtime writes its `Content-Type` with the boundary, and serialises it
-       * again for each retry.
-       */
-      form?: FormData;
-      headers?: Record<string, string>;
-      accept?: string;
-      /** A long poll: how much longer than `timeouts.requestMs` the answer may take to start. */
-      waitMs?: number;
-    },
-    options: TokenOptions = {}
-  ): Promise<Response> {
+  async resource(company: Company, outgoing: EndpointRequest | CheckedApiRequest, options: TokenOptions = {}): Promise<Response> {
+    const request = outgoing.init();
     const url = new URL(request.url);
     const bearer = options.bearer === true;
     if (url.protocol !== "https:") {
@@ -1112,7 +1099,7 @@ export class PoppyClient {
   /** `resource()` for JSON endpoints: non-2xx bodies with an `error` become `PoppyError`s. */
   async resourceJson(
     company: Company,
-    request: Parameters<PoppyClient["resource"]>[1],
+    request: EndpointRequest | CheckedApiRequest,
     options: TokenOptions = {}
   ): Promise<{ status: number; body: Json; headers: Headers }> {
     const response = await this.resource(company, request, options);

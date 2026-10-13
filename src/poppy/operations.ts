@@ -3,6 +3,7 @@ import { answerOf, PoppyClient, PoppyError } from "./client";
 import { tokenHostAllowed, type Company } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId } from "./jwt";
+import { EndpointRequest } from "./outgoing";
 import { one, rows } from "./store";
 
 /** An operation as the Company sends it (Ops 3). */
@@ -463,11 +464,11 @@ export async function confirm(client: PoppyClient, issuer: string, operationId: 
   try {
     const { body, headers } = await client.resourceJson(
       company,
-      {
+      EndpointRequest.to(company, {
         method: "POST",
         url: `${endpoint.url}/${encodeURIComponent(operationId)}/confirm`,
         body: { revision: row.approved_revision, approved_by: row.approved_by }
-      },
+      }),
       { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
     );
     setConfirmed(client, issuer, operationId, ANSWERED);
@@ -548,7 +549,7 @@ async function readOperation(
   const endpoint = endpointOf(company);
   const response = await client.resourceJson(
     company,
-    { method: "GET", url: `${endpoint.url}/${encodeURIComponent(row.operation_id)}` },
+    EndpointRequest.to(company, { method: "GET", url: `${endpoint.url}/${encodeURIComponent(row.operation_id)}` }),
     { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
   );
   const retryAfter = Number(response.headers.get("Retry-After") ?? "5");
@@ -643,7 +644,7 @@ export async function cancelOperation(client: PoppyClient, issuer: string, opera
   try {
     ({ body } = await client.resourceJson(
       company,
-      { method: "POST", url: `${endpoint.url}/${encodeURIComponent(operationId)}/cancel` },
+      EndpointRequest.to(company, { method: "POST", url: `${endpoint.url}/${encodeURIComponent(operationId)}/cancel` }),
       { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
     ));
   } catch (error) {
