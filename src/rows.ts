@@ -69,6 +69,20 @@ function source(query: string): string {
   return `${/\bFROM\s+(\w+)/i.exec(query)?.[1] ?? "query"} row`;
 }
 
+/**
+ * A query for a table's newest `limit` rows by `time`, newest first, and any
+ * more at the same time as the last of them, so a merge that sorts on time
+ * gets every row that could be among the newest. With an index on `time` it
+ * reads about `limit` rows however long the table's history is.
+ */
+export function newestRows(table: string, columns: string, time: string, limit: number): [query: string, ...bindings: number[]] {
+  return [
+    `SELECT ${columns} FROM ${table} WHERE ${time} >= ifnull((SELECT ${time} FROM ${table} ORDER BY ${time} DESC LIMIT 1 OFFSET ?), ?) ORDER BY ${time} DESC`,
+    limit - 1,
+    Number.MIN_SAFE_INTEGER
+  ];
+}
+
 /** The rows of a query, each decoded. */
 export function rows<T>(sql: SqlStorage, decoder: Decoder<T>, query: string, ...bindings: unknown[]): T[] {
   return sql

@@ -5,7 +5,7 @@ import { companyErrorCode } from "./error-codes";
 import type { Issuer } from "./issuer";
 import { isObject } from "./json";
 import { randomId } from "./jwt";
-import { one, rows, type RowOf } from "../rows";
+import { newestRows, one, rows, type RowOf } from "../rows";
 import { signOutsTable } from "./store";
 
 /**
@@ -78,9 +78,9 @@ export function signOutForModel(row: SignOutRecord) {
   };
 }
 
-/** Every sign-out kept, newest first: for Activity. */
-export function signOutRecords(client: PoppyClient): SignOutRecord[] {
-  return rows(client.sql, recordRow, `SELECT ${RECORD_COLUMNS} FROM poppy_signouts ORDER BY created_at DESC`);
+/** The newest `limit` sign-outs kept (and any at the same time as the last), newest first: for Activity. */
+export function signOutRecords(client: PoppyClient, limit: number): SignOutRecord[] {
+  return rows(client.sql, recordRow, ...newestRows("poppy_signouts", RECORD_COLUMNS, "created_at", limit));
 }
 
 /** Keep an account's Account Token, still sealed, to revoke. */

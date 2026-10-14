@@ -5,9 +5,11 @@
  * when `GITHUB_STEP_SUMMARY` is set (the monthly `.github/workflows/deps.yml`).
  * It changes nothing: no installs, no fixes, no pull requests.
  *
- * Outdated packages are information only. The audit runs twice, production
- * dependencies alone and then everything (production and dev), and only a
- * finding at "high" or "critical" fails the check.
+ * Outdated packages are information only, and so is npm failing to list
+ * them. The audit runs twice, production dependencies alone and then
+ * everything (production and dev), and only a finding at "high" or
+ * "critical" fails the check. The outdated section's Markdown comes from
+ * `scripts/deps-report.ts`, which `test/deps-check.test.ts` runs on fixtures.
  *
  * Exit status: 0 no high or critical finding, 1 at least one, 2 the audit
  * couldn't run (no network, no lockfile) or npm's output wasn't understood.
@@ -15,6 +17,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import path from "node:path";
+import { outdatedSection, table } from "./deps-report.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 const SEVERITIES = ["critical", "high", "moderate", "low", "info"];
@@ -39,46 +42,12 @@ function npmJson(args) {
   }
 }
 
-const cell = (value) => String(value ?? "").replaceAll("|", "\\|");
-const table = (header, rows) =>
-  [`| ${header.join(" | ")} |`, `| ${header.map(() => "---").join(" | ")} |`, ...rows.map((row) => `| ${row.map(cell).join(" | ")} |`)].join("\n");
-const major = (version) => Number.parseInt(String(version).split(".")[0], 10);
-
 const out = [];
 let failed = false;
 let broken = false;
 
-// Outdated: information only.
-out.push("## Outdated packages", "");
-const outdated = npmJson(["outdated", "--json", "--long"]);
-if (outdated.error) {
-  out.push(`Couldn't list outdated packages: ${outdated.error}`, "");
-} else {
-  const names = Object.keys(outdated.json).sort();
-  if (names.length === 0) {
-    out.push("Every direct dependency is at its latest version.", "");
-  } else {
-    const rows = names.map((name) => {
-      const info = Array.isArray(outdated.json[name]) ? outdated.json[name][0] : outdated.json[name];
-      const kind = info.type === "devDependencies" ? "dev" : info.type === "dependencies" ? "prod" : (info.type ?? "");
-      const notes = [];
-      if (info.current === undefined || info.current === "MISSING") notes.push("not installed");
-      else {
-        if (info.wanted !== info.current) notes.push("update in range");
-        if (major(info.latest) > major(info.current)) notes.push("new major");
-        else if (info.latest !== info.wanted) notes.push("outside range");
-      }
-      return [name, kind, info.current ?? "missing", info.wanted, info.latest, notes.join(", ")];
-    });
-    out.push(
-      `${names.length} direct ${names.length === 1 ? "dependency is" : "dependencies are"} behind. ` +
-        '"update in range": `npm update` would take it to Wanted; "outside range" and "new major": reaching Latest means changing `package.json`. Information only; nothing here fails the check.',
-      "",
-      table(["Package", "Type", "Current", "Wanted", "Latest", "Note"], rows),
-      "",
-    );
-  }
-}
+// Outdated: information only, even when npm itself fails (it prints `{"error": …}` then).
+out.push("## Outdated packages", "", ...outdatedSection(npmJson(["outdated", "--json", "--long"])));
 
 // Audit: production, then production and dev.
 out.push("## Audit", "");

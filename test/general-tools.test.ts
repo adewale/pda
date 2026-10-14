@@ -763,6 +763,17 @@ describe("time and maths", () => {
     expect(await calc("1/3")).toMatchObject({ result: "0.333333333333333", exact: false });
     expect(await calc("sqrt(2)")).toMatchObject({ result: "1.4142135623731", exact: false });
     expect(await calc("sqrt(2.25)")).toMatchObject({ result: "1.5", exact: true });
+    // A very small or very large number keeps its size under sqrt and a fractional power: never 0, never rounded away.
+    expect(await calc("sqrt(2e-20)")).toMatchObject({ result: "0.00000000014142135623731", exact: false });
+    expect(await calc("(1e-20)^0.5")).toMatchObject({ result: "0.0000000001", exact: false });
+    expect(await calc("sqrt(1.44e-30)")).toMatchObject({ result: "0.0000000000000012", exact: true });
+    expect(await calc("sqrt(2e-401)")).toMatchObject({ result: "4.47213595499958e-201", exact: false });
+    expect(await calc("sqrt(1e-1000)")).toMatchObject({ result: "1e-500", exact: false });
+    expect(await calc("sqrt(2e1000)")).toMatchObject({ result: "1.4142135623731e+500", exact: false });
+    expect(await calc("(1e-300)^1.5")).toMatchObject({ result: "1e-450", exact: false });
+    expect(await calc("(2e300)^1.5")).toMatchObject({ result: "2.82842712474619e+450", exact: false });
+    expect(await calc("(1e-400)^(1/3)")).toMatchObject({ result: "4.64158883361278e-134", exact: false });
+    expect(await calc("0.999^1000000.5")).toMatchObject({ result: "3.07615862438544e-435", exact: false });
     expect(await calc("max(1, 2.5, -3) + min(4, 2) + abs(-1) + floor(-1.5) + ceil(1.2)")).toMatchObject({ result: "5.5" });
     for (const [expression, message] of [
       ["1/0", "Division by zero"],
@@ -773,7 +784,9 @@ describe("time and maths", () => {
       ["9^9^9", "Exponents go up to 1000"],
       ["(".repeat(60) + "1" + ")".repeat(60), "nested more than 50 deep"],
       ["1+".repeat(300) + "1", "longer than 500 characters"],
-      ["sqrt(-1)", "isn't a real number"]
+      ["sqrt(-1)", "isn't a real number"],
+      ["(-1e-400)^0.5", "isn't a real number"],
+      ["(1e-1000)^4.5", "too large or too small"]
     ] as const) {
       const result = await stub.generalTool("calculate", { expression });
       expect(result.isError, expression).toBe(true);

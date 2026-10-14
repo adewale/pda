@@ -71,14 +71,27 @@ function decimalFraction(text: string): F {
   return shift >= 0 ? frac(n * 10n ** BigInt(shift)) : frac(n, 10n ** BigInt(-shift));
 }
 
-/** A decimal literal: small numbers often (0, 1 and their neighbours are where arithmetic goes wrong), any up to a trillion too, with up to 8 places. */
+/** A literal's power of ten: none often, a few dozen either way, or anything a literal may have (up to 1,000), far outside a double's range. */
+const powersOfTen = gs.oneOf(gs.just(0), gs.integers({ minValue: -40, maxValue: 40 }), gs.integers({ minValue: -1000, maxValue: 1000 }));
+
+/**
+ * A decimal literal: small numbers often (0, 1 and their neighbours are where
+ * arithmetic goes wrong), any up to a trillion too, with up to 8 places, and
+ * sometimes in exponent notation (`1.5e-300`).
+ */
 function literal(tc: TC): { text: string; value: F } {
   const whole = tc.draw(gs.oneOf(gs.integers({ minValue: 0, maxValue: 12 }), gs.integers({ minValue: 0, maxValue: 999_999_999_999 })));
   const places = tc.draw(gs.integers({ minValue: 0, maxValue: 8 }));
   const fraction = places ? tc.draw(gs.integers({ minValue: 0, maxValue: 10 ** places - 1 })) : 0;
-  const text = places ? `${whole}.${String(fraction).padStart(places, "0")}` : String(whole);
+  const exponent = tc.draw(powersOfTen);
+  const text = `${places ? `${whole}.${String(fraction).padStart(places, "0")}` : String(whole)}${exponent ? `e${exponent}` : ""}`;
   return { text, value: decimalFraction(text) };
 }
+
+const size = (x: F) => frac(x.n < 0n ? -x.n : x.n, x.d);
+/** The smallest and largest powers of two a double holds at full precision. */
+const DOUBLE_LOW = frac(1n, 2n ** 1022n);
+const DOUBLE_HIGH = frac(2n ** 1023n);
 
 /**
  * An expression and its exact value, built together as a tree. Every
@@ -161,9 +174,104 @@ describe("calculate", () => {
         const digits = result.result.replace(/e.*/, "").replace(/^-/, "").replace(".", "").replace(/^0+/, "").replace(/0+$/, "");
         expect(digits.length, result.result).toBeLessThanOrEqual(15);
         const error = F_SUB(shown, exact);
-        const size = (x: F) => frac(x.n < 0n ? -x.n : x.n, x.d);
         expect(F_LESS(F_MUL(size(error), frac(10n ** 14n)), size(exact)), `${built.text} = ${result.result}`).toBe(true);
       }
+    })
+  );
+
+  it(
+    "gives as value the answer's nearest double: never 0 for a number a double can hold, and right to a unit in the 16th digit across a double's normal range",
+    property((tc) => {
+      const built = expression(tc, tc.draw(gs.integers({ minValue: 0, maxValue: 4 })));
+      tc.note(built.text);
+      if (built.value === null) return;
+      let result: ReturnType<typeof calculate>;
+      try {
+        result = calculate(built.text);
+      } catch (error) {
+        // A refusal is the first property's to judge.
+        expect(error).toBeInstanceOf(CalcError);
+        return;
+      }
+      const exact = built.value;
+      if (exact.n === 0n) {
+        expect(result.value, built.text).toBe(0);
+        return;
+      }
+      // Past a double's range the nearest double is 0 or infinity (a margin of two powers of two keeps clear of where rounding decides).
+      const magnitude = size(exact);
+      if (F_LESS(magnitude, frac(1n, 2n ** 1076n))) {
+        expect(Math.abs(result.value), built.text).toBe(0);
+        return;
+      }
+      if (!F_LESS(magnitude, frac(2n ** 1025n))) {
+        expect(Math.abs(result.value), built.text).toBe(Infinity);
+        return;
+      }
+      // Within it, never 0 and with the answer's sign, down to the smallest subnormal.
+      if (!F_LESS(magnitude, frac(1n, 2n ** 1074n)) && F_LESS(magnitude, DOUBLE_HIGH)) {
+        expect(Math.sign(result.value), `${built.text}: value ${result.value}`).toBe(exact.n < 0n ? -1 : 1);
+      }
+      if (F_LESS(magnitude, DOUBLE_LOW) || !F_LESS(magnitude, DOUBLE_HIGH)) return;
+      const near = decimalFraction(String(result.value));
+      expect(F_LESS(F_MUL(size(F_SUB(near, exact)), frac(10n ** 15n)), size(exact)), `${built.text}: value ${result.value}`).toBe(true);
+    })
+  );
+
+  /** A fractional power p/r (r from 2 to 6, p not a multiple of r), written as `sqrt`, a fraction or, when it ends, a decimal. */
+  function fractionalPower(tc: TC): { write: (base: string) => string; p: number; r: number } {
+    const r = tc.draw(gs.integers({ minValue: 2, maxValue: 6 }));
+    const p = tc.draw(gs.integers({ minValue: -12, maxValue: 12 }).filter((value) => value % r !== 0));
+    const how = tc.draw(gs.sampledFrom(["sqrt", "fraction", "decimal"] as const));
+    if (how === "sqrt" && p === 1 && r === 2) return { write: (base) => `sqrt(${base})`, p, r };
+    if (how === "decimal" && (r === 2 || r === 4 || r === 5)) return { write: (base) => `(${base})^${p / r}`, p, r };
+    return { write: (base) => `(${base})^(${p}/${r})`, p, r };
+  }
+
+  it(
+    "takes a square root or a fractional power of any positive number in range, however small or large, to 15 significant digits: raised back, it is the number",
+    property((tc) => {
+      // x = mantissa × 10^exponent, with the exponent anywhere a literal allows.
+      const digits = tc.draw(gs.integers({ minValue: 1, maxValue: 999_999_999 }));
+      const exponent = tc.draw(gs.oneOf(gs.integers({ minValue: -40, maxValue: 40 }), gs.integers({ minValue: -1000, maxValue: 1000 })));
+      const text = `${digits}e${exponent}`;
+      const x = decimalFraction(text);
+      // x^(p/r), so (x^(p/r))^r = x^p.
+      const { write, p, r } = fractionalPower(tc);
+      const expression = write(text);
+      tc.note(expression);
+      // The answer's size in powers of two; past about 4,000 bits the calculator refuses, and only then.
+      const bitsOfAnswer = (Math.log2(digits) + exponent * Math.log2(10)) * (p / r);
+      let result: ReturnType<typeof calculate>;
+      try {
+        result = calculate(expression);
+      } catch (error) {
+        expect(error, expression).toBeInstanceOf(CalcError);
+        expect((error as Error).message, expression).toMatch(/too large/);
+        expect(Math.abs(bitsOfAnswer), expression).toBeGreaterThan(3900);
+        return;
+      }
+      const answer = decimalFraction(result.result);
+      expect(answer.n, `${expression} = ${result.result}`).not.toBe(0n);
+      const significant = result.result.replace(/e.*/, "").replace(".", "").replace(/^0+/, "").replace(/0+$/, "");
+      expect(significant.length, result.result).toBeLessThanOrEqual(15);
+      // 15 significant digits put the answer within 1e-14 of the root, so its r-th power is within r × 1e-14 of x^p.
+      const raise = (v: F, k: number): F => (k >= 0 ? frac(v.n ** BigInt(k), v.d ** BigInt(k)) : frac(v.d ** BigInt(-k), v.n ** BigInt(-k)));
+      const back = raise(answer, r);
+      const target = raise(x, p);
+      expect(F_LESS(F_MUL(size(F_SUB(back, target)), frac(10n ** 14n)), F_MUL(size(target), frac(BigInt(r)))), `${expression} = ${result.result}`).toBe(true);
+    })
+  );
+
+  it(
+    "refuses a square root or a fractional power of any negative number, however small or large, as not a real number",
+    property((tc) => {
+      const digits = tc.draw(gs.integers({ minValue: 1, maxValue: 999_999_999 }));
+      const exponent = tc.draw(gs.oneOf(gs.integers({ minValue: -40, maxValue: 40 }), gs.integers({ minValue: -1000, maxValue: 1000 })));
+      const expression = fractionalPower(tc).write(`-${digits}e${exponent}`);
+      tc.note(expression);
+      expect(() => calculate(expression), expression).toThrow(CalcError);
+      expect(() => calculate(expression), expression).toThrow(/isn't a real number/);
     })
   );
 

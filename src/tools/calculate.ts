@@ -3,7 +3,10 @@
  * grammar, evaluated with exact rational numbers (BigInt numerator and
  * denominator), so `0.1 + 0.2` is `0.3` and sums of money come out to the
  * cent. Only `sqrt`, a power with a fractional exponent and an answer that
- * doesn't end in decimal are approximate, and the result says so. No `eval`,
+ * doesn't end in decimal are approximate, and the result says so. Those
+ * steps work on a number's binary mantissa and exponent apart, so a value
+ * far outside a double's range keeps its size: `sqrt(2e-20)` is 1.414…e-10,
+ * never 0, and an answer past the limits is refused, not rounded. No `eval`,
  * no `Function`: the input is only ever read as this grammar.
  *
  *   expression := term (("+" | "-") term)*
@@ -101,12 +104,52 @@ function fromFloat(x: number): Q {
   return { ...parsed, exact: false };
 }
 
+/**
+ * n/d (both positive) as m·2^e, m a double between 1/√2 and √2 correct to its
+ * last bit. The numerator and denominator are never shifted on their own, so
+ * a value far outside a double's range keeps its digits and its exponent.
+ */
+function binary(n: bigint, d: bigint): { m: number; e: number } {
+  // 64 bits of quotient: (n/d)·2^s lies in [2^63, 2^65).
+  const s = 64 - (bits(n) - bits(d));
+  const scaled = s >= 0 ? (n << BigInt(s)) / d : n / (d << BigInt(-s));
+  const top = bits(scaled) - 1;
+  const m = Number(scaled) / 2 ** top;
+  return m > Math.SQRT2 ? { m: m / 2, e: top - s + 1 } : { m, e: top - s };
+}
+
+/** n/d (d > 0) as the nearest double, or 0 or ±Infinity beyond a double's range. */
+function ratio(n: bigint, d: bigint): number {
+  if (n === 0n) return 0;
+  const { m, e } = binary(abs(n), d);
+  // Two steps, so neither power of two overflows or underflows on its own.
+  const half = Math.trunc(e / 2);
+  return (n < 0n ? -m : m) * 2 ** half * 2 ** (e - half);
+}
+
 function toFloat(x: Q): number {
-  // Scale so the division keeps 20 significant digits even for huge n and d.
-  const shift = Math.max(0, bits(x.d) - 60);
-  const scaledN = shift > 0 ? x.n >> BigInt(shift) : x.n;
-  const scaledD = shift > 0 ? x.d >> BigInt(shift) : x.d;
-  return Number(scaledN) / Number(scaledD);
+  return ratio(x.n, x.d);
+}
+
+/** A finite double as the exact fraction it is (the denominator a power of two). */
+function exactDouble(v: number): { n: bigint; d: bigint } {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, v);
+  const high = view.getUint32(0);
+  const biased = (high >>> 20) & 0x7ff;
+  let significand = (BigInt(high & 0xfffff) << 32n) | BigInt(view.getUint32(4));
+  if (biased !== 0) significand |= 1n << 52n;
+  if (high >>> 31) significand = -significand;
+  const shift = Math.max(biased, 1) - 1075;
+  return shift >= 0 ? { n: significand << BigInt(shift), d: 1n } : { n: significand, d: 1n << BigInt(-shift) };
+}
+
+const TOO_FAR = "A number in the calculation is too large or too small";
+
+/** x·2^k, marked approximate, refused when it is beyond the calculator's limits. */
+function timesPowerOfTwo(x: Q, k: number): Q {
+  if (!(Math.abs(k) <= 2 * MAX_BITS)) throw new CalcError(TOO_FAR);
+  return k >= 0 ? q(x.n << BigInt(k), x.d, false) : q(x.n, x.d << BigInt(-k), false);
 }
 
 /** A decimal literal (`12`, `0.5`, `.5`, `1.5e3`) as an exact rational. */
@@ -318,6 +361,17 @@ function isInteger(x: Q): boolean {
   return x.d === 1n;
 }
 
+/** The largest integer whose square is at most v (v ≥ 0), by Newton's method in integers. */
+function squareRoot(v: bigint): bigint {
+  if (v < 2n) return v;
+  let x = 1n << BigInt(Math.ceil(bits(v) / 2));
+  for (;;) {
+    const next = (x + v / x) >> 1n;
+    if (next >= x) return x;
+    x = next;
+  }
+}
+
 function power(base: Q, exponent: Q): Q {
   if (isInteger(exponent) && exponent.exact) {
     if (abs(exponent.n) > BigInt(MAX_EXPONENT)) throw new CalcError(`Exponents go up to ${MAX_EXPONENT}`);
@@ -329,9 +383,35 @@ function power(base: Q, exponent: Q): Q {
     const result = q(base.n ** up, base.d ** up, base.exact);
     return k < 0n ? div(q(1n), result) : result;
   }
-  const value = Math.pow(toFloat(base), toFloat(exponent));
-  if (Number.isNaN(value)) throw new CalcError("A negative number to a fractional power isn't a real number");
-  return fromFloat(value);
+  const y = toFloat(exponent);
+  if (!Number.isFinite(y)) throw new CalcError("A number in the calculation is too large");
+  if (base.n === 0n) return fromFloat(Math.pow(0, y));
+  if (base.n < 0n && !Number.isInteger(y)) throw new CalcError("A negative number to a fractional power isn't a real number");
+  // |base| = m·2^e with m near 1, so |base|^y = m^y·2^(y·e), and y·e splits exactly into a whole k and a fraction f.
+  // Nothing passes through a double whose range the answer might leave.
+  const { m, e } = binary(abs(base.n), base.d);
+  const ye = mul(exponent, q(BigInt(e)));
+  const k = floorInt(ye);
+  if (abs(k) > BigInt(2 * MAX_BITS)) throw new CalcError(TOO_FAR);
+  const f = toFloat(sub(ye, q(k)));
+  // m and y are doubles, a bit off the exact m' and y' when those aren't; a large y magnifies that, so correct by
+  // m'^y' = m^y·e^c, c = y·ln(m'/m) + (y' − y)·ln m, each difference worked out in exact integers.
+  const mm = exactDouble(m);
+  const scaledBase = e >= 0 ? { n: abs(base.n), d: base.d << BigInt(e) } : { n: abs(base.n) << BigInt(-e), d: base.d };
+  const yy = exactDouble(y);
+  const c =
+    y * Math.log1p(ratio(scaledBase.n * mm.d - mm.n * scaledBase.d, mm.n * scaledBase.d)) +
+    ratio(exponent.n * yy.d - yy.n * exponent.d, exponent.d * yy.d) * Math.log(m);
+  // m^y·2^f leaves a double's range only for a large y (0.999^1000000): take its 2^j-th root, which divides y exactly, and square back in fractions.
+  const size = Math.abs(y * Math.log2(m) + f);
+  if (!(size <= MAX_BITS + 1)) throw new CalcError(TOO_FAR);
+  let j = 0;
+  while (size / 2 ** j > 1000) j++;
+  let mantissa = fromFloat(Math.pow(m, y / 2 ** j) * 2 ** (f / 2 ** j) * Math.exp(c / 2 ** j));
+  for (let i = 0; i < j; i++) mantissa = mul(mantissa, mantissa);
+  // A negative base gets here only with a whole y (an approximate one, such as round(pi)).
+  if (base.n < 0n && Math.abs(y % 2) === 1) mantissa = q(-mantissa.n, mantissa.d, false);
+  return timesPowerOfTwo(mantissa, Number(k));
 }
 
 function call(name: FunctionName, args: Q[]): Q {
@@ -374,15 +454,17 @@ function call(name: FunctionName, args: Q[]): Q {
       count(1, 1);
       const x = args[0]!;
       if (x.n < 0n) throw new CalcError("The square root of a negative number isn't a real number");
+      // A square over a square has an exact root, at any size: sqrt(1.44e-30) is 1.2e-15.
       const exactRoot = (v: bigint) => {
-        const r = BigInt(Math.floor(Math.sqrt(Number(v))));
-        for (const c of [r - 1n, r, r + 1n]) if (c >= 0n && c * c === v) return c;
-        return undefined;
+        const r = squareRoot(v);
+        return r * r === v ? r : undefined;
       };
-      const rn = bits(x.n) < 100 ? exactRoot(x.n) : undefined;
-      const rd = bits(x.d) < 100 ? exactRoot(x.d) : undefined;
+      const rn = exactRoot(x.n);
+      const rd = exactRoot(x.d);
       if (rn !== undefined && rd !== undefined) return q(rn, rd, x.exact);
-      return fromFloat(Math.sqrt(toFloat(x)));
+      // x = m·2^e with e made even, so sqrt(x) = sqrt(m)·2^(e/2), whatever x's size.
+      const { m, e } = binary(x.n, x.d);
+      return e % 2 === 0 ? timesPowerOfTwo(fromFloat(Math.sqrt(m)), e / 2) : timesPowerOfTwo(fromFloat(Math.sqrt(2 * m)), (e - 1) / 2);
     }
   }
 }
