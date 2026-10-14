@@ -55,7 +55,10 @@ else if (existsSync(local)) {
 let identity = existsSync(file) && !values.new ? JSON.parse(readFileSync(file, "utf8")) : null;
 if (identity) {
   if (origin && identity.client_id !== `${origin}/poppy/interop/client.json`) {
-    fail(`${shown} is for ${identity.client_id}, not ${origin}; run with --new to make one for ${origin}`);
+    const message = `${shown} is for ${identity.client_id}, not ${origin}; run with --new to make one for ${origin}`;
+    // A conflicting --origin is refused; one read from deployment.local.json only warns, so a rerun reprints the key it has.
+    if (values.origin) fail(message);
+    process.stderr.write(`interop-live-identity: warning: ${message}\n`);
   }
 } else {
   if (!origin) fail("no origin: pass --origin https://<your deployment>, or set PUBLIC_ORIGIN in deployment.local.json");
