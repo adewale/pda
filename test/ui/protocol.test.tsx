@@ -189,7 +189,7 @@ describe("protocol view", () => {
  * ready when the button is pressed, and again after each copy.
  */
 describe("diagnostics", () => {
-  const text = 'Personal agent diagnostics\nAgent: 0123abcd\n\n{"kind":"turn","outcome":"success"}\n';
+  const text = 'Poppy Demo Agent diagnostics\nAgent: 0123abcd\n\n{"kind":"turn","outcome":"success"}\n';
 
   it("asks the agent once when Activity opens, and copies what it sent", async () => {
     const writeText = vi.fn(async (_text: string) => undefined);

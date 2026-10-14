@@ -21,7 +21,7 @@ const PLACES: { place: Place; label: string; Icon: ComponentType<IconProps> }[] 
   { place: "settings", label: "Settings", Icon: GearSixIcon }
 ];
 
-const TITLE = "Personal agent";
+const TITLE = "Poppy Demo Agent";
 
 /** The agent's mark, shown once: in the rail, not on every message. */
 function AgentMark() {
@@ -155,7 +155,7 @@ export function Workspace({ identity, session }: { identity: Identity; session: 
     <ConnectionProvider connected={session.status === "open"}>
       <TooltipProvider>
         <Sidebar.Provider collapsible="offcanvas" className="h-dvh min-h-0 overflow-hidden bg-kumo-canvas text-kumo-default">
-          <Sidebar aria-label="Personal agent">
+          <Sidebar aria-label="Poppy Demo Agent">
             <Sidebar.Header className="h-14 gap-2 border-kumo-hairline px-4">
               <AgentMark />
               <span className="min-w-0 flex-1 truncate text-base font-semibold">{TITLE}</span>

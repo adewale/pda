@@ -57,7 +57,7 @@ struct Agent {
     /// conversation -> every Company message everruns' client has handed
     /// back for it, from sends and reads, in order. everruns moves its cursor
     /// past whatever a call returns, so a `read` without a cursor (spec 5.2)
-    /// answers from here, as dpa-agent answers from its inbox.
+    /// answers from here, as pda-agent answers from its inbox.
     inbox: Mutex<HashMap<String, Vec<Value>>>,
 }
 

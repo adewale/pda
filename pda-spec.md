@@ -1,4 +1,4 @@
-# Durable Personal Agent on Cloudflare: spec
+# Poppy Demo Agent on Cloudflare: spec
 
 Oct 12, 2026 · Ade Oshineye
 
@@ -320,7 +320,9 @@ The wire protocol and chat UI come from Cloudflare's Pi harness example (`cloudf
 
 **What the page shows**
 
-The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line mapping, Activity, Companies, Settings) and `src/poppy-ui.tsx` (cards, the tray, receipts, the Direct Conversation sheet). It follows a spartan house style: neutral surfaces, colour only for state, no decorative motion, and every action labelled with where, how, what access and who decided.
+The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line mapping, Activity, Companies, Settings) and `src/poppy-ui.tsx` (cards, the tray, receipts, the Direct Conversation sheet). It follows a spartan house style: ink on warm paper, one hue for each party (lake blue for the User and their Personal Agent, Poppy's orange, Sierra green for a Company), bark brown for actions, earth tones for state, the system fonts, no decorative motion, and every action labelled with where, how, what access and who decided. The palette is a set of theme tokens in `src/styles.css`, with Kumo's tokens set from them, and a dark set beside it.
+
+The signed-out page (`src/client.tsx`) is a drawing and the sign-in buttons. A lake circle in an ink outline (your Personal Agent) is joined by one ink line through the Poppy flower to a Sierra green mountain (a Company Agent); the flower grows on a stem from the footer's rule, and the buttons sit either side of the stem, one for each provider the deployment offers. Below 640px wide the labels go and the shapes shrink. Beside the stem's root, above the footer, one sentence says what the agent is. The footer links the Personal Agent Protocol, the validator and the privacy policy.
 
 - **Four places** in a rail that becomes a top bar and sheet on phones. Each has its own path (`/`, `/activity`, `/companies`, `/settings`), and the back button works.
 - **Chat.**
@@ -378,7 +380,7 @@ The client targets **Draft 0.1** exactly, and treats the document's `protocol_ve
   Account Tokens survive rotation, because they belong to the `client_id`.
 - **Domain.** `client_id` is tied to `PUBLIC_ORIGIN` forever: changing the domain is a new Personal Agent to every Company. Choose the final domain before registering with any Company.
 - **Registration.** Some Companies require it, and the protocol leaves the process to them. `invalid_client` on starting a Session is recorded on the Company and reported to the User as "this Company hasn't approved this agent yet", with no retry loop.
-- **The interop test client** is a second identity, not this one. When `INTEROP_LIVE_JWKS` is set, the Worker also serves `https://{PUBLIC_ORIGIN}/poppy/interop/client.json` (its `client_id`, `client_name` "Durable Personal Agent (interop tests)", no `logo_uri`, no `redirect_uris`) and `/poppy/interop/jwks.json`. Only the interop harness's live lane signs as it, with a key that never leaves the machine running the harness; the agent never does. A Company that approves one has not approved the other.
+- **The interop test client** is a second identity, not this one. When `INTEROP_LIVE_JWKS` is set, the Worker also serves `https://{PUBLIC_ORIGIN}/poppy/interop/client.json` (its `client_id`, `client_name` "Poppy Demo Agent (interop tests)", no `logo_uri`, no `redirect_uris`) and `/poppy/interop/jwks.json`. Only the interop harness's live lane signs as it, with a key that never leaves the machine running the harness; the agent never does. A Company that approves one has not approved the other.
 
 ### Discovery (§3)
 
@@ -978,7 +980,7 @@ A raw `string`, so an email, a token or anyone's words, is a compile error in an
   - the mock: deleting its PKCE or Retry-After check;
   - JSON: duplicate-member rejection, and every other fault tried in either parser.
   - Properties: each client bug the property suite found (`Retry-After` junk read as a past date, `localhost.` passing the private-host check, a non-UTF-8 body thrown as a TypeError, a path value of `..` reaching another resource) fails its property, and its example in "what these properties found, as examples", with the fix taken out.
-- **Interop.** `npm run interop` runs every registered agent against every registered Company in containers, through a recording TLS proxy, and blames each failure on a side by a named rule ([`docs/interop-spec.md`](docs/interop-spec.md)). Our mock runs twice there: `dpa-mock`, lenient where the draft is silent, is the reference Company, and `dpa-mock-strict` keeps the strict assertion checks, so a failure caused only by an open question is blamed on the spec. In CI, the Interop workflow (`.github/workflows/interop.yml`) runs our agent against both on pushes to `main` and on pull requests that touch the client, the validator, the mock or the harness, and keeps the results as an artifact. A summary of the last full grid, a snapshot, is in [`docs/interop-results/README.md`](docs/interop-results/README.md); the full results aren't committed.
+- **Interop.** `npm run interop` runs every registered agent against every registered Company in containers, through a recording TLS proxy, and blames each failure on a side by a named rule ([`docs/interop-spec.md`](docs/interop-spec.md)). Our mock runs twice there: `pda-mock`, lenient where the draft is silent, is the reference Company, and `pda-mock-strict` keeps the strict assertion checks, so a failure caused only by an open question is blamed on the spec. In CI, the Interop workflow (`.github/workflows/interop.yml`) runs our agent against both on pushes to `main` and on pull requests that touch the client, the validator, the mock or the harness, and keeps the results as an artifact. A summary of the last full grid, a snapshot, is in [`docs/interop-results/README.md`](docs/interop-results/README.md); the full results aren't committed.
 - **A second client.** `test/hypothesis/` is an independent Poppy client in Python, written from the draft, that drives Hypothesis stateful, model-based tests of the mock Company over HTTP on localhost (Sessions and sign-in, conversations, handoff and Direct Conversations, the Operations extension, MCP, browsing, rate limits and Device Sign-In polling), so a misreading our client and mock share can show; it runs locally only (`npm run test:hypothesis`), never in CI.
 - **What isn't tested.** Production Companies, the browser against real websites (it is tested only against the mock's), and the chat page in a real browser (its parts are tested in happy-dom). Appendix A marks each requirement as checked by a test, by the mock's verifier, by design, or not yet.
 

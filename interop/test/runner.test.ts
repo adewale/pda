@@ -16,12 +16,12 @@ import { recording } from "./helpers.ts";
 
 describe("options", () => {
   it("parses lists, the lane and per-implementation settings", () => {
-    const options = parseOptions(["--agents", "dpa", "--companies", "dpa-mock,x", "--scenarios", "D,SD", "--set", "dpa:INTEROP_FAULT=assertion-typ", "--no-build"]);
-    expect(options).toMatchObject({ agents: ["dpa"], companies: ["dpa-mock", "x"], scenarios: ["D", "SD"], lane: "local", build: false, keep: false });
-    expect(options.set.get("dpa")).toEqual({ INTEROP_FAULT: "assertion-typ" });
+    const options = parseOptions(["--agents", "pda", "--companies", "pda-mock,x", "--scenarios", "D,SD", "--set", "pda:INTEROP_FAULT=assertion-typ", "--no-build"]);
+    expect(options).toMatchObject({ agents: ["pda"], companies: ["pda-mock", "x"], scenarios: ["D", "SD"], lane: "local", build: false, keep: false });
+    expect(options.set.get("pda")).toEqual({ INTEROP_FAULT: "assertion-typ" });
     expect(parseOptions([]).agents).toBeNull();
     expect(() => parseOptions(["--lane", "moon"])).toThrow("--lane must be local or live");
-    expect(() => parseOptions(["--set", "dpa=1"])).toThrow("--set takes name:KEY=VALUE");
+    expect(() => parseOptions(["--set", "pda=1"])).toThrow("--set takes name:KEY=VALUE");
   });
 
   it("retries failed cells and wants 2 GB free unless told otherwise", () => {
@@ -51,7 +51,7 @@ describe("the registry and known failures", () => {
   it("lists our agent and the reference Company, each with a Dockerfile", () => {
     const registry = loadRegistry();
     const names = registry.implementations.map((entry) => `${entry.role}:${entry.name}`);
-    expect(names).toEqual(expect.arrayContaining(["agent:dpa", "company:dpa-mock"]));
+    expect(names).toEqual(expect.arrayContaining(["agent:pda", "company:pda-mock"]));
     for (const entry of registry.implementations.filter((item) => item.build)) {
       expect(readFileSync(path.join(import.meta.dirname, "../..", entry.build!, "Dockerfile"), "utf8")).toContain("FROM ");
     }
@@ -76,26 +76,26 @@ describe("the registry and known failures", () => {
   it("builds one image for entries that differ only in env: the strict mock is the reference mock's image", () => {
     const registry = loadRegistry();
     const entry = (name: string) => registry.implementations.find((item) => item.role === "company" && item.name === name)!;
-    expect(imageOf(entry("dpa-mock"), registry)).toBe("poppy-interop/company-dpa-mock:latest");
-    expect(imageOf(entry("dpa-mock-strict"), registry)).toBe("poppy-interop/company-dpa-mock:latest");
-    expect(entry("dpa-mock-strict").env).toEqual({ INTEROP_MOCK_PROFILE: "strict" });
+    expect(imageOf(entry("pda-mock"), registry)).toBe("poppy-interop/company-pda-mock:latest");
+    expect(imageOf(entry("pda-mock-strict"), registry)).toBe("poppy-interop/company-pda-mock:latest");
+    expect(entry("pda-mock-strict").env).toEqual({ INTEROP_MOCK_PROFILE: "strict" });
     expect(imageOf(entry("datalayer-ts"), registry)).toBe("poppy-interop/company-datalayer-ts:latest");
   });
 });
 
 describe("the network", () => {
   it("routes every Company and agent name to its container", () => {
-    expect(upstreamFor("dpa-mock.company.interop.test")).toBe("company-dpa-mock");
-    expect(upstreamFor("auth.dpa-mock.company.interop.test:443")).toBe("company-dpa-mock");
-    expect(upstreamFor("www.uk.dpa-mock.company.interop.test")).toBe("company-dpa-mock");
-    expect(upstreamFor("dpa.agent.interop.test")).toBe("agent-dpa");
+    expect(upstreamFor("pda-mock.company.interop.test")).toBe("company-pda-mock");
+    expect(upstreamFor("auth.pda-mock.company.interop.test:443")).toBe("company-pda-mock");
+    expect(upstreamFor("www.uk.pda-mock.company.interop.test")).toBe("company-pda-mock");
+    expect(upstreamFor("pda.agent.interop.test")).toBe("agent-pda");
     expect(upstreamFor("runner.interop.test")).toBeNull();
     expect(upstreamFor("example.com")).toBeNull();
   });
 
   it("aliases every name to the proxy, and covers each Company's subdomains in the certificate", () => {
-    const aliases = proxyAliases(["dpa"], [{ name: "acme", subdomains: ["shop"] }]);
-    expect(aliases).toEqual(expect.arrayContaining(["runner.interop.test", "dpa.agent.interop.test", "acme.company.interop.test", "auth.acme.company.interop.test", "shop.acme.company.interop.test"]));
+    const aliases = proxyAliases(["pda"], [{ name: "acme", subdomains: ["shop"] }]);
+    expect(aliases).toEqual(expect.arrayContaining(["runner.interop.test", "pda.agent.interop.test", "acme.company.interop.test", "auth.acme.company.interop.test", "shop.acme.company.interop.test"]));
     expect(certificateNames(["acme"])).toEqual(["*.company.interop.test", "*.acme.company.interop.test", "*.agent.interop.test", "runner.interop.test"]);
   });
 
@@ -136,16 +136,16 @@ describe("discovery documents from the recording", () => {
 describe("the report", () => {
   it("draws a grid per scenario and a section per cell, escaping what implementations said", () => {
     const cells: Cell[] = [
-      { agent: "dpa", company: "dpa-mock", scenario: "SD", outcome: "pass", blame: null, rule: null, steps: [], checks: [], har: "SD/dpa__dpa-mock.har" },
-      { agent: "dpa", company: "x", scenario: "SD", outcome: "fail", blame: "agent", rule: "violation", steps: [{ actor: "agent", op: "session", ms: 3, ok: false, error: "<script>" }], checks: [], har: null }
+      { agent: "pda", company: "pda-mock", scenario: "SD", outcome: "pass", blame: null, rule: null, steps: [], checks: [], har: "SD/pda__pda-mock.har" },
+      { agent: "pda", company: "x", scenario: "SD", outcome: "fail", blame: "agent", rule: "violation", steps: [{ actor: "agent", op: "session", ms: 3, ok: false, error: "<script>" }], checks: [], har: null }
     ];
     const html = renderReport({
       run: "r",
       lane: "local",
       spec: "Draft 0.1",
       implementations: [
-        { name: "dpa", role: "agent", commit: "abc", readings: { S1: "token-endpoint" }, relaxations: [] },
-        { name: "dpa-mock", role: "company", commit: "abc", readings: {}, relaxations: [] },
+        { name: "pda", role: "agent", commit: "abc", readings: { S1: "token-endpoint" }, relaxations: [] },
+        { name: "pda-mock", role: "company", commit: "abc", readings: {}, relaxations: [] },
         { name: "x", role: "company", commit: "def", readings: {}, relaxations: ["Accepts *.interop.test"] }
       ],
       scenarios: [{ id: "SD", title: "Direct Sign-In", steps: [] }],
@@ -162,7 +162,7 @@ describe("the report", () => {
 
   it("lists flaky cells and stale known failures", () => {
     const flaky: Cell = {
-      agent: "dpa",
+      agent: "pda",
       company: "x",
       scenario: "SD",
       outcome: "pass",
@@ -170,11 +170,11 @@ describe("the report", () => {
       rule: null,
       steps: [],
       checks: [],
-      har: "SD/dpa__x.attempt2.har",
+      har: "SD/pda__x.attempt2.har",
       flaky: true,
       attempts: [
-        { outcome: "error", reason: "x didn't reset", har: "SD/dpa__x.har" },
-        { outcome: "pass", har: "SD/dpa__x.attempt2.har" }
+        { outcome: "error", reason: "x didn't reset", har: "SD/pda__x.har" },
+        { outcome: "pass", har: "SD/pda__x.attempt2.har" }
       ]
     };
     const html = renderReport({
@@ -189,7 +189,7 @@ describe("the report", () => {
     expect(html).toContain("<h2>Flaky cells</h2>");
     expect(html).toContain("pass · flaky");
     expect(html).toContain("first error");
-    expect(html).toContain('href="SD/dpa__x.har"');
+    expect(html).toContain('href="SD/pda__x.har"');
     expect(html).toContain("<h2>Stale known failures</h2>");
     expect(html).toContain("pi-poppy × * SE");
   });

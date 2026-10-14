@@ -51,7 +51,7 @@ describe("the shared mock hooks", () => {
     expect(MOCK_BASE).toEqual({ rotateRefreshTokens: true, deviceInterval: 1, unknownApi: false, printShop: true });
   });
 
-  for (const host of ["interop/impls/dpa-mock/adapter.ts", "test/hypothesis/launcher.ts"]) {
+  for (const host of ["interop/impls/pda-mock/adapter.ts", "test/hypothesis/launcher.ts"]) {
     it(`are what ${host} serves: it takes placement, base, hooks and violations from the shared module and copies none`, () => {
       const source = readFileSync(path.join(ROOT, host), "utf8");
       expect(source).toMatch(/from "(?:\.\.\/shared|\.\.\/\.\.\/interop\/impls\/shared)\/mock-hooks\.ts"/);

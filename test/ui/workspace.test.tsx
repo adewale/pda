@@ -87,7 +87,7 @@ function stubFetch(entitlement: Entitlement = DEMO) {
     "fetch",
     vi.fn(async (input: RequestInfo | URL) =>
       String(input) === "/poppy/client.json"
-        ? Response.json({ client_id: "https://agent.example/poppy/client.json", client_name: "Durable Personal Agent" })
+        ? Response.json({ client_id: "https://agent.example/poppy/client.json", client_name: "Example Personal Agent" })
         : String(input) === "/api/entitlement"
           ? Response.json(entitlement)
           : new Response("Not found", { status: 404 })
@@ -96,7 +96,7 @@ function stubFetch(entitlement: Entitlement = DEMO) {
 }
 
 beforeEach(() => {
-  document.title = "Personal agent";
+  document.title = "Poppy Demo Agent";
   stubFetch();
 });
 
@@ -178,7 +178,7 @@ describe("needs-you tray", () => {
     expect(within(transcript as HTMLElement).getByText("Signed in to Acme.")).toBeTruthy();
 
     expect(screen.getByRole("link", { name: /^Chat\s*, 2 things need you$/ })).toBeTruthy();
-    expect(document.title).toBe("(2) Personal agent");
+    expect(document.title).toBe("(2) Poppy Demo Agent");
   });
 
   it("sends a decision only on a click", () => {
@@ -200,7 +200,7 @@ describe("needs-you tray", () => {
   it("isn't there, and the title has no count, when nothing needs the User", () => {
     open("/", session({}, { cards: [done] }));
     expect(screen.queryByRole("region", { name: /Needs you/ })).toBeNull();
-    expect(document.title).toBe("Personal agent");
+    expect(document.title).toBe("Poppy Demo Agent");
     expect(screen.getByRole("link", { name: "Chat" })).toBeTruthy();
   });
 
@@ -211,7 +211,7 @@ describe("needs-you tray", () => {
     expect(within(sheet).getByText("A person at Acme is answering · Your words go as written, from you")).toBeTruthy();
     fireEvent.click(within(sheet).getByRole("button", { name: "Hide conversation" }));
     expect(screen.queryByRole("complementary", { name: "Conversation with Acme" })).toBeNull();
-    expect(document.title).toBe("(1) Personal agent");
+    expect(document.title).toBe("(1) Poppy Demo Agent");
     fireEvent.click(screen.getByRole("button", { name: "Open conversation" }));
     expect(screen.getByRole("complementary", { name: "Conversation with Acme" })).toBeTruthy();
     expect(fixture.sent).toEqual([]);
@@ -583,7 +583,7 @@ describe("settings page", () => {
     expect(await screen.findByText("anthropic/claude-sonnet-5-5")).toBeTruthy();
     expect(screen.getByText(/Using the demo \(Claude Sonnet 5.5\)/)).toBeTruthy();
     expect(await screen.findByText("https://agent.example/poppy/client.json")).toBeTruthy();
-    expect(screen.getByText("Durable Personal Agent")).toBeTruthy();
+    expect(screen.getByText("Example Personal Agent")).toBeTruthy();
     // The key is a password field; the only visible text field is the Anthropic workspace ID, which isn't a secret.
     expect(screen.getAllByRole("textbox").map((field) => field.getAttribute("placeholder"))).toEqual(["wrkspc_…"]);
   });

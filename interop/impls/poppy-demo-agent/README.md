@@ -63,7 +63,7 @@ A dated snapshot from the 11 October grid. The latest results for every pair are
 | poppy-demo | D S0 SD SX C CA SO AO | none | |
 | poppyseed | D S0 SD SX C | CA, SO | **CA:** poppyseed ignores `wait` on a POST, so the signed-in send has no reply in its result; the scenario's assumption, not a bug (Poppy 7.3). **SO:** poppyseed answers `POST /oauth/revoke` with 200 and an empty body, as RFC 7009 permits. The caller `JSON.parse`s it, throws, and reports `action_failed`. The token is revoked at the Company, but the caller still holds it. |
 | Ilmer | none | D S0 C | Ilmer is signed-out only, so its OAuth metadata has no `authorization_endpoint`. The caller runs `new URL()` on every endpoint, and `new URL(undefined)` throws, so this agent can't use any signed-out-only Company. |
-| dpa-mock | none | D S0 N SD SX C CA SO AO | The caller requires `auth.issuer` to equal the Company's origin, and every endpoint to sit on it (`invalid_metadata`). dpa-mock's issuer is `https://auth.dpa-mock.company.interop.test`. The draft allows that (3.2). |
+| pda-mock | none | D S0 N SD SX C CA SO AO | The caller requires `auth.issuer` to equal the Company's origin, and every endpoint to sit on it (`invalid_metadata`). pda-mock's issuer is `https://auth.pda-mock.company.interop.test`. The draft allows that (3.2). |
 | adonis-agora | none | D S0 N SD SX C CA SO AO | The same check: the issuer is `https://adonis-agora.company.interop.test/poppy`. |
 
 `CI`, `CS`, `SV`, `SM`, `SE`, `R`, `AM`, `AS`, `O`, `OX` and `RL` are unsupported: no chosen message ids, no SSE, Direct Sign-In only, no renewal op, one API operation, no Operations extension. Every failure is in [`known-failures.json`](../../known-failures.json).

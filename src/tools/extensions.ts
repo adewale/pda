@@ -60,7 +60,7 @@ const WEB_PROMPT = `read_url(url, render?) fetches one public https:// page and 
 
 /** What a read keeps with its tool call, so a replay returns it without fetching again. */
 type StoredRead = { text: string; details: Json; isError: boolean };
-const READ_MEMO = "dpa.read_url";
+const READ_MEMO = "pda.read_url";
 
 export type WebToolsOptions = {
   /** Where read_url's requests go: never the Poppy client's fetcher. */

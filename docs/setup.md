@@ -132,7 +132,7 @@ These are Cloudflare's published prices on the day this was written; check the l
 
 ## 8. Logs and diagnostics
 
-The agent writes one structured event per unit of work to Workers Logs: `http` for each request, `turn` for each agent turn, `job` for each background job, `ws` for each page action that does something. The [spec's Observability section](../durable-personal-agent-spec.md#observability) lists every field; [decisions §30](decisions.md#30-logging-one-wide-event-per-unit-of-work-and-diagnostics-the-user-can-copy) says why. They record when and how each agent worked (which Companies, which tools, model usage and cost, what failed and with which code), never what anyone said, and no token, key, code, email or URL query. Workers Logs keeps them 7 days on Workers Paid.
+The agent writes one structured event per unit of work to Workers Logs: `http` for each request, `turn` for each agent turn, `job` for each background job, `ws` for each page action that does something. The [spec's Observability section](../pda-spec.md#observability) lists every field; [decisions §30](decisions.md#30-logging-one-wide-event-per-unit-of-work-and-diagnostics-the-user-can-copy) says why. They record when and how each agent worked (which Companies, which tools, model usage and cost, what failed and with which code), never what anyone said, and no token, key, code, email or URL query. Workers Logs keeps them 7 days on Workers Paid.
 
 **Querying.** In the dashboard, **Workers & Pages → Observability**, pick this Worker and write a query in the search bar, or build it in the Query Builder beside it:
 

@@ -213,7 +213,7 @@ describe("trace checks", () => {
 
   it("needs iss on every authorization response", () => {
     const checks = authorizationResponseChecks(
-      ["https://dpa.agent.interop.test/poppy/callback?code=c&state=s&iss=https%3A%2F%2Fauth.acme", "https://dpa.agent.interop.test/poppy/callback?error=access_denied&state=s"],
+      ["https://pda.agent.interop.test/poppy/callback?code=c&state=s&iss=https%3A%2F%2Fauth.acme", "https://pda.agent.interop.test/poppy/callback?error=access_denied&state=s"],
       []
     );
     expect(ids(checks)).toEqual(["company.iss-missing:error"]);

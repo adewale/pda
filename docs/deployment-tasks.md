@@ -1,6 +1,6 @@
 # Deployment tasks
 
-Everything left to deploy the agent and verify it, in order. Each item is **Owner** (done in a dashboard, a terminal or a document, with no code change) or **Code** (a change in this repository). [setup.md](setup.md) has the how-to for each configuration step; this file is the checklist and the record of what's done. The spec's [Status](../durable-personal-agent-spec.md#status) table holds the current state.
+Everything left to deploy the agent and verify it, in order. Each item is **Owner** (done in a dashboard, a terminal or a document, with no code change) or **Code** (a change in this repository). [setup.md](setup.md) has the how-to for each configuration step; this file is the checklist and the record of what's done. The spec's [Status](../pda-spec.md#status) table holds the current state.
 
 Back to the [README](../README.md) · Why it's built this way: [decisions.md](decisions.md)
 
@@ -27,7 +27,15 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
   - [x] GitHub: configured for the live deployment; the live redirect to GitHub checks out (spec, Status).
   - [x] Google: registered on 12 October; its two secrets are set in the dashboard, `SIGNIN_PROVIDERS` lists both providers again, and the live `/auth/google` redirects to Google with the right client and callback. The consent screen links `<origin>/privacy`.
 - [x] **Owner. Secrets**, set in the owner's own terminal with `wrangler secret put`, so no value passes through anyone else ([setup §2](setup.md#2-secrets)). `SESSION_SECRET`, `POPPY_SIGNING_JWKS` and `TOKEN_ENC_KEY` are set on the live deployment; `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set (the redirect to GitHub reads both); Google's two were added in the dashboard on 12 October; `WEB_PUSH_VAPID_JWK`, for notifications, is set on the live deployment. Anyone deploying their own copy sets it with `node scripts/poppy-secrets.mjs vapid-key | npx wrangler secret put WEB_PUSH_VAPID_JWK`; without it, notifications are simply off.
-- [ ] **Owner. The final domain for `client_id`**, before registering at any more Companies. Changing `PUBLIC_ORIGIN` later makes the agent a new Personal Agent to every Company (spec, "Our agent's identity"). The live deployment is on its `workers.dev` host, and print-with-poppy allowlisted that `client_id` on 12 October, so a move now means asking print-with-poppy again. Open question: will Companies accept a `workers.dev` host? For a custom domain: attach it in the dashboard (a `routes` entry in the committed `wrangler.jsonc` would name the deployer's host, which `test/template.test.ts` refuses), set `PUBLIC_ORIGIN` and `POPPY_LOGO_URI` to it, and change both OAuth apps' callback URLs.
+- [ ] **Owner. The final domain for `client_id`: `poppydemoagent.dev`**, the only host people will be sent to (decided 14 October). Changing `PUBLIC_ORIGIN` makes the agent a new Personal Agent to every Company (spec, "Our agent's identity"), so, in order:
+  - [ ] Before the switch, sign out of each Company on the Companies page, so the revocations go out under the old `client_id` while it still works.
+  - [ ] Attach `poppydemoagent.dev` to the `personal-agent` Worker in the dashboard (a `routes` entry in the committed `wrangler.jsonc` would name the deployer's host, which `test/template.test.ts` refuses). The Worker's name and its `workers.dev` host stay.
+  - [ ] In `deployment.local.json`, set `PUBLIC_ORIGIN` to `https://poppydemoagent.dev` and `POPPY_LOGO_URI` to `https://poppydemoagent.dev/logo.svg`, then `npm run deploy`.
+  - [ ] Add `https://poppydemoagent.dev/auth/google/callback` and `https://poppydemoagent.dev/auth/github/callback` to the two OAuth apps (`callbackUrl` in `src/oauth.ts` builds them from the request's origin), and the domain to Google's consent screen, which may ask to verify it.
+  - [ ] Ask print-with-poppy to allowlist `https://poppydemoagent.dev/poppy/client.json`, and Todd to accept the interop identity at `https://poppydemoagent.dev/poppy/interop/client.json`.
+  - [ ] Everyone signs in again (the session cookie belongs to the host), signs in again at each Company (tokens were issued to the old `client_id`), and turns notifications on again (a push subscription belongs to the origin's service worker).
+  - [ ] Then keep people off the `workers.dev` host: send its pages to `poppydemoagent.dev`, but leave `/poppy/*` answering there until the old `client_id`'s tokens have expired (Alpine's, about 12 November), so Companies can still read its metadata and keys; after that, turn `workers.dev` off.
+
 - [x] **Owner. `npm run deploy`.** It builds, checks the build names an owner and an origin, then deploys. Last run 13 October, version `1be0ec91` (commit `affcefd`).
 
 ## 2. Live checks

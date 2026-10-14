@@ -167,7 +167,7 @@ describe("a repeated confirm (Operations 5.2 and 6, scenario O2)", () => {
 });
 
 describe("the Company's fetches of the agent's documents (4.1, scenario CM)", () => {
-  const JWKS = "https://dpa.agent.interop.test/poppy/jwks.json";
+  const JWKS = "https://pda.agent.interop.test/poppy/jwks.json";
   const metadata = (at: number, headers: Record<string, string> = {}): Spec => ({ url: CLIENT_ID, at, headers, response: { client_id: CLIENT_ID, jwks_uri: JWKS } });
   const keys = (at: number, kid = "k1"): Spec => ({ url: JWKS, at, response: { keys: [{ kty: "EC", kid }] } });
   const grant = (at: number): Spec => ({ ...sessionStart(at), time: 100 });

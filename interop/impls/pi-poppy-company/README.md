@@ -56,11 +56,11 @@ Other relaxations, with no upstream change:
 
 ## Results
 
-In the full grid of 12 October ([summary](../../../docs/interop-results/README.md)), this Company passed 91 cells, failed 7 and had 46 unsupported. None of the failures is the Company's: Datalayer's Device Sign-In polling ignores `use_dpop_nonce` (SVN), pi-poppy's own agent resends its Session assertion on a nonce retry (SVN) and gives up when a Session ends (SE), and adonis-agora's client assertion names the token endpoint at the device authorization and revocation endpoints (SV, SXV, SO; [S1](../../../docs/spec-issues.md#s1)). dpa passed every scenario that ran.
+In the full grid of 12 October ([summary](../../../docs/interop-results/README.md)), this Company passed 91 cells, failed 7 and had 46 unsupported. None of the failures is the Company's: Datalayer's Device Sign-In polling ignores `use_dpop_nonce` (SVN), pi-poppy's own agent resends its Session assertion on a nonce retry (SVN) and gives up when a Session ends (SE), and adonis-agora's client assertion names the token endpoint at the device authorization and revocation endpoints (SV, SXV, SO; [S1](../../../docs/spec-issues.md#s1)). pda passed every scenario that ran.
 
 Runner, 11 October 2026 (`npm run interop`), with nonces off by default, before scenario SVN and Datalayer v0.10.0:
 
-- **dpa, Datalayer TypeScript and Datalayer Python agents:** every claimed scenario passes. (AM is not claimed by the Datalayer TypeScript agent.)
+- **pda, Datalayer TypeScript and Datalayer Python agents:** every claimed scenario passes. (AM is not claimed by the Datalayer TypeScript agent.)
 - **pi-poppy agent:** every claimed scenario passes except `SE`, which is the agent's: it doesn't recover from `invalid_session`.
 
 ## Known issues

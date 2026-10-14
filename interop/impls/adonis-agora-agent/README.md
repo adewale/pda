@@ -75,10 +75,10 @@ The client applies no SSRF or private-address checks of its own, and it accepts 
 | Run | Pass | Fail | Unsupported | Error |
 | --- | --- | --- | --- | --- |
 | `--agents adonis-agora --companies adonis-agora` | 18 | 0 | 4 (R, AM, O, OX) | 0 |
-| `--agents adonis-agora --companies dpa-mock` | 1 (D) | 19 | 2 (O, OX) | 0 |
+| `--agents adonis-agora --companies pda-mock` | 1 (D) | 19 | 2 (O, OX) | 0 |
 
 - The adonis × adonis row includes the AS rerun after a host CSRF fix.
-- Every dpa-mock failure is the same: `client-assertion.typ` ("header typ must be \"JWT\", got undefined"), blamed on the agent by rule 1 (violation). The client signs assertions without `typ`.
+- Every pda-mock failure is the same: `client-assertion.typ` ("header typ must be \"JWT\", got undefined"), blamed on the agent by rule 1 (violation). The client signs assertions without `typ`.
 
 ## Verified by hand (before the runner)
 
@@ -97,9 +97,9 @@ A dated snapshot from the 11 October grid. The latest results for every pair are
 | --- | --- | --- |
 | adonis-agora | D S0 N SD SV SM SMC SX SXV C CI CS CA SO SE AO AS RL | none |
 | poppyseed | D S0 SD SM SMC SX C CI CS CA SE AO AM AS | SV, SXV, SO |
-| dpa-mock | D | everything else it ran (19) |
+| pda-mock | D | everything else it ran (19) |
 | poppy-demo | D | S0 SD SX C CI CA SO AO AS |
 | Ilmer | D | S0 C CI |
 
-- **dpa-mock, poppy-demo, Ilmer.** The client signs assertions without `typ: "JWT"`, and all three require it: dpa-mock records `client-assertion.typ`, Northstar answers `invalid_grant` (reported as `invalid_client`), and Ilmer answers `invalid_client`. The draft leaves `typ` open (S2), but every strict Company refuses an assertion without it.
+- **pda-mock, poppy-demo, Ilmer.** The client signs assertions without `typ: "JWT"`, and all three require it: pda-mock records `client-assertion.typ`, Northstar answers `invalid_grant` (reported as `invalid_client`), and Ilmer answers `invalid_client`. The draft leaves `typ` open (S2), but every strict Company refuses an assertion without it.
 - **poppyseed SV, SXV, SO.** The client assertion's `aud` is the token endpoint even at the device authorization and revocation endpoints. poppyseed wants the URL of the endpoint the assertion is sent to, and answers `invalid_client` "assertion signature or claims are invalid".

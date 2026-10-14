@@ -1,7 +1,7 @@
 """
 A minimal Personal Agent Protocol (Poppy) Draft 0.1 client, written from the
 draft (https://personalagentprotocol.org/docs/spec) and our spec's readings
-(durable-personal-agent-spec.md, "Poppy client"), not ported from src/poppy.
+(pda-spec.md, "Poppy client"), not ported from src/poppy.
 
 It is deliberately small: discovery, client and Session assertions, DPoP
 proofs with nonces and `ath`, the token grants, Account Token renewal and

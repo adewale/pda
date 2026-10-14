@@ -85,7 +85,7 @@ registerApiNamer(apiOperationFor);
 function html(status: number, message: string): Response {
   const escaped = message.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
   return new Response(
-    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Personal agent</title><body style="font:16px system-ui;margin:3rem auto;max-width:32rem;padding:0 1rem"><p>${escaped}</p></body>`,
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Poppy Demo Agent</title><body style="font:16px system-ui;margin:3rem auto;max-width:32rem;padding:0 1rem"><p>${escaped}</p></body>`,
     { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } }
   );
 }

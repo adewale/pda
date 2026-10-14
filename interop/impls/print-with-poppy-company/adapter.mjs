@@ -31,7 +31,7 @@ const INNER = `http://127.0.0.1:${PORT}`;
 // grid's honest agents, each at the client metadata URL its adapter publishes under
 // <name>.agent.interop.test. AGENT_CLIENT_IDS (comma-separated) replaces the list.
 const GRID_AGENTS = [
-  'https://dpa.agent.interop.test/poppy/client.json',
+  'https://pda.agent.interop.test/poppy/client.json',
   'https://datalayer-ts.agent.interop.test/agent.json',
   'https://datalayer-py.agent.interop.test/agent.json',
   'https://pi-poppy.agent.interop.test/agent.json',

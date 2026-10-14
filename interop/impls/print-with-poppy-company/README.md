@@ -30,7 +30,7 @@ The store admits a Session only for a `client_id` its operator listed, so the ad
 
 | Agent | `client_id` |
 | --- | --- |
-| dpa | `https://dpa.agent.interop.test/poppy/client.json` |
+| pda | `https://pda.agent.interop.test/poppy/client.json` |
 | datalayer-ts, datalayer-py, pi-poppy, poppy-demo, adonis-agora | `https://<name>.agent.interop.test/agent.json` |
 | everruns | `https://everruns.agent.interop.test/api/v1/poppy/agent.json` |
 
@@ -61,7 +61,7 @@ The token, revocation, sign-in and Operations code (`server/auth.ts`, `server/si
 - **Native and compatibility descriptions are separate** (`c147418`). `/openapi.json` (the one `poppy.json` lists) now describes DPoP only: `startGuestAgentSession` and the `AgentGuest` Bearer scheme moved to `/api/compat/openapi.json`, with their own instructions at `/api/compat/instructions`. At `7ef69be` the native description listed `POST /api/agent-sessions` with no security beside the DPoP operations, and every operation accepted either scheme. The homepage's copyable prompt changed from "Use the documented guest API if you do not support native Poppy sessions" to "Only if you do not support native Poppy sessions, read /api/compat/instructions".
 - **`ALLOW_COMPAT_AGENT_SESSIONS=false` works in demo mode** (`c147418`), which retired our patch.
 - **Malformed and oversized JSON bodies** answer 400 `invalid_request` and 413 `request_too_large` instead of 500 (`c147418`).
-- **No `DPoP` header parameter** (`cecb32f`, "Fix DPA signed-out uploads by separating DPoP from operation parameters"). `7ef69be` listed an optional `DPoP` header parameter on every secured operation; `c147418` made it required; `cecb32f` removed it and says in the description that the client transport sets `Authorization: DPoP` and the proof. Our client asked the model for every required parameter, so against a description from those commits it refused any upload or order sent without a `DPoP` argument, before the card. It now ignores `DPoP`, `Authorization`, `Accept` and `Content-Type` header parameters (`TRANSPORT_HEADERS` in `src/poppy/apis.ts`; test in `test/print-journey.test.ts`).
+- **No `DPoP` header parameter** (`cecb32f`, "Fix PDA signed-out uploads by separating DPoP from operation parameters"). `7ef69be` listed an optional `DPoP` header parameter on every secured operation; `c147418` made it required; `cecb32f` removed it and says in the description that the client transport sets `Authorization: DPoP` and the proof. Our client asked the model for every required parameter, so against a description from those commits it refused any upload or order sent without a `DPoP` argument, before the card. It now ignores `DPoP`, `Authorization`, `Accept` and `Content-Type` header parameters (`TRANSPORT_HEADERS` in `src/poppy/apis.ts`; test in `test/print-journey.test.ts`).
 - **Accounts** (`260dbb4`, `docs/ACCOUNTS.md`). `poppy.json` now has `auth.direct` and `auth.mediated` with `poppy:read` and `poppy:write`; the OAuth metadata has `authorization_endpoint`, the `authorization_code` and `refresh_token` grants, PKCE S256 and `scopes_supported`. Sign-in is by an emailed six-digit code, and the account is made when the code is first verified. New operations `getAccount` and `listAccountOrders` need `poppy:read`; signed in, proposing, confirming and cancelling need `poppy:write`. Account Tokens last 30 days and aren't rotated on refresh; `/oauth/revoke` revokes them. Guest ordering in a signed-out Session is unchanged.
 - **Scope on a signed-out Session request** is refused with 400 `invalid_scope` ("Account scopes require sign-in"), where `7ef69be` ignored it: reading S4 moved from `either` to `omit`.
 
@@ -113,7 +113,7 @@ Readings:
 
 | Agent | Pass | Fail | Why it fails |
 | --- | --- | --- | --- |
-| dpa | D S0 CM SD SX SMC SO AO AS OU | none | |
+| pda | D S0 CM SD SX SMC SO AO AS OU | none | |
 | datalayer-ts, datalayer-py, pi-poppy | D S0 CM SD SX SMC SO AO AS | none | |
 | adonis-agora | D S0 CM SD SX SMC AO AS | SO | Its revocation assertion's `aud` is the token endpoint ([S1](../../../docs/spec-issues.md#s1), as at poppyseed and pi-poppy). The store answers 500 `internal_error`, not 401 `invalid_client`: `/oauth/revoke` doesn't catch the assertion error ([server/index.ts](https://github.com/spenciefy/print-with-poppy/blob/260dbb4634f5dc0026d790715304be9b78783ff2/server/index.ts#L231-L254)). |
 | poppy-demo | none | D S0 CM SD SX SO AO | Known: its caller reads `d.agent.protocols` for every Company ([session.ts line 178](https://github.com/irvinebroque/poppy-demo/blob/02a9b304e92fdfee465c57f2822742eecac8bdc8/workers/caller/src/session.ts#L178)), and this store, with no conversations, has no `agent` member. Before `260dbb4` it also lacked the `authorization_endpoint` the same line reads. |
@@ -121,4 +121,4 @@ Readings:
 
 R ran to its last step for the five agents that claim it (two expiries, two renewals with the Account Token, a signed-in read each time) and is unsupported only because the store doesn't rotate Account Tokens, so `refresh_rotated` has nothing to judge. Checks: no failures or warnings; 35 tentative S2 `typ` notes for pi-poppy's and adonis-agora's typ-less assertions, which this store accepts. The image builds in about a minute; npm finds prebuilt binaries for better-sqlite3 and sharp. It is about 625 MB on disk (about 150 MB compressed).
 
-**At `7ef69be`** (12 October, runs `08:40:03Z` and, for OU, `10:00:01Z`): D and S0 passed for dpa, datalayer-ts, datalayer-py, pi-poppy and adonis-agora, poppy-demo failed both at discovery, and dpa passed OU at the store and at both of our mocks. The full grid that afternoon added CM ([results](../../../docs/interop-results/README.md)).
+**At `7ef69be`** (12 October, runs `08:40:03Z` and, for OU, `10:00:01Z`): D and S0 passed for pda, datalayer-ts, datalayer-py, pi-poppy and adonis-agora, poppy-demo failed both at discovery, and pda passed OU at the store and at both of our mocks. The full grid that afternoon added CM ([results](../../../docs/interop-results/README.md)).

@@ -17,5 +17,5 @@ export function buildDefines(wranglerPath: string): Record<string, string> {
     // Not a git checkout (a tarball, a container): the events say so.
   }
   const date = /"compatibility_date"\s*:\s*"([^"]+)"/.exec(readFileSync(wranglerPath, "utf8"))?.[1] ?? "unknown";
-  return { __DPA_COMMIT__: JSON.stringify(commit), __DPA_COMPATIBILITY_DATE__: JSON.stringify(date) };
+  return { __PDA_COMMIT__: JSON.stringify(commit), __PDA_COMPATIBILITY_DATE__: JSON.stringify(date) };
 }

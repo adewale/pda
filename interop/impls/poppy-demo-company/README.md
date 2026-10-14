@@ -48,7 +48,7 @@ A dated snapshot from the 11 October grid. The latest results for every pair are
 
 | Agent | Pass | Fail | Why it fails |
 | --- | --- | --- | --- |
-| dpa | D S0 SD SX C CI CA SO AO | AS | dpa holds non-GET API calls for the User's approval at a Company without the Operations extension, so the write is never sent and no `insufficient_scope` comes back. Northstar's OpenAPI declares no per-operation scopes either. The scenario has no approval step. |
+| pda | D S0 SD SX C CI CA SO AO | AS | pda holds non-GET API calls for the User's approval at a Company without the Operations extension, so the write is never sent and no `insufficient_scope` comes back. Northstar's OpenAPI declares no per-operation scopes either. The scenario has no approval step. |
 | poppy-demo | D S0 SD SX C CA SO AO | none | |
 | adonis-agora | D | S0 SD SX C CI CA SO AO AS | Its assertions have no `typ`. Northstar requires `typ: "JWT"` (`invalid_grant`, reported as `invalid_client`). |
 

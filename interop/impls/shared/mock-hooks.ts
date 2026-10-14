@@ -1,6 +1,6 @@
 /**
  * What every host of our mock Company (test/mock-company) outside the
- * Workers runtime shares: the interop adapter (interop/impls/dpa-mock) and
+ * Workers runtime shares: the interop adapter (interop/impls/pda-mock) and
  * the Hypothesis suite's launcher (test/hypothesis/launcher.ts). One copy of
  * the placement under `<id>.company.interop.test`, the base settings, the
  * hooks and their names, and `GET /violations`'s body, so the two can't

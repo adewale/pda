@@ -495,7 +495,7 @@ export function selected(registry: Registry, role: Role, names: readonly string[
 
 /**
  * An implementation's image. Entries of one role that build the same
- * directory in the same context (`dpa-mock` and `dpa-mock-strict`, told
+ * directory in the same context (`pda-mock` and `pda-mock-strict`, told
  * apart by `env`) share one image, named after the first in the registry.
  */
 export function imageOf(entry: RegistryEntry, registry: Registry, tag = "latest"): string {

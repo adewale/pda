@@ -32,7 +32,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 
 | Project | What | Language, licence | Grid | Source | Checked |
 | --- | --- | --- | --- | --- | --- |
-| This project (dpa) | A hosted Personal Agent per User, on Durable Objects. Beyond Poppy: general tools (reading a public page, rendering it in Browser Run when it needs JavaScript; notes about the User; dates and exact sums) and reminders and scheduled tasks, with Web Push | TypeScript, Apache-2.0 | Yes | [adewale/dpa](https://github.com/adewale/dpa) | 12 Oct |
+| This project (pda) | A hosted Personal Agent per User, on Durable Objects. Beyond Poppy: general tools (reading a public page, rendering it in Browser Run when it needs JavaScript; notes about the User; dates and exact sums) and reminders and scheduled tasks, with Web Push | TypeScript, Apache-2.0 | Yes | [adewale/dpa](https://github.com/adewale/dpa) | 12 Oct |
 | openavt (new) | A Python Personal Agent client, `PAPClient`, and a custom extension that binds a Poppy Session's authority to a voice call; a local reference Company for its demo | Python, Apache-2.0 | No: a candidate for an agent adapter (it covers discovery, Sessions, the three sign-ins, refresh and Operations) | [ketanbj/openavt `docs/pap.md`](https://github.com/ketanbj/openavt/blob/9e99b622515b20d1b8d5405be229c7199d73dd60/docs/pap.md) | 14 Oct, docs read; code not run |
 | Datalayer SDK | Client side of a both-sides SDK | Python, TypeScript; BSD-3-Clause | Yes, pinned at `00216eb` (0.17.0, 13 Oct; was `0c048aa`, 0.10.0). 0.11.0 to 0.17.0 add Reactor displays and an opt-in client that refuses private addresses, and change no wire behaviour the grid exercises | [datalayer/personal-agent-protocol](https://github.com/datalayer/personal-agent-protocol) | 13 Oct |
 | pi-poppy | An extension for the pi coding agent | TypeScript, MIT | Yes, at `11ea106` | [richardanaya/pi-poppy](https://github.com/richardanaya/pi-poppy) | 13 Oct (no commits since 10 Oct) |
@@ -58,7 +58,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 | Ilmer.org | A local-history archive assistant, signed-out only. Since 12 Oct its main site, www.ilmer.org, also serves a `poppy.json` naming the same issuer, and its agent gained web search and fetch tools | TypeScript, MIT | Yes, pinned at `de0d1ec` (13 Oct; was `4ca76e0`), with a stand-in Workers AI binding the new tools need | [rbirkby/Ilmer.org](https://github.com/rbirkby/Ilmer.org) | 13 Oct |
 | everruns `poppy` channel | Hosts a Company's Poppy endpoints, signed-out only | Rust, MIT | Yes, pinned at `aceb2e2` (13 Oct; was `f470ad7`, 60 commits earlier, none in its Poppy code) | [everruns/everruns](https://github.com/everruns/everruns) | 13 Oct |
 | Spot | A cart-approval and payment service | JavaScript, none declared | No | [futurebasicsrepo/…-client-hub-api](https://github.com/futurebasicsrepo/futurebasicsrepo-client-hub-api) | 13 Oct (last commit 12 Oct) |
-| print-with-poppy | An agent-first photo-printing store: signed-out Sessions, OpenAPI, Operations v1 required for orders; agents on an allowlist. Since 12 Oct (`260dbb4`) optional accounts: Direct and Mediated Sign-In by an emailed code, `poppy:read` for order history, `poppy:write` to order into the account. Since 13 Oct a hosted Agent Sandbox for testing agents without cards (sandbox.printwithpoppy.com), mixed products in one order and private coupons | TypeScript (Express, SQLite), MIT (since 12 Oct) | Yes, pinned at `246727d` (13 Oct; was `260dbb4`), unpatched: D, S0, CM, SD, SX, SMC, SO, AO, AS, R, and OU with dpa only ([`interop/impls/print-with-poppy-company`](../interop/impls/print-with-poppy-company)) | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 13 Oct |
+| print-with-poppy | An agent-first photo-printing store: signed-out Sessions, OpenAPI, Operations v1 required for orders; agents on an allowlist. Since 12 Oct (`260dbb4`) optional accounts: Direct and Mediated Sign-In by an emailed code, `poppy:read` for order history, `poppy:write` to order into the account. Since 13 Oct a hosted Agent Sandbox for testing agents without cards (sandbox.printwithpoppy.com), mixed products in one order and private coupons | TypeScript (Express, SQLite), MIT (since 12 Oct) | Yes, pinned at `246727d` (13 Oct; was `260dbb4`), unpatched: D, S0, CM, SD, SX, SMC, SO, AO, AS, R, and OU with pda only ([`interop/impls/print-with-poppy-company`](../interop/impls/print-with-poppy-company)) | [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy) | 13 Oct |
 | Tipping Co (timothyohare) | A learning-demo Company for an NRL tipping service: signed-out and Direct Sign-In Sessions, DPoP, refresh and revocation, OpenAPI; in-memory stores. Requires the token endpoint as `aud`, at revocation too | TypeScript (Hono), none declared | Yes, as `tipping-co` at `fb7b4e6` since 13 Oct ([`interop/impls/tipping-co-company`](../interop/impls/tipping-co-company)) | [timothyohare/personal-agent-protocol](https://github.com/timothyohare/personal-agent-protocol) | 13 Oct (no commits since 12 Oct) |
 | Flight Sector (introspection-js-sdk) | The demo Company in PR #441 | TypeScript, Apache-2.0 | No | [PR #441](https://github.com/introspection-org/introspection-js-sdk/pull/441) | 12 Oct |
 | TYPO3 lab | A signed-out "knowledge profile" in a private extension | PHP, private | README only | [dirnbauer/webconsulting-typo3-lab](https://github.com/dirnbauer/webconsulting-typo3-lab) | 12 Oct |
@@ -136,14 +136,14 @@ Each implementation's cells, as pass / fail / unsupported, summed over the grid'
 
 | Agent | Pass / fail / unsupported | Passes where run | What its failures are |
 | --- | --- | --- | --- |
-| dpa (ours) | 213 / 1 / 146 | 99.5% of 214 | SO at Tipping Co: it signs the revocation request's client assertion for the revocation endpoint, and Tipping Co wants its token endpoint there too ([S1](spec-issues.md#s1), the spec's). |
+| pda (ours) | 213 / 1 / 146 | 99.5% of 214 | SO at Tipping Co: it signs the revocation request's client assertion for the revocation endpoint, and Tipping Co wants its token endpoint there too ([S1](spec-issues.md#s1), the spec's). |
 | Datalayer Python | 201 / 8 / 151 | 96% of 209 | Device Sign-In polling ignores `use_dpop_nonce` (SVN); it requires `conversation_id` in handoff and close answers, which our mocks don't send (7.9, 7.12); SO at Tipping Co (S1). |
 | Datalayer TS | 197 / 12 / 151 | 94% of 209 | The same SVN failure; its event stream gives up after five quick reconnects (CS); the handoff and close answers; SO at Tipping Co (S1). |
 | adonis-agora | 141 / 47 / 172 | 75% of 188 | Its assertions carry no `typ`, which three Companies refuse ([S2](spec-issues.md#s2), the spec's); its device and revocation `aud` ([S1](spec-issues.md#s1)); renewal without `session_id` at Datalayer. |
 | everruns | 33 / 11 / 316 | 75% of 44 | Its Session assertion has no `typ` (S2); it fetches metadata only at the appended location, so DP fails at both our mocks ([S3](spec-issues.md#s3)). Signed-out only, conversations and no APIs. |
 | pi-poppy | 147 / 55 / 158 | 73% of 202 | No `typ` (S2); it resends the Session assertion on a nonce retry, and at the token endpoint retries only when `WWW-Authenticate` names the nonce error; it throws when a Company ends the Session ([N39](spec-issues.md#n39)). |
 | poppy-demo caller | 39 / 69 / 252 | 36% of 108 | It requires the issuer to be the Company's origin, though the draft's examples put it elsewhere, needs an `agent` member and an `authorization_endpoint`, and always asks for its hard-coded scopes. |
-| Tipping Co's agent | 29 / 70 / 261 | 29% of 99 | It sends no `client_id` at the token endpoint (RFC 7521 4.2 allows that), which every third-party Company refuses; it requires `authorization_endpoint`, so it can't discover a signed-out Company. It passes everything it claims at its own Company and at dpa-mock. |
+| Tipping Co's agent | 29 / 70 / 261 | 29% of 99 | It sends no `client_id` at the token endpoint (RFC 7521 4.2 allows that), which every third-party Company refuses; it requires `authorization_endpoint`, so it can't discover a signed-out Company. It passes everything it claims at its own Company and at pda-mock. |
 
 **As a Company** (against all eight agents):
 
@@ -152,14 +152,14 @@ Each implementation's cells, as pass / fail / unsupported, summed over the grid'
 | poppyseed | 126 / 12 / 102 | 91% of 138 | Mostly the agents': adonis-agora's `aud` (S1), poppy-demo's parse of an empty revocation answer, Tipping Co's agent's missing `client_id`. |
 | pi-poppy Company | 123 / 13 / 104 | 90% of 136 | The agents': Datalayer's SVN polling, pi-poppy's own nonce retry, adonis-agora's `aud`, Tipping Co's agent's missing `client_id`. |
 | Datalayer TS / Python | 112 / 17 / 111 each | 87% of 129 | Its renewal requires `session_id`; its cancel sends `result.data: null` ([N41](spec-issues.md#n41)); poppy-demo's hard-coded scopes; Tipping Co's agent's missing `client_id`. |
-| dpa-mock (lenient reference) | 143 / 23 / 74 | 86% of 166 | The agents': nonce retries, Datalayer's SVN polling, CS stream and handoff and close answers, poppy-demo's issuer rule, everruns' S3 reading (DP). |
+| pda-mock (lenient reference) | 143 / 23 / 74 | 86% of 166 | The agents': nonce retries, Datalayer's SVN polling, CS stream and handoff and close answers, poppy-demo's issuer rule, everruns' S3 reading (DP). |
 | everruns channel | 24 / 5 / 211 | 83% of 29 | poppy-demo's issuer-origin rule (D, S0, C) and Tipping Co's agent's need for `authorization_endpoint`. |
 | adonis-agora AuthKit | 112 / 24 / 104 | 82% of 136 | The agents': poppy-demo's issuer-origin rule, pi-poppy's nonce retry, Tipping Co's agent's missing `client_id`. |
 | Tipping Co | 50 / 13 / 177 | 79% of 63 | It wants the token endpoint as `aud` at revocation (S1), so four agents fail SO; pi-poppy's nonce retry; poppy-demo's missing `agent` member. |
-| print-with-poppy | 47 / 16 / 177 | 75% of 63 | poppy-demo's crash on its missing `agent` member (7 cells), adonis-agora's revocation `aud` (S1), which the store answers with 500, not `invalid_client` (SO), and Tipping Co's agent's missing `client_id`. No conversations, so most scenarios don't apply. OU, which only dpa claims, passes. |
+| print-with-poppy | 47 / 16 / 177 | 75% of 63 | poppy-demo's crash on its missing `agent` member (7 cells), adonis-agora's revocation `aud` (S1), which the store answers with 500, not `invalid_client` (SO), and Tipping Co's agent's missing `client_id`. No conversations, so most scenarios don't apply. OU, which only pda claims, passes. |
 | poppy-demo Northstar | 50 / 32 / 158 | 61% of 82 | It refuses assertions without `typ` (S2 `jwt-60s`); poppy-demo's own agent passes there. |
 | Ilmer | 18 / 18 / 204 | 50% of 36 | It refuses assertions without `typ` (S2); poppy-demo's crash; Tipping Co's agent's need for `authorization_endpoint`. Signed-out only. |
-| dpa-mock-strict | 83 / 83 / 74 | 50% of 166 | It refuses assertions without `typ`, our strict reading of S2, so pi-poppy, adonis-agora, everruns and Tipping Co's agent fail almost every cell. |
+| pda-mock-strict | 83 / 83 / 74 | 50% of 166 | It refuses assertions without `typ`, our strict reading of S2, so pi-poppy, adonis-agora, everruns and Tipping Co's agent fail almost every cell. |
 
 Not in the grid: nestjs-agent (its Company needs adonis-agora's AuthKit, which the grid already runs), Spot (it publishes valid discovery, but has no adapter), the TYPO3 lab (private), Atlas and Flight Sector (an open pull request), and the live Companies with no public code (Salespeak, Emora Health, Tilopay, Northlight Flowers). [interop-testing.md](interop-testing.md#candidates-from-the-12-october-survey) says what the 12 October candidates would need.
 
@@ -168,7 +168,7 @@ An edge below means no cell between that pair failed; a missing edge means at le
 ```mermaid
 flowchart LR
   subgraph Agents
-    dpa[dpa, ours]
+    pda[pda, ours]
     dlts[Datalayer TS]
     dlpy[Datalayer Python]
     pi[pi-poppy]
@@ -178,8 +178,8 @@ flowchart LR
     tcag[Tipping Co agent]
   end
   subgraph Companies
-    mock[dpa-mock]
-    strict[dpa-mock-strict]
+    mock[pda-mock]
+    strict[pda-mock-strict]
     mts[Datalayer TS]
     mpy[Datalayer Python]
     pico[pi-poppy Company]
@@ -191,7 +191,7 @@ flowchart LR
     evco[everruns channel]
     tcco[Tipping Co]
   end
-  dpa --> mock & strict & mts & mpy & pico & north & seed & ilmer & pwp & authkit & evco
+  pda --> mock & strict & mts & mpy & pico & north & seed & ilmer & pwp & authkit & evco
   dlts --> north & seed & ilmer & pwp & authkit & evco
   dlpy --> mts & mpy & north & seed & ilmer & pwp & authkit & evco
   pi --> pwp & evco
@@ -201,7 +201,7 @@ flowchart LR
   tcag --> mock & tcco
 ```
 
-At print-with-poppy and Tipping Co, everruns' agent runs only D (it starts a Session only for a conversation). dpa's one missing edge is Tipping Co, over SO and the S1 reading; Tipping Co's agent reaches dpa-mock only since our mock stopped requiring `client_id` on 13 October.
+At print-with-poppy and Tipping Co, everruns' agent runs only D (it starts a Session only for a conversation). pda's one missing edge is Tipping Co, over SO and the S1 reading; Tipping Co's agent reaches pda-mock only since our mock stopped requiring `client_id` on 13 October.
 
 pi-poppy's only clean pairs are print-with-poppy and everruns' channel. At every other Company one of four habits fails a cell: it resends the Session assertion on a nonce retry, retries a token request only when `WWW-Authenticate` names the nonce error, gives up when a Session ends, and sends no `typ`.
 
@@ -213,8 +213,8 @@ Where the draft is ambiguous, implementations already disagree. The questions ar
 
 | Implementation | S1 client assertion `aud` | S2 assertion `typ` and lifetime | S3 metadata for an issuer with a path | S4 `scope` on a signed-out Session |
 | --- | --- | --- | --- | --- |
-| dpa (agent) | endpoint called | `typ: JWT`, `kid`, 60 s | insertion | omits |
-| dpa-mock / dpa-mock-strict | endpoint, token endpoint or issuer | any, 300 s / `typ: JWT`, `kid`, 60 s | insertion | ignores |
+| pda (agent) | endpoint called | `typ: JWT`, `kid`, 60 s | insertion | omits |
+| pda-mock / pda-mock-strict | endpoint, token endpoint or issuer | any, 300 s / `typ: JWT`, `kid`, 60 s | insertion | ignores |
 | Datalayer agents | endpoint called | `typ: JWT`, 60 s | insertion | omits |
 | Datalayer Companies | endpoint called, token endpoint or issuer (0.10.0) | `typ` absent or `JWT`, 120 s, `jti` of 16+ characters (0.10.0) | insertion | omits or ignores |
 | pi-poppy agent / Company | endpoint called / endpoint called | no `typ` on Session assertions / any, 120 s | append / either | omits / ignores |

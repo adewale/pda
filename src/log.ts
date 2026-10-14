@@ -27,8 +27,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { originOf, type Issuer, type Origin } from "./poppy/issuer";
 
-declare const __DPA_COMMIT__: string | undefined;
-declare const __DPA_COMPATIBILITY_DATE__: string | undefined;
+declare const __PDA_COMMIT__: string | undefined;
+declare const __PDA_COMPATIBILITY_DATE__: string | undefined;
 
 export const SERVICE = "personal-agent";
 
@@ -148,8 +148,8 @@ const environment: { [name: string]: Field } = {
   service: literal(SERVICE),
   version_id: UNKNOWN,
   version_tag: null,
-  commit: id(typeof __DPA_COMMIT__ === "string" ? __DPA_COMMIT__ : undefined) ?? UNKNOWN,
-  compatibility_date: id(typeof __DPA_COMPATIBILITY_DATE__ === "string" ? __DPA_COMPATIBILITY_DATE__ : undefined) ?? UNKNOWN
+  commit: id(typeof __PDA_COMMIT__ === "string" ? __PDA_COMMIT__ : undefined) ?? UNKNOWN,
+  compatibility_date: id(typeof __PDA_COMPATIBILITY_DATE__ === "string" ? __PDA_COMPATIBILITY_DATE__ : undefined) ?? UNKNOWN
 };
 
 /** The deployment's version, from the `CF_VERSION_METADATA` binding. Called by the Worker and each agent at startup; idempotent. */
@@ -198,7 +198,7 @@ export function redact(text: string): string {
  * text or the model's arguments. `Symbol.for`, so every copy of this module
  * knows the same mark.
  */
-export const FOREIGN_TEXT: unique symbol = Symbol.for("dpa.log.foreign-text") as never;
+export const FOREIGN_TEXT: unique symbol = Symbol.for("pda.log.foreign-text") as never;
 
 /**
  * An error whose message carries someone else's words (`PoppyError`,

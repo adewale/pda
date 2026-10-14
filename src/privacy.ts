@@ -29,7 +29,7 @@ const escape = (text: string) =>
 
 export function privacyPage(env: PrivacyEnv): Response {
   const contact = readPrivacyContact(env);
-  const name = escape(typeof env.POPPY_CLIENT_NAME === "string" && env.POPPY_CLIENT_NAME ? env.POPPY_CLIENT_NAME : "Personal agent");
+  const name = escape(typeof env.POPPY_CLIENT_NAME === "string" && env.POPPY_CLIENT_NAME ? env.POPPY_CLIENT_NAME : "Poppy Demo Agent");
   const origin = escape(typeof env.PUBLIC_ORIGIN === "string" ? env.PUBLIC_ORIGIN : "");
   const reach = `<a href="${escape(contact.href)}">${escape(contact.text)}</a>`;
   const html = `<!doctype html>

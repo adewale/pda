@@ -1,6 +1,6 @@
 {
-  "name": "personal-agent",
-  "description": "Durable Personal Agent on Cloudflare: one Pi agent per signed-in person",
+  "name": "pda",
+  "description": "Poppy Demo Agent on Cloudflare: one Pi agent per signed-in person",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",

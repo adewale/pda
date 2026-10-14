@@ -56,7 +56,7 @@ describe("the interop test client, configured", () => {
     const doc = await json(await fetchWorker(new Request(CLIENT), configured(publicSet)));
     expect(doc).toEqual({
       client_id: CLIENT,
-      client_name: "Durable Personal Agent (interop tests)",
+      client_name: "Poppy Demo Agent (interop tests)",
       jwks_uri: JWKS,
       token_endpoint_auth_method: "private_key_jwt",
       extensions: { operations: { version: "1" } }

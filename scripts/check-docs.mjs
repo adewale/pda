@@ -3,7 +3,7 @@
  * Checks that the docs still name real tests:
  *
  * 1. Every test name quoted in the "Checked by" column of Appendix A of
- *    durable-personal-agent-spec.md names a real test. "…" stands for any
+ *    pda-spec.md names a real test. "…" stands for any
  *    text, at the start, middle or end of a name.
  * 2. Every scenario id and test name the Status column of the attack tables
  *    in docs/adversarial-interop.md points at exists: a scenario file in
@@ -25,7 +25,7 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
 const read = (file) => readFileSync(path.join(root, file), "utf8");
-const SPEC = "durable-personal-agent-spec.md";
+const SPEC = "pda-spec.md";
 
 /** The Vitest configs `npm test` runs. */
 function testConfigs() {

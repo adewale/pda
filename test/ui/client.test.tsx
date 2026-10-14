@@ -45,7 +45,7 @@ async function openPage(search: string) {
   await act(async () => {
     page = await import("../../src/client.tsx");
   });
-  await screen.findByRole("heading", { name: "Personal agent" });
+  await screen.findByRole("heading", { name: "Poppy Demo Agent" });
   return page!;
 }
 
@@ -68,7 +68,12 @@ describe("sign-in page", () => {
 
   it("links the privacy policy from the sign-in page", async () => {
     await openPage("");
-    expect(screen.getByRole("link", { name: "Privacy policy" }).getAttribute("href")).toBe("/privacy");
+    expect(screen.getByRole("link", { name: "Privacy" }).getAttribute("href")).toBe("/privacy");
+  });
+
+  it("says what the agent is, above the footer", async () => {
+    await openPage("");
+    expect(screen.getByText(/^Poppy Demo Agent \(PDA\) is a Personal Agent to demonstrate the use of Poppy/)).toBeTruthy();
   });
 
   it("shows only the sign-in buttons the deployment offers", async () => {

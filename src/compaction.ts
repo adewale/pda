@@ -172,7 +172,7 @@ export function summaryOf(message: AssistantMessage): string | undefined {
 }
 
 /** The summary a compaction made, kept with its task so a replay doesn't ask the model again. */
-const SUMMARY_MEMO = "dpa.summary";
+const SUMMARY_MEMO = "pda.summary";
 
 /**
  * Our summariser, on pi-durable's `beforeCompact` hook. The hook can only

@@ -11,6 +11,91 @@
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
+/*
+ * The palette: ink on warm paper for structure, one hue for each party (lake
+ * for the User and their Personal Agent, poppy for Poppy, sierra for a
+ * Company), bark for actions, and earth tones for state, none of them a
+ * party's hue. Poppy and its shade are fills only; as text, Poppy is
+ * poppy-ink. Kumo's tokens below are set from these, so every page uses them.
+ */
+@theme {
+  --color-paper: #f7f4ec;
+  --color-ink: #1d1d1f;
+  --color-granite: #6b675f;
+  --color-lake: #1a4fa0;
+  --color-poppy: #ef8a17;
+  --color-poppy-shade: #e0741a;
+  --color-poppy-ink: #a34a06;
+  --color-sierra: #05351d;
+  --color-bark: #5a3e1b;
+  --color-madder: #9e1c2c;
+  --color-ochre: #7a5c12;
+  --color-sage: #4f6b5a;
+}
+
+/* Unlayered, so these beat Kumo's `@layer base` values in both modes. */
+:root {
+  --color-kumo-canvas: var(--color-paper);
+  --color-kumo-elevated: #fbf9f4;
+  --color-kumo-recessed: #efebe1;
+  --color-kumo-base: #fffdf8;
+  --color-kumo-tint: #f1ede3;
+  --color-kumo-line: rgb(29 29 31 / 0.14);
+  --color-kumo-hairline: #e6e0d3;
+  --color-kumo-brand: var(--color-bark);
+  --color-kumo-brand-hover: #47300f;
+  --color-kumo-danger: var(--color-madder);
+  --color-kumo-danger-tint: #f6e4e2;
+  --color-kumo-warning: #b08a2e;
+  --color-kumo-warning-tint: #f4ecd6;
+  --color-kumo-success: var(--color-sage);
+  --color-kumo-success-tint: #e5ece6;
+  --color-kumo-info: var(--color-granite);
+  --color-kumo-info-tint: #efebe1;
+  --text-color-kumo-default: var(--color-ink);
+  --text-color-kumo-strong: #111110;
+  --text-color-kumo-subtle: var(--color-granite);
+  --text-color-kumo-placeholder: #9a958a;
+  --text-color-kumo-inverse: var(--color-paper);
+  --text-color-kumo-link: var(--color-bark);
+  --text-color-kumo-brand: var(--color-poppy-ink);
+  --text-color-kumo-info: var(--color-ink);
+  --text-color-kumo-success: var(--color-sage);
+  --text-color-kumo-danger: var(--color-madder);
+  --text-color-kumo-warning: var(--color-ochre);
+}
+
+:root[data-mode="dark"] {
+  --color-paper: #161513;
+  --color-ink: #ede8dc;
+  --color-granite: #a8a296;
+  --color-lake: #8fb0e8;
+  --color-poppy-ink: #ef8a17;
+  --color-sierra: #7fb394;
+  --color-bark: #8a6234;
+  --color-madder: #f0959b;
+  --color-ochre: #e3c27a;
+  --color-sage: #9cc4ac;
+  --color-kumo-elevated: #1c1b18;
+  --color-kumo-recessed: #11100e;
+  --color-kumo-base: #201f1c;
+  --color-kumo-tint: #2a2824;
+  --color-kumo-line: rgb(247 244 236 / 0.14);
+  --color-kumo-hairline: #2c2a26;
+  --color-kumo-brand-hover: #9c7140;
+  --color-kumo-danger: #b8323f;
+  --color-kumo-danger-tint: rgb(184 50 63 / 0.18);
+  --color-kumo-warning: #c9a043;
+  --color-kumo-warning-tint: rgb(201 160 67 / 0.16);
+  --color-kumo-success: #6e9a80;
+  --color-kumo-success-tint: rgb(110 154 128 / 0.16);
+  --color-kumo-info-tint: #2a2824;
+  --text-color-kumo-strong: #f7f4ec;
+  --text-color-kumo-placeholder: #7d786e;
+  --text-color-kumo-inverse: #1d1d1f;
+  --text-color-kumo-link: #d9b27a;
+}
+
 html,
 body,
 #root {

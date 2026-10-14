@@ -1,6 +1,6 @@
 # Grounding: our claims against the text of Draft 0.1
 
-What the Personal Agent Protocol (Poppy) says, quoted, for every claim we make about it: the spec issues in [docs/spec-issues.md](../docs/spec-issues.md), the readings in [docs/readings.md](../docs/readings.md), the rows of Appendix A in [durable-personal-agent-spec.md](../durable-personal-agent-spec.md#appendix-a-personal-agent-requirements), the mock Company's checks, the validator's messages, and the section numbers our code cites.
+What the Personal Agent Protocol (Poppy) says, quoted, for every claim we make about it: the spec issues in [docs/spec-issues.md](../docs/spec-issues.md), the readings in [docs/readings.md](../docs/readings.md), the rows of Appendix A in [pda-spec.md](../pda-spec.md#appendix-a-personal-agent-requirements), the mock Company's checks, the validator's messages, and the section numbers our code cites.
 
 The text is the snapshot in [draft-0.1-2026-10-12/](draft-0.1-2026-10-12/README.md), retrieved on 13 October 2026. The rows below were written against the earlier snapshot, [draft-0.1-2026-10-09/](draft-0.1-2026-10-09/README.md) (retrieved 12 October), and every quotation in them is also in the newer one, word for word ([below](#has-the-spec-changed-since-9-and-11-october)). Quotations are verbatim from its `pages/*.md`, with "…" for omissions; Guides quotations show code as backticks. Anchors are the site's: `spec#sending-tokens` is <https://personalagentprotocol.org/docs/spec#sending-tokens>, `ops#confirm` is the Operations page, `guides#agent-dpop` the Guides. The anchors for each section are in the snapshot's `html/*.html`.
 
@@ -180,7 +180,7 @@ Verdicts: 34 still apply, 8 partly addressed, 3 misread, 0 fixed.
 
 ## Appendix A
 
-Each row of Appendix A in `durable-personal-agent-spec.md`, against Draft 0.1 and Operations v1 as retrieved on 12 October 2026; the same text is in the 12 October update ([pages/spec.md](draft-0.1-2026-10-12/pages/spec.md), [pages/operations.md](draft-0.1-2026-10-12/pages/operations.md), [pages/guides.md](draft-0.1-2026-10-12/pages/guides.md)). "Keyword" is the RFC 2119 keyword the text uses for the Personal Agent's part. "Matches" is whether the row's wording, as now edited, says the same: keyword strength, scope and section. Rows marked "edited" were corrected in this pass.
+Each row of Appendix A in `pda-spec.md`, against Draft 0.1 and Operations v1 as retrieved on 12 October 2026; the same text is in the 12 October update ([pages/spec.md](draft-0.1-2026-10-12/pages/spec.md), [pages/operations.md](draft-0.1-2026-10-12/pages/operations.md), [pages/guides.md](draft-0.1-2026-10-12/pages/guides.md)). "Keyword" is the RFC 2119 keyword the text uses for the Personal Agent's part. "Matches" is whether the row's wording, as now edited, says the same: keyword strength, scope and section. Rows marked "edited" were corrected in this pass.
 
 ### Specification
 
@@ -326,31 +326,31 @@ Every id in `test/mock-company/violations.ts` (144 ids; the brief said 143), wit
 
 Counts: Guides 16, Rule 47, RFC 19, MUST 51, Reading 10, SHOULD 1.
 
-In the Profile column, "both" means the strict mock (conformance tests, `dpa-mock-strict`) and the lenient reference (`dpa-mock`, `strictAssertions: false`) both record it. In the Note column, "refuses" means the request fails as well as (or instead of) being recorded, and "records" means the request goes on.
+In the Profile column, "both" means the strict mock (conformance tests, `pda-mock-strict`) and the lenient reference (`pda-mock`, `strictAssertions: false`) both record it. In the Note column, "refuses" means the request fails as well as (or instead of) being recorded, and "records" means the request goes on.
 
 | id | Basis | Text, verbatim (section) | Profile | Note |
 | --- | --- | --- | --- | --- |
 | `client-assertion.jti-missing` | Guides (Signing and verifying JWTs) | Guides #both-signing: "Make each `jti` at least 128 random bits." Spec 4.1 names no claims for the client assertion; RFC 7523 §3: jti MAY. | both | refuses (invalid_client) |
-| `client-assertion.jti-weak` | Guides (Signing and verifying JWTs) | Guides #both-signing: "Make each `jti` at least 128 random bits." | both; dpa-mock doesn't report it | records |
+| `client-assertion.jti-weak` | Guides (Signing and verifying JWTs) | Guides #both-signing: "Make each `jti` at least 128 random bits." | both; pda-mock doesn't report it | records |
 | `client-assertion.jti-reused` | Rule (4.2: the Company "rejects a reused jti"; RFC 7523 3 lets a server refuse replays) | 4.2 #starting-sessions: "The Company verifies both assertions … rejects a reused `jti`" (no keyword; "both" may mean the Session assertion and the client assertion) | both | refuses |
 | `session-assertion.jti-missing` | Rule (4.2) | 4.2: "`jti` is a unique ID for the assertion, with at least 128 random bits. The Company rejects one it has already seen" | both | refuses |
 | `session-assertion.jti-weak` | Rule (4.2) | 4.2: "with at least 128 random bits" | both | records |
 | `session-assertion.jti-reused` | Rule (4.2) | 4.2: "The Company rejects one it has already seen, so a copied assertion can't be used again." | both | refuses |
 | `dpop.jti-missing` | RFC (RFC 9449 4.2) | RFC 9449 §4.2 (jti required). 4.3: "`jti` is a unique ID for the proof." | both | refuses |
-| `dpop.jti-weak` | Guides (Signing and verifying JWTs; RFC 9449 4.2 suggests 96 bits or more) | Guides #both-signing: "Make each `jti` at least 128 random bits." RFC 9449 §4.2 suggests at least 96 bits or a UUIDv4. | both; dpa-mock doesn't report it | records; an RFC 9449-conforming 96-bit jti trips it |
+| `dpop.jti-weak` | Guides (Signing and verifying JWTs; RFC 9449 4.2 suggests 96 bits or more) | Guides #both-signing: "Make each `jti` at least 128 random bits." RFC 9449 §4.2 suggests at least 96 bits or a UUIDv4. | both; pda-mock doesn't report it | records; an RFC 9449-conforming 96-bit jti trips it |
 | `dpop.jti-reused` | MUST (4.3) | 4.3 #sending-tokens: "On every request, it MUST check that: … It hasn't accepted the same `jti` within that window." | both | refuses |
 | `browser-assertion.jti-missing` | Rule (5, jti as in 4.2) | 5 #web-browsing: "`iss`, `sub`, `iat`, and `jti` are as in 4.2." | both | refuses (page 400, no id recorded for the refusal itself) |
 | `browser-assertion.jti-weak` | Rule (5, jti as in 4.2) | 5: "`iss`, `sub`, `iat`, and `jti` are as in 4.2" + 4.2: "with at least 128 random bits" | both | records |
 | `browser-assertion.jti-reused` | MUST (5) | 5: "The Company MUST check that: … It hasn't accepted the same `jti` before." | both | refuses |
 | `client-assertion.alg` | Guides (Signing and verifying JWTs; S19) | Guides #both-signing: "Support ES256 and RS256, and sign with ES256 when you can." (S19) | both | refuses: a Guides-only refusal |
-| `client-assertion.embedded-key` | Guides (Signing and verifying JWTs, addressed to Companies: ignore such keys) | Guides #both-signing: "Ignore `jku`, `x5u`, and any key embedded in an assertion." (addressed to Companies; nothing forbids an agent sending one) | both; dpa-mock doesn't report it | records |
+| `client-assertion.embedded-key` | Guides (Signing and verifying JWTs, addressed to Companies: ignore such keys) | Guides #both-signing: "Ignore `jku`, `x5u`, and any key embedded in an assertion." (addressed to Companies; nothing forbids an agent sending one) | both; pda-mock doesn't report it | records |
 | `client-assertion.typ` | Reading (S2) | absent: no `typ` for client or Session assertions anywhere (searched "typ" in spec 4.1, 4.2 and the Guides). S2. | strict only | refuses, strict only |
 | `client-assertion.kid` | Reading (S2) | Guides #both-key-rotation: "Give every key a `kid`." Requiring the header `kid` to name a published key is S2. | strict only | refuses, strict only |
 | `client-assertion.signature` | RFC (RFC 7523 3) | 4.1 #agent-identity: "authenticates at the token endpoint with a client assertion signed by a key from `jwks_uri` (`private_key_jwt`, RFC 7523)"; RFC 7523 §3: the JWT MUST be signed | both | refuses |
 | `client-assertion.iat-exp-missing` | RFC (RFC 7523 3 for exp; iat is ours) | RFC 7523 §3: exp MUST; iat MAY. The spec names no claims for the client assertion. | both | refuses: iat required by us only |
 | `client-assertion.lifetime` | Reading (S2; Guides: reject a long lifetime) | Guides #both-signing: "reject assertions that claim a long lifetime" (no number). 60 s / 300 s are S2. | both (60 s strict, 300 s lenient) | refuses; strict 60 s, lenient 300 s |
 | `session-assertion.alg` | Guides (Signing and verifying JWTs; S19) | Guides #both-signing: "Support ES256 and RS256" (S19) | both | refuses: a Guides-only refusal |
-| `session-assertion.embedded-key` | Guides (Signing and verifying JWTs, addressed to Companies: ignore such keys) | Guides #both-signing: "Ignore `jku`, `x5u`, and any key embedded in an assertion." | both; dpa-mock doesn't report it | records |
+| `session-assertion.embedded-key` | Guides (Signing and verifying JWTs, addressed to Companies: ignore such keys) | Guides #both-signing: "Ignore `jku`, `x5u`, and any key embedded in an assertion." | both; pda-mock doesn't report it | records |
 | `session-assertion.typ` | Reading (S2) | absent (S2): 4.2 sets no header `typ`. | strict only | refuses, strict only |
 | `session-assertion.kid` | Reading (S2) | Guides: "Give every key a `kid`." + S2 | strict only | refuses, strict only |
 | `session-assertion.signature` | Rule (4.2; RFC 7523 3) | 4.2: "The assertion is a short-lived JWT signed with a key from its `jwks_uri`"; "The Company verifies both assertions against the Personal Agent's `jwks_uri`" | both | refuses |
@@ -380,7 +380,7 @@ In the Profile column, "both" means the strict mock (conformance tests, `dpa-moc
 | `client-metadata.jwks-status` | Rule (4.1) | 4.1: "Companies fetch it … to get the keys it signs with" | both | refuses |
 | `client-metadata.jwks-empty` | Rule (4.1) | 4.1 (as above) | both | refuses |
 | `client-metadata.jwks-private` | Rule (4.1: "The key set contains only public keys") | 4.1: "The key set contains only public keys." (no keyword) | both | refuses |
-| `client-metadata.key-without-kid` | Guides (Rotating keys) | Guides #both-key-rotation: "Give every key a `kid`." | both; dpa-mock doesn't report it | records |
+| `client-metadata.key-without-kid` | Guides (Rotating keys) | Guides #both-key-rotation: "Give every key a `kid`." | both; pda-mock doesn't report it | records |
 | `dpop.missing` | MUST (4.3) | 4.3: "API calls and conversations MUST carry the Session Token in the `Authorization` header with the `DPoP` scheme, together with a DPoP Proof" | both | refuses |
 | `dpop.multiple` | RFC (RFC 9449 4.3) | RFC 9449 §4.3 (check 1: not more than one DPoP header) | both | refuses |
 | `dpop.not-jwt` | RFC (RFC 9449 4.2) | RFC 9449 §4.2 | both | refuses |
@@ -440,7 +440,7 @@ In the Profile column, "both" means the strict mock (conformance tests, `dpa-moc
 | `browser-assertion.not-jwt` | Rule (5) | 5: "It is a JWT signed with a key from the Personal Agent's `jwks_uri`" | both | refuses |
 | `browser-assertion.typ` | MUST (5) | 5: "The Company MUST check that: The signature verifies with a key from the `iss` client's `jwks_uri`, and `typ` is `poppy-browser+jwt`." | both | refuses |
 | `browser-assertion.alg` | Guides (Signing and verifying JWTs; S19) | Guides #both-signing (ES256, RS256) | both | refuses: a Guides-only refusal |
-| `browser-assertion.embedded-key` | Guides (Signing and verifying JWTs, addressed to Companies: ignore such keys) | Guides #both-signing: "Ignore `jku`, `x5u`, and any key embedded in an assertion." | both; dpa-mock doesn't report it | records |
+| `browser-assertion.embedded-key` | Guides (Signing and verifying JWTs, addressed to Companies: ignore such keys) | Guides #both-signing: "Ignore `jku`, `x5u`, and any key embedded in an assertion." | both; pda-mock doesn't report it | records |
 | `browser-assertion.kid` | Reading (S2) | Guides: "Give every key a `kid`." + S2 | strict only | refuses, strict only |
 | `browser-assertion.iat-exp-missing` | MUST (5) | 5: "`aud` is its endpoint, the assertion hasn't expired, and `exp` is no more than 60 seconds after `iat`." (Company MUST check) | both | refuses |
 | `browser-assertion.iat-future` | Guides (Signing and verifying JWTs: a small clock skew) | Guides #both-signing: "Check `aud`, `exp`, and `iat`. Allow a small clock skew, such as 30 seconds" | both | refuses: a Guides-only refusal |
@@ -459,7 +459,7 @@ In the Profile column, "both" means the strict mock (conformance tests, `dpa-moc
 | `message.sender` | MUST (7.4, 7.8) | 7.4: `sender` Req. Yes; 7.8: "the Personal Agent MUST set each message's `sender`" | both | refuses |
 | `message.empty` | MUST (7.4) | 7.4: "A message MUST have at least one of `text`, `data`, or `context`." | both | refuses |
 | `message.text-type` | Rule (7.4) | 7.4: "`text` … The message in natural language." | both | refuses |
-| `message.json-in-text` | SHOULD NOT (7.4) | 7.4: "Personal Agents and Company Agents SHOULD NOT put JSON or other markup in `text`." | both; dpa-mock doesn't report it | records |
+| `message.json-in-text` | SHOULD NOT (7.4) | 7.4: "Personal Agents and Company Agents SHOULD NOT put JSON or other markup in `text`." | both; pda-mock doesn't report it | records |
 | `message.data-type` | Rule (7.4) | 7.4: "`data` … A JSON object" | both | refuses |
 | `message.context-type` | Rule (7.4) | 7.4: `context` "Facts about the User's situation"; examples are objects | both | refuses |
 | `message.id-reused` | MUST (7.3: unique for the User) | 7.3: "The Personal Agent chooses each message's `id`, and MUST make it unique for the User."; "If the content is different, the Company returns `message_id_conflict`." | both | refuses (409) |
@@ -493,7 +493,7 @@ The old catalog claimed, in its header and in the CLAUDE.md wording, that every 
 - `test/mock-company/violations.ts`: every description now starts with its basis and section (`MUST (4.3): …`, `Rule (4.5): …`, `Guides (Retries): …`, `Reading (S2), strict Company only: …`); the header explains the convention and the profiles; new `Basis`, `basisOf(id)` and `STRICT_ONLY`; group comments for writes and Operations fixed. No id renamed or removed.
 - `test/mock-company/core.ts`, `conversations.ts`: the citations above; `session.account-mismatch-reused`'s detail says there's no keyword.
 - `test/mock-company/index.ts`: exports `basisOf`, `STRICT_ONLY`, `Basis`.
-- Profile handling, interop only: `interop/impls/shared/mock-hooks.ts` `violationsBody(state, profile)` adds each violation's `basis` and, for `"lenient"`, leaves out `STRICT_ONLY`; `interop/impls/dpa-mock/adapter.ts` passes its `PROFILE` (and its doc comment says so). The Hypothesis launcher keeps the default (strict: everything). `STRICT_ONLY` is the seven record-only checks whose sole basis is a SHOULD or a Guides recommendation and which give no one more access: `client-assertion.jti-weak`, `dpop.jti-weak`, the three `.embedded-key`, `client-metadata.key-without-kid`, `message.json-in-text`. Before, the lenient reference failed a grid cell for any of them (cli.ts makes every reported violation an error).
+- Profile handling, interop only: `interop/impls/shared/mock-hooks.ts` `violationsBody(state, profile)` adds each violation's `basis` and, for `"lenient"`, leaves out `STRICT_ONLY`; `interop/impls/pda-mock/adapter.ts` passes its `PROFILE` (and its doc comment says so). The Hypothesis launcher keeps the default (strict: everything). `STRICT_ONLY` is the seven record-only checks whose sole basis is a SHOULD or a Guides recommendation and which give no one more access: `client-assertion.jti-weak`, `dpop.jti-weak`, the three `.embedded-key`, `client-metadata.key-without-kid`, `message.json-in-text`. Before, the lenient reference failed a grid cell for any of them (cli.ts makes every reported violation an error).
 - Tests: `test/mock-company.test.ts` "says what each check rests on, and leaves out of the lenient profile only SHOULDs and Guides" (every description parses; `STRICT_ONLY` ⊆ SHOULD/Guides; S2 ids say "strict Company only"); the account-mismatch row's detail regex. `interop/test/mock-hooks.test.ts`: `basis` in the body, a lenient-filter test, and the source check accepts `violationsBody(await mock.state(), PROFILE)`.
 - Typecheck clean; Workers suite 657 passed (1 skipped); interop suite 110 passed.
 - `interop/vectors/` has only the Datalayer runner and there's no `interop:vectors` script in package.json, so nothing to regenerate.
@@ -521,7 +521,7 @@ The questions as asked:
 
 ## Code citations
 
-Swept `src/poppy/`, `src/validator/`, `scripts/poppy-validate.ts`, `interop/runner/` (not `cli.ts`, `docker.ts`), `interop/scenarios/`, `interop/impls/dpa-agent/`, `interop/impls/dpa-mock/` and `interop/vectors/datalayer/` against the snapshot (Draft 0.1, Operations v1, Guides, all "Updated Oct 9, 2026" when swept; their text is the same in the 12 October update). About 160 comments or messages cite a Poppy section, Ops section, the Guides, or an RFC as the spec's requirement; the interop runner's "spec section N" / "spec §N" citations (about 25) refer to `docs/interop-spec.md` and all point at the right section. Only the wrong or questionable ones are listed; every other citation names the right section and the code does what the text says.
+Swept `src/poppy/`, `src/validator/`, `scripts/poppy-validate.ts`, `interop/runner/` (not `cli.ts`, `docker.ts`), `interop/scenarios/`, `interop/impls/pda-agent/`, `interop/impls/pda-mock/` and `interop/vectors/datalayer/` against the snapshot (Draft 0.1, Operations v1, Guides, all "Updated Oct 9, 2026" when swept; their text is the same in the 12 October update). About 160 comments or messages cite a Poppy section, Ops section, the Guides, or an RFC as the spec's requirement; the interop runner's "spec section N" / "spec §N" citations (about 25) refer to `docs/interop-spec.md` and all point at the right section. Only the wrong or questionable ones are listed; every other citation names the right section and the code does what the text says.
 
 | File:line | Cites | Correct? | Behaviour matches text? | Note |
 | --- | --- | --- | --- | --- |
@@ -536,8 +536,8 @@ Swept `src/poppy/`, `src/validator/`, `scripts/poppy-validate.ts`, `interop/runn
 | interop/runner/checks.ts:217 and its catalog row | `token.unlisted-host` "(spec 4.3)" | No: 4.3 and 6 don't say which hosts may receive Session Tokens (N10, our reading) | n/a | Comment and `what` now say "our reading, N10". Severity stays `error`: for the owner. |
 | interop/runner/checks.ts `redirect.credentials-followed` | "(Guides)" | Yes, but severity `error` against a header saying "a MUST broken is an error" | n/a | `what` now says "(Guides, not a MUST)"; header lists both exceptions. Severity: for the owner. |
 | interop/scenarios/YS.json | `requirements: ["6", "N17"]` | No: N17 is a spec issue, not a section, and the attack (a DPoP token presented as Bearer outside MCP) breaks 4.3: "Companies MUST accept Bearer Session Tokens only on their MCP APIs … and MUST require DPoP everywhere else" | n/a | Now `["4.3", "6"]` (the report prints these as "Spec …"). `docs/adversarial-interop.md:149` mapped YS to "4.4, 6, N17"; it now says "4.3, 6, N17" (below). |
-| interop/impls/dpa-agent/attacks.ts:137 | aud confusion "(4.1; client-assertion.aud)" | Loose: 4.1 says nothing about a client assertion's `aud` (S1) | Yes: another Company's `aud` fails under every reading | Left; RFC 7523 §3 is the real basis. |
-| interop/impls/dpa-agent/attacks.ts:156, scenario YK | rotated Account Token reused "(4.8)" | Loose: 4.8 binds the agent ("MUST use the new one"); nothing says the Company rejects the old one (N5) | n/a | Left; the harm oracle rests on the OAuth security BCP, not the draft. For the owner. |
+| interop/impls/pda-agent/attacks.ts:137 | aud confusion "(4.1; client-assertion.aud)" | Loose: 4.1 says nothing about a client assertion's `aud` (S1) | Yes: another Company's `aud` fails under every reading | Left; RFC 7523 §3 is the real basis. |
+| interop/impls/pda-agent/attacks.ts:156, scenario YK | rotated Account Token reused "(4.8)" | Loose: 4.8 binds the agent ("MUST use the new one"); nothing says the Company rejects the old one (N5) | n/a | Left; the harm oracle rests on the OAuth security BCP, not the draft. For the owner. |
 | interop/runner/har.ts:20, :38 | fault-injection proxy "(spec §6)" | Partly: interop-spec §3 defines fault injection, §6 the `faults` field | n/a | Left. |
 
 ## Validator

@@ -11,7 +11,7 @@ self.addEventListener("push", (event) => {
   } catch {
     data = {};
   }
-  const title = typeof data.title === "string" && data.title ? data.title.slice(0, 100) : "Your personal agent";
+  const title = typeof data.title === "string" && data.title ? data.title.slice(0, 100) : "Poppy Demo Agent";
   const body = typeof data.body === "string" ? data.body.slice(0, 300) : "";
   const tag = typeof data.tag === "string" && data.tag ? data.tag.slice(0, 100) : undefined;
   event.waitUntil(self.registration.showNotification(title, { body, tag, icon: "/logo.svg" }));

@@ -206,7 +206,7 @@ describe("diagnostics", () => {
     expect(n).toBe(DIAGNOSTIC_EVENTS);
     const text = await a.stub.diagnostics();
     const lines = text.split("\n");
-    expect(lines[0]).toBe("Personal agent diagnostics");
+    expect(lines[0]).toBe("Poppy Demo Agent diagnostics");
     expect(lines[1]).toBe(`Agent: ${await agentId(a)}`);
     const events = lines.filter((line) => line.startsWith("{")).map((line) => JSON.parse(line) as Event);
     expect(events).toHaveLength(DIAGNOSTIC_EVENTS);
@@ -221,7 +221,7 @@ describe("diagnostics", () => {
     socket.send(JSON.stringify({ type: "poppy.diagnostics" }));
     await client.until(() => client.frames.some((frame) => frame.type === "poppy.diagnostics"));
     const frame = client.frames.find((f) => f.type === "poppy.diagnostics") as unknown as { text: string; at: number };
-    expect(frame.text).toMatch(/^Personal agent diagnostics\nAgent: [0-9a-f]{32}\n/);
+    expect(frame.text).toMatch(/^Poppy Demo Agent diagnostics\nAgent: [0-9a-f]{32}\n/);
     socket.close();
   });
 });

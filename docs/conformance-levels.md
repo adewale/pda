@@ -62,7 +62,7 @@ We take the majority reading: OIDF, MCP, Autobahn and Khronos. A broken SHOULD i
 
 - **Conformance tests.** The `afterEach` in `test/agent-helpers.ts` fails a test if the mock recorded any violation or any warning, so our client is held to SHOULDs, the Guides and our readings too. A test that breaks the protocol on purpose declares `expectViolations`, which matches either kind.
 - **The validator.** `poppy-validate --strict` exits 1 on warnings.
-- **The strict mock** (`dpa-mock-strict`). What makes it stricter is behaviour, not verdict: it takes the strictest reading of S2 (`typ: "JWT"`, 60 seconds) and refuses what that reading excludes. It records those checks as tentative, so in the grid a failure they cause goes to rule 3 (the spec) or to the side that broke its own declared reading. It is never a violation.
+- **The strict mock** (`pda-mock-strict`). What makes it stricter is behaviour, not verdict: it takes the strictest reading of S2 (`typ: "JWT"`, 60 seconds) and refuses what that reading excludes. It records those checks as tentative, so in the grid a failure they cause goes to rule 3 (the spec) or to the side that broke its own declared reading. It is never a violation.
 
 Profiles no longer filter what a Company reports. Both mocks report every recorded check with its basis and level (`GET /violations`), and the runner turns failures into errors and everything else into warnings. The old hand-kept `STRICT_ONLY` list has gone. Its seven SHOULD and Guides checks are warnings because of their basis, along with the ten other Guides checks and the ten readings.
 

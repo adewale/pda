@@ -93,16 +93,16 @@ There are no source patches.
 
 | Run | Pass | Fail | Unsupported | Error |
 | --- | --- | --- | --- | --- |
-| `--agents dpa --companies adonis-agora` | 15 | 2 (CA, AS) | 4 (R, AM, O, OX) | 1 (CS) |
+| `--agents pda --companies adonis-agora` | 15 | 2 (CA, AS) | 4 (R, AM, O, OX) | 1 (CS) |
 | `--agents adonis-agora --companies adonis-agora` | 18 | 0 | 4 (R, AM, O, OX) | 0 |
 
 The adonis × adonis row combines the full run with the later AS rerun after the CSRF fix.
 
-What explains the dpa × adonis-agora cells that didn't pass:
+What explains the pda × adonis-agora cells that didn't pass:
 - **R:** AuthKit never rotates the Account Token on refresh, so the `refresh_rotated` check has nothing to judge.
-- **CS** (Company bug): the SSE handler in `@adonis-agora/agent` (`src/poppy/handler.ts`, stream setup) awaits the first stream item before it writes the response headers. A stream resumed with `Last-Event-ID` on an idle conversation therefore never answers at all, not even keep-alives. dpa's `sse` has no deadline on the headers, so its control call never returns. The adonis agent's `sse` aborts after its quiet period and passes.
+- **CS** (Company bug): the SSE handler in `@adonis-agora/agent` (`src/poppy/handler.ts`, stream setup) awaits the first stream item before it writes the response headers. A stream resumed with `Last-Event-ID` on an idle conversation therefore never answers at all, not even keep-alives. pda's `sse` has no deadline on the headers, so its control call never returns. The adonis agent's `sse` aborts after its quiet period and passes.
 - **CA:** a POST with `wait` is a read that returns as soon as any event follows the cursor, and the agent's own message is always one. So `wait` never holds for the reply. That's allowed, since `wait` is a hint (Poppy 7.3), but the scenario expects `send` to return the Company's reply.
-- **AS:** dpa holds writes for the User's approval at a Company without the Operations extension, so nothing is sent.
+- **AS:** pda holds writes for the User's approval at a Company without the Operations extension, so nothing is sent.
 
 ## Verified by hand (before the runner)
 
@@ -137,11 +137,11 @@ A dated snapshot from the 11 October grid. The latest results for every pair are
 
 | Agent | Pass | Fail / error |
 | --- | --- | --- |
-| dpa | D S0 N SD SV SM SMC SX SXV C CI SO SE AO RL | CA, AS; CS error |
+| pda | D S0 N SD SV SM SMC SX SXV C CI SO SE AO RL | CA, AS; CS error |
 | adonis-agora | D S0 N SD SV SM SMC SX SXV C CI CS CA SO SE AO AS RL | none |
 | poppy-demo | none | D S0 N SD SX C CA SO AO |
 
-- **CS (dpa), error.** `@adonis-agora/agent`'s SSE handler waits for the first event before sending any headers, so a stream resumed with `Last-Event-ID` on an idle conversation never answers, not even with a keep-alive. dpa's `sse` has no deadline on the headers, so the control call never returns (HTTP 0, blamed on the harness). Company bug; dpa's adapter could also set a deadline.
-- **CA (dpa).** A `POST ?wait` returns as soon as any event follows the cursor, and the agent's own message always is one. It answers `working` with no reply, which Poppy 7.3 allows. That's the scenario's assumption.
-- **AS (dpa).** dpa holds non-GET calls for the User's approval at a Company without the Operations extension, so the write is never sent. That's dpa's design, and the scenario has no approval step.
+- **CS (pda), error.** `@adonis-agora/agent`'s SSE handler waits for the first event before sending any headers, so a stream resumed with `Last-Event-ID` on an idle conversation never answers, not even with a keep-alive. pda's `sse` has no deadline on the headers, so the control call never returns (HTTP 0, blamed on the harness). Company bug; pda's adapter could also set a deadline.
+- **CA (pda).** A `POST ?wait` returns as soon as any event follows the cursor, and the agent's own message always is one. It answers `working` with no reply, which Poppy 7.3 allows. That's the scenario's assumption.
+- **AS (pda).** pda holds non-GET calls for the User's approval at a Company without the Operations extension, so the write is never sent. That's pda's design, and the scenario has no approval step.
 - **poppy-demo's agent** refuses discovery because the issuer has a path (`…/poppy`), and it requires `issuer` to equal the Company origin.

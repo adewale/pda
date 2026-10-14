@@ -6,7 +6,7 @@
  *
  * The placement under `<id>.company.interop.test`, the base settings, the
  * hooks and `GET /violations` come from interop/impls/shared/mock-hooks.ts,
- * the module the interop adapter (interop/impls/dpa-mock) uses too, so the
+ * the module the interop adapter (interop/impls/pda-mock) uses too, so the
  * two serve the same hooks by the same names. The Python client connects to
  * 127.0.0.1 and sends the Company's host in `Host` with
  * `X-Forwarded-Proto: https`, which serve.ts turns back into the URL the

@@ -114,7 +114,7 @@ The honest grid assumes both sides are trying. To test refusals, the harness add
 1. **Rule 0, adversarial (applied first).** In a cell with an adversarial side, that side's violations are expected and don't count against it.
    - The cell **passes when the honest side refuses**: the expected `poppy_error`, or status 0 for the agent's own refusal, and no harm oracle fires.
    - A failure is blamed on the honest side, with rule `adversarial`. If the scenario names `permitted_by` and the draft has no MUST against the attack, blame `spec` (N10 and N14 today).
-2. **Rule 2, grid,** ignores adversarial implementations, which are never reference cells. `dpa-mock` stays the honest reference.
+2. **Rule 2, grid,** ignores adversarial implementations, which are never reference cells. `pda-mock` stays the honest reference.
 3. **Reporting.** Adversarial cells get their own page, the security grid, and never count toward interop pass rates.
 4. **Disclosure.** A failure there may be a vulnerability in someone's project. Tell its maintainers privately before the results are committed. A known failure can then link a private advisory or our spec issue. The full process, including the 90-day window, is in [`SECURITY.md`](../SECURITY.md#disclosing-what-interop-testing-finds-in-other-projects).
 

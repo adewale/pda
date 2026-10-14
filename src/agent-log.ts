@@ -420,7 +420,7 @@ export class AgentLog extends LifecycleCapability implements Units {
   diagnostics(now = Date.now()): string {
     const events = this.events();
     const lines = [
-      "Personal agent diagnostics",
+      "Poppy Demo Agent diagnostics",
       `Agent: ${this.agentId}`,
       `Copied: ${new Date(now).toISOString()}`,
       `Events: the newest ${events.length} (at most ${DIAGNOSTIC_EVENTS}), oldest first, one JSON object a line, as the operator's logs have them.`,

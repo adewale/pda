@@ -35,7 +35,7 @@ import path from "node:path";
 
 const ORIGIN = "https://personalagentprotocol.org";
 const USER_AGENT =
-  "dpa-spec-snapshot/1.0 (Durable Personal Agent; snapshots the Poppy spec for citation; one request per page)";
+  "dpa-spec-snapshot/1.0 (Poppy Demo Agent; snapshots the Poppy spec for citation; one request per page)";
 const root = path.resolve(import.meta.dirname, "..");
 const specDir = path.join(root, "spec");
 

@@ -1,6 +1,6 @@
 # Notice
 
-Durable Personal Agent
+Poppy Demo Agent
 Copyright 2026 Ade Oshineye
 
 Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE)). The exceptions are below.
@@ -11,7 +11,7 @@ Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE)). The excepti
 
 ## Third-party code
 
-`src/protocol.ts`, `src/sockets.ts`, `src/view.ts`, `src/transcript.ts`, `src/use-pi-session.ts`, `src/client.tsx`, `src/styles.css` and `index.html` are copied from Cloudflare's Pi harness example, [`cloudflare/agents` `examples/next/harnesses/pi`](https://github.com/cloudflare/agents/tree/main/examples/next/harnesses/pi) at commit `48d9c36`, under the MIT License, Copyright (c) 2025 Cloudflare, Inc. The first four are unchanged; the hook, page, styles and HTML are adapted as described in `durable-personal-agent-spec.md`.
+`src/protocol.ts`, `src/sockets.ts`, `src/view.ts`, `src/transcript.ts`, `src/use-pi-session.ts`, `src/client.tsx`, `src/styles.css` and `index.html` are copied from Cloudflare's Pi harness example, [`cloudflare/agents` `examples/next/harnesses/pi`](https://github.com/cloudflare/agents/tree/main/examples/next/harnesses/pi) at commit `48d9c36`, under the MIT License, Copyright (c) 2025 Cloudflare, Inc. The first four are unchanged; the hook, page, styles and HTML are adapted as described in `pda-spec.md`.
 
 The example builds on Pi (`@earendil-works/pi-*`), MIT License, Copyright (c) 2025 Mario Zechner.
 

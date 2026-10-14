@@ -107,7 +107,7 @@ export function readInteropClient(env: InteropClientEnv): InteropClient | null {
 export function interopClientMetadata(client: InteropClient) {
   return {
     client_id: client.clientId,
-    client_name: "Durable Personal Agent (interop tests)",
+    client_name: "Poppy Demo Agent (interop tests)",
     jwks_uri: client.jwksUri,
     token_endpoint_auth_method: "private_key_jwt",
     extensions: { operations: { version: "1" } }

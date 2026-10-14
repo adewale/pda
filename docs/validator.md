@@ -26,4 +26,4 @@ Exit status `0` valid, `1` invalid, `2` couldn't check; `--strict` fails on warn
 
 The API accepts any origin and uses no cookies; URL checks are limited to 20 a minute per address, documents to 100 KB. As a library, `validateCompany`, `validateClient`, `validateText` and `validateTarget` in `src/validator/` run in the Worker, Node and the tests alike.
 
-How it compares with the two other open validators is in [interop-testing.md](interop-testing.md#validator-cross-check). How its rules are versioned is in [the spec](../durable-personal-agent-spec.md).
+How it compares with the two other open validators is in [interop-testing.md](interop-testing.md#validator-cross-check). How its rules are versioned is in [the spec](../pda-spec.md).

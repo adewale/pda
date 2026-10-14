@@ -448,7 +448,7 @@ export type Hosts = {
 
 /**
  * Where mock Companies live. Tests use `<id>.shop.test` and
- * `<id>.shop-uk.test`; the interop adapter (`interop/impls/dpa-mock`) moves
+ * `<id>.shop-uk.test`; the interop adapter (`interop/impls/pda-mock`) moves
  * them under `company.interop.test`, where the recording proxy serves them.
  */
 export type Placement = {

@@ -49,7 +49,7 @@ jobs:
 
       - run: npm ci --legacy-peer-deps
 
-      - run: npm run interop -- --agents dpa --companies dpa-mock,dpa-mock-strict
+      - run: npm run interop -- --agents pda --companies pda-mock,pda-mock-strict
 
       - name: Upload the grid, HAR files and container logs
         if: always()

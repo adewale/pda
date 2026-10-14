@@ -62,7 +62,7 @@ export function jwt(header: Record<string, unknown>, payload: Record<string, unk
 let counter = 0;
 export const jti = () => `jti-${String(++counter).padStart(22, "0")}`;
 
-export const CLIENT_ID = "https://dpa.agent.interop.test/poppy/client.json";
+export const CLIENT_ID = "https://pda.agent.interop.test/poppy/client.json";
 export const TOKEN = "https://auth.acme.company.interop.test/oauth/token";
 export const API = "https://api.acme.company.interop.test";
 

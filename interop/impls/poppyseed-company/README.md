@@ -86,10 +86,10 @@ Scenarios H, DC, W, O2 and CM (12 October) are claimed too: poppyseed has handof
 
 | Agent | Pass | Fail |
 | --- | --- | --- |
-| dpa | D S0 SD SV SM SMC SX SXV C CI CS SO SE AO AM AS O OX | CA |
+| pda | D S0 SD SV SM SMC SX SXV C CI CS SO SE AO AM AS O OX | CA |
 | poppy-demo | D S0 SD SX C | CA, SO |
 | adonis-agora | D S0 SD SM SMC SX C CI CS CA SE AO AM AS | SV, SXV, SO |
 
-- **CA (dpa, poppy-demo).** poppyseed honours `wait` only on `GET …/events`. The signed-in `POST …/messages?wait=2` answers at once with `status: working`, so the send result has no Company reply. Poppy 7.3 makes `wait` a hint, so this is the scenario's assumption, not a poppyseed bug. CA should `read` with `wait` after the send, as C does.
+- **CA (pda, poppy-demo).** poppyseed honours `wait` only on `GET …/events`. The signed-in `POST …/messages?wait=2` answers at once with `status: working`, so the send result has no Company reply. Poppy 7.3 makes `wait` a hint, so this is the scenario's assumption, not a poppyseed bug. CA should `read` with `wait` after the send, as C does.
 - **SO (poppy-demo).** poppyseed answers revocation with 200 and an empty body (RFC 7009 allows it), and poppy-demo's caller throws parsing it. That's the agent's bug.
 - **SV, SXV, SO (adonis-agora).** At the device authorization and revocation endpoints, the adonis agent's client assertion has the token endpoint as `aud`. poppyseed requires the URL of the endpoint the assertion is sent to, and answers `invalid_client` "assertion signature or claims are invalid". poppyseed declares S1 `endpoint` and adonis-agora `token-endpoint` (the token endpoint everywhere), so attribution rule 3 names the difference.

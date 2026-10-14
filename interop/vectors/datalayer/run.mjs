@@ -248,7 +248,7 @@ async function clientWith(routes = {}) {
   const limiters = new Map();
   const env = {
     PUBLIC_ORIGIN: "https://agent.vectors.example",
-    POPPY_CLIENT_NAME: "dpa vectors",
+    POPPY_CLIENT_NAME: "pda vectors",
     POPPY_LOGO_URI: "https://agent.vectors.example/logo.png",
     POPPY_SIGNING_JWKS: JSON.stringify([jwk]),
     TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString("base64"),

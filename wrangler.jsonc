@@ -56,7 +56,7 @@
     // Which sign-in providers the page offers; a provider left out has no
     // button, and its /auth/<provider> routes answer 404 (docs/setup.md).
     "SIGNIN_PROVIDERS": ["google", "github"],
-    "POPPY_CLIENT_NAME": "Durable Personal Agent",
+    "POPPY_CLIENT_NAME": "Poppy Demo Agent",
     // `on`: read_url renders a page that needs JavaScript in Browser Run,
     // at most 10 an hour per agent. `off`: it reads pages without
     // JavaScript only and says when one needed it (docs/setup.md).

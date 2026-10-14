@@ -1,4 +1,4 @@
-# Durable Personal Agent
+# Poppy Demo Agent
 
 **A Personal Agent for [Poppy](https://personalagentprotocol.org/), the Personal Agent Protocol, built alongside the tools we used to test it: a validator, a strict mock Company, an interop harness that runs other projects' code, and 64 written-up spec issues.** It is for the draft's authors and for people implementing either side of the protocol.
 
@@ -63,7 +63,7 @@ Signing in for the first time, with a run-through that checks each part works: [
     -d '{"url": "your-company.example"}' | jq '{outcome, counts}'
   ```
 
-- **Our agent as your peer.** Its `client_id` is `https://personal-agent.adewale-883.workers.dev/poppy/client.json`. A Company that keeps an allowlist can add it, and we'll point the agent at you; Appendix A of [the spec](durable-personal-agent-spec.md) lists every requirement it implements and the test that checks it.
+- **Our agent as your peer.** Its `client_id` is `https://personal-agent.adewale-883.workers.dev/poppy/client.json`. A Company that keeps an allowlist can add it, and we'll point the agent at you; Appendix A of [the spec](pda-spec.md) lists every requirement it implements and the test that checks it.
 - **The interop harness** (`interop/`) runs every agent against every Company in containers with no internet access, through a recording proxy, and blames each failure on a side by a named rule. It runs nine other projects today. The latest grid (13 October) has 2,880 cells over 30 scenarios: 1,000 pass, 273 fail and 1,607 unsupported. Every failure is a known upstream or spec one, and our agent passes 213 of the 214 cells it runs; the other is a reading the draft leaves open (S1, at Tipping Co's revocation endpoint). [docs/ecosystem.md](docs/ecosystem.md#scorecard) scores each implementation; [interop/README.md](interop/README.md) says how to add yours, and [docs/interop-spec.md](docs/interop-spec.md) defines the scenarios, the attribution rules and the isolation.
 - **Adversarial testing.** A malicious agent and a malicious Company attack our own implementations: oversized documents, nonce loops, terms swapped at confirm, forged messages and more ([docs/adversarial-interop.md](docs/adversarial-interop.md)). The malicious Company may also attack other projects' agents in our own containers; what it finds goes to their maintainers privately first ([SECURITY.md](SECURITY.md)).
 - **Cross-checks.** Our validator runs against two other open validators on the same 107 documents ([the tool](interop/vectors/validators/README.md), [results](docs/interop-testing.md#validator-cross-check)), and our client against Datalayer's language-neutral conformance cases ([results](interop/vectors/datalayer/README.md)). A second client, written in Python from the draft's text, drives stateful property tests of our mock Company ([test/hypothesis](test/hypothesis/README.md)).
@@ -94,7 +94,7 @@ None of this has been sent to the draft's authors yet. They take feedback by ema
 - **Two ways to pay for the model.** An operator-paid demo through AI Gateway, capped per person and per domain before every call, or your own Anthropic or OpenAI key, sent straight to the vendor. Compaction keeps each request under about 200k tokens.
 - **Everything is tested offline.** Five suites run with the model, the vendors, Google, GitHub and every Company faked, and every Poppy test fails if the strict mock Company records a violation or a warning. A second client in Python drives a stateful Hypothesis test of the mock, because a misreading our client and mock share is invisible to both.
 
-The design is [durable-personal-agent-spec.md](durable-personal-agent-spec.md); how to use the agent and check it works is [docs/using.md](docs/using.md); each capability and tool, and where it comes from, is [docs/capabilities.md](docs/capabilities.md); why it is built this way is [docs/decisions.md](docs/decisions.md).
+The design is [pda-spec.md](pda-spec.md); how to use the agent and check it works is [docs/using.md](docs/using.md); each capability and tool, and where it comes from, is [docs/capabilities.md](docs/capabilities.md); why it is built this way is [docs/decisions.md](docs/decisions.md).
 
 ## Status and limitations
 
@@ -115,7 +115,7 @@ npm test                         # five suites; nothing calls the network
 npm run typecheck
 npm run check:docs               # every test the docs name exists
 npm run validate -- example.com  # the validator CLI
-npm run interop -- --agents dpa --companies dpa-mock   # the grid, in Docker
+npm run interop -- --agents pda --companies pda-mock   # the grid, in Docker
 ```
 
 To deploy your own copy, follow [docs/setup.md](docs/setup.md) in the order [docs/deployment-tasks.md](docs/deployment-tasks.md) gives.

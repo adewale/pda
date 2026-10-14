@@ -2,7 +2,7 @@
 
 A snapshot: the summary of one run of the [interop harness](../../interop/README.md), on 13 October 2026, with the 12 October runs kept below it. It isn't regenerated, so it goes stale as the code changes. The full results (`results.json`, the `index.html` grid and a HAR file per cell) aren't committed. To get them:
 
-- **Run the grid locally** (needs Docker): `npm run interop` with the command below, or `npm run interop -- --agents dpa --companies dpa-mock,dpa-mock-strict` for our own pair. Each run writes to `interop/results/<run>/` (gitignored); [interop spec](../interop-spec.md) section 9 describes the files.
+- **Run the grid locally** (needs Docker): `npm run interop` with the command below, or `npm run interop -- --agents pda --companies pda-mock,pda-mock-strict` for our own pair. Each run writes to `interop/results/<run>/` (gitignored); [interop spec](../interop-spec.md) section 9 describes the files.
 - **Download CI's**: the Interop workflow (`.github/workflows/interop.yml`) runs our agent against both of our mocks and uploads the `interop-results` artifact from each run.
 
 ## Latest run: 13 October, 30 scenarios, 8 agents, 12 Companies
@@ -11,20 +11,20 @@ The first full grid with every pin at its upstream's head of 13 October ([intero
 
 ```sh
 npm run interop                     # first, everything: every image rebuilt
-npm run interop -- --no-build --agents dpa,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora,everruns,tipping-co \
-  --companies dpa-mock,dpa-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora,everruns,tipping-co \
+npm run interop -- --no-build --agents pda,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora,everruns,tipping-co \
+  --companies pda-mock,pda-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora,everruns,tipping-co \
   --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CI,CS,CA,H,DC,SO,SE,R,AO,AM,AS,W,O,O2,OX,OU,RL,DP,CM
 ```
 
-**2,880 cells: 1,000 pass, 273 fail, 1,607 unsupported, 0 errors.** Every failure matched a known failure, no cell was flaky and no known failure was stale, so the run exits 0. Egress probe `ENETUNREACH`, `ENETUNREACH`, `EAI_AGAIN`. Checks recorded: 6 failures, 4 warnings, 1,086 tentative (our readings). Our agent, `dpa`, passed 213 of the 214 cells it ran; the one failure is SO at Tipping Co, a reading the draft leaves open ([S1](../spec-issues.md#s1)).
+**2,880 cells: 1,000 pass, 273 fail, 1,607 unsupported, 0 errors.** Every failure matched a known failure, no cell was flaky and no known failure was stale, so the run exits 0. Egress probe `ENETUNREACH`, `ENETUNREACH`, `EAI_AGAIN`. Checks recorded: 6 failures, 4 warnings, 1,086 tentative (our readings). Our agent, `pda`, passed 213 of the 214 cells it ran; the one failure is SO at Tipping Co, a reading the draft leaves open ([S1](../spec-issues.md#s1)).
 
 The first command also ran the security grid (32 cells, all pass; [below](#security-grid)). Run without `--agents` and `--scenarios`, it pairs every adversarial scenario with every implementation, and the runner refuses each cell whose honest side isn't ours (2,730 of them) before anything is sent, recording each as `error`, blame `harness`, as interop spec section 13 says. Those refusals make that command exit 1 whatever the other cells do, so a full grid is the honest command above plus the three security commands below.
 
 Pass / fail / unsupported, by agent (rows) and Company (columns):
 
-| | dpa-mock | dpa-mock-strict | datalayer-ts | datalayer-py | pi-poppy | poppy-demo | poppyseed | ilmer | print-with-poppy | adonis-agora | everruns | tipping-co |
+| | pda-mock | pda-mock-strict | datalayer-ts | datalayer-py | pi-poppy | poppy-demo | poppyseed | ilmer | print-with-poppy | adonis-agora | everruns | tipping-co |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **dpa** | 30 / 0 / 0 | 30 / 0 / 0 | 22 / 0 / 8 | 22 / 0 / 8 | 24 / 0 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 10 / 0 / 20 | 22 / 0 / 8 | 4 / 0 / 26 | 8 / 1 / 21 |
+| **pda** | 30 / 0 / 0 | 30 / 0 / 0 | 22 / 0 / 8 | 22 / 0 / 8 | 24 / 0 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 10 / 0 / 20 | 22 / 0 / 8 | 4 / 0 / 26 | 8 / 1 / 21 |
 | **datalayer-ts** | 24 / 4 / 2 | 24 / 4 / 2 | 21 / 1 / 8 | 21 / 1 / 8 | 23 / 1 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 9 / 0 / 21 | 22 / 0 / 8 | 4 / 0 / 26 | 8 / 1 / 21 |
 | **datalayer-py** | 25 / 3 / 2 | 25 / 3 / 2 | 22 / 0 / 8 | 22 / 0 / 8 | 23 / 1 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 9 / 0 / 21 | 22 / 0 / 8 | 4 / 0 / 26 | 8 / 1 / 21 |
 | **pi-poppy** | 24 / 3 / 3 | 1 / 26 / 3 | 19 / 2 / 9 | 19 / 2 / 9 | 21 / 2 / 7 | 1 / 11 / 18 | 22 / 1 / 7 | 1 / 4 / 25 | 9 / 0 / 21 | 19 / 2 / 9 | 4 / 0 / 26 | 7 / 2 / 21 |
@@ -37,8 +37,8 @@ Pass / fail / unsupported, by agent (rows) and Company (columns):
 
 **What's new:**
 
-- **Tipping Co's Company** (column: 50 pass, 13 fail, 177 unsupported). adonis-agora, everruns and Tipping Co's own agent pass every cell they run there. dpa, both Datalayer agents and pi-poppy fail SO: Tipping Co wants the token endpoint as the client assertion's `aud` at revocation too, and they send the revocation endpoint (reading [S1](../spec-issues.md#s1), blamed on the spec). pi-poppy also fails N, rule 2: it retries a token request after `use_dpop_nonce` only when `WWW-Authenticate` names it, which RFC 9449 8 doesn't ask of an authorization server, and Tipping Co puts it in the JSON body only. poppy-demo fails all eight at discovery (no `agent` member, as at print-with-poppy).
-- **Tipping Co's agent** (row: 29 pass, 70 fail, 261 unsupported). It passes everything it claims at its own Company and, since the mock change below, at dpa-mock (12 of 12, DP included). Elsewhere its first Session fails with `invalid_client`: it sends no `client_id` at the token endpoint, which RFC 7521 4.2 allows and every third-party Company refuses. At dpa-mock-strict and Northstar the grid blames its missing `typ` first ([S2](../spec-issues.md#s2)). At Ilmer and everruns it stops at discovery, because it requires `authorization_endpoint`, which a signed-out Company needn't publish.
+- **Tipping Co's Company** (column: 50 pass, 13 fail, 177 unsupported). adonis-agora, everruns and Tipping Co's own agent pass every cell they run there. pda, both Datalayer agents and pi-poppy fail SO: Tipping Co wants the token endpoint as the client assertion's `aud` at revocation too, and they send the revocation endpoint (reading [S1](../spec-issues.md#s1), blamed on the spec). pi-poppy also fails N, rule 2: it retries a token request after `use_dpop_nonce` only when `WWW-Authenticate` names it, which RFC 9449 8 doesn't ask of an authorization server, and Tipping Co puts it in the JSON body only. poppy-demo fails all eight at discovery (no `agent` member, as at print-with-poppy).
+- **Tipping Co's agent** (row: 29 pass, 70 fail, 261 unsupported). It passes everything it claims at its own Company and, since the mock change below, at pda-mock (12 of 12, DP included). Elsewhere its first Session fails with `invalid_client`: it sends no `client_id` at the token endpoint, which RFC 7521 4.2 allows and every third-party Company refuses. At pda-mock-strict and Northstar the grid blames its missing `typ` first ([S2](../spec-issues.md#s2)). At Ilmer and everruns it stops at discovery, because it requires `authorization_endpoint`, which a signed-out Company needn't publish.
 - **Our mock accepts a token request without `client_id`** when the client assertion's `iss` and `sub` agree, using `iss` as the client (RFC 7521 4.2, RFC 7523 3); a `client_id` that is sent must still equal them. Before, both mocks answered `invalid_client` ("client_id is required"), stricter than any MUST. The reading is in [readings.md](../readings.md); the test is in `test/mock-company.test.ts`.
 - **Two known failures widened, none removed.** adonis-agora × print-with-poppy, SO, is now unattributed rather than blamed on adonis-agora: Tipping Co's agent fails SO there too, so the grid rule no longer singles one agent out. Tipping Co's agent's R at print-with-poppy and adonis-agora is blamed on the Company by the grid rule, as no other agent can judge rotation there.
 
@@ -49,20 +49,20 @@ Each implementation's totals and what its failures are: [the ecosystem scorecard
 The command, run at `2026-10-12T13:20:47Z` on the local lane, on the isolated network, with every image rebuilt at the pins in [`interop/registry.json`](../../interop/registry.json) (Datalayer at 0.10.0), after scenarios H, DC, W, O2 and CM were written and AO learned to approve a held write:
 
 ```sh
-npm run interop -- --agents dpa,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora \
-  --companies dpa-mock,dpa-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora \
+npm run interop -- --agents pda,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora \
+  --companies pda-mock,pda-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora \
   --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CI,CS,CA,SO,SE,R,AO,AM,AS,O,OX,RL,DP,OU,H,DC,W,O2,CM
 ```
 
-**1,800 cells: 849 pass, 171 fail, 780 unsupported, 0 errors.** No cell was flaky and no known failure was stale; every failure matched a known failure's recorded cause (blame, checks and step), so the run exits 0. Checks recorded: 6 failures, 4 warnings, 744 tentative. Our agent, `dpa`, passed every one of the 195 cells it ran.
+**1,800 cells: 849 pass, 171 fail, 780 unsupported, 0 errors.** No cell was flaky and no known failure was stale; every failure matched a known failure's recorded cause (blame, checks and step), so the run exits 0. Checks recorded: 6 failures, 4 warnings, 744 tentative. Our agent, `pda`, passed every one of the 195 cells it ran.
 
 Against the 1,440-cell run below, the 360 new cells are scenarios H, DC, W, O2, CM and OU. Their failures are known: Datalayer's SDKs require `conversation_id` in the answer to a handoff or a close (7.9 and 7.12 say status and responder), the S2 `typ` reading at the strict Companies, and poppy-demo's discovery. everruns ran apart on both sides ([interop-testing.md](../interop-testing.md#everruns-joins-the-grid)) and isn't in these totals.
 
 Pass / fail / unsupported, by agent (rows) and Company (columns), over 30 scenarios:
 
-| | dpa-mock | dpa-mock-strict | datalayer-ts | datalayer-py | pi-poppy | poppy-demo | poppyseed | ilmer | print-with-poppy | adonis-agora |
+| | pda-mock | pda-mock-strict | datalayer-ts | datalayer-py | pi-poppy | poppy-demo | poppyseed | ilmer | print-with-poppy | adonis-agora |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **dpa** | 30 / 0 / 0 | 30 / 0 / 0 | 22 / 0 / 8 | 22 / 0 / 8 | 24 / 0 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 4 / 0 / 26 | 22 / 0 / 8 |
+| **pda** | 30 / 0 / 0 | 30 / 0 / 0 | 22 / 0 / 8 | 22 / 0 / 8 | 24 / 0 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 4 / 0 / 26 | 22 / 0 / 8 |
 | **datalayer-ts** | 24 / 4 / 2 | 24 / 4 / 2 | 21 / 1 / 8 | 21 / 1 / 8 | 23 / 1 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 3 / 0 / 27 | 22 / 0 / 8 |
 | **datalayer-py** | 25 / 3 / 2 | 25 / 3 / 2 | 22 / 0 / 8 | 22 / 0 / 8 | 23 / 1 / 6 | 12 / 0 / 18 | 24 / 0 / 6 | 5 / 0 / 25 | 3 / 0 / 27 | 22 / 0 / 8 |
 | **pi-poppy** | 24 / 3 / 3 | 1 / 26 / 3 | 19 / 2 / 9 | 19 / 2 / 9 | 21 / 2 / 7 | 1 / 11 / 18 | 22 / 1 / 7 | 1 / 4 / 25 | 3 / 0 / 27 | 19 / 2 / 9 |
@@ -76,7 +76,7 @@ The sections below are the print-with-poppy column rerun at its new pin, then th
 The store's pin moved from `7ef69be` to `260dbb4` that evening, 26 commits later: it now has accounts (Direct and Mediated Sign-In by an emailed code), and the adapter claims seven sign-in scenarios besides D, S0, CM and OU ([adapter README](../../interop/impls/print-with-poppy-company/README.md)). Its column was rerun on its own, at `2026-10-12T22:03:59Z` on the local lane, every image rebuilt, with the seven honest agents (everruns included) and the 30 scenarios of the run above:
 
 ```sh
-npm run interop -- --agents dpa,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora,everruns \
+npm run interop -- --agents pda,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora,everruns \
   --companies print-with-poppy \
   --scenarios AM,AO,AS,C,CA,CI,CM,CS,D,DC,DP,H,N,O,O2,OU,OX,R,RL,S0,SD,SE,SM,SMC,SO,SV,SVN,SX,SXV,W
 ```
@@ -85,7 +85,7 @@ npm run interop -- --agents dpa,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,ad
 
 | Agent | Pass | Fail | Unsupported |
 | --- | --- | --- | --- |
-| dpa | 10: D, S0, CM, SD, SX, SMC, SO, AO, AS, OU | 0 | 20 |
+| pda | 10: D, S0, CM, SD, SX, SMC, SO, AO, AS, OU | 0 | 20 |
 | datalayer-ts, datalayer-py, pi-poppy | 9 each: D, S0, CM, SD, SX, SMC, SO, AO, AS | 0 | 21 each |
 | adonis-agora | 8: D, S0, CM, SD, SX, SMC, AO, AS | 1: SO | 21 |
 | poppy-demo | 0 | 7: D, S0, CM, SD, SX, SO, AO | 23 |
@@ -96,19 +96,19 @@ npm run interop -- --agents dpa,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,ad
 - **R, 5 cells unsupported.** Every agent renewed through two expiries and read the account, but the store doesn't rotate Account Tokens, so `refresh_rotated` has nothing to judge.
 - **SM unsupported.** The store's Mediated Sign-In always sends a code, so it claims SMC, which all five agents that claim it pass, and not SM.
 
-Against its column in the run above (6 agents: 16 pass, 3 fail, 161 unsupported, at `7ef69be`), the same six agents now have 45 pass, 8 fail, 127 unsupported: the 29 new passes are the sign-in scenarios, and the five new failures are poppy-demo's crash in four of them and adonis-agora's SO. OU still passes for dpa, now that our client refuses a write the description leaves outside the Poppy Session, and no other agent claims it.
+Against its column in the run above (6 agents: 16 pass, 3 fail, 161 unsupported, at `7ef69be`), the same six agents now have 45 pass, 8 fail, 127 unsupported: the 29 new passes are the sign-in scenarios, and the five new failures are poppy-demo's crash in four of them and adonis-agora's SO. OU still passes for pda, now that our client refuses a write the description leaves outside the Poppy Session, and no other agent claims it.
 
 ## Earlier runs
 
 The command, run at `2026-10-12T09:00:00Z` on the local lane, on the isolated network (interop spec section 3, Isolation), after Datalayer's pin moved to 0.10.0:
 
 ```sh
-npm run interop -- --agents dpa,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora \
-  --companies dpa-mock,dpa-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora \
+npm run interop -- --agents pda,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora \
+  --companies pda-mock,pda-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora \
   --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CI,CS,CA,SO,SE,R,AO,AM,AS,O,OX,RL,DP
 ```
 
-The scenarios are every one that then existed without an adversary or faults; the adversarial ones ran apart (the security grid below). Scenario OU (an upload, then an operation in a signed-out Session) was added later that day and isn't in this run; dpa passes it against dpa-mock, dpa-mock-strict and print-with-poppy. everruns (agent and Company, at `f470ad7`) joined the registry later that day too and isn't in this run; its own two runs over these 25 scenarios are in [interop-testing.md](../interop-testing.md#everruns-joins-the-grid). Every image was built (from cache where nothing changed) at `c5ae73d`, which also holds the runner: Datalayer at `0c048aa7` (v0.10.0; it was `12d71877`, v0.6.0), pi-poppy at `11ea1063`, poppy-demo at `02a9b304`, poppyseed at `f479fb6b`, Ilmer at `4ca76e00`, print-with-poppy at `7ef69bef`, adonis-agora's Company at `97838853` and its agent at `e66a2329`. The four Datalayer images are 677 MB (TypeScript) and 451 MB (Python) each; each pair shares every layer below its adapter.
+The scenarios are every one that then existed without an adversary or faults; the adversarial ones ran apart (the security grid below). Scenario OU (an upload, then an operation in a signed-out Session) was added later that day and isn't in this run; pda passes it against pda-mock, pda-mock-strict and print-with-poppy. everruns (agent and Company, at `f470ad7`) joined the registry later that day too and isn't in this run; its own two runs over these 25 scenarios are in [interop-testing.md](../interop-testing.md#everruns-joins-the-grid). Every image was built (from cache where nothing changed) at `c5ae73d`, which also holds the runner: Datalayer at `0c048aa7` (v0.10.0; it was `12d71877`, v0.6.0), pi-poppy at `11ea1063`, poppy-demo at `02a9b304`, poppyseed at `f479fb6b`, Ilmer at `4ca76e00`, print-with-poppy at `7ef69bef`, adonis-agora's Company at `97838853` and its agent at `e66a2329`. The four Datalayer images are 677 MB (TypeScript) and 451 MB (Python) each; each pair shares every layer below its adapter.
 
 The egress probe, run inside the network before any implementation started, got nowhere: `{"tcp 1.1.1.1:443":"ENETUNREACH","tcp 8.8.8.8:53":"ENETUNREACH","dns example.com":"EAI_AGAIN"}`.
 
@@ -120,15 +120,15 @@ The egress probe, run inside the network before any implementation started, got 
 
 - adonis-agora × datalayer-ts and datalayer-py, SV, SXV and SO: fail → pass. Datalayer's Companies now accept a client assertion `aud` of the issuer, the token endpoint or the endpoint called ([S1](../spec-issues.md#s1)), so adonis-agora's token-endpoint `aud` at the device authorization and revocation endpoints is accepted.
 - pi-poppy × datalayer-ts and datalayer-py, O: fail → pass. A confirmed operation now omits `expires_at` instead of sending `null`. Their two known failures were stale and are gone.
-- datalayer-ts × dpa-mock, dpa-mock-strict, pi-poppy and poppyseed, AM: unsupported → pass. The TypeScript SDK now has an MCP client, so the adapter claims AM.
+- datalayer-ts × pda-mock, pda-mock-strict, pi-poppy and poppyseed, AM: unsupported → pass. The TypeScript SDK now has an MCP client, so the adapter claims AM.
 
 Before the full grid, two narrow runs covered the Datalayer rows and columns (`--companies datalayer-ts,datalayer-py` with all six agents, then `--agents datalayer-ts,datalayer-py` with the other seven Companies). The first reported the two pi-poppy O entries stale, and one flaky cell, datalayer-py × datalayer-py SV: the Company's fetch of the agent's `agent.json`, 5 s after the previous one, met a connection uvicorn had just closed at its default 5 s keep-alive ("socket hang up"), so the device token request was `invalid_client`. The Python adapters now keep idle connections 75 s; the full grid had no flaky cell.
 
 Pass / fail / unsupported, by agent (rows) and Company (columns), over 24 scenarios:
 
-| | dpa-mock | dpa-mock-strict | datalayer-ts | datalayer-py | pi-poppy | poppy-demo | poppyseed | ilmer | print-with-poppy | adonis-agora |
+| | pda-mock | pda-mock-strict | datalayer-ts | datalayer-py | pi-poppy | poppy-demo | poppyseed | ilmer | print-with-poppy | adonis-agora |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **dpa** | 24 / 0 / 0 | 24 / 0 / 0 | 18 / 0 / 6 | 18 / 0 / 6 | 19 / 0 / 5 | 10 / 0 / 14 | 19 / 0 / 5 | 4 / 0 / 20 | 2 / 0 / 22 | 18 / 0 / 6 |
+| **pda** | 24 / 0 / 0 | 24 / 0 / 0 | 18 / 0 / 6 | 18 / 0 / 6 | 19 / 0 / 5 | 10 / 0 / 14 | 19 / 0 / 5 | 4 / 0 / 20 | 2 / 0 / 22 | 18 / 0 / 6 |
 | **datalayer-ts** | 21 / 2 / 1 | 21 / 2 / 1 | 17 / 1 / 6 | 17 / 1 / 6 | 18 / 1 / 5 | 10 / 0 / 14 | 19 / 0 / 5 | 4 / 0 / 20 | 2 / 0 / 22 | 18 / 0 / 6 |
 | **datalayer-py** | 22 / 1 / 1 | 22 / 1 / 1 | 18 / 0 / 6 | 18 / 0 / 6 | 18 / 1 / 5 | 10 / 0 / 14 | 19 / 0 / 5 | 4 / 0 / 20 | 2 / 0 / 22 | 18 / 0 / 6 |
 | **pi-poppy** | 19 / 3 / 2 | 1 / 21 / 2 | 15 / 2 / 7 | 15 / 2 / 7 | 16 / 2 / 6 | 1 / 9 / 14 | 17 / 1 / 6 | 1 / 3 / 20 | 2 / 0 / 22 | 15 / 2 / 7 |
@@ -141,34 +141,34 @@ The failures by the attribution rule that decided them (spec section 9), each in
 
 **Rule 1, violation (agent):**
 
-- pi-poppy × dpa-mock, dpa-mock-strict and adonis-agora, N; × dpa-mock, dpa-mock-strict and pi-poppy, SVN: on `use_dpop_nonce` pi-poppy re-signs the client assertion and proof but resends the same Session assertion (`session-assertion.jti-reused`).
+- pi-poppy × pda-mock, pda-mock-strict and adonis-agora, N; × pda-mock, pda-mock-strict and pi-poppy, SVN: on `use_dpop_nonce` pi-poppy re-signs the client assertion and proof but resends the same Session assertion (`session-assertion.jti-reused`).
 
 **Warning (agent), below a failure (conformance levels):**
 
-- datalayer-ts and datalayer-py × dpa-mock and dpa-mock-strict, SVN: Device Sign-In polling never retries `use_dpop_nonce` (Poppy 4.3, RFC 9449 section 8; still so at `0c048aa`). The same failure at pi-poppy's Company falls to rule 2.
+- datalayer-ts and datalayer-py × pda-mock and pda-mock-strict, SVN: Device Sign-In polling never retries `use_dpop_nonce` (Poppy 4.3, RFC 9449 section 8; still so at `0c048aa`). The same failure at pi-poppy's Company falls to rule 2.
 
 **Rule 2, grid (agent):**
 
 - pi-poppy × every Company with SE: after the Company ends the Session, pi-poppy renews, gets `invalid_session` and throws instead of starting a new Session ([N39](../spec-issues.md#n39)).
-- poppy-demo × dpa-mock, dpa-mock-strict and adonis-agora, N: the issuer-origin rule below, which N is the first to hit by grid.
+- poppy-demo × pda-mock, pda-mock-strict and adonis-agora, N: the issuer-origin rule below, which N is the first to hit by grid.
 - datalayer-ts and datalayer-py × pi-poppy, SVN: as above.
 
 **Rule 3, reading (spec):**
 
-- [S2](../spec-issues.md#s2), assertion `typ`: pi-poppy's Session assertions and adonis-agora's client and Session assertions have no `typ`, and both declare S2 `any`. dpa-mock-strict, poppy-demo's Northstar and Ilmer declare `jwt-60s` and refuse them at the first Session (pi-poppy × dpa-mock-strict, poppy-demo and Ilmer; adonis-agora × the same three). The lenient reference `dpa-mock` accepts them.
+- [S2](../spec-issues.md#s2), assertion `typ`: pi-poppy's Session assertions and adonis-agora's client and Session assertions have no `typ`, and both declare S2 `any`. pda-mock-strict, poppy-demo's Northstar and Ilmer declare `jwt-60s` and refuse them at the first Session (pi-poppy × pda-mock-strict, poppy-demo and Ilmer; adonis-agora × the same three). The lenient reference `pda-mock` accepts them.
 - [S1](../spec-issues.md#s1), client assertion `aud`: adonis-agora names the token endpoint at the device authorization and revocation endpoints too; poppyseed and pi-poppy's Company want the endpoint called and answer `invalid_client` (SV, SXV, SO). Datalayer's Companies did too until 0.10.0.
 
-Rule 3 needs evidence in the trace that the question mattered (a `reading.<id>.refused` check or a Company-recorded error of that question), not only two declarations that differ. Every cell above has it. poppy-demo × dpa-mock and dpa-mock-strict, D (refused for the `auth.` issuer before any metadata is fetched, so S3 never came up) and poppy-demo × Ilmer, S0 (a crash on the missing `authorization_endpoint`, not S1) are unattributed for that reason.
+Rule 3 needs evidence in the trace that the question mattered (a `reading.<id>.refused` check or a Company-recorded error of that question), not only two declarations that differ. Every cell above has it. poppy-demo × pda-mock and pda-mock-strict, D (refused for the `auth.` issuer before any metadata is fetched, so S3 never came up) and poppy-demo × Ilmer, S0 (a crash on the missing `authorization_endpoint`, not S1) are unattributed for that reason.
 
 **Rule 4, unattributed (no single side by rule; the known failure names the cause):**
 
-- poppy-demo × dpa-mock, dpa-mock-strict and adonis-agora (the rest, including D at both mocks): its caller requires `auth.issuer` to equal the Company's origin, and those issuers are on `auth.` or under `/poppy`, as the draft's own examples allow.
+- poppy-demo × pda-mock, pda-mock-strict and adonis-agora (the rest, including D at both mocks): its caller requires `auth.issuer` to equal the Company's origin, and those issuers are on `auth.` or under `/poppy`, as the draft's own examples allow.
 - poppy-demo × Ilmer (D, S0 and C) and × print-with-poppy (D, S0): neither has an `authorization_endpoint` (signed-out only), and the caller runs `new URL(undefined)` on it.
 - poppy-demo × Datalayer TS and Python, SD, SX, CA, SO, AO: the caller always asks for its hard-coded `poppy:read poppy:write`; Manzanita offers only `orders:read` and `orders:write` and answers `invalid_scope`.
 - poppy-demo × poppyseed, SO: poppyseed answers revocation with an empty 200 (RFC 7009 allows it); the caller parses it as JSON and throws.
 - adonis-agora × Datalayer TS and Python, SE: adonis-agora recovers from an ended Session by renewing with its Account Token and no `session_id`, which Poppy 4.8 says starts a new signed-in Session; Datalayer's Companies still require `session_id` and answer `invalid_session`.
 - pi-poppy × Datalayer TS and Python, OX: Datalayer's cancel still sends `result.data: null`, which pi-poppy rejects ([N41](../spec-issues.md#n41)).
-- datalayer-ts × dpa-mock, dpa-mock-strict and both Datalayer Companies, CS: the TypeScript `ConversationClient.stream` reconnects at once and gives up with `stream_unavailable` after five empty reconnects.
+- datalayer-ts × pda-mock, pda-mock-strict and both Datalayer Companies, CS: the TypeScript `ConversationClient.stream` reconnects at once and gives up with `stream_unavailable` after five empty reconnects.
 
 The triage behind the 11 October run (`18cbaa6`) also fixed harness bugs that had shown as failures: metadata appended to an issuer's path (S3 `append`) wasn't recognised by scenario D or the revocation check; declared readings were keyed by name, so a project's Company's readings replaced its agent's; and three adapters (datalayer-py ignored `servers`, adonis-agora didn't accept `"METHOD /path"` or a body-only Poppy error, datalayer-ts sent a retried first message to the conversation it had started; see [S9](../spec-issues.md#s9)).
 
@@ -181,16 +181,16 @@ The run's network is `--internal`, so a container that calls out fails instead o
 The adversarial cells ([`docs/adversarial-interop.md`](../adversarial-interop.md)) ran separately, against our own implementations only (interop spec section 13), with `--no-build` on the same images and the same isolation (each run's egress probe got nowhere):
 
 ```sh
-npm run interop -- --no-build --agents evil-agent --companies dpa-mock,dpa-mock-strict --scenarios YR,YD,YA,YT,YS,YK,YU,YM
-npm run interop -- --no-build --agents dpa --companies evil-company --scenarios XH,XI,BX,XB,XN,XO,XP,XE
-npm run interop -- --no-build --agents dpa --companies dpa-mock,dpa-mock-strict --scenarios NREP,CDUP,CIDUP,ODUP
+npm run interop -- --no-build --agents evil-agent --companies pda-mock,pda-mock-strict --scenarios YR,YD,YA,YT,YS,YK,YU,YM
+npm run interop -- --no-build --agents pda --companies evil-company --scenarios XH,XI,BX,XB,XN,XO,XP,XE
+npm run interop -- --no-build --agents pda --companies pda-mock,pda-mock-strict --scenarios NREP,CDUP,CIDUP,ODUP
 ```
 
 | Attacker | Scenarios | Honest side | Pass / fail |
 | --- | --- | --- | --- |
-| `evil-agent` | YR, YD, YA, YT, YS, YK, YU, YM | `dpa-mock`; `dpa-mock-strict` | 8 / 0; 8 / 0 |
-| `evil-company` | XH, XI, BX, XB, XN, XO, XP, XE | `dpa` | 8 / 0 |
-| the network (proxy faults) | NREP, CDUP, CIDUP, ODUP | `dpa` × `dpa-mock`; × `dpa-mock-strict` | 4 / 0; 4 / 0 |
+| `evil-agent` | YR, YD, YA, YT, YS, YK, YU, YM | `pda-mock`; `pda-mock-strict` | 8 / 0; 8 / 0 |
+| `evil-company` | XH, XI, BX, XB, XN, XO, XP, XE | `pda` | 8 / 0 |
+| the network (proxy faults) | NREP, CDUP, CIDUP, ODUP | `pda` × `pda-mock`; × `pda-mock-strict` | 4 / 0; 4 / 0 |
 
 32 cells, all pass: the honest side refused or safely withstood every attack and no harm oracle fired. On 13 October the same 32 cells ran inside the full `npm run interop` with rebuilt images, and all passed again. The `evil-agent` and `evil-company` rows were rerun on 12 October 2026 after the malicious-Company attacks `XB` (oversized `poppy.json`), `XN` (DPoP nonce loop), `XO` (operation terms swapped under their id), `XP` (consent spoofing) and `XE` (a forged message from the User), and the malicious-agent attack `YM` (confirm without approval), were added; the network row is unchanged. Still listed, not yet built: `XM` (a mix-up needs two Companies in one cell), `XS` (needs the N42 "private" test suffix), `YF` (a code only returns through the consent hook) and `YC` (needs a consent-page reader) — see [`docs/adversarial-interop.md`](../adversarial-interop.md).
 

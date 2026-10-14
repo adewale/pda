@@ -8,7 +8,7 @@ import { clientAssertion } from "../../src/poppy/jwt.ts";
 import { readInteropKeys } from "../../src/poppy/interop-client.ts";
 import { currentKey } from "../../src/poppy/keys.ts";
 import type { PoppyHost } from "../../src/poppy/client.ts";
-import { LiveIdentityClient, liveIdentityFrom } from "../impls/dpa-agent/live-identity.ts";
+import { LiveIdentityClient, liveIdentityFrom } from "../impls/pda-agent/live-identity.ts";
 import { loadRegistry, selected } from "../runner/cli.ts";
 import { LIVE_CLIENT_ID_VAR, LIVE_KEY_VAR, liveIdentityEnv, liveIdentityNotice, readLiveIdentity } from "../runner/live-identity.ts";
 import type { RegistryEntry } from "../runner/types.ts";
@@ -94,21 +94,21 @@ describe("the runner's live identity", () => {
   });
 
   it("gives the key only to our own honest agent, and only in the live lane", () => {
-    const dpa = entry("agent", "dpa");
-    const live = liveIdentityEnv("live", dpa, identity);
+    const pda = entry("agent", "pda");
+    const live = liveIdentityEnv("live", pda, identity);
     expect(live.public).toEqual({ [LIVE_CLIENT_ID_VAR]: identity.clientId });
     expect(JSON.parse(live.secret[LIVE_KEY_VAR]!)).toEqual(identity.key);
     const none = { public: {}, secret: {} };
-    expect(liveIdentityEnv("local", dpa, identity)).toEqual(none);
-    expect(liveIdentityEnv("live", dpa, null)).toEqual(none);
+    expect(liveIdentityEnv("local", pda, identity)).toEqual(none);
+    expect(liveIdentityEnv("live", pda, null)).toEqual(none);
     expect(liveIdentityEnv("live", entry("agent", "evil-agent"), identity)).toEqual(none);
     expect(liveIdentityEnv("live", thirdPartyAgent, identity)).toEqual(none);
-    expect(liveIdentityEnv("live", entry("company", "dpa-mock"), identity)).toEqual(none);
+    expect(liveIdentityEnv("live", entry("company", "pda-mock"), identity)).toEqual(none);
   });
 
   it("runs only our own agents in the live lane, so no third-party image ever sees the key", () => {
     const agents = selected(registry, "agent", null, "live");
-    expect(agents.map((item: RegistryEntry) => item.name)).toContain("dpa");
+    expect(agents.map((item: RegistryEntry) => item.name)).toContain("pda");
     expect(agents.every((item: RegistryEntry) => item.owner === "self")).toBe(true);
     expect(() => selected(registry, "agent", [thirdPartyAgent.name], "live")).toThrow(/No agent/);
     // The local lane still runs everyone's.
@@ -127,7 +127,7 @@ describe("the agent adapter under the live identity", () => {
   const file = path.join(dir, "adapter.json");
   const printed = script(file, "--origin", ORIGIN).stdout;
   const identity = readLiveIdentity(file)!;
-  const live = liveIdentityEnv("live", entry("agent", "dpa"), identity);
+  const live = liveIdentityEnv("live", entry("agent", "pda"), identity);
   const env = { ...live.public, ...live.secret };
 
   it("takes the client_id and key the runner passes, both or neither", () => {
@@ -143,7 +143,7 @@ describe("the agent adapter under the live identity", () => {
     const liveIdentity = liveIdentityFrom(env)!;
     const hostEnv = {
       PUBLIC_ORIGIN: liveIdentity.origin,
-      POPPY_CLIENT_NAME: "Durable Personal Agent (interop tests)",
+      POPPY_CLIENT_NAME: "Poppy Demo Agent (interop tests)",
       POPPY_LOGO_URI: `${liveIdentity.origin}/logo.png`,
       POPPY_SIGNING_JWKS: liveIdentity.signingJwks,
       TOKEN_ENC_KEY: Buffer.from(new Uint8Array(32)).toString("base64")

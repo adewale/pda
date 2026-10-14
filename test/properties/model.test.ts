@@ -1,7 +1,7 @@
 import { exportJWK, generateKeyPair } from "jose";
 import { describe, expect, it } from "vitest";
 import { memoryState } from "../../interop/impls/shared/cloudflare-workers";
-import { memorySql } from "../../interop/impls/dpa-agent/sqlite";
+import { memorySql } from "../../interop/impls/pda-agent/sqlite";
 import { callOpenApi } from "../../src/poppy/apis";
 import { PoppyClient, PoppyError, type PoppyHost } from "../../src/poppy/client";
 import { closeConversation, conversation, openConversations, readConversation, sendMessage } from "../../src/poppy/conversations";

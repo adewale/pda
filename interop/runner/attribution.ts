@@ -32,7 +32,7 @@ import { isBasis, levelOf, type Level } from "../../src/validator/levels.ts";
 import { compatible, questionOf, REFUSED_READING } from "./readings.ts";
 import type { Blame, Cell, Check, KnownFailure, Rule, Scenario } from "./types.ts";
 
-export const REFERENCE_COMPANY = "dpa-mock";
+export const REFERENCE_COMPANY = "pda-mock";
 
 /** One entry of a Company adapter's `GET /violations` (interop/impls/shared/mock-hooks.ts). */
 export type RecordedViolation = { readonly id: string; readonly basis?: unknown; readonly level?: unknown; readonly detail: string };
@@ -196,7 +196,7 @@ export function attribute(cell: Cell, grid: readonly Cell[], context: Attributio
 
   // 3. reading, only where the trace shows the question mattered: the Company refused what its
   // reading doesn't accept (`reading.<id>.refused`), or recorded an error of that question.
-  // Two declarations that merely differ prove nothing: poppy-demo × dpa-mock fails D on its
+  // Two declarations that merely differ prove nothing: poppy-demo × pda-mock fails D on its
   // issuer-origin rule, not on S3, though the two read S3 differently.
   const evidenced = new Set([...refused, ...explained.filter((found): found is string => found !== null)]);
   const scenario = context.scenarios.get(cell.scenario);

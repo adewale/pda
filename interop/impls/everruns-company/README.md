@@ -1,6 +1,6 @@
 # everruns-company
 
-> **Status (12 October 2026): in the grid as `everruns` (role `company`), first run that day.** With the six other agents and everruns' own over the 25 scenarios of [the last grid](../../../docs/interop-results/README.md): 24 pass, 3 fail, 148 unsupported, 0 errors, every failure a known one. dpa, both Datalayer agents, pi-poppy, adonis-agora and everruns pass D, S0, C and CI; poppy-demo's caller fails D, S0 and C on its issuer-origin rule, as at the other Companies whose issuer isn't their origin. Image: 689 MB on disk (148 MB compressed).
+> **Status (12 October 2026): in the grid as `everruns` (role `company`), first run that day.** With the six other agents and everruns' own over the 25 scenarios of [the last grid](../../../docs/interop-results/README.md): 24 pass, 3 fail, 148 unsupported, 0 errors, every failure a known one. pda, both Datalayer agents, pi-poppy, adonis-agora and everruns pass D, S0, C and CI; poppy-demo's caller fails D, S0 and C on its issuer-origin rule, as at the other Companies whose issuer isn't their origin. Image: 689 MB on disk (148 MB compressed).
 
 [everruns](https://github.com/everruns/everruns)' Poppy channel (a Company's front door for personal agents, `crates/server/src/channels/poppy/`) behind the interop adapter of [docs/interop-spec.md](../../../docs/interop-spec.md) (version 1, section 5.3).
 
@@ -10,7 +10,7 @@
 
 ## What changed upstream (pin moved 13 October)
 
-60 commits from `f470ad7` to `aceb2e2`, 12 and 13 October. None touches the Poppy code: `crates/capabilities/src/capabilities/poppy_client/`, `crates/server/src/domains/poppy_agent/`, `crates/server/src/channels/poppy/`, `crates/contracts/src/url_validation.rs` (patch 0001) and `crates/server/tests/test_harness.rs` are byte for byte the same, so both patches apply unchanged and the known failures' links into `poppy_client` point at the same lines. The rest is platform work: platform turns now run only as session actors and the durable engine is retired (#4629; the `TurnBackend` trait the Company's stand-in runner implements changed only in its comments), read-only personal access tokens, bound secrets, web search drivers, attachments kept through compaction, GitHub App tokens and docs. The image rebuilt cleanly with the same `adapter/main.rs`, and the smoke test passed (13 October: D and S0 against dpa-mock as an agent, D, S0 and C against dpa as a Company).
+60 commits from `f470ad7` to `aceb2e2`, 12 and 13 October. None touches the Poppy code: `crates/capabilities/src/capabilities/poppy_client/`, `crates/server/src/domains/poppy_agent/`, `crates/server/src/channels/poppy/`, `crates/contracts/src/url_validation.rs` (patch 0001) and `crates/server/tests/test_harness.rs` are byte for byte the same, so both patches apply unchanged and the known failures' links into `poppy_client` point at the same lines. The rest is platform work: platform turns now run only as session actors and the durable engine is retired (#4629; the `TurnBackend` trait the Company's stand-in runner implements changed only in its comments), read-only personal access tokens, bound secrets, web search drivers, attachments kept through compaction, GitHub App tokens and docs. The image rebuilt cleanly with the same `adapter/main.rs`, and the smoke test passed (13 October: D and S0 against pda-mock as an agent, D, S0 and C against pda as a Company).
 
 ## How it runs
 
@@ -25,7 +25,7 @@ Build: the runner builds it as `poppy-interop/company-everruns:<tag>`; by hand, 
 
 ## Results
 
-12 October 2026, local lane, `--image-tag evr`, the egress probe got nowhere, no flaky cell, no stale known failure. dpa, datalayer-ts, datalayer-py, pi-poppy, adonis-agora and everruns pass D, S0, C and CI here (poppy-demo doesn't list CI). poppy-demo fails D, S0 and C: its caller requires `auth.issuer` to be the Company's origin, and a channel's issuer is `…/api/v1/channels/{id}/poppy` (the draft allows both; a known failure, blamed on the agent by rule 2, as at dpa-mock, dpa-mock-strict and adonis-agora). No agent tripped a check here, and the Company recorded nothing (it serves no `/violations`).
+12 October 2026, local lane, `--image-tag evr`, the egress probe got nowhere, no flaky cell, no stale known failure. pda, datalayer-ts, datalayer-py, pi-poppy, adonis-agora and everruns pass D, S0, C and CI here (poppy-demo doesn't list CI). poppy-demo fails D, S0 and C: its caller requires `auth.issuer` to be the Company's origin, and a channel's issuer is `…/api/v1/channels/{id}/poppy` (the draft allows both; a known failure, blamed on the agent by rule 2, as at pda-mock, pda-mock-strict and adonis-agora). No agent tripped a check here, and the Company recorded nothing (it serves no `/violations`).
 
 ## What works
 

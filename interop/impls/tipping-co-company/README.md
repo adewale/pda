@@ -37,6 +37,6 @@ Not offered: `rate_limit` (its limiter is fixed at 120 token requests a minute p
 First run, 13 October ([interop-testing.md](../../../docs/interop-testing.md#tipping-co-joins-the-grid)): the eight honest agents over the ten scenarios above, 80 cells, 50 pass, 13 fail, 17 unsupported, every failure a known one.
 
 - adonis-agora and Tipping Co's own agent pass every scenario they claim; everruns runs only D, which passes.
-- dpa, both Datalayer agents and pi-poppy pass everything but SO. Their revocation assertion's `aud` is the revocation endpoint, and Tipping Co wants the token endpoint there too, so it answers `invalid_client` ([S1](../../../docs/spec-issues.md#s1), blamed on the spec).
+- pda, both Datalayer agents and pi-poppy pass everything but SO. Their revocation assertion's `aud` is the revocation endpoint, and Tipping Co wants the token endpoint there too, so it answers `invalid_client` ([S1](../../../docs/spec-issues.md#s1), blamed on the spec).
 - pi-poppy also fails N: it retries after `use_dpop_nonce` at the token endpoint only when `WWW-Authenticate` names the error, and an authorization server puts it in the JSON body (RFC 9449 8), as Tipping Co does.
 - poppy-demo's caller fails all eight at discovery: it needs an `agent` member, as at print-with-poppy.
