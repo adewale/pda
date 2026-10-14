@@ -275,18 +275,27 @@ export function usePiSession() {
   agentRef.current = agent;
 
   /** A Poppy frame to the agent: decisions, sign-in input, settings. */
+  /**
+   * Returns whether it went: false when the socket isn't open, and then
+   * nothing is sent, now or later. A decision isn't queued, because one
+   * replayed after the User looked away is worse than one refused; the page
+   * says it wasn't sent (`src/ui/connection.tsx`).
+   */
   const sendPoppy = useCallback(
-    (frame: PoppyClientFrame) => {
-      if (agent.readyState === WebSocket.OPEN) agent.send(JSON.stringify(frame));
+    (frame: PoppyClientFrame): boolean => {
+      if (agent.readyState !== WebSocket.OPEN) return false;
+      agent.send(JSON.stringify(frame));
+      return true;
     },
     [agent]
   );
 
+  /** Stop and reset, which aren't queued either: true when the frame went. */
   const send = useCallback(
-    (message: ClientMessage) => {
-      if (agent.readyState === WebSocket.OPEN) {
-        agent.send(JSON.stringify(message));
-      }
+    (message: ClientMessage): boolean => {
+      if (agent.readyState !== WebSocket.OPEN) return false;
+      agent.send(JSON.stringify(message));
+      return true;
     },
     [agent]
   );

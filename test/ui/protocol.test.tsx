@@ -72,6 +72,7 @@ function page(protocol: ProtocolView) {
   const send = (frame: PoppyClientFrame) => {
     if (frame.type === "poppy.diagnostics") diagnostics++;
     else sent.push(frame);
+    return true;
   };
   const view = render(<ActivityPage activity={{ inProgress: [], log: [] }} protocol={protocol} send={send} />);
   const rerender = (next: ProtocolView) => view.rerender(<ActivityPage activity={{ inProgress: [], log: [] }} protocol={next} send={send} />);

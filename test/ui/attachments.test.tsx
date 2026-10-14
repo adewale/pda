@@ -202,7 +202,7 @@ describe("cards about photos and orders", () => {
       status: "pending",
       attachments: [LAKE]
     };
-    render(<PoppyCards view={view([card])} send={(frame) => void sent.push(frame)} />);
+    render(<PoppyCards view={view([card])} send={(frame) => sent.push(frame) > 0} />);
     expect(screen.getByRole("heading", { name: "Send this photo to Print with Poppy?" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "lake.jpg" }).getAttribute("src")).toBe(`/api/attachments/${LAKE.id}`);
     expect(screen.getByText(/goes only to this Company/)).toBeTruthy();
@@ -233,7 +233,7 @@ describe("cards about photos and orders", () => {
     render(
       <PoppyCards
         view={view([order({ result: "Approved order prepared.", links: [{ label: "checkout", url: "https://print-with-poppy.example/checkout/ord_1" }, { label: "status", url: "javascript:alert(1)" }] })])}
-        send={() => undefined}
+        send={() => true}
       />
     );
     const links = screen.getAllByRole("link");
@@ -244,14 +244,14 @@ describe("cards about photos and orders", () => {
   });
 
   it("says when the Company no longer has an order, and whether it may have happened (N19)", () => {
-    const { rerender } = render(<PoppyCards view={view([order({ state: "proposed", lost: "not_done" })])} send={() => undefined} />);
+    const { rerender } = render(<PoppyCards view={view([order({ state: "proposed", lost: "not_done" })])} send={() => true} />);
     expect(screen.getByText(/It wasn't done/)).toBeTruthy();
-    rerender(<PoppyCards view={view([order({ state: "in_progress", lost: "unknown" })])} send={() => undefined} />);
+    rerender(<PoppyCards view={view([order({ state: "in_progress", lost: "unknown" })])} send={() => true} />);
     expect(screen.getByText(/It may have happened: check with Print with Poppy before asking again\./)).toBeTruthy();
   });
 
   it("keeps the terms you saw when the Company changes them under the same revision, and offers no Approve (Ops 3.1)", () => {
-    render(<PoppyCards view={view([order({ state: "proposed", open: false, alteredSummary: "Print 1 copy for $999.00" })])} send={() => undefined} />);
+    render(<PoppyCards view={view([order({ state: "proposed", open: false, alteredSummary: "Print 1 copy for $999.00" })])} send={() => true} />);
     expect(screen.getByText(/changed these terms after you saw them, without a new revision, so your agent won't confirm them/)).toBeTruthy();
     expect(screen.getByText(/It now says: “Print 1 copy for \$999\.00”/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();

@@ -337,6 +337,7 @@ The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line 
   - **Operations:** the Company's summary verbatim ("Manzanita says: …"), with costs, dates and conditions from `terms`, and what changed since the last revision.
   - **Local approvals**, **Direct Conversation invitations** and **notices**. A card that would send the User's photo shows the photo and says it goes only to that Company.
   - **Receipts** of a finished operation link the HTTPS pages on the Company's own hosts its `result.data` names, such as a checkout; one the Company no longer has (N19) says whether it may have happened.
+  - **No decision is queued.** Approve, Decline, Confirm, a sign-in's details or code, a Direct Conversation message, and every action in Activity and Companies (stop, sign out, a standing permission) are disabled while the socket isn't open, and the card or row says "Connecting to your agent… You can do this once it's connected." So are the chat's Stop and a receipt's buttons, under the page's connection banner. Requests that only read (a protocol log, the diagnostics) are asked again when the socket reopens. One tried in the moment after the socket closed, before the page hears of it, isn't sent and isn't kept for later: the card stays as it was, what the User typed stays in its form, and the card says "Not sent: your agent isn't connected. Try again when it is." The same button sends it once the socket is back. A decision replayed after the User has looked away would be worse than one refused, so unlike a chat message nothing here waits in an outbox (`src/ui/connection.tsx`).
 - **A Direct Conversation sheet**, a right-hand column at 1024px and wider, full screen on phones. Each message is labelled "You", "A person at Acme" or "Acme's agent".
 - **Activity.**
   - **In progress:** device sign-ins with a countdown, open conversations and operations, each with its stop button, and sign-outs the Company hasn't accepted yet.
@@ -904,7 +905,7 @@ A raw `string`, so an email, a token or anyone's words, is a compile error in an
 | --- | --- | --- |
 | Workers | `test/vitest.config.ts` | Every file in `test/` that isn't in another suite, in one workerd runtime |
 | Durability | `test/durability/vitest.config.ts` | Crashing every Durable Object and reloading the conversation; a runtime of its own, because a global abort would reset the objects other files are using |
-| Page | `test/ui/vitest.config.ts` | The chat page's cards and panels and the sign-in page, in happy-dom; the chat box with the real `usePiSession` over a fake socket (`chat-socket.test.tsx`) |
+| Page | `test/ui/vitest.config.ts` | The chat page's cards and panels and the sign-in page, in happy-dom; the chat box, cards and Companies actions with the real `usePiSession` over a fake socket (`chat-socket.test.tsx`) |
 | Interop | `interop/vitest.config.ts` | The interop runner's scenario interpreter, trace checks, readings, attribution and known failures, and the live lane's identity, in Node |
 | Properties | `test/properties/vitest.config.ts` | Property-based tests with Hegel (`@hegeldev/hegel`, the Hypothesis team's library), in Node, because its engine loads by FFI: 100 cases a property by default; `HEGEL_CASES=5000 npm run test:properties` for a deep local run |
 

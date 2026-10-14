@@ -1,13 +1,17 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toIssuer } from "../../src/poppy/issuer";
+import type { Card } from "../../src/poppy/wire";
+import { CONNECTING, NOT_SENT } from "../../src/ui/connection";
 import { Workspace } from "../../src/ui/shell";
 import { usePiSession } from "../../src/use-pi-session";
 
 /**
- * The chat box and the socket together: the real `usePiSession` and page,
- * with a fake socket in place of `useAgent`'s. A message the User sends is
- * never lost, whether the socket is still connecting, open, or drops before
- * the agent answers, and Enter and the Send button behave the same.
+ * The page and its socket together: the real `usePiSession` and page, with
+ * a fake socket in place of `useAgent`'s. A message the User sends is never
+ * lost, whether the socket is still connecting, open, or drops before the
+ * agent answers, and Enter and the Send button behave the same. A card's
+ * action is never queued, and never lost silently either.
  */
 
 type Handlers = {
@@ -194,6 +198,174 @@ describe("a socket that drops and reopens", () => {
     socket.close();
     socket.open();
     expect(socket.submits()).toHaveLength(4);
+  });
+});
+
+/*
+ * Decisions and other card actions aren't queued: an Approve replayed after
+ * the User has looked away is worse than one refused. While the socket isn't
+ * open they are disabled, with a reason; one tried on a socket that has just
+ * closed (the page hasn't heard yet) isn't sent, the card stays as it was and
+ * says so, and it works once the socket is back.
+ */
+
+const approval: Card = {
+  id: "approval-1",
+  kind: "approval",
+  company: "Acme",
+  open: true,
+  approvalId: "ap_42",
+  summary: "Acme: submit the form #checkout on the website",
+  status: "pending"
+};
+
+const signIn: Card = { id: "signin-4", kind: "signin_code", company: "Acme", open: true, signInId: "s4", sentTo: "a***@example.com" };
+
+const operation: Card = {
+  id: "op-1",
+  kind: "operation",
+  company: "Globex",
+  open: true,
+  issuer: toIssuer("https://auth.globex.example"),
+  operationId: "op_7Hq",
+  revision: 3,
+  state: "proposed",
+  summary: "Exchange the blue jumper (size M) for size L. No charge.",
+  account: "a***@example.com",
+  highlights: ["Cost: 0.00 GBP"],
+  userApprovalRequired: false
+};
+
+const CARD_ACTIONS = {
+  "Approve on an approval": () => fireEvent.click(within(card("Approve this at Acme?")).getByRole("button", { name: "Approve" })),
+  "Decline on an operation": () => fireEvent.click(within(card("Approve this at Globex?")).getByRole("button", { name: "Decline" })),
+  "a one-time code": () => {
+    fireEvent.change(screen.getByRole("textbox", { name: "One-time code" }), { target: { value: "482913" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit code" }));
+  }
+};
+
+const CARD_OF: Record<keyof typeof CARD_ACTIONS, string> = {
+  "Approve on an approval": "Approve this at Acme?",
+  "Decline on an operation": "Approve this at Globex?",
+  "a one-time code": "Enter the code from Acme"
+};
+
+const FRAME_OF: Record<keyof typeof CARD_ACTIONS, Frame> = {
+  "Approve on an approval": { type: "poppy.approval", approvalId: "ap_42", decision: "approve" },
+  "Decline on an operation": { type: "poppy.operation", issuer: "https://auth.globex.example", operationId: "op_7Hq", revision: 3, decision: "decline" },
+  "a one-time code": { type: "poppy.code", signInId: "s4", code: "482913" }
+};
+
+function card(title: string): HTMLElement {
+  return screen.getByRole("article", { name: title });
+}
+
+function cardButtons(title: string): HTMLButtonElement[] {
+  return within(card(title)).getAllByRole("button") as HTMLButtonElement[];
+}
+
+/** Every frame but the ones the page sends by itself (its locale, presence). */
+function decisions() {
+  return socket.frames.filter((frame) => frame.type !== "poppy.context" && frame.type !== "poppy.activity");
+}
+
+/** The page with the three cards, the socket open and the cards delivered. */
+function pageWithCards() {
+  render(<Page />);
+  socket.open();
+  socket.receive({ type: "poppy.cards", cards: [approval, signIn, operation] });
+}
+
+describe("card actions while the socket isn't open", () => {
+  it("disables every card's buttons with a reason, and sends nothing", () => {
+    pageWithCards();
+    socket.close();
+    for (const title of Object.values(CARD_OF)) {
+      expect(cardButtons(title).every((button) => button.disabled)).toBe(true);
+      expect(within(card(title)).getByRole("status").textContent).toBe(CONNECTING);
+    }
+    for (const act of Object.values(CARD_ACTIONS)) act();
+    expect(decisions()).toEqual([]);
+  });
+
+  it("enables them again once it reopens", () => {
+    pageWithCards();
+    socket.close();
+    socket.open();
+    for (const title of Object.values(CARD_OF)) {
+      expect(cardButtons(title).some((button) => button.disabled)).toBe(false);
+      expect(within(card(title)).queryByRole("status")).toBeNull();
+    }
+  });
+});
+
+describe("card actions on a socket that has just closed, before the page heard", () => {
+  it.each(Object.keys(CARD_ACTIONS) as (keyof typeof CARD_ACTIONS)[])("doesn't send %s, says so on the card, and sends it once the socket is back", (what) => {
+    pageWithCards();
+    socket.readyState = WebSocket.CLOSED;
+    CARD_ACTIONS[what]();
+    expect(decisions()).toEqual([]);
+    expect(within(card(CARD_OF[what])).getByRole("alert").textContent).toBe(NOT_SENT);
+    if (what === "a one-time code") expect((screen.getByRole("textbox", { name: "One-time code" }) as HTMLInputElement).value).toBe("482913");
+
+    socket.close();
+    socket.open();
+    expect(within(card(CARD_OF[what])).getByRole("alert").textContent).toBe(NOT_SENT);
+    if (what === "a one-time code") fireEvent.click(screen.getByRole("button", { name: "Submit code" }));
+    else CARD_ACTIONS[what]();
+    expect(decisions()).toEqual([FRAME_OF[what]]);
+    expect(within(card(CARD_OF[what])).queryByRole("alert")).toBeNull();
+  });
+
+  it("doesn't send Stop, and says so", () => {
+    render(<Page />);
+    socket.open();
+    socket.receive({ type: "events", session: "1", events: [{ type: "run_start" }] });
+    const stop = screen.queryByRole("button", { name: "Stop the agent" });
+    if (!stop) return expect.fail("the agent should be running");
+    socket.readyState = WebSocket.CLOSED;
+    fireEvent.click(stop);
+    expect(socket.frames.filter((frame) => frame.type === "abort")).toEqual([]);
+    expect(screen.getByRole("alert").textContent).toBe(NOT_SENT);
+    socket.close();
+    expect((screen.getByRole("button", { name: "Stop the agent" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("settings actions and the socket", () => {
+  it("disables Sign out while closed, says Not sent in the stale window, and signs out once the socket is back", () => {
+    const issuer = toIssuer("https://auth.acme.example");
+    window.history.replaceState(null, "", `/companies?company=${encodeURIComponent(issuer)}`);
+    render(<Page />);
+    socket.open();
+    socket.receive({ type: "poppy.settings", accounts: [{ issuer, company: "Acme", account: "a***@example.com", scope: "poppy:read", expiresAt: null }], permissions: [], signOuts: [] });
+    const signOut = () => screen.getByRole("button", { name: "Sign out of Acme" }) as HTMLButtonElement;
+
+    socket.close();
+    expect(signOut().disabled).toBe(true);
+    expect(screen.getAllByText(CONNECTING).length).toBeGreaterThan(0);
+
+    socket.open();
+    socket.readyState = WebSocket.CLOSED;
+    fireEvent.click(signOut());
+    expect(decisions()).toEqual([]);
+    expect(screen.getByRole("alert").textContent).toBe(NOT_SENT);
+
+    socket.close();
+    socket.open();
+    fireEvent.click(signOut());
+    expect(decisions()).toEqual([{ type: "poppy.signout", issuer, account: "a***@example.com" }]);
+  });
+});
+
+describe("card actions on an open socket", () => {
+  it.each(Object.keys(CARD_ACTIONS) as (keyof typeof CARD_ACTIONS)[])("sends %s at once, with no note", (what) => {
+    pageWithCards();
+    CARD_ACTIONS[what]();
+    expect(decisions()).toEqual([FRAME_OF[what]]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    if (what === "a one-time code") expect((screen.getByRole("textbox", { name: "One-time code" }) as HTMLInputElement).value).toBe("");
   });
 });
 

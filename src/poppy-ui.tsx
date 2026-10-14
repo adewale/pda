@@ -16,13 +16,12 @@ import {
 import qrcode from "qrcode-generator";
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { humanSize } from "./attachments";
-import type { Card, DirectUpdate, PoppyClientFrame, ScopeInfo } from "./poppy/wire";
+import type { Card, DirectUpdate, ScopeInfo } from "./poppy/wire";
 import { AttachmentThumb } from "./ui/attachments";
+import { useSend, type Send } from "./ui/connection";
 import { Action, ActionLink, IconAction, useNow } from "./ui/controls";
 import { ACCESS, accessOfScope, countdown, fullDate } from "./ui/format";
 import type { PoppyView } from "./use-pi-session";
-
-type Send = (frame: PoppyClientFrame) => void;
 
 /** A Company-supplied link, only if it is an HTTPS URL: never `javascript:`, `data:` or `http:`. */
 function httpsHref(value: string | undefined): string | null {
@@ -99,7 +98,8 @@ function CardFrame({
   title,
   meta,
   children,
-  actions
+  actions,
+  note
 }: {
   /** The Company's verified domain, under its self-chosen name (N14). */
   domain: string | undefined;
@@ -108,6 +108,8 @@ function CardFrame({
   meta?: ReactNode;
   children: ReactNode;
   actions?: ReactNode;
+  /** Why the actions can't be used yet, or didn't go (`useSend`). */
+  note?: ReactNode;
 }) {
   const id = useId();
   return (
@@ -137,6 +139,7 @@ function CardFrame({
           data-card-actions
           className="sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-wrap justify-end gap-2 rounded-b-xl bg-kumo-base px-4 py-3 shadow-[0_-8px_12px_-8px_rgb(0_0_0/0.15)]"
         >
+          {note ? <div className="basis-full text-right">{note}</div> : null}
           {actions}
         </div>
       ) : null}
@@ -147,21 +150,23 @@ function CardFrame({
 const fieldClass =
   "mt-1 block w-full rounded-lg bg-kumo-base px-3 py-2 text-base text-kumo-default ring ring-kumo-line placeholder:text-kumo-placeholder focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-brand";
 
-function CredentialsCard({ card, send }: { card: Extract<Card, { kind: "signin_credentials" }>; send: Send }) {
+function CredentialsCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "signin_credentials" }>; send: Send }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const formId = useId();
+  const { send, disabled, note } = useSend(sendFrame);
   return (
     <CardFrame
       domain={card.domain}
       icon={<KeyIcon size={16} />}
       title={`Sign in to ${card.company}`}
       meta="Your details go straight to the Company. Your agent's model never sees them, and they aren't stored."
+      note={note}
       actions={
         <>
-          <Action type="button" variant="secondary" onClick={() => send({ type: "poppy.signin.cancel", signInId: card.signInId })}>
+          <Action type="button" variant="secondary" disabled={disabled} onClick={() => send({ type: "poppy.signin.cancel", signInId: card.signInId })}>
             Cancel sign-in
           </Action>
-          <Action type="submit" form={formId} variant="primary">
+          <Action type="submit" form={formId} variant="primary" disabled={disabled}>
             Sign in to {card.company}
           </Action>
         </>
@@ -174,8 +179,9 @@ function CredentialsCard({ card, send }: { card: Extract<Card, { kind: "signin_c
         className="space-y-3"
         onSubmit={(event) => {
           event.preventDefault();
-          send({ type: "poppy.credentials", signInId: card.signInId, values });
-          setValues({});
+          if (disabled) return;
+          // What the User typed stays in the form unless it went.
+          if (send({ type: "poppy.credentials", signInId: card.signInId, values })) setValues({});
         }}
       >
         {card.fields.map((field) => (
@@ -196,16 +202,18 @@ function CredentialsCard({ card, send }: { card: Extract<Card, { kind: "signin_c
   );
 }
 
-function CodeCard({ card, send }: { card: Extract<Card, { kind: "signin_code" }>; send: Send }) {
+function CodeCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "signin_code" }>; send: Send }) {
   const [code, setCode] = useState("");
   const formId = useId();
+  const { send, disabled, note } = useSend(sendFrame);
   return (
     <CardFrame
       domain={card.domain}
       icon={<KeyIcon size={16} />}
       title={`Enter the code from ${card.company}`}
+      note={note}
       actions={
-        <Action type="submit" form={formId} variant="primary">
+        <Action type="submit" form={formId} variant="primary" disabled={disabled}>
           Submit code
         </Action>
       }
@@ -217,8 +225,8 @@ function CodeCard({ card, send }: { card: Extract<Card, { kind: "signin_code" }>
         id={formId}
         onSubmit={(event) => {
           event.preventDefault();
-          send({ type: "poppy.code", signInId: card.signInId, code });
-          setCode("");
+          if (disabled) return;
+          if (send({ type: "poppy.code", signInId: card.signInId, code })) setCode("");
         }}
       >
         <label className="block max-w-xs text-[13px] font-medium text-kumo-default">
@@ -237,17 +245,19 @@ function CodeCard({ card, send }: { card: Extract<Card, { kind: "signin_code" }>
   );
 }
 
-function DeviceCard({ card, send }: { card: Extract<Card, { kind: "signin_device" }>; send: Send }) {
+function DeviceCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "signin_device" }>; send: Send }) {
   const href = httpsHref(card.verificationUriComplete) ?? httpsHref(card.verificationUri);
   const now = useNow(1000);
   const left = card.expiresAt - now;
+  const { send, disabled, note } = useSend(sendFrame);
   return (
     <CardFrame
       domain={card.domain}
       icon={<DeviceMobileIcon size={16} />}
       title={`Sign in to ${card.company} on any device`}
+      note={note}
       actions={
-        <Action variant="secondary" onClick={() => send({ type: "poppy.signin.cancel", signInId: card.signInId })}>
+        <Action variant="secondary" disabled={disabled} onClick={() => send({ type: "poppy.signin.cancel", signInId: card.signInId })}>
           Cancel sign-in
         </Action>
       }
@@ -280,7 +290,8 @@ function DeviceCard({ card, send }: { card: Extract<Card, { kind: "signin_device
   );
 }
 
-function OperationCard({ card, send }: { card: Extract<Card, { kind: "operation" }>; send: Send }) {
+function OperationCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "operation" }>; send: Send }) {
+  const { send, disabled, note } = useSend(sendFrame);
   const decide = (decision: "approve" | "decline" | "cancel") =>
     send({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision });
   return (
@@ -288,6 +299,7 @@ function OperationCard({ card, send }: { card: Extract<Card, { kind: "operation"
       domain={card.domain}
       icon={<HandIcon size={16} />}
       title={`Approve this at ${card.company}?`}
+      note={note}
       meta={
         <>
           {card.account ? <>Account {card.account} · </> : null}View and change
@@ -296,10 +308,10 @@ function OperationCard({ card, send }: { card: Extract<Card, { kind: "operation"
       }
       actions={
         <>
-          <Action variant="secondary" onClick={() => decide("decline")}>
+          <Action variant="secondary" disabled={disabled} onClick={() => decide("decline")}>
             Decline
           </Action>
-          <Action variant="primary" onClick={() => decide("approve")}>
+          <Action variant="primary" disabled={disabled} onClick={() => decide("approve")}>
             Approve
           </Action>
         </>
@@ -322,22 +334,24 @@ function OperationCard({ card, send }: { card: Extract<Card, { kind: "operation"
   );
 }
 
-function DirectInvite({ card, send }: { card: Extract<Card, { kind: "direct_invite" }>; send: Send }) {
+function DirectInvite({ card, send: sendFrame }: { card: Extract<Card, { kind: "direct_invite" }>; send: Send }) {
   const [text, setText] = useState("");
   const formId = useId();
   const hintId = useId();
   const empty = !text.trim();
+  const { send, disabled, note } = useSend(sendFrame);
   return (
     <CardFrame
       domain={card.domain}
       icon={<UsersIcon size={16} />}
       title={`Talk to ${card.company} yourself?`}
+      note={note}
       actions={
         <>
-          <Action type="button" variant="secondary" onClick={() => send({ type: "poppy.direct.decline", conversationId: card.conversationId })}>
+          <Action type="button" variant="secondary" disabled={disabled} onClick={() => send({ type: "poppy.direct.decline", conversationId: card.conversationId })}>
             Not now
           </Action>
-          <Action type="submit" form={formId} variant="primary" disabled={empty} aria-describedby={hintId}>
+          <Action type="submit" form={formId} variant="primary" disabled={empty || disabled} aria-describedby={hintId}>
             Talk to {card.company}
           </Action>
         </>
@@ -348,7 +362,7 @@ function DirectInvite({ card, send }: { card: Extract<Card, { kind: "direct_invi
         id={formId}
         onSubmit={(event) => {
           event.preventDefault();
-          if (text.trim()) send({ type: "poppy.direct.start", conversationId: card.conversationId, text: text.trim() });
+          if (text.trim() && !disabled) send({ type: "poppy.direct.start", conversationId: card.conversationId, text: text.trim() });
         }}
       >
         <InputArea value={text} onValueChange={setText} rows={2} placeholder="Hi, I'd like to explain this myself." aria-label="Your message" className="text-base" />
@@ -360,17 +374,19 @@ function DirectInvite({ card, send }: { card: Extract<Card, { kind: "direct_invi
   );
 }
 
-function SignInLinkCard({ card, send }: { card: Extract<Card, { kind: "signin_link" }>; send: Send }) {
+function SignInLinkCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "signin_link" }>; send: Send }) {
   const href = httpsHref(card.url);
+  const { send, disabled, note } = useSend(sendFrame);
   return (
     <CardFrame
       domain={card.domain}
       icon={<SignInIcon size={16} />}
       title={`Sign in to ${card.company}`}
       meta="You sign in on the Company's own page. Your agent never sees your password."
+      note={note}
       actions={
         <>
-          <Action variant="secondary" onClick={() => send({ type: "poppy.signin.cancel", signInId: card.signInId })}>
+          <Action variant="secondary" disabled={disabled} onClick={() => send({ type: "poppy.signin.cancel", signInId: card.signInId })}>
             Cancel sign-in
           </Action>
           {href ? (
@@ -388,12 +404,14 @@ function SignInLinkCard({ card, send }: { card: Extract<Card, { kind: "signin_li
   );
 }
 
-function ApprovalCard({ card, send }: { card: Extract<Card, { kind: "approval" }>; send: Send }) {
+function ApprovalCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "approval" }>; send: Send }) {
   const photos = card.attachments ?? [];
+  const { send, disabled, note } = useSend(sendFrame);
   return (
     <CardFrame
       domain={card.domain}
       icon={<HandIcon size={16} />}
+      note={note}
       title={photos.length ? `Send ${photos.length === 1 ? "this photo" : "these photos"} to ${card.company}?` : `Approve this at ${card.company}?`}
       meta={
         photos.length === 1
@@ -404,10 +422,10 @@ function ApprovalCard({ card, send }: { card: Extract<Card, { kind: "approval" }
       }
       actions={
         <>
-          <Action variant="secondary" onClick={() => send({ type: "poppy.approval", approvalId: card.approvalId, decision: "decline" })}>
+          <Action variant="secondary" disabled={disabled} onClick={() => send({ type: "poppy.approval", approvalId: card.approvalId, decision: "decline" })}>
             Decline
           </Action>
-          <Action variant="primary" onClick={() => send({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" })}>
+          <Action variant="primary" disabled={disabled} onClick={() => send({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" })}>
             Approve
           </Action>
         </>
@@ -453,7 +471,7 @@ const TONE_ICON: Record<Tone, ReactNode> = {
 };
 
 /** A one-line record of something resolved: what happened, and where. */
-function Receipt({ tone, company, children, action }: { tone: Tone; company: string; children: ReactNode; action?: ReactNode }) {
+function Receipt({ tone, company, children, action, note }: { tone: Tone; company: string; children: ReactNode; action?: ReactNode; note?: ReactNode }) {
   return (
     <div className="enter flex min-h-10 items-start gap-2 py-1">
       <span aria-hidden className="mt-0.5 shrink-0">
@@ -462,19 +480,24 @@ function Receipt({ tone, company, children, action }: { tone: Tone; company: str
       <div className={cn("min-w-0 flex-1 text-[13px] text-pretty break-words", tone === "danger" ? "text-kumo-danger" : "text-kumo-subtle")}>
         {company ? <span className="font-medium text-kumo-default">{company} · </span> : null}
         {children}
+        {note}
       </div>
       {action}
     </div>
   );
 }
 
-function ClosedCard({ card, send }: { card: Card; send: Send }) {
-  const dismiss = <IconAction label="Dismiss" variant="ghost" icon={<XIcon size={16} />} onClick={() => send({ type: "poppy.card.dismiss", id: card.id })} className="-my-2" />;
+function ClosedCard({ card, send: sendFrame }: { card: Card; send: Send }) {
+  // A receipt's buttons are disabled while the page isn't connected; the banner at the top says why, so each line doesn't.
+  const { send, disabled, note } = useSend(sendFrame, { quiet: true });
+  const dismiss = (
+    <IconAction label="Dismiss" variant="ghost" icon={<XIcon size={16} />} disabled={disabled} onClick={() => send({ type: "poppy.card.dismiss", id: card.id })} className="-my-2" />
+  );
   switch (card.kind) {
     case "notice": {
       const error = card.id.startsWith("error-");
       return (
-        <Receipt tone={error ? "danger" : "info"} company={card.company} action={dismiss}>
+        <Receipt tone={error ? "danger" : "info"} company={card.company} action={dismiss} note={note}>
           {card.text}
         </Receipt>
       );
@@ -484,7 +507,7 @@ function ClosedCard({ card, send }: { card: Card; send: Send }) {
         // Sent, and the Company answered with an error: never "done".
         const answered = card.answer ? `${card.answer.status}${card.answer.error ? ` (${card.answer.error})` : ""}` : "with an error";
         return (
-          <Receipt tone="danger" company={card.company} action={dismiss}>
+          <Receipt tone="danger" company={card.company} action={dismiss} note={note}>
             Sent as you approved, but {card.company} answered {answered}: {card.summary}
             <span className="block text-kumo-subtle">Nothing changed unless {card.company} says otherwise.</span>
           </Receipt>
@@ -492,7 +515,7 @@ function ClosedCard({ card, send }: { card: Card; send: Send }) {
       }
       const tone: Tone = card.status === "failed" || card.status === "unknown" ? "danger" : card.status === "declined" ? "info" : "success";
       return (
-        <Receipt tone={tone} company={card.company} action={dismiss}>
+        <Receipt tone={tone} company={card.company} action={dismiss} note={note}>
           {APPROVAL_STATUS[card.status]}: {card.summary}
           {card.result ? <span className="block text-kumo-subtle">{card.result}</span> : null}
         </Receipt>
@@ -502,7 +525,7 @@ function ClosedCard({ card, send }: { card: Card; send: Send }) {
       const decided = card.approvedBy === "standing_permission" ? "approved by standing permission" : card.approvedBy === "user" ? "approved by you" : null;
       if (card.lost) {
         return (
-          <Receipt tone={card.lost === "unknown" ? "danger" : "info"} company={card.company} action={dismiss}>
+          <Receipt tone={card.lost === "unknown" ? "danger" : "info"} company={card.company} action={dismiss} note={note}>
             {card.company} no longer has this, so nothing more can be done with it: “{card.summary}”
             <span className="block text-kumo-subtle">
               {card.lost === "unknown"
@@ -517,7 +540,7 @@ function ClosedCard({ card, send }: { card: Card; send: Send }) {
       if (card.alteredSummary !== undefined) {
         // The Company changed this revision's terms after they were shown (Operations 3.1 forbids it).
         return (
-          <Receipt tone="danger" company={card.company} action={dismiss}>
+          <Receipt tone="danger" company={card.company} action={dismiss} note={note}>
             {card.state === "proposed"
               ? `${card.company} changed these terms after you saw them, without a new revision, so your agent won't confirm them: “${card.summary}”`
               : `${card.company} now reports different terms from the ones ${decided ? "you approved" : "you saw"}: “${card.summary}”`}
@@ -534,10 +557,12 @@ function ClosedCard({ card, send }: { card: Card; send: Send }) {
           <Receipt
             tone="info"
             company={card.company}
+            note={note}
             action={
               <Action
                 variant="secondary"
                 className="-my-1"
+                disabled={disabled}
                 onClick={() => send({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision: "cancel" })}
               >
                 Ask {card.company} to stop
@@ -689,8 +714,9 @@ function speaker(update: DirectUpdate, sender: "agent" | "human"): string {
 }
 
 /** A Direct Conversation: the User talks with the Company; their words go as written. */
-function DirectPanel({ update, send, onHide }: { update: DirectUpdate; send: Send; onHide?: () => void }) {
+function DirectPanel({ update, send: sendFrame, onHide }: { update: DirectUpdate; send: Send; onHide?: () => void }) {
   const [text, setText] = useState("");
+  const { send, disabled, note } = useSend(sendFrame);
   const answering = update.responder === "human" ? "human" : "agent";
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -743,9 +769,9 @@ function DirectPanel({ update, send, onHide }: { update: DirectUpdate; send: Sen
         className="flex shrink-0 items-end gap-2 border-t border-kumo-hairline px-4 py-3"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!text.trim()) return;
-          send({ type: "poppy.direct.say", conversationId: update.conversationId, text: text.trim() });
-          setText("");
+          if (!text.trim() || disabled) return;
+          // What the User wrote stays in the box unless it went.
+          if (send({ type: "poppy.direct.say", conversationId: update.conversationId, text: text.trim() })) setText("");
         }}
       >
         <InputArea
@@ -756,12 +782,13 @@ function DirectPanel({ update, send, onHide }: { update: DirectUpdate; send: Sen
           aria-label={`Message ${update.company}`}
           className="flex-1 text-base"
         />
-        <Action type="submit" variant="primary" disabled={!text.trim()} icon={<PaperPlaneRightIcon size={16} aria-hidden />}>
+        <Action type="submit" variant="primary" disabled={!text.trim() || disabled} icon={<PaperPlaneRightIcon size={16} aria-hidden />}>
           Send
         </Action>
       </form>
-      <div className="flex shrink-0 justify-end px-4 pb-3">
-        <Action variant="secondary" onClick={() => send({ type: "poppy.direct.close", conversationId: update.conversationId })}>
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 px-4 pb-3">
+        {note ? <div className="basis-full text-right">{note}</div> : null}
+        <Action variant="secondary" disabled={disabled} onClick={() => send({ type: "poppy.direct.close", conversationId: update.conversationId })}>
           End conversation
         </Action>
       </div>
