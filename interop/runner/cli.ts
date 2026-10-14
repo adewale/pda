@@ -374,7 +374,7 @@ async function runOne(
     if (answer.status === 200) fixture = answer.body;
   }
   // A live Company has no fixture hook; the live scenarios need only a greeting (spec §10).
-  if (!company.entry.build) fixture = { prompts: { hello: "Hello" }, ...(fixture as Record<string, unknown>) };
+  if (!company.entry.build) fixture = { prompts: { hello: "Hello" }, ...(company.entry.fixture ?? {}), ...(fixture as Record<string, unknown>) };
   fixture = withWebPage(fixture, company.domain);
 
   const callbacks: string[] = [];

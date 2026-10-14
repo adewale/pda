@@ -18,6 +18,12 @@ export type RegistryEntry = {
   readonly context?: string;
   /** A running deployment's domain or URL (live lane). */
   readonly url?: string;
+  /**
+   * A live Company's fixture (spec §10): it has no adapter, so no `fixture`
+   * hook, and a scenario that calls one of its operations needs to know which
+   * (`openapi_public` for N). Merged over the lane's one greeting.
+   */
+  readonly fixture?: Readonly<Record<string, unknown>>;
   /** Subdomains of `<name>.company.interop.test` the Company serves, beyond the defaults. */
   readonly subdomains?: readonly string[];
   /** Extra environment for the container. */

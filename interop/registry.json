@@ -218,7 +218,18 @@
       "source": "https://www.alpine-retail.com",
       "commit": "unknown",
       "url": "https://www.alpine-retail.com",
-      "notes": "Live lane only, with its developer's approval (13 October 2026): signed-out D, S0, N and C. Its source isn't public, so no local adapter yet and no adversarial cells. Direct and Mediated (phone) sign-in, a Company Agent, and an OpenAPI API of three DPoP-protected GETs; no Operations."
+      "notes": "Live lane only, with its developer's approval (13 October 2026): signed-out D, S0, N and C, with the live lane's public identity since 14 October; N reads inventory for a product code its own API lists. Its source isn't public, so no local adapter yet and no adversarial cells. Direct and Mediated (phone) sign-in, a Company Agent, and an OpenAPI API of three DPoP-protected GETs; no Operations.",
+      "fixture": {
+        "openapi_public": {
+          "api": "openapi",
+          "operation": "getInventory",
+          "args": {
+            "params": {
+              "sku": "stormline-shell"
+            }
+          }
+        }
+      }
     }
   ]
 }
