@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import { ACTIVITY_LOG_LIMIT } from "../src/poppy/activity";
 import type { ActivityEntry, ActivityTask, PoppyServerFrame } from "../src/poppy/wire";
 import { agent, cards, company, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
 import worker from "./worker";
@@ -194,5 +195,110 @@ describe("poppy.activity", () => {
     expect(find(done.log, "approval")!.decidedBy).toBe("you");
     expect(find(done.log, "approval")!.outcome).toBeUndefined();
     p.socket.close();
+  });
+});
+
+describe("poppy.activity over a long history", () => {
+  /** Rows numbered `from` to `to`, inserted in one statement. */
+  const series = (from: number, to: number, insert: string) => `WITH RECURSIVE n(i) AS (SELECT ${from} UNION ALL SELECT i + 1 FROM n WHERE i < ${to}) ${insert}`;
+  const ISSUER = "https://shop.example/";
+  const T = 1_000_000;
+
+  it("shows the newest entries in order and all open work, reading only each table's newest rows, through its time index", async () => {
+    const a = await agent();
+    await a.stub.poppyActivity(); // Migrates the Poppy tables.
+    const sql = (query: string, ...bindings: unknown[]) => a.stub.poppySql(query, ...bindings);
+    // A thousand finished approvals, and the newest 300 of everything else, interleaved in time.
+    await sql(
+      series(1, 1000, `INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, result, created_at)
+        SELECT 'done-' || i, ?, 'default', 'Exchange ' || i, '{"kind":"api"}', 'done', NULL, ${T} + 5 * i FROM n`),
+      ISSUER
+    );
+    await sql(
+      series(701, 1000, `INSERT INTO poppy_operations (issuer, operation_id, label, account, operation, confirmed, updated_at)
+        SELECT ?, 'op-' || i, 'default', 'default',
+          json_object('operation_id', 'op-' || i, 'revision', 1, 'state', 'succeeded', 'summary', 'Order ' || i), 1, ${T} + 5 * i + 1 FROM n`),
+      ISSUER
+    );
+    await sql(
+      series(701, 1000, `INSERT INTO poppy_signins (id, type, issuer, label, account, scopes, secret, expires_at, status, created_at)
+        SELECT 's-' || i, 'direct', ?, 'default', 'default', 'poppy:read', 'unused', 0, 'done', ${T} + 5 * i + 2 FROM n`),
+      ISSUER
+    );
+    await sql(
+      series(701, 1000, `INSERT INTO poppy_conversations (id, issuer, label, direct, status, responder, last_event_at, created_at)
+        SELECT 'c-' || i, ?, 'default', 0, 'closed', 'agent', ${T} + 5 * i + 3, ${T} + 5 * i + 3 FROM n`),
+      ISSUER
+    );
+    await sql(
+      series(701, 1000, `INSERT INTO poppy_messages (id, issuer, conversation_id, body, created_at)
+        SELECT 'm-' || i, ?, 'c-' || i, json_object('message', json_object('sender', 'agent', 'text', 'Hello ' || i)), ${T} + 5 * i + 4 FROM n`),
+      ISSUER
+    );
+    // Open work, older than anything the log shows.
+    await sql(
+      `INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at) VALUES ('exec-old', ?, 'default', 'Upload', '{"kind":"api"}', 'executing', 1)`,
+      ISSUER
+    );
+    await sql(
+      `INSERT INTO poppy_operations (issuer, operation_id, label, operation, confirmed, updated_at)
+       VALUES (?, 'op-open', 'default', json_object('operation_id', 'op-open', 'revision', 1, 'state', 'in_progress', 'summary', 'Refund'), 1, 2)`,
+      ISSUER
+    );
+    await sql(
+      "INSERT INTO poppy_conversations (id, issuer, label, direct, status, responder, last_event_at, created_at) VALUES ('c-open', ?, 'default', 0, 'working', 'agent', 3, 3)",
+      ISSUER
+    );
+    await sql(
+      `INSERT INTO poppy_signins (id, type, issuer, label, account, scopes, secret, expires_at, status, created_at)
+       VALUES ('s-device', 'device', ?, 'default', 'default', 'poppy:read', 'unused', ?, 'pending', 5)`,
+      ISSUER,
+      Date.now() + 3_600_000
+    );
+    // A Direct Conversation older than any the log shows, and the newest message, sent in it.
+    await sql(
+      "INSERT INTO poppy_conversations (id, issuer, label, direct, status, responder, last_event_at, created_at) VALUES ('d-old', ?, 'default', 1, 'closed', 'human', 4, 4)",
+      ISSUER
+    );
+    await sql(
+      "INSERT INTO poppy_messages (id, issuer, conversation_id, body, created_at) VALUES ('m-direct', ?, 'd-old', json_object('message', json_object('sender', 'agent', 'text', 'Thanks')), ?)",
+      ISSUER,
+      T + 5 * 1001
+    );
+    // The newest operation reached us through the Company's agent.
+    await sql(
+      `INSERT INTO poppy_inbox (conversation_id, event, created_at)
+       VALUES ('c-1000', json_object('type', 'message', 'id', 'e-1', 'message', json_object('operation', json_object('operation_id', 'op-1000'))), 0)`
+    );
+
+    const expected: { id: string; at: number }[] = [{ id: "message-m-direct", at: T + 5 * 1001 }];
+    for (let i = 1; i <= 1000; i++) {
+      expected.push({ id: `approval-done-${i}`, at: T + 5 * i });
+      if (i > 700) {
+        expected.push({ id: `op-${ISSUER}-op-${i}`, at: T + 5 * i + 1 }, { id: `signin-s-${i}`, at: T + 5 * i + 2 });
+        expected.push({ id: `conversation-c-${i}`, at: T + 5 * i + 3 }, { id: `message-m-${i}`, at: T + 5 * i + 4 });
+      }
+    }
+    expected.sort((x, y) => y.at - x.at);
+
+    const cost = await a.stub.poppyActivityCost();
+    const frame = JSON.parse(cost.frame) as Activity;
+    expect(frame.log.map(({ id, at }) => ({ id, at }))).toEqual(expected.slice(0, 200));
+    expect(find(frame.log, "message")).toMatchObject({ id: "message-m-direct", how: "direct" });
+    expect(frame.log.find((entry) => entry.id === `op-${ISSUER}-op-1000`)).toMatchObject({ how: "company_agent" });
+    expect(frame.log.find((entry) => entry.id === `op-${ISSUER}-op-999`)).toMatchObject({ how: "api" });
+    expect(frame.inProgress.map((task) => task.id).sort()).toEqual(["approval-exec-old", "conversation-c-open", `op-${ISSUER}-op-open`, "signin-s-device"].sort());
+
+    // Each query over a table with history reads a bounded number of rows (the newest, the open work, or one probe
+    // per operation shown), through an index: never the whole table, so the 1,001 approvals aren't all read.
+    const history = /\b(poppy_operations|poppy_approvals|poppy_signins|poppy_signouts|poppy_conversations|poppy_messages|poppy_inbox)\b/;
+    const historyQueries = cost.plans.filter((ran) => history.test(ran.query));
+    expect(historyQueries.length).toBeGreaterThanOrEqual(12);
+    for (const { query, rowsRead, plan } of historyQueries) {
+      expect(plan.filter((step) => /^SCAN \w+$/.test(step)), `a whole table read by: ${query}`).toEqual([]);
+      expect(rowsRead, query).toBeLessThanOrEqual(3 * ACTIVITY_LOG_LIMIT);
+    }
+    const approvalsRead = historyQueries.filter(({ query }) => /\bFROM poppy_approvals\b/.test(query)).reduce((sum, { rowsRead }) => sum + rowsRead, 0);
+    expect(approvalsRead).toBeLessThan(1000);
   });
 });

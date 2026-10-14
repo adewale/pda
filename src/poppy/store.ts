@@ -154,6 +154,19 @@ CREATE TABLE IF NOT EXISTS poppy_cards (
   open INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+-- Activity (src/poppy/activity.ts) reads each table's newest rows by time and its open work by state, never a whole table.
+CREATE INDEX IF NOT EXISTS poppy_operations_updated ON poppy_operations (updated_at);
+CREATE INDEX IF NOT EXISTS poppy_operations_state ON poppy_operations (json_extract(operation, '$.state'));
+CREATE INDEX IF NOT EXISTS poppy_approvals_created ON poppy_approvals (created_at);
+CREATE INDEX IF NOT EXISTS poppy_approvals_status ON poppy_approvals (status);
+CREATE INDEX IF NOT EXISTS poppy_signins_created ON poppy_signins (created_at);
+CREATE INDEX IF NOT EXISTS poppy_signins_status ON poppy_signins (status);
+CREATE INDEX IF NOT EXISTS poppy_signouts_created ON poppy_signouts (created_at);
+CREATE INDEX IF NOT EXISTS poppy_signouts_pending ON poppy_signouts (created_at) WHERE token IS NOT NULL;
+CREATE INDEX IF NOT EXISTS poppy_conversations_created ON poppy_conversations (created_at);
+CREATE INDEX IF NOT EXISTS poppy_conversations_open ON poppy_conversations (last_event_at) WHERE status != 'closed';
+CREATE INDEX IF NOT EXISTS poppy_messages_created ON poppy_messages (created_at);
+CREATE INDEX IF NOT EXISTS poppy_inbox_operation ON poppy_inbox (json_extract(event, '$.message.operation.operation_id'));
 `;
 
 export type Sql = SqlStorage;

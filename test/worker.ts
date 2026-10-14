@@ -700,6 +700,41 @@ export class PersonalAgent extends ProductionAgent {
     return JSON.stringify(buildActivity(this.poppy.client));
   }
 
+  /**
+   * The Activity frame, with what building it cost: the rows SQLite read
+   * (each cursor's `rowsRead`) and, for each query it ran, its rows read and its query plan.
+   */
+  async poppyActivityCost(): Promise<{ frame: string; rowsRead: number; plans: { query: string; rowsRead: number; plan: string[] }[] }> {
+    const real = this.ctx.storage.sql;
+    const ran: { query: string; bindings: unknown[]; cursor: SqlStorageCursor<Record<string, SqlStorageValue>> }[] = [];
+    const counting = new Proxy(real, {
+      get(target, key) {
+        if (key === "exec") {
+          return (query: string, ...bindings: unknown[]) => {
+            const cursor = target.exec(query, ...bindings);
+            ran.push({ query, bindings, cursor });
+            return cursor;
+          };
+        }
+        const value: unknown = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    const client = this.poppy.client;
+    const counted = Object.create(client, { sql: { value: counting } }) as typeof client;
+    const frame = JSON.stringify(buildActivity(counted));
+    const rowsRead = ran.reduce((sum, { cursor }) => sum + cursor.rowsRead, 0);
+    const plans = ran.map(({ query, bindings, cursor }) => ({
+      query,
+      rowsRead: cursor.rowsRead,
+      plan: real
+        .exec(`EXPLAIN QUERY PLAN ${query}`, ...bindings)
+        .toArray()
+        .map((row) => String(row.detail))
+    }));
+    return { frame, rowsRead, plans };
+  }
+
   /** SQL against the agent's storage, for assertions and test setup. */
   async poppySql(query: string, ...bindings: unknown[]): Promise<string> {
     return JSON.stringify(this.ctx.storage.sql.exec(query, ...bindings).toArray());
