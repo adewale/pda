@@ -1,14 +1,13 @@
 import { cn, Table } from "@cloudflare/kumo";
 import { CheckCircleIcon, CircleIcon, ClockIcon, HourglassIcon, ListChecksIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import type { ActivityEntry, ActivityResult, ActivityTask, PoppyClientFrame } from "../poppy/wire";
+import type { ActivityEntry, ActivityResult, ActivityTask } from "../poppy/wire";
 import type { ActivityView, ProtocolView } from "../use-pi-session";
+import { SendAction, type Send } from "./connection";
 import { Action, EmptyState, PageHeader, Section, SkeletonRows, Truncated, useNow } from "./controls";
 import { ACCESS, ago, countdown, DECIDED, fullDate, HOW, RESULT, when } from "./format";
 import { PROTOCOL_LOG_LIMIT } from "../poppy/wire";
 import { Diagnostics, ProtocolList } from "./protocol";
-
-type Send = (frame: PoppyClientFrame) => void;
 
 const RESULT_STYLE: Record<ActivityResult, { className: string; icon: ReactNode }> = {
   waiting: { className: "text-kumo-warning", icon: <HourglassIcon size={16} aria-hidden /> },
@@ -99,9 +98,9 @@ function InProgress({ tasks, send }: { tasks: readonly ActivityTask[]; send: Sen
             </p>
           </div>
           {task.stop ? (
-            <Action variant="secondary" onClick={() => send(task.stop!)}>
+            <SendAction send={send} frame={task.stop}>
               {STOP_LABEL[task.kind](task)}
-            </Action>
+            </SendAction>
           ) : null}
         </li>
       ))}

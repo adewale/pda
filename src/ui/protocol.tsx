@@ -11,8 +11,9 @@ import {
   WarningCircleIcon
 } from "@phosphor-icons/react";
 import { useEffect, useId, useState, type ReactNode } from "react";
-import type { PoppyClientFrame, ProtocolCompany, ProtocolEntry, ProtocolOutcome } from "../poppy/wire";
+import type { ProtocolCompany, ProtocolEntry, ProtocolOutcome } from "../poppy/wire";
 import type { ProtocolLogView, ProtocolView } from "../use-pi-session";
+import { useConnected, type Send } from "./connection";
 import { Action, EmptyState, SkeletonRows } from "./controls";
 import { fullDate, when } from "./format";
 
@@ -23,8 +24,6 @@ import { fullDate, when } from "./format";
  * from the agent when its disclosure opens, and again whenever it grows.
  * It can be copied or downloaded as plain text for an interop report.
  */
-
-type Send = (frame: PoppyClientFrame) => void;
 
 const OUTCOME: Record<ProtocolOutcome, { label: string; className: string; icon: ReactNode }> = {
   ok: { label: "OK", className: "text-kumo-success", icon: <CheckCircleIcon size={16} aria-hidden /> },
@@ -147,10 +146,11 @@ function Export({ log }: { log: ProtocolLogView }) {
 function CompanyProtocol({ company, log, send }: { company: ProtocolCompany; log: ProtocolLogView | undefined; send: Send }) {
   const [open, setOpen] = useState(false);
   const panel = useId();
-  // Ask when opened, and again whenever the log grows while it's open.
+  const connected = useConnected();
+  // Ask when opened, again whenever the log grows while it's open, and again on reconnecting: a request while disconnected doesn't go.
   useEffect(() => {
-    if (open) send({ type: "poppy.protocol", key: company.key });
-  }, [open, company.key, company.lastSeq, send]);
+    if (open && connected) send({ type: "poppy.protocol", key: company.key });
+  }, [open, connected, company.key, company.lastSeq, send]);
   const name = `${company.company}${company.domain && company.domain !== company.company ? ` (${company.domain})` : ""}`;
   return (
     <li>
@@ -206,9 +206,10 @@ function diagnosticsFileName(at: number): string {
  */
 export function Diagnostics({ diagnostics, send }: { diagnostics: ProtocolView["diagnostics"]; send: Send }) {
   const [said, setSaid] = useState("");
+  const connected = useConnected();
   useEffect(() => {
-    send({ type: "poppy.diagnostics" });
-  }, [send]);
+    if (connected) send({ type: "poppy.diagnostics" });
+  }, [connected, send]);
   const copy = async () => {
     if (!diagnostics) {
       send({ type: "poppy.diagnostics" });

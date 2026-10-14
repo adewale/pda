@@ -5,6 +5,7 @@ import { ATTACHMENT_TYPES } from "../attachments";
 import { DirectConversations, HiddenDirectRow, NeedsYouTray, openDirect, Receipts } from "../poppy-ui";
 import type { PiSession } from "../use-pi-session";
 import { attachProblem, PendingAttachments, removeAttachment, uploadAttachment, withMarkers, type PendingAttachment } from "./attachments";
+import { NOT_SENT } from "./connection";
 import { Action, IconAction, useNow } from "./controls";
 import { countdown } from "./format";
 import { Transcript, UserMessage } from "./transcript";
@@ -168,6 +169,7 @@ function Composer({ session }: { session: PiSession }) {
   const attachments = useAttachments();
   const picker = useRef<HTMLInputElement>(null);
   const connected = session.status === "open";
+  const [stopNotSent, setStopNotSent] = useState(false);
   const hintId = "composer-hint";
   const sendable = (prompt.trim() !== "" || attachments.ready.length > 0) && !attachments.uploading;
   /**
@@ -250,7 +252,14 @@ function Composer({ session }: { session: PiSession }) {
               <Action type="button" variant="secondary" disabled={!sendable} onClick={() => submit("steer")}>
                 Steer
               </Action>
-              <IconAction label="Stop the agent" variant="secondary" icon={<StopIcon size={16} weight="fill" />} onClick={session.abort} />
+              {/* Stop isn't queued: disabled while disconnected, and a click on a socket that just closed says it didn't go. */}
+              <IconAction
+                label="Stop the agent"
+                variant="secondary"
+                disabled={!connected}
+                icon={<StopIcon size={16} weight="fill" />}
+                onClick={() => setStopNotSent(!session.abort())}
+              />
             </div>
           ) : (
             <IconAction
@@ -269,6 +278,11 @@ function Composer({ session }: { session: PiSession }) {
               : "Enter to send · Shift+Enter for a new line · Attach, paste or drop a photo"
             : "Not connected yet. What you send waits in the chat and goes once your agent is connected."}
         </p>
+        {stopNotSent && session.running ? (
+          <p role="alert" className="mt-1.5 text-[13px] text-kumo-danger">
+            {NOT_SENT}
+          </p>
+        ) : null}
       </form>
     </div>
   );

@@ -24,7 +24,7 @@ Your agent can't answer until one of these is in place. **Settings → Model** s
 
 One conversation, kept for good: it survives closing the tab, a deploy or a crash. Past about 150,000 tokens the oldest part is summarised, and a notice says so.
 
-You can send while the page is still connecting or reconnecting. The message shows in the chat, faded, with "Waiting to connect" under it, and goes once the page is connected; the agent takes it once even if the connection drops and the page sends it again. If the agent refuses it, the reason shows under it with **Try again** and **Remove**.
+You can send while the page is still connecting or reconnecting. The message shows in the chat, faded, with "Waiting to connect" under it, and goes once the page is connected; the agent takes it once even if the connection drops and the page sends it again. If the agent refuses it, the reason shows under it with **Try again** and **Remove**. Approvals, sign-ins and other buttons on cards don't wait like this: while the page is connecting they are greyed out, and one that didn't reach your agent says "Not sent", so press it again once the page is connected.
 
 **Companies that support Poppy.** The agent finds a company's `poppy.json`, checks it with the validator, starts a Session and talks to the company's own agent or calls its APIs.
 

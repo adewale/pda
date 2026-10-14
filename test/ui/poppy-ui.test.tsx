@@ -23,7 +23,7 @@ function view(patch: Partial<PoppyView>): PoppyView {
 
 function renderCards(...cards: Card[]) {
   const sent: PoppyClientFrame[] = [];
-  const send = vi.fn((frame: PoppyClientFrame) => void sent.push(frame));
+  const send = vi.fn((frame: PoppyClientFrame) => sent.push(frame) > 0);
   const result = render(<PoppyCards view={view({ cards })} send={send} />);
   return { ...result, sent, send };
 }
@@ -407,7 +407,7 @@ describe("notice card", () => {
 });
 
 it("renders nothing without cards, and sends nothing on render", () => {
-  const send = vi.fn();
+  const send = vi.fn(() => true);
   const { container } = render(<PoppyCards view={EMPTY} send={send} />);
   expect(container.innerHTML).toBe("");
   expect(send).not.toHaveBeenCalled();
@@ -436,7 +436,7 @@ describe("DirectConversations", () => {
 
   function renderDirect(direct: Record<string, DirectUpdate>) {
     const sent: PoppyClientFrame[] = [];
-    const result = render(<DirectConversations view={view({ direct })} send={(frame) => void sent.push(frame)} />);
+    const result = render(<DirectConversations view={view({ direct })} send={(frame) => sent.push(frame) > 0} />);
     return { ...result, sent };
   }
 
@@ -491,7 +491,7 @@ describe("Companies page", () => {
 
   function Page({ patch, sent }: { patch: Partial<PoppyView>; sent: PoppyClientFrame[] }) {
     const [selected, setSelected] = useState<string | null>(null);
-    return <CompaniesPage view={view(patch)} send={(frame) => void sent.push(frame)} selected={selected} onSelect={setSelected} />;
+    return <CompaniesPage view={view(patch)} send={(frame) => sent.push(frame) > 0} selected={selected} onSelect={setSelected} />;
   }
 
   function renderCompanies(patch: Partial<PoppyView>) {

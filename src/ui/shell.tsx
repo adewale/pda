@@ -6,6 +6,7 @@ import type { PiSession } from "../use-pi-session";
 import { ActivityPage } from "./activity";
 import { ChatPage } from "./chat";
 import { CompaniesPage } from "./companies";
+import { ConnectionProvider } from "./connection";
 import { Action, IconAction } from "./controls";
 import { ModelBanner, useEntitlement } from "./model";
 import { isPlainClick, routePath, useRoute, type Place, type Route } from "./route";
@@ -151,57 +152,59 @@ export function Workspace({ identity, session }: { identity: Identity; session: 
 
   const label = PLACES.find((item) => item.place === route.place)!.label;
   return (
-    <TooltipProvider>
-      <Sidebar.Provider collapsible="offcanvas" className="h-dvh min-h-0 overflow-hidden bg-kumo-canvas text-kumo-default">
-        <Sidebar aria-label="Personal agent">
-          <Sidebar.Header className="h-14 gap-2 border-kumo-hairline px-4">
-            <AgentMark />
-            <span className="min-w-0 flex-1 truncate text-base font-semibold">{TITLE}</span>
-            <Sidebar.Close className="md:hidden" />
-          </Sidebar.Header>
-          <Sidebar.Content>
-            <Nav route={route} navigate={navigate} waiting={waiting} />
-          </Sidebar.Content>
-          <Sidebar.Footer className="h-auto flex-col items-stretch gap-1 border-kumo-hairline py-3 whitespace-normal">
-            <p className="min-w-0 text-[13px] text-kumo-subtle">
-              <span className="block truncate font-medium text-kumo-default" title={identity.email ?? undefined}>
-                {identity.email ?? "Signed in"}
-              </span>
-              {PROVIDER_NAME[identity.provider]}
-            </p>
-            <form method="post" action="/logout">
-              <Action type="submit" variant="ghost" icon={<SignOutIcon size={16} aria-hidden />} className="-ml-2 w-full justify-start pl-2">
-                Sign out
-              </Action>
-            </form>
-          </Sidebar.Footer>
-        </Sidebar>
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-kumo-canvas">
-          <MobileBar title={label} waiting={waiting} onChat={route.place === "chat" ? null : () => navigate({ place: "chat", company: null })} />
-          <ConnectionBanner status={session.status} />
-          <ModelBanner entitlement={entitlement} onSettings={route.place === "settings" ? null : () => navigate({ place: "settings", company: null })} />
-          <main ref={main} className={route.place === "chat" ? "min-h-0 flex-1" : "min-h-0 flex-1 overflow-y-auto"}>
-            {route.place === "chat" ? (
-              <ChatPage session={session} hidden={hidden} setHidden={setHidden} />
-            ) : (
-              <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8 [&_h1]:outline-none" >
-                {route.place === "activity" ? (
-                  <ActivityPage activity={session.poppy.activity} protocol={session.poppy.protocol} send={session.sendPoppy} />
-                ) : route.place === "companies" ? (
-                  <CompaniesPage
-                    view={session.poppy}
-                    send={session.sendPoppy}
-                    selected={route.company}
-                    onSelect={(issuer) => navigate({ place: "companies", company: issuer })}
-                  />
-                ) : (
-                  <SettingsPage identity={identity} entitlement={entitlement} onEntitlement={refreshEntitlement} />
-                )}
-              </div>
-            )}
-          </main>
-        </div>
-      </Sidebar.Provider>
-    </TooltipProvider>
+    <ConnectionProvider connected={session.status === "open"}>
+      <TooltipProvider>
+        <Sidebar.Provider collapsible="offcanvas" className="h-dvh min-h-0 overflow-hidden bg-kumo-canvas text-kumo-default">
+          <Sidebar aria-label="Personal agent">
+            <Sidebar.Header className="h-14 gap-2 border-kumo-hairline px-4">
+              <AgentMark />
+              <span className="min-w-0 flex-1 truncate text-base font-semibold">{TITLE}</span>
+              <Sidebar.Close className="md:hidden" />
+            </Sidebar.Header>
+            <Sidebar.Content>
+              <Nav route={route} navigate={navigate} waiting={waiting} />
+            </Sidebar.Content>
+            <Sidebar.Footer className="h-auto flex-col items-stretch gap-1 border-kumo-hairline py-3 whitespace-normal">
+              <p className="min-w-0 text-[13px] text-kumo-subtle">
+                <span className="block truncate font-medium text-kumo-default" title={identity.email ?? undefined}>
+                  {identity.email ?? "Signed in"}
+                </span>
+                {PROVIDER_NAME[identity.provider]}
+              </p>
+              <form method="post" action="/logout">
+                <Action type="submit" variant="ghost" icon={<SignOutIcon size={16} aria-hidden />} className="-ml-2 w-full justify-start pl-2">
+                  Sign out
+                </Action>
+              </form>
+            </Sidebar.Footer>
+          </Sidebar>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-kumo-canvas">
+            <MobileBar title={label} waiting={waiting} onChat={route.place === "chat" ? null : () => navigate({ place: "chat", company: null })} />
+            <ConnectionBanner status={session.status} />
+            <ModelBanner entitlement={entitlement} onSettings={route.place === "settings" ? null : () => navigate({ place: "settings", company: null })} />
+            <main ref={main} className={route.place === "chat" ? "min-h-0 flex-1" : "min-h-0 flex-1 overflow-y-auto"}>
+              {route.place === "chat" ? (
+                <ChatPage session={session} hidden={hidden} setHidden={setHidden} />
+              ) : (
+                <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8 [&_h1]:outline-none" >
+                  {route.place === "activity" ? (
+                    <ActivityPage activity={session.poppy.activity} protocol={session.poppy.protocol} send={session.sendPoppy} />
+                  ) : route.place === "companies" ? (
+                    <CompaniesPage
+                      view={session.poppy}
+                      send={session.sendPoppy}
+                      selected={route.company}
+                      onSelect={(issuer) => navigate({ place: "companies", company: issuer })}
+                    />
+                  ) : (
+                    <SettingsPage identity={identity} entitlement={entitlement} onEntitlement={refreshEntitlement} />
+                  )}
+                </div>
+              )}
+            </main>
+          </div>
+        </Sidebar.Provider>
+      </TooltipProvider>
+    </ConnectionProvider>
   );
 }

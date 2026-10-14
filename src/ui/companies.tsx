@@ -1,13 +1,12 @@
 import { Table } from "@cloudflare/kumo";
 import { ArrowLeftIcon, ChatsIcon, ShieldCheckIcon, StorefrontIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useId, useState, type FormEvent } from "react";
-import type { ConnectedAccount, PendingSignOut, Permission, PoppyClientFrame } from "../poppy/wire";
+import type { ConnectedAccount, PendingSignOut, Permission } from "../poppy/wire";
 import type { PoppyView } from "../use-pi-session";
+import { SendAction, useSend, type Send } from "./connection";
 import { Action, EmptyState, PageHeader, Section, Truncated } from "./controls";
 import { ACCESS, accessOfScope, ago, fullDate, untilDate, when } from "./format";
 import type { Issuer } from "../poppy/issuer";
-
-type Send = (frame: PoppyClientFrame) => void;
 
 /** One Company the agent knows the User at: its accounts, permissions and open conversations. */
 type CompanyRow = {
@@ -56,7 +55,8 @@ function limitText(permission: Permission): string {
 }
 
 /** Add a standing permission for one Company: persistent labels, inline checks, input kept on error. */
-function AddPermission({ company, send }: { company: CompanyRow; send: Send }) {
+function AddPermission({ company, send: sendFrame }: { company: CompanyRow; send: Send }) {
+  const { send, disabled, note } = useSend(sendFrame);
   const [draft, setDraft] = useState({ account: "", action: "", maxAmount: "", currency: "USD", maxUses: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const ids = { action: useId(), amount: useId(), uses: useId() };
@@ -73,7 +73,8 @@ function AddPermission({ company, send }: { company: CompanyRow; send: Send }) {
     setErrors(found);
     if (Object.keys(found).length) return;
     const account = accounts.find((item) => `${item.issuer}|${item.account}` === draft.account) ?? accounts[0]!;
-    send({
+    if (disabled) return;
+    const sent = send({
       type: "poppy.permission.add",
       issuer: account.issuer,
       account: account.account,
@@ -81,7 +82,8 @@ function AddPermission({ company, send }: { company: CompanyRow; send: Send }) {
       ...(draft.maxAmount ? { maxAmount: draft.maxAmount.trim(), currency: draft.currency } : {}),
       ...(draft.maxUses ? { maxUses: Number(draft.maxUses) } : {})
     });
-    setDraft({ ...draft, action: "", maxAmount: "", maxUses: "" });
+    // What the User filled in stays unless it went.
+    if (sent) setDraft({ ...draft, action: "", maxAmount: "", maxUses: "" });
   };
   const field =
     "mt-1 block w-full rounded-lg bg-kumo-base px-3 py-2 text-base text-kumo-default ring ring-kumo-line placeholder:text-kumo-placeholder focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-brand aria-invalid:ring-kumo-danger";
@@ -162,8 +164,9 @@ function AddPermission({ company, send }: { company: CompanyRow; send: Send }) {
         </div>
       </div>
       <p className="text-[13px] text-pretty text-kumo-subtle">Leave the amount or the number of times empty for no limit. Terms the agent can't check, such as a renewal or a flag, still come to you.</p>
-      <div className="flex justify-end">
-        <Action type="submit" variant="primary">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {note ? <div className="basis-full text-right">{note}</div> : null}
+        <Action type="submit" variant="primary" disabled={disabled}>
           Add standing permission
         </Action>
       </div>
@@ -204,9 +207,9 @@ function SignOutsNotAccepted({ company, send }: { company: CompanyRow; send: Sen
               {signOut.nextAt === null ? "Your agent has stopped trying" : <>Trying again at {when(signOut.nextAt)}</>}
             </p>
           </div>
-          <Action variant="secondary" onClick={() => send({ type: "poppy.signout", issuer: signOut.issuer, account: signOut.account })}>
+          <SendAction send={send} frame={{ type: "poppy.signout", issuer: signOut.issuer, account: signOut.account }}>
             Try again
-          </Action>
+          </SendAction>
         </li>
       ))}
     </ul>
@@ -240,9 +243,9 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
                 <div className="min-w-0 text-base">
                   <AccessCell scope={account.scope} />
                 </div>
-                <Action variant="secondary" onClick={() => send({ type: "poppy.signout", issuer: account.issuer, account: account.account })}>
+                <SendAction send={send} frame={{ type: "poppy.signout", issuer: account.issuer, account: account.account }}>
                   Sign out of {company.name}
-                </Action>
+                </SendAction>
               </li>
             ))}
           </ul>
@@ -267,9 +270,9 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
                     {usesLeft(permission)} · Until {untilDate(permission.expiresAt)} · {permission.account}
                   </p>
                 </div>
-                <Action variant="secondary" onClick={() => send({ type: "poppy.permission.remove", id: permission.id })}>
+                <SendAction send={send} frame={{ type: "poppy.permission.remove", id: permission.id }}>
                   Remove standing permission
-                </Action>
+                </SendAction>
               </li>
             ))}
           </ul>
@@ -293,9 +296,9 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
                   </p>
                 </div>
                 {task.stop ? (
-                  <Action variant="secondary" onClick={() => send(task.stop!)}>
+                  <SendAction send={send} frame={task.stop}>
                     End conversation
-                  </Action>
+                  </SendAction>
                 ) : null}
               </li>
             ))}

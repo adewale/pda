@@ -61,7 +61,7 @@ function session(patch: Partial<PiSession> = {}, poppy: Partial<PoppyView> = {})
     discard: () => undefined,
     abort: () => undefined,
     reset: () => undefined,
-    sendPoppy: (frame: PoppyClientFrame) => void sent.push(frame),
+    sendPoppy: (frame: PoppyClientFrame) => sent.push(frame) > 0,
     ...patch
   } as PiSession;
   return { value, sent, submitted };
