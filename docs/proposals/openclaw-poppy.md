@@ -1,6 +1,6 @@
 # [Feature]: Poppy (Personal Agent Protocol) plugin: sign in to companies as the user, scoped and revocable
 
-> **Draft for a GitHub issue on [openclaw/openclaw](https://github.com/openclaw/openclaw), using its `feature_request.yml` template. Not posted.** OpenClaw was researched against `main` at `6f9af588` (11 October 2026) and checked again at `a1e82826` (13 October 2026); paths are relative to that tree. Every file, seam and quote cited here is still there and still says the same. In between, the cited docs changed wording and gained paragraphs on things this draft doesn't use (secret egress for setup jobs, keyed-store expiry, loopback MCP callbacks), and the new plugin docs (`sdk-gateway-ingress.md`, `mcp-relay.md`) don't change anything here. Facts about Poppy and its implementations were last brought up to date on 13 October 2026, from adewale/dpa's docs. Items marked *(unverified)* are inferences from the docs that I haven't tested.
+> **Draft for a GitHub issue on [openclaw/openclaw](https://github.com/openclaw/openclaw), using its `feature_request.yml` template. Not posted.** OpenClaw was researched against `main` at `6f9af588` (11 October 2026) and checked again at `a1e82826` (13 October 2026); paths are relative to that tree. Every file, seam and quote cited here is still there and still says the same. In between, the cited docs changed wording and gained paragraphs on things this draft doesn't use (secret egress for setup jobs, keyed-store expiry, loopback MCP callbacks), and the new plugin docs (`sdk-gateway-ingress.md`, `mcp-relay.md`) don't change anything here. Facts about Poppy and its implementations were last brought up to date on 13 October 2026, from adewale/pda's docs. Items marked *(unverified)* are inferences from the docs that I haven't tested.
 
 ## Summary
 
@@ -20,7 +20,7 @@ Poppy defines the middle ground. The agent has its own identity, a `client_id` U
 Why now:
 
 - Draft 0.1 is the only version. The spec says "Any part of it can change before a stable version, including in ways that aren't backward compatible", and its [Path to 1.0](https://personalagentprotocol.org/docs/path-to-1) page (12 October) says "other gaps will come up as people implement the protocol" and that "Feedback is welcome from anyone, whether or not you're a partner."
-- On 13 October 2026, adewale/dpa's survey (`docs/implementations.md`, whose searches last ran on the evening of 12 October) listed 14 implementations, each "at most a few days old". On the Personal Agent side they are Datalayer's SDK, adonis-agora's agent library and its NestJS port, pi-poppy (an extension for the pi coding agent), poppy-demo's caller, everruns's signed-out-only `poppy_client`, a scripted demo in an open pull request, print-with-poppy's reference script, Tipping Co's CLI agent (a learning demo), and ours. The survey found no Poppy issue, pull request or proposal in OpenClaw or the eight other agent frameworks it searched; the one framework that had one, OpenAgents, closed it as not planned. A search of OpenClaw's issues and pull requests on 13 October found none either.
+- On 13 October 2026, adewale/pda's survey (`docs/implementations.md`, whose searches last ran on the evening of 12 October) listed 14 implementations, each "at most a few days old". On the Personal Agent side they are Datalayer's SDK, adonis-agora's agent library and its NestJS port, pi-poppy (an extension for the pi coding agent), poppy-demo's caller, everruns's signed-out-only `poppy_client`, a scripted demo in an open pull request, print-with-poppy's reference script, Tipping Co's CLI agent (a learning demo), and ours. The survey found no Poppy issue, pull request or proposal in OpenClaw or the eight other agent frameworks it searched; the one framework that had one, OpenAgents, closed it as not planned. A search of OpenClaw's issues and pull requests on 13 October found none either.
 - OpenClaw's feedback on what a self-hosted agent needs would reach the spec while it can still change. One example, discussed below, is how a self-hosted agent gets an HTTPS `client_id`: the same wall #150247 hit for MCP.
 
 ## Proposed solution
@@ -123,7 +123,7 @@ Some Companies admit only agents they have listed. print-with-poppy keeps an all
 
 ## Interop and testing
 
-I'd offer the plugin a place in the M×N interop harness in [adewale/dpa](https://github.com/adewale/dpa).
+I'd offer the plugin a place in the M×N interop harness in [adewale/pda](https://github.com/adewale/pda).
 
 **What's in the harness:**
 
@@ -140,7 +140,7 @@ Our agent has not yet been verified against a live Company Agent: every conversa
 - A registry entry with a pinned commit.
 - A small adapter (`docs/interop-spec.md` §5.2). It serves the plugin's identity on port 8080 and a control API on port 8081, and it drives the plugin's protocol code directly, never a model.
 
-The malicious-agent and network-fault scenarios run only against our own implementations. Since 13 October, with the repository owner's approval, the malicious-Company scenarios may also run against other projects' agents, built at their pinned commits and run in our containers on the isolated network, never against a live deployment. What they find stays out of the committed results until that project's maintainers have heard privately, under adewale/dpa's SECURITY.md. The plugin would be treated the same way, and so would anything else the grid turns up in it.
+The malicious-agent and network-fault scenarios run only against our own implementations. Since 13 October, with the repository owner's approval, the malicious-Company scenarios may also run against other projects' agents, built at their pinned commits and run in our containers on the isolated network, never against a live deployment. What they find stays out of the committed results until that project's maintainers have heard privately, under adewale/pda's SECURITY.md. The plugin would be treated the same way, and so would anything else the grid turns up in it.
 
 **What the grid showed breaks between implementations**, so this plugin can avoid it from day one:
 
@@ -160,27 +160,27 @@ The malicious-agent and network-fault scenarios run only against our own impleme
 - **Browser automation with the person's cookies.** This is what Poppy replaces: full access, no scopes, no revocation, and blocked by many sites.
 - **Generic MCP OAuth.** It covers a Company's MCP server, but not Sessions, the Company's agent, operations or a per-person agent identity. Poppy reuses MCP for the API part.
 - **A skill instead of a plugin.** Poppy needs code: JOSE, DPoP, sealed storage, HTTP routes and a background reader. A skill could still teach the model when to use the tools.
-- **Wrapping pi-poppy.** It is the closest analogue (a TypeScript pi extension), but it stores secrets in plain text and uses a loopback `client_id` (see `docs/poppy-issues.md` in adewale/dpa).
+- **Wrapping pi-poppy.** It is the closest analogue (a TypeScript pi extension), but it stores secrets in plain text and uses a loopback `client_id` (see `docs/poppy-issues.md` in adewale/pda).
 
 ## Impact
 
 - Who it affects: anyone who uses OpenClaw to deal with businesses.
 - What it gives them: scoped, revocable access instead of all or nothing, and approvals in the chat they already use.
-- How many Companies they can use today: few. Of the live hosts adewale/dpa's `docs/ecosystem.md` lists (as of 13 October 2026; the hosts were last checked on the evening of 12 October), none is a large business. They are small products (Spot's cart approvals, print-with-poppy's photo store, Tilopay's merchants' stores), signed-out conversations with two companies' agents (Salespeak, Emora Health), demos, a local-history archive, and a lab behind a login. None of the launch partners checked on 11 October served a `poppy.json`.
+- How many Companies they can use today: few. Of the live hosts adewale/pda's `docs/ecosystem.md` lists (as of 13 October 2026; the hosts were last checked on the evening of 12 October), none is a large business. They are small products (Spot's cart approvals, print-with-poppy's photo store, Tilopay's merchants' stores), signed-out conversations with two companies' agents (Salespeak, Emora Health), demos, a local-history archive, and a lab behind a login. None of the launch partners checked on 11 October served a `poppy.json`.
 - The fullest journey available is print-with-poppy's: a signed-out Session, a photo upload, then an order proposed as an operation and approved. Our agent completes it against the store's pinned code in our grid (scenario OU). The live store admits only agents on its allowlist, and added our `client_id` on 12 October. Live, our agent has run the journey as far as the photo upload's approval card. The order has not yet run live, because the live store takes real payments. Since 13 October the store also runs a hosted Agent Sandbox in demo mode (sandbox.printwithpoppy.com), for testing agents without cards.
 - Our agent has not yet been verified in a conversation with a live Company Agent.
 - Cost to OpenClaw core: none, unless the maintainers want the seams below.
 
 ## Evidence/examples
 
-- **Spec:** https://personalagentprotocol.org/docs/spec. On 13 October 2026, adewale/dpa `docs/spec-issues.md` lists 63 problems found while implementing it, each with a suggested fix: 5 Critical, 13 High, 30 Medium and 15 Low. Six earlier entries were withdrawn as our own misreadings.
+- **Spec:** https://personalagentprotocol.org/docs/spec. On 13 October 2026, adewale/pda `docs/spec-issues.md` lists 63 problems found while implementing it, each with a suggested fix: 5 Critical, 13 High, 30 Medium and 15 Low. Six earlier entries were withdrawn as our own misreadings.
 - **Prior art:**
   - [pi-poppy](https://github.com/richardanaya/pi-poppy): an agent extension for pi.
   - [Datalayer SDKs](https://github.com/datalayer/personal-agent-protocol): TypeScript and Python, BSD-3-Clause, 0.17.0 on npm and PyPI on 13 October, with a TypeScript client a plugin could use.
   - [everruns](https://github.com/everruns/everruns): Rust, signed-out Sessions only so far, with interop tests against pi-poppy and Datalayer (PR #4531).
   - [poppy-demo](https://github.com/irvinebroque/poppy-demo).
   - [print-with-poppy](https://github.com/spenciefy/print-with-poppy): a photo-printing store whose orders all go through the Operations extension.
-  - [adewale/dpa](https://github.com/adewale/dpa): a Personal Agent on Cloudflare Workers, one Durable Object per person running Pi with Claude Sonnet 5.5, on an operator-paid demo lane or the person's own Anthropic or OpenAI key. Its Activity view has a protocol log that shows each exchange with the spec section it follows, with no secrets in it. The repository also has a mock Company that names 148 checks (13 October 2026), graded by what each rests on: 119 failures (a MUST, an RFC's MUST, or a rule the draft states without a key word), 19 warnings (a SHOULD or the Guides) and 10 tentative (our reading of an open question), a validator with 76 messages, the interop harness, and a second Poppy client in Python that drives a Hypothesis stateful test of the mock.
+  - [adewale/pda](https://github.com/adewale/pda): a Personal Agent on Cloudflare Workers, one Durable Object per person running Pi with Claude Sonnet 5.5, on an operator-paid demo lane or the person's own Anthropic or OpenAI key. Its Activity view has a protocol log that shows each exchange with the spec section it follows, with no secrets in it. The repository also has a mock Company that names 148 checks (13 October 2026), graded by what each rests on: 119 failures (a MUST, an RFC's MUST, or a rule the draft states without a key word), 19 warnings (a SHOULD or the Guides) and 10 tentative (our reading of an open question), a validator with 76 messages, the interop harness, and a second Poppy client in Python that drives a Hypothesis stateful test of the mock.
 - **Related OpenClaw issues** (states on 13 October 2026):
   - #150247 (open): publishing a Client ID Metadata Document. Same mechanism; this issue explains why Poppy needs a per-install identity.
   - #138113 (open) and #122034 (closed as completed on 12 August 2026): per-requester MCP OAuth. The same "whose grant is this" question.
@@ -209,7 +209,7 @@ Maybe, with maintainer guidance. The plugin itself would live in its own reposit
 2. **Sign-in.** Direct and Device, Account Tokens sealed at rest, renewal and rotation, sign-out, APIs and MCP. Scenarios SD, SV, R, SE, SO, AO and AM.
 3. **Operations.** Approval cards through `requireApproval`, confirm and cancel, file uploads, then the browser join. Scenarios O, OX and OU (print-with-poppy's signed-out upload and order).
 
-**Offer of help.** I maintain adewale/dpa and am happy to:
+**Offer of help.** I maintain adewale/pda and am happy to:
 
 - review the plugin's protocol code;
 - write its interop adapter;

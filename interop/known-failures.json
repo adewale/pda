@@ -120,7 +120,7 @@
       "errors": [
         "discovery_failed"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "issue": "https://github.com/adewale/pda/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; pda-mock's issuer is https://auth.pda-mock.company.interop.test (draft 3.2 allows both)."
     },
     {
@@ -134,7 +134,7 @@
       "errors": [
         "discovery_failed"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "issue": "https://github.com/adewale/pda/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; pda-mock-strict's issuer is https://auth.pda-mock-strict.company.interop.test (draft 3.2 allows both)."
     },
     {
@@ -148,7 +148,7 @@
       "errors": [
         "discovery_failed"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "issue": "https://github.com/adewale/pda/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; adonis-agora's issuer is https://adonis-agora.company.interop.test/poppy (draft 3.2 allows both)."
     },
     {
@@ -159,7 +159,7 @@
       "errors": [
         "discovery_failed"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "issue": "https://github.com/adewale/pda/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "Ilmer is signed-out only, so its OAuth metadata has no authorization_endpoint; poppy-demo's discovery runs new URL(undefined) on it and throws (action_failed)."
     },
     {
@@ -199,7 +199,7 @@
       "errors": [
         "action_failed"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "issue": "https://github.com/adewale/pda/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "poppyseed answers revocation with 200 and an empty body (RFC 7009 allows it); the caller JSON.parses it and throws, so signout reports action_failed though the token was revoked."
     },
     {
@@ -210,7 +210,7 @@
       "errors": [
         "invalid_client"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "issue": "https://github.com/adewale/pda/blob/main/interop/impls/adonis-agora-agent/README.md",
       "reason": "Reading S2, blamed on the spec: adonis-agora's poppy-client signs client and Session assertions without typ \"JWT\" and declares S2 any; pda-mock-strict declares jwt-60s and refuses them (mock violation client-assertion.typ). The lenient reference pda-mock accepts them."
     },
     {
@@ -221,7 +221,7 @@
       "errors": [
         "invalid_client"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "issue": "https://github.com/adewale/pda/blob/main/interop/impls/adonis-agora-agent/README.md",
       "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; poppy-demo requires it (S2 reading; Northstar: header.typ !== \"JWT\" gives invalid_grant, mapped to invalid_client)."
     },
     {
@@ -232,7 +232,7 @@
       "errors": [
         "invalid_client"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/adonis-agora-agent/README.md",
+      "issue": "https://github.com/adewale/pda/blob/main/interop/impls/adonis-agora-agent/README.md",
       "reason": "adonis-agora's poppy-client signs client and Session assertions without typ: \"JWT\"; ilmer requires it (S2 reading; Ilmer answers invalid_client)."
     },
     {
@@ -243,7 +243,7 @@
       "errors": [
         "invalid_grant"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s2",
+      "issue": "https://github.com/adewale/pda/blob/main/docs/spec-issues.md#s2",
       "reason": "Reading S2, blamed on the spec: pi-poppy's Session assertion (signSessionAssertion in src/dpop.ts) has no typ \"JWT\", and it declares S2 any; Northstar declares jwt-60s and answers the first Session request invalid_grant, so every scenario stops at its first step."
     },
     {
@@ -254,7 +254,7 @@
       "errors": [
         "invalid_grant"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s2",
+      "issue": "https://github.com/adewale/pda/blob/main/docs/spec-issues.md#s2",
       "reason": "Reading S2, blamed on the spec: pi-poppy's Session assertion has no typ \"JWT\" (S2 any); Ilmer declares jwt-60s and answers the first Session request invalid_grant. (Both sides send and want the token endpoint as aud there, so S1 is not the cause.)"
     },
     {
@@ -311,7 +311,7 @@
       "errors": [
         "invalid_client"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
+      "issue": "https://github.com/adewale/pda/blob/main/docs/spec-issues.md#s1",
       "reason": "Reading S1, blamed on the spec: adonis-agora's client assertions name the token endpoint as aud everywhere (S1 token-endpoint), including at the device authorization endpoint; poppyseed and pi-poppy require the endpoint the assertion is sent to (S1 endpoint) and answer invalid_client. (Both Datalayer Companies did too until 0.10.0, which accepts the issuer, the token endpoint or the endpoint called.)"
     },
     {
@@ -322,7 +322,7 @@
       "errors": [
         "invalid_client"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
+      "issue": "https://github.com/adewale/pda/blob/main/docs/spec-issues.md#s1",
       "reason": "Reading S1, as in SV: the device authorization request's client assertion names the token endpoint, and Companies reading S1 endpoint answer invalid_client before the User can deny."
     },
     {
@@ -333,7 +333,7 @@
       "errors": [
         "invalid_client"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
+      "issue": "https://github.com/adewale/pda/blob/main/docs/spec-issues.md#s1",
       "reason": "Reading S1, as in SV: the revocation request's client assertion names the token endpoint, and Companies reading S1 endpoint answer invalid_client, so sign-out fails."
     },
     {
@@ -450,7 +450,7 @@
       "errors": [
         "discovery_failed"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/interop/impls/poppy-demo-agent/README.md",
+      "issue": "https://github.com/adewale/pda/blob/main/interop/impls/poppy-demo-agent/README.md",
       "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; an everruns channel's issuer is https://everruns.company.interop.test/api/v1/channels/{channel id}/poppy (draft 3.2 allows both). The caller stops after poppy.json with invalid_metadata."
     },
     {
@@ -509,7 +509,7 @@
         "revocation_failed",
         "invalid_client"
       ],
-      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s1",
+      "issue": "https://github.com/adewale/pda/blob/main/docs/spec-issues.md#s1",
       "reason": "Reading S1, blamed on the spec: Tipping Co checks every client assertion's aud against its token endpoint, at /oauth/revoke too (token.ts authenticateClient, revoke.ts), and answers 401 invalid_client to an assertion whose aud is the revocation endpoint. Both Datalayer agents and pi-poppy send the endpoint called (S1 endpoint); pda did too, and since 13 October tries the token endpoint after that invalid_client and passes; adonis-agora and Tipping Co's own agent send the token endpoint and pass. The first signed-in Company in the grid with this reading."
     },
     {
@@ -517,7 +517,7 @@
       "company": "print-with-poppy",
       "scenario": "OU",
       "blame": "company",
-      "issue": "https://github.com/adewale/dpa/blob/main/docs/spec-issues.md#s22",
+      "issue": "https://github.com/adewale/pda/blob/main/docs/spec-issues.md#s22",
       "reason": "Since 13 October our agent sends a write straight to a Company with Operations only when every success response its description declares is a proposal that requires `operation` (S22, after an audit found an optional `operation` let a write skip the User's approval). print-with-poppy's proposeOrder declares one 202 whose schema has an `operation` property but no `required`, so our agent asks the User on its own card first and the step returns `held`, not the 202 OU expects. A one-line fix in its description (`required: [\"operation\"]`) restores the direct proposal."
     },
     {

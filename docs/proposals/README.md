@@ -19,7 +19,7 @@ The owner will submit these after verifying our agent against a real Company Age
 
 ## Before posting
 
-- **adewale/dpa is private.** Both drafts link to it and cite its files: the interop harness and `docs/interop-spec.md`, `docs/interop-results/README.md`, `docs/spec-issues.md`, `docs/poppy-issues.md`, `docs/implementations.md`, `docs/ecosystem.md`, `SECURITY.md`, and the Datalayer adapter READMEs. Make those public first, or replace the links.
+- **adewale/pda is private.** Both drafts link to it and cite its files: the interop harness and `docs/interop-spec.md`, `docs/interop-results/README.md`, `docs/spec-issues.md`, `docs/poppy-issues.md`, `docs/implementations.md`, `docs/ecosystem.md`, `SECURITY.md`, and the Datalayer adapter READMEs. Make those public first, or replace the links.
 - **Re-check the linked issues.** Their numbers and states were checked on 13 October 2026, and each draft shows them.
   - OpenClaw: #150247, #138113 and #116052 open; #122034 closed as completed (12 August).
   - Hermes: #98958, #133512, #132233 and #82416 open; #75576 closed as completed; #130295 closed as not planned.

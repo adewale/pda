@@ -7,7 +7,7 @@ This covers the Poppy Demo Agent: the Worker, its sign-in, the Poppy client in `
 Report it privately. Please don't open an issue, pull request or discussion about it.
 
 - **While the repository is private** (it is now), report it to the repository owner, [@adewale](https://github.com/adewale), directly. GitHub's security advisories and private vulnerability reporting are for public repositories, and only an administrator can create an advisory, so they aren't the route yet.
-- **Once it's public**, the owner turns on private vulnerability reporting (**Settings → Code security**), and anyone can use **Security → Report a vulnerability** on [adewale/dpa](https://github.com/adewale/dpa), which opens a private draft advisory visible only to the repository's administrators and the people added to it.
+- **Once it's public**, the owner turns on private vulnerability reporting (**Settings → Code security**), and anyone can use **Security → Report a vulnerability** on [adewale/pda](https://github.com/adewale/pda), which opens a private draft advisory visible only to the repository's administrators and the people added to it.
 
 If you have no private way to reach the owner, open an issue that asks for a private channel and says nothing about the problem.
 

@@ -24,7 +24,7 @@ The key words MUST, SHOULD and MAY are used as in RFC 2119.
     {
       "name": "pda",
       "role": "agent",
-      "source": "https://github.com/adewale/dpa",
+      "source": "https://github.com/adewale/pda",
       "commit": "850860c",
       "build": "interop/impls/pda-agent",
       "notes": "Drives src/poppy directly; no model."
