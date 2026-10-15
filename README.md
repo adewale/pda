@@ -143,5 +143,5 @@ docs/               The user guide, decisions, capabilities, setup, spec issues,
 
 - **Security:** report a vulnerability privately, as [SECURITY.md](SECURITY.md) describes.
 - **Contributing:** keep `npm test`, `npm run typecheck` and `npm run check:docs` passing. A new Poppy feature needs a test, and a check in the mock Company where the draft states a requirement. `git config core.hooksPath .githooks` turns on a pre-push typecheck.
-- **Support:** this is a private repository for its collaborators; report problems in [GitHub issues](https://github.com/adewale/pda/issues).
+- **Support:** report problems in [GitHub issues](https://github.com/adewale/pda/issues).
 - **Licence:** [Apache License 2.0](LICENSE), the licence of the Poppy draft itself. Files copied from Cloudflare's `agents` examples keep their MIT licence, and the stored copies of the draft in `spec/` keep the draft's Apache 2.0 licence; see [NOTICE.md](NOTICE.md).
