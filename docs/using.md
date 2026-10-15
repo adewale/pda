@@ -8,7 +8,7 @@ Back to the [README](../README.md) · Each tool and where it comes from: [capabi
 
 Open the address the operator gave you (the live deployment is https://poppydemoagent.dev) and choose **Google** or **GitHub**. The agent asks Google only for your email address; it reads nothing else from either account.
 
-- **The allowlist.** Unless the operator has opened sign-up, only the accounts they listed get in: a Google email address, every account of a Google Workspace domain, or a GitHub account. Anyone else sees "That account isn't on this agent's allowlist"; ask the operator to add you.
+- **Who gets in.** On the live deployment, sign-up is open: any Google or GitHub account gets an agent. To use it you add your own Anthropic or OpenAI key in **Settings**, unless the operator has put you on the demo, which they pay for. A deployment that hasn't opened sign-up lets in only the accounts its operator listed: a Google email address, every account of a Google Workspace domain, or a GitHub account. Anyone else sees "That account isn't on this agent's allowlist"; ask the operator to add you.
 - **One agent per account.** Signing in with Google and with GitHub gives you two separate agents, each with its own conversation, notes, key and reminders. Pick one and keep to it.
 - You stay signed in for 30 days on that browser. **Settings → Account** says who you are signed in as, and has **Sign out of this agent**.
 

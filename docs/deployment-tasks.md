@@ -8,7 +8,7 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
 
 - [x] **Owner. Create `deployment.local.json`** from `deployment.example.json` ([setup §1](setup.md#1-say-who-the-deployment-is-for)). It is untracked; `npm run deploy` stops without it. Done for the live deployment. What each field decides:
   - `OWNERS`: the operators, always let in and always on the demo, whatever the other lists say. It must name someone, or every route but the validator refuses.
-  - `SIGNIN_ALLOWLIST`: who else may sign in while `SIGNUP` is `allowlist` (the committed value). With `SIGNUP=open` anyone with a Google or GitHub account may.
+  - `SIGNIN_ALLOWLIST`: who else may sign in while `SIGNUP` is `allowlist` (the committed value). With `SIGNUP=open` anyone with a Google or GitHub account may. The live deployment set `"SIGNUP": "open"` in its `deployment.local.json` on 15 October: anyone may sign in, and only `OWNERS` and `DEMO_ALLOWLIST` get the demo, so a stranger's model calls go on their own key. What the operator still pays for per person is storage, Worker requests and `read_url`'s Browser Run renders (10 an hour per agent); the spend limits and budget alert below matter more with it open.
   - `DEMO_ALLOWLIST`: who else the operator pays model calls for, up to the daily caps. Everyone not on it, and not an owner, needs their own key.
   - `PUBLIC_ORIGIN`: where the agent's Poppy identity lives. It becomes the `client_id` every Company knows the agent by, forever (item "The final domain" below).
   - `POPPY_LOGO_URI`: the logo Companies show on their consent pages, normally `<origin>/logo.svg`.
