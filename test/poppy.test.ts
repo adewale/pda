@@ -3061,9 +3061,10 @@ describe("7.13 conversation errors", () => {
         `Mock Shop ${c.id} already has message ${message} with different content. That is a bug in this agent; the message wasn't sent again under a new id. Tell the User it may not have arrived. [message_id_conflict]`
       );
       // On the tool call's turn event, at level error, by its code (src/log.ts).
-      // The turn that made the call: a background turn (a Company's message) may be written first under load.
+      // The turn that made the refused call: the first call's turn, or a background turn (a Company's
+      // message), may be written after the mark under load, so look for the error itself.
       const turn = await until(async () =>
-        (await wideEvents(a, logMark)).find((event) => event.kind === "turn" && String(event.tool_outcomes ?? "").includes("poppy_message"))
+        (await wideEvents(a, logMark)).find((event) => event.kind === "turn" && String(event.tool_outcomes ?? "").includes("poppy_message:error"))
       );
       expect(turn).toMatchObject({ level: "error", tool_outcomes: expect.stringContaining("poppy_message:error") });
       expect(turn!.errors).toContainEqual(expect.objectContaining({ type: "PoppyError", code: "message_id_conflict", step: "poppy.conversation_send" }));
