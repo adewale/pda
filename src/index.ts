@@ -91,6 +91,9 @@ const EXACT_ROUTES = [
   "/auth/github",
   "/auth/github/callback",
   "/",
+  "/activity",
+  "/companies",
+  "/settings",
   "/ws",
   "/api/me",
   "/api/sign-in-options",
@@ -411,10 +414,41 @@ function outcomeOf(status: number): "error" | "refused" | "rejected" | "success"
   return "success";
 }
 
+/** Cloudflare's shared domain for Workers, as the last two labels of a host. */
+const WORKERS_DEV = "workers.dev";
+
+/** The page's own paths: `run_worker_first` sends them here, and the static files answer them. */
+export const PAGE_PATHS: ReadonlySet<string> = new Set(["/", "/activity", "/companies", "/settings"]);
+
+/**
+ * A request to a `workers.dev` host, when `PUBLIC_ORIGIN` is another domain,
+ * goes to the same path and query there (308, so a POST stays a POST), so
+ * people see one address. `/poppy/*` is left alone: the identity documents
+ * are served only on `PUBLIC_ORIGIN`, never by redirect, and a Company's
+ * callback to the old host fails there as it would anywhere.
+ */
+export function canonicalRedirect(request: Request, env: { readonly PUBLIC_ORIGIN?: unknown }): Response | undefined {
+  if (typeof env.PUBLIC_ORIGIN !== "string" || !env.PUBLIC_ORIGIN) return undefined;
+  let canonical: URL;
+  try {
+    canonical = new URL(env.PUBLIC_ORIGIN);
+  } catch {
+    return undefined;
+  }
+  const url = new URL(request.url);
+  const onWorkersDev = (host: string) => host.split(".").slice(-2).join(".") === WORKERS_DEV;
+  if (url.host === canonical.host || !onWorkersDev(url.hostname) || onWorkersDev(canonical.hostname)) return undefined;
+  if (url.pathname.startsWith("/poppy/")) return undefined;
+  return new Response(null, { status: 308, headers: { Location: `${canonical.origin}${url.pathname}${url.search}` } });
+}
+
 /** The Worker's own routes; static assets serve everything else. */
 async function route(request: Request, env: Env): Promise<Response> {
   const { pathname } = new URL(request.url);
   try {
+    const moved = canonicalRedirect(request, env);
+    if (moved) return moved;
+    if (PAGE_PATHS.has(pathname)) return await env.ASSETS.fetch(request);
     if (pathname === "/validator" || pathname.startsWith("/validator/")) {
       const response = await handleValidator(request, {
         fetcher: (outbound) => fetch(outbound),

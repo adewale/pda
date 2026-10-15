@@ -2,7 +2,7 @@
 
 How to configure and deploy your own copy. The order to do it in, what each setting decides, and what to check afterwards are in [deployment-tasks.md](deployment-tasks.md); this file is the how-to its items link to.
 
-Below, `<origin>` is your deployment's address, such as `https://personal-agent.<your-subdomain>.workers.dev`.
+Below, `<origin>` is your deployment's address, such as `https://personal-agent.<your-subdomain>.workers.dev`, or a domain of your own attached to the Worker in the dashboard. With a domain of your own as `PUBLIC_ORIGIN`, the Worker sends requests to the `workers.dev` host on to it, except `/poppy/*`, so the old `client_id` stops answering.
 
 Back to the [README](../README.md).
 

@@ -15,6 +15,8 @@ import { EMPTY_VIEW, reduceEvents, type PiSessionView } from "../src/view";
 import { CONTENT_SECURITY_POLICY } from "../src/csp";
 import indexHtml from "../index.html?raw";
 import assetHeaders from "../public/_headers?raw";
+import wranglerConfig from "../wrangler.jsonc?raw";
+import { PAGE_PATHS } from "../src/index";
 import { s256 } from "./encoding";
 import { grantCode, type Grant } from "./fake-providers";
 import {
@@ -644,6 +646,49 @@ describe("configuration", () => {
     const ai = createAI({ binding: {} as Ai, id: env.DEMO_GATEWAY_ID });
     const model = ai(env.DEMO_MODEL_ID) as { name?: string; id: string };
     expect(model.name).toBe("Claude Sonnet 5.5");
+  });
+});
+
+describe("the workers.dev host, once PUBLIC_ORIGIN is a domain of its own", () => {
+  /** `Env` types each var as the committed template's value, so an origin goes in as a plain string. */
+  const origin = (value: string) => ({ PUBLIC_ORIGIN: value as Env["PUBLIC_ORIGIN"] });
+  const DOMAIN = origin("https://agent.test");
+  const OLD = "https://personal-agent.your-subdomain.workers.dev";
+
+  it("sends a page, with its query, to the same path on PUBLIC_ORIGIN", async () => {
+    const response = await fetchWorker(new Request(`${OLD}/settings?tab=model`), DOMAIN);
+    expect(response.status).toBe(308);
+    expect(response.headers.get("Location")).toBe("https://agent.test/settings?tab=model");
+  });
+
+  it("sends an API call there too, as a 308 so a POST stays a POST", async () => {
+    const response = await fetchWorker(new Request(`${OLD}/logout`, { method: "POST" }), DOMAIN);
+    expect(response.status).toBe(308);
+    expect(response.headers.get("Location")).toBe("https://agent.test/logout");
+  });
+
+  it("never redirects the identity documents: the old client_id answers 404", async () => {
+    for (const path of ["/poppy/client.json", "/poppy/jwks.json"]) {
+      const response = await fetchWorker(new Request(`${OLD}${path}`), DOMAIN);
+      expect(response.status).toBe(404);
+      expect(response.headers.get("Location")).toBeNull();
+    }
+  });
+
+  it("leaves a deployment whose PUBLIC_ORIGIN is its workers.dev host alone", async () => {
+    const response = await fetchWorker(new Request(`${OLD}/privacy`), origin(OLD));
+    expect(response.status).toBe(200);
+  });
+
+  it("leaves any host that isn't workers.dev alone", async () => {
+    const response = await fetchWorker(new Request("https://elsewhere.example/privacy"), DOMAIN);
+    expect(response.status).toBe(200);
+  });
+
+  it("runs the Worker first for every page path, or the old host's pages couldn't be redirected", () => {
+    const first = /"run_worker_first":\s*(\[[^\]]*\])/.exec(wranglerConfig)?.[1];
+    const paths: unknown = JSON.parse(first ?? "[]");
+    for (const path of PAGE_PATHS) expect(paths).toContain(path);
   });
 });
 
