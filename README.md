@@ -49,7 +49,7 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 
 **Pay for the model your way:** the operator's daily demo allowance if you're on its list, or your own Anthropic or OpenAI key.
 
-**Your data** stays in your own agent's storage; [the privacy policy](https://personal-agent.adewale-883.workers.dev/privacy) says what is kept and for how long.
+**Your data** stays in your own agent's storage; [the privacy policy](https://poppydemoagent.dev/privacy) says what is kept and for how long.
 
 Signing in for the first time, with a run-through that checks each part works: [docs/using.md](docs/using.md). Which of these is a Poppy feature and which is ours, each tool the model can call, and what needs your approval: [docs/capabilities.md](docs/capabilities.md).
 
@@ -58,12 +58,12 @@ Signing in for the first time, with a run-through that checks each part works: [
 - **The validator** checks a Company's `poppy.json` and OAuth metadata, or an agent's client metadata and keys, from a web form, an HTTP API, a CLI or a library. Its severities follow each requirement's basis: a broken MUST is an error, a departed SHOULD a warning ([conformance-levels.md](docs/conformance-levels.md)). Reference: [docs/validator.md](docs/validator.md).
 
   ```sh
-  curl -s https://personal-agent.adewale-883.workers.dev/validator/api \
+  curl -s https://poppydemoagent.dev/validator/api \
     -H 'Content-Type: application/json' \
     -d '{"url": "your-company.example"}' | jq '{outcome, counts}'
   ```
 
-- **Our agent as your peer.** Its `client_id` is `https://personal-agent.adewale-883.workers.dev/poppy/client.json`. A Company that keeps an allowlist can add it, and we'll point the agent at you; Appendix A of [the spec](pda-spec.md) lists every requirement it implements and the test that checks it.
+- **Our agent as your peer.** Its `client_id` is `https://poppydemoagent.dev/poppy/client.json`. A Company that keeps an allowlist can add it, and we'll point the agent at you; Appendix A of [the spec](pda-spec.md) lists every requirement it implements and the test that checks it.
 - **The interop harness** (`interop/`) runs every agent against every Company in containers with no internet access, through a recording proxy, and blames each failure on a side by a named rule. It runs nine other projects today. The latest grid (13 October) has 2,880 cells over 30 scenarios: 1,000 pass, 273 fail and 1,607 unsupported. Every failure is a known upstream or spec one, and our agent passes 213 of the 214 cells it runs; the other is a reading the draft leaves open (S1, at Tipping Co's revocation endpoint). [docs/ecosystem.md](docs/ecosystem.md#scorecard) scores each implementation; [interop/README.md](interop/README.md) says how to add yours, and [docs/interop-spec.md](docs/interop-spec.md) defines the scenarios, the attribution rules and the isolation.
 - **Adversarial testing.** A malicious agent and a malicious Company attack our own implementations: oversized documents, nonce loops, terms swapped at confirm, forged messages and more ([docs/adversarial-interop.md](docs/adversarial-interop.md)). The malicious Company may also attack other projects' agents in our own containers; what it finds goes to their maintainers privately first ([SECURITY.md](SECURITY.md)).
 - **Cross-checks.** Our validator runs against two other open validators on the same 107 documents ([the tool](interop/vectors/validators/README.md), [results](docs/interop-testing.md#validator-cross-check)), and our client against Datalayer's language-neutral conformance cases ([results](interop/vectors/datalayer/README.md)). A second client, written in Python from the draft's text, drives stateful property tests of our mock Company ([test/hypothesis](test/hypothesis/README.md)).
@@ -98,7 +98,7 @@ The design is [pda-spec.md](pda-spec.md); how to use the agent and check it work
 
 ## Status and limitations
 
-- **Live:** https://personal-agent.adewale-883.workers.dev, with Google and GitHub sign-in limited to an allowlist, the validator at `/validator`, open to anyone, and the privacy policy at `/privacy`. Web Push and Browser Run are switched on there. Which parts have been checked live, and which haven't, is [deployment-tasks.md §2](docs/deployment-tasks.md#2-live-checks).
+- **Live:** https://poppydemoagent.dev, with Google and GitHub sign-in limited to an allowlist, the validator at `/validator`, open to anyone, and the privacy policy at `/privacy`. Web Push and Browser Run are switched on there. Which parts have been checked live, and which haven't, is [deployment-tasks.md §2](docs/deployment-tasks.md#2-live-checks).
 - **One live Company, part of the way.** At print-with-poppy's store, on 12 October: discovery, a signed-out Session, the catalogue and the upload's approval card; the order and checkout haven't run live. Spot publishes valid discovery but has no Operations and isn't in the grid; everything else we know of is a demo or an SDK.
 - **Not tried live:** the demo lane has answered through the live gateway, but its gateway-side spend rules, a turn after a compaction, reminders and tasks firing, notifications on real devices, and a Browser Run render are tested only against fakes so far ([deployment-tasks.md](docs/deployment-tasks.md#2-live-checks)).
 - **JavaScript:** `read_url` renders a page that needs it in Browser Run, signed out and read only. Browsing a Company's site in a Session (`poppy_browse`) still runs no JavaScript, so a site that needs it to show a page or send a form can't be used there.

@@ -6,7 +6,7 @@ Back to the [README](../README.md) · Each tool and where it comes from: [capabi
 
 ## Signing in
 
-Open the address the operator gave you (the live deployment is https://personal-agent.adewale-883.workers.dev) and choose **Google** or **GitHub**. The agent asks Google only for your email address; it reads nothing else from either account.
+Open the address the operator gave you (the live deployment is https://poppydemoagent.dev) and choose **Google** or **GitHub**. The agent asks Google only for your email address; it reads nothing else from either account.
 
 - **The allowlist.** Unless the operator has opened sign-up, only the accounts they listed get in: a Google email address, every account of a Google Workspace domain, or a GitHub account. Anyone else sees "That account isn't on this agent's allowlist"; ask the operator to add you.
 - **One agent per account.** Signing in with Google and with GitHub gives you two separate agents, each with its own conversation, notes, key and reminders. Pick one and keep to it.

@@ -26,7 +26,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 
 ## Status
 
-**Deployed** at `https://personal-agent.adewale-883.workers.dev`. `npm test` passes: five suites, in the Workers runtime, happy-dom and Node (see Testing and conformance; Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.1`, Pi 1.1.0, Wrangler 4.149).
+**Deployed** at `https://poppydemoagent.dev`. `npm test` passes: five suites, in the Workers runtime, happy-dom and Node (see Testing and conformance; Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.1`, Pi 1.1.0, Wrangler 4.149).
 
 | Part | State |
 | --- | --- |
@@ -88,7 +88,7 @@ The Worker turns a verified app session into the person's Durable Object and for
 
 | Product | Used for | Binding / config |
 | --- | --- | --- |
-| Workers + Static Assets | Worker and the Vite-built chat page | `assets`, `run_worker_first` for `/ws`, `/api/*`, `/auth/*`, `/logout`, `/poppy/*`, `/validator`, `/validator/*` |
+| Workers + Static Assets | Worker and the Vite-built chat page | `assets` (binding `ASSETS`), `run_worker_first` for the page's own paths (`/`, `/activity`, `/companies`, `/settings`, handed to `ASSETS`), `/ws`, `/api/*`, `/auth/*`, `/logout`, `/poppy/*`, `/validator`, `/validator/*`. When `PUBLIC_ORIGIN` is a domain of its own, a request to the `workers.dev` host gets a 308 to the same path there, except `/poppy/*` (`canonicalRedirect`) |
 | Durable Objects (SQLite) | `PersonalAgent` per person; `CompanyLimiter` per Company issuer; `DomainBudget` per demo budget domain | migrations `v1`, `v2` and `v3` |
 | Agents SDK | `PiHarness`, `Lifecycle` (capabilities and durable jobs on the object's alarm: Poppy's, pi's, reminders' and tasks'), `WebSockets`, Pi AI provider, `useAgent` | `agents` |
 | AI binding → AI Gateway | The demo lane: Claude Sonnet 5.5 on Unified Billing | `ai` binding `AI`; `DEMO_GATEWAY_ID` |
@@ -1001,7 +1001,7 @@ A raw `string`, so an email, a token or anyone's words, is a compile error in an
 ## Open questions and risks
 
 - [x] **Claude billing:** Unified Billing on a separate demo gateway with no stored keys; people's own keys never touch it (Model access). Its "Check live" list is open.
-- [ ] **Final domain** for `client_id`, before registering anywhere. Will Companies accept a `workers.dev` host?
+- [x] **Final domain** for `client_id`: `poppydemoagent.dev`, since 15 October; the `workers.dev` host redirects there ([deployment-tasks](docs/deployment-tasks.md)).
 - [x] **Browser Rendering:** cost and limits for one context per Session. Resolved by removing it: browsing runs on a fetch-based browser in the Durable Object, at no extra cost. Revisit if a Company's site needs JavaScript. Browser Run (its new name) is back for `read_url` only, read only and limited to 10 renders an hour per agent (decision 28).
 - [ ] **Standing permissions and actions.** Ops 5.1 requires a permission to cover "the action" and "every term", but operations have no standard action field and `terms` keys are the Company's own. We require the summary to begin with the permission's words, and every term to be money (checked against the permission's limit when it has one), a date, or one of the draft's example ids (`order_id`, `item_id`, `replacement_sku`); anything else goes to the User. That still trusts the summary's first words for the action. The draft should define something checkable: an action field, and a list of term types.
 - [ ] **DPoP nonces per server.** The Guides say to keep a nonce "for that server". We key nonces by origin, so a Company's token endpoint and API can each require their own. Is that the intended reading?
