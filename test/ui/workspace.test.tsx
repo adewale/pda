@@ -916,6 +916,7 @@ describe("scheduled settings", () => {
 });
 
 describe("notification settings", () => {
+  let subscribedKey: number[] | null = null;
   const KEY = "BP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A8";
   const SUBSCRIPTION = { endpoint: "https://fcm.googleapis.com/fcm/send/device", expirationTime: null, keys: { p256dh: "BCVx", auth: "BTBZ" } };
 
@@ -925,12 +926,14 @@ describe("notification settings", () => {
    */
   function stubBrowser(permissionAfterAsking: NotificationPermission = "granted") {
     const log: string[] = [];
+    subscribedKey = null;
     let current: { endpoint: string; toJSON(): unknown; unsubscribe(): Promise<boolean> } | null = null;
     let permission: NotificationPermission = "default";
     const registration = {
       pushManager: {
         getSubscription: async () => current,
         subscribe: async (options: { userVisibleOnly: boolean; applicationServerKey: Uint8Array }) => {
+          subscribedKey = Array.from(options.applicationServerKey);
           log.push(`subscribe userVisibleOnly=${options.userVisibleOnly} key=${options.applicationServerKey.length} bytes`);
           current = {
             endpoint: SUBSCRIPTION.endpoint,
@@ -1003,6 +1006,8 @@ describe("notification settings", () => {
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle.checked).toBe(true));
     expect(log).toEqual(["ask permission", "register /sw.js scope /", "subscribe userVisibleOnly=true key=65 bytes"]);
+    // Decode the fixed fixture independently of src/base64url.ts.
+    expect(subscribedKey).toEqual(Array.from(atob(KEY.replace(/-/g, "+").replace(/_/g, "/")), (char) => char.charCodeAt(0)));
     expect(calls).toEqual([`POST /api/push/subscription ${JSON.stringify(SUBSCRIPTION)}`]);
 
     fireEvent.click(toggle);

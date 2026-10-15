@@ -211,6 +211,15 @@ describe("diagnostics", () => {
     const events = lines.filter((line) => line.startsWith("{")).map((line) => JSON.parse(line) as Event);
     expect(events).toHaveLength(DIAGNOSTIC_EVENTS);
     expect(events.every((event) => event.agent_id === (events[0]!.agent_id as string) && event.kind === "ws")).toBe(true);
+    // Distinct markers prove which end is retained, through the real pruning trigger.
+    await a.stub.poppySql("DELETE FROM agent_log");
+    await a.stub.poppySql(`WITH RECURSIVE entries(n) AS (
+      SELECT 1 UNION ALL SELECT n + 1 FROM entries WHERE n < ${DIAGNOSTIC_EVENTS + 5}
+    ) INSERT INTO agent_log (at, kind, level, line)
+      SELECT n, 'ws', 'info', json_object('marker', n) FROM entries ORDER BY n`);
+    const retained = (await a.stub.diagnostics()).split("\n").filter((line) => line.startsWith("{"))
+      .map((line) => (JSON.parse(line) as { marker: number }).marker);
+    expect(retained).toEqual(Array.from({ length: DIAGNOSTIC_EVENTS }, (_, index) => index + 6));
     expect(text).toContain("Poppy protocol log");
     expect(text).not.toContain(a.identity.email!);
   });

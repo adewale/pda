@@ -280,12 +280,6 @@ const hostnames = gs
   )
   .filter((host) => URL.canParse(`https://${host}/`) && (host.startsWith("[") || URL.canParse(`https://${host}./`)));
 
-/** A host as a URL may spell it: its own case, and maybe the root's trailing dot. */
-const spelled = gs.composite((tc) => {
-  const host = tc.draw(hostnames);
-  return { host, url: new URL(`https://${host}${tc.draw(gs.booleans()) && !host.startsWith("[") ? "." : ""}/x`) };
-});
-
 function clientRefuses(url: URL): boolean {
   try {
     assertPublicHost(url);
@@ -297,18 +291,24 @@ function clientRefuses(url: URL): boolean {
 }
 
 describe("fetching what Companies control (Guides, 'Fetching metadata safely')", () => {
-  it(
-    "the client and the validator agree on which hosts are private",
-    property((tc) => {
-      const { url } = tc.draw(spelled);
-      expect(clientRefuses(url)).toBe(!isPublicHost(url));
-    })
-  );
+  it("maps private-host rejection to PoppyFetchError and accepts public names", () => {
+    expect(() => assertPublicHost(new URL("https://127.0.0.1/"))).toThrow(PoppyFetchError);
+    expect(() => assertPublicHost(new URL("https://shop.example.com/"))).not.toThrow();
+  });
 
   for (const [checker, refuses] of [
     ["the client", clientRefuses],
     ["the validator", (url: URL) => !isPublicHost(url)]
   ] as const) {
+    it(`${checker} refuses generated subdomains of every private/special-use suffix`, property((tc) => {
+      // Independent contract examples, not imported from the predicate under test.
+      const suffix = tc.draw(gs.sampledFrom(["localhost", "local", "home.arpa", "arpa", "internal", "invalid", "onion", "alt", "intranet", "private", "corp", "home", "lan"]));
+      const labels = tc.draw(gs.arrays(gs.fromRegex("[a-z][a-z0-9]{0,10}", { fullmatch: true }), { maxSize: 5 }));
+      const host = [...labels, suffix].join(".");
+      const spelling = tc.draw(gs.booleans()) ? host.toUpperCase() : host;
+      expect(refuses(new URL(`https://${spelling}${tc.draw(gs.booleans()) ? "." : ""}/`))).toBe(true);
+    }));
+
     it(
       `${checker} refuses a host and its fully qualified form, with the root's trailing dot, alike`,
       property((tc) => {
@@ -353,21 +353,18 @@ describe("fetching what Companies control (Guides, 'Fetching metadata safely')",
   );
 
   it(
-    "the client and the validator read Cache-Control alike",
+    "reads max-age, gives no-store/no-cache precedence, and ignores s-maxage for this private cache",
     property((tc) => {
-      const directives = tc.draw(
-        gs.arrays(
-          gs.oneOf(
-            gs.sampledFrom(["no-store", "no-cache", "private", "public", "must-revalidate", "immutable", "No-Store"]),
-            gs.integers({ minValue: 0, maxValue: 10_000_000 }).map((n) => `max-age=${n}`),
-            gs.integers({ minValue: 0, maxValue: 10_000_000 }).map((n) => `s-maxage=${n}`),
-            gs.fromRegex("[a-z-]{1,12}(=[a-z0-9]{1,6})?", { fullmatch: true })
-          ),
-          { maxSize: 4 }
-        )
-      );
+      const maxAge = tc.draw(gs.integers({ minValue: 0, maxValue: 10_000_000 }));
+      const shared = tc.draw(gs.integers({ minValue: 0, maxValue: 10_000_000 }));
+      const refusal = tc.draw(gs.sampledFrom(["", "no-store", "no-cache", "No-Store"]));
+      const directives = [`s-maxage=${shared}`, `max-age=${maxAge}`, "private", refusal];
+      const offset = tc.draw(gs.integers({ minValue: 0, maxValue: 3 }));
+      directives.push(...directives.splice(0, offset));
       const headers = new Headers({ "Cache-Control": directives.join(", ") });
-      expect(cacheSeconds(new Response(null, { headers }))).toBe(validatorCacheSeconds(headers));
+      const expected = refusal ? 0 : maxAge;
+      expect(validatorCacheSeconds(headers)).toBe(expected);
+      expect(cacheSeconds(new Response(null, { headers }))).toBe(expected);
     })
   );
 

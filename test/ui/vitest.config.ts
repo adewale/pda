@@ -18,6 +18,9 @@ export default defineConfig({
     environment: "happy-dom",
     include: [path.join(uiDir, "**/*.test.tsx")],
     setupFiles: [path.join(uiDir, "setup.ts")],
+    // The smoke test dynamically imports the whole app. A cold transform can
+    // exceed Vitest's 5s default and leave its async act running into the next test.
+    testTimeout: 30_000,
     restoreMocks: true
   }
 });

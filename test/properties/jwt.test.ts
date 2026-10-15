@@ -1,5 +1,5 @@
 import { exportJWK, generateKeyPair, SignJWT, base64url as joseBase64url, type JWK } from "jose";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { clientAssertion, dpopProof, newDpopKey, randomId, sessionAssertion, sha256, type DpopKey } from "../../src/poppy/jwt";
 import { currentKey, readIdentity, readSigningKeys } from "../../src/poppy/keys";
 import { clientMetadata } from "../../src/poppy/routes";
@@ -370,8 +370,10 @@ describe("the mock Company refuses each thing wrong with a DPoP proof, naming it
 
   it(
     "a later proof that drops the nonce its key already used at that server",
-    propertyAsync(
-      async (tc) => {
+    propertyAsync(async (tc) => {
+      const at = Date.now();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(at);
+      try {
         const company = await companyWith({ requireNonce: true, nonceScope: tc.draw(gs.sampledFrom(["company", "origin"] as const)) });
         const key = await newDpopKey();
         const method = tc.draw(methods);
@@ -379,14 +381,14 @@ describe("the mock Company refuses each thing wrong with a DPoP proof, naming it
         const token = tc.draw(gs.fromRegex("[A-Za-z0-9]{8,40}", { fullmatch: true }));
         const proof = await dpopProof(key, { method, url, accessToken: token, nonce: company.nonceFor(new URL(url).origin) });
         expect((await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: proof }), token))).ok).toBe(true);
-        // Proofs in the same second may have raced the nonce; the mock counts only a later one.
-        await new Promise((resolve) => setTimeout(resolve, 1000 - (Date.now() % 1000) + 5));
+        // Exercise a later second deterministically, without a one-second wait per case.
+        clock.mockReturnValue(at + tc.draw(gs.integers({ minValue: 1, maxValue: 30 })) * 1000);
         const dropped = await dpopProof(key, { method, url, accessToken: token });
         expect(await attempt(() => company.verifyDpop(inbound(method, url, { DPoP: dropped }), token))).toEqual({ ok: false, error: "use_dpop_nonce" });
         expect(company.recorded.map(violationId)).toEqual(["dpop.nonce-ignored"]);
-      },
-      // Each case waits for the clock's next second, so a few cases by default, not a hundred; HEGEL_CASES still sets the count.
-      { testCases: 3 }
-    )
+      } finally {
+        clock.mockRestore();
+      }
+    })
   );
 });

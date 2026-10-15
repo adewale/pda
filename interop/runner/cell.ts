@@ -179,6 +179,7 @@ export async function runCell(scenario: Scenario, fixture: unknown, driver: Driv
 /** An adapter's HTTP answer as a `Reply` (spec section 5). */
 export function toReply(status: number, body: unknown, agentStep: boolean): Reply {
   const object = body !== null && typeof body === "object" ? (body as Record<string, unknown>) : null;
+  if (agentStep && status >= 500 && object?.error === "attack_setup_failed") return { kind: "broken", detail: String(object.detail ?? "Attack setup failed") };
   if (status === 501) return { kind: "unsupported", detail: String(object?.detail ?? object?.error ?? "501") };
   if (status === 0 || object === null) return { kind: "broken", detail: `no JSON answer (HTTP ${status})` };
   if (status >= 400) {

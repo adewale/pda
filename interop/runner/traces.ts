@@ -280,6 +280,11 @@ export function boundedRequests(all: readonly Exchange[], params: Record<string,
  * injected, counts; `injected: true` requires the proxy to have injected one.
  */
 export function attackObserved(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  if (params.replay !== undefined) {
+    const pair = replayPair(all, params);
+    return pair ? { kind: "ok", result: { baseline: pair[0].index, replay: pair[1].index } }
+      : { kind: "failed", detail: "the attack wasn't observed: no accepted baseline followed by the intended credential replay" };
+  }
   const path = params.path === undefined ? undefined : new RegExp(String(params.path));
   const method = params.method === undefined ? undefined : String(params.method);
   const status = typeof params.status === "number" ? params.status : undefined;
@@ -298,6 +303,55 @@ export function attackObserved(all: readonly Exchange[], params: Record<string, 
   return match ? { kind: "ok", result: { exchange: match.index } } : { kind: "failed", detail: `the attack wasn't observed (${JSON.stringify(params)})` };
 }
 
+/** Wire evidence of one reused credential, with independent one-shot credentials kept fresh. */
+function replayPair(all: readonly Exchange[], params: Record<string, unknown>): readonly [Exchange, Exchange] | undefined {
+  if (params.replay !== "assertion" && params.replay !== "dpop") return;
+  const path = new RegExp(String(params.path ?? "/oauth/token"));
+  const requests = agentRequests(all).filter((x) => x.method === "POST" && path.test(x.url.pathname) && form(x)?.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer");
+  for (const baseline of requests) {
+    const body = jsonBody(baseline.responseBody) as Record<string, unknown> | undefined;
+    if (baseline.status !== 200 || typeof body?.access_token !== "string" || !body.access_token || typeof body.session_id !== "string" || !body.session_id) continue;
+    const original = form(baseline)!;
+    const originalProof = baseline.requestHeaders.get("dpop");
+    const assertion = original.get("assertion");
+    const client = original.get("client_assertion");
+    if (!originalProof || !assertion || !client) continue;
+    const claims = (jwt: string | null | undefined) => jwt ? decodeJwt(jwt) : null;
+    const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) =>
+      item !== null && typeof item === "object" && !Array.isArray(item)
+        ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
+    const fresh = (a: string | null | undefined, b: string | null | undefined, proof = false) => {
+      const old = claims(a), next = claims(b);
+      if (!old || !next || typeof old.payload.jti !== "string" || typeof next.payload.jti !== "string" || old.payload.jti === next.payload.jti) return false;
+      const stable = (payload: Record<string, unknown>) => Object.fromEntries(Object.entries(payload)
+        .filter(([key]) => !["jti", "iat", "exp", ...(proof ? ["nonce"] : [])].includes(key)));
+      return canonical(old.header) === canonical(next.header) && canonical(stable(old.payload)) === canonical(stable(next.payload));
+    };
+    for (const replay of requests) {
+      if (replay.index <= baseline.index || replay.url.href !== baseline.url.href) continue;
+      const fields = form(replay)!;
+      const dpop = replay.requestHeaders.get("dpop");
+      if (fields.get("client_id") !== original.get("client_id") || !fresh(client, fields.get("client_assertion"))) continue;
+      const expectedNonce = baseline.responseHeaders.get("dpop-nonce") ?? claims(originalProof)?.payload.nonce;
+      if (params.replay === "assertion" ? fields.get("assertion") === assertion && fresh(originalProof, dpop, true) && claims(dpop)?.payload.nonce === expectedNonce
+        : dpop === originalProof && fresh(assertion, fields.get("assertion"))) return [baseline, replay];
+    }
+  }
+}
+
+/** Judge the observed replay, separately from proving it was sent. A nonce refusal proves no replay-cache behavior. */
+export function replayRejected(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  const pair = replayPair(all, params);
+  if (!pair) return { kind: "failed", detail: "no replay to judge" };
+  const replay = pair[1];
+  const body = jsonBody(replay.responseBody) as { error?: unknown } | undefined;
+  if (replay.status === 400 && nonceChallenge(replay)) return { kind: "inapplicable", detail: "replay received only a nonce challenge; replay-cache protection remains untested" };
+  const expected = params.replay === "assertion" ? "invalid_grant" : "invalid_dpop_proof";
+  return replay.status === 400 && body?.error === expected
+    ? { kind: "ok", result: { exchange: replay.index, error: expected } }
+    : { kind: "failed", detail: `replay answered HTTP ${replay.status}, expected 400 ${expected}` };
+}
+
 export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params: Record<string, unknown>) => RunnerReply> = {
   nonce_retry: (all) => nonceRetry(all),
   revoked: (all) => revoked(all),
@@ -313,7 +367,8 @@ export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params:
   no_2xx_after: no2xxAfter,
   no_secret_in: noSecretIn,
   bounded_requests: boundedRequests,
-  attack_observed: attackObserved
+  attack_observed: attackObserved,
+  replay_rejected: replayRejected
 };
 
 export function assertTrace(all: readonly Exchange[], params: unknown): RunnerReply {

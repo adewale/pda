@@ -291,8 +291,16 @@ class BrowsingRules:
         assert orders.status_code == 200 and address.status_code == 200, (orders.status_code, address.status_code)
         active = ms.joined and not ms.ended and ms.account is not None
         sees_orders = active and ms.grant is not None and READ in ms.grant.scope
-        assert (f"Signed in as {ms.account}" in orders.text) == sees_orders, (sees_orders, orders.text[:200])
-        assert (f"Signed in as {ms.account}" in address.text) == active, (active, address.text[:200])
+        for page, signed_in in [(orders, sees_orders), (address, active)]:
+            if signed_in:
+                assert f"Signed in as {ms.account}" in page.text, page.text[:200]
+                assert "Signed out" not in page.text, page.text[:200]
+            else:
+                assert "Signed out" in page.text, page.text[:200]
+                for private_marker in ["Signed in as ", "ord_7Hk2", '<form id="address"', 'name="csrf"']:
+                    assert private_marker not in page.text, page.text[:200]
+        if sees_orders:
+            assert "ord_7Hk2" in orders.text, orders.text[:200]
         reached("orders seen" if sees_orders else "signed in" if active else "signed out")
 
 

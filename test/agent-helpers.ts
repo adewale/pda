@@ -130,7 +130,14 @@ export type Company = {
 };
 
 /** Every mock Company the current test created, with the violations it expects. */
-const created: { company: Company; expected: RegExp[] }[] = [];
+const created: { company: Company; expected: RegExp[]; instanceId: string }[] = [];
+
+/** Check the witness before trusting even an empty violation/request history. */
+export async function companyEvidence(stub: DurableObjectStub<MockCompany>, instanceId: string) {
+  const evidence = await stub.evidence();
+  if (evidence.instanceId !== instanceId) throw new Error("Mock Company was replaced: protocol evidence was lost");
+  return evidence.state;
+}
 
 /** Violations no pattern expects, and patterns no violation matched. */
 export function compareViolations(violations: readonly string[], expected: readonly RegExp[]) {
@@ -142,8 +149,8 @@ export function compareViolations(violations: readonly string[], expected: reado
 
 afterEach(async () => {
   const mocks = created.splice(0);
-  for (const { company: c, expected } of mocks) {
-    const violations = (await c.stub.state()).recorded;
+  for (const { company: c, expected, instanceId } of mocks) {
+    const violations = (await companyEvidence(c.stub, instanceId)).recorded;
     expect(compareViolations(violations, expected), `violations and warnings at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
   }
 });
@@ -153,7 +160,7 @@ export async function company(config: Partial<MockConfig> = {}): Promise<Company
   const id = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const stub = testEnv.MOCK_COMPANY.getByName(id);
   await stub.configure({ deviceInterval: 1, ...config });
-  const entry = { company: undefined as unknown as Company, expected: [] as RegExp[] };
+  const entry = { company: undefined as unknown as Company, expected: [] as RegExp[], instanceId: await stub.instanceId() };
   entry.company = {
     id,
     stub,

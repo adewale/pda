@@ -218,7 +218,8 @@ describe("our client against the mock Company, any honest sequence (model-based)
           ["signIn", "renew", "signOut", "propose"]
         ])
       );
-      const steps = tc.draw(gs.arrays(runs, { maxSize: 6 })).flat();
+      const steps = tc.draw(gs.arrays(runs, { minSize: 1, maxSize: 6 })).flat();
+      await agrees(w, model);
       for (const [index, command] of steps.entries()) {
         tc.note(`step ${index}: ${command}`);
         await run(w, model, command, tc);

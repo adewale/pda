@@ -1,4 +1,5 @@
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { exportJWK, generateKeyPair } from "jose";
 import { configDefaults, defineConfig } from "vitest/config";
@@ -34,11 +35,24 @@ async function poppySecrets() {
 export async function workersConfig(options: { name: string; include: string[]; exclude?: string[] }) {
   return defineConfig({
   // As the build: the commit and compatibility date on every wide event (src/log.ts).
-  define: buildDefines(path.join(testsDir, "wrangler.jsonc")),
+  define: {
+    ...buildDefines(path.join(testsDir, "wrangler.jsonc")),
+    // Markdown, license texts and the protocol snapshots (HTML/manifests in spec/) are documentation.
+    // Keep this Git inventory independent of the scanner's list of source roots.
+    __TEST_TEMPLATE_FILES__: JSON.stringify(execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+      cwd: path.join(testsDir, ".."), encoding: "utf8"
+    }).split("\0").filter((file) => file && !file.endsWith(".md") && !/(^|\/)LICENSE$/.test(file) && !file.startsWith("spec/")))
+  },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: path.join(testsDir, "wrangler.jsonc") },
-      miniflare: { outboundService: fakeProviders, bindings: await poppySecrets() }
+      miniflare: {
+        outboundService: fakeProviders,
+        bindings: await poppySecrets(),
+        // This fake deliberately keeps its protocol state and evidence in memory.
+        // Only the fake is pinned: real agent lifecycle/eviction tests still run.
+        durableObjects: { MOCK_COMPANY: { className: "MockCompany", useSQLite: true, unsafePreventEviction: true } }
+      }
     })
   ],
   resolve: {

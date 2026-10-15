@@ -313,7 +313,10 @@ describe.each(PROFILES)("4.2–4.3 sessions, tokens and DPoP ($name)", ({ config
   it("starts a signed-out Session with a random User ID", async () => {
     const c = await companyHere();
     const a = await agent();
-    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
+    const start = async (who: Agent) => {
+      expect((await tool(who, "poppy_api_call", { domain: c.domain, operation: "GET /products" })).isError).toBe(false);
+    };
+    await start(a);
     const state = await c.stub.state();
     expect(state.userIds).toHaveLength(1);
     expect(state.userIds[0]).toMatch(/^usr_[A-Za-z0-9_-]{22}$/);
@@ -324,7 +327,7 @@ describe.each(PROFILES)("4.2–4.3 sessions, tokens and DPoP ($name)", ({ config
     const newSession = async (who: Agent) => {
       await who.stub.poppySql("DELETE FROM poppy_sessions");
       await who.stub.poppyForgetMemory();
-      expect((await tool(who, "poppy_message", { domain: c.domain, text: "hello again" })).isError).toBe(false);
+      await start(who);
     };
     const sessionUsers = async () => (await c.stub.state()).sessions.map((session) => session.userId);
 
@@ -334,7 +337,7 @@ describe.each(PROFILES)("4.2–4.3 sessions, tokens and DPoP ($name)", ({ config
 
     // Per User: another agent at the same Company gets its own.
     const b = await agent();
-    expect((await tool(b, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
+    await start(b);
     const other = (await sessionUsers())[2]!;
     expect(other).toMatch(/^usr_[A-Za-z0-9_-]{22}$/);
     expect(other).not.toBe(first);
@@ -946,8 +949,16 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
     await a.stub.poppyRestart();
     expect(await retryJobs(a)).toHaveLength(2);
     await a.stub.poppyAdvance(0);
-    expect(await revocations(c)).toEqual([...refused(2), "200", "200"]);
-    expect((await signOuts(a)).map((row) => [row.status, row.held])).toEqual([["revoked", 0], ["revoked", 0]]);
+    // A natural alarm may already own one job; another alarm doesn't await it.
+    // Wait for both outcomes, preserving the exact request count and final state.
+    expect(await until(async () => {
+      const seen = await revocations(c);
+      return seen.length >= 6 && seen;
+    })).toEqual([...refused(2), "200", "200"]);
+    expect(await until(async () => {
+      const rows = (await signOuts(a)).map((row) => [row.status, row.held]);
+      return rows.every(([status, held]) => status === "revoked" && held === 0) && (await retryJobs(a)).length === 0 && rows;
+    })).toEqual([["revoked", 0], ["revoked", 0]]);
     // A second restart finds nothing to put back.
     await a.stub.poppyRestart();
     expect(await retryJobs(a)).toEqual([]);
@@ -2144,6 +2155,9 @@ describe("7 conversations", () => {
     const result = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
     await c.stub.say(result.conversationId, "One more thing: we have a sale on.");
     await a.stub.poppyWaitForNotice("we have a sale on");
+    await until(async () => (await a.stub.poppyTranscript()).includes("One more thing: we have a sale on."));
+    await until(async () => (await a.stub.demoRequests()).some((request) => request.last.includes("One more thing: we have a sale on.")));
+    expect((await a.stub.poppyModelInputs()).filter((text) => text.includes("One more thing: we have a sale on."))).toHaveLength(1);
   });
 
   it("handles an authorization event, then continues signed in", async () => {
@@ -2303,7 +2317,7 @@ describe("Operations extension", () => {
 
   it("shows the Company's summary verbatim and confirms once after the User approves", async () => {
     const { c, a, card } = await proposal();
-    expect(card.summary).toMatch(/Exchange/);
+    expect(card.summary).toBe("Exchange the Stormline Jacket (M) on order ord_7Hk2 for the Stormline Insulated Jacket (M), for $70.00 more, charged to the card used for the order.");
     expect(card.highlights.join(" ")).toMatch(/Cost/);
     await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
     await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
@@ -2927,7 +2941,10 @@ describe("7.5 reading again while has_more", () => {
       expect((await conversationRow(a, id)).cursor).toBe(all.at(-1)!.id);
       expect(await a.stub.poppyFaultsLeft()).toBe(0);
       // The model was told each one once, in order.
-      const told = (await a.stub.poppyNotices()).filter((notice) => notice.includes("Update "));
+      const told = await until(async () => {
+        const inputs = (await a.stub.poppyModelInputs()).filter((notice) => notice.includes("Update "));
+        return inputs.length >= texts.length && inputs;
+      });
       expect(told.map((notice) => /Update \d of 7\./.exec(notice)![0])).toEqual(texts);
       // Without has_more, a read ends at its page: nothing more is asked for.
       expect(await a.stub.poppyReadNow(id)).toEqual(expect.any(Number));

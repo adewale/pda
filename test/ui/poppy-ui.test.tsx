@@ -289,7 +289,7 @@ describe("operation card (Operations extension 5.1)", () => {
   });
 
   it("never links the Company's operation url", () => {
-    const { container } = renderCards(operationCard({ url: "javascript:alert(1)" }));
+    const { container } = renderCards(operationCard({ url: "https://auth.acme.example/poppy/operations/op_7Hq" }));
     expect(links(container)).toEqual([]);
   });
 });
@@ -523,7 +523,8 @@ describe("Companies page", () => {
   });
 
   it("adds a permission from labelled fields, for the chosen account", () => {
-    const { sent } = renderCompanies({ accounts });
+    const otherGlobexAccount = { ...accounts[1]!, account: "other***@example.com" };
+    const { sent } = renderCompanies({ accounts: [accounts[0]!, otherGlobexAccount, accounts[1]!] });
     fireEvent.click(screen.getByRole("button", { name: "Globex" }));
     fireEvent.change(screen.getByLabelText("Account"), { target: { value: "https://auth.globex.example|g***@example.com" } });
     fireEvent.change(screen.getByLabelText(/Word or words Globex's summary must begin with/), { target: { value: "rebook" } });
