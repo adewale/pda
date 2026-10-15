@@ -6,8 +6,7 @@ This covers the Poppy Demo Agent: the Worker, its sign-in, the Poppy client in `
 
 Report it privately. Please don't open an issue, pull request or discussion about it.
 
-- **While the repository is private** (it is now), report it to the repository owner, [@adewale](https://github.com/adewale), directly. GitHub's security advisories and private vulnerability reporting are for public repositories, and only an administrator can create an advisory, so they aren't the route yet.
-- **Once it's public**, the owner turns on private vulnerability reporting (**Settings → Code security**), and anyone can use **Security → Report a vulnerability** on [adewale/pda](https://github.com/adewale/pda), which opens a private draft advisory visible only to the repository's administrators and the people added to it.
+Use **Security → Report a vulnerability** on [adewale/pda](https://github.com/adewale/pda/security/advisories/new). It opens a private draft advisory that only the repository's administrators and the people added to it can see. If you can't use it, reach the owner, [@adewale](https://github.com/adewale), directly.
 
 If you have no private way to reach the owner, open an issue that asks for a private channel and says nothing about the problem.
 
@@ -17,7 +16,7 @@ Useful in a report:
 - the route, file or protocol step involved;
 - steps or a test that shows it. The strict mock Company in `test/mock-company/` and the fakes in `test/fake-providers.ts` usually make a failing test the shortest proof.
 
-We'll acknowledge a report, agree a timeline with you, fix it, and credit you unless you'd rather not be named. Once the repository is public and the report is an advisory, the fix is made in the advisory's private fork and the credit goes in the advisory.
+We'll acknowledge a report, agree a timeline with you, fix it, and credit you unless you'd rather not be named. The fix is made in the advisory's private fork, and the credit goes in the advisory.
 
 ## What's in scope
 

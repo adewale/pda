@@ -5,7 +5,7 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 ## Decisions for the owner
 
 - [x] **A licence.** Apache License 2.0, as the draft itself uses, chosen on 13 October ([LICENSE](LICENSE), [NOTICE.md](NOTICE.md)).
-- [ ] **Make the repository public, or not.** The proposals and `docs/interop-results/` link into it. First: send privately whatever the docs say about other projects that may be a vulnerability (SECURITY.md, points 1 to 3), turn on private vulnerability reporting and change SECURITY.md's "while the repository is private", and have the gateway's spend rules and a budget alert in place.
+- [x] **Make the repository public.** Public since 15 October 2026 as [adewale/pda](https://github.com/adewale/pda), with private vulnerability reporting on. Still owed from the conditions set for it: private notes to the other projects the docs name ([SECURITY.md](SECURITY.md), points 1 to 3; the upstream bug reports below), and the gateway's spend rules and a budget alert ([deployment-tasks](docs/deployment-tasks.md#1-configuration-and-accounts)). Alpine Retail and print-with-poppy heard on 15 October.
 - [ ] **The final domain for `client_id`**, before any Company registers the agent; it can't change afterwards ([deployment-tasks](docs/deployment-tasks.md#1-configuration-and-accounts)).
 - [x] **CI's runner image.** Pinned to `ubuntu-26.04` on 12 October (the LTS `ubuntu-latest` becomes on 19 October); CI and interop both passed on it at `fdb1a07`.
 - [x] **A known-good Company to verify against.** Chosen: print-with-poppy, the demo journey below. Its live store, printwithpoppy.com, allowlisted our `client_id`, and the deployed agent got a Session there on 12 October. It is in live payment mode, not demo.
