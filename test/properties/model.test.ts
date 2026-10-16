@@ -382,4 +382,25 @@ describe("two PDA clients and two accounts in one generated world", () => {
   }), Number(process.env.HEGEL_CASES ?? "0") > 0 ? 0 : 120_000);
 });
 
+describe("PDA audience fallback with real token renewal and revocation", () => {
+  it("renews and revokes under each audience reading, including token-endpoint-only S1", propertyAsync(async (tc) => {
+    const reading = tc.draw(gs.sampledFrom(["lenient", "exact", "token-endpoint"] as const));
+    const w = await world({ clientAssertionAud: reading, requireNonce: tc.draw(gs.booleans()),
+      nonceScope: tc.draw(gs.sampledFrom(["company", "origin"] as const)),
+      strictAssertions: tc.draw(gs.booleans()), rotateRefreshTokens: tc.draw(gs.booleans()),
+      endSessionsOnSignOut: tc.draw(gs.booleans()) });
+    const model: Model = { signedIn: false, operations: new Map(), performs: 0, conversations: new Set() };
+    await run(w, model, "signIn", tc);
+    await agrees(w, model);
+    w.client.dropToken(w.company);
+    await w.client.token(w.company);
+    await agrees(w, model);
+    await run(w, model, "signOut", tc);
+    await agrees(w, model);
+    const revocations = (await w.mock.state()).requests.filter((request) => request.url === w.hosts.revocationEndpoint);
+    expect(revocations.map((request) => request.status)).toEqual(reading === "token-endpoint" ? [401, 200] : [200]);
+    if (reading === "token-endpoint") expect(revocations[0]!.error).toBe("invalid_client");
+  }));
+});
+
 export type { Company };

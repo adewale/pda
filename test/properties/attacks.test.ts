@@ -30,7 +30,7 @@ for (const [id, replay, error, violation] of [
       core.config = { ...DEFAULT_CONFIG,
         requireNonce: tc.draw(gs.booleans()), strictAssertions: tc.draw(gs.booleans()),
         nonceScope: tc.draw(gs.sampledFrom(["company", "origin"] as const)),
-        clientAssertionAud: tc.draw(gs.sampledFrom(["lenient", "exact"] as const))
+        clientAssertionAud: tc.draw(gs.sampledFrom(["lenient", "exact", "token-endpoint"] as const))
       };
       core.hosts = { ...core.hosts, domain: "acme.company.interop.test", issuer: "https://auth.acme.company.interop.test", tokenEndpoint: TOKEN };
       core.served.set(`${origin}/poppy/client.json`, { status: 200, body: JSON.stringify(clientMetadata(env)) });
