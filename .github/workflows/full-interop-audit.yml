@@ -1,6 +1,6 @@
 # Temporary, opt-in validation branch. Detailed reports are encrypted so a
 # newly discovered third-party weakness is not published by the audit job.
-name: Full interoperability audit
+name: Complete missing interoperability row
 
 on:
   push:
@@ -15,6 +15,15 @@ concurrency:
 
 jobs:
   grid:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: reference
+            companies: pda-mock,pda-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo
+          - group: remaining
+            companies: poppyseed,ilmer,print-with-poppy,adonis-agora,everruns,tipping-co
+    name: everruns / ${{ matrix.group }}
     runs-on: ubuntu-26.04
     timeout-minutes: 180
     steps:
@@ -52,21 +61,21 @@ jobs:
 
       - run: npm ci --legacy-peer-deps
 
-      - name: Run the complete pinned honest grid
+      - name: Run the missing pinned agent row
         id: matrix
         shell: bash
         run: |
           mkdir -p interop/results
           matrix_status=0
           npm run interop -- --build-jobs 2 --min-free-gb 3 \
-            --agents pda,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora,everruns,tipping-co \
-            --companies pda-mock,pda-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora,everruns,tipping-co \
+            --agents everruns \
+            --companies ${{ matrix.companies }} \
             --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CI,CS,CA,H,DC,SO,SE,R,AO,AM,AS,W,O,O2,OX,OU,RL,DP,CM \
-            --out interop/results/full-ci > interop/results/full-ci.console.log 2>&1 || matrix_status=$?
+            --out interop/results/missing-${{ matrix.group }} > interop/results/missing-${{ matrix.group }}.console.log 2>&1 || matrix_status=$?
           echo "exit_code=$matrix_status" >> "$GITHUB_OUTPUT"
           node --input-type=module <<'JS'
           import { appendFileSync, existsSync, readFileSync } from "node:fs";
-          const file = "interop/results/full-ci/results.json";
+          const file = "interop/results/missing-${{ matrix.group }}/results.json";
           const counts = {};
           if (existsSync(file)) {
             const report = JSON.parse(readFileSync(file, "utf8"));
@@ -77,7 +86,7 @@ jobs:
           JS
 
       - name: Encrypt detailed results and build logs
-        if: always() && steps.matrix.outputs.exit_code != ''
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -87,16 +96,16 @@ jobs:
             --output "$RUNNER_TEMP/full-interop-report.tar.gz.gpg" "$RUNNER_TEMP/full-interop-report.tar.gz"
 
       - name: Upload encrypted audit evidence
-        if: always() && steps.matrix.outputs.exit_code != ''
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: full-interop-encrypted
+          name: missing-everruns-${{ matrix.group }}-encrypted
           path: ${{ runner.temp }}/full-interop-report.tar.gz.gpg
           if-no-files-found: error
 
       - name: Require the grid to pass
-        if: always() && steps.matrix.outputs.exit_code != ''
+        if: always()
         shell: bash
         env:
           MATRIX_EXIT_CODE: ${{ steps.matrix.outputs.exit_code }}
-        run: test "$MATRIX_EXIT_CODE" = 0
+        run: test "${MATRIX_EXIT_CODE:-1}" = 0
