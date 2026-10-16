@@ -1,0 +1,102 @@
+# Temporary, opt-in validation branch. Detailed reports are encrypted so a
+# newly discovered third-party weakness is not published by the audit job.
+name: Updated PDA ecosystem audit
+
+on:
+  push:
+    branches: [audit/current-agent-validation]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-agent-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  grid:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Prepare the report recipient
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/interop-gnupg"
+          gpg --homedir "$RUNNER_TEMP/interop-gnupg" --batch --import .github/interop-audit-recipient.asc
+          recipient=$(gpg --homedir "$RUNNER_TEMP/interop-gnupg" --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')
+          test -n "$recipient"
+          echo "INTEROP_REPORT_RECIPIENT=$recipient" >> "$GITHUB_ENV"
+
+      - name: Make room for pinned upstream builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          # These preinstalled SDKs are unused on this disposable audit runner.
+          sudo rm -rf -- /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          sudo fallocate -l 6G /swapfile-poppy-interop
+          sudo chmod 600 /swapfile-poppy-interop
+          sudo mkswap /swapfile-poppy-interop
+          sudo swapon /swapfile-poppy-interop
+          df -h .
+          free -h
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Run the updated PDA against every pinned honest Company
+        id: matrix
+        shell: bash
+        run: |
+          mkdir -p interop/results
+          matrix_status=0
+          npm run interop -- --build-jobs 2 --min-free-gb 3 \
+            --agents pda \
+            --companies pda-mock,pda-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora,everruns,tipping-co \
+            --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CI,CS,CA,H,DC,SO,SE,R,AO,AM,AS,W,O,O2,OX,OU,RL,DP,CM \
+            --out interop/results/current-agent-ci > interop/results/current-agent-ci.console.log 2>&1 || matrix_status=$?
+          echo "exit_code=$matrix_status" >> "$GITHUB_OUTPUT"
+          node --input-type=module <<'JS'
+          import { appendFileSync, existsSync, readFileSync } from "node:fs";
+          const file = "interop/results/current-agent-ci/results.json";
+          const counts = {};
+          if (existsSync(file)) {
+            const report = JSON.parse(readFileSync(file, "utf8"));
+            for (const cell of report.cells) counts[cell.outcome] = (counts[cell.outcome] ?? 0) + 1;
+          }
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            `Pinned local interoperability grid: ${JSON.stringify(counts)}. Detailed results are encrypted in the artifact.\n`);
+          JS
+
+      - name: Encrypt detailed results and build logs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -C interop/results -czf "$RUNNER_TEMP/current-agent-interop-report.tar.gz" .
+          gpg --homedir "$RUNNER_TEMP/interop-gnupg" --batch --yes --trust-model always \
+            --recipient "$INTEROP_REPORT_RECIPIENT" --encrypt \
+            --output "$RUNNER_TEMP/current-agent-interop-report.tar.gz.gpg" "$RUNNER_TEMP/current-agent-interop-report.tar.gz"
+
+      - name: Upload encrypted audit evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: current-agent-interop-encrypted
+          path: ${{ runner.temp }}/current-agent-interop-report.tar.gz.gpg
+          if-no-files-found: error
+
+      - name: Require the grid to pass
+        if: always()
+        shell: bash
+        env:
+          MATRIX_EXIT_CODE: ${{ steps.matrix.outputs.exit_code }}
+        run: test "${MATRIX_EXIT_CODE:-1}" = 0
