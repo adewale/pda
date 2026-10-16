@@ -252,6 +252,19 @@ describe("the conversation", () => {
     await chat(socket, client, "after eviction", "echo: after eviction (turn 1)");
     socket.close();
   });
+
+  // A pending timer keeps a Durable Object from being evicted, and in production
+  // from hibernating with the socket open. Under nodejs_compat a timer has an
+  // unref(), which makes pi keep its caches' expiry timers (ten minutes each):
+  // the agent sets both retentions to 0 (src/agent.ts).
+  it("can be evicted right after a turn, and answers on the open socket after", async () => {
+    const identity = person();
+    const { socket, client } = await connect(identity);
+    await chat(socket, client, "before", "echo: before (turn 1)");
+    await evictDurableObject(env.PersonalAgent.getByName(await agentNameFor(identity)));
+    await chat(socket, client, "after eviction", "echo: after eviction (turn 2)");
+    socket.close();
+  });
 });
 
 describe("sign-in", () => {

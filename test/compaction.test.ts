@@ -109,6 +109,28 @@ describe("compaction", () => {
     connection.socket.close();
   });
 
+  // pi-durable 1.1 wrote the prompt after a summary as a system message after
+  // the new input when the kept history held an answer, and Anthropic's
+  // provider sent it mid-conversation, without the prompt or the tools first.
+  it("puts the prompt before the conversation after a summary, never a system message after it starts", async () => {
+    const identity = someone("compaction.example");
+    const stub = await stubFor(identity);
+    const connection = await connect(identity);
+    await fill(connection);
+    await send(connection, "[context 150100] just over the threshold");
+    await send(connection, "over");
+    await until(async () => (await stub.activeEntries())[0]?.kind === "pi.compaction");
+    await send(connection, "after the summary");
+    const request = (await stub.demoRequests()).at(-1)!;
+    expect(request).toMatchObject({ summary: false, carriesSummary: true, last: "after the summary" });
+    // The kept history holds the model's answers.
+    expect(request.roles).toContain("assistant");
+    const start = request.roles.findIndex((role) => role !== "system");
+    expect(start).toBeGreaterThan(0);
+    expect(request.roles.slice(start)).not.toContain("system");
+    connection.socket.close();
+  });
+
   it("keeps every message in storage, and gives the page the ones before the summary after a reload", async () => {
     const identity = someone("compaction.example");
     const stub = await stubFor(identity);

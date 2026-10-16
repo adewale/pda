@@ -13,12 +13,12 @@ import { needsJavaScript, RENDER_LIMITS, renderedRead, renderPage, type BrowserL
 import { pageForModel, pageKind, READ_LIMITS, readUrl, ReadError, type Fetcher, type PageRead, type ReadLimiter } from "./web";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-type Result = { content: { type: "text"; text: string }[]; details: Json; isError?: true };
+type Result = { output: { type: "text"; text: string }[]; details: Json; isError?: true };
 
 const KNOWN = [CalcError, TimeError, MemoryError, ReadError];
 
 function ok(text: string, details: Json = null): Result {
-  return { content: [{ type: "text", text }], details };
+  return { output: [{ type: "text", text }], details };
 }
 
 function json(value: Json): Result {
@@ -29,7 +29,7 @@ function failure(error: unknown, details: Json = null): Result {
   const message = KNOWN.some((kind) => error instanceof kind)
     ? (error as Error).message
     : `Unexpected error: ${error instanceof Error ? error.message : String(error)}`;
-  return { content: [{ type: "text", text: message }], details, isError: true };
+  return { output: [{ type: "text", text: message }], details, isError: true };
 }
 
 type Args<T extends TSchema> = import("@earendil-works/pi-ai").Static<T>;
@@ -124,7 +124,7 @@ export function webExtension(options: WebToolsOptions): Extension {
     replay: "safe",
     async execute({ url, render }, api, context) {
       const kept = await api.memo<StoredRead>(READ_MEMO, context);
-      if (kept) return { content: [{ type: "text", text: kept.text }], details: kept.details, ...(kept.isError ? { isError: true as const } : {}) };
+      if (kept) return { output: [{ type: "text", text: kept.text }], details: kept.details, ...(kept.isError ? { isError: true as const } : {}) };
       const wait = options.limiter.take();
       if (wait > 0) {
         return failure(new ReadError(`Too many pages read in the last minute (the limit is ${READ_LIMITS.perMinute}); try again in ${wait} seconds`), { url, error: "rate_limited" });
@@ -151,10 +151,10 @@ export function webExtension(options: WebToolsOptions): Extension {
         };
       } catch (error) {
         const result = failure(error, { url: typeof url === "string" ? url.slice(0, 2000) : null, error: "not_read" });
-        stored = { text: result.content[0]!.text, details: result.details, isError: true };
+        stored = { text: result.output[0]!.text, details: result.details, isError: true };
       }
       stored = await api.memo(READ_MEMO, stored, context);
-      return { content: [{ type: "text", text: stored.text }], details: stored.details, ...(stored.isError ? { isError: true as const } : {}) };
+      return { output: [{ type: "text", text: stored.text }], details: stored.details, ...(stored.isError ? { isError: true as const } : {}) };
     }
   };
   return { name: "web", sections: [{ key: "web", render: () => WEB_PROMPT, tag: true }], tools: [readTool] };
