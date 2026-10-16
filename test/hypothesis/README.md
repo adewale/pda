@@ -10,11 +10,11 @@ Our TypeScript client (`src/poppy/`) and our mock Company (`test/mock-company/`)
 ## Running it
 
 ```sh
-npm run test:hypothesis                                 # default: 100 runs of up to 30 steps per machine, about 50 s
-npm run test:hypothesis -- --hypothesis-profile=deep    # 2,000 runs of up to 60 steps per machine, about half an hour
+npm run test:hypothesis                                 # default: 100 runs of up to 30 steps per machine
+npm run test:hypothesis -- --hypothesis-profile=deep    # 2,000 runs of up to 60 steps per machine
 ```
 
-It needs `uv` and Node; `uv run --frozen` installs the pinned, hash-locked dependencies from `uv.lock` into `.venv/`. It is local only: not part of `npm test`, not in CI. Everything stays on 127.0.0.1, with no Docker.
+It needs `uv` and Node; `uv run --frozen` installs the pinned, hash-locked dependencies from `uv.lock` into `.venv/`. It is local only: not part of `npm test`, not in CI. Everything stays on 127.0.0.1, with no Docker. After dependencies are installed, no external service or paid model is used. A deep run on 16 October took 95 minutes with four workers while other checks were running; this is an observation, not a runtime promise. Default and deep profiles have very different costs.
 
 ## How it reaches the mock
 

@@ -40,7 +40,6 @@ jobs:
       - name: No global Durable Object resets in the shared runtime
         run: "! grep -rnE '(abort|evict|delete)AllDurableObjects\\(' test --exclude-dir=durability"
 
+      # Runs all test projects, then checks documented references using the
+      # names already discovered in this invocation. No second workerd startup.
       - run: npm test
-
-      # Every test Appendix A and docs/adversarial-interop.md name exists.
-      - run: npm run check:docs

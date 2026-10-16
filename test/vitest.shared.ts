@@ -27,10 +27,10 @@ async function poppySecrets() {
 }
 
 /**
- * A Workers-runtime test project. Each config gets its own workerd runtime,
- * shared by every file it includes; tests that reset every Durable Object
- * (`abortAllDurableObjects`) live in their own config so they can't reset
- * objects another file is using mid-test.
+ * A Workers-runtime test project. The pool creates local Miniflare/workerd
+ * runtimes for its isolated file workers. Tests that reset every Durable
+ * Object (`abortAllDurableObjects`) remain in their own config, preserving
+ * that boundary if file-worker isolation or pooling changes.
  */
 export async function workersConfig(options: { name: string; include: string[]; exclude?: string[] }) {
   return defineConfig({

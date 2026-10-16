@@ -54,13 +54,15 @@ async function dpopKey() {
 type DpopKey = Awaited<ReturnType<typeof dpopKey>>;
 
 async function clientAssertion(ctx: AttackContext, s: Signer, aud: string, id = jti()): Promise<string> {
-  return new SignJWT({ iss: ctx.clientId, sub: ctx.clientId, aud, iat: now(), exp: now() + 60, jti: id })
+  const issuedAt = now();
+  return new SignJWT({ iss: ctx.clientId, sub: ctx.clientId, aud, iat: issuedAt, exp: issuedAt + 60, jti: id })
     .setProtectedHeader({ alg: "ES256", typ: "JWT", kid: s.kid })
     .sign(s.key);
 }
 
 async function sessionAssertion(ctx: AttackContext, s: Signer, tokenEndpoint: string, sub = "usr_Q7c1vKx9TzLw3NdR5mHa2B", id = jti()): Promise<string> {
-  return new SignJWT({ iss: ctx.clientId, sub, aud: tokenEndpoint, iat: now(), exp: now() + 60, jti: id })
+  const issuedAt = now();
+  return new SignJWT({ iss: ctx.clientId, sub, aud: tokenEndpoint, iat: issuedAt, exp: issuedAt + 60, jti: id })
     .setProtectedHeader({ alg: "ES256", typ: "JWT", kid: s.kid })
     .sign(s.key);
 }

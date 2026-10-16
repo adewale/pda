@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fast check before a push: the types only (about 5 s). CI runs the tests
+# Check before a push: the types only. CI runs the tests
 # and the docs check. Enable once per clone:
 #   git config core.hooksPath .githooks
 # Skip it for one push, knowingly: git push --no-verify

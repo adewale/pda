@@ -33,8 +33,9 @@ const ORIGIN = "https://agent.test";
 
 /**
  * Readings of questions the draft leaves open (docs/spec-issues.md). Sign-in,
- * Sessions and DPoP, and signing out run under each, so a misreading our
- * client and our mock share can't pass by agreement.
+ * Sessions and DPoP, and signing out run under each. This exercises our
+ * declared readings; independent Python and third-party clients provide
+ * additional checks on assumptions our client and mock could share.
  */
 const PROFILES: readonly { name: string; config: Partial<MockConfig> }[] = [
   { name: "lenient aud, no nonces", config: {} },
@@ -2277,7 +2278,9 @@ describe("7 conversations", () => {
   it("skips SSE keep-alive comments and saves the cursor after each event", async () => {
     const c = await company({ streaming: true, textDeltas: true, sseKeepAlive: true });
     const a = await agent();
-    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const opened = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
+    expect(opened.isError, opened.text).toBe(false);
+    const first = JSON.parse(opened.text);
     await c.stub.say(first.conversationId, "The sale ends on Friday.");
     await a.stub.poppyWaitForNotice("The sale ends on Friday.");
     // The cursor is saved once the event is handled, which ends after the model is told (it checks the model lane first).

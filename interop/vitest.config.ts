@@ -13,6 +13,6 @@ export default defineConfig({
   test: {
     name: "interop",
     environment: "node",
-    include: [path.join(interopDir, "test/**/*.test.ts")]
+    include: [path.join(interopDir, "test/**/*.test.{ts,mjs}")]
   }
 });
