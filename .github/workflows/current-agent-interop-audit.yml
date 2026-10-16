@@ -1,6 +1,6 @@
 # Temporary, opt-in validation branch. Detailed reports are encrypted so a
 # newly discovered third-party weakness is not published by the audit job.
-name: Updated PDA ecosystem audit
+name: Repaired ecosystem audit
 
 on:
   push:
@@ -52,28 +52,39 @@ jobs:
 
       - run: npm ci --legacy-peer-deps
 
-      - name: Run the updated PDA against every pinned honest Company
+      - name: Run affected rows and columns from fresh pinned images
         id: matrix
         shell: bash
         run: |
           mkdir -p interop/results
-          matrix_status=0
+          rows_status=0
           npm run interop -- --build-jobs 2 --min-free-gb 3 \
-            --agents pda \
+            --agents pda,pi-poppy \
             --companies pda-mock,pda-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora,everruns,tipping-co \
             --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CI,CS,CA,H,DC,SO,SE,R,AO,AM,AS,W,O,O2,OX,OU,RL,DP,CM \
-            --out interop/results/current-agent-ci > interop/results/current-agent-ci.console.log 2>&1 || matrix_status=$?
+            --out interop/results/repaired-rows > interop/results/repaired-rows.console.log 2>&1 || rows_status=$?
+          columns_status=0
+          npm run interop -- --build-jobs 2 --min-free-gb 3 \
+            --agents datalayer-ts,datalayer-py,poppy-demo,adonis-agora,everruns,tipping-co \
+            --companies pi-poppy,print-with-poppy \
+            --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CI,CS,CA,H,DC,SO,SE,R,AO,AM,AS,W,O,O2,OX,OU,RL,DP,CM \
+            --out interop/results/repaired-columns > interop/results/repaired-columns.console.log 2>&1 || columns_status=$?
+          matrix_status=0
+          if [ "$rows_status" -ne 0 ] || [ "$columns_status" -ne 0 ]; then matrix_status=1; fi
           echo "exit_code=$matrix_status" >> "$GITHUB_OUTPUT"
           node --input-type=module <<'JS'
           import { appendFileSync, existsSync, readFileSync } from "node:fs";
-          const file = "interop/results/current-agent-ci/results.json";
           const counts = {};
-          if (existsSync(file)) {
+          let cells = 0;
+          for (const part of ["rows", "columns"]) {
+            const file = `interop/results/repaired-${part}/results.json`;
+            if (!existsSync(file)) continue;
             const report = JSON.parse(readFileSync(file, "utf8"));
+            cells += report.cells.length;
             for (const cell of report.cells) counts[cell.outcome] = (counts[cell.outcome] ?? 0) + 1;
           }
           appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-            `Pinned local interoperability grid: ${JSON.stringify(counts)}. Detailed results are encrypted in the artifact.\n`);
+            `Affected pinned local interoperability cells: ${cells}; ${JSON.stringify(counts)}. Detailed results are encrypted in the artifact.\n`);
           JS
 
       - name: Encrypt detailed results and build logs
@@ -81,17 +92,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tar -C interop/results -czf "$RUNNER_TEMP/current-agent-interop-report.tar.gz" .
+          tar -C interop/results -czf "$RUNNER_TEMP/repaired-interop-report.tar.gz" .
           gpg --homedir "$RUNNER_TEMP/interop-gnupg" --batch --yes --trust-model always \
             --recipient "$INTEROP_REPORT_RECIPIENT" --encrypt \
-            --output "$RUNNER_TEMP/current-agent-interop-report.tar.gz.gpg" "$RUNNER_TEMP/current-agent-interop-report.tar.gz"
+            --output "$RUNNER_TEMP/repaired-interop-report.tar.gz.gpg" "$RUNNER_TEMP/repaired-interop-report.tar.gz"
 
       - name: Upload encrypted audit evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: current-agent-interop-encrypted
-          path: ${{ runner.temp }}/current-agent-interop-report.tar.gz.gpg
+          name: repaired-interop-encrypted
+          path: ${{ runner.temp }}/repaired-interop-report.tar.gz.gpg
           if-no-files-found: error
 
       - name: Require the grid to pass

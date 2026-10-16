@@ -29,8 +29,8 @@ COPY --from=build /opt/pwp/package.json /opt/pwp/package-lock.json ./
 COPY --from=build /opt/pwp/node_modules ./node_modules
 COPY --from=build /opt/pwp/server ./server
 COPY --from=build /opt/pwp/src/offer.ts ./src/offer.ts
+RUN install -d -m 0755 /interop-adapter /data && chown node:node /data
 COPY --chmod=0644 adapter.mjs /interop-adapter/adapter.mjs
-RUN mkdir -p /data && chown node:node /data
 
 # The proxy reaches the store on 8080; the runner reaches the adapter on 8081. The public origin
 # comes from INTEROP_ORIGIN (default https://print-with-poppy.company.interop.test). Node trusts

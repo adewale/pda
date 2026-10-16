@@ -210,6 +210,7 @@ What the comparison found in our own client, and what we did.
 
 | Issue | Status |
 | --- | --- |
+| A narrower read-only token left an older broad token cached, which a later conversation could reuse despite 4.3. The mock's two-second concurrency grace hid it in fast histories. | Fixed: a new Session Token drops every cached scope/resource variant for that Session. A deterministic regression checks token identity, scopes, MCP separation and another Session's cache without sleeps; found by the deep stateful property run on 16 October. |
 | Our `poppy_domains` check stripped `www.` from both sides, which is looser than "includes `organization.domain`" (3.2). | Fixed: discovery now goes through the validator, which compares exactly, ignoring only case. |
 | An API or conversation that answers 400 `invalid_session` (poppy-demo) left our cached token failing until it expired. | Fixed: the client starts a new Session and retries once. Tested against the mock in both modes. |
 | Our spec said the OAuth metadata is at `{auth.issuer}/.well-known/oauth-authorization-server`, the append form; the code did RFC 8414 insertion. | Fixed in the spec. |
