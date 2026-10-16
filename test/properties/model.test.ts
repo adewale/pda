@@ -417,6 +417,31 @@ for (const action of ["confirm", "read", "cancel"] as const) {
   });
 }
 
+it("replaces cached scope and resource variants when a Session gets a new token", async () => {
+  const w = await world({});
+  await signInto(w, w.mock, "main", "acct_ada");
+  const other = await w.client.token(w.company, { label: "other" });
+  const broad = await w.client.token(w.company);
+  const session = w.client.session(w.company.issuer, "main")!;
+  const narrow = await w.client.token(w.company, { scope: "poppy:read" });
+  expect(narrow.scope).toBe("poppy:read");
+  expect(narrow.value).not.toBe(broad.value);
+  const renewed = await w.client.token(w.company);
+  expect(renewed.value).not.toBe(broad.value);
+  expect(renewed.value).not.toBe(narrow.value);
+  expect(new Set(renewed.scope.split(" "))).toEqual(new Set(["poppy:read", "poppy:write"]));
+  expect((await w.client.token(w.company)).value).toBe(renewed.value);
+  expect((await w.client.token(w.company, { label: "other" })).value).toBe(other.value);
+
+  const mcp = await w.client.token(w.company, { bearer: true, resource: w.hosts.mcpUrl });
+  expect(mcp.type).toBe("Bearer");
+  const afterMcp = await w.client.token(w.company);
+  expect(afterMcp.type).toBe("DPoP");
+  expect(afterMcp.value).not.toBe(renewed.value);
+  expect(w.client.session(w.company.issuer, "main")!.session_id).toBe(session.session_id);
+  expect((await w.mock.state()).recorded).toEqual([]);
+});
+
 type IsolationCommand = Command | "orders";
 type IsolatedClient = Awaited<ReturnType<World["createClient"]>>;
 type IsolatedModel = {

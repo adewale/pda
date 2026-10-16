@@ -48,6 +48,8 @@ Proposals through every channel: the OpenAPI exchange (202 with the operation; f
 
 Reject rules: a standing permission where `user_approval_required` (403 `user_approval_required`); a revision that isn't the latest (409 `terms_changed` with the current operation); a malformed confirm (a revision that isn't an integer, an `approved_by` that isn't `user` or `standing_permission`); asking for a new proposal of the same action after a confirm, before it's final (Ops 6, N34).
 
+The fixture has one exchangeable jacket per account. An approved exchange that is still pending reserves that jacket, so another User cannot approve a second exchange of it before the first finishes. Retries of the same operation, other accounts and print orders remain enabled; cancellation releases the reservation. This is a business-fixture constraint, not a new protocol restriction.
+
 The model: each operation's revisions, each fixed once issued (3.1); its state, never changing once final; `confirmation` null until confirmed, then the revision and approval; `result` null until final; who may use it (3.2: the same agent and User signed in to its account, or only its own Session when proposed signed out); the open operation a proposal of the same action returns (Ops 4); and, through `GET /state`, that the Company performed exactly the confirmed actions, once each (at most once, Ops 1, 6).
 
 ### `test_handoff_direct.py`: handoff and Direct Conversations

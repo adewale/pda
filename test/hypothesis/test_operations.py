@@ -340,16 +340,24 @@ class OperationsRules:
 
     # ---- approving and confirming (Ops 5) ----
 
+    def item_available(self, op: MOperation) -> bool:
+        """The fixture has one jacket per account; a pending exchange reserves it."""
+        return op.kind != "exchange" or (
+            op.account not in self.exchanged
+            and not any(other.kind == "exchange" and other.account == op.account and other.pending for other in self.operations)
+        )
+
     def confirmable(self) -> list[tuple[MOperation, MSession]]:
         """
         What the honest agent confirms: an operation it may use, after the
         User approved it, never an exchange for an account whose jacket was
-        already exchanged (a repeat confirm of a confirmed one is fine).
+        already exchanged or committed to another pending operation (a
+        repeat confirm of a confirmed one is fine).
         """
         return [
             (op, ms)
             for op, ms in self.usable_pairs(self.operations)
-            if not (op.kind == "exchange" and op.state == "proposed" and op.account in self.exchanged)
+            if op.state != "proposed" or self.item_available(op)
         ]
 
     @precondition(lambda self: self.agent.lists_operations and self.confirmable())
@@ -474,14 +482,14 @@ class OperationsRules:
 
     @precondition(
         lambda self: [
-            op for op in self.operations if op.state == "proposed" and not (op.kind == "exchange" and op.account in self.exchanged)
+            op for op in self.operations if op.state == "proposed" and self.item_available(op)
         ]
     )
     @rule(data=st.data())
     def user_confirms_on_the_website(self, data: st.DataObject) -> None:
         """Ops 4.4: confirmed on the website, it's the same operation, performed once whichever way it's confirmed."""
         op = data.draw(
-            st.sampled_from([op for op in self.operations if op.state == "proposed" and not (op.kind == "exchange" and op.account in self.exchanged)])
+            st.sampled_from([op for op in self.operations if op.state == "proposed" and self.item_available(op)])
         )
         self.server.hook("confirm_on_website", operation=op.id)
         op.state = "succeeded"

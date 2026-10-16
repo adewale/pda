@@ -796,7 +796,8 @@ export class PoppyClient {
       signedIn: response.signed_in === true,
       keyThumbprint: dpop?.thumbprint ?? null
     };
-    // The newest token for a Session replaces every older one (spec 4.3).
+    // Scope/resource variants must not revive an older token (spec 4.3).
+    this.#forgetTokens(company.issuer, label);
     this.#tokens.set(key, token);
     return token;
   }

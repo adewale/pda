@@ -6,6 +6,26 @@ from hypothesis import given, settings, strategies as st
 
 from machine import ApiRules, Base
 from test_mcp_browsing import BrowsingRules
+from test_operations import OperationsRules
+
+
+def test_pending_exchange_reserves_only_its_item_and_releases_it_on_cancellation():
+    model = OperationsRules()
+    model.init_operations()
+    pending = NS(kind="exchange", account="acct_ada", state="in_progress", pending=True)
+    other_user = NS(kind="exchange", account="acct_ada", state="proposed", pending=False)
+    other_account = NS(kind="exchange", account="acct_grace", state="proposed", pending=False)
+    prints = NS(kind="prints", account="acct_ada", state="proposed", pending=False)
+    model.operations = [pending, other_user, other_account, prints]
+    model.usable_pairs = lambda operations: [(op, None) for op in operations]
+    # Retrying the pending confirm remains valid, as do independent business actions.
+    assert model.confirmable() == [(pending, None), (other_account, None), (prints, None)]
+    assert not model.item_available(other_user)  # also used by website confirmation
+    pending.state, pending.pending = "cancelled", False
+    assert model.item_available(other_user)
+    assert (other_user, None) in model.confirmable()
+    model.exchanged.add("acct_ada")
+    assert not model.item_available(other_user)
 
 
 @pytest.mark.parametrize("body", [
