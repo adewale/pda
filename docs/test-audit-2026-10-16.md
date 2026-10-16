@@ -62,15 +62,21 @@ Hypothesis uses an independent Python client against the mock Company, which
 can find mock/model disagreements but cannot establish production PDA behavior
 by itself.
 
+The largest remaining opportunity is generated recovery and concurrency
+histories against the real Workers runtime: crashes, eviction, durable jobs
+and reconnects across those boundaries. Existing examples cover those
+behaviors, while the new Node models deliberately avoid claiming them.
+More cases in the current pure suite would not close that runtime gap.
+
 ## Validation record
 
 The regular GitHub Test and Interop workflows pass on `cc44ddf`:
 1,494 tests passed with one intentional skip across the five Vitest
-configurations; TypeScript and documentation checks passed. This includes the
-third audience policy, accepted DPoP variants and the focused PDA fallback
-property and the returned-identity assertions. The identity assertions also
-passed their targeted deep runs. This includes the six wrong-signature
-variants and the explicit known-failure metadata.
+configurations; TypeScript and documentation checks passed. This includes all
+new audience, algorithm, identity and signature controls and the explicit
+known-failure metadata. The sole skip is the deployer-specific identity scan
+in `test/template.test.ts`, which needs the absent `deployment.local.json`;
+the generic template scans still ran.
 
 Completed follow-up checks:
 
@@ -84,25 +90,33 @@ Completed follow-up checks:
 - Wrong-signature controls for all three credentials under ES256 and RS256: six properties passed at that setting.
 - Final build-scheduler properties: 15 tests passed at that setting.
 - Interop unit suite: 205 tests passed.
+- Production bundle: builds successfully. Vite reports chunk-size advisories, including a 1.51 MB entry chunk (460 KB gzip).
 - Docker adversarial agent lane: 16 pass against both mock profiles.
 - Docker adversarial Company lane: 10 pass.
 - Docker network-fault lane: eight pass against both mock profiles.
 - Those Docker runs reported zero failures, harness errors or unsupported cells; isolation probes passed.
 - Live discovery: three pass, for Ilmer, Poppyseed and Alpine Retail.
 
-The full deep Hypothesis profile (2,000 examples, up to 60 steps) is still
-running at the time of this record: ten oracle controls and four of five
-state machines have passed.
+The complete deep Hypothesis profile (2,000 examples, up to 60 steps) passed:
+all five state machines and ten oracle controls, 15 tests in 5,731 seconds.
 
-The [first full pinned ecosystem job](https://github.com/adewale/pda/actions/runs/38829561008)
-produced all 2,880 cells (eight agents, twelve Companies, thirty scenarios):
-967 pass, 262 fail, 1,291 unsupported and 360 setup errors. All setup errors
-come from the Everruns agent image failing to fetch a dependency with an SSL
-peer EOF. Its 360 cells did not execute. The missing row is
-[rebuilding in two isolated shards](https://github.com/adewale/pda/actions/runs/38835758531).
-Those observations will replace only the setup-error row, with attribution
-recomputed over the full grid. The first run's four stale Everruns expectations
-remain in place until that row executes.
+The complete pinned ecosystem matrix covers 2,880 cells: eight agents,
+twelve Companies and thirty honest scenarios. Final results are **1,000 pass,
+273 documented known failures and 1,607 unsupported**, with zero harness
+errors, unexplained failures, stale expectations or flaky cells. Known
+failures and unsupported capabilities are not passes.
+
+The [first full job](https://github.com/adewale/pda/actions/runs/38829561008)
+had 360 setup-error cells because the Everruns agent image failed to fetch a
+dependency with an SSL peer EOF. The missing row completed in
+[two isolated follow-up shards](https://github.com/adewale/pda/actions/runs/38835758531):
+33 pass, eleven known failures and 316 unsupported, without errors or flaky
+cells. Only the original setup-error row was replaced. The combined report
+checks every cell appears exactly once, verifies consistent pins, readings
+and relaxations, then recomputes attribution over the full grid. Fingerprints
+confirm that classification did not change outcomes, steps or checks. The
+four expectations made stale by the unbuilt agent matched again after it ran;
+none were removed to make the report pass.
 
 The first grid's sole unexpected PDA failure was the already documented
 held-proposal behavior in S22. Its known-failure entry omitted the observed
@@ -115,16 +129,17 @@ build concurrency (default two), preserves completed build logs immediately
 and disables unneeded Rust debug data. Cargo dependency fetches use Git's CLI
 with five network retries, preserving TLS verification. This changes build
 transport, not protocol-request retry behavior. Detailed ecosystem results
-remain encrypted outside Git pending private triage under
-[SECURITY.md](../SECURITY.md); no new third-party vulnerability details are
-published in this report. Build errors, unsupported cells and unexecuted cells
-remain distinct from passes.
+are encrypted in the Actions artifacts; decrypted reports remain in a private
+workspace outside Git for triage under [SECURITY.md](../SECURITY.md). Artifact
+digests were verified. No new third-party vulnerability details are published
+in this report. Build errors, unsupported cells and unexecuted cells remain
+distinct from passes.
 
 The first ecosystem job used `96be076`. The current build-fetch settings and
 known-failure metadata differ, but Git tree hashes confirm identical
 application, mock Company, runner and proxy source trees. The follow-up uses
-the same upstream pins. Combining the observations does not represent them
-as one simultaneous Docker run.
+the same upstream pins. The combined report records all three source runs and
+their isolation proofs rather than presenting them as one simultaneous run.
 
 Builds fetch public dependencies and pinned upstream sources. Protocol tests
 then run on internal Docker networks whose egress refusal is probed before
