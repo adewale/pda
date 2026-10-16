@@ -15,7 +15,7 @@ import { DecodeError, tryDecode } from "../src/decode";
 import { AGENT_ERROR_CODES, companyErrorCode } from "../src/poppy/error-codes";
 import { origin } from "../src/log";
 import { isSignInPage } from "../src/poppy/browser";
-import { assertPublicHost, fetchJson, PoppyFetchError, type Fetcher } from "../src/poppy/fetch";
+import { assertPublicHost, fetchJson, PoppyFetchError, raceAbort, type Fetcher } from "../src/poppy/fetch";
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
 import worker from "./worker";
@@ -33,8 +33,9 @@ const ORIGIN = "https://agent.test";
 
 /**
  * Readings of questions the draft leaves open (docs/spec-issues.md). Sign-in,
- * Sessions and DPoP, and signing out run under each, so a misreading our
- * client and our mock share can't pass by agreement.
+ * Sessions and DPoP, and signing out run under each. This exercises our
+ * declared readings; independent Python and third-party clients provide
+ * additional checks on assumptions our client and mock could share.
  */
 const PROFILES: readonly { name: string; config: Partial<MockConfig> }[] = [
   { name: "lenient aud, no nonces", config: {} },
@@ -2277,7 +2278,25 @@ describe("7 conversations", () => {
   it("skips SSE keep-alive comments and saves the cursor after each event", async () => {
     const c = await company({ streaming: true, textDeltas: true, sseKeepAlive: true });
     const a = await agent();
-    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const opened = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
+    let diagnostic = opened.text;
+    if (opened.isError) {
+      // Only this failed discovery reads extra evidence, before afterEach stops
+      // the agent. Capture failures must not replace or indefinitely delay it.
+      const signal = AbortSignal.timeout(1_000);
+      const capture = (read: () => Promise<unknown>) => raceAbort(Promise.resolve().then(read), signal)
+        .catch((error: unknown) => ({ captureError: String(error) }));
+      const [protocol, mock] = await Promise.all([
+        capture(() => a.stub.poppyProtocol(`https://${c.domain}`)),
+        capture(async () => {
+          const { instanceId, state } = await c.stub.evidence();
+          return { instanceId, requests: state.requests };
+        })
+      ]);
+      diagnostic = JSON.stringify({ answer: opened.text, protocol, mock }, null, 2);
+    }
+    expect(opened.isError, diagnostic).toBe(false);
+    const first = JSON.parse(opened.text);
     await c.stub.say(first.conversationId, "The sale ends on Friday.");
     await a.stub.poppyWaitForNotice("The sale ends on Friday.");
     // The cursor is saved once the event is handled, which ends after the model is told (it checks the model lane first).

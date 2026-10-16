@@ -35,12 +35,11 @@ jobs:
 
       - run: npm run typecheck
 
-      # Resetting every Durable Object belongs only in test/durability, which
-      # has its own runtime; elsewhere it resets other files' objects mid-test.
-      - name: No global Durable Object resets in the shared runtime
+      # Keep whole-runtime resets in the durability suite as an explicit policy.
+      # File workers are currently isolated; this boundary also permits future pooling.
+      - name: Whole-runtime resets belong in durability tests
         run: "! grep -rnE '(abort|evict|delete)AllDurableObjects\\(' test --exclude-dir=durability"
 
+      # Runs all test projects, then checks documented references using the
+      # names already discovered in this invocation. No second workerd startup.
       - run: npm test
-
-      # Every test Appendix A and docs/adversarial-interop.md name exists.
-      - run: npm run check:docs

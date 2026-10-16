@@ -22,7 +22,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -615,6 +615,10 @@ export async function main(argv: readonly string[]): Promise<number> {
       const trust = path.join(certs, "trust");
       mkdirSync(trust);
       writeFileSync(path.join(trust, "ca.pem"), readFileSync(ca));
+      // Only this public certificate is copied to implementations. Docker cp
+      // preserves restrictive host modes, so non-root adapters need explicit access.
+      chmodSync(trust, 0o755);
+      chmodSync(path.join(trust, "ca.pem"), 0o644);
       const proxyCerts = path.join(certs, "proxy");
       mkdirSync(proxyCerts);
       for (const file of ["ca.pem", "proxy.pem", "proxy.key"]) writeFileSync(path.join(proxyCerts, file), readFileSync(path.join(certs, file)));
@@ -747,7 +751,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   } finally {
     for (const name of containers) {
       try {
-        writeFileSync(path.join(logs, `${name.replace(`${names.network}-`, "")}.log`), docker(["logs", name], { quiet: true }));
+        writeFileSync(path.join(logs, `${name.replace(`${names.network}-`, "")}.log`), (await dockerAsync(["logs", name])).output);
       } catch {
         // No logs.
       }

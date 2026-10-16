@@ -1,13 +1,13 @@
 /** Replay execution and evidence, using real signed requests and recording fetchers. */
 import { base64url, decodeJwt, exportJWK, generateKeyPair } from "jose";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Company } from "../../src/poppy/discovery.ts";
 import { toIssuer } from "../../src/poppy/issuer.ts";
 import { AttackSetupError, runAttack } from "../impls/pda-agent/attacks.ts";
 import { runCell, toReply, type Driver } from "../runner/cell.ts";
 import { loadScenarios } from "../runner/cli.ts";
 import { assertTrace } from "../runner/traces.ts";
-import { recording, TOKEN, type Spec } from "./helpers.ts";
+import { recording, NOW, TOKEN, type Spec } from "./helpers.ts";
 
 const company: Company = {
   issuer: toIssuer("https://auth.acme.company.interop.test"), domain: "acme.company.interop.test", name: "Acme", protocolVersion: "0.1",
@@ -27,7 +27,7 @@ async function execute(id: string, statuses: readonly number[], errors: readonly
       const status = statuses[n]!;
       const response = status === 200 ? { access_token: `at_${n}`, session_id: `ses_${n}` } : { error: errors[n] };
       const responseHeaders: Record<string, string> = nonces[n] ? { "dpop-nonce": nonces[n]! } : {};
-      records.push({ url: request.url, method: request.method, headers: Object.fromEntries(request.headers), body: await request.text(), status, response, responseHeaders });
+      records.push({ at: Date.now() - NOW * 1000, url: request.url, method: request.method, headers: Object.fromEntries(request.headers), body: await request.text(), status, response, responseHeaders });
       return Response.json(response, { status, headers: responseHeaders });
     }
   };
@@ -160,4 +160,54 @@ describe("YA audience mutation", () => {
     const trace = recording({ url: TOKEN, method: "POST", status: 400, response: { error: "use_dpop_nonce" } });
     expect(assertTrace(trace, { check: "attack_observed", mutation: "client_audience" }).kind).toBe("failed");
   });
+});
+
+describe("attack evidence excludes unrelated credential failures", () => {
+  it("keeps assertion lifetimes at 60 seconds when the clock crosses second boundaries", async () => {
+    const start = Date.now();
+    let ticks = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => start + ticks++ * 1_000);
+    try {
+      const { result, records } = await execute("YA", [200, 401], ["", "invalid_client"]);
+      expect(result.outcome).toBe("pass");
+      for (const record of records) for (const field of ["assertion", "client_assertion"]) {
+        const claims = decodeJwt(new URLSearchParams(record.body).get(field)!);
+        expect(claims.exp! - claims.iat!).toBe(60);
+      }
+    } finally { clock.mockRestore(); }
+  });
+  for (const id of ["YA", "YR", "YD"] as const) {
+    it.each(["expired", "future", "overlong", "missing expiry", "assertion type", "expired Session", "stale proof"] as const)(`${id}: excludes %s as a second rejection cause`, async (fault) => {
+      const error = id === "YA" ? "invalid_client" : id === "YR" ? "invalid_grant" : "invalid_dpop_proof";
+      const { records } = await execute(id, [200, id === "YA" ? 401 : 400], ["", error]);
+      const fields = new URLSearchParams(records[1]!.body);
+      const credential = fault === "expired Session" ? fields.get("assertion")! : fault === "stale proof" ? records[1]!.headers!.dpop! : fields.get("client_assertion")!;
+      const [header, , signature] = credential.split(".");
+      const claims = { ...decodeJwt(credential) };
+      const at = Math.floor(Date.now() / 1000);
+      if (fault === "expired") { claims.iat = at - 120; claims.exp = at - 60; }
+      if (fault === "future") { claims.iat = at + 60; claims.exp = at + 120; }
+      if (fault === "overlong") claims.exp = at + 3_600;
+      if (fault === "missing expiry") delete claims.exp;
+      if (fault === "expired Session") { claims.iat = at - 120; claims.exp = at - 60; }
+      if (fault === "stale proof") claims.iat = at - 120;
+      const changed = `${header}.${base64url.encode(JSON.stringify(claims))}.${signature}`;
+      if (fault === "stale proof") {
+        records[1]!.headers!.dpop = changed;
+        if (id === "YD") records[0]!.headers!.dpop = changed; // retain the exact replay premise
+      } else if (fault === "expired Session") {
+        fields.set("assertion", changed);
+        if (id === "YR") {
+          const baseline = new URLSearchParams(records[0]!.body);
+          baseline.set("assertion", changed);
+          records[0]!.body = baseline.toString();
+        }
+      } else fields.set("client_assertion", changed);
+      if (fault === "assertion type") fields.set("client_assertion_type", "wrong");
+      records[1]!.body = fields.toString();
+      const params = id === "YA" ? { mutation: "client_audience" } : { replay: id === "YR" ? "assertion" : "dpop" };
+      expect(assertTrace(recording(...records), { check: "attack_observed", ...params }).kind).toBe("failed");
+      expect(assertTrace(recording(...records), { check: id === "YA" ? "audience_rejected" : "replay_rejected", ...params }).kind).toBe("failed");
+    });
+  }
 });

@@ -308,7 +308,24 @@ export function attackObserved(all: readonly Exchange[], params: Record<string, 
   return match ? { kind: "ok", result: { exchange: match.index } } : { kind: "failed", detail: `the attack wasn't observed (${JSON.stringify(params)})` };
 }
 
-/** Ignore only one-shot fields when comparing two fresh credentials. */
+/** Our probes mint 60-second credentials. Expiry, future iat or excessive
+ * lifetime would introduce a second rejection cause, independently of the mutation.
+ * This is an evidence precondition, not a claim about a peer's clock policy.
+ */
+function currentAttackCredentials(exchange: Exchange): boolean {
+  const fields = form(exchange);
+  if (fields?.get("client_assertion_type") !== "urn:ietf:params:oauth:client-assertion-type:jwt-bearer") return false;
+  const at = exchange.started / 1000;
+  const valid = (value: string | null | undefined, proof = false) => {
+    const claims = value ? decodeJwt(value)?.payload : undefined;
+    if (!claims || !Number.isInteger(claims.iat) || typeof claims.iat !== "number" || claims.iat > at || at - claims.iat > 60) return false;
+    if (proof && claims.exp === undefined) return true;
+    return typeof claims.exp === "number" && Number.isInteger(claims.exp) && claims.exp > at && claims.exp > claims.iat && claims.exp - claims.iat <= 60;
+  };
+  return valid(fields.get("client_assertion")) && valid(fields.get("assertion")) && valid(exchange.requestHeaders.get("dpop"), true);
+}
+
+/** Compare fresh credentials after their validity windows have been checked. */
 function freshJwt(a: string | null | undefined, b: string | null | undefined, ignored: readonly string[] = []): boolean {
   const old = a ? decodeJwt(a) : null, next = b ? decodeJwt(b) : null;
   if (!old || !next || typeof old.payload.jti !== "string" || typeof next.payload.jti !== "string" || old.payload.jti === next.payload.jti) return false;
@@ -320,9 +337,9 @@ function freshJwt(a: string | null | undefined, b: string | null | undefined, ig
   return canonical(old.header) === canonical(next.header) && canonical(stable(old.payload)) === canonical(stable(next.payload));
 }
 
-/** Accepted setup, then a foreign audience with every other validation precondition intact. */
+/** Accepted setup, then a foreign audience with matching stable wire fields and current credentials. */
 function audiencePair(all: readonly Exchange[]): readonly [Exchange, Exchange] | undefined {
-  const requests = agentRequests(all).filter((x) => x.method === "POST" && form(x)?.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer");
+  const requests = agentRequests(all).filter((x) => x.method === "POST" && form(x)?.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer" && currentAttackCredentials(x));
   for (const baseline of requests) {
     const body = jsonBody(baseline.responseBody) as Record<string, unknown> | undefined;
     if (baseline.status !== 200 || typeof body?.access_token !== "string" || !body.access_token || typeof body.session_id !== "string" || !body.session_id) continue;
@@ -363,7 +380,7 @@ export function audienceRejected(all: readonly Exchange[]): RunnerReply {
 function replayPair(all: readonly Exchange[], params: Record<string, unknown>): readonly [Exchange, Exchange] | undefined {
   if (params.replay !== "assertion" && params.replay !== "dpop") return;
   const path = new RegExp(String(params.path ?? "/oauth/token"));
-  const requests = agentRequests(all).filter((x) => x.method === "POST" && path.test(x.url.pathname) && form(x)?.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer");
+  const requests = agentRequests(all).filter((x) => x.method === "POST" && path.test(x.url.pathname) && form(x)?.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer" && currentAttackCredentials(x));
   for (const baseline of requests) {
     const body = jsonBody(baseline.responseBody) as Record<string, unknown> | undefined;
     if (baseline.status !== 200 || typeof body?.access_token !== "string" || !body.access_token || typeof body.session_id !== "string" || !body.session_id) continue;
@@ -373,24 +390,14 @@ function replayPair(all: readonly Exchange[], params: Record<string, unknown>): 
     const client = original.get("client_assertion");
     if (!originalProof || !assertion || !client) continue;
     const claims = (jwt: string | null | undefined) => jwt ? decodeJwt(jwt) : null;
-    const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) =>
-      item !== null && typeof item === "object" && !Array.isArray(item)
-        ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item);
-    const fresh = (a: string | null | undefined, b: string | null | undefined, proof = false) => {
-      const old = claims(a), next = claims(b);
-      if (!old || !next || typeof old.payload.jti !== "string" || typeof next.payload.jti !== "string" || old.payload.jti === next.payload.jti) return false;
-      const stable = (payload: Record<string, unknown>) => Object.fromEntries(Object.entries(payload)
-        .filter(([key]) => !["jti", "iat", "exp", ...(proof ? ["nonce"] : [])].includes(key)));
-      return canonical(old.header) === canonical(next.header) && canonical(stable(old.payload)) === canonical(stable(next.payload));
-    };
     for (const replay of requests) {
       if (replay.index <= baseline.index || replay.url.href !== baseline.url.href) continue;
       const fields = form(replay)!;
       const dpop = replay.requestHeaders.get("dpop");
-      if (fields.get("client_id") !== original.get("client_id") || !fresh(client, fields.get("client_assertion"))) continue;
+      if (fields.get("client_id") !== original.get("client_id") || !freshJwt(client, fields.get("client_assertion"))) continue;
       const expectedNonce = baseline.responseHeaders.get("dpop-nonce") ?? claims(originalProof)?.payload.nonce;
-      if (params.replay === "assertion" ? fields.get("assertion") === assertion && fresh(originalProof, dpop, true) && claims(dpop)?.payload.nonce === expectedNonce
-        : dpop === originalProof && fresh(assertion, fields.get("assertion"))) return [baseline, replay];
+      if (params.replay === "assertion" ? fields.get("assertion") === assertion && freshJwt(originalProof, dpop, ["nonce"]) && claims(dpop)?.payload.nonce === expectedNonce
+        : dpop === originalProof && freshJwt(assertion, fields.get("assertion"))) return [baseline, replay];
     }
   }
 }

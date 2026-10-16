@@ -3,7 +3,7 @@ import { exportJWK, generateKeyPair } from "jose";
 import { describe, expect, it } from "vitest";
 import { runAttack } from "../../interop/impls/pda-agent/attacks";
 import { assertTrace } from "../../interop/runner/traces";
-import { recording, TOKEN, type Spec } from "../../interop/test/helpers";
+import { recording, NOW, TOKEN, type Spec } from "../../interop/test/helpers";
 import type { Company as DiscoveredCompany } from "../../src/poppy/discovery";
 import { toIssuer } from "../../src/poppy/issuer";
 import { clientMetadata } from "../../src/poppy/routes";
@@ -30,7 +30,7 @@ for (const [id, replay, error, violation] of [
       core.config = { ...DEFAULT_CONFIG,
         requireNonce: tc.draw(gs.booleans()), strictAssertions: tc.draw(gs.booleans()),
         nonceScope: tc.draw(gs.sampledFrom(["company", "origin"] as const)),
-        clientAssertionAud: tc.draw(gs.sampledFrom(["lenient", "exact"] as const))
+        clientAssertionAud: tc.draw(gs.sampledFrom(["lenient", "exact", "token-endpoint"] as const))
       };
       core.hosts = { ...core.hosts, domain: "acme.company.interop.test", issuer: "https://auth.acme.company.interop.test", tokenEndpoint: TOKEN };
       core.served.set(`${origin}/poppy/client.json`, { status: 200, body: JSON.stringify(clientMetadata(env)) });
@@ -51,7 +51,7 @@ for (const [id, replay, error, violation] of [
             if (!(failure instanceof HttpError)) throw failure;
             response = failure.response;
           }
-          records.push({ url: request.url, method: request.method, headers: Object.fromEntries(request.headers), body,
+          records.push({ at: Date.now() - NOW * 1000, url: request.url, method: request.method, headers: Object.fromEntries(request.headers), body,
             status: response.status, responseHeaders: Object.fromEntries(response.headers), response: await response.clone().json() });
           return response;
         }

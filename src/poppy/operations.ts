@@ -408,14 +408,21 @@ async function afterUpdate(
   }
 }
 
-/** Store the operation the Company returned, and react to its state. */
-async function update(client: PoppyClient, company: Company, value: Json): Promise<Operation | null> {
+/** A response must describe the operation we requested before it can settle uncertainty. */
+function operationAnswer(company: Company, value: Json, expectedId: string): Operation {
   const parsed = parseOperation(value);
-  if ("problem" in parsed) return null;
-  const existing = stored(client, company.issuer, parsed.operation.operation_id);
-  if (!existing) return null;
+  if ("problem" in parsed || parsed.operation.operation_id !== expectedId) {
+    throw new PoppyError("invalid_response", `${company.name} returned no valid answer for the requested operation`, 0);
+  }
+  return parsed.operation;
+}
+
+/** Store a validated operation response, and react to its state. */
+async function update(client: PoppyClient, company: Company, incoming: Operation): Promise<Operation> {
+  const existing = stored(client, company.issuer, incoming.operation_id);
+  if (!existing) throw new PoppyError("invalid_response", `${company.name} returned an unknown operation`, 0);
   const previous = existing.operation;
-  const operation = keepRevisionTerms(client, existing, parsed.operation);
+  const operation = keepRevisionTerms(client, existing, incoming);
   // `updated_at` is when the operation last made progress, not when it was last read:
   // Activity's "since", and the tracking job's backoff (`trackOperation`).
   const changed = progressOf(operation) !== progressOf(previous);
@@ -427,7 +434,7 @@ async function update(client: PoppyClient, company: Company, value: Json): Promi
     operation.operation_id
   );
   await afterUpdate(client, company, stored(client, company.issuer, operation.operation_id)!, previous);
-  if (operation !== parsed.operation) await alteredNotice(client, company, existing, parsed.operation);
+  if (operation !== incoming) await alteredNotice(client, company, existing, incoming);
   // Tracking starts when the operation goes in progress; after that the job sets its own pace.
   if (operation.state === "in_progress" && previous.state !== "in_progress") {
     await client.host.schedule(
@@ -479,6 +486,17 @@ async function scheduleTracking(client: PoppyClient, issuer: Issuer, operationId
   await client.host.schedule("poppy-operation", at, { issuer, id: operationId }, `op-${issuer}-${operationId}`);
 }
 
+/** Restore follow-up when durable intent survived but its tracking job did not. */
+export async function recoverOperations(client: PoppyClient): Promise<void> {
+  for (const row of rows(client.sql, operationRow,
+    "SELECT * FROM poppy_operations WHERE confirmed = ? OR json_extract(operation, '$.state') = 'in_progress'", SENT)) {
+    if (isLost(row.confirmed) || FINAL.has(row.operation.state)) continue;
+    if (!client.host.hasJob(`op-${row.issuer}-${row.operation_id}`)) {
+      await scheduleTracking(client, row.issuer, row.operation_id, client.host.now());
+    }
+  }
+}
+
 const CONFIRMING = (issuer: Issuer, operationId: string) => `confirm|${issuer}|${operationId}`;
 
 /**
@@ -494,75 +512,90 @@ export async function confirm(client: PoppyClient, issuer: Issuer, operationId: 
   if (client.inFlight.has(key)) return;
   const company = client.companyByIssuer(issuer);
   const endpoint = endpointOf(company);
-  setConfirmed(client, issuer, operationId, SENT);
-  await scheduleTracking(client, issuer, operationId, client.host.now() + CONFIRM_CHECK_MS);
+  // Reserve synchronously: persisting the follow-up yields, so another
+  // approval could otherwise enter before the first request is marked busy.
   client.inFlight.add(key);
   try {
-    const { body, headers } = await client.resourceJson(
-      company,
-      EndpointRequest.to(company, {
-        method: "POST",
-        url: `${endpoint.url}/${encodeURIComponent(operationId)}/confirm`,
-        body: { revision: row.approved_revision, approved_by: row.approved_by }
-      }),
-      { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
-    );
-    setConfirmed(client, issuer, operationId, ANSWERED);
-    const operation = await update(client, company, body);
-    if (operation?.state === "in_progress") {
-      const retryAfter = Number(headers.get("Retry-After") ?? "5");
-      await scheduleTracking(
-        client,
-        issuer,
-        operationId,
-        client.host.now() + Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5) * 1000
+    setConfirmed(client, issuer, operationId, SENT);
+    await scheduleTracking(client, issuer, operationId, client.host.now() + CONFIRM_CHECK_MS);
+    try {
+      const { body, headers } = await client.resourceJson(
+        company,
+        EndpointRequest.to(company, {
+          method: "POST",
+          url: `${endpoint.url}/${encodeURIComponent(operationId)}/confirm`,
+          body: { revision: row.approved_revision, approved_by: row.approved_by }
+        }),
+        { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
       );
-    }
-  } catch (error) {
-    if (!(error instanceof PoppyError) || error.status >= 500 || error.is("invalid_response")) {
-      // No answer we can trust: read, then confirm again only if still needed, with the same id (Ops 6).
-      await scheduleTracking(client, issuer, operationId, client.host.now() + 5_000);
-      return;
-    }
-    if (error.is("rate_limited")) {
-      // Not acted on: after Retry-After the tracking job reads, then confirms.
-      await scheduleTracking(client, issuer, operationId, client.host.now() + (error.detail.retryAfter ?? 30) * 1000);
-      return;
-    }
-    if (error.is("operation_not_found")) {
-      await markLost(client, company, row);
-      return;
-    }
-    // The Company answered, so no confirm is outstanding.
-    setConfirmed(client, issuer, operationId, NOT_SENT);
-    if (error.is("terms_changed")) {
+      const answer = operationAnswer(company, body, operationId);
+      if (answer.revision !== row.approved_revision) {
+        throw new PoppyError("invalid_response", `${company.name} returned no confirmed outcome for the approved revision`, 0);
+      }
+      if (answer.state === "proposed") {
+        // Observe same-revision terms tampering before rejecting the invalid
+        // transition. update() preserves the approved terms and warns the User;
+        // an unchanged proposal remains SENT and is read back by tracking.
+        await update(client, company, answer);
+        throw new PoppyError("invalid_response", `${company.name} returned no confirmed outcome for the approved revision`, 0);
+      }
+      setConfirmed(client, issuer, operationId, ANSWERED);
+      const operation = await update(client, company, answer);
+      if (operation.state === "in_progress") {
+        const retryAfter = Number(headers.get("Retry-After") ?? "5");
+        await scheduleTracking(
+          client,
+          issuer,
+          operationId,
+          client.host.now() + Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5) * 1000
+        );
+      }
+    } catch (error) {
+      if (!(error instanceof PoppyError) || error.status >= 500 || error.is("invalid_response")) {
+        // No answer we can trust: read, then confirm again only if still needed, with the same id (Ops 6).
+        await scheduleTracking(client, issuer, operationId, client.host.now() + 5_000);
+        return;
+      }
+      if (error.is("rate_limited")) {
+        // Not acted on: after Retry-After the tracking job reads, then confirms.
+        await scheduleTracking(client, issuer, operationId, client.host.now() + (error.detail.retryAfter ?? 30) * 1000);
+        return;
+      }
+      if (error.is("operation_not_found")) {
+        await markLost(client, company, row);
+        return;
+      }
+      // The Company answered, so no confirm is outstanding.
+      setConfirmed(client, issuer, operationId, NOT_SENT);
+      if (error.is("terms_changed")) {
+        releasePermission(client, row);
+        clearApproval(client, issuer, operationId);
+        const current = isObject(error.detail.body) ? error.detail.body.operation : undefined;
+        if (current !== undefined) await handleProposal(client, company, row.label, current);
+        return;
+      }
+      if (error.is("user_approval_required")) {
+        releasePermission(client, row);
+        clearApproval(client, issuer, operationId);
+        const current = { ...row.operation, user_approval_required: true };
+        client.sql.exec("UPDATE poppy_operations SET operation = ? WHERE issuer = ? AND operation_id = ?", JSON.stringify(current), issuer, operationId);
+        await showOperation(client, company, stored(client, issuer, operationId)!);
+        return;
+      }
+      if (error.is("insufficient_scope", "sign_in_required")) {
+        // The approval stands; confirm again after sign-in (see retryApproved).
+        await client.host.notifyModel(
+          `[system] Confirming operation ${operationId} at ${company.name} needs the User signed in (${error.code}${error.detail.scope ? `, scopes "${error.detail.scope}"` : ""}). Call poppy_sign_in; it will be confirmed after sign-in.`,
+          `poppy-op-auth-${issuer}-${operationId}-${row.approved_revision}`
+        );
+        return;
+      }
       releasePermission(client, row);
-      clearApproval(client, issuer, operationId);
-      const current = isObject(error.detail.body) ? error.detail.body.operation : undefined;
-      if (current !== undefined) await handleProposal(client, company, row.label, current);
-      return;
-    }
-    if (error.is("user_approval_required")) {
-      releasePermission(client, row);
-      clearApproval(client, issuer, operationId);
-      const current = { ...row.operation, user_approval_required: true };
-      client.sql.exec("UPDATE poppy_operations SET operation = ? WHERE issuer = ? AND operation_id = ?", JSON.stringify(current), issuer, operationId);
-      await showOperation(client, company, stored(client, issuer, operationId)!);
-      return;
-    }
-    if (error.is("insufficient_scope", "sign_in_required")) {
-      // The approval stands; confirm again after sign-in (see retryApproved).
       await client.host.notifyModel(
-        `[system] Confirming operation ${operationId} at ${company.name} needs the User signed in (${error.code}${error.detail.scope ? `, scopes "${error.detail.scope}"` : ""}). Call poppy_sign_in; it will be confirmed after sign-in.`,
-        `poppy-op-auth-${issuer}-${operationId}-${row.approved_revision}`
+        `[system] ${company.name} refused to confirm operation ${operationId} (${error.code}).`,
+        `poppy-op-error-${issuer}-${operationId}-${error.code}`
       );
-      return;
     }
-    releasePermission(client, row);
-    await client.host.notifyModel(
-      `[system] ${company.name} refused to confirm operation ${operationId} (${error.code}).`,
-      `poppy-op-error-${issuer}-${operationId}-${error.code}`
-    );
   } finally {
     client.inFlight.delete(key);
   }
@@ -581,7 +614,7 @@ async function readOperation(
   client: PoppyClient,
   company: Company,
   row: OperationRow
-): Promise<{ operation: Operation | null; retryAfter: number }> {
+): Promise<{ operation: Operation; retryAfter: number }> {
   const endpoint = endpointOf(company);
   const response = await client.resourceJson(
     company,
@@ -590,7 +623,7 @@ async function readOperation(
   );
   const retryAfter = Number(response.headers.get("Retry-After") ?? "5");
   return {
-    operation: await update(client, company, response.body),
+    operation: await update(client, company, operationAnswer(company, response.body, row.operation_id)),
     retryAfter: Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5)
   };
 }
@@ -609,7 +642,7 @@ export async function retryApproved(client: PoppyClient, issuer: Issuer): Promis
     NOT_SENT
   )) {
     if (FINAL.has(row.operation.state)) continue;
-    let operation: Operation | null;
+    let operation: Operation;
     try {
       ({ operation } = await readOperation(client, client.companyByIssuer(issuer), row));
     } catch (error) {
@@ -618,7 +651,7 @@ export async function retryApproved(client: PoppyClient, issuer: Issuer): Promis
       continue;
     }
     const current = stored(client, issuer, row.operation_id);
-    if (operation?.state === "proposed" && current?.approved_revision === operation.revision && current.confirmed === NOT_SENT) {
+    if (operation.state === "proposed" && current?.approved_revision === operation.revision && current.confirmed === NOT_SENT) {
       await confirm(client, issuer, row.operation_id);
     }
   }
@@ -652,7 +685,6 @@ export async function trackOperation(client: PoppyClient, issuer: Issuer, operat
     return client.host.now() + 30_000;
   }
   const { operation } = read;
-  if (!operation) return null;
   if (operation.state === "proposed") {
     const current = stored(client, issuer, operationId)!;
     if (current.confirmed !== SENT) return null;
@@ -696,7 +728,7 @@ export async function cancelOperation(client: PoppyClient, issuer: Issuer, opera
     }
     throw error;
   }
-  await update(client, company, body);
+  await update(client, company, operationAnswer(company, body, operationId));
 }
 
 export function operation(client: PoppyClient, issuer: Issuer, operationId: string): Operation | undefined {

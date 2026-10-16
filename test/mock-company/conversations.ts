@@ -102,6 +102,7 @@ export class Conversations {
 
   summary(): {
     id: string;
+    userId: string;
     parent: string | null;
     direct: boolean;
     status: string;
@@ -111,6 +112,7 @@ export class Conversations {
   }[] {
     return [...this.#conversations.values()].map((conversation) => ({
       id: conversation.id,
+      userId: conversation.owner.userId,
       parent: conversation.parentId,
       direct: conversation.direct,
       status: conversation.status,

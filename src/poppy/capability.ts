@@ -22,6 +22,7 @@ import {
   decideLocal,
   permissions,
   recoverInterruptedApprovals,
+  recoverOperations,
   removePermission,
   retryApproved,
   trackOperation
@@ -211,6 +212,7 @@ export class PoppyCapability extends LifecycleCapability {
     if (!this.#hasPoppyState()) return;
     await this.#units.job({ job: literal("poppy.recover") }, async () => {
       await recoverInterruptedApprovals(this.client);
+      await recoverOperations(this.client);
       // A Direct Sign-In the restart interrupted: finish it, or start a new Session (4.5).
       await recoverSignIns(this.client).catch((error: unknown) => reportError(error, { source: literal("poppy.signin_recovery") }));
       // A revocation still pending whose job is missing: schedule it again.

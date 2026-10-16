@@ -615,6 +615,9 @@ export class PersonalAgent extends ProductionAgent {
       .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cf_agents_jobs'")
       .toArray().length > 0;
     if (!hasJobs) return;
+    const due = this.ctx.storage.sql.exec<{ id: string }>(
+      "SELECT id FROM cf_agents_jobs WHERE capability = 'poppy' AND time <= ?", clock.now
+    ).toArray();
     // The job queue runs on the real clock: make the jobs due by the fake one due now.
     this.ctx.storage.sql.exec(
       "UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0 AND time <= ?",
@@ -622,6 +625,17 @@ export class PersonalAgent extends ProductionAgent {
       clock.now
     );
     await this.lifecycle.alarm();
+    // A natural alarm can claim a due job first. The manual driver skips
+    // singleflight work; its return alone does not mean that work completed.
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const running = due.filter(({ id }) => this.ctx.storage.sql.exec(
+        "SELECT id FROM cf_agents_jobs WHERE id = ? AND running = 1", id
+      ).toArray().length);
+      if (!running.length) return;
+      if (Date.now() >= deadline) throw new Error(`Poppy jobs still running after clock advance: ${running.map(({ id }) => id).join(", ")}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   }
 
   /** `poppyFailNoticeOnce`: notices still to fail, by a fragment of their text. */
