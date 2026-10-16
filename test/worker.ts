@@ -11,7 +11,7 @@ import {
   type Provider,
   type TranscriptContext
 } from "@earendil-works/pi-ai";
-import type { ToolExecutionApi } from "@earendil-works/pi-durable";
+import type { Storage as PiStorage, ToolExecutionApi } from "@earendil-works/pi-durable";
 import { PersonalAgent as ProductionAgent } from "../src/agent";
 import type { ListEnv } from "../src/allowlist";
 import { SUMMARY_MESSAGE_PREFIX, SUMMARY_SYSTEM_PROMPT } from "../src/compaction";
@@ -409,6 +409,9 @@ function webOf(id: string) {
   return web;
 }
 
+/** Agents whose next pi write fails, as a storage error would, by Durable Object id. Module state, so it outlives a reset object. */
+const failingPiWrites = new Set<string>();
+
 /** The production agent with pi-ai's faux provider in place of AI Gateway. */
 export class PersonalAgent extends ProductionAgent {
   #summaryGate: { promise: Promise<void>; release: () => void } | undefined;
@@ -436,6 +439,24 @@ export class PersonalAgent extends ProductionAgent {
       out.end(await stream.result());
     })();
     return out;
+  }
+
+  /** pi's storage, whose next write fails once `piFailNextWrite` was called. */
+  protected override piStorage(storage: PiStorage): PiStorage {
+    const id = this.ctx.id.toString();
+    return new Proxy(storage, {
+      get(target, key) {
+        const value: unknown = Reflect.get(target, key, target);
+        if (typeof value !== "function") return value;
+        if (key !== "commit") return value.bind(target);
+        return (...args: unknown[]) => (failingPiWrites.delete(id) ? Promise.reject(new Error("SQLITE_IOERR: disk I/O error (test)")) : value.apply(target, args));
+      }
+    });
+  }
+
+  /** Make pi's next write fail. */
+  async piFailNextWrite(): Promise<void> {
+    failingPiWrites.add(this.ctx.id.toString());
   }
 
   /** Woken whenever a notification callback completes. */
@@ -529,7 +550,7 @@ export class PersonalAgent extends ProductionAgent {
     } as unknown as ToolExecutionApi;
     // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
     const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never));
-    const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
+    const text = (result.output ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }
 
@@ -722,7 +743,7 @@ export class PersonalAgent extends ProductionAgent {
     const api = { conversationId: "test", callId } as unknown as ToolExecutionApi;
     // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
     const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never));
-    const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
+    const text = (result.output ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }
 
@@ -1088,6 +1109,8 @@ export type DemoRequest = {
   readonly tools: readonly string[];
   /** The prompt's sections as the request leaves them, by key. */
   readonly sections: Readonly<Record<string, string>>;
+  /** Each message's role, in order. */
+  readonly roles: readonly string[];
 };
 const demoRequests = new Map<string, DemoRequest[]>();
 
@@ -1118,6 +1141,7 @@ function recordRequest(id: string, context: TranscriptContext): void {
     messages: context.messages.length,
     tools,
     sections,
+    roles: context.messages.map((message) => message.role),
     images: users.flatMap((message) =>
       typeof message.content === "string"
         ? []
