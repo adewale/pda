@@ -18,7 +18,7 @@ oracle or an unsupported interop scenario.
 | YA could count a DPoP nonce challenge as proof of audience validation. | Establish an accepted, nonce-aware token request first. Require a fresh request with the intended foreign client-assertion audience, stable remaining claims, fresh Session/proof identifiers and the negotiated nonce. Only the specified `invalid_client` refusal proves protection; a nonce challenge is unsupported, missing setup is a harness error, and unrelated errors fail. Negative controls exercise misleading traces. |
 | A relative-error bound did not establish nearest binary64 rounding. | Decode binary64 values into exact fractions and check the exact interval between adjacent midpoints, including ties-to-even, signed zero, subnormals and overflow. The new oracle reproduced a real calculator defect: `1 + 2^-53 + 2^-100` rounded to `1`. The implementation now rounds the exact quotient and remainder once at binary64 spacing. |
 | One PDA identity/account could not expose cross-user or cross-account leaks. | Two real PDA clients, with separate SQL stores, each sign into both fixture accounts. An independent ownership model checks tokens, sessions, conversations, operations and actual order ownership after generated actions. Deliberately copied sealed tokens must fail renewal across both user and account boundaries. |
-| The verifier advertised RS256 without positive coverage. | Parameterize accepted client assertions, Session assertions and self-contained DPoP proofs over ES256 and RS256, using matching real public keys. Assert the returned client identity/key set, User ID or DPoP thumbprint rather than acceptance alone. The PDA's own signer continues to use ES256. |
+| The verifier advertised RS256 without positive coverage. | Parameterize accepted client assertions, Session assertions and self-contained DPoP proofs over ES256 and RS256, using matching real public keys. Assert the returned client identity/key set, User ID or DPoP thumbprint rather than acceptance alone. For each credential and algorithm, require a correctly signed baseline to pass and a proof/assertion signed by another key to fail with exactly the signature violation. The PDA's own signer continues to use ES256. |
 | Address and DNS behavior had examples but no generated numeric model. | Compare IPv4/IPv6 values and special-range endpoints to independent numeric intervals. Exercise embedded IPv4 spellings, IPv6 compression/padding/case, malformed addresses, changing resolver answers and mixed public/private answers. Require the exact checked answer to be used, without a second resolution for the same connection. |
 | Individual outbox examples did not establish reconnect behavior across sequences. | Drive the five real reducers against an independent ordered-map model through enqueue/send/disconnect/ack/failure/retry/dismiss actions. Check complete payloads and IDs, input immutability and that acknowledged messages never reappear. A separate example processes 100,000 pending messages. |
 | Calendar properties chose only nine zones. | Draw from `Intl.supportedValuesOf("timeZone")` plus UTC, retaining transition examples. This covers the runtime's enumerated set; it is not a claim to enumerate every accepted timezone alias. |
@@ -64,19 +64,25 @@ by itself.
 
 ## Validation record
 
-The regular GitHub Test and Interop workflows pass on `c20912b`:
+The regular GitHub Test and Interop workflows pass on `02c6b03`:
 1,488 tests passed with one intentional skip across the five Vitest
 configurations; TypeScript and documentation checks passed. This includes the
 third audience policy, accepted DPoP variants and the focused PDA fallback
-property. The subsequent test-only identity assertions receive their own
-targeted deep runs and regular CI checks.
+property and the returned-identity assertions. The identity assertions also
+passed their targeted deep runs.
+The six subsequent signature-control variants passed their targeted default
+and deep runs; their full regular CI result will be recorded after the push.
 
 Completed follow-up checks:
 
+- All Hegel properties have passed at `HEGEL_CASES=5000` across partitioned runs (141 tests including fixed examples, ten files). Changed properties were rerun; the entries below identify those runs rather than adding duplicate totals.
 - Nine non-model Hegel files: 128 tests passed with `HEGEL_CASES=5000`.
 - Final address/outbox files: nine tests passed at that setting after their additions.
 - Final crypto/attack expansion: 18 tests passed at that setting, including the third audience policy and accepted DPoP variants.
 - Real PDA audience fallback: one focused property passed at that setting; the other two model properties were not selected in that run.
+- Both general PDA state models: passed at that setting, including the two-client/two-account model; the run took 4,188 seconds alongside the Python suites.
+- Final returned-client-identity/key-set assertions and replay baseline: four properties passed at that setting in focused runs.
+- Wrong-signature controls for all three credentials under ES256 and RS256: six properties passed at that setting.
 - Final build-scheduler properties: 15 tests passed at that setting.
 - Interop unit suite: 205 tests passed.
 - Docker adversarial agent lane: 16 pass against both mock profiles.
@@ -85,8 +91,7 @@ Completed follow-up checks:
 - Those Docker runs reported zero failures, harness errors or unsupported cells; isolation probes passed.
 - Live discovery: three pass, for Ilmer, Poppyseed and Alpine Retail.
 
-The 5,000-case general state models and full deep Hypothesis profile
-(2,000 examples, up to 60 steps) are still running at the
+The full deep Hypothesis profile (2,000 examples, up to 60 steps) is still running at the
 time of this record. A full pinned local ecosystem matrix, eight agents by
 twelve Companies by thirty scenarios, is running in a separate
 [GitHub validation job](https://github.com/adewale/pda/actions/runs/38829561008).
@@ -97,6 +102,9 @@ encrypted pending private triage, in accordance with [SECURITY.md](../SECURITY.m
 Build failures, unsupported cells and unexecuted cells must remain distinct
 from passes.
 
+The ecosystem job runs `96be076`; subsequent changes are to tests and this
+report, so the application and Docker runtime code match that job's basis.
+
 Live signed-out Session/nonce/conversation scenarios require a legitimate
 public client identity and its matching private interop key. Neither the
 identity file nor deployment configuration is present in this workspace; its
@@ -104,3 +112,27 @@ location has been requested. An attempt to establish an isolated temporary
 public metadata host could not connect from this environment; no client
 identity or key was published. Discovery needs neither, so only discovery is
 claimed for public Companies so far. No production key or deployment was changed.
+
+## Reproduction
+
+The regular commands remain `npm run typecheck`, `npm test` and
+`npm run check:docs`. Deep validation is opt-in:
+
+```sh
+HEGEL_CASES=5000 npm run test:properties
+npm run test:hypothesis -- --hypothesis-profile=deep
+```
+
+This audit partitioned the Hegel files and reran changed properties. For the
+final Python run it used temporary pytest-xdist, without adding a project
+dependency, with one isolated mock server per worker:
+
+```sh
+uv run --with pytest-xdist --directory test/hypothesis --frozen \
+  pytest -n 4 --dist=loadfile --hypothesis-profile=deep
+```
+
+The deep budgets increase exploration and execution time; regular CI keeps
+the existing default counts. Workspace logs, a machine-readable validation
+summary, source inventory and failure ledger are retained outside Git in
+`/workspace/pda-follow-up-audit`.

@@ -145,13 +145,14 @@ describe("our client's JWTs against the mock Company's readings", () => {
 /** The Company advertises both algorithms; our own PDA signer remains ES256. */
 for (const alg of ["ES256", "RS256"] as const) {
   const pair = await generateKeyPair(alg, { extractable: true });
+  const other = await generateKeyPair(alg);
   const kid = `accepted-${alg}`;
   const published = { ...await exportJWK(pair.publicKey), kid, alg, use: "sig" };
-  const assertion = (sub: string, aud: string, lifetime: number) => {
+  const assertion = (sub: string, aud: string, lifetime: number, key = pair.privateKey) => {
     const issuedAt = Math.floor(Date.now() / 1000);
     return new SignJWT({}).setProtectedHeader({ alg, typ: "JWT", kid })
       .setIssuer(identity.clientId).setSubject(sub).setAudience(aud)
-      .setIssuedAt(issuedAt).setExpirationTime(issuedAt + lifetime).setJti(randomId()).sign(pair.privateKey);
+      .setIssuedAt(issuedAt).setExpirationTime(issuedAt + lifetime).setJti(randomId()).sign(key);
   };
 
   describe(`Company verifier accepts ${alg}`, () => {
@@ -193,6 +194,47 @@ for (const alg of ["ES256", "RS256"] as const) {
       const verified = await company.verifySessionAssertion(client, await assertion(userId, endpoint, 60));
       expect(verified).toBe(userId);
       expect(company.recorded).toEqual([]);
+    }));
+
+    for (const kind of ["client-assertion", "session-assertion"] as const) {
+      it(`refuses a ${kind} signed by another key after accepting its correctly signed baseline`, propertyAsync(async (tc) => {
+        const company = await companyWith(tc.draw(readings));
+        company.served.set(identity.jwksUri, { status: 200, body: JSON.stringify({ keys: [published] }) });
+        const endpoint = company.hosts.tokenEndpoint;
+        const subject = kind === "client-assertion" ? identity.clientId
+          : `usr_${tc.draw(gs.text({ alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", minSize: 22, maxSize: 40 }))}`;
+        const client = await company.authenticateClient(form(await assertion(identity.clientId, endpoint, 60)), endpoint);
+        expect(client).toMatchObject({ clientId: identity.clientId, jwks: { keys: [published] } });
+        if (kind === "session-assertion") expect(await company.verifySessionAssertion(client, await assertion(subject, endpoint, 60))).toBe(subject);
+        expect(company.recorded).toEqual([]);
+        const wrong = await assertion(subject, endpoint, 60, other.privateKey);
+        const refused = await attempt(async () => kind === "client-assertion"
+          ? company.authenticateClient(form(wrong), endpoint)
+          : company.verifySessionAssertion(client, wrong));
+        expect(refused).toEqual({ ok: false, error: kind === "client-assertion" ? "invalid_client" : "invalid_grant" });
+        expect(company.recorded.map(violationId)).toEqual([`${kind}.signature`]);
+      }));
+    }
+
+    it("refuses a DPoP proof signed by another key after accepting its correctly signed baseline", propertyAsync(async (tc) => {
+      const config = tc.draw(readings);
+      const company = await companyWith(config);
+      const tokenRequest = tc.draw(gs.booleans());
+      const method = tokenRequest ? "POST" : tc.draw(methods);
+      const url = tokenRequest ? company.hosts.tokenEndpoint : tc.draw(resourceUrl(company));
+      const token = tokenRequest ? undefined : tc.draw(gs.text({ alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", minSize: 1, maxSize: 60 }));
+      const target = new URL(url);
+      const proof = async (key: typeof pair.privateKey) => new SignJWT({
+        htm: method, htu: `${target.origin}${target.pathname}`, iat: Math.floor(Date.now() / 1000), jti: randomId(),
+        ...(token === undefined ? {} : { ath: await sha256(token) }),
+        ...(config.requireNonce ? { nonce: company.nonceFor(target.origin) } : {})
+      }).setProtectedHeader({ alg, typ: "dpop+jwt", jwk: published }).sign(key);
+      expect(await company.verifyDpop(inbound(method, url, { DPoP: await proof(pair.privateKey) }), token))
+        .toBe(await calculateJwkThumbprint(published));
+      expect(company.recorded).toEqual([]);
+      expect(await attempt(async () => company.verifyDpop(inbound(method, url, { DPoP: await proof(other.privateKey) }), token)))
+        .toEqual({ ok: false, error: "invalid_dpop_proof" });
+      expect(company.recorded.map(violationId)).toEqual(["dpop.signature"]);
     }));
   });
 }
