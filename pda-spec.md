@@ -994,7 +994,7 @@ A raw `string`, so an email, a token or anyone's words, is a compile error in an
 5. **Mediated Sign-In and browsing.** Built; browsing runs on the fetch-based browser, tested against the mock Company. Next: try it on the first real Company's website.
 6. **Reference release.** Next (the owner's steps, in order, are in [`docs/deployment-tasks.md`](docs/deployment-tasks.md)):
    - close the "not yet" rows in Appendix A;
-   - choose the final domain and move `PUBLIC_ORIGIN` to it;
+   - choose the final domain and move `PUBLIC_ORIGIN` to it (done: `poppydemoagent.dev`, 15 October);
    - try the agent against a live Company;
    - publish the interop harness, with the mock Company as its reference, for other implementations (built; this repository is still private);
    - send our readings of the draft (Open questions) to its maintainers.
