@@ -1,3 +1,4 @@
+import { DurableObject } from "cloudflare:workers";
 import {
   createAssistantMessageEventStream,
   fauxAssistantMessage,
@@ -1121,6 +1122,12 @@ function priced(message: AssistantMessage): AssistantMessage {
   if (cost) usage = { ...usage, cost: { ...usage.cost, total: cost } };
   return usage === message.usage ? message : { ...message, usage };
 }
+
+/**
+ * A bare object with SQLite and nothing else, so test/pi-storage.test.ts can
+ * open pi's storage on an empty database, or on one with host tables in it.
+ */
+export class StorageProbe extends DurableObject {}
 
 export { CompanyLimiter, DomainBudget } from "../src/index";
 export { MockCompany } from "./mock-company";

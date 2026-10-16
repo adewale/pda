@@ -11,13 +11,14 @@
       { "name": "PersonalAgent", "class_name": "PersonalAgent" },
       { "name": "CompanyLimiter", "class_name": "CompanyLimiter" },
       { "name": "DomainBudget", "class_name": "DomainBudget" },
-      { "name": "MOCK_COMPANY", "class_name": "MockCompany" }
+      { "name": "MOCK_COMPANY", "class_name": "MockCompany" },
+      { "name": "STORAGE_PROBE", "class_name": "StorageProbe" }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["PersonalAgent", "CompanyLimiter", "DomainBudget", "MockCompany"]
+      "new_sqlite_classes": ["PersonalAgent", "CompanyLimiter", "DomainBudget", "MockCompany", "StorageProbe"]
     }
   ],
   // The public validator's URL checks: per client address.
