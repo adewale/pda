@@ -31,7 +31,7 @@ import { runCell, toReply, withWebPage, type Driver, type Reply, type RunnerRepl
 import { makeCertificates } from "./certs.ts";
 import { traceChecks } from "./checks.ts";
 import { dockerFreeGb, labelArgs, lowDisk, removeRun } from "./cleanup.ts";
-import { docker, dockerAsync, proxyAliases } from "./docker.ts";
+import { docker, dockerAsync, mapConcurrent, proxyAliases } from "./docker.ts";
 import { documentChecks } from "./documents.ts";
 import { exchanges, PROBE_HEADER, type Har } from "./har.ts";
 import { liveIdentityEnv, liveIdentityNotice, readLiveIdentity } from "./live-identity.ts";
@@ -78,6 +78,8 @@ export type Options = {
   readonly scenarios: readonly string[] | null;
   readonly lane: "local" | "live";
   readonly build: boolean;
+  /** Bound compilation memory and disk pressure instead of building the whole registry at once. */
+  readonly buildJobs: number;
   readonly keep: boolean;
   /** Run a failed or errored cell once more (`--no-retry` turns it off). */
   readonly retry: boolean;
@@ -102,6 +104,7 @@ export function parseOptions(argv: readonly string[]): Options {
       lane: { type: "string", default: "local" },
       build: { type: "boolean", default: true },
       "no-build": { type: "boolean", default: false },
+      "build-jobs": { type: "string", default: "2" },
       keep: { type: "boolean", default: false },
       "no-retry": { type: "boolean", default: false },
       "min-free-gb": { type: "string", default: "2" },
@@ -115,6 +118,8 @@ export function parseOptions(argv: readonly string[]): Options {
   if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(values["image-tag"]!)) throw new Error(`--image-tag must be a Docker tag, not ${values["image-tag"]}`);
   const minFreeGb = Number(values["min-free-gb"]);
   if (!(minFreeGb >= 0)) throw new Error(`--min-free-gb takes a number of GB, not ${values["min-free-gb"]}`);
+  const buildJobs = Number(values["build-jobs"]);
+  if (!Number.isSafeInteger(buildJobs) || buildJobs < 1) throw new Error("--build-jobs takes a positive whole number");
   const set = new Map<string, Record<string, string>>();
   for (const entry of values.set ?? []) {
     const match = /^([a-z0-9-]+):([A-Z][A-Z0-9_]*)=(.*)$/.exec(entry);
@@ -127,6 +132,7 @@ export function parseOptions(argv: readonly string[]): Options {
     scenarios: list(values.scenarios),
     lane: values.lane,
     build: values.build && !values["no-build"],
+    buildJobs,
     keep: values.keep,
     retry: !values["no-retry"],
     minFreeGb,
@@ -504,7 +510,7 @@ export function imageOf(entry: RegistryEntry, registry: Registry, tag = "latest"
   return `poppy-interop/${first.role}-${first.name}:${tag}`;
 }
 
-async function buildImages(entries: readonly RegistryEntry[], registry: Registry, logs: string, log: (line: string) => void, tag = "latest"): Promise<Map<string, string>> {
+async function buildImages(entries: readonly RegistryEntry[], registry: Registry, logs: string, log: (line: string) => void, tag = "latest", buildJobs = 2): Promise<Map<string, string>> {
   const failures = new Map<string, string>();
   const byImage = new Map<string, RegistryEntry[]>();
   for (const entry of entries) byImage.set(imageOf(entry, registry, tag), [...(byImage.get(imageOf(entry, registry, tag)) ?? []), entry]);
@@ -522,9 +528,13 @@ async function buildImages(entries: readonly RegistryEntry[], registry: Registry
     })
   ];
   log(`building ${builds.map((b) => b.key).join(", ")}`);
-  const results = await Promise.all(builds.map(async (b) => ({ ...b, ...(await dockerAsync(b.args)) })));
-  for (const result of results) {
+  const results = await mapConcurrent(builds, buildJobs, async (b) => {
+    const result = { ...b, ...(await dockerAsync(b.args)) };
+    // Retain completed logs even if a later build is interrupted.
     writeFileSync(path.join(logs, `build-${result.key}.log`), result.output);
+    return result;
+  });
+  for (const result of results) {
     if (result.code !== 0) for (const target of result.targets) failures.set(target, `image build failed (logs/build-${result.key}.log)`);
   }
   return failures;
@@ -593,7 +603,7 @@ export async function main(argv: readonly string[]): Promise<number> {
   process.once("SIGINT", interrupted);
   process.once("SIGTERM", interrupted);
   try {
-    const buildFailures = options.build ? await buildImages(liveAgents ? agents : [...agents, ...companies], registry, logs, log, options.imageTag) : new Map<string, string>();
+    const buildFailures = options.build ? await buildImages(liveAgents ? agents : [...agents, ...companies], registry, logs, log, options.imageTag, options.buildJobs) : new Map<string, string>();
     if (buildFailures.has("proxy") && !liveAgents) throw new Error(`The proxy didn't build: ${buildFailures.get("proxy")}`);
     for (const impl of implementations) impl.broken = buildFailures.get(impl.target) ?? null;
 

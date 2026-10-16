@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { mapConcurrent } from "../../interop/runner/docker";
 import { authorization, decodeJwt, exchanges, type Har, type HarEntry } from "../../interop/runner/har";
 import { compare, interpolate, lookup, ScenarioError } from "../../interop/runner/scenario";
-import { gs, jsonValues, property, type Json } from "./hegel";
+import { gs, jsonValues, property, propertyAsync, type Json } from "./hegel";
 
 /**
  * The interop runner's pure parts: scenario `${…}` references and
@@ -205,4 +206,32 @@ describe("reading the recording (interop/runner/har.ts)", () => {
       expect(exchange.ended - exchange.started).toBe(entry.time);
     })
   );
+});
+
+describe("bounded build scheduling", () => {
+  it("runs every input once in registry order while respecting any positive concurrency", propertyAsync(async (tc) => {
+    const values = tc.draw(gs.arrays(gs.text({ maxSize: 40 }), { maxSize: 50 })).map((text, index) => ({ text, index }));
+    const limit = tc.draw(gs.oneOf(gs.integers({ minValue: 1, maxValue: 50 }), gs.integers({ minValue: 1, maxValue: Number.MAX_SAFE_INTEGER })));
+    let active = 0, peak = 0;
+    const visits: number[] = [];
+    const result = await mapConcurrent(values, limit, async (value) => {
+      visits.push(value.index);
+      peak = Math.max(peak, ++active);
+      await Promise.resolve();
+      active--;
+      return value;
+    });
+    expect(result).toEqual(values);
+    expect(visits).toEqual(values.map((value) => value.index));
+    expect(peak).toBe(Math.min(limit, values.length));
+    expect(active).toBe(0);
+  }));
+
+  it("rejects invalid concurrency before running a build", propertyAsync(async (tc) => {
+    const limit = tc.draw(gs.oneOf(
+      gs.integers({ minValue: Number.MIN_SAFE_INTEGER, maxValue: 0 }),
+      gs.floats().filter((value) => !Number.isSafeInteger(value) || value < 1)
+    ));
+    await expect(mapConcurrent([1], limit, async () => { throw new Error("a build must not start"); })).rejects.toThrow("positive whole number");
+  }));
 });

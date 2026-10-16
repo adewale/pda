@@ -20,6 +20,7 @@ npm run interop -- --set pda:INTEROP_FAULT=assertion-typ --scenarios S0   # a de
 | `--scenarios D,SD` | Scenario ids; all by default. |
 | `--lane local\|live` | `local` (default): containers on a private network with no internet access ([Isolation](#isolation)). `live`: our agent against registry entries with a `url`, signed-out scenarios only, one request a second. |
 | `--no-build` | Use the images already built. |
+| `--build-jobs n` | Build at most `n` images concurrently (default 2), to bound compilation memory and disk pressure. |
 | `--keep` | Leave the containers and network running afterwards, for debugging. |
 | `--no-retry` | Don't run a failed or errored cell a second time. |
 | `--min-free-gb n` | Refuse to start with less than `n` GB free on Docker's data disk (default 2). |

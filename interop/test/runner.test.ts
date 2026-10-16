@@ -8,7 +8,7 @@ import { VIOLATION_IDS } from "../../test/mock-company/violations.ts";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
 import { TRACE_CHECKS } from "../runner/checks.ts";
 import { gridCoverage, imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions } from "../runner/cli.ts";
-import { proxyAliases } from "../runner/docker.ts";
+import { mapConcurrent, proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
 import { cellId, renderReport } from "../runner/report.ts";
 import type { Cell } from "../runner/types.ts";
@@ -28,6 +28,41 @@ describe("options", () => {
     expect(parseOptions([])).toMatchObject({ retry: true, minFreeGb: 2 });
     expect(parseOptions(["--no-retry", "--min-free-gb", "0.5"])).toMatchObject({ retry: false, minFreeGb: 0.5 });
     expect(() => parseOptions(["--min-free-gb", "lots"])).toThrow("--min-free-gb takes a number");
+  });
+});
+
+describe("build scheduling", () => {
+  it("starts the next build only when a slot is released and preserves results despite out-of-order completion", async () => {
+    const started: number[] = [];
+    const release = new Map<number, (value: string) => void>();
+    const result = mapConcurrent([0, 1, 2, 3], 2, (item) => {
+      started.push(item);
+      return new Promise<string>((resolve) => release.set(item, resolve));
+    });
+    expect(started).toEqual([0, 1]);
+    release.get(1)!("one");
+    await Promise.resolve();
+    expect(started).toEqual([0, 1, 2]);
+    release.get(2)!("two");
+    await Promise.resolve();
+    expect(started).toEqual([0, 1, 2, 3]);
+    release.get(3)!("three");
+    release.get(0)!("zero");
+    expect(await result).toEqual(["zero", "one", "two", "three"]);
+  });
+
+  it("handles an empty registry without starting anything", async () => {
+    expect(await mapConcurrent([], 2, async () => { throw new Error("must not run"); })).toEqual([]);
+  });
+
+  it.each(["0", "-1", "1.5", "Infinity", "not-a-number"])("refuses invalid build concurrency %s instead of silently skipping builds", async (value) => {
+    expect(() => parseOptions([`--build-jobs=${value}`])).toThrow("positive whole number");
+    await expect(mapConcurrent([1], Number(value), async (x) => x)).rejects.toThrow("positive whole number");
+  });
+
+  it("defaults to two builds and allows an explicit positive count", () => {
+    expect(parseOptions([]).buildJobs).toBe(2);
+    expect(parseOptions(["--build-jobs", "1"]).buildJobs).toBe(1);
   });
 });
 
