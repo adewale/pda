@@ -1,5 +1,5 @@
 /** Replay execution and evidence, using real signed requests and recording fetchers. */
-import { decodeJwt, exportJWK, generateKeyPair } from "jose";
+import { base64url, decodeJwt, exportJWK, generateKeyPair } from "jose";
 import { describe, expect, it } from "vitest";
 import type { Company } from "../../src/poppy/discovery.ts";
 import { toIssuer } from "../../src/poppy/issuer.ts";
@@ -102,3 +102,62 @@ for (const [id, rejection] of [["YR", "invalid_grant"], ["YD", "invalid_dpop_pro
     });
   });
 }
+
+describe("YA audience mutation", () => {
+  it.each(["same audience", "changed issuer", "reused client jti", "reused Session assertion", "reused proof", "wrong nonce", "changed assertion type", "no accepted baseline"])(
+    "refuses misleading wire evidence: %s", async (fault) => {
+      const { records } = await execute("YA", [200, 401], ["", "invalid_client"], ["n1"]);
+      const fields = new URLSearchParams(records[1]!.body);
+      const original = new URLSearchParams(records[0]!.body);
+      // Trace predicates inspect claims; real signature validity is covered
+      // separately against AuthServer in properties/attacks.test.ts.
+      const changeClaims = (jwt: string, patch: Record<string, unknown>) => {
+        const [header, , signature] = jwt.split(".");
+        return `${header}.${base64url.encode(JSON.stringify({ ...decodeJwt(jwt), ...patch }))}.${signature}`;
+      };
+      const client = fields.get("client_assertion")!;
+      if (fault === "same audience") fields.set("client_assertion", changeClaims(client, { aud: TOKEN }));
+      if (fault === "changed issuer") fields.set("client_assertion", changeClaims(client, { iss: "https://other.agent.interop.test/client.json" }));
+      if (fault === "reused client jti") fields.set("client_assertion", changeClaims(client, { jti: decodeJwt(original.get("client_assertion")!).jti }));
+      if (fault === "reused Session assertion") fields.set("assertion", original.get("assertion")!);
+      if (fault === "reused proof") records[1]!.headers!.dpop = records[0]!.headers!.dpop!;
+      if (fault === "wrong nonce") records[1]!.headers!.dpop = changeClaims(records[1]!.headers!.dpop!, { nonce: "wrong" });
+      if (fault === "changed assertion type") fields.set("client_assertion_type", "wrong");
+      if (fault === "no accepted baseline") records[0]!.status = 400;
+      records[1]!.body = fields.toString();
+      expect(assertTrace(recording(...records), { check: "attack_observed", mutation: "client_audience" }).kind).toBe("failed");
+    });
+
+  it("negotiates a nonce before sending fresh credentials with only the client audience wrong", async () => {
+    const { result, records } = await execute("YA", [400, 200, 401], ["use_dpop_nonce", "", "invalid_client"], ["n1"]);
+    expect(result.outcome).toBe("pass");
+    expect(records).toHaveLength(3);
+    const forms = records.map((record) => new URLSearchParams(record.body));
+    const clients = forms.map((fields) => decodeJwt(fields.get("client_assertion")!));
+    expect(clients[1]!.aud).toBe(TOKEN);
+    expect(clients[2]!.aud).toBe("https://auth.other.company.interop.test/oauth/token");
+    expect(new Set(clients.map((claims) => claims.jti)).size).toBe(3);
+    expect(decodeJwt(records[2]!.headers!.dpop!).nonce).toBe("n1");
+    expect(forms[2]!.get("assertion")).not.toBe(forms[1]!.get("assertion"));
+  });
+
+  it("reports repeated nonce challenges during setup as an error rather than audience protection", async () => {
+    const { result, records } = await execute("YA", [400, 400, 400], Array(3).fill("use_dpop_nonce"), ["n1", "n2", "n3"]);
+    expect(result.outcome).toBe("error");
+    expect(records).toHaveLength(3);
+  });
+
+  it("leaves nonce-only rejection of the mutation unsupported", async () => {
+    expect((await execute("YA", [200, 400], ["", "use_dpop_nonce"], ["n1", "n2"])).result.outcome).toBe("unsupported");
+  });
+
+  it.each([[200, ""], [500, "server_error"], [400, "invalid_grant"], [401, "invalid_dpop_proof"]] as const)(
+    "fails for an unrelated outcome: HTTP %s %s", async (status, error) => {
+      expect((await execute("YA", [200, status], ["", error])).result.outcome).toBe("fail");
+    });
+
+  it("requires an accepted baseline and refuses a single nonce challenge as attack evidence", () => {
+    const trace = recording({ url: TOKEN, method: "POST", status: 400, response: { error: "use_dpop_nonce" } });
+    expect(assertTrace(trace, { check: "attack_observed", mutation: "client_audience" }).kind).toBe("failed");
+  });
+});

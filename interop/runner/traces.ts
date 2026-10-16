@@ -280,6 +280,11 @@ export function boundedRequests(all: readonly Exchange[], params: Record<string,
  * injected, counts; `injected: true` requires the proxy to have injected one.
  */
 export function attackObserved(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  if (params.mutation === "client_audience") {
+    const pair = audiencePair(all);
+    return pair ? { kind: "ok", result: { baseline: pair[0].index, attack: pair[1].index } }
+      : { kind: "failed", detail: "the audience attack wasn't observed: no accepted baseline followed by only a client-audience mutation with fresh credentials" };
+  }
   if (params.replay !== undefined) {
     const pair = replayPair(all, params);
     return pair ? { kind: "ok", result: { baseline: pair[0].index, replay: pair[1].index } }
@@ -301,6 +306,57 @@ export function attackObserved(all: readonly Exchange[], params: Record<string, 
       (contains === undefined || `${x.requestBody} ${x.responseBody}`.includes(contains))
   );
   return match ? { kind: "ok", result: { exchange: match.index } } : { kind: "failed", detail: `the attack wasn't observed (${JSON.stringify(params)})` };
+}
+
+/** Ignore only one-shot fields when comparing two fresh credentials. */
+function freshJwt(a: string | null | undefined, b: string | null | undefined, ignored: readonly string[] = []): boolean {
+  const old = a ? decodeJwt(a) : null, next = b ? decodeJwt(b) : null;
+  if (!old || !next || typeof old.payload.jti !== "string" || typeof next.payload.jti !== "string" || old.payload.jti === next.payload.jti) return false;
+  const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) =>
+    item !== null && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item).sort(([x], [y]) => x.localeCompare(y))) : item);
+  const stable = (payload: Record<string, unknown>) => Object.fromEntries(Object.entries(payload)
+    .filter(([key]) => !["jti", "iat", "exp", ...ignored].includes(key)));
+  return canonical(old.header) === canonical(next.header) && canonical(stable(old.payload)) === canonical(stable(next.payload));
+}
+
+/** Accepted setup, then a foreign audience with every other validation precondition intact. */
+function audiencePair(all: readonly Exchange[]): readonly [Exchange, Exchange] | undefined {
+  const requests = agentRequests(all).filter((x) => x.method === "POST" && form(x)?.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer");
+  for (const baseline of requests) {
+    const body = jsonBody(baseline.responseBody) as Record<string, unknown> | undefined;
+    if (baseline.status !== 200 || typeof body?.access_token !== "string" || !body.access_token || typeof body.session_id !== "string" || !body.session_id) continue;
+    const original = form(baseline)!;
+    const oldClient = original.get("client_assertion");
+    const originalAud = oldClient ? decodeJwt(oldClient)?.payload.aud : undefined;
+    const oldProof = baseline.requestHeaders.get("dpop");
+    const nonce = baseline.responseHeaders.get("dpop-nonce") ?? (oldProof ? decodeJwt(oldProof)?.payload.nonce : undefined);
+    if (originalAud !== baseline.url.href) continue;
+    for (const attack of requests) {
+      if (attack.index <= baseline.index || attack.url.href !== baseline.url.href) continue;
+      const fields = form(attack)!;
+      const client = fields.get("client_assertion");
+      const aud = client ? decodeJwt(client)?.payload.aud : undefined;
+      const proof = attack.requestHeaders.get("dpop");
+      if (typeof aud !== "string" || aud === originalAud) continue;
+      if (fields.get("client_id") !== original.get("client_id") || fields.get("client_assertion_type") !== original.get("client_assertion_type")) continue;
+      if (!freshJwt(oldClient, client, ["aud"]) || !freshJwt(original.get("assertion"), fields.get("assertion"))) continue;
+      if (!freshJwt(oldProof, proof, ["nonce"]) || (proof ? decodeJwt(proof)?.payload.nonce : undefined) !== nonce) continue;
+      return [baseline, attack];
+    }
+  }
+}
+
+/** An unrelated error or nonce negotiation is not evidence of audience validation. */
+export function audienceRejected(all: readonly Exchange[]): RunnerReply {
+  const pair = audiencePair(all);
+  if (!pair) return { kind: "failed", detail: "no audience mutation to judge" };
+  const attack = pair[1];
+  if (attack.status === 400 && nonceChallenge(attack)) return { kind: "inapplicable", detail: "audience mutation received only a nonce challenge; audience validation remains untested" };
+  const body = jsonBody(attack.responseBody) as { error?: unknown } | undefined;
+  return [400, 401].includes(attack.status) && body?.error === "invalid_client"
+    ? { kind: "ok", result: { exchange: attack.index, error: "invalid_client" } }
+    : { kind: "failed", detail: `audience mutation answered HTTP ${attack.status}, expected 400/401 invalid_client` };
 }
 
 /** Wire evidence of one reused credential, with independent one-shot credentials kept fresh. */
@@ -368,7 +424,8 @@ export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params:
   no_secret_in: noSecretIn,
   bounded_requests: boundedRequests,
   attack_observed: attackObserved,
-  replay_rejected: replayRejected
+  replay_rejected: replayRejected,
+  audience_rejected: (all) => audienceRejected(all)
 };
 
 export function assertTrace(all: readonly Exchange[], params: unknown): RunnerReply {

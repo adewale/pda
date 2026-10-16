@@ -50,6 +50,12 @@ class MockServer:
             base_url=f"http://127.0.0.1:{ports['control']}",
             headers={"Authorization": f"Bearer {self.secret}"},
             timeout=30,
+            # A long state-machine run repeatedly observes the same localhost
+            # server. Never reuse an idle control socket: a reset by the peer
+            # otherwise becomes a non-replayable Hypothesis failure. No
+            # protocol request is retried and every oracle still runs.
+            limits=httpx.Limits(max_keepalive_connections=0),
+            trust_env=False,
         )
 
     def close(self) -> None:

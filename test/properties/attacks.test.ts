@@ -21,7 +21,8 @@ const env = { PUBLIC_ORIGIN: origin, POPPY_CLIENT_NAME: "Replay test agent", POP
 
 for (const [id, replay, error, violation] of [
   ["YR", "assertion", "invalid_grant", "session-assertion.jti-reused"],
-  ["YD", "dpop", "invalid_dpop_proof", "dpop.jti-reused"]
+  ["YD", "dpop", "invalid_dpop_proof", "dpop.jti-reused"],
+  ["YA", "client_audience", "invalid_client", "client-assertion.aud"]
 ] as const) {
   describe(id, () => {
     it("reaches exactly the intended replay refusal under generated nonce and assertion readings", propertyAsync(async (tc) => {
@@ -55,11 +56,12 @@ for (const [id, replay, error, violation] of [
           return response;
         }
       }, company, id, {});
-      expect(result).toMatchObject({ status: 400, poppy_error: error });
+      expect(result).toMatchObject({ status: id === "YA" ? 401 : 400, poppy_error: error });
       expect(core.recorded.map(violationId)).toEqual([violation]);
       const trace = recording(...records);
-      expect(assertTrace(trace, { check: "attack_observed", replay }).kind).toBe("ok");
-      expect(assertTrace(trace, { check: "replay_rejected", replay }).kind).toBe("ok");
+      const evidence = id === "YA" ? { mutation: replay } : { replay };
+      expect(assertTrace(trace, { check: "attack_observed", ...evidence }).kind).toBe("ok");
+      expect(assertTrace(trace, { check: id === "YA" ? "audience_rejected" : "replay_rejected", replay }).kind).toBe("ok");
     }));
   });
 }

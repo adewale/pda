@@ -89,9 +89,44 @@ function literal(tc: TC): { text: string; value: F } {
 }
 
 const size = (x: F) => frac(x.n < 0n ? -x.n : x.n, x.d);
-/** The smallest and largest powers of two a double holds at full precision. */
-const DOUBLE_LOW = frac(1n, 2n ** 1022n);
-const DOUBLE_HIGH = frac(2n ** 1023n);
+/** Decode the exact binary value, independently of the calculator's decimal/parser code. */
+function binaryFraction(bits: bigint): F {
+  if (bits === 0x7ff0000000000000n) return frac(1n << 1024n); // virtual neighbour above MAX_VALUE
+  const exponent = Number(bits >> 52n);
+  const significand = (bits & 0xfffffffffffffn) + (exponent === 0 ? 0n : 1n << 52n);
+  const shift = Math.max(1, exponent) - 1075;
+  return shift >= 0 ? frac(significand << BigInt(shift)) : frac(significand, 1n << BigInt(-shift));
+}
+
+/** Check exact rounding intervals, including ties-to-even, signed underflow and overflow. */
+function expectNearest(value: number, exact: F, context: string): void {
+  expect(Number.isNaN(value), context).toBe(false);
+  if (exact.n === 0n) {
+    expect(value, context).toBe(0);
+    return;
+  }
+  expect(value < 0 || Object.is(value, -0), context).toBe(exact.n < 0n);
+  const magnitude = size(exact);
+  const overflow = frac((1n << 1024n) - (1n << 970n));
+  if (!Number.isFinite(value)) {
+    expect(F_LESS(magnitude, overflow), context).toBe(false);
+    return;
+  }
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, Math.abs(value));
+  const bits = view.getBigUint64(0);
+  const middle = binaryFraction(bits);
+  const even = (bits & 1n) === 0n;
+  const above = F_DIV(F_ADD(middle, binaryFraction(bits + 1n)), frac(2n));
+  // Cross multiply the exact rational against both adjacent midpoints. No epsilon.
+  const upper = magnitude.n * above.d - above.n * magnitude.d;
+  expect(upper < 0n || (upper === 0n && even), context).toBe(true);
+  if (bits > 0n) {
+    const below = F_DIV(F_ADD(middle, binaryFraction(bits - 1n)), frac(2n));
+    const lower = magnitude.n * below.d - below.n * magnitude.d;
+    expect(lower > 0n || (lower === 0n && even), context).toBe(true);
+  }
+}
 
 /**
  * An expression and its exact value, built together as a tree. Every
@@ -181,7 +216,7 @@ describe("calculate", () => {
   );
 
   it(
-    "gives as value the answer's nearest double: never 0 for a number a double can hold, and right to a unit in the 16th digit across a double's normal range",
+    "rounds an exact rational answer to the nearest binary64 value with ties to even",
     property((tc) => {
       const built = expression(tc, tc.draw(gs.integers({ minValue: 0, maxValue: 4 })));
       tc.note(built.text);
@@ -190,34 +225,35 @@ describe("calculate", () => {
       try {
         result = calculate(built.text);
       } catch (error) {
-        // A refusal is the first property's to judge.
+        // The independent arithmetic property judges size refusals.
         expect(error).toBeInstanceOf(CalcError);
         return;
       }
-      const exact = built.value;
-      if (exact.n === 0n) {
-        expect(result.value, built.text).toBe(0);
-        return;
-      }
-      // Past a double's range the nearest double is 0 or infinity (a margin of two powers of two keeps clear of where rounding decides).
-      const magnitude = size(exact);
-      if (F_LESS(magnitude, frac(1n, 2n ** 1076n))) {
-        expect(Math.abs(result.value), built.text).toBe(0);
-        return;
-      }
-      if (!F_LESS(magnitude, frac(2n ** 1025n))) {
-        expect(Math.abs(result.value), built.text).toBe(Infinity);
-        return;
-      }
-      // Within it, never 0 and with the answer's sign, down to the smallest subnormal.
-      if (!F_LESS(magnitude, frac(1n, 2n ** 1074n)) && F_LESS(magnitude, DOUBLE_HIGH)) {
-        expect(Math.sign(result.value), `${built.text}: value ${result.value}`).toBe(exact.n < 0n ? -1 : 1);
-      }
-      if (F_LESS(magnitude, DOUBLE_LOW) || !F_LESS(magnitude, DOUBLE_HIGH)) return;
-      const near = decimalFraction(String(result.value));
-      expect(F_LESS(F_MUL(size(F_SUB(near, exact)), frac(10n ** 15n)), size(exact)), `${built.text}: value ${result.value}`).toBe(true);
+      expectNearest(result.value, built.value, built.text);
     })
   );
+
+  it("rounds at and on both sides of binary64 midpoints, including zero, subnormals and overflow", property((tc) => {
+    const bits = tc.draw(gs.oneOf(
+      gs.bigIntegers({ minValue: 0n, maxValue: 0x7fefffffffffffffn }),
+      gs.sampledFrom([0n, 1n, 0xfffffffffffffn, 0x10000000000000n, 0x3ff0000000000000n, 0x7fefffffffffffffn])
+    ));
+    const low = binaryFraction(bits), high = binaryFraction(bits + 1n);
+    const gap = F_SUB(high, low);
+    const offset = tc.draw(gs.integers({ minValue: -1, maxValue: 1 }));
+    const precision = tc.draw(gs.integers({ minValue: 2, maxValue: 100 }));
+    const sign = tc.draw(gs.booleans()) ? -1n : 1n;
+    const exact = F_MUL(F_ADD(F_DIV(F_ADD(low, high), frac(2n)), F_MUL(gap, frac(BigInt(offset), 1n << BigInt(precision)))), frac(sign));
+    const text = `(${exact.n}) / (${exact.d})`;
+    tc.note(`${bits.toString(16)} offset=${offset}/2^${precision} ${text}`);
+    expectNearest(calculate(text).value, exact, text);
+  }));
+
+  it("keeps sticky bits below a midpoint instead of rounding an already-truncated quotient", () => {
+    const denominator = 1n << 100n;
+    const numerator = denominator + (1n << 47n) + 1n;
+    expect(calculate(`${numerator}/${denominator}`).value).toBe(1 + Number.EPSILON);
+  });
 
   /** A fractional power p/r (r from 2 to 6, p not a multiple of r), written as `sqrt`, a fraction or, when it ends, a decimal. */
   function fractionalPower(tc: TC): { write: (base: string) => string; p: number; r: number } {
@@ -355,7 +391,7 @@ describe("calculate", () => {
 /** Any date from year 1 to 9999. */
 const dates = gs.integers({ minValue: dayNumber(1, 1, 1), maxValue: dayNumber(9999, 12, 31) }).map(civil);
 
-const ZONES = ["UTC", "Europe/London", "America/New_York", "America/St_Johns", "Australia/Lord_Howe", "Asia/Kolkata", "Pacific/Chatham", "Pacific/Apia", "Africa/Casablanca"];
+const ZONES = ["UTC", ...Intl.supportedValuesOf("timeZone")];
 
 /** Any instant from year 1 to 9999 (before 1970 the zone database gives local mean time, offsets with seconds). */
 const instants = gs.integers({ minValue: dayNumber(1, 1, 2) * 86_400_000, maxValue: dayNumber(9999, 12, 30) * 86_400_000 });

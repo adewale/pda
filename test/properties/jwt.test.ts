@@ -136,6 +136,40 @@ describe("our client's JWTs pass the mock Company's checks", () => {
   );
 });
 
+/** The Company advertises both algorithms; our own PDA signer remains ES256. */
+for (const alg of ["ES256", "RS256"] as const) {
+  const pair = await generateKeyPair(alg, { extractable: true });
+  const kid = `accepted-${alg}`;
+  const published = { ...await exportJWK(pair.publicKey), kid, alg, use: "sig" };
+  const assertion = (sub: string, aud: string, lifetime: number) => new SignJWT({})
+    .setProtectedHeader({ alg, typ: "JWT", kid }).setIssuer(identity.clientId).setSubject(sub).setAudience(aud)
+    .setIssuedAt().setExpirationTime(Math.floor(Date.now() / 1000) + lifetime).setJti(randomId()).sign(pair.privateKey);
+
+  describe(`Company verifier accepts ${alg}`, () => {
+    it("authenticates fresh client assertions using the matching published key under generated readings", propertyAsync(async (tc) => {
+      const company = await companyWith(tc.draw(readings));
+      company.served.set(identity.jwksUri, { status: 200, body: JSON.stringify({ keys: [published] }) });
+      const endpoint = company.hosts[tc.draw(gs.sampledFrom(endpointNames))];
+      const lifetime = tc.draw(gs.integers({ minValue: 1, maxValue: company.config.strictAssertions ? 60 : 300 }));
+      const result = await attempt(() => assertion(identity.clientId, endpoint, lifetime)
+        .then((jwt) => company.authenticateClient(form(jwt), endpoint)));
+      expect(result.ok).toBe(true);
+      expect(company.recorded).toEqual([]);
+    }));
+
+    it("returns the generated User ID from a Session assertion signed with the matching published key", propertyAsync(async (tc) => {
+      const company = await companyWith(tc.draw(readings));
+      company.served.set(identity.jwksUri, { status: 200, body: JSON.stringify({ keys: [published] }) });
+      const userId = `usr_${tc.draw(gs.text({ alphabet: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", minSize: 22, maxSize: 40 }))}`;
+      const endpoint = company.hosts.tokenEndpoint;
+      const client = await company.authenticateClient(form(await assertion(identity.clientId, endpoint, 60)), endpoint);
+      const verified = await company.verifySessionAssertion(client, await assertion(userId, endpoint, 60));
+      expect(verified).toBe(userId);
+      expect(company.recorded).toEqual([]);
+    }));
+  });
+}
+
 const seconds = () => Math.floor(Date.now() / 1000);
 const VISIBLE = String.fromCharCode(...Array.from({ length: 0x7e - 0x21 + 1 }, (_, i) => 0x21 + i));
 const jtis = () => joseBase64url.encode(crypto.getRandomValues(new Uint8Array(16)));

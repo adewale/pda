@@ -143,8 +143,11 @@ export async function runAttack(ctx: AttackContext, company: Company, attack: st
     case "YA": {
       // aud confusion: a client assertion minted for another Company presented here (4.1; client-assertion.aud).
       const foreign = typeof params.aud === "string" ? params.aud : "https://auth.other.company.interop.test/oauth/token";
-      const key = await dpopKey();
-      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, endpoint), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, foreign) }, { DPoP: await proof(key, "POST", endpoint) }));
+      if (foreign === endpoint) throw new AttackSetupError("Audience attack needs an audience different from the called endpoint");
+      const session = await startSession(ctx, company, await dpopKey());
+      // The accepted baseline supplies the current nonce and proves the other
+      // claims/key work. Fresh one-shot credentials isolate the wrong audience.
+      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, endpoint), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, foreign) }, { DPoP: await proof(session.key, "POST", endpoint) }));
     }
     case "YT": {
       // Stolen token, another key: a Session Token with a proof from a different key (4.3; dpop.key-mismatch).

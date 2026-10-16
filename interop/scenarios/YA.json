@@ -7,7 +7,8 @@
   "steps": [
     { "agent": "arm", "params": { "attack": "YA" } },
     { "agent": "attack", "save": "r" },
-    { "expect": { "step": "r", "poppy_error": { "$exists": true } } },
-    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "/oauth/token", "method": "POST" } }
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "mutation": "client_audience" } },
+    { "runner": "assert_trace", "params": { "check": "audience_rejected" } },
+    { "expect": { "step": "r", "poppy_error": "invalid_client" } }
   ]
 }

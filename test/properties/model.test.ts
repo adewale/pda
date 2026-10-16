@@ -58,26 +58,29 @@ async function world(config: Record<string, unknown>) {
   await mock.serveClientDocument(`${ORIGIN}/poppy/client.json`, clientMetadata(env));
   await mock.serveClientDocument(`${ORIGIN}/poppy/jwks.json`, { keys: (await readSigningKeys(env)).map((key) => key.publicJwk) });
 
-  const sql = memorySql();
-  migrate(sql);
-  const cards = new Map<string, Card>();
-  const host: PoppyHost = {
-    env,
-    sql,
-    fetcher: async (request) =>
-      companyIdFromHost(new URL(request.url).host) === id ? mock.fetch(request) : new Response("No network here", { status: 502 }),
-    showCard: async (card) => void cards.set(card.id, card),
-    notifyModel: async () => undefined,
-    schedule: async () => undefined,
-    hasJob: () => false,
-    pushDirect: () => undefined,
-    userContext: () => ({ locale: "en-GB", time_zone: "Europe/London", user_available: true }),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    now: () => Date.now()
+  const createClient = async () => {
+    const sql = memorySql();
+    migrate(sql);
+    const cards = new Map<string, Card>();
+    const host: PoppyHost = {
+      env,
+      sql,
+      fetcher: async (request) =>
+        companyIdFromHost(new URL(request.url).host) === id ? mock.fetch(request) : new Response("No network here", { status: 502 }),
+      showCard: async (card) => void cards.set(card.id, card),
+      notifyModel: async () => undefined,
+      schedule: async () => undefined,
+      hasJob: () => false,
+      pushDirect: () => undefined,
+      userContext: () => ({ locale: "en-GB", time_zone: "Europe/London", user_available: true }),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      now: () => Date.now()
+    };
+    const client = new PoppyClient(host);
+    const company = await client.company(hostsFor(id).domain);
+    return { client, company, cards, sql };
   };
-  const client = new PoppyClient(host);
-  const company = await client.company(hostsFor(id).domain);
-  return { mock, client, company, cards, hosts: hostsFor(id) };
+  return { ...await createClient(), mock, createClient, hosts: hostsFor(id) };
 }
 
 type World = Awaited<ReturnType<typeof world>>;
@@ -227,6 +230,156 @@ describe("our client against the mock Company, any honest sequence (model-based)
       }
     })
   );
+});
+
+type IsolatedClient = Awaited<ReturnType<World["createClient"]>>;
+type IsolatedModel = {
+  signedIn: Set<number>;
+  conversations: Map<string, { label: number; texts: string[]; closed: boolean }>;
+  operations: Map<string, { label: number; state: string }>;
+};
+
+describe("two PDA clients and two accounts in one generated world", () => {
+  it("keeps identities, sessions, Account Tokens, conversations and operations isolated after every action", propertyAsync(async (tc) => {
+    const config = {
+      rotateRefreshTokens: tc.draw(gs.booleans()), reuseDetection: tc.draw(gs.booleans()),
+      requireNonce: tc.draw(gs.booleans()), strictAssertions: tc.draw(gs.booleans()),
+      nonceScope: tc.draw(gs.sampledFrom(["company", "origin"])),
+      endSessionsOnSignOut: tc.draw(gs.booleans()), streaming: false
+    };
+    const w = await world(config);
+    const clients: IsolatedClient[] = [w, await w.createClient()];
+    const labels = [...tc.draw(gs.sets(gs.fromRegex("[a-z]{1,8}", { fullmatch: true }), { minSize: 2, maxSize: 2 }))];
+    const accounts = tc.draw(gs.booleans()) ? ["acct_ada", "acct_grace"] : ["acct_grace", "acct_ada"];
+    const models: IsolatedModel[] = clients.map(() => ({ signedIn: new Set(), conversations: new Map(), operations: new Map() }));
+    const performed = new Set<string>();
+    const userIds = clients.map(({ client, company }) => client.userId(company.issuer));
+    expect(new Set(userIds).size).toBe(2);
+
+    const signIn = async (who: number, label: number) => {
+      const { client, company, cards } = clients[who]!;
+      const started = await startSignIn(client, company, { label: labels[label]!, account: labels[label]!, scopes: ["poppy:read", "poppy:write"], reason: "isolation model", type: "direct" });
+      if (started.status === "waiting") {
+        const card = cards.get(`signin-${started.signInId}`) as Extract<Card, { kind: "signin_link" }>;
+        const location = await w.mock.approveAuthorization(card.url, { approve: true, account: accounts[label]! });
+        expect((await completeDirectSignIn(client, new URL(location))).ok).toBe(true);
+      }
+      models[who]!.signedIn.add(label);
+    };
+
+    const agrees = async () => {
+      const tokenOwners = new Map<string, string>();
+      for (const [who, { client, company }] of clients.entries()) {
+        for (const label of [0, 1]) {
+          const token = await client.token(company, { label: labels[label]! });
+          // Every active Session has its own token. Neither a cache nor a
+          // refresh may hand one client's/label's token to another.
+          expect(tokenOwners.has(token.value)).toBe(false);
+          tokenOwners.set(token.value, `${who}/${label}`);
+        }
+      }
+      const state = await w.mock.state();
+      expect(state.recorded).toEqual([]);
+      expect(state.accountTokens).toBe(models.reduce((count, model) => count + model.signedIn.size, 0));
+      expect(state.performs).toBe(performed.size);
+      expect(new Set(state.userIds)).toEqual(new Set(userIds));
+      const allOperations = new Map(models.flatMap((model) => [...model.operations].map(([id, op]) => [id, op.state] as const)));
+      expect(new Map(state.operations.map((op) => [op.id, op.state]))).toEqual(allOperations);
+      for (const [who, { client, company, sql }] of clients.entries()) {
+        const model = models[who]!;
+        expect(new Set(client.accounts(company.issuer).map((row) => row.account))).toEqual(new Set([...model.signedIn].map((label) => labels[label])));
+        for (const label of [0, 1]) {
+          const session = client.session(company.issuer, labels[label]!)!;
+          expect(session.signed_in).toBe(model.signedIn.has(label) ? 1 : 0);
+          expect(session.account).toBe(model.signedIn.has(label) ? labels[label] : null);
+          const remote = state.sessions.find((row) => row.id === session.session_id)!;
+          expect(remote).toMatchObject({ userId: userIds[who], account: model.signedIn.has(label) ? accounts[label] : null, ended: false });
+        }
+        expect(new Set(openConversations(client).map((row) => row.id))).toEqual(new Set([...model.conversations].filter(([, entry]) => !entry.closed).map(([id]) => id)));
+        expect(new Set(sql.exec("SELECT operation_id FROM poppy_operations").toArray().map((row) => row.operation_id))).toEqual(new Set(model.operations.keys()));
+        for (const [id, op] of model.operations) {
+          expect(operation(client, company.issuer, id)?.state).toBe(op.state);
+          expect(operation(clients[1 - who]!.client, company.issuer, id)).toBeUndefined();
+        }
+        for (const [id, expected] of model.conversations) {
+          const remote = state.conversations.find((row) => row.id === id)!;
+          expect(remote.sent).toEqual(expected.texts.map((text) => `agent:${text}`));
+          expect(conversation(clients[1 - who]!.client, id)).toBeUndefined();
+        }
+      }
+    };
+
+    // Every case reaches both users and both accounts before random actions;
+    // the interleaving and subsequent actions remain generated.
+    const first = tc.draw(gs.booleans()) ? [0, 1] : [1, 0];
+    for (const who of first) for (const label of [0, 1]) { await signIn(who, label); await agrees(); }
+    const source = clients[0]!;
+    const sourceToken = source.client.accounts(source.company.issuer).find((row) => row.account === labels[0])!.token;
+    for (const [who, label] of [[1, 0], [0, 1]] as const) {
+      const target = clients[who]!;
+      const original = target.client.accounts(target.company.issuer).find((row) => row.account === labels[label])!.token;
+      target.sql.exec("UPDATE poppy_accounts SET token = ? WHERE issuer = ? AND account = ?", sourceToken, target.company.issuer, labels[label]);
+      target.client.dropToken(target.company, { label: labels[label]! });
+      try {
+        // Both clients share the deployment encryption key: only the
+        // independently allocated User ID/account context prevents this swap.
+        await expect(target.client.token(target.company, { label: labels[label]! })).rejects.toMatchObject({ name: "OperationError" });
+      } finally {
+        target.sql.exec("UPDATE poppy_accounts SET token = ? WHERE issuer = ? AND account = ?", original, target.company.issuer, labels[label]);
+      }
+      await agrees();
+    }
+    const actions = tc.draw(gs.arrays(gs.tuples(
+      gs.integers({ minValue: 0, maxValue: 1 }), gs.integers({ minValue: 0, maxValue: 1 }),
+      gs.sampledFrom(["signIn", "signOut", "renew", "orders", "message", "read", "close", "propose", "approve", "decline"] as const)
+    ), { minSize: 1, maxSize: 25 }));
+    for (const [step, [who, label, action]] of actions.entries()) {
+      tc.note(`${step}: client=${who} label=${labels[label]} ${action}`);
+      const { client, company } = clients[who]!;
+      const model = models[who]!;
+      const open = [...model.operations].filter(([, op]) => op.label === label && op.state === "proposed");
+      if (action === "signIn") await signIn(who, label);
+      else if (action === "signOut" && model.signedIn.has(label)) {
+        await signOut(client, company.issuer, labels[label]!);
+        model.signedIn.delete(label);
+      } else if (action === "renew") client.dropToken(company, { label: labels[label]! });
+      else if (action === "orders") {
+        if (model.signedIn.has(label)) {
+          const result = await callOpenApi(client, company, labels[label]!, { operation: "listOrders", callKey: crypto.randomUUID() });
+          expect(result).toMatchObject({ status: 200, body: { orders: [{ order_id: "ord_7Hk2", account: accounts[label] }] } });
+        }
+      } else if (action === "message") {
+        const existing = [...model.conversations].filter(([, item]) => item.label === label && !item.closed);
+        const id = existing.length && tc.draw(gs.booleans()) ? tc.draw(gs.sampledFrom(existing))[0] : undefined;
+        const text = `hello client ${who} ${labels[label]} step ${step} ${tc.draw(gs.text({ alphabet: "abcXYZ012", maxSize: 12 }))}`;
+        const sent = await sendMessage(client, company, { label: labels[label]!, callKey: crypto.randomUUID(), sender: "agent", text, ...(id ? { conversationId: id } : {}) });
+        const entry = model.conversations.get(sent.conversationId) ?? { label, texts: [], closed: false };
+        entry.texts.push(text);
+        model.conversations.set(sent.conversationId, entry);
+      } else if (action === "read" || action === "close") {
+        const existing = [...model.conversations].filter(([, item]) => item.label === label && !item.closed);
+        if (existing.length) {
+          const [id, entry] = tc.draw(gs.sampledFrom(existing));
+          if (action === "read") await readConversation(client, id, 0, 0);
+          else { await closeConversation(client, company, id); entry.closed = true; }
+        }
+      } else if (action === "propose" && model.signedIn.has(label) && !performed.has(accounts[label]!)) {
+        const result = await callOpenApi(client, company, labels[label]!, { operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, callKey: crypto.randomUUID() }) as { proposed: { operation_id: string } };
+        const id = result.proposed.operation_id;
+        if (open.length) expect(open.map(([key]) => key)).toContain(id);
+        model.operations.set(id, { label, state: "proposed" });
+      } else if ((action === "approve" || action === "decline") && model.signedIn.has(label) && open.length) {
+        const [id, op] = tc.draw(gs.sampledFrom(open));
+        if (action === "approve" && !performed.has(accounts[label]!)) {
+          await approveAndConfirm(client, company.issuer, id, operation(client, company.issuer, id)!.revision, "user");
+          op.state = "succeeded";
+          performed.add(accounts[label]!);
+        } else if (action === "decline") { await cancelOperation(client, company.issuer, id); op.state = "cancelled"; }
+      }
+      await agrees();
+    }
+  // Each default run performs hundreds of real four-account sign-in flows.
+  }), Number(process.env.HEGEL_CASES ?? "0") > 0 ? 0 : 120_000);
 });
 
 export type { Company };
