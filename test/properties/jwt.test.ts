@@ -105,7 +105,7 @@ describe("our client's JWTs against the mock Company's readings", () => {
       // endpoint-specific audience on revocation/device calls (poppy.test.ts).
       if (config.clientAssertionAud === "token-endpoint" && endpoint !== company.hosts.tokenEndpoint) {
         expect(result).toEqual({ ok: false, error: "invalid_client" });
-      } else expect(result.ok).toBe(true);
+      } else expect(result).toMatchObject({ ok: true, value: { clientId: identity.clientId } });
       expect(company.recorded).toEqual([]);
     })
   );
@@ -180,7 +180,7 @@ for (const alg of ["ES256", "RS256"] as const) {
       const audience = company.config.clientAssertionAud === "token-endpoint" ? company.hosts.tokenEndpoint : endpoint;
       const result = await attempt(() => assertion(identity.clientId, audience, lifetime)
         .then((jwt) => company.authenticateClient(form(jwt), endpoint)));
-      expect(result.ok).toBe(true);
+      expect(result).toMatchObject({ ok: true, value: { clientId: identity.clientId, jwks: { keys: [published] } } });
       expect(company.recorded).toEqual([]);
     }));
 
@@ -331,7 +331,8 @@ describe("the mock Company refuses each thing wrong with an assertion, naming it
       const endpoint = company.hosts[tc.draw(gs.sampledFrom(endpointNames))];
       const audience = company.config.clientAssertionAud === "token-endpoint" ? company.hosts.tokenEndpoint : endpoint;
       const assertion = await clientAssertion(signing, identity.clientId, audience);
-      expect((await attempt(() => company.authenticateClient(form(assertion), endpoint))).ok).toBe(true);
+      expect(await attempt(() => company.authenticateClient(form(assertion), endpoint)))
+        .toMatchObject({ ok: true, value: { clientId: identity.clientId } });
       expect((await attempt(() => company.authenticateClient(form(assertion), endpoint))).ok).toBe(false);
       expect(company.recorded.map(violationId)).toEqual(["client-assertion.jti-reused"]);
     })

@@ -18,7 +18,7 @@ oracle or an unsupported interop scenario.
 | YA could count a DPoP nonce challenge as proof of audience validation. | Establish an accepted, nonce-aware token request first. Require a fresh request with the intended foreign client-assertion audience, stable remaining claims, fresh Session/proof identifiers and the negotiated nonce. Only the specified `invalid_client` refusal proves protection; a nonce challenge is unsupported, missing setup is a harness error, and unrelated errors fail. Negative controls exercise misleading traces. |
 | A relative-error bound did not establish nearest binary64 rounding. | Decode binary64 values into exact fractions and check the exact interval between adjacent midpoints, including ties-to-even, signed zero, subnormals and overflow. The new oracle reproduced a real calculator defect: `1 + 2^-53 + 2^-100` rounded to `1`. The implementation now rounds the exact quotient and remainder once at binary64 spacing. |
 | One PDA identity/account could not expose cross-user or cross-account leaks. | Two real PDA clients, with separate SQL stores, each sign into both fixture accounts. An independent ownership model checks tokens, sessions, conversations, operations and actual order ownership after generated actions. Deliberately copied sealed tokens must fail renewal across both user and account boundaries. |
-| The verifier advertised RS256 without positive coverage. | Parameterize accepted client assertions, Session assertions and self-contained DPoP proofs over ES256 and RS256, using matching real public keys. The PDA's own signer continues to use ES256. |
+| The verifier advertised RS256 without positive coverage. | Parameterize accepted client assertions, Session assertions and self-contained DPoP proofs over ES256 and RS256, using matching real public keys. Assert the returned client identity/key set, User ID or DPoP thumbprint rather than acceptance alone. The PDA's own signer continues to use ES256. |
 | Address and DNS behavior had examples but no generated numeric model. | Compare IPv4/IPv6 values and special-range endpoints to independent numeric intervals. Exercise embedded IPv4 spellings, IPv6 compression/padding/case, malformed addresses, changing resolver answers and mixed public/private answers. Require the exact checked answer to be used, without a second resolution for the same connection. |
 | Individual outbox examples did not establish reconnect behavior across sequences. | Drive the five real reducers against an independent ordered-map model through enqueue/send/disconnect/ack/failure/retry/dismiss actions. Check complete payloads and IDs, input immutability and that acknowledged messages never reappear. A separate example processes 100,000 pending messages. |
 | Calendar properties chose only nine zones. | Draw from `Intl.supportedValuesOf("timeZone")` plus UTC, retaining transition examples. This covers the runtime's enumerated set; it is not a claim to enumerate every accepted timezone alias. |
@@ -47,7 +47,7 @@ implementation from passing.
 
 | Review area | Evidence and limit |
 | --- | --- |
-| Surfaces and variants | A TypeScript AST inventory records each named source export/re-export and class entry point, with associated property imports or a stated reason for example/integration coverage. Import association is an index, not proof that every export is semantically covered. Pure types are checked by TypeScript; Workers, storage, routing and UI effects retain their dedicated integration suites. Interop build scheduling is reviewed separately from the application source index. |
+| Surfaces and variants | A TypeScript AST inventory records 904 named source exports/re-exports and 191 class entry points, with associated property imports or a stated reason for example/integration coverage. Import association is an index, not proof that every export is semantically covered. Pure types are checked by TypeScript; Workers, storage, routing and UI effects retain their dedicated integration suites. Interop build scheduling is reviewed separately from the application source index. |
 | Accept and reject directions | Structured valid and one-defect inputs check JSON, JWT, discovery, path filling, durations and address parsing. Garbage/no-crash properties remain resilience checks and do not establish semantic rejection of every malformed input. |
 | Configuration | Audience, nonce scope, assertion strictness, refresh rotation and session behavior are generated where applicable. Focused properties cover token-endpoint-only fallback. The longer general PDA state histories still use the lenient and exact endpoint policies. |
 | Numeric domain | Supported rounding precision, tiny magnitudes, subnormals, midpoint ties, sticky bits and duration unit endpoints are explicit. No tolerance substitutes for the exact nearest-double contract. |
@@ -64,17 +64,19 @@ by itself.
 
 ## Validation record
 
-The regular GitHub Test and Interop workflows pass on `96be076`:
-1,485 tests passed with one intentional skip across the five Vitest
-configurations; TypeScript and documentation checks passed. This precedes the
-final test-only addition of the third audience policy and accepted DPoP
-variants. Final-commit results will be recorded after those checks complete.
+The regular GitHub Test and Interop workflows pass on `c20912b`:
+1,488 tests passed with one intentional skip across the five Vitest
+configurations; TypeScript and documentation checks passed. This includes the
+third audience policy, accepted DPoP variants and the focused PDA fallback
+property. The subsequent test-only identity assertions receive their own
+targeted deep runs and regular CI checks.
 
 Completed follow-up checks:
 
 - Nine non-model Hegel files: 128 tests passed with `HEGEL_CASES=5000`.
 - Final address/outbox files: nine tests passed at that setting after their additions.
-- Accepted DPoP variants: 15 JWT tests passed at that setting before the final third-audience expansion.
+- Final crypto/attack expansion: 18 tests passed at that setting, including the third audience policy and accepted DPoP variants.
+- Real PDA audience fallback: one focused property passed at that setting; the other two model properties were not selected in that run.
 - Final build-scheduler properties: 15 tests passed at that setting.
 - Interop unit suite: 205 tests passed.
 - Docker adversarial agent lane: 16 pass against both mock profiles.
@@ -83,8 +85,8 @@ Completed follow-up checks:
 - Those Docker runs reported zero failures, harness errors or unsupported cells; isolation probes passed.
 - Live discovery: three pass, for Ilmer, Poppyseed and Alpine Retail.
 
-The 5,000-case state models, final audience/crypto expansion, and full deep
-Hypothesis profile (2,000 examples, up to 60 steps) are still running at the
+The 5,000-case general state models and full deep Hypothesis profile
+(2,000 examples, up to 60 steps) are still running at the
 time of this record. A full pinned local ecosystem matrix, eight agents by
 twelve Companies by thirty scenarios, is running in a separate
 [GitHub validation job](https://github.com/adewale/pda/actions/runs/38829561008).
@@ -98,5 +100,7 @@ from passes.
 Live signed-out Session/nonce/conversation scenarios require a legitimate
 public client identity and its matching private interop key. Neither the
 identity file nor deployment configuration is present in this workspace; its
-location has been requested. Discovery needs neither, so only discovery is
+location has been requested. An attempt to establish an isolated temporary
+public metadata host could not connect from this environment; no client
+identity or key was published. Discovery needs neither, so only discovery is
 claimed for public Companies so far. No production key or deployment was changed.
