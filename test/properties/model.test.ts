@@ -302,12 +302,17 @@ describe("sealed Account Token ownership controls", () => {
   });
 });
 
-it("does not send two concurrent confirms while persisting the recovery job", async () => {
-  const w = await world({});
+async function proposedOperation(config: Record<string, unknown>, callKey: string) {
+  const w = await world(config);
   await signInto(w, w.mock, "main", "acct_ada");
-  const proposed = await exchange(w, "concurrent-confirm") as { proposed: { operation_id: string } };
+  const proposed = await exchange(w, callKey) as { proposed: { operation_id: string } };
   const id = proposed.proposed.operation_id;
   const revision = operation(w.client, w.company.issuer, id)!.revision;
+  return { w, id, revision };
+}
+
+it("does not send two concurrent confirms while persisting the recovery job", async () => {
+  const { w, id, revision } = await proposedOperation({}, "concurrent-confirm");
   await Promise.all([0, 1].map(() => approveAndConfirm(w.client, w.company.issuer, id, revision, "user")));
   const state = await w.mock.state();
   expect(state.operations).toEqual([expect.objectContaining({ id, state: "succeeded", confirms: 1 })]);
@@ -316,11 +321,7 @@ it("does not send two concurrent confirms while persisting the recovery job", as
 });
 
 it("releases the confirmation guard when persisting its recovery job fails", async () => {
-  const w = await world({});
-  await signInto(w, w.mock, "main", "acct_ada");
-  const proposed = await exchange(w, "failed-recovery-job") as { proposed: { operation_id: string } };
-  const id = proposed.proposed.operation_id;
-  const revision = operation(w.client, w.company.issuer, id)!.revision;
+  const { w, id, revision } = await proposedOperation({}, "failed-recovery-job");
   const schedule = vi.spyOn(w.client.host, "schedule").mockRejectedValueOnce(new Error("recovery job unavailable"));
   try {
     await expect(approveAndConfirm(w.client, w.company.issuer, id, revision, "user")).rejects.toThrow("recovery job unavailable");
@@ -333,11 +334,7 @@ it("releases the confirmation guard when persisting its recovery job fails", asy
 });
 
 it("restores a missing operation job after persistence fails, without another approval", async () => {
-  const w = await world({});
-  await signInto(w, w.mock, "main", "acct_ada");
-  const proposed = await exchange(w, "missing-operation-job") as { proposed: { operation_id: string } };
-  const id = proposed.proposed.operation_id;
-  const revision = operation(w.client, w.company.issuer, id)!.revision;
+  const { w, id, revision } = await proposedOperation({}, "missing-operation-job");
   const priorJobs = new Map(w.jobs);
   const jobId = `op-${w.company.issuer}-${id}`;
   const schedule = vi.spyOn(w.client.host, "schedule").mockRejectedValueOnce(new Error("job write failed"));
@@ -358,11 +355,8 @@ it("restores a missing operation job after persistence fails, without another ap
 });
 
 it("restores tracking for an in-progress operation but never rearms a final one", async () => {
-  const w = await world({ slowConfirm: true });
-  await signInto(w, w.mock, "main", "acct_ada");
-  const proposed = await exchange(w, "missing-progress-job") as { proposed: { operation_id: string } };
-  const id = proposed.proposed.operation_id;
-  await approveAndConfirm(w.client, w.company.issuer, id, operation(w.client, w.company.issuer, id)!.revision, "user");
+  const { w, id, revision } = await proposedOperation({ slowConfirm: true }, "missing-progress-job");
+  await approveAndConfirm(w.client, w.company.issuer, id, revision, "user");
   expect(operation(w.client, w.company.issuer, id)!.state).toBe("in_progress");
   const jobId = `op-${w.company.issuer}-${id}`;
   w.jobs.delete(jobId);
@@ -378,11 +372,7 @@ it("restores tracking for an in-progress operation but never rearms a final one"
 
 for (const action of ["confirm", "read", "cancel"] as const) {
   it.each(["null", "missing fields", "different id", ...(action === "confirm" ? ["different revision", "still proposed"] : [])])(`keeps ${action} recoverable when its JSON answer has %s`, async (fault) => {
-    const w = await world({ slowConfirm: true });
-    await signInto(w, w.mock, "main", "acct_ada");
-    const proposed = await exchange(w, `invalid-${action}`) as { proposed: { operation_id: string } };
-    const id = proposed.proposed.operation_id;
-    const revision = operation(w.client, w.company.issuer, id)!.revision;
+    const { w, id, revision } = await proposedOperation({ slowConfirm: true }, `invalid-${action}`);
     if (action === "read") await approveAndConfirm(w.client, w.company.issuer, id, revision, "user");
     const original = w.client.resourceJson.bind(w.client);
     let corrupted = false;

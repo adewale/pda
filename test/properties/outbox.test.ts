@@ -71,7 +71,6 @@ describe("outbox reconnect model", () => {
   it("preserves payloads and operation IDs, resends only unanswered messages and never resurrects acknowledged messages", property((tc) => {
     let actual: readonly Outgoing[] = [];
     const expected = new Map<string, Entry>();
-    const acknowledged = new Set<string>();
     const removed = new Set<string>();
     let nextId = 0;
     const counts: Record<string, number> = {};
@@ -128,7 +127,7 @@ describe("outbox reconnect model", () => {
         actual = unanswered(actual);
       } else if (command === "ack") {
         changed = expected.has(id);
-        if (expected.has(id)) { acknowledged.add(id); removed.add(id); }
+        if (expected.has(id)) removed.add(id);
         expected.delete(id);
         actual = answered(actual, id);
       } else if (command === "fail") {
@@ -154,7 +153,7 @@ describe("outbox reconnect model", () => {
         id: key, text: entry.text, whenBusy: entry.whenBusy, state: STATES[entry.phase],
         ...(entry.error !== undefined ? { error: entry.error } : {})
       })));
-      expect(actual.some((item) => acknowledged.has(item.id))).toBe(false);
+      expect(actual.some((item) => removed.has(item.id))).toBe(false);
       expect(new Set(actual.map((item) => item.id)).size).toBe(actual.length);
     }
     recordTransitions("outbox (state changes and intentional no-ops separated)", counts, steps);

@@ -1,8 +1,8 @@
 import { workersConfig } from "../vitest.shared.ts";
 
 /**
- * Tests that crash every Durable Object. They get a workerd runtime of their
- * own: in the shared one, `abortAllDurableObjects()` also reset the mock
- * Companies other files were using, which made Poppy tests flaky.
+ * Whole-runtime crash tests stay in their own project as an isolation policy.
+ * File workers currently have separate runtimes; retain this boundary if
+ * file-worker pooling changes.
  */
 export default await workersConfig({ name: "durability", include: ["durability/**/*.test.ts"] });

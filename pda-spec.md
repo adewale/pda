@@ -26,7 +26,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 
 ## Status
 
-**Deployed** at `https://poppydemoagent.dev`. `npm test` passes: five suites, in the Workers runtime, happy-dom and Node (see Testing and conformance; Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.1`, Pi 1.1.0, Wrangler 4.149).
+**Deployed** at `https://poppydemoagent.dev`. `npm test` runs five suites, in the Workers runtime, happy-dom and Node (see Testing and conformance; Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.1`, Pi 1.1.0, Wrangler 4.149).
 
 | Part | State |
 | --- | --- |
@@ -905,8 +905,8 @@ A raw `string`, so an email, a token or anyone's words, is a compile error in an
 
 | Suite | Config | What |
 | --- | --- | --- |
-| Workers | `test/vitest.config.ts` | Every file in `test/` that isn't in another suite, in one workerd runtime |
-| Durability | `test/durability/vitest.config.ts` | Crashing every Durable Object and reloading the conversation; a runtime of its own, because a global abort would reset the objects other files are using |
+| Workers | `test/vitest.config.ts` | Every file in `test/` that isn't in another suite, in isolated workerd file workers |
+| Durability | `test/durability/vitest.config.ts` | Crashing every Durable Object and reloading the conversation; a separate project by policy, retaining this boundary if file-worker pooling changes |
 | Page | `test/ui/vitest.config.ts` | The chat page's cards and panels and the sign-in page, in happy-dom; the chat box, cards and Companies actions with the real `usePiSession` over a fake socket (`chat-socket.test.tsx`) |
 | Interop | `interop/vitest.config.ts` | The interop runner's scenario interpreter, trace checks, readings, attribution and known failures, and the live lane's identity, in Node |
 | Properties | `test/properties/vitest.config.ts` | Property-based tests with Hegel (`@hegeldev/hegel`, the Hypothesis team's library), in Node, because its engine loads by FFI: 100 cases a property by default; `HEGEL_CASES=5000 npm run test:properties` for a deep local run |

@@ -15,7 +15,7 @@ import { DecodeError, tryDecode } from "../src/decode";
 import { AGENT_ERROR_CODES, companyErrorCode } from "../src/poppy/error-codes";
 import { origin } from "../src/log";
 import { isSignInPage } from "../src/poppy/browser";
-import { assertPublicHost, fetchJson, PoppyFetchError, type Fetcher } from "../src/poppy/fetch";
+import { assertPublicHost, fetchJson, PoppyFetchError, raceAbort, type Fetcher } from "../src/poppy/fetch";
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
 import worker from "./worker";
@@ -2279,7 +2279,23 @@ describe("7 conversations", () => {
     const c = await company({ streaming: true, textDeltas: true, sseKeepAlive: true });
     const a = await agent();
     const opened = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
-    expect(opened.isError, opened.text).toBe(false);
+    let diagnostic = opened.text;
+    if (opened.isError) {
+      // Only this failed discovery reads extra evidence, before afterEach stops
+      // the agent. Capture failures must not replace or indefinitely delay it.
+      const signal = AbortSignal.timeout(1_000);
+      const capture = (read: () => Promise<unknown>) => raceAbort(Promise.resolve().then(read), signal)
+        .catch((error: unknown) => ({ captureError: String(error) }));
+      const [protocol, mock] = await Promise.all([
+        capture(() => a.stub.poppyProtocol(`https://${c.domain}`)),
+        capture(async () => {
+          const { instanceId, state } = await c.stub.evidence();
+          return { instanceId, requests: state.requests };
+        })
+      ]);
+      diagnostic = JSON.stringify({ answer: opened.text, protocol, mock }, null, 2);
+    }
+    expect(opened.isError, diagnostic).toBe(false);
     const first = JSON.parse(opened.text);
     await c.stub.say(first.conversationId, "The sale ends on Friday.");
     await a.stub.poppyWaitForNotice("The sale ends on Friday.");

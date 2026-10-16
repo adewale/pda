@@ -110,8 +110,9 @@ export function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<
  * when it aborts mid-read, whether or not the fetcher ties the body to it.
  */
 export async function readLimited(response: Response, maxBytes: number, signal: AbortSignal): Promise<Uint8Array | null> {
+  signal.throwIfAborted();
   if (Number(response.headers.get("Content-Length") ?? "0") > maxBytes) {
-    await response.body?.cancel();
+    void response.body?.cancel().catch(() => undefined);
     return null;
   }
   if (!response.body) return new Uint8Array();
@@ -129,9 +130,11 @@ export async function readLimited(response: Response, maxBytes: number, signal: 
     let next: ReadableStreamReadResult<Uint8Array>;
     try {
       next = await Promise.race([reader.read(), aborted]);
+      signal.throwIfAborted();
     } catch (error) {
       signal.removeEventListener("abort", onAbort);
-      await reader.cancel().catch(() => undefined);
+      // A source or a sibling tee reader can keep cancellation pending forever.
+      void reader.cancel().catch(() => undefined);
       throw error;
     }
     const { done, value } = next;
@@ -139,7 +142,7 @@ export async function readLimited(response: Response, maxBytes: number, signal: 
     size += value.byteLength;
     if (size > maxBytes) {
       signal.removeEventListener("abort", onAbort);
-      await reader.cancel();
+      void reader.cancel().catch(() => undefined);
       return null;
     }
     chunks.push(value);
@@ -189,14 +192,18 @@ export async function fetchDocument(
     };
     let response: Response;
     try {
-      response = await fetcher(
+      response = await raceAbort(fetcher(
         new Request(at, {
           method: "GET",
           headers: { Accept: "application/json" },
           redirect: "manual",
           signal: deadline.signal
         })
-      );
+      ).then((answer) => {
+        // A fetcher may ignore abort and return after we've already timed out.
+        if (deadline.signal.aborted) void answer.body?.cancel().catch(() => undefined);
+        return answer;
+      }), deadline.signal);
     } catch (error) {
       clearTimeout(timer);
       // A fetcher that resolves names itself refuses one that leads to a private address (address.ts).
@@ -209,7 +216,7 @@ export async function fetchDocument(
     // Only a 200 has its body read; nothing else needs the deadline after this.
     if (response.status !== 200) clearTimeout(timer);
     if (response.status >= 300 && response.status < 400 && response.status !== 304) {
-      await response.body?.cancel();
+      void response.body?.cancel().catch(() => undefined);
       const location = response.headers.get("Location");
       if (!follow) {
         c.report("http-redirect-not-allowed", "", `${at} redirects (HTTP ${response.status}) instead of serving the document.`);
@@ -229,7 +236,7 @@ export async function fetchDocument(
     const contentType = response.headers.get("Content-Type") ?? undefined;
     const base = { url, finalUrl: at, status: response.status, ...(contentType ? { contentType } : {}) };
     if (response.status !== 200) {
-      await response.body?.cancel();
+      void response.body?.cancel().catch(() => undefined);
       c.report("http-status", "", `${at} answered HTTP ${response.status}.`);
       return { ...base, maxAgeSeconds: null };
     }
