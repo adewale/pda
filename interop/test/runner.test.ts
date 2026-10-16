@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { VIOLATION_IDS } from "../../test/mock-company/violations.ts";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
 import { TRACE_CHECKS } from "../runner/checks.ts";
 import { gridCoverage, imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions } from "../runner/cli.ts";
-import { mapConcurrent, proxyAliases } from "../runner/docker.ts";
+import { dockerAsync, mapConcurrent, proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
 import { cellId, renderReport } from "../runner/report.ts";
 import type { Cell } from "../runner/types.ts";
@@ -28,6 +28,23 @@ describe("options", () => {
     expect(parseOptions([])).toMatchObject({ retry: true, minFreeGb: 2 });
     expect(parseOptions(["--no-retry", "--min-free-gb", "0.5"])).toMatchObject({ retry: false, minFreeGb: 0.5 });
     expect(() => parseOptions(["--min-free-gb", "lots"])).toThrow("--min-free-gb takes a number");
+  });
+});
+
+describe("Docker logs", () => {
+  it.each([0, 7])("retains both log streams when Docker exits %i", async (code) => {
+    const dir = mkdtempSync(path.join(tmpdir(), "interop-log-streams-"));
+    const previous = process.env.PATH;
+    try {
+      // A real child process, without Docker: startup errors arrive on stderr.
+      writeFileSync(path.join(dir, "docker"), '#!/bin/sh\nprintf "normal log\\n"\nprintf "startup error\\n" >&2\nexit "$3"\n', { mode: 0o700 });
+      process.env.PATH = `${dir}:${previous ?? ""}`;
+      expect(await dockerAsync(["logs", "fixture", String(code)])).toEqual({ code, output: "normal log\nstartup error\n" });
+    } finally {
+      if (previous === undefined) delete process.env.PATH;
+      else process.env.PATH = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

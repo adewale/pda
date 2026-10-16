@@ -39,6 +39,10 @@ describe("the local lane's isolation", () => {
     }
     expect(proxy).toEqual(expect.arrayContaining(["--network-alias", "x.company.interop.test"]));
     expect(impl).toEqual(expect.arrayContaining(["--network-alias", "company-x", "-e", "INTEROP_SECRET=s"]));
+    expect(impl).toEqual(expect.arrayContaining([
+      "NO_PROXY=.interop.test,localhost,127.0.0.1",
+      "no_proxy=.interop.test,localhost,127.0.0.1"
+    ]));
   });
 
   it("reaches the proxy's control port through a relay: the only container with a published port, to 127.0.0.1, forwarding to the proxy alone", () => {

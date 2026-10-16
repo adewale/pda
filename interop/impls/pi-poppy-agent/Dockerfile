@@ -17,7 +17,7 @@ RUN cd /opt/pi-poppy && for p in /patches/*.patch; do patch -p1 --forward < "$p"
 FROM node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 ARG PI_POPPY_COMMIT=11ea10630180740f16ccd507b8f90f69870c7e32
 COPY --from=source /opt/pi-poppy /opt/pi-poppy
-COPY adapter.ts /opt/adapter/adapter.ts
+COPY --chmod=0644 adapter.ts /opt/adapter/adapter.ts
 ENV PI_POPPY_DIR=/opt/pi-poppy \
     PI_POPPY_COMMIT=$PI_POPPY_COMMIT \
     PI_POPPY_INTEROP_PRIVATE_SUFFIX=.interop.test \
