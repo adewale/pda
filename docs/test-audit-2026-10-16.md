@@ -64,14 +64,13 @@ by itself.
 
 ## Validation record
 
-The regular GitHub Test and Interop workflows pass on `02c6b03`:
-1,488 tests passed with one intentional skip across the five Vitest
+The regular GitHub Test and Interop workflows pass on `cc44ddf`:
+1,494 tests passed with one intentional skip across the five Vitest
 configurations; TypeScript and documentation checks passed. This includes the
 third audience policy, accepted DPoP variants and the focused PDA fallback
 property and the returned-identity assertions. The identity assertions also
-passed their targeted deep runs.
-The six subsequent signature-control variants passed their targeted default
-and deep runs; their full regular CI result will be recorded after the push.
+passed their targeted deep runs. This includes the six wrong-signature
+variants and the explicit known-failure metadata.
 
 Completed follow-up checks:
 
@@ -91,19 +90,49 @@ Completed follow-up checks:
 - Those Docker runs reported zero failures, harness errors or unsupported cells; isolation probes passed.
 - Live discovery: three pass, for Ilmer, Poppyseed and Alpine Retail.
 
-The full deep Hypothesis profile (2,000 examples, up to 60 steps) is still running at the
-time of this record. A full pinned local ecosystem matrix, eight agents by
-twelve Companies by thirty scenarios, is running in a separate
-[GitHub validation job](https://github.com/adewale/pda/actions/runs/38829561008).
-The local 32 GB Docker volume could not hold all builds; the runner now bounds
-build concurrency (default two), preserves completed build logs immediately
-and disables unneeded Rust debug data. The broader job's detailed results are
-encrypted pending private triage, in accordance with [SECURITY.md](../SECURITY.md).
-Build failures, unsupported cells and unexecuted cells must remain distinct
-from passes.
+The full deep Hypothesis profile (2,000 examples, up to 60 steps) is still
+running at the time of this record: ten oracle controls and four of five
+state machines have passed.
 
-The ecosystem job runs `96be076`; subsequent changes are to tests and this
-report, so the application and Docker runtime code match that job's basis.
+The [first full pinned ecosystem job](https://github.com/adewale/pda/actions/runs/38829561008)
+produced all 2,880 cells (eight agents, twelve Companies, thirty scenarios):
+967 pass, 262 fail, 1,291 unsupported and 360 setup errors. All setup errors
+come from the Everruns agent image failing to fetch a dependency with an SSL
+peer EOF. Its 360 cells did not execute. The missing row is
+[rebuilding in two isolated shards](https://github.com/adewale/pda/actions/runs/38835758531).
+Those observations will replace only the setup-error row, with attribution
+recomputed over the full grid. The first run's four stale Everruns expectations
+remain in place until that row executes.
+
+The first grid's sole unexpected PDA failure was the already documented
+held-proposal behavior in S22. Its known-failure entry omitted the observed
+`expect ${p.status}` error code. The entry now supplies that exact code and
+an empty failed-check list; a control confirmed that the actual cell matches
+while a different error code remains unexpected. Its outcome remains a failure.
+
+The local 32 GB Docker volume could not hold all builds. The runner now bounds
+build concurrency (default two), preserves completed build logs immediately
+and disables unneeded Rust debug data. Cargo dependency fetches use Git's CLI
+with five network retries, preserving TLS verification. This changes build
+transport, not protocol-request retry behavior. Detailed ecosystem results
+remain encrypted outside Git pending private triage under
+[SECURITY.md](../SECURITY.md); no new third-party vulnerability details are
+published in this report. Build errors, unsupported cells and unexecuted cells
+remain distinct from passes.
+
+The first ecosystem job used `96be076`. The current build-fetch settings and
+known-failure metadata differ, but Git tree hashes confirm identical
+application, mock Company, runner and proxy source trees. The follow-up uses
+the same upstream pins. Combining the observations does not represent them
+as one simultaneous Docker run.
+
+Builds fetch public dependencies and pinned upstream sources. Protocol tests
+then run on internal Docker networks whose egress refusal is probed before
+implementations start. Adversarial scenarios run only against our own
+implementations; the broad ecosystem matrix uses honest scenarios. Synthetic
+sessions, accounts and protocol traffic exercise discovery, nonce handling,
+sign-in/out, conversations, operations and the other declared capabilities.
+They do not use personal accounts or a live model.
 
 Live signed-out Session/nonce/conversation scenarios require a legitimate
 public client identity and its matching private interop key. Neither the
