@@ -517,6 +517,8 @@
       "company": "print-with-poppy",
       "scenario": "OU",
       "blame": "company",
+      "checks": [],
+      "errors": ["expect ${p.status}"],
       "issue": "https://github.com/adewale/pda/blob/main/docs/spec-issues.md#s22",
       "reason": "Since 13 October our agent sends a write straight to a Company with Operations only when every success response its description declares is a proposal that requires `operation` (S22, after an audit found an optional `operation` let a write skip the User's approval). print-with-poppy's proposeOrder declares one 202 whose schema has an `operation` property but no `required`, so our agent asks the User on its own card first and the step returns `held`, not the 202 OU expects. A one-line fix in its description (`required: [\"operation\"]`) restores the direct proposal."
     },

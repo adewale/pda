@@ -28,7 +28,8 @@ ARG CARGO_BUILD_JOBS=1
 # The final adapter is stripped; avoid retaining full debug symbols in the build cache.
 ARG CARGO_PROFILE_DEBUG=0
 ENV CARGO_TERM_COLOR=never CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS \
-    CARGO_PROFILE_DEV_DEBUG=$CARGO_PROFILE_DEBUG CARGO_PROFILE_TEST_DEBUG=$CARGO_PROFILE_DEBUG
+    CARGO_PROFILE_DEV_DEBUG=$CARGO_PROFILE_DEBUG CARGO_PROFILE_TEST_DEBUG=$CARGO_PROFILE_DEBUG \
+    CARGO_NET_GIT_FETCH_WITH_CLI=true CARGO_NET_RETRY=5
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=everruns-cargo-registry \
     --mount=type=cache,target=/usr/local/cargo/git,id=everruns-cargo-git \
     --mount=type=cache,target=/src/everruns/target,id=everruns-target,sharing=locked \
