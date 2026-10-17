@@ -15,14 +15,14 @@ import { startedByUser } from "./extensions";
 import { describeRecurrence, MAX_ACTIVE_SCHEDULES, MAX_SCHEDULE_CHARS, PAUSE_AFTER_FAILURES, ScheduleError, scheduleLine, WEEKDAYS, type Schedule, type ScheduleKind, type WhenInput } from "./schedule-store";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-type Result = { content: { type: "text"; text: string }[]; details: Json; isError?: true };
+type Result = { output: { type: "text"; text: string }[]; details: Json; isError?: true };
 
 function json(value: Json): Result {
-  return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }], details: value };
+  return { output: [{ type: "text", text: JSON.stringify(value, null, 2) }], details: value };
 }
 
 function refusal(message: string, details: Json = null): Result {
-  return { content: [{ type: "text", text: message }], details, isError: true };
+  return { output: [{ type: "text", text: message }], details, isError: true };
 }
 
 const SCHEDULE_PROMPT = `remind_me and schedule_task set reminders and background tasks for the User; list_scheduled lists them; cancel_scheduled cancels one.
@@ -144,7 +144,7 @@ export function scheduleExtension(options: ScheduleToolsOptions): Extension {
         async () => {
           const all = options.scheduler().list();
           const text = all.length ? `${all.length} waiting, paused or failed:\n${all.map(scheduleLine).join("\n")}` : "No reminders or scheduled tasks.";
-          return { content: [{ type: "text", text }], details: { count: all.length } };
+          return { output: [{ type: "text", text }], details: { count: all.length } };
         }
       ),
       tool(

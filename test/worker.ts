@@ -1,3 +1,4 @@
+import { DurableObject } from "cloudflare:workers";
 import {
   createAssistantMessageEventStream,
   fauxAssistantMessage,
@@ -10,10 +11,11 @@ import {
   type Provider,
   type TranscriptContext
 } from "@earendil-works/pi-ai";
-import type { ToolExecutionApi } from "@earendil-works/pi-durable";
+import type { Storage as PiStorage, ToolExecutionApi } from "@earendil-works/pi-durable";
 import { PersonalAgent as ProductionAgent } from "../src/agent";
 import type { ListEnv } from "../src/allowlist";
 import { SUMMARY_MESSAGE_PREFIX, SUMMARY_SYSTEM_PROMPT } from "../src/compaction";
+import { pageRead, READER_PROMPT } from "../src/tools/extensions";
 import worker from "../src/index";
 import { toolName } from "../src/log";
 import { demoCatalogModel, gatewayDemoLane, routerProvider, type DemoRoute, type LaneModel } from "../src/model-router";
@@ -232,6 +234,7 @@ function obeyed(context: TranscriptContext) {
  */
 function script(context: TranscriptContext): AssistantMessage {
   if (isSummaryRequest(context)) return summaryScript(context);
+  if (isReaderRequest(context)) return readerScript(context);
   const calls = obeyed(context);
   if (calls.length) return fauxAssistantMessage(calls, { stopReason: "toolUse" });
   const users = context.messages.filter((m) => m.role === "user");
@@ -245,6 +248,39 @@ function script(context: TranscriptContext): AssistantMessage {
   return fauxAssistantMessage([
     fauxText(`echo: ${echoed} (turn ${users.length})`)
   ]);
+}
+
+/**
+ * read_url's reader (src/tools/extensions.ts): it obeys any `@@obey` line
+ * the page carries, as a model that follows injected text would (it has no
+ * tools, so pi refuses the call), then answers with the page's text, the
+ * first 1,500 characters, `@@obey` lines and all.
+ */
+function readerScript(context: TranscriptContext): AssistantMessage {
+  const calls = obeyed(context);
+  if (calls.length) return fauxAssistantMessage(calls, { stopReason: "toolUse" });
+  const input = textOf(context.messages.filter((m) => m.role === "user").at(-1)?.content as Message["content"]);
+  const page = /<untrusted-page>\n([\s\S]*?)\n<\/untrusted-page>/.exec(input)?.[1] ?? "";
+  if (page.includes("[reader fails]")) return fauxAssistantMessage([], { stopReason: "error", errorMessage: "The reader is down (a test fault)" });
+  return fauxAssistantMessage([fauxText(`reader: ${page.slice(0, 1_500)}`)]);
+}
+
+/** read_url's reader, told by its instructions, which pi tags as it tags every section. */
+function isReaderRequest(context: TranscriptContext): boolean {
+  return sectionsOf(context).instructions === `<instructions>\n${READER_PROMPT}\n</instructions>`;
+}
+
+/** The prompt's sections as a request leaves them, by key. */
+function sectionsOf(context: TranscriptContext): Record<string, string> {
+  const sections: Record<string, string> = {};
+  for (const message of context.messages) {
+    if (message.role !== "system") continue;
+    for (const [key, value] of Object.entries(message.sections ?? {})) {
+      if (value === null) delete sections[key];
+      else sections[key] = value;
+    }
+  }
+  return sections;
 }
 
 /** Our summarizer's request (src/compaction.ts), told by its system prompt. */
@@ -408,8 +444,50 @@ function webOf(id: string) {
   return web;
 }
 
+/**
+ * Agents whose reader calls wait until the test lets them go, by Durable
+ * Object id (module state, so it outlives a crash), and the calls waiting,
+ * each with the object it belongs to: an object lets only its own go, since
+ * code woken in an object that was reset can't touch its storage.
+ */
+const heldReaders = new Set<string>();
+const waitingReaders = new Map<string, { readonly owner: object; readonly go: () => void }[]>();
+
+/** `make()`'s stream, made only once `gate` opens. */
+function afterGate(gate: Promise<void>, make: () => AssistantMessageEventStream): AssistantMessageEventStream {
+  const out = createAssistantMessageEventStream();
+  void (async () => {
+    await gate;
+    const stream = make();
+    for await (const event of stream) out.push(event);
+    out.end(await stream.result());
+  })();
+  return out;
+}
+
+/** Agents whose next pi write fails, as a storage error would, by Durable Object id. Module state, so it outlives a reset object. */
+const failingPiWrites = new Set<string>();
+
 /** The production agent with pi-ai's faux provider in place of AI Gateway. */
 export class PersonalAgent extends ProductionAgent {
+  /** pi's storage, whose next write fails once `piFailNextWrite` was called. */
+  protected override piStorage(storage: PiStorage): PiStorage {
+    const id = this.ctx.id.toString();
+    return new Proxy(storage, {
+      get(target, key) {
+        const value: unknown = Reflect.get(target, key, target);
+        if (typeof value !== "function") return value;
+        if (key !== "commit") return value.bind(target);
+        return (...args: unknown[]) => (failingPiWrites.delete(id) ? Promise.reject(new Error("SQLITE_IOERR: disk I/O error (test)")) : value.apply(target, args));
+      }
+    });
+  }
+
+  /** Make pi's next write fail. */
+  async piFailNextWrite(): Promise<void> {
+    failingPiWrites.add(this.ctx.id.toString());
+  }
+
   #summaryGate: { promise: Promise<void>; release: () => void } | undefined;
 
   /** Hold only summary responses; foreground requests can still complete. */
@@ -528,8 +606,34 @@ export class PersonalAgent extends ProductionAgent {
     } as unknown as ToolExecutionApi;
     // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
     const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never));
-    const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
+    const text = (result.output ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
+  }
+
+  /**
+   * read_url's page, as the reader is given it: the rate limit, the read
+   * or render, and the fenced text, kept per `callId` as pi keeps it with
+   * the call, so the same id again is a replay. The reader itself runs only
+   * in a turn (test/general-tools.test.ts, "read_url's reader").
+   */
+  async webRead(url: string, args: { render?: boolean } = {}, callId: string = crypto.randomUUID()): Promise<{ text: string; isError: boolean; details: string }> {
+    let memos = this.#memos.get(callId);
+    if (!memos) this.#memos.set(callId, (memos = new Map()));
+    const kept = memos;
+    const api = {
+      memo: async (key: string, ...rest: unknown[]) => {
+        if (rest.length === 1) return kept.get(key);
+        if (!kept.has(key)) kept.set(key, rest[0]);
+        return kept.get(key);
+      }
+    } as unknown as Pick<ToolExecutionApi, "memo">;
+    const options = this.webTools;
+    // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
+    const read = await this.log.tool(toolName("read_url")!, async () => {
+      const page = await pageRead(options, { url, ...args }, api, {} as never);
+      return { output: [{ type: "text" as const, text: page.text }], details: page.details, ...(page.isError ? { isError: true as const } : {}) };
+    });
+    return { text: read.output[0]!.text, isError: read.isError === true, details: JSON.stringify(read.details ?? null) };
   }
 
   /** The clock now and date_math read; a test may fix it. */
@@ -721,7 +825,7 @@ export class PersonalAgent extends ProductionAgent {
     const api = { conversationId: "test", callId } as unknown as ToolExecutionApi;
     // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
     const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never));
-    const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
+    const text = (result.output ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }
 
@@ -876,11 +980,13 @@ export class PersonalAgent extends ProductionAgent {
       getModels: () => inner.getModels(),
       stream: (model, context, options) => {
         recordRequest(id, context);
-        return this.#gateSummary(context, counted(inner.stream(model, context, options), price));
+        const gate = this.#readerGate(context);
+        return this.#gateSummary(context, counted(gate ? afterGate(gate, () => inner.stream(model, context, options)) : inner.stream(model, context, options), price));
       },
       streamSimple: (model, context, options) => {
         recordRequest(id, context);
-        return this.#gateSummary(context, counted(inner.streamSimple(model, context, options), price));
+        const gate = this.#readerGate(context);
+        return this.#gateSummary(context, counted(gate ? afterGate(gate, () => inner.streamSimple(model, context, options)) : inner.streamSimple(model, context, options), price));
       }
     });
     const usage = gatewayUsage.get(id);
@@ -915,6 +1021,56 @@ export class PersonalAgent extends ProductionAgent {
   /** How many calls this agent has made on the demo lane. */
   async demoCallCount(): Promise<number> {
     return demoCalls.get(this.ctx.id.toString()) ?? 0;
+  }
+
+  /** Make this agent's reader calls wait, until `releaseReaders`. */
+  async holdReaders(): Promise<void> {
+    heldReaders.add(this.ctx.id.toString());
+  }
+
+  /** Let this object's waiting reader calls go; those of an object since reset never go. */
+  async releaseReaders(): Promise<void> {
+    const id = this.ctx.id.toString();
+    heldReaders.delete(id);
+    for (const waiting of waitingReaders.get(id) ?? []) if (waiting.owner === this) waiting.go();
+    waitingReaders.delete(id);
+  }
+
+  /** For a reader's request while this agent's readers are held: what it waits on. */
+  #readerGate(context: TranscriptContext): Promise<void> | undefined {
+    const id = this.ctx.id.toString();
+    if (!heldReaders.has(id) || !isReaderRequest(context)) return undefined;
+    return new Promise<void>((go) => {
+      const list = waitingReaders.get(id) ?? [];
+      waitingReaders.set(id, list);
+      list.push({ owner: this, go });
+    });
+  }
+
+  /** How many conversations pi holds: the root and each read_url reader. */
+  async piConversationCount(): Promise<number> {
+    return Number(this.ctx.storage.sql.exec("SELECT count(*) AS n FROM pi_conversations").one().n);
+  }
+
+  /** Own keys' providers, unchanged but for a record of each request, as the demo lane keeps one. */
+  protected override ownKeyProviders(): readonly Provider[] {
+    const id = this.ctx.id.toString();
+    return super.ownKeyProviders().map((inner) => ({
+      ...inner,
+      stream: (model, context, options) => {
+        recordRequest(id, context, ownKeyRequests);
+        return inner.stream(model, context, options);
+      },
+      streamSimple: (model, context, options) => {
+        recordRequest(id, context, ownKeyRequests);
+        return inner.streamSimple(model, context, options);
+      }
+    }));
+  }
+
+  /** Every request this agent made with the person's own key, oldest first. */
+  async ownKeyRequests(): Promise<DemoRequest[]> {
+    return ownKeyRequests.get(this.ctx.id.toString()) ?? [];
   }
 
   /** Every demo-lane request this agent made, oldest first: what it was and what it carried. */
@@ -1075,7 +1231,7 @@ const fixedClocks = new Map<string, number>();
 /** Demo-lane calls per agent, by Durable Object id. */
 const demoCalls = new Map<string, number>();
 
-/** One demo-lane request: a summary or a turn, whether it carried a summary, and its latest user text (a turn's clipped, a summary's whole). */
+/** One demo-lane request: a summary or a turn, whether it carried a summary, and its latest user text (a turn's clipped, a summary's and a reader's whole). */
 export type DemoRequest = {
   readonly summary: boolean;
   readonly carriesSummary: boolean;
@@ -1087,17 +1243,28 @@ export type DemoRequest = {
   readonly tools: readonly string[];
   /** The prompt's sections as the request leaves them, by key. */
   readonly sections: Readonly<Record<string, string>>;
+  /** Each message's role, in order. */
+  readonly roles: readonly string[];
+  /** Whether it is read_url's reader's. */
+  readonly reader: boolean;
+  /** Whether any message carries a page's text in its `<untrusted-page>` fence. */
+  readonly fenced: boolean;
+  /** Each tool result's text, in order, its first 2,000 characters. */
+  readonly results: readonly string[];
+  /** The earlier answers' reasoning the request carries back: thinking blocks with the provider's signature. */
+  readonly reasoning: number;
 };
 const demoRequests = new Map<string, DemoRequest[]>();
+/** Every own-key request (Anthropic's or OpenAI's, through the fake vendors), as pi built it, by Durable Object id. */
+const ownKeyRequests = new Map<string, DemoRequest[]>();
 
-function recordRequest(id: string, context: TranscriptContext): void {
-  const list = demoRequests.get(id) ?? [];
-  demoRequests.set(id, list);
+function recordRequest(id: string, context: TranscriptContext, into = demoRequests): void {
+  const list = into.get(id) ?? [];
+  into.set(id, list);
   const users = context.messages.filter((m) => m.role === "user");
   const summary = isSummaryRequest(context);
   const last = textOf(users.at(-1)?.content as Message["content"]);
   const tools: string[] = [];
-  const sections: Record<string, string> = {};
   for (const message of context.messages) {
     if (message.role !== "system") continue;
     for (const added of message.toolsAdded ?? []) if (!tools.includes(added.name)) tools.push(added.name);
@@ -1105,18 +1272,20 @@ function recordRequest(id: string, context: TranscriptContext): void {
       const at = tools.indexOf(removed.name);
       if (at !== -1) tools.splice(at, 1);
     }
-    for (const [key, value] of Object.entries(message.sections ?? {})) {
-      if (value === null) delete sections[key];
-      else sections[key] = value;
-    }
   }
+  const sections = sectionsOf(context);
   list.push({
     summary,
     carriesSummary: carriesSummary(context),
-    last: summary ? last : last.slice(0, 200),
+    last: summary || isReaderRequest(context) ? last : last.slice(0, 200),
     messages: context.messages.length,
     tools,
     sections,
+    roles: context.messages.map((message) => message.role),
+    reader: isReaderRequest(context),
+    results: context.messages.flatMap((m) => (m.role === "toolResult" ? [textOf(m.content as Message["content"]).slice(0, 2_000)] : [])),
+    reasoning: context.messages.reduce((n, m) => n + (m.role === "assistant" ? m.content.filter((part) => part.type === "thinking" && Boolean(part.thinkingSignature)).length : 0), 0),
+    fenced: context.messages.some((m) => (m.role === "user" || m.role === "toolResult") && textOf(m.content as Message["content"]).includes("<untrusted-page>")),
     images: users.flatMap((message) =>
       typeof message.content === "string"
         ? []
@@ -1169,6 +1338,12 @@ function priced(message: AssistantMessage): AssistantMessage {
   if (cost) usage = { ...usage, cost: { ...usage.cost, total: cost } };
   return usage === message.usage ? message : { ...message, usage };
 }
+
+/**
+ * A bare object with SQLite and nothing else, so test/pi-storage.test.ts can
+ * open pi's storage on an empty database, or on one with host tables in it.
+ */
+export class StorageProbe extends DurableObject {}
 
 export { CompanyLimiter, DomainBudget } from "../src/index";
 export { MockCompany } from "./mock-company";

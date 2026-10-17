@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Provider } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
-import { createRegistry, Harness, type Extension } from "@earendil-works/pi-durable";
+import { createRegistry, Harness, type Extension, type Storage as PiStorage } from "@earendil-works/pi-durable";
 import { PiHarness } from "agents/harness/pi";
 import { Lifecycle } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
@@ -12,7 +12,7 @@ import { AttachmentError, attachmentInfo, deleteAttachment, migrateAttachments, 
 import { Ledger } from "./budget";
 import { COMPACTION_POLICY, compactionExtension } from "./compaction";
 import { TranscriptHistory } from "./history";
-import { agentId as pseudonym, configureLog, currentEvent, id, literal, type Safe } from "./log";
+import { agentId as pseudonym, code, configureLog, currentEvent, id, literal, type Safe } from "./log";
 import { isKeyProvider, readModelConfig, type KeyProvider } from "./config";
 import { checkKey, keyFormatProblem, ModelKeys, NO_AMBIENT_AUTH, PROVIDER_LABEL, workspaceProblem } from "./model-keys";
 import {
@@ -38,7 +38,7 @@ import { poppyExtension } from "./poppy/tools";
 import { Scheduler, type PushMessage, type TaskStart } from "./schedules";
 import { PushSubscriptions, readVapidKey, sendPush, vapidSubject, type PushFetcher, type Subscription } from "./web-push";
 import { PiSessionSockets } from "./sockets";
-import { memoryExtension, timeExtension, webExtension } from "./tools/extensions";
+import { memoryExtension, timeExtension, webExtension, type WebToolsOptions } from "./tools/extensions";
 import { MAX_MEMORIES, MemoryStore, type Memory } from "./tools/memory-store";
 import { puppeteerLauncher, renderAvailability, RenderLimiter, type BrowserLauncher } from "./tools/render";
 import { describeRecurrence, MAX_ACTIVE_SCHEDULES, type Schedule } from "./tools/schedule-store";
@@ -144,6 +144,8 @@ export class PersonalAgent extends DurableObject<Env> {
    * turn is running) is the agent's.
    */
   readonly generalTools: readonly Extension[];
+  /** read_url's fetcher, limits and renderer, shared by its tool and the tests' page reads. */
+  readonly webTools: WebToolsOptions;
   /**
    * This agent's wide events (src/log.ts, src/agent-log.ts): one per turn,
    * job and page frame that does work, with a copy of the newest kept for
@@ -212,14 +214,15 @@ export class PersonalAgent extends DurableObject<Env> {
       jobTime: (at) => this.scheduleJobTime(at),
       units: this.log
     });
-    this.generalTools = [
+    this.webTools = {
       // Its own fetcher, never the Poppy client's: no Session, cookie or token can reach it.
-      webExtension({
-        fetcher: () => this.webFetcher(),
-        limiter: new ReadLimiter(),
-        renderer: () => this.browserRenderer(),
-        renderLimiter: () => (renderLimiter ??= new RenderLimiter(ctx.storage.sql, () => this.clockNow()))
-      }),
+      fetcher: () => this.webFetcher(),
+      limiter: new ReadLimiter(),
+      renderer: () => this.browserRenderer(),
+      renderLimiter: () => (renderLimiter ??= new RenderLimiter(ctx.storage.sql, () => this.clockNow()))
+    };
+    this.generalTools = [
+      webExtension(this.webTools),
       memoryExtension(() => this.memories),
       timeExtension({ userTimeZone: () => this.poppy.timeZone, now: () => this.clockNow() }),
       scheduleExtension({ scheduler: () => this.schedules, userTimeZone: () => this.poppy.timeZone })
@@ -249,8 +252,8 @@ export class PersonalAgent extends DurableObject<Env> {
         // One provider, the router: it picks the lane at every call (model-router.ts).
         const models = createModels({ authContext: NO_AMBIENT_AUTH });
         models.setProvider(router);
-        return Harness.open(
-          storage,
+        const pi = await Harness.open(
+          this.piStorage(storage),
           {
             models,
             registry: this.registry,
@@ -259,13 +262,25 @@ export class PersonalAgent extends DurableObject<Env> {
               // seconds, so a rate-limited model gets about 30 seconds.
               retry: { enabled: true, maxRetries: 5, baseDelayMs: 1000 },
               // A context budget: summarise from about 150k tokens, not near the model's 1M window.
-              compaction: COMPACTION_POLICY
+              compaction: COMPACTION_POLICY,
+              // No caches kept on a timer. pi keeps one only where a timer can be
+              // unreferenced, and under nodejs_compat a timer has an unref() that
+              // does nothing: a pending ten-minute timer would keep the object
+              // from hibernating after every turn. Both rebuild from SQLite.
+              documentRetentionMs: 0,
+              contextRetentionMs: 0
             },
             // pi's own background reports: an event of their own, at level error.
             onReport: (error) => void this.log.event("job", { job: literal("pi.report"), outcome: literal("error") }).fail(error).emit()
           },
           context
         );
+        // A storage error closes pi for good: every later call fails. Reset
+        // the object, so the next request opens pi again from storage.
+        void pi.closed.then((end) => {
+          if (end.reason === "failed") this.#piFailed(end.error);
+        });
+        return pi;
       },
       defaults: { model: ROUTER_MODEL, thinkingLevel: config.thinkingLevel }
     });
@@ -324,6 +339,31 @@ export class PersonalAgent extends DurableObject<Env> {
   /** Where key checks go. */
   protected modelFetcher(): (request: Request) => Promise<Response> {
     return (request) => fetch(request);
+  }
+
+  /**
+   * pi's Session failed on a storage error and closed itself. Logged by the
+   * error's class only (a storage error can quote what was being written),
+   * then the object is reset: its sockets close, and the next request or
+   * alarm opens pi again. Commits are atomic, so nothing half-written is
+   * kept, and a resubmission with the same id finds one already admitted.
+   */
+  #piFailed(error: unknown): void {
+    const kind = error instanceof Error ? error.name : typeof error;
+    this.log
+      .event("job", { job: literal("pi.session_failed"), outcome: literal("error") })
+      .fail(new Error("pi's storage failed; the object is reset"), { step: literal("pi.storage"), ...(code(kind) ? { code: code(kind)! } : {}) })
+      .emit();
+    try {
+      this.ctx.abort("pi's storage failed");
+    } catch {
+      // abort() may throw in the caller as well as resetting the object.
+    }
+  }
+
+  /** pi's storage, as the harness opens it. Tests wrap it to make a write fail. */
+  protected piStorage(storage: PiStorage): PiStorage {
+    return storage;
   }
 
   /** Where Poppy requests go; tests route them to the mock Company. */

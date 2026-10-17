@@ -50,7 +50,7 @@ No tool approves, confirms or cancels anything. A scheduled task's run is a back
 
 | Capability | Tool | Needs the User | Defined in |
 | --- | --- | --- | --- |
-| Read a public web page the User points it at, as text, signed out, sending nothing about them; a page that needs JavaScript is rendered in Cloudflare Browser Run, which may send only GET and HEAD requests to public hosts | `read_url` | No; it can't send anything but the address, and the rendering browser can't post anything | `src/tools/web.ts`, `src/tools/render.ts` |
+| Read a public web page the User points it at, signed out, sending nothing about them, and answer a question about it: a reader with no tools reads the page and the agent gets only its answer; a page that needs JavaScript is rendered in Cloudflare Browser Run, which may send only GET and HEAD requests to public hosts | `read_url` | No; it can't send anything but the address, and the rendering browser can't post anything | `src/tools/web.ts`, `src/tools/render.ts`, `src/tools/extensions.ts` (the reader) |
 | Remember things about the User across the conversation | `remember` | No; the User sees and deletes every note in Settings | `src/tools/memory-store.ts` |
 | Search what it remembers | `recall` | No | `src/tools/memory-store.ts` |
 | Forget a note | `forget` | No | `src/tools/memory-store.ts` |
