@@ -1004,6 +1004,27 @@ export class PersonalAgent extends ProductionAgent {
     return Number(this.ctx.storage.sql.exec("SELECT count(*) AS n FROM pi_conversations").one().n);
   }
 
+  /** Own keys' providers, unchanged but for a record of each request, as the demo lane keeps one. */
+  protected override ownKeyProviders(): readonly Provider[] {
+    const id = this.ctx.id.toString();
+    return super.ownKeyProviders().map((inner) => ({
+      ...inner,
+      stream: (model, context, options) => {
+        recordRequest(id, context, ownKeyRequests);
+        return inner.stream(model, context, options);
+      },
+      streamSimple: (model, context, options) => {
+        recordRequest(id, context, ownKeyRequests);
+        return inner.streamSimple(model, context, options);
+      }
+    }));
+  }
+
+  /** Every request this agent made with the person's own key, oldest first. */
+  async ownKeyRequests(): Promise<DemoRequest[]> {
+    return ownKeyRequests.get(this.ctx.id.toString()) ?? [];
+  }
+
   /** Every demo-lane request this agent made, oldest first: what it was and what it carried. */
   async demoRequests(): Promise<DemoRequest[]> {
     return demoRequests.get(this.ctx.id.toString()) ?? [];
@@ -1182,12 +1203,16 @@ export type DemoRequest = {
   readonly fenced: boolean;
   /** Each tool result's text, in order, its first 2,000 characters. */
   readonly results: readonly string[];
+  /** The earlier answers' reasoning the request carries back: thinking blocks with the provider's signature. */
+  readonly reasoning: number;
 };
 const demoRequests = new Map<string, DemoRequest[]>();
+/** Every own-key request (Anthropic's or OpenAI's, through the fake vendors), as pi built it, by Durable Object id. */
+const ownKeyRequests = new Map<string, DemoRequest[]>();
 
-function recordRequest(id: string, context: TranscriptContext): void {
-  const list = demoRequests.get(id) ?? [];
-  demoRequests.set(id, list);
+function recordRequest(id: string, context: TranscriptContext, into = demoRequests): void {
+  const list = into.get(id) ?? [];
+  into.set(id, list);
   const users = context.messages.filter((m) => m.role === "user");
   const summary = isSummaryRequest(context);
   const last = textOf(users.at(-1)?.content as Message["content"]);
@@ -1211,6 +1236,7 @@ function recordRequest(id: string, context: TranscriptContext): void {
     roles: context.messages.map((message) => message.role),
     reader: isReaderRequest(context),
     results: context.messages.flatMap((m) => (m.role === "toolResult" ? [textOf(m.content as Message["content"]).slice(0, 2_000)] : [])),
+    reasoning: context.messages.reduce((n, m) => n + (m.role === "assistant" ? m.content.filter((part) => part.type === "thinking" && Boolean(part.thinkingSignature)).length : 0), 0),
     fenced: context.messages.some((m) => (m.role === "user" || m.role === "toolResult") && textOf(m.content as Message["content"]).includes("<untrusted-page>")),
     images: users.flatMap((message) =>
       typeof message.content === "string"
