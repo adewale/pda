@@ -3,7 +3,7 @@ Hypothesis settings and the mock Company for the suite.
 
 Profiles (choose with `--hypothesis-profile`, or HYPOTHESIS_PROFILE):
 
-- `default`: 100 runs of at most 30 steps; about a minute.
+- `default`: 100 runs of at most 30 steps.
 - `deep`: 2,000 runs of at most 60 steps, for long local runs.
 """
 

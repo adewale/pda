@@ -1,6 +1,5 @@
 import { GithubLogoIcon, GoogleLogoIcon } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
-import { createRoot } from "react-dom/client";
 import { Workspace } from "./ui/shell";
 import { usePiSession } from "./use-pi-session";
 import "./styles.css";
@@ -212,7 +211,7 @@ function SignedIn({ email, provider }: { email: string | null; provider: "google
   return <Workspace identity={{ email, provider }} session={session} />;
 }
 
-function App() {
+export function App() {
   const me = useMe();
   if (me.state === "loading") {
     return <div className="h-dvh bg-kumo-canvas" />;
@@ -220,7 +219,3 @@ function App() {
   if (me.state === "signed-out") return <SignedOut message={me.message} providers={me.providers} />;
   return <SignedIn email={me.email} provider={me.provider} />;
 }
-
-const root = document.getElementById("root");
-if (!root) throw new Error("Missing #root element");
-createRoot(root).render(<App />);

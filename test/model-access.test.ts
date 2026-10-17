@@ -116,7 +116,7 @@ describe("own keys: the key never leaves the agent", () => {
 
   it("takes an Anthropic workspace ID for an organization-wide key, and sends it on the check and every model call", async () => {
     const identity = someone("nokey.example");
-    const key = `sk-ant-test-unscoped-${crypto.randomUUID()}`;
+    const key = `sk-ant-test-unscoped-workspace_wrkspc_01TestWorkspace-${crypto.randomUUID()}`;
 
     const without = await saveKey(identity, "anthropic", key);
     expect(without.status).toBe(400);
@@ -133,7 +133,7 @@ describe("own keys: the key never leaves the agent", () => {
     expect(saved.status).toBe(200);
     expect(await saved.json()).toMatchObject({ lane: "own_key", key: { provider: "anthropic", status: "valid", workspace: "wrkspc_01TestWorkspace" } });
 
-    // The fake Anthropic refuses this key's model calls without the header, so an answer proves it was sent.
+    // This fake key requires exactly wrkspc_01TestWorkspace on checks and model calls.
     const connection = await connect(identity);
     await chat(connection.socket, connection.client, "hello from a workspace", "fake Anthropic (claude-sonnet-5-5) answers: hello from a workspace");
     connection.socket.close();

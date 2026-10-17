@@ -1,4 +1,6 @@
 import { env } from "cloudflare:workers";
+import { evictDurableObject } from "cloudflare:test";
+import { companyEvidence } from "./agent-helpers";
 import {
   base64url,
   calculateJwkThumbprint,
@@ -54,6 +56,18 @@ function company() {
 }
 
 type C = ReturnType<typeof company>;
+
+it("pins mock evidence and refuses a fresh instance's apparently clean history", async () => {
+  const c = company();
+  const instanceId = await c.stub.instanceId();
+  await c.call(`${c.hosts.api}/products?access_token=lost-evidence`);
+  expect((await companyEvidence(c.stub, instanceId)).recorded).not.toEqual([]);
+  await expect(evictDurableObject(c.stub)).rejects.toThrow("preventEviction");
+  expect((await companyEvidence(c.stub, instanceId)).recorded).not.toEqual([]);
+  const replacement = company().stub;
+  expect((await replacement.state()).recorded).toEqual([]);
+  await expect(companyEvidence(replacement, instanceId)).rejects.toThrow("protocol evidence was lost");
+});
 
 function jti(): string {
   return base64url.encode(crypto.getRandomValues(new Uint8Array(16)));

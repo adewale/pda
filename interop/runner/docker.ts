@@ -29,6 +29,22 @@ export function dockerAsync(args: string[]): Promise<{ code: number; output: str
   });
 }
 
+/** Bound concurrent builds while retaining registry order in their results. */
+export async function mapConcurrent<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
+  if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Concurrency must be a positive whole number");
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await run(items[index]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /** Default subdomains of `<name>.company.interop.test` that resolve to the proxy. */
 export const DEFAULT_SUBDOMAINS = ["www", "auth", "api", "mcp", "cdn", "uk", "app", "login", "id", "accounts", "oauth", "chat", "agent"] as const;
 

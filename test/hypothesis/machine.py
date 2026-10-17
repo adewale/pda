@@ -562,7 +562,10 @@ class Base(RuleBasedStateMachine):
         for u in self.users:
             for ms in u.sessions:
                 assert mock[ms.session.session_id]["ended"] == ms.ended, f"{ms.session.session_id} ended?"
-                note(f"{ms.session.session_id}: model {ms.account}, mock {mock[ms.session.session_id]['account']}")
+                actual = mock[ms.session.session_id]
+                assert actual["userId"] == ms.user.user.user_id, actual
+                assert actual["account"] == ms.account, actual
+                assert actual["signedIn"] == (ms.account is not None), actual
 
     @invariant()
     def bearer_tokens_only_to_the_mcp_server(self) -> None:
@@ -727,8 +730,15 @@ class ApiRules:
             expect(reply, 403, "insufficient_scope")
         else:
             expect(reply, 200)
-            for order in reply.body.get("orders", []):
-                assert order["account"] == ms.account, "a Session sees its own account's orders"
+            if path == "/orders":
+                assert isinstance(reply.body, dict) and isinstance(reply.body.get("orders"), list), reply.body
+                assert [order["order_id"] for order in reply.body["orders"]] == ["ord_7Hk2"], reply.body
+                for order in reply.body["orders"]:
+                    assert order["account"] == ms.account, "a Session sees its own account's orders"
+            elif path == "/products":
+                assert isinstance(reply.body, dict) and isinstance(reply.body.get("products"), list), reply.body
+            elif path == "/addresses":
+                assert isinstance(reply.body, dict) and isinstance(reply.body.get("addresses"), list), reply.body
 
 
 class WarmUp:

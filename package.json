@@ -17,7 +17,7 @@
     "deploy": "vite build && node scripts/check-deployment.ts && wrangler deploy",
     "typecheck": "tsc --noEmit",
     "types": "wrangler types env.d.ts --include-runtime false",
-    "test": "vitest run --config test/vitest.config.ts && vitest run --config test/durability/vitest.config.ts && vitest run --config test/ui/vitest.config.ts && vitest run --config interop/vitest.config.ts && vitest run --config test/properties/vitest.config.ts",
+    "test": "node scripts/run-tests.mjs",
     "test:ui": "vitest run --config test/ui/vitest.config.ts",
     "test:properties": "vitest run --config test/properties/vitest.config.ts",
     "test:hypothesis": "uv run --directory test/hypothesis --frozen pytest",

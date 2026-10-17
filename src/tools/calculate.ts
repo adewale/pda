@@ -121,10 +121,23 @@ function binary(n: bigint, d: bigint): { m: number; e: number } {
 /** n/d (d > 0) as the nearest double, or 0 or ±Infinity beyond a double's range. */
 function ratio(n: bigint, d: bigint): number {
   if (n === 0n) return 0;
-  const { m, e } = binary(abs(n), d);
-  // Two steps, so neither power of two overflows or underflows on its own.
-  const half = Math.trunc(e / 2);
-  return (n < 0n ? -m : m) * 2 ** half * 2 ** (e - half);
+  const sign = n < 0n ? -1 : 1;
+  n = abs(n);
+  let exponent = bits(n) - bits(d);
+  if (exponent >= 0 ? n < (d << BigInt(exponent)) : (n << BigInt(-exponent)) < d) exponent--;
+  if (exponent > 1023) return sign * Infinity;
+  if (exponent < -1075) return sign * 0;
+  // Round the exact quotient once, directly at binary64's spacing. Keep the
+  // remainder: truncating guard bits loses which side of a midpoint it is
+  // on, and rounding a normal mantissa before scaling can round twice when
+  // the final value is subnormal.
+  const shift = Math.max(exponent - 52, -1074);
+  const numerator = shift < 0 ? n << BigInt(-shift) : n;
+  const denominator = shift > 0 ? d << BigInt(shift) : d;
+  let significand = numerator / denominator;
+  const twiceRemainder = 2n * (numerator % denominator);
+  if (twiceRemainder > denominator || (twiceRemainder === denominator && (significand & 1n) !== 0n)) significand++;
+  return sign * Number(significand) * 2 ** shift;
 }
 
 function toFloat(x: Q): number {
@@ -533,7 +546,7 @@ export type Calculation = {
   readonly result: string;
   /** False when a step was approximate (sqrt, a fractional power, pi, e) or the answer was rounded to 15 significant digits. */
   readonly exact: boolean;
-  /** The answer as a JavaScript number, for tests and comparisons. */
+  /** The rational answer rounded to the nearest binary64, ties to even; signed zero or infinity outside its range. */
   readonly value: number;
 };
 

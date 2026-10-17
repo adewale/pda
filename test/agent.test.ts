@@ -632,7 +632,16 @@ describe("configuration", () => {
     expect(unset.status).toBe(500);
     expect(await unset.text()).toContain("PRIVACY_CONTACT");
     const tricky = await fetchWorker(new Request(`${ORIGIN}/privacy`), { PRIVACY_CONTACT: "https://example.com/a?b=<script>" } as unknown as Partial<Env>);
+    expect(tricky.status).toBe(500);
     expect(await tricky.text()).not.toContain("<script>");
+    const rendered = await fetchWorker(new Request(`${ORIGIN}/privacy`), {
+      PRIVACY_CONTACT: "privacy@example.com", POPPY_CLIENT_NAME: "Agent <script>alert(1)</script>"
+    } as unknown as Partial<Env>);
+    expect(rendered.status).toBe(200);
+    expect(rendered.headers.get("Content-Type")).toContain("text/html");
+    const escaped = await rendered.text();
+    expect(escaped).toContain("Agent &lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(escaped).not.toContain("<script>alert(1)</script>");
   });
 
   it("offers only the sign-in providers SIGNIN_PROVIDERS lists, and says which", async () => {

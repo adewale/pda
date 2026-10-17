@@ -304,6 +304,15 @@ describe("printing a photo at a Company (the demo journey)", () => {
     const again = await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: info.id } }, "call-1");
     expect(JSON.parse(again.details)).toEqual(JSON.parse(first.details));
     expect((await cards(a)).filter((card) => card.kind === "approval")).toHaveLength(1);
+    expect(await photoRequests(c)).toEqual([]);
+    const approval = (await cards(a)).find((card) => card.kind === "approval" && card.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
+    await a.stub.poppyWaitForNotice("Done, as the User approved");
+    expect(await photoRequests(c)).toHaveLength(1);
+    await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: info.id } }, "call-1");
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
+    expect(await photoRequests(c)).toHaveLength(1);
+    expect((await cards(a)).filter((card) => card.kind === "approval")).toHaveLength(1);
   });
 
   it("refuses a file the User didn't attach, a field the operation doesn't take, and a file to an operation that takes none", async () => {

@@ -95,7 +95,16 @@ describe("compaction", () => {
     expect(await summaryRequests(stub)).toHaveLength(0);
 
     await send(connection, "[context 150100] just over the threshold");
-    await send(connection, "over");
+    await stub.holdSummaries();
+    try {
+      await send(connection, "over");
+      await until(async () => (await summaryRequests(stub)).length === 1);
+      // The foreground answer completed while the summary response is still held.
+      expect((await stub.demoRequests()).filter((request) => !request.summary).at(-1)).toMatchObject({ last: "over", carriesSummary: false });
+      expect((await stub.activeEntries())[0]?.kind).not.toBe("pi.compaction");
+    } finally {
+      await stub.releaseSummaries();
+    }
     await until(async () => (await stub.activeEntries())[0]?.kind === "pi.compaction");
     const active = await stub.activeEntries();
     expect(active[0]!.text).toContain("Faux summary of");

@@ -100,6 +100,17 @@ export function answered(outbox: readonly Outgoing[], id: string, error?: string
   return outbox.map((item) => (item.id === id ? { ...item, state: "failed", error } : item));
 }
 
+/** Retry a failed submit with its original operation id and payload. */
+export function retryFailed(outbox: readonly Outgoing[], id: string): readonly Outgoing[] {
+  return outbox.map((item) => item.id === id && item.state === "failed"
+    ? { id: item.id, text: item.text, whenBusy: item.whenBusy, state: "waiting" } : item);
+}
+
+/** A User may dismiss only a failed submit; pending work stays in the outbox. */
+export function dismissFailed(outbox: readonly Outgoing[], id: string): readonly Outgoing[] {
+  return outbox.filter((item) => item.id !== id || item.state !== "failed");
+}
+
 function submitFrame(item: Outgoing): ClientMessage {
   return { type: "submit", id: item.id, input: item.text, whenBusy: item.whenBusy, operationId: item.id };
 }
@@ -313,14 +324,14 @@ export function usePiSession() {
 
   /** Sends a message the agent refused again, with the same operation id. */
   const resend = useCallback((id: string) => {
-    setOutbox(outboxRef.current.map((item) => (item.id === id && item.state === "failed" ? { id: item.id, text: item.text, whenBusy: item.whenBusy, state: "waiting" } : item)));
+    setOutbox(retryFailed(outboxRef.current, id));
     flush();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** Drops a message the agent refused. */
   const discard = useCallback((id: string) => {
-    setOutbox(outboxRef.current.filter((item) => item.id !== id || item.state !== "failed"));
+    setOutbox(dismissFailed(outboxRef.current, id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

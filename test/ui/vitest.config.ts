@@ -18,6 +18,8 @@ export default defineConfig({
     environment: "happy-dom",
     include: [path.join(uiDir, "**/*.test.tsx")],
     setupFiles: [path.join(uiDir, "setup.ts")],
+    // DOM properties retain their normal 100 generated cases.
+    testTimeout: 30_000,
     restoreMocks: true
   }
 });

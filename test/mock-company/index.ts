@@ -70,6 +70,16 @@ function bodyKeys(inbound: Inbound): string[] {
  */
 export class MockCompany extends DurableObject<Env> {
   #parts: Parts | undefined;
+  readonly #instanceId = crypto.randomUUID();
+
+  /** Evidence belongs to this instance; a replacement must never look like a clean run. */
+  instanceId(): string {
+    return this.#instanceId;
+  }
+
+  async evidence() {
+    return { instanceId: this.#instanceId, state: await this.state() };
+  }
 
   #ensure(id: string): Parts {
     if (this.#parts) {

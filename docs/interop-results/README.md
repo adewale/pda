@@ -5,7 +5,9 @@ A snapshot: the summary of one run of the [interop harness](../../interop/README
 - **Run the grid locally** (needs Docker): `npm run interop` with the command below, or `npm run interop -- --agents pda --companies pda-mock,pda-mock-strict` for our own pair. Each run writes to `interop/results/<run>/` (gitignored); [interop spec](../interop-spec.md) section 9 describes the files.
 - **Download CI's**: the Interop workflow (`.github/workflows/interop.yml`) runs our agent against both of our mocks and uploads the `interop-results` artifact from each run.
 
-## Latest run: 13 October, 30 scenarios, 8 agents, 12 Companies
+For current validation, see [the two complete isolated grid runs on 17 October](https://github.com/adewale/pda/actions/runs/38988240129). The dated snapshot below is retained as historical context.
+
+## Public snapshot: 13 October, 30 scenarios, 8 agents, 12 Companies
 
 The first full grid with every pin at its upstream's head of 13 October ([interop-testing.md](../interop-testing.md#pins-moved-on-13-october)): Datalayer at 0.17.0 (`00216eb`), Ilmer at `de0d1ec`, adonis-agora's AuthKit at 0.80.0 (`fe2a3ff`) and agent at 0.80.1 (`e139b95`), everruns at `aceb2e2`, print-with-poppy at `246727d`; pi-poppy (`11ea106`), poppy-demo (`02a9b30`) and poppyseed (`f479fb6`) hadn't moved. everruns is in the grid for the first time rather than in runs of its own, and Tipping Co (timothyohare, `fb7b4e6`) is new on both sides. Our code is `3ac7f67` plus the mock's `client_id` change below, after the seven refactors merged that morning. Every image was rebuilt in the first run (`2026-10-13T04:53:27Z`); the honest scenarios then ran again with the same images (`2026-10-13T05:18:57Z`), after two known failures were widened, and every one of the 2,880 cells came out the same:
 
