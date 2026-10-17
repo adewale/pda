@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { answered, dismissFailed, retryFailed, takeWaiting, unanswered, type Outgoing } from "../../src/use-pi-session";
-import { gs, property, recordTransitions } from "./hegel";
+import { gs, property, assertTransitions } from "./hegel";
 
 // These properties drive the real reducers without opening a React socket.
 vi.mock("agents/react", () => ({ useAgent: () => { throw new Error("no socket in a reducer property"); } }));
@@ -156,6 +156,6 @@ describe("outbox reconnect model", () => {
       expect(actual.some((item) => removed.has(item.id))).toBe(false);
       expect(new Set(actual.map((item) => item.id)).size).toBe(actual.length);
     }
-    recordTransitions("outbox (state changes and intentional no-ops separated)", counts, steps);
+    assertTransitions("outbox (state changes and intentional no-ops separated)", counts, steps);
   }));
 });

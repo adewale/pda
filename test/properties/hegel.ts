@@ -7,7 +7,7 @@
  * keeps no database in CI on its own; locally it keeps failing examples in
  * `.hegel/` (gitignored) and replays them first.
  */
-import { afterAll, expect } from "vitest";
+import { expect } from "vitest";
 import * as hegel from "@hegeldev/hegel";
 import * as gs from "@hegeldev/hegel/generators";
 
@@ -59,13 +59,6 @@ export function jsonValues(depth = 6): gs.Generator<Json> {
 
 // Counts describe completed actions in successful examples, not commands drawn
 // and then skipped. Initialization is separate from the generated transitions.
-const completed = new Map<string, Record<string, number>>();
-export function recordTransitions(suite: string, counts: Record<string, number>, expected: number) {
-  expect(Object.values(counts).reduce((sum, n) => sum + n, 0)).toBe(expected);
-  const total = completed.get(suite) ?? {};
-  for (const [action, count] of Object.entries(counts)) total[action] = (total[action] ?? 0) + count;
-  completed.set(suite, total);
+export function assertTransitions(suite: string, counts: Record<string, number>, expected: number) {
+  expect(Object.values(counts).reduce((sum, n) => sum + n, 0), suite).toBe(expected);
 }
-afterAll(() => {
-  for (const [suite, counts] of completed) console.info(`Executed transitions (${suite}, successful examples): ${JSON.stringify(counts)}`);
-});

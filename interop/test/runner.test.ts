@@ -72,9 +72,25 @@ describe("build scheduling", () => {
     expect(await mapConcurrent([], 2, async () => { throw new Error("must not run"); })).toEqual([]);
   });
 
-  it.each(["0", "-1", "1.5", "Infinity", "not-a-number"])("refuses invalid build concurrency %s instead of silently skipping builds", async (value) => {
+  it.each([1, 2, 4, Number.MAX_SAFE_INTEGER])("runs every build once within the concurrency boundary %i", async (limit) => {
+    let active = 0, peak = 0;
+    const visited: number[] = [];
+    const results = await mapConcurrent([0, 1, 2], limit, async (item) => {
+      visited.push(item);
+      peak = Math.max(peak, ++active);
+      await Promise.resolve();
+      active--;
+      return item;
+    });
+    expect(results).toEqual([0, 1, 2]);
+    expect(visited).toEqual([0, 1, 2]);
+    expect(peak).toBe(Math.min(limit, 3));
+    expect(active).toBe(0);
+  });
+
+  it.each(["0", "-1", "1.5", "Infinity", "-Infinity", "not-a-number", String(Number.MAX_SAFE_INTEGER + 1)])("refuses invalid build concurrency %s instead of silently skipping builds", async (value) => {
     expect(() => parseOptions([`--build-jobs=${value}`])).toThrow("positive whole number");
-    await expect(mapConcurrent([1], Number(value), async (x) => x)).rejects.toThrow("positive whole number");
+    await expect(mapConcurrent([1], Number(value), async () => { throw new Error("must not start"); })).rejects.toThrow("positive whole number");
   });
 
   it("defaults to two builds and allows an explicit positive count", () => {

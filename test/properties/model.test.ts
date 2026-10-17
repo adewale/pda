@@ -16,7 +16,7 @@ import type { Card } from "../../src/poppy/wire";
 import type { Json } from "../../src/poppy/json";
 import { MockCompany } from "../mock-company/index";
 import { companyIdFromHost, hostsFor } from "../mock-company/types";
-import { gs, propertyAsync, recordTransitions } from "./hegel";
+import { gs, propertyAsync, assertTransitions } from "./hegel";
 
 /**
  * A model-based property: any sequence of honest things a User and their
@@ -261,7 +261,7 @@ describe("our client against the mock Company, any honest sequence (model-based)
         counts[outcome] = (counts[outcome] ?? 0) + 1;
         await agrees(w, model);
       }
-      recordTransitions("Poppy", counts, steps);
+      assertTransitions("Poppy", counts, steps);
     }),
     Number(process.env.HEGEL_CASES ?? "0") > 0 ? 0 : 120_000
   );
@@ -587,7 +587,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
       counts[action] = (counts[action] ?? 0) + 1;
       await agrees();
     }
-    recordTransitions("isolation (four sign-ins per example excluded)", counts, steps);
+    assertTransitions("isolation (four sign-ins per example excluded)", counts, steps);
   // Each default run performs hundreds of real four-account sign-in flows.
   }), Number(process.env.HEGEL_CASES ?? "0") > 0 ? 0 : 120_000);
 });

@@ -5,7 +5,7 @@ A snapshot: the summary of one run of the [interop harness](../../interop/README
 - **Run the grid locally** (needs Docker): `npm run interop` with the command below, or `npm run interop -- --agents pda --companies pda-mock,pda-mock-strict` for our own pair. Each run writes to `interop/results/<run>/` (gitignored); [interop spec](../interop-spec.md) section 9 describes the files.
 - **Download CI's**: the Interop workflow (`.github/workflows/interop.yml`) runs our agent against both of our mocks and uploads the `interop-results` artifact from each run.
 
-A later combined pinned run on 16 October had the same aggregate outcomes after recovering one dependency-build setup-error row. Of its 1,607 unsupported cells, 1,588 executed no scenario steps and 19 became unsupported at runtime. Of 273 expected failure signatures, 132 remain causally unattributed and 113 are attributed to spec/readings differences; these are affected cells, not distinct spec defects. Excluding our own two mocks, the PDA agent has 153 passes, one known failure and 146 unsupported cells against ten independent Companies. These historical results do not validate subsequent local implementation changes. Detailed evidence remains private under SECURITY.md.
+For current validation, see [the two complete isolated grid runs on 17 October](https://github.com/adewale/pda/actions/runs/38988240129). The dated snapshot below is retained as historical context.
 
 ## Public snapshot: 13 October, 30 scenarios, 8 agents, 12 Companies
 
