@@ -38,7 +38,7 @@ import { poppyExtension } from "./poppy/tools";
 import { Scheduler, type PushMessage, type TaskStart } from "./schedules";
 import { PushSubscriptions, readVapidKey, sendPush, vapidSubject, type PushFetcher, type Subscription } from "./web-push";
 import { PiSessionSockets } from "./sockets";
-import { memoryExtension, timeExtension, webExtension } from "./tools/extensions";
+import { memoryExtension, timeExtension, webExtension, type WebToolsOptions } from "./tools/extensions";
 import { MAX_MEMORIES, MemoryStore, type Memory } from "./tools/memory-store";
 import { puppeteerLauncher, renderAvailability, RenderLimiter, type BrowserLauncher } from "./tools/render";
 import { describeRecurrence, MAX_ACTIVE_SCHEDULES, type Schedule } from "./tools/schedule-store";
@@ -144,6 +144,8 @@ export class PersonalAgent extends DurableObject<Env> {
    * turn is running) is the agent's.
    */
   readonly generalTools: readonly Extension[];
+  /** read_url's fetcher, limits and renderer, shared by its tool and the tests' page reads. */
+  readonly webTools: WebToolsOptions;
   /**
    * This agent's wide events (src/log.ts, src/agent-log.ts): one per turn,
    * job and page frame that does work, with a copy of the newest kept for
@@ -212,14 +214,15 @@ export class PersonalAgent extends DurableObject<Env> {
       jobTime: (at) => this.scheduleJobTime(at),
       units: this.log
     });
-    this.generalTools = [
+    this.webTools = {
       // Its own fetcher, never the Poppy client's: no Session, cookie or token can reach it.
-      webExtension({
-        fetcher: () => this.webFetcher(),
-        limiter: new ReadLimiter(),
-        renderer: () => this.browserRenderer(),
-        renderLimiter: () => (renderLimiter ??= new RenderLimiter(ctx.storage.sql, () => this.clockNow()))
-      }),
+      fetcher: () => this.webFetcher(),
+      limiter: new ReadLimiter(),
+      renderer: () => this.browserRenderer(),
+      renderLimiter: () => (renderLimiter ??= new RenderLimiter(ctx.storage.sql, () => this.clockNow()))
+    };
+    this.generalTools = [
+      webExtension(this.webTools),
       memoryExtension(() => this.memories),
       timeExtension({ userTimeZone: () => this.poppy.timeZone, now: () => this.clockNow() }),
       scheduleExtension({ scheduler: () => this.schedules, userTimeZone: () => this.poppy.timeZone })

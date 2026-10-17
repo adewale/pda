@@ -1,6 +1,7 @@
 import { abortAllDurableObjects } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { agent, chat, connect, person, until, wideEvents } from "../agent-helpers";
+import { obey } from "../worker";
 
 /**
  * Crashes every Durable Object in this runtime, so it runs in its own
@@ -55,4 +56,31 @@ describe("a crash", () => {
     second.socket.close();
   });
 
+
+  // read_url is replay-safe: after a crash pi runs it again, and it finds
+  // the page it read and the reader it started, kept with the call.
+  it("reads a page once and starts one reader, though the agent crashed while the reader was answering", async () => {
+    const identity = person();
+    const a = await agent(identity);
+    const page = "https://news.example.com/harbour";
+    await a.stub.webServe(page, { headers: { "Content-Type": "text/html; charset=utf-8" }, body: "<main><p>The harbour reopens on 3 November.</p></main>" });
+    await a.stub.holdReaders();
+    const first = await connect(identity);
+    first.socket.send(JSON.stringify({ type: "submit", id: crypto.randomUUID(), input: `When? ${obey("read_url", { url: page, question: "When does it reopen?" })}` }));
+    await until(async () => (await a.stub.demoRequests()).some((request) => request.reader));
+
+    await abortAllDurableObjects();
+    const stub = (await agent(identity)).stub;
+    const second = await connect(identity);
+    // pi resumes the run, and the reader is asked again: in the same conversation, for the same submission.
+    await until(async () => (await stub.demoRequests()).filter((request) => request.reader).length >= 2);
+    await stub.releaseReaders();
+    await second.client.until(() => second.client.texts().some((text) => text.startsWith("assistant: echo: When?")));
+
+    expect((await stub.webRequests()).map((request) => request.url)).toEqual([page]);
+    expect(await stub.piConversationCount()).toBe(2);
+    const answer = (await stub.demoRequests()).filter((request) => !request.reader).at(-1)!.results.at(-1)!;
+    expect(answer).toContain("reader: The harbour reopens on 3 November.");
+    second.socket.close();
+  });
 });
