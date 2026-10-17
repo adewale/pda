@@ -1,6 +1,7 @@
 # Temporary, opt-in validation branch. Detailed reports are encrypted so a
 # newly discovered third-party weakness is not published by the audit job.
 name: Complete ecosystem validation
+# Application under test: PR #7 at b67ab6e300c07b193d1e7e342787fa8bb752d78c.
 
 on:
   push:
