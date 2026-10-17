@@ -138,7 +138,8 @@ export async function pageRead(
   context: Context
 ): Promise<StoredRead> {
   const kept = await api.memo<StoredRead>(READ_MEMO, context);
-  if (kept) return kept;
+  // A read kept before the reader existed has no header.
+  if (kept) return { ...kept, header: kept.header ?? "" };
   const wait = options.limiter.take();
   if (wait > 0) {
     // Not kept: a replay after the minute reads the page.
