@@ -1,0 +1,114 @@
+# Temporary, opt-in validation branch. Detailed reports are encrypted so a
+# newly discovered third-party weakness is not published by the audit job.
+name: Complete ecosystem validation
+
+on:
+  push:
+    branches: [audit/full-grid-20261017]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: complete-ecosystem-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  grid:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Prepare the report recipient
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/interop-gnupg"
+          gpg --homedir "$RUNNER_TEMP/interop-gnupg" --batch --import .github/interop-audit-recipient.asc
+          recipient=$(gpg --homedir "$RUNNER_TEMP/interop-gnupg" --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')
+          test -n "$recipient"
+          echo "INTEROP_REPORT_RECIPIENT=$recipient" >> "$GITHUB_ENV"
+
+      - name: Make room for pinned upstream builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          # These preinstalled SDKs are unused on this disposable audit runner.
+          sudo rm -rf -- /usr/local/lib/android /usr/share/dotnet /opt/ghc
+          sudo fallocate -l 6G /swapfile-poppy-interop
+          sudo chmod 600 /swapfile-poppy-interop
+          sudo mkswap /swapfile-poppy-interop
+          sudo swapon /swapfile-poppy-interop
+          df -h .
+          free -h
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.x
+          cache: npm
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Run the entire pinned honest grid twice
+        id: matrix
+        shell: bash
+        run: |
+          mkdir -p interop/results
+          matrix_status=0
+          for pass in 1 2; do
+            extra=()
+            # Reuse only immutable images; each invocation creates fresh containers,
+            # keys, isolated network and protocol state, and runs all 2,880 cells.
+            if [ "$pass" -eq 2 ]; then extra+=(--no-build); fi
+            npm run interop -- "${extra[@]}" --build-jobs 2 --min-free-gb 3 \
+              --agents pda,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,adonis-agora,everruns,tipping-co \
+              --companies pda-mock,pda-mock-strict,datalayer-ts,datalayer-py,pi-poppy,poppy-demo,poppyseed,ilmer,print-with-poppy,adonis-agora,everruns,tipping-co \
+              --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CI,CS,CA,H,DC,SO,SE,R,AO,AM,AS,W,O,O2,OX,OU,RL,DP,CM \
+              --out "interop/results/full-$pass" > "interop/results/full-$pass.console.log" 2>&1 || matrix_status=$?
+            node --input-type=module - "$pass" "$matrix_status" <<'JS' || matrix_status=1
+          import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+          const pass = process.argv[2], code = Number(process.argv[3]);
+          const file = `interop/results/full-${pass}/results.json`;
+          const report = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : null;
+          const cells = report?.cells ?? [], counts = {};
+          for (const cell of cells) counts[cell.outcome] = (counts[cell.outcome] ?? 0) + 1;
+          const summary = { pass, cells: cells.length, counts, knownFailures: cells.filter(c => c.known).length,
+            unexpectedFailures: cells.filter(c => ["fail", "error"].includes(c.outcome) && !c.known).length,
+            flaky: report?.flaky?.length ?? 0, staleKnown: report?.staleKnown?.length ?? 0,
+            isolated: report?.lane === "local" && report?.isolation?.internal === true, runnerExit: code };
+          writeFileSync(`interop/results/full-${pass}.summary.json`, JSON.stringify(summary, null, 2));
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Complete grid ${pass}: ${JSON.stringify(summary)}. Detailed evidence is encrypted.\n`);
+          if (code !== 0 || summary.cells !== 2880 || (counts.error ?? 0) !== 0 || summary.unexpectedFailures ||
+              summary.flaky || summary.staleKnown || !summary.isolated) process.exitCode = 1;
+          JS
+            if [ "$matrix_status" -ne 0 ]; then break; fi
+          done
+          echo "exit_code=$matrix_status" >> "$GITHUB_OUTPUT"
+
+      - name: Encrypt detailed results and build logs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -C interop/results -czf "$RUNNER_TEMP/full-interop-report.tar.gz" .
+          gpg --homedir "$RUNNER_TEMP/interop-gnupg" --batch --yes --trust-model always \
+            --recipient "$INTEROP_REPORT_RECIPIENT" --encrypt \
+            --output "$RUNNER_TEMP/full-interop-report.tar.gz.gpg" "$RUNNER_TEMP/full-interop-report.tar.gz"
+
+      - name: Upload encrypted audit evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: full-interop-encrypted
+          path: ${{ runner.temp }}/full-interop-report.tar.gz.gpg
+          if-no-files-found: error
+
+      - name: Require the grid to pass
+        if: always()
+        shell: bash
+        env:
+          MATRIX_EXIT_CODE: ${{ steps.matrix.outputs.exit_code }}
+        run: test "${MATRIX_EXIT_CODE:-1}" = 0
