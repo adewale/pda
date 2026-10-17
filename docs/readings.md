@@ -1,5 +1,7 @@
 # Our readings of the draft's open questions
 
+**Baseline notice, 17 October:** these choices describe the 9/12 October text and the implementation we have tested. [The revised official draft](https://github.com/personal-agent-protocol/personal-agent-protocol/blob/95fcbf22c5991a0090061aed3dbeb68c0ea575e0/content/spec.mdx) now requires issuer audiences for client and Session assertions, among other changes. S1's endpoint policy is historical and needs migration; it is no longer an open choice under that revision. A full reconciliation of the other readings and checks is pending; the [ecosystem map](ecosystem.md#the-spec) records the scope of the changes.
+
 Where Poppy Draft 0.1 is ambiguous, we had to pick a behaviour. This file records each pick: which reading our client takes, which our strict and lenient mock Companies take, whether we're strict or lenient there, and why. The questions and their suggested fixes are in [spec-issues.md](spec-issues.md). Its "What we do" column summarises our answer, except for S1, S2, S3, S4, S7 and S23, where it links here for the reading and the reasoning.
 
 Back to [spec-issues.md](spec-issues.md) · [interop-spec.md §7](interop-spec.md#7-readings)

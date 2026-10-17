@@ -42,6 +42,10 @@ Besides native Poppy, the store offers a non-Poppy "HTTP compatibility" path: `P
 
 Demo mode keeps the store's own browser demo: `/api/demo/agent.json` (a built-in agent identity, accepted without the allowlist), `/api/demo/session` and the `Demo` authorization scheme its web page uses, and `/api/demo/pay` and `/api/demo/ship`. None is in its discovery document or OpenAPI description, and no grid agent uses them; they are in the manifest's `relaxations` with demo mode.
 
+## Source refresh, 17 October (pin unchanged)
+
+Upstream head `6dca0ad4f89b80015d0de26df887cb535ffe0594` (15 October) is 18 commits beyond our tested `246727d` pin. It fixes refused revocation assertions becoming 500s (`3cba737`, #2) and declares `poppy:read` on both account-read operations. It also adds product-preview workflows and selectable artwork. The proposal's 202 schema still leaves `operation` optional. Token/Session and revocation assertions still use endpoint audiences, so both server and reference client need migration to the revised draft's issuer audience. Source read only: no pin, runtime or known-failure change; no live orders or payments. Earlier statements below that revocation is “still” broken describe the old pin.
+
 ## Upstream since `260dbb4`
 
 41 commits between the evening of 12 October and the morning of 13 October. Most are the store: pricing (shipping now included, 4×4 squares and 8×10 enlargements, mixed products in one order, volume pricing), private coupons and free checkout, receipts, emails and the homepage. What matters to Poppy:
