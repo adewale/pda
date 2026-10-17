@@ -46,7 +46,7 @@ import {
 import { approvalsTable, inboxTable, intentsTable, migrate, operationsTable, signInsTable } from "../../../src/poppy/store.ts";
 import { rows } from "../../../src/rows.ts";
 import type { Card } from "../../../src/poppy/wire.ts";
-import { ATTACKS, runAttack, type AttackContext } from "./attacks.ts";
+import { ATTACKS, AttackSetupError, runAttack, type AttackContext } from "./attacks.ts";
 import { LiveIdentityClient, liveIdentityFrom } from "./live-identity.ts";
 
 const NAME = process.env.INTEROP_NAME ?? "pda";
@@ -685,6 +685,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     const c = await company(domain);
     const ctx: AttackContext = { clientId: `${ORIGIN}/poppy/client.json`, signingJwks: agent.env.POPPY_SIGNING_JWKS as unknown as string, fetcher: (request) => fetch(request) };
     const result = await runAttack(ctx, c, armed.attack, { ...armed.params, ...params });
+    if (result.poppy_error === "unsupported") throw new StepError(501, "unsupported", result.detail ?? "Attack unavailable");
     if (result.poppy_error) throw new PoppyStepError(result.poppy_error, result.status, result.detail ?? `${armed.attack} refused`);
     return { status: result.status, body: result.body };
   },
@@ -797,6 +798,7 @@ async function step(request: Request): Promise<Response> {
   try {
     return json({ ok: true, result: await run(domain, params) });
   } catch (error) {
+    if (error instanceof AttackSetupError) return failure(500, "attack_setup_failed", error.message);
     if (error instanceof StepError) return failure(error.status, error.code, error.message);
     if (error instanceof PoppyStepError) return json({ ok: false, poppy_error: error.code, status: error.status, detail: error.message });
     if (error instanceof PoppyError) {

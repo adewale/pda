@@ -29,6 +29,9 @@ export type AttackContext = {
   readonly fetcher: Fetcher;
 };
 
+/** Failure to establish the honest preconditions is a harness error, never a refusal. */
+export class AttackSetupError extends Error {}
+
 export type AttackResult = { readonly status: number; readonly body: unknown; readonly poppy_error?: string; readonly detail?: string };
 
 /** The armed attack ids this adapter supports (manifest `attacks`, spec §4). */
@@ -46,24 +49,27 @@ async function signer(signingJwks: string): Promise<Signer> {
 async function dpopKey() {
   const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
   const jwk = await exportJWK(publicKey);
-  return { privateKey, jwk, jkt: await calculateJwkThumbprint(jwk) };
+  return { privateKey, jwk, jkt: await calculateJwkThumbprint(jwk), nonce: undefined as string | undefined };
 }
 type DpopKey = Awaited<ReturnType<typeof dpopKey>>;
 
 async function clientAssertion(ctx: AttackContext, s: Signer, aud: string, id = jti()): Promise<string> {
-  return new SignJWT({ iss: ctx.clientId, sub: ctx.clientId, aud, iat: now(), exp: now() + 60, jti: id })
+  const issuedAt = now();
+  return new SignJWT({ iss: ctx.clientId, sub: ctx.clientId, aud, iat: issuedAt, exp: issuedAt + 60, jti: id })
     .setProtectedHeader({ alg: "ES256", typ: "JWT", kid: s.kid })
     .sign(s.key);
 }
 
 async function sessionAssertion(ctx: AttackContext, s: Signer, tokenEndpoint: string, sub = "usr_Q7c1vKx9TzLw3NdR5mHa2B", id = jti()): Promise<string> {
-  return new SignJWT({ iss: ctx.clientId, sub, aud: tokenEndpoint, iat: now(), exp: now() + 60, jti: id })
+  const issuedAt = now();
+  return new SignJWT({ iss: ctx.clientId, sub, aud: tokenEndpoint, iat: issuedAt, exp: issuedAt + 60, jti: id })
     .setProtectedHeader({ alg: "ES256", typ: "JWT", kid: s.kid })
     .sign(s.key);
 }
 
 async function proof(key: DpopKey, method: string, url: string, token?: string, id = jti()): Promise<string> {
   const claims: Record<string, unknown> = { htm: method, htu: url.split("?")[0], iat: now(), jti: id };
+  if (key.nonce) claims.nonce = key.nonce;
   if (token) claims.ath = await sha256(token);
   return new SignJWT(claims).setProtectedHeader({ alg: "ES256", typ: "dpop+jwt", jwk: key.jwk }).sign(key.privateKey);
 }
@@ -88,19 +94,29 @@ function errorOf(status: number, body: unknown): Pick<AttackResult, "poppy_error
   return {};
 }
 
-/** A signed-out Session (JWT bearer grant): the starting point for most token attacks. */
+/** Establish an honest Session, regenerating one-shot credentials on bounded nonce retries.
+ * Keep the accepted request's bytes: the attack must replay those, not a challenged request.
+ */
 async function startSession(ctx: AttackContext, company: Company, key: DpopKey, sub = "usr_Q7c1vKx9TzLw3NdR5mHa2B") {
   const endpoint = company.endpoints.token;
   const s = await signer(ctx.signingJwks);
-  const response = await post(
-    ctx,
-    endpoint,
-    { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, endpoint, sub), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) },
-    { DPoP: await proof(key, "POST", endpoint) }
-  );
-  const body = (await bodyOf(response)) as { access_token?: string; session_id?: string };
-  if (response.status !== 200 || !body.access_token) throw new Error(`startSession failed: HTTP ${response.status}`);
-  return { token: body.access_token, sessionId: body.session_id ?? "", key };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const assertion = await sessionAssertion(ctx, s, endpoint, sub);
+    const dpop = await proof(key, "POST", endpoint);
+    const response = await post(ctx, endpoint,
+      { grant_type: JWT_BEARER, assertion, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) },
+      { DPoP: dpop });
+    const parsed = await bodyOf(response);
+    const body = (parsed !== null && typeof parsed === "object" ? parsed : {}) as { error?: string; access_token?: string; session_id?: string };
+    const nonce = response.headers.get("dpop-nonce");
+    if (nonce) key.nonce = nonce;
+    if (response.status === 400 && body.error === "use_dpop_nonce" && nonce) continue;
+    if (response.status !== 200 || typeof body.access_token !== "string" || !body.access_token || typeof body.session_id !== "string" || !body.session_id) {
+      throw new AttackSetupError(`Session setup failed: HTTP ${response.status} (${body.error ?? "invalid token response"})`);
+    }
+    return { token: body.access_token, sessionId: body.session_id, key, assertion, dpop };
+  }
+  throw new AttackSetupError("Session setup exhausted its nonce retries; no attack was sent");
 }
 
 async function finish(response: Response): Promise<AttackResult> {
@@ -117,27 +133,23 @@ export async function runAttack(ctx: AttackContext, company: Company, attack: st
   const s = await signer(ctx.signingJwks);
   switch (attack) {
     case "YR": {
-      // Replay a Session assertion: the same assertion (same jti) in two token requests (4.2; session-assertion.jti-reused).
-      const key1 = await dpopKey();
-      const assertion = await sessionAssertion(ctx, s, endpoint);
-      const first = await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: await proof(key1, "POST", endpoint) });
-      if (first.status !== 200) return finish(first);
-      const key2 = await dpopKey();
-      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: await proof(key2, "POST", endpoint) }));
+      // Replay only the accepted Session assertion; the client assertion and proof are fresh.
+      const session = await startSession(ctx, company, await dpopKey());
+      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: session.assertion, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: await proof(session.key, "POST", endpoint) }));
     }
     case "YD": {
-      // Replay a DPoP proof: the same proof (same jti) on two token requests (RFC 9449 §11.1; dpop.jti-reused).
-      const key = await dpopKey();
-      const dpop = await proof(key, "POST", endpoint);
-      const first = await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, endpoint), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: dpop });
-      if (first.status !== 200) return finish(first);
-      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, endpoint), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: dpop }));
+      // Replay the exact accepted proof; both other assertions are fresh. Never retry the attack.
+      const session = await startSession(ctx, company, await dpopKey());
+      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, endpoint), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: session.dpop }));
     }
     case "YA": {
       // aud confusion: a client assertion minted for another Company presented here (4.1; client-assertion.aud).
       const foreign = typeof params.aud === "string" ? params.aud : "https://auth.other.company.interop.test/oauth/token";
-      const key = await dpopKey();
-      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, endpoint), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, foreign) }, { DPoP: await proof(key, "POST", endpoint) }));
+      if (foreign === endpoint) throw new AttackSetupError("Audience attack needs an audience different from the called endpoint");
+      const session = await startSession(ctx, company, await dpopKey());
+      // The accepted baseline supplies the current nonce and proves the other
+      // claims/key work. Fresh one-shot credentials isolate the wrong audience.
+      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, endpoint), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, foreign) }, { DPoP: await proof(session.key, "POST", endpoint) }));
     }
     case "YT": {
       // Stolen token, another key: a Session Token with a proof from a different key (4.3; dpop.key-mismatch).
@@ -161,11 +173,11 @@ export async function runAttack(ctx: AttackContext, company: Company, attack: st
       const signedIn = (await bodyOf(
         await ctx.fetcher(new Request(mediated, { method: "POST", headers: { "content-type": "application/json", Authorization: `DPoP ${session.token}`, DPoP: await proof(session.key, "POST", mediated, session.token) }, body: JSON.stringify({ scope: "poppy:read poppy:write", credentials }) }))
       )) as { refresh_token?: string };
-      if (!signedIn.refresh_token) return { status: 0, body: signedIn, poppy_error: "sign_in_failed", detail: "no Account Token" };
+      if (!signedIn.refresh_token) throw new AttackSetupError("Sign-in setup issued no Account Token");
       const refresh = async () =>
         post(ctx, endpoint, { grant_type: "refresh_token", refresh_token: signedIn.refresh_token!, session_id: session.sessionId, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: await proof(session.key, "POST", endpoint) });
       const first = await refresh();
-      if (first.status !== 200) return finish(first);
+      if (first.status !== 200) throw new AttackSetupError(`Refresh setup failed: HTTP ${first.status}`);
       return finish(await refresh());
     }
     case "YU": {
@@ -177,7 +189,7 @@ export async function runAttack(ctx: AttackContext, company: Company, attack: st
       const opened = (await bodyOf(
         await ctx.fetcher(new Request(conversations, { method: "POST", headers: { "content-type": "application/json", Authorization: `DPoP ${a.token}`, DPoP: await proof(a.key, "POST", conversations, a.token) }, body: JSON.stringify({ message: { id: `msg_${jti()}`, sender: "agent", text: "Where is my order?" } }) }))
       )) as { conversation_id?: string };
-      if (!opened.conversation_id) return { status: 0, body: opened, poppy_error: "no_conversation", detail: "User A couldn't open a conversation" };
+      if (!opened.conversation_id) throw new AttackSetupError("User A could not open the setup conversation");
       // User B of the same agent (a different User ID) reads User A's conversation.
       const b = await startSession(ctx, company, await dpopKey(), "usr_Hd8pW2zQ5nVb7LtK3xRc9F");
       const target = `${conversations.replace(/\/+$/, "")}/${encodeURIComponent(opened.conversation_id)}`;
@@ -197,19 +209,20 @@ export async function runAttack(ctx: AttackContext, company: Company, attack: st
       const signedIn = (await bodyOf(
         await ctx.fetcher(new Request(mediated, { method: "POST", headers: { "content-type": "application/json", Authorization: `DPoP ${session.token}`, DPoP: await proof(session.key, "POST", mediated, session.token) }, body: JSON.stringify({ scope: "poppy:read poppy:write", credentials }) }))
       )) as { refresh_token?: string };
-      if (!signedIn.refresh_token) return { status: 0, body: signedIn, poppy_error: "sign_in_failed", detail: "no Account Token" };
+      if (!signedIn.refresh_token) throw new AttackSetupError("Sign-in setup issued no Account Token");
       // A write Session Token from the Account Token.
       const refreshed = (await bodyOf(
         await post(ctx, endpoint, { grant_type: "refresh_token", refresh_token: signedIn.refresh_token, session_id: session.sessionId, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: await proof(session.key, "POST", endpoint) })
       )) as { access_token?: string };
-      const writeToken = refreshed.access_token ?? session.token;
+      if (!refreshed.access_token) throw new AttackSetupError("Refresh setup issued no write Session Token");
+      const writeToken = refreshed.access_token;
       // Propose the jacket exchange (202 with an operation).
       const exchangeUrl = `${new URL(openapi.url).origin}/orders/ord_7Hk2/exchanges`;
       const proposed = (await bodyOf(
         await ctx.fetcher(new Request(exchangeUrl, { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": `${jti()}${jti()}`, Authorization: `DPoP ${writeToken}`, DPoP: await proof(session.key, "POST", exchangeUrl, writeToken) }, body: JSON.stringify({ item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }) }))
       )) as { operation?: { operation_id?: string; revision?: number } };
       const op = proposed.operation;
-      if (!op?.operation_id) return { status: 0, body: proposed, poppy_error: "no_operation", detail: "the exchange didn't propose an operation" };
+      if (!op?.operation_id) throw new AttackSetupError("The setup exchange did not propose an operation");
       // Confirm it without saying the User approved: approved_by omitted.
       const confirmUrl = `${operations.replace(/\/+$/, "")}/${encodeURIComponent(op.operation_id)}/confirm`;
       return finish(await ctx.fetcher(new Request(confirmUrl, { method: "POST", headers: { "content-type": "application/json", Authorization: `DPoP ${writeToken}`, DPoP: await proof(session.key, "POST", confirmUrl, writeToken) }, body: JSON.stringify({ revision: op.revision ?? 1 }) })));

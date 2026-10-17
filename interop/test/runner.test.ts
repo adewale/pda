@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { VIOLATION_IDS } from "../../test/mock-company/violations.ts";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
 import { TRACE_CHECKS } from "../runner/checks.ts";
 import { gridCoverage, imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions } from "../runner/cli.ts";
-import { proxyAliases } from "../runner/docker.ts";
+import { dockerAsync, mapConcurrent, proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
 import { cellId, renderReport } from "../runner/report.ts";
 import type { Cell } from "../runner/types.ts";
@@ -28,6 +28,74 @@ describe("options", () => {
     expect(parseOptions([])).toMatchObject({ retry: true, minFreeGb: 2 });
     expect(parseOptions(["--no-retry", "--min-free-gb", "0.5"])).toMatchObject({ retry: false, minFreeGb: 0.5 });
     expect(() => parseOptions(["--min-free-gb", "lots"])).toThrow("--min-free-gb takes a number");
+  });
+});
+
+describe("Docker logs", () => {
+  it.each([0, 7])("retains both log streams when Docker exits %i", async (code) => {
+    const dir = mkdtempSync(path.join(tmpdir(), "interop-log-streams-"));
+    const previous = process.env.PATH;
+    try {
+      // A real child process, without Docker: startup errors arrive on stderr.
+      writeFileSync(path.join(dir, "docker"), '#!/bin/sh\nprintf "normal log\\n"\nprintf "startup error\\n" >&2\nexit "$3"\n', { mode: 0o700 });
+      process.env.PATH = `${dir}:${previous ?? ""}`;
+      expect(await dockerAsync(["logs", "fixture", String(code)])).toEqual({ code, output: "normal log\nstartup error\n" });
+    } finally {
+      if (previous === undefined) delete process.env.PATH;
+      else process.env.PATH = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("build scheduling", () => {
+  it("starts the next build only when a slot is released and preserves results despite out-of-order completion", async () => {
+    const started: number[] = [];
+    const release = new Map<number, (value: string) => void>();
+    const result = mapConcurrent([0, 1, 2, 3], 2, (item) => {
+      started.push(item);
+      return new Promise<string>((resolve) => release.set(item, resolve));
+    });
+    expect(started).toEqual([0, 1]);
+    release.get(1)!("one");
+    await Promise.resolve();
+    expect(started).toEqual([0, 1, 2]);
+    release.get(2)!("two");
+    await Promise.resolve();
+    expect(started).toEqual([0, 1, 2, 3]);
+    release.get(3)!("three");
+    release.get(0)!("zero");
+    expect(await result).toEqual(["zero", "one", "two", "three"]);
+  });
+
+  it("handles an empty registry without starting anything", async () => {
+    expect(await mapConcurrent([], 2, async () => { throw new Error("must not run"); })).toEqual([]);
+  });
+
+  it.each([1, 2, 4, Number.MAX_SAFE_INTEGER])("runs every build once within the concurrency boundary %i", async (limit) => {
+    let active = 0, peak = 0;
+    const visited: number[] = [];
+    const results = await mapConcurrent([0, 1, 2], limit, async (item) => {
+      visited.push(item);
+      peak = Math.max(peak, ++active);
+      await Promise.resolve();
+      active--;
+      return item;
+    });
+    expect(results).toEqual([0, 1, 2]);
+    expect(visited).toEqual([0, 1, 2]);
+    expect(peak).toBe(Math.min(limit, 3));
+    expect(active).toBe(0);
+  });
+
+  it.each(["0", "-1", "1.5", "Infinity", "-Infinity", "not-a-number", String(Number.MAX_SAFE_INTEGER + 1)])("refuses invalid build concurrency %s instead of silently skipping builds", async (value) => {
+    expect(() => parseOptions([`--build-jobs=${value}`])).toThrow("positive whole number");
+    await expect(mapConcurrent([1], Number(value), async () => { throw new Error("must not start"); })).rejects.toThrow("positive whole number");
+  });
+
+  it("defaults to two builds and allows an explicit positive count", () => {
+    expect(parseOptions([]).buildJobs).toBe(2);
+    expect(parseOptions(["--build-jobs", "1"]).buildJobs).toBe(1);
   });
 });
 

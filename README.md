@@ -64,7 +64,7 @@ Signing in for the first time, with a run-through that checks each part works: [
   ```
 
 - **Our agent as your peer.** Its `client_id` is `https://poppydemoagent.dev/poppy/client.json`. A Company that keeps an allowlist can add it, and we'll point the agent at you; Appendix A of [the spec](pda-spec.md) lists every requirement it implements and the test that checks it.
-- **The interop harness** (`interop/`) runs every agent against every Company in containers with no internet access, through a recording proxy, and blames each failure on a side by a named rule. It runs nine other projects today. The latest grid (13 October) has 2,880 cells over 30 scenarios: 1,000 pass, 273 fail and 1,607 unsupported. Every failure is a known upstream or spec one, and our agent passes 213 of the 214 cells it runs; the other is a reading the draft leaves open (S1, at Tipping Co's revocation endpoint). [docs/ecosystem.md](docs/ecosystem.md#scorecard) scores each implementation; [interop/README.md](interop/README.md) says how to add yours, and [docs/interop-spec.md](docs/interop-spec.md) defines the scenarios, the attribution rules and the isolation.
+- **The interop harness** (`interop/`) runs every agent against every Company in containers with no internet access, through a recording proxy, and blames each failure on a side by a named rule. It runs nine other projects today. The public grid snapshot (13 October) has 2,880 cells over 30 scenarios: 1,000 pass, 273 fail and 1,607 unsupported. Every failure matches a recorded expectation; this does not establish its root cause, and our agent passes 213 of the 214 cells it runs; the other is a reading the draft leaves open (S1, at Tipping Co's revocation endpoint). [docs/ecosystem.md](docs/ecosystem.md#scorecard) scores each implementation; [interop/README.md](interop/README.md) says how to add yours, and [docs/interop-spec.md](docs/interop-spec.md) defines the scenarios, the attribution rules and the isolation.
 - **Adversarial testing.** A malicious agent and a malicious Company attack our own implementations: oversized documents, nonce loops, terms swapped at confirm, forged messages and more ([docs/adversarial-interop.md](docs/adversarial-interop.md)). The malicious Company may also attack other projects' agents in our own containers; what it finds goes to their maintainers privately first ([SECURITY.md](SECURITY.md)).
 - **Cross-checks.** Our validator runs against two other open validators on the same 107 documents ([the tool](interop/vectors/validators/README.md), [results](docs/interop-testing.md#validator-cross-check)), and our client against Datalayer's language-neutral conformance cases ([results](interop/vectors/datalayer/README.md)). A second client, written in Python from the draft's text, drives stateful property tests of our mock Company ([test/hypothesis](test/hypothesis/README.md)).
 - **Findings in your code** go to you privately first, as [SECURITY.md](SECURITY.md) describes. Nothing is posted to another project without the owner's approval.
@@ -76,7 +76,7 @@ Signing in for the first time, with a run-through that checks each part works: [
 - **[Grounding](spec/grounding.md):** every claim we make about the draft, quoted against a stored copy of its text.
 - **[Conformance levels](docs/conformance-levels.md):** how our mock, validator and grid grade a broken MUST, a departed SHOULD and one of our readings.
 - **[Ecosystem map](docs/ecosystem.md):** every Poppy implementation we know of, what it does, and how it scores in our grid. The detailed survey behind it, with licences, maturity and what we learned from each project, is [implementations.md](docs/implementations.md).
-- **[Interop results](docs/interop-results/README.md):** the state of M×N interop: the latest grid of every agent against every Company, with pass, fail and unsupported counts for each pair, and every failure with the rule that blamed it on a side.
+- **[Interop results](docs/interop-results/README.md):** the state of M×N interop: the public grid snapshot of every agent against every Company, with pass, fail and unsupported counts for each pair, and attribution where the evidence establishes a side.
 - **[Issues in other implementations](docs/poppy-issues.md):** what the grid and code reading found in other projects, reported to their maintainers privately first.
 
 - **[Proposals](docs/proposals/README.md):** drafts for adding Poppy to OpenClaw and Hermes Agent, to submit once this agent has worked against a live Company.
@@ -92,7 +92,7 @@ None of this has been sent to the draft's authors yet. They take feedback by ema
 - **General tools beside Poppy.** `read_url` reads one public page as untrusted text with no cookies or credentials, and renders a page that needs JavaScript in Browser Run, where the page can send only GET and HEAD requests to public hosts; `remember`, `recall` and `forget` keep short notes in the agent's own SQLite, never secrets; `now`, `date_math` and `calculate` do time zones, calendar arithmetic and exact decimal sums. All are ours, in `src/tools/`; Browser Run is the only service they use beyond the page itself.
 - **Reminders and tasks on the agent's own alarm.** `remind_me`, `schedule_task`, `list_scheduled` and `cancel_scheduled` keep rows in the agent's SQLite, and the Durable Object's alarm runs each on time, with no page open. A reminder makes no model call; a task is a background turn with no extra powers, metered like any other. Only a turn the User's own message started can set or cancel one. Notifications go by Web Push, encrypted for each browser, only to the browsers' own push services.
 - **Two ways to pay for the model.** An operator-paid demo through AI Gateway, capped per person and per domain before every call, or your own Anthropic or OpenAI key, sent straight to the vendor. Compaction keeps each request under about 200k tokens.
-- **Everything is tested offline.** Five suites run with the model, the vendors, Google, GitHub and every Company faked, and every Poppy test fails if the strict mock Company records a violation or a warning. A second client in Python drives a stateful Hypothesis test of the mock, because a misreading our client and mock share is invisible to both.
+- **Regular tests run offline.** Five suites run with the model, the vendors, Google, GitHub and every Company faked, and every Poppy test fails if the strict mock Company records a violation or a warning. A second client in Python drives a stateful Hypothesis test of the mock, because a misreading our client and mock share is invisible to both.
 
 The design is [pda-spec.md](pda-spec.md); how to use the agent and check it works is [docs/using.md](docs/using.md); each capability and tool, and where it comes from, is [docs/capabilities.md](docs/capabilities.md); why it is built this way is [docs/decisions.md](docs/decisions.md).
 
@@ -111,9 +111,9 @@ Node.js 24 or later:
 
 ```sh
 npm install --legacy-peer-deps   # agents declares many optional peers
-npm test                         # five suites; nothing calls the network
+npm test                         # five suites + documentation references; no external network
 npm run typecheck
-npm run check:docs               # every test the docs name exists
+npm run check:docs               # standalone reference check; already included in npm test
 npm run validate -- example.com  # the validator CLI
 npm run interop -- --agents pda --companies pda-mock   # the grid, in Docker
 ```
@@ -142,6 +142,6 @@ docs/               The user guide, decisions, capabilities, setup, spec issues,
 ## Security, contributing and licence
 
 - **Security:** report a vulnerability privately, as [SECURITY.md](SECURITY.md) describes.
-- **Contributing:** keep `npm test`, `npm run typecheck` and `npm run check:docs` passing. A new Poppy feature needs a test, and a check in the mock Company where the draft states a requirement. `git config core.hooksPath .githooks` turns on a pre-push typecheck.
+- **Contributing:** keep `npm test` (including its documentation reference check) and `npm run typecheck` passing. A new Poppy feature needs a test, and a check in the mock Company where the draft states a requirement. `git config core.hooksPath .githooks` turns on a pre-push typecheck.
 - **Support:** report problems in [GitHub issues](https://github.com/adewale/pda/issues).
 - **Licence:** [Apache License 2.0](LICENSE), the licence of the Poppy draft itself. Files copied from Cloudflare's `agents` examples keep their MIT licence, and the stored copies of the draft in `spec/` keep the draft's Apache 2.0 licence; see [NOTICE.md](NOTICE.md).

@@ -152,7 +152,8 @@ describe("protocol view", () => {
     expect(screen.getByText("Copied as text.").getAttribute("role")).toBe("status");
   });
 
-  it("downloads the same text as a .txt file named for the Company", () => {
+  it("downloads the same text as a .txt file named for the Company", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(AT + 5000);
     const created: Blob[] = [];
     vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
       created.push(blob as Blob);
@@ -170,6 +171,8 @@ describe("protocol view", () => {
     expect(clicked[0]!.download).toMatch(/^poppy-protocol-print\.example-\d{4}-\d{2}-\d{2}\.txt$/);
     expect(clicked[0]!.href).toBe("blob:protocol");
     expect(created[0]!.type).toBe("text/plain;charset=utf-8");
+    expect(await created[0]!.text()).toContain("GET https://print.example/.well-known/poppy.json");
+    expect(await created[0]!.text()).toBe(protocolText(log));
   });
 
   it("folds the index and each log into the page's view", () => {

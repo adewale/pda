@@ -91,6 +91,10 @@ export function implementationCreateArgs(tag: string, name: string, alias: strin
     "--network-alias",
     alias,
     ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
+    // Docker can inject host proxy defaults. Private protocol traffic must
+    // reach this run's recording proxy, including clients that prefer lowercase.
+    "-e", "NO_PROXY=.interop.test,localhost,127.0.0.1",
+    "-e", "no_proxy=.interop.test,localhost,127.0.0.1",
     image
   ];
 }

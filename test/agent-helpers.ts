@@ -4,6 +4,7 @@
  * and for Poppy tests: mock Companies, agents and the violation check.
  */
 import { env } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
 import { afterEach, expect } from "vitest";
 import type { Provider } from "../src/config";
 import type { PiServerMessage } from "../src/protocol";
@@ -80,6 +81,7 @@ export function follow(socket: WebSocket) {
 }
 
 export async function connect(identity: Identity | string, query = "") {
+  if (typeof identity !== "string") createdAgents.add(await agentNameFor(identity));
   const cookie = typeof identity === "string" ? identity : await sessionCookie(identity);
   const response = await fetchWorker(wsRequest({ cookie, query }));
   expect(response.status).toBe(101);
@@ -130,7 +132,30 @@ export type Company = {
 };
 
 /** Every mock Company the current test created, with the violations it expects. */
-const created: { company: Company; expected: RegExp[] }[] = [];
+const created: { company: Company; expected: RegExp[]; instanceId: string }[] = [];
+const createdAgents = new Set<string>();
+
+/** Flush cancellation before terminating this test's object. The concurrency
+ * gate prevents in-flight callbacks from rearming between cancellation and abort.
+ * Other tests' agents and the mock Company's evidence are untouched.
+ */
+export async function stopAgent(stub: DurableObjectStub<import("../src/agent").PersonalAgent>): Promise<void> {
+  await expect(runInDurableObject(stub, (_instance, state) => state.blockConcurrencyWhile(async () => {
+    if (state.storage.sql.exec("SELECT name FROM sqlite_master WHERE name = 'cf_agents_jobs'").toArray().length) {
+      state.storage.sql.exec("DELETE FROM cf_agents_jobs");
+    }
+    await state.storage.deleteAlarm();
+    await state.storage.sync();
+    state.abort("Instance dispose");
+  }))).rejects.toThrow("Instance dispose");
+}
+
+/** Check the witness before trusting even an empty violation/request history. */
+export async function companyEvidence(stub: DurableObjectStub<MockCompany>, instanceId: string) {
+  const evidence = await stub.evidence();
+  if (evidence.instanceId !== instanceId) throw new Error("Mock Company was replaced: protocol evidence was lost");
+  return evidence.state;
+}
 
 /** Violations no pattern expects, and patterns no violation matched. */
 export function compareViolations(violations: readonly string[], expected: readonly RegExp[]) {
@@ -142,9 +167,15 @@ export function compareViolations(violations: readonly string[], expected: reado
 
 afterEach(async () => {
   const mocks = created.splice(0);
-  for (const { company: c, expected } of mocks) {
-    const violations = (await c.stub.state()).recorded;
-    expect(compareViolations(violations, expected), `violations and warnings at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
+  const agents = [...createdAgents];
+  createdAgents.clear();
+  try {
+    for (const { company: c, expected, instanceId } of mocks) {
+      const violations = (await companyEvidence(c.stub, instanceId)).recorded;
+      expect(compareViolations(violations, expected), `violations and warnings at mock Company ${c.id}`).toEqual({ unexpected: [], missing: [] });
+    }
+  } finally {
+    await Promise.all(agents.map((name) => stopAgent(testEnv.PersonalAgent.getByName(name))));
   }
 });
 
@@ -153,7 +184,7 @@ export async function company(config: Partial<MockConfig> = {}): Promise<Company
   const id = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const stub = testEnv.MOCK_COMPANY.getByName(id);
   await stub.configure({ deviceInterval: 1, ...config });
-  const entry = { company: undefined as unknown as Company, expected: [] as RegExp[] };
+  const entry = { company: undefined as unknown as Company, expected: [] as RegExp[], instanceId: await stub.instanceId() };
   entry.company = {
     id,
     stub,
@@ -167,7 +198,9 @@ export async function company(config: Partial<MockConfig> = {}): Promise<Company
 
 /** A person's agent, driven through its Durable Object stub, with a session cookie for the Worker. */
 export async function agent(identity: Identity = person()) {
-  const stub = testEnv.PersonalAgent.getByName(await agentNameFor(identity)) as unknown as DurableObjectStub<PersonalAgent>;
+  const name = await agentNameFor(identity);
+  createdAgents.add(name);
+  const stub = testEnv.PersonalAgent.getByName(name) as unknown as DurableObjectStub<PersonalAgent>;
   // Who the agent belongs to, as the Worker records on every request: on the demo, so notices reach the model.
   await stub.recordIdentity(identity);
   return { stub, identity, cookie: await sessionCookie(identity) };

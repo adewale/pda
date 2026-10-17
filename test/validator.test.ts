@@ -14,7 +14,8 @@ import {
   type Report
 } from "../src/validator/index.ts";
 import { isPublicAddress, NonPublicAddressError, parseIPv6, pinnedLookup } from "../src/validator/address.ts";
-import { isPublicHost, LIMITS } from "../src/validator/fetch.ts";
+import { fetchDocument, isPublicHost, LIMITS, readLimited } from "../src/validator/fetch.ts";
+import { Checker } from "../src/validator/primitives.ts";
 import { handleValidator } from "../src/validator/http.ts";
 import type { MockCompany, MockConfig } from "./mock-company";
 import worker, { testFetcher } from "./worker";
@@ -754,6 +755,88 @@ describe("fetching", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("times out before headers even if the fetcher ignores abort, and cancels its eventual response", async () => {
+    vi.useFakeTimers();
+    let release!: (response: Response) => void;
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    try {
+      const pending = validateCompany(() => new Promise((resolve) => { release = resolve; }), "example.com");
+      await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
+      const report = await pending;
+      expect(ids(report)).toEqual(["http-failed"]);
+      expect(report.outcome).toBe("indeterminate");
+      expect(report.messages[0]!.text).toContain("timed out after 10 seconds");
+      release(new Response(new ReadableStream({ cancel })));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(cancel).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses an already-aborted buffered response", async () => {
+    const deadline = new AbortController();
+    const reason = new DOMException("Expired", "TimeoutError");
+    deadline.abort(reason);
+    await expect(readLimited(Response.json({ accepted: true }), LIMITS.maxBytes, deadline.signal)).rejects.toBe(reason);
+  });
+
+  it("refuses a buffered read that completes in the same turn as abort", async () => {
+    const deadline = new AbortController();
+    const reason = new DOMException("Expired", "TimeoutError");
+    const response = new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new TextEncoder().encode("{}"));
+        controller.close();
+        deadline.abort(reason);
+      }
+    }));
+    await expect(readLimited(response, LIMITS.maxBytes, deadline.signal)).rejects.toBe(reason);
+  });
+
+  it.each(["pending source cancellation", "a clone reader"] as const)("reports a body timeout without waiting for %s", async (mode) => {
+    vi.useFakeTimers();
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) { source = controller; controller.enqueue(new TextEncoder().encode("{")); },
+      cancel
+    }), { headers: { "Content-Type": "application/json" } });
+    // Match the harness's detached JSON observer: cancelling one tee branch
+    // cannot finish while its sibling is still consuming the stalled source.
+    const clone = mode === "a clone reader" ? response.clone().text().catch(() => undefined) : undefined;
+    try {
+      const pending = validateCompany(async () => response, "example.com");
+      await vi.advanceTimersByTimeAsync(LIMITS.timeoutMs);
+      const report = await pending;
+      expect(ids(report)).toEqual(["http-failed"]);
+      expect(report.outcome).toBe("indeterminate");
+      expect(report.messages[0]!.text).toContain("timed out after 10 seconds");
+      expect(cancel).toHaveBeenCalledTimes(clone ? 0 : 1);
+    } finally {
+      if (clone) { source.close(); await clone; }
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { name: "declared oversize", status: 200, headers: new Headers({ "Content-Length": String(LIMITS.maxBytes + 1) }), bytes: 1, message: "http-too-large" },
+    { name: "streamed oversize", status: 200, headers: new Headers(), bytes: LIMITS.maxBytes + 1, message: "http-too-large" },
+    { name: "redirect", status: 302, headers: new Headers({ Location: "https://elsewhere.example/poppy.json" }), bytes: 1, message: "http-redirect-not-allowed" },
+    { name: "HTTP error", status: 503, headers: new Headers(), bytes: 1, message: "http-status" }
+  ])("keeps the $name verdict even if discarding its body never finishes", async ({ status, headers, bytes, message }) => {
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(bytes)); },
+      cancel
+    }), { status, headers });
+    const checker = new Checker("poppy");
+    const result = await fetchDocument(async () => response, wellKnown, checker, { followRedirects: false });
+    expect(result.text).toBeUndefined();
+    expect(checker.messages.map((entry) => entry.id)).toEqual([message]);
+    expect(cancel).toHaveBeenCalledOnce();
   });
 });
 

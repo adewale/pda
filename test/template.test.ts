@@ -4,7 +4,7 @@
  * for and where it lives.
  *
  * What is scanned: every committed file a fork inherits except
- * documentation. That is the code (`src/`, `scripts/`, `public/`), the tests
+ * documentation (Markdown, licenses and the protocol snapshots in `spec/`). That is the code (`src/`, `scripts/`, `public/`), the tests
  * (`test/`), the interop harness (`interop/`, its registry and known
  * failures included), CI (`.github/`, `.githooks/`) and the root config
  * files. Documentation (`*.md`) may name the live deployment: the README
@@ -35,6 +35,9 @@ import { fetchWorker, ORIGIN, person, sessionCookie, wsRequest } from "./agent-h
 // A glob leaves out the file that holds it.
 import thisTest from "./template.test.ts?raw";
 
+/** Git's independent inventory, injected by the Node test config. */
+declare const __TEST_TEMPLATE_FILES__: readonly string[];
+
 /** Vite names a glob's files relative to this one (`./x.ts` here, `../src/x.ts` elsewhere); these are relative to the repository. */
 function fromRoot(files: Record<string, unknown>): Record<string, string> {
   return Object.fromEntries(Object.entries(files).map(([key, text]) => [key.startsWith("./") ? `test/${key.slice(2)}` : key.replace(/^\.\.\//, ""), text as string]));
@@ -51,8 +54,10 @@ const sources: Record<string, string> = {
       "../interop/**/*",
       "../.github/**/*",
       "../.githooks/*",
+      "../.nvmrc",
       // Documentation may name the live deployment.
       "!**/*.md",
+      "!**/LICENSE",
       // Not committed (.gitignore).
       "!**/node_modules/**",
       "!../interop/results/**",
@@ -65,7 +70,7 @@ const sources: Record<string, string> = {
       "!**/.hegel/**",
       "!**/.DS_Store"
     ],
-    { query: "?raw", import: "default", eager: true }
+    { query: "?raw", import: "default", eager: true, exhaustive: true }
   )),
   ".dev.vars.example": devVarsExample,
   ".dockerignore": dockerIgnore,
@@ -187,6 +192,7 @@ function templateVars(): DeploymentEnv {
 describe("the committed template", () => {
   it("reads every committed file a fork inherits but its docs", () => {
     const files = Object.keys(sources);
+    expect(files.sort()).toEqual([...__TEST_TEMPLATE_FILES__].sort());
     expect(files.length).toBeGreaterThan(250);
     for (const file of [
       "src/index.ts",

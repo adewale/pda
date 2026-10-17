@@ -404,6 +404,8 @@ export type MockState = {
   readonly performs: number;
   readonly conversations: {
     readonly id: string;
+    /** The remote User who owns this conversation (independent of the client's local rows). */
+    readonly userId: string;
     readonly parent: string | null;
     readonly direct: boolean;
     readonly status: string;

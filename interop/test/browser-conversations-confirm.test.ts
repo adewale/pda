@@ -81,7 +81,15 @@ describe("browser Session joins (spec 5, scenario W)", () => {
     expect(ids(answer({ location: `${SITE}/orders`, "set-cookie": COOKIE }, 200))).toEqual(["company.browser-session-response:error"]);
     expect(ids(answer({ location: `${SITE}/`, "set-cookie": COOKIE }))).toEqual(["company.browser-session-response:error"]);
     expect(ids(answer({ location: `${SITE}/orders` }))).toEqual(["company.browser-session-response:error"]);
-    expect(ids(answer({ location: `${SITE}/orders`, "set-cookie": "sid=abc; Path=/; SameSite=Strict" }))).toEqual(["company.browser-cookie:error"]);
+    for (const [cookie, detail] of [
+      ["sid=abc; Path=/; HttpOnly; SameSite=Lax", "cookie sid: no Secure"],
+      ["sid=abc; Path=/; Secure; SameSite=Lax", "cookie sid: no HttpOnly"],
+      ["sid=abc; Path=/; Secure; HttpOnly; SameSite=Strict", "cookie sid: SameSite=Strict"]
+    ]) {
+      expect(answer({ location: `${SITE}/orders`, "set-cookie": cookie! })).toEqual([
+        expect.objectContaining({ id: "company.browser-cookie", severity: "error", detail })
+      ]);
+    }
     expect(answer({ location: `${SITE}/orders`, "set-cookie": "sid=abc; Path=/; Secure; HttpOnly; SameSite=None" })).toEqual([]);
     expect(answer({}, 400)).toEqual([]);
   });

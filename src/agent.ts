@@ -506,6 +506,10 @@ export class PersonalAgent extends DurableObject<Env> {
       identity.domain,
       Date.now()
     );
+    // Native RPC bypasses fetch/alarm/WebSocket startup. Settings and other
+    // authenticated RPCs must run recovery too, including rearming a schedule
+    // whose row survived but whose job was never persisted before a crash.
+    await this.lifecycle.start();
     if (await this.schedules.resumeSignedIn()) this.poppy.refreshActivity();
     await this.#resumePaused(id(identity.requestId));
   }

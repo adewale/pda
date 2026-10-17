@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { act, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { App, SIGN_IN_ERRORS } from "../../src/client";
 
 /**
  * A smoke test of the page itself (`src/client.tsx`) when no one is signed
@@ -18,8 +19,6 @@ const meRequests: string[] = [];
 let signInProviders: string[] = ["google", "github"];
 
 beforeEach(() => {
-  vi.resetModules();
-  document.body.innerHTML = '<div id="root"></div>';
   meRequests.length = 0;
   signInProviders = ["google", "github"];
   vi.stubGlobal(
@@ -35,30 +34,27 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  document.body.innerHTML = "";
 });
 
-/** Loads the page fresh at `/{search}`, as the browser would. */
+/** Mount the real page fresh; Testing Library unmounts it after each case.
+ * Module loading happens during collection, outside an active React act().
+ */
 async function openPage(search: string) {
   window.history.replaceState(null, "", `/${search}`);
-  let page: typeof import("../../src/client.tsx") | undefined;
-  await act(async () => {
-    page = await import("../../src/client.tsx");
-  });
+  render(<App />);
   await screen.findByRole("heading", { name: "Poppy Demo Agent" });
-  return page!;
 }
 
 describe("sign-in page", () => {
   it("knows every code the Worker sends", async () => {
-    const { SIGN_IN_ERRORS } = await openPage("");
+    await openPage("");
     expect(WORKER_CODES).toContain("not_allowed");
     expect(WORKER_CODES.length).toBeGreaterThanOrEqual(6);
     for (const code of WORKER_CODES) expect(SIGN_IN_ERRORS).toHaveProperty(code);
   });
 
   it.each(WORKER_CODES)("shows the message for signin_error=%s, then drops it from the address", async (code) => {
-    const { SIGN_IN_ERRORS } = await openPage(`?signin_error=${code}`);
+    await openPage(`?signin_error=${code}`);
     expect(meRequests).toEqual(["/api/me", "/api/sign-in-options"]);
     expect(screen.getByRole("alert").textContent).toBe(SIGN_IN_ERRORS[code]);
     expect(screen.getByRole("link", { name: "Sign in with Google" }).getAttribute("href")).toBe("/auth/google");

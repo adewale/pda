@@ -10,11 +10,11 @@ Our TypeScript client (`src/poppy/`) and our mock Company (`test/mock-company/`)
 ## Running it
 
 ```sh
-npm run test:hypothesis                                 # default: 100 runs of up to 30 steps per machine, about 50 s
-npm run test:hypothesis -- --hypothesis-profile=deep    # 2,000 runs of up to 60 steps per machine, about half an hour
+npm run test:hypothesis                                 # default: 100 runs of up to 30 steps per machine
+npm run test:hypothesis -- --hypothesis-profile=deep    # 2,000 runs of up to 60 steps per machine
 ```
 
-It needs `uv` and Node; `uv run --frozen` installs the pinned, hash-locked dependencies from `uv.lock` into `.venv/`. It is local only: not part of `npm test`, not in CI. Everything stays on 127.0.0.1, with no Docker.
+It needs `uv` and Node; `uv run --frozen` installs the pinned, hash-locked dependencies from `uv.lock` into `.venv/`. It is local only: not part of `npm test`, not in CI. Everything stays on 127.0.0.1, with no Docker. After dependencies are installed, no external service or paid model is used. A deep run on 16 October took 95 minutes with four workers while other checks were running; this is an observation, not a runtime promise. Default and deep profiles have very different costs.
 
 ## How it reaches the mock
 
@@ -47,6 +47,8 @@ The model: who is signed in, to which account, with which scopes; a retry answer
 Proposals through every channel: the OpenAPI exchange (202 with the operation; for an agent without the extension, done at once or `extension_required`; a retry with the same `Idempotency-Key` answers for the same request), the MCP tool (`structuredContent.operation`), a Company message (Ops 4.3, or an `authorization` event when signed out or short of scopes), and the print shop's signed-out order. Then confirm with the revision the User was shown and an approval the operation allows, read after `Retry-After`, cancel, look at its `url` on the website in the same Session (Ops 4.4), and the Company's side: a new revision, a confirm on the website.
 
 Reject rules: a standing permission where `user_approval_required` (403 `user_approval_required`); a revision that isn't the latest (409 `terms_changed` with the current operation); a malformed confirm (a revision that isn't an integer, an `approved_by` that isn't `user` or `standing_permission`); asking for a new proposal of the same action after a confirm, before it's final (Ops 6, N34).
+
+The fixture has one exchangeable jacket per account. An approved exchange that is still pending reserves that jacket, so another User cannot approve a second exchange of it before the first finishes. Retries of the same operation, other accounts and print orders remain enabled; cancellation releases the reservation. This is a business-fixture constraint, not a new protocol restriction.
 
 The model: each operation's revisions, each fixed once issued (3.1); its state, never changing once final; `confirmation` null until confirmed, then the revision and approval; `result` null until final; who may use it (3.2: the same agent and User signed in to its account, or only its own Session when proposed signed out); the open operation a proposal of the same action returns (Ops 4); and, through `GET /state`, that the Company performed exactly the confirmed actions, once each (at most once, Ops 1, 6).
 

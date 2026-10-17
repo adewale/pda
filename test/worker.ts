@@ -410,7 +410,34 @@ function webOf(id: string) {
 
 /** The production agent with pi-ai's faux provider in place of AI Gateway. */
 export class PersonalAgent extends ProductionAgent {
-  /** Woken whenever the model is told something. */
+  #summaryGate: { promise: Promise<void>; release: () => void } | undefined;
+
+  /** Hold only summary responses; foreground requests can still complete. */
+  async holdSummaries(): Promise<void> {
+    if (this.#summaryGate) throw new Error("summaries already held");
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => { release = resolve; });
+    this.#summaryGate = { promise, release };
+  }
+
+  async releaseSummaries(): Promise<void> {
+    this.#summaryGate?.release();
+    this.#summaryGate = undefined;
+  }
+
+  #gateSummary(context: TranscriptContext, stream: AssistantMessageEventStream): AssistantMessageEventStream {
+    const gate = isSummaryRequest(context) ? this.#summaryGate : undefined;
+    if (!gate) return stream;
+    const out = createAssistantMessageEventStream();
+    void (async () => {
+      await gate.promise;
+      for await (const event of stream) out.push(event);
+      out.end(await stream.result());
+    })();
+    return out;
+  }
+
+  /** Woken whenever a notification callback completes. */
   #noticeWaiters: (() => void)[] = [];
 
   /** read_url's fetcher: the agent's fake web. A URL nobody served answers 502, as in every other fake. */
@@ -588,6 +615,9 @@ export class PersonalAgent extends ProductionAgent {
       .exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cf_agents_jobs'")
       .toArray().length > 0;
     if (!hasJobs) return;
+    const due = this.ctx.storage.sql.exec<{ id: string }>(
+      "SELECT id FROM cf_agents_jobs WHERE capability = 'poppy' AND time <= ?", clock.now
+    ).toArray();
     // The job queue runs on the real clock: make the jobs due by the fake one due now.
     this.ctx.storage.sql.exec(
       "UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0 AND time <= ?",
@@ -595,18 +625,30 @@ export class PersonalAgent extends ProductionAgent {
       clock.now
     );
     await this.lifecycle.alarm();
+    // A natural alarm can claim a due job first. The manual driver skips
+    // singleflight work; its return alone does not mean that work completed.
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const running = due.filter(({ id }) => this.ctx.storage.sql.exec(
+        "SELECT id FROM cf_agents_jobs WHERE id = ? AND running = 1", id
+      ).toArray().length);
+      if (!running.length) return;
+      if (Date.now() >= deadline) throw new Error(`Poppy jobs still running after clock advance: ${running.map(({ id }) => id).join(", ")}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   }
 
   /** `poppyFailNoticeOnce`: notices still to fail, by a fragment of their text. */
   #failingNotices: string[] = [];
 
-  /** Records what the model is told, then tells it, as production does. */
+  /** Records callback completions, without pretending they prove model delivery. */
   protected override async poppyNotify(text: string, operationId: string): Promise<void> {
     const failing = this.#failingNotices.findIndex((fragment) => text.includes(fragment));
     if (failing !== -1) {
       this.#failingNotices.splice(failing, 1);
       throw new Error("The model couldn't be told (a test fault)");
     }
+    await super.poppyNotify(text, operationId);
     this.ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS test_notices (seq INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, operation_id TEXT)"
     );
@@ -614,10 +656,9 @@ export class PersonalAgent extends ProductionAgent {
     const waiters = this.#noticeWaiters;
     this.#noticeWaiters = [];
     for (const wake of waiters) wake();
-    await super.poppyNotify(text, operationId);
   }
 
-  /** The first notice to the model containing `fragment`: now, or as soon as it's sent. */
+  /** First completed notification callback containing `fragment`; inspect pi/provider requests for delivery. */
   async poppyWaitForNotice(fragment: string, timeoutMs = 15_000): Promise<string> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
@@ -740,15 +781,22 @@ export class PersonalAgent extends ProductionAgent {
     return JSON.stringify(this.ctx.storage.sql.exec(query, ...bindings).toArray());
   }
 
-  /** What the model was told, in order: once per operation id, as the harness delivers it. */
+  /** Raw completed notification callbacks, in order, including retries. Check pi for delivery. */
   async poppyNotices(): Promise<string[]> {
     this.ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS test_notices (seq INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, operation_id TEXT)"
     );
     return this.ctx.storage.sql
-      .exec("SELECT text FROM test_notices WHERE seq IN (SELECT MIN(seq) FROM test_notices GROUP BY operation_id) ORDER BY seq")
+      .exec("SELECT text FROM test_notices ORDER BY seq")
       .toArray()
       .map((row) => String(row.text));
+  }
+
+  /** User-role inputs pi actually admitted, with duplicates left visible. */
+  async poppyModelInputs(): Promise<string[]> {
+    return (await this.harness.messages()).flatMap((entry) => (entry.model ?? [])
+      .filter((message) => message.role === "user")
+      .map((message) => textOf((message as Extract<Message, { role: "user" }>).content)));
   }
 
   /** The next request matching `fault` goes wrong once (see `NetworkFault`). */
@@ -828,11 +876,11 @@ export class PersonalAgent extends ProductionAgent {
       getModels: () => inner.getModels(),
       stream: (model, context, options) => {
         recordRequest(id, context);
-        return counted(inner.stream(model, context, options), price);
+        return this.#gateSummary(context, counted(inner.stream(model, context, options), price));
       },
       streamSimple: (model, context, options) => {
         recordRequest(id, context);
-        return counted(inner.streamSimple(model, context, options), price);
+        return this.#gateSummary(context, counted(inner.streamSimple(model, context, options), price));
       }
     });
     const usage = gatewayUsage.get(id);

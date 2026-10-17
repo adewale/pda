@@ -66,7 +66,9 @@ const NO_WORKSPACE = () =>
 /** An `unscoped` key's request without its workspace: what Anthropic refuses. */
 function missingWorkspace(request: Request): boolean {
   const key = request.headers.get("x-api-key") ?? "";
-  return key.split("-").includes("unscoped") && !request.headers.get("anthropic-workspace-id");
+  const expected = /(?:^|-)workspace_([A-Za-z0-9_]+)(?:-|$)/.exec(key)?.[1];
+  const actual = request.headers.get("anthropic-workspace-id");
+  return (expected !== undefined && actual !== expected) || (key.split("-").includes("unscoped") && !actual);
 }
 
 const UNAUTHORIZED_ANTHROPIC = () =>

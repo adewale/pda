@@ -89,9 +89,44 @@ function literal(tc: TC): { text: string; value: F } {
 }
 
 const size = (x: F) => frac(x.n < 0n ? -x.n : x.n, x.d);
-/** The smallest and largest powers of two a double holds at full precision. */
-const DOUBLE_LOW = frac(1n, 2n ** 1022n);
-const DOUBLE_HIGH = frac(2n ** 1023n);
+/** Decode the exact binary value, independently of the calculator's decimal/parser code. */
+function binaryFraction(bits: bigint): F {
+  if (bits === 0x7ff0000000000000n) return frac(1n << 1024n); // virtual neighbour above MAX_VALUE
+  const exponent = Number(bits >> 52n);
+  const significand = (bits & 0xfffffffffffffn) + (exponent === 0 ? 0n : 1n << 52n);
+  const shift = Math.max(1, exponent) - 1075;
+  return shift >= 0 ? frac(significand << BigInt(shift)) : frac(significand, 1n << BigInt(-shift));
+}
+
+/** Check exact rounding intervals, including ties-to-even, signed underflow and overflow. */
+function expectNearest(value: number, exact: F, context: string): void {
+  expect(Number.isNaN(value), context).toBe(false);
+  if (exact.n === 0n) {
+    expect(value, context).toBe(0);
+    return;
+  }
+  expect(value < 0 || Object.is(value, -0), context).toBe(exact.n < 0n);
+  const magnitude = size(exact);
+  const overflow = frac((1n << 1024n) - (1n << 970n));
+  if (!Number.isFinite(value)) {
+    expect(F_LESS(magnitude, overflow), context).toBe(false);
+    return;
+  }
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, Math.abs(value));
+  const bits = view.getBigUint64(0);
+  const middle = binaryFraction(bits);
+  const even = (bits & 1n) === 0n;
+  const above = F_DIV(F_ADD(middle, binaryFraction(bits + 1n)), frac(2n));
+  // Cross multiply the exact rational against both adjacent midpoints. No epsilon.
+  const upper = magnitude.n * above.d - above.n * magnitude.d;
+  expect(upper < 0n || (upper === 0n && even), context).toBe(true);
+  if (bits > 0n) {
+    const below = F_DIV(F_ADD(middle, binaryFraction(bits - 1n)), frac(2n));
+    const lower = magnitude.n * below.d - below.n * magnitude.d;
+    expect(lower > 0n || (lower === 0n && even), context).toBe(true);
+  }
+}
 
 /**
  * An expression and its exact value, built together as a tree. Every
@@ -113,7 +148,7 @@ function expression(tc: TC, depth: number): Built {
     return map(`(${a.text})^${k}`, (x) => (k >= 0 ? frac(x.n ** BigInt(k), x.d ** BigInt(k)) : x.n === 0n ? null : frac(x.d ** BigInt(-k), x.n ** BigInt(-k))));
   }
   if (kind === "call") {
-    const name = tc.draw(gs.sampledFrom(["abs", "floor", "ceil", "min", "max", "round", "round2"] as const));
+    const name = tc.draw(gs.sampledFrom(["abs", "floor", "ceil", "min", "max", "round", "roundN"] as const));
     if (name === "min" || name === "max") {
       const b = expression(tc, depth - 1);
       const value = a.value === null || b.value === null ? null : (name === "min" ? F_LESS(b.value, a.value) : F_LESS(a.value, b.value)) ? b.value : a.value;
@@ -123,11 +158,12 @@ function expression(tc: TC, depth: number): Built {
     if (name === "floor") return map(`floor(${a.text})`, (x) => frac(fFloor(x)));
     if (name === "ceil") return map(`ceil(${a.text})`, (x) => frac(-fFloor(frac(-x.n, x.d))));
     // Half away from zero.
-    const places = name === "round2" ? 2n : 0n;
-    return map(`round(${a.text}${name === "round2" ? ", 2" : ""})`, (x) => {
-      const scaled = frac(x.n * 10n ** places, x.d);
-      const size = fFloor(F_ADD(frac(scaled.n < 0n ? -scaled.n : scaled.n, scaled.d), frac(1n, 2n)));
-      return frac(scaled.n < 0n ? -size : size, 10n ** places);
+    const places = name === "roundN" ? tc.draw(gs.integers({ minValue: -100, maxValue: 100 })) : 0;
+    const factor = places >= 0 ? frac(10n ** BigInt(places)) : frac(1n, 10n ** BigInt(-places));
+    return map(`round(${a.text}${name === "roundN" ? `, ${places}` : ""})`, (x) => {
+      const scaled = F_MUL(x, factor);
+      const magnitude = fFloor(F_ADD(frac(scaled.n < 0n ? -scaled.n : scaled.n, scaled.d), frac(1n, 2n)));
+      return F_DIV(frac(scaled.n < 0n ? -magnitude : magnitude), factor);
     });
   }
   const op = tc.draw(gs.sampledFrom(["+", "-", "*", "/", "mod"] as const));
@@ -180,7 +216,7 @@ describe("calculate", () => {
   );
 
   it(
-    "gives as value the answer's nearest double: never 0 for a number a double can hold, and right to a unit in the 16th digit across a double's normal range",
+    "rounds an exact rational answer to the nearest binary64 value with ties to even",
     property((tc) => {
       const built = expression(tc, tc.draw(gs.integers({ minValue: 0, maxValue: 4 })));
       tc.note(built.text);
@@ -189,34 +225,35 @@ describe("calculate", () => {
       try {
         result = calculate(built.text);
       } catch (error) {
-        // A refusal is the first property's to judge.
+        // The independent arithmetic property judges size refusals.
         expect(error).toBeInstanceOf(CalcError);
         return;
       }
-      const exact = built.value;
-      if (exact.n === 0n) {
-        expect(result.value, built.text).toBe(0);
-        return;
-      }
-      // Past a double's range the nearest double is 0 or infinity (a margin of two powers of two keeps clear of where rounding decides).
-      const magnitude = size(exact);
-      if (F_LESS(magnitude, frac(1n, 2n ** 1076n))) {
-        expect(Math.abs(result.value), built.text).toBe(0);
-        return;
-      }
-      if (!F_LESS(magnitude, frac(2n ** 1025n))) {
-        expect(Math.abs(result.value), built.text).toBe(Infinity);
-        return;
-      }
-      // Within it, never 0 and with the answer's sign, down to the smallest subnormal.
-      if (!F_LESS(magnitude, frac(1n, 2n ** 1074n)) && F_LESS(magnitude, DOUBLE_HIGH)) {
-        expect(Math.sign(result.value), `${built.text}: value ${result.value}`).toBe(exact.n < 0n ? -1 : 1);
-      }
-      if (F_LESS(magnitude, DOUBLE_LOW) || !F_LESS(magnitude, DOUBLE_HIGH)) return;
-      const near = decimalFraction(String(result.value));
-      expect(F_LESS(F_MUL(size(F_SUB(near, exact)), frac(10n ** 15n)), size(exact)), `${built.text}: value ${result.value}`).toBe(true);
+      expectNearest(result.value, built.value, built.text);
     })
   );
+
+  it("rounds at and on both sides of binary64 midpoints, including zero, subnormals and overflow", property((tc) => {
+    const bits = tc.draw(gs.oneOf(
+      gs.bigIntegers({ minValue: 0n, maxValue: 0x7fefffffffffffffn }),
+      gs.sampledFrom([0n, 1n, 0xfffffffffffffn, 0x10000000000000n, 0x3ff0000000000000n, 0x7fefffffffffffffn])
+    ));
+    const low = binaryFraction(bits), high = binaryFraction(bits + 1n);
+    const gap = F_SUB(high, low);
+    const offset = tc.draw(gs.integers({ minValue: -1, maxValue: 1 }));
+    const precision = tc.draw(gs.integers({ minValue: 2, maxValue: 100 }));
+    const sign = tc.draw(gs.booleans()) ? -1n : 1n;
+    const exact = F_MUL(F_ADD(F_DIV(F_ADD(low, high), frac(2n)), F_MUL(gap, frac(BigInt(offset), 1n << BigInt(precision)))), frac(sign));
+    const text = `(${exact.n}) / (${exact.d})`;
+    tc.note(`${bits.toString(16)} offset=${offset}/2^${precision} ${text}`);
+    expectNearest(calculate(text).value, exact, text);
+  }));
+
+  it("keeps sticky bits below a midpoint instead of rounding an already-truncated quotient", () => {
+    const denominator = 1n << 100n;
+    const numerator = denominator + (1n << 47n) + 1n;
+    expect(calculate(`${numerator}/${denominator}`).value).toBe(1 + Number.EPSILON);
+  });
 
   /** A fractional power p/r (r from 2 to 6, p not a multiple of r), written as `sqrt`, a fraction or, when it ends, a decimal. */
   function fractionalPower(tc: TC): { write: (base: string) => string; p: number; r: number } {
@@ -314,12 +351,15 @@ describe("calculate", () => {
   it(
     "rounds half away from zero to any number of places, exactly",
     property((tc) => {
-      const cents = BigInt(tc.draw(gs.integers({ minValue: -10_000_000, maxValue: 10_000_000 })));
-      // A value with a third decimal place of 5: x.xx5 rounds away from zero.
-      const text = `${cents < 0n ? "-" : ""}${(cents < 0n ? -cents : cents) / 100n}.${String((cents < 0n ? -cents : cents) % 100n).padStart(2, "0")}5`;
-      const away = cents < 0n ? cents - 1n : cents + 1n;
-      const expected = calculate(`${away} / 100`).result;
-      expect(calculate(`round(${text}, 2)`).result, text).toBe(expected);
+      const places = tc.draw(gs.integers({ minValue: -100, maxValue: 100 }));
+      const whole = BigInt(tc.draw(gs.integers({ minValue: 0, maxValue: 10_000_000 })));
+      const digit = tc.draw(gs.integers({ minValue: 0, maxValue: 9 }));
+      const sign = tc.draw(gs.booleans()) ? -1n : 1n;
+      const input = `${sign < 0n ? "-" : ""}${whole * 10n + BigInt(digit)}e${-places - 1}`;
+      const rounded = sign * (whole + (digit >= 5 ? 1n : 0n));
+      const expected = places >= 0 ? frac(rounded, 10n ** BigInt(places)) : frac(rounded * 10n ** BigInt(-places));
+      // Parsing the returned decimal is independent of the calculator under test.
+      expect(decimalFraction(calculate(`round(${input}, ${places})`).result), input).toEqual(expected);
     })
   );
 
@@ -351,7 +391,7 @@ describe("calculate", () => {
 /** Any date from year 1 to 9999. */
 const dates = gs.integers({ minValue: dayNumber(1, 1, 1), maxValue: dayNumber(9999, 12, 31) }).map(civil);
 
-const ZONES = ["UTC", "Europe/London", "America/New_York", "America/St_Johns", "Australia/Lord_Howe", "Asia/Kolkata", "Pacific/Chatham", "Pacific/Apia", "Africa/Casablanca"];
+const ZONES = ["UTC", ...Intl.supportedValuesOf("timeZone")];
 
 /** Any instant from year 1 to 9999 (before 1970 the zone database gives local mean time, offsets with seconds). */
 const instants = gs.integers({ minValue: dayNumber(1, 1, 2) * 86_400_000, maxValue: dayNumber(9999, 12, 30) * 86_400_000 });
@@ -402,6 +442,8 @@ describe("date_math", () => {
         there = addMonths(date, months);
       } catch (error) {
         expect(error).toBeInstanceOf(TimeError);
+        const target = (date.year - 1) * 12 + date.month - 1 + months;
+        expect(target < 0 || target >= 9999 * 12, "an in-range month addition must succeed").toBe(true);
         return;
       }
       expect(there.year * 12 + there.month - (date.year * 12 + date.month)).toBe(months);
@@ -465,16 +507,16 @@ describe("date_math", () => {
   );
 
   it(
-    "reads an ISO 8601 duration as the units it names, and refuses other text with a TimeError",
+    "reads an ISO 8601 duration as the units it names",
     property((tc) => {
       const fields = {
         years: tc.draw(gs.integers({ minValue: 0, maxValue: 10_000 })),
-        months: tc.draw(gs.integers({ minValue: 0, maxValue: 999 })),
-        weeks: tc.draw(gs.integers({ minValue: 0, maxValue: 999 })),
-        days: tc.draw(gs.integers({ minValue: 0, maxValue: 999 })),
-        hours: tc.draw(gs.integers({ minValue: 0, maxValue: 999 })),
-        minutes: tc.draw(gs.integers({ minValue: 0, maxValue: 999 })),
-        seconds: tc.draw(gs.integers({ minValue: 0, maxValue: 999 }))
+        months: tc.draw(gs.integers({ minValue: 0, maxValue: 120_000 })),
+        weeks: tc.draw(gs.integers({ minValue: 0, maxValue: 530_000 })),
+        days: tc.draw(gs.integers({ minValue: 0, maxValue: 3_700_000 })),
+        hours: tc.draw(gs.integers({ minValue: 0, maxValue: 88_000_000 })),
+        minutes: tc.draw(gs.integers({ minValue: 0, maxValue: 5_300_000_000 })),
+        seconds: tc.draw(gs.integers({ minValue: 0, maxValue: 320_000_000_000 }))
       };
       const negative = tc.draw(gs.booleans());
       const keep = Object.fromEntries(Object.entries(fields).filter(() => tc.draw(gs.booleans()))) as Partial<typeof fields>;
@@ -488,6 +530,12 @@ describe("date_math", () => {
 
     })
   );
+
+  it("refuses a near-valid duration with misplaced units, fractional units or trailing garbage", property((tc) => {
+    const n = tc.draw(gs.integers({ minValue: 0, maxValue: 1_000_000 }));
+    const invalid = tc.draw(gs.sampledFrom([`P${n}.5D`, `P${n}H`, `PT${n}D`, `P${n}D!`, `P${n}DT`, "P", "PT"]));
+    expect(() => parseDuration(invalid)).toThrow(TimeError);
+  }));
 
   it(
     "refuses any start, duration or end it can't read with a TimeError, and nothing else",

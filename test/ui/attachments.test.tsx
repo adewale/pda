@@ -93,14 +93,21 @@ describe("attaching a photo in the composer", () => {
   it("sends a picked photo to the User's own agent, shows it, and names it in the message by its marker", async () => {
     const calls = stubFetch();
     const fixture = chat();
-    pick(photo());
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x12, 0x34]);
+    const picked = new File([bytes], "picked.jpg", { type: "image/jpeg" });
+    pick(picked);
     expect(await screen.findByText("Attaching…")).toBeTruthy();
     const list = await screen.findByRole("list", { name: "Photos to send" });
     await waitFor(() => expect(within(list).getByText("2.4 MB")).toBeTruthy());
     expect(list.querySelector("img")!.getAttribute("src")).toBe(`/api/attachments/${LAKE.id}`);
     const upload = calls.find((call) => call.url === "/api/attachments")!;
     expect(upload.method).toBe("POST");
-    expect((upload.body as FormData).get("file")).toBeInstanceOf(File);
+    const uploaded = (upload.body as FormData).get("file") as File;
+    expect(uploaded).toBeInstanceOf(File);
+    expect(uploaded.name).toBe("picked.jpg");
+    expect(uploaded.type).toBe("image/jpeg");
+    expect(uploaded.size).toBe(6);
+    expect(Array.from(new Uint8Array(await uploaded.arrayBuffer()))).toEqual([0xff, 0xd8, 0xff, 0xe0, 0x12, 0x34]);
 
     fireEvent.change(screen.getByRole("textbox", { name: "Message your agent" }), { target: { value: "Print this as a 6×4" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));

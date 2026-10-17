@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { decodeProtectedHeader, importJWK, jwtVerify } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
-import { clientAssertion } from "../../src/poppy/jwt.ts";
 import { readInteropKeys } from "../../src/poppy/interop-client.ts";
-import { currentKey } from "../../src/poppy/keys.ts";
+import { migrate } from "../../src/poppy/store.ts";
+import { toIssuer } from "../../src/poppy/issuer.ts";
+import type { Company } from "../../src/poppy/discovery.ts";
+import { memorySql } from "../impls/pda-agent/sqlite.ts";
 import type { PoppyHost } from "../../src/poppy/client.ts";
 import { LiveIdentityClient, liveIdentityFrom } from "../impls/pda-agent/live-identity.ts";
 import { loadRegistry, selected } from "../runner/cli.ts";
@@ -146,18 +148,40 @@ describe("the agent adapter under the live identity", () => {
       POPPY_CLIENT_NAME: "Poppy Demo Agent (interop tests)",
       POPPY_LOGO_URI: `${liveIdentity.origin}/logo.png`,
       POPPY_SIGNING_JWKS: liveIdentity.signingJwks,
-      TOKEN_ENC_KEY: Buffer.from(new Uint8Array(32)).toString("base64")
+      TOKEN_ENC_KEY: Buffer.from(new Uint8Array(32)).toString("base64"),
+      CompanyLimiter: { getByName: () => ({ delay: async () => 0 }) }
     };
-    const client = new LiveIdentityClient({ env: hostEnv } as unknown as PoppyHost, liveIdentity);
+    const requests: Array<Pick<Request, "url" | "text">> = [];
+    const sql = memorySql();
+    migrate(sql);
+    const host: PoppyHost = {
+      env: hostEnv as unknown as Env, sql,
+      fetcher: async (request) => { requests.push(request.clone()); return Response.json({}); },
+      showCard: async () => undefined, notifyModel: async () => undefined,
+      schedule: async () => undefined, hasJob: () => false, pushDirect: () => undefined,
+      userContext: () => ({ user_available: true }), now: () => Date.now(),
+      sleep: async () => { throw new Error("this fixture must not wait"); }
+    };
+    const client = new LiveIdentityClient(host, liveIdentity);
     expect(client.identity).toMatchObject({
       origin: ORIGIN,
       clientId: `${ORIGIN}/poppy/interop/client.json`,
       jwksUri: `${ORIGIN}/poppy/interop/jwks.json`,
       redirectUri: `${ORIGIN}/poppy/interop/callback`
     });
-    // As PoppyClient.oauthRequest signs one: the current key, the client's identity.
+    // Capture the actual oauthRequest output; do not mint a substitute assertion.
     const audience = "https://auth.company.example/token";
-    const assertion = await clientAssertion(await currentKey(client.host.env), client.identity.clientId, audience);
+    const company: Company = {
+      issuer: toIssuer("https://auth.company.example"), domain: "company.example", name: "Fixture",
+      protocolVersion: "0.1", endpoints: { token: audience, revocation: "https://auth.company.example/revoke" },
+      signIn: {}, customScopes: {}, apis: [], extensions: {}
+    };
+    expect((await client.oauthRequest(company, audience, async () => ({ grant_type: "fixture" }), { dpop: false })).status).toBe(200);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.url).toBe(audience);
+    const form = new URLSearchParams(await requests[0]!.text());
+    expect(form.get("client_id")).toBe(identity.clientId);
+    const assertion = form.get("client_assertion")!;
     const [published] = readInteropKeys({ INTEROP_LIVE_JWKS: printed })!;
     expect(decodeProtectedHeader(assertion).kid).toBe(published!.kid);
     const { payload } = await jwtVerify(assertion, await importJWK(published!, "ES256"), { audience });
