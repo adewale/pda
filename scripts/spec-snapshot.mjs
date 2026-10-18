@@ -18,7 +18,8 @@
  * the site changes its HTML's asset URLs, so the text is what decides.
  *
  * With --save it writes spec/draft-<version>-<updated>/ (a suffix with the
- * retrieval date if that directory exists): manifest.json, the text of each
+ * retrieval date if that directory exists; spec/draft-<version>-retrieved-<date>/
+ * for a draft that shows no "Updated" date): manifest.json, the text of each
  * page as Markdown, each page's content HTML, the walkthroughs as Markdown,
  * LICENSE, and a README with the attribution and the hashes. The site's
  * license (Apache 2.0) covers the specification and documentation and their
@@ -90,7 +91,8 @@ async function fetchSite() {
     const html = home.body.toString("utf8");
     // The React Server Components payload names the chunks of each client
     // component; the walkthrough component's list ends with its own chunk.
-    const list = html.match(/\[((?:\\?"[^"\]]*?\\?",?)+)\],\\?"Walkthroughs\\?"/)?.[1];
+    // The list holds no brackets, so a bracket-free match can't backtrack.
+    const list = html.match(/\[([^[\]]*)\],\\?"Walkthroughs\\?"/)?.[1];
     const chunk = list && [...list.matchAll(/(\/_next\/static\/chunks\/[^"\\]+\.js[^"\\]*)/g)].at(-1)?.[1];
     if (chunk) walkthrough = await get(new URL(chunk, ORIGIN).href);
   }
@@ -308,7 +310,7 @@ function htmlToMarkdown(html) {
 // ---------------------------------------------------------------------------
 // The home page's walkthroughs, read (not run) from the bundle's object literal
 
-function parseLiteral(src, start, scope) {
+function parseLiteral(src, start, scope, imported = {}) {
   let i = start;
   const ws = () => {
     while (/\s/.test(src[i])) i++;
@@ -365,6 +367,15 @@ function parseLiteral(src, start, scope) {
     }
     throw new Error(`unexpected ${JSON.stringify(src.slice(i, i + 20))} at ${i}`);
   };
+  // A name, or a member of one (`a.b.c`): a constant declared before the
+  // array, or one of `imported`, a value the bundle imports from another
+  // chunk, keyed by its member path without the (minified) module name.
+  const lookup = (name, at) => {
+    const [head, ...rest] = name.split(".");
+    if (head in scope) return rest.reduce((v, key) => v?.[key], scope[head]);
+    if (rest.length && rest.join(".") in imported) return imported[rest.join(".")];
+    throw new Error(`unknown name ${name} in template at ${at}`);
+  };
   const escape = (c) => ({ n: "\n", t: "\t", r: "\r", "\\": "\\", '"': '"', "'": "'", "`": "`", $: "$" })[c];
   const string = () => {
     const quote = src[i++];
@@ -396,8 +407,7 @@ function parseLiteral(src, start, scope) {
       } else if (src[i] === "$" && src[i + 1] === "{") {
         const end = src.indexOf("}", i);
         const name = src.slice(i + 2, end).trim();
-        if (!(name in scope)) throw new Error(`unknown name ${name} in template at ${i}`);
-        s += scope[name];
+        s += lookup(name, i);
         i = end + 1;
       } else s += src[i++];
     }
@@ -409,7 +419,7 @@ function parseLiteral(src, start, scope) {
 }
 
 /** The walkthrough data: the array literal starting `[{id:`, with the constants declared before it. */
-function walkthroughs(js) {
+function walkthroughs(js, imported) {
   const at = js.search(/[A-Za-z_$][\w$]*=\[\{id:"/);
   if (at < 0) throw new Error("no walkthrough array found");
   // The `let` statement that declares the constants and the array.
@@ -420,7 +430,7 @@ function walkthroughs(js) {
     const m = /^([A-Za-z_$][\w$]*)=/.exec(js.slice(i));
     if (!m) throw new Error(`declaration at ${i}`);
     i += m[0].length;
-    const { value, end } = parseLiteral(js, i, scope);
+    const { value, end } = parseLiteral(js, i, scope, imported);
     scope[m[1]] = value;
     i = end;
     if (js[i] === ",") i++;
@@ -528,7 +538,10 @@ function render(site) {
   let walk;
   if (site.walkthrough) {
     try {
-      walk = walkthroughMarkdown(walkthroughs(site.walkthrough.body.toString("utf8")));
+      // Since Draft 0.2 the walkthroughs name the newest version, `LATEST.id`,
+      // from another chunk; it is the spec page's own draft version.
+      const version = pages.find((page) => page.name === "spec")?.markdownText.match(/draft version (\d+\.\d+)/)?.[1];
+      walk = walkthroughMarkdown(walkthroughs(site.walkthrough.body.toString("utf8"), version ? { "LATEST.id": version } : {}));
     } catch (error) {
       walk = undefined;
       console.warn(`walkthroughs not extracted: ${error.message}`);
@@ -630,9 +643,10 @@ function save(site) {
   const rendered = render(site);
   const spec = rendered.pages.find((page) => page.name === "spec");
   const version = spec?.markdownText.match(/draft version (\d+\.\d+)/)?.[1] ?? "unknown";
-  const updated = spec?.updated ? new Date(`${spec.updated} UTC`).toISOString().slice(0, 10) : "undated";
-  let dir = `draft-${version}-${updated}`;
-  if (existsSync(path.join(specDir, dir))) dir += `-retrieved-${site.sitemap.retrieved_at.slice(0, 10)}`;
+  // A draft in progress shows no "Updated" date, so its snapshot is named by the day it was retrieved.
+  const retrieved = `retrieved-${site.sitemap.retrieved_at.slice(0, 10)}`;
+  let dir = spec?.updated ? `draft-${version}-${new Date(`${spec.updated} UTC`).toISOString().slice(0, 10)}` : `draft-${version}-${retrieved}`;
+  if (existsSync(path.join(specDir, dir))) dir += `-${retrieved}`;
   const out = path.join(specDir, dir);
   mkdirSync(path.join(out, "pages"), { recursive: true });
   mkdirSync(path.join(out, "html"), { recursive: true });
