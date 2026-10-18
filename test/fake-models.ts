@@ -99,10 +99,11 @@ async function anthropic(request: Request): Promise<Response> {
  * The fake OpenAI is a model of its own, as the demo lane's faux provider is
  * (test/worker.ts), speaking the Responses API: it obeys any `@@obey <tool>
  * <arguments>` line it has just read by calling that tool, if it was offered;
- * answers our summarizer (a `<conversation>` fence) with a short summary;
- * and otherwise echoes the latest user message. Every answer starts with a
- * reasoning item, as a reasoning model's does, and `[context N]` makes it
- * report N input tokens.
+ * answers read_url's reader (a request with no tools that carries a fenced
+ * page) with `reader: ` and the page's text, and our summarizer (a
+ * `<conversation>` fence) with a short summary; and otherwise echoes the
+ * latest user message. Every answer starts with a reasoning item, as a
+ * reasoning model's does, and `[context N]` makes it report N input tokens.
  *
  * It holds the request to OpenAI's rules and refuses one that breaks them,
  * as OpenAI does (400): a tool's output needs its call earlier in the input;
@@ -192,6 +193,8 @@ function openaiAnswer(body: { model?: string; tools?: unknown }, input: readonly
     const lines = conversation.split("\n").filter(Boolean);
     return { text: `Faux summary of ${lines.length} lines.` };
   }
+  const page = /<untrusted-page>\n([\s\S]*?)\n<\/untrusted-page>/.exec(prompt)?.[1];
+  if (offered.length === 0 && page !== undefined) return { text: `reader: ${page.slice(0, 1_500)}` };
   const echoed = prompt.length > 2000 ? `${prompt.slice(0, 200)}… (${prompt.length} characters)` : prompt;
   return { text: `fake OpenAI (${body.model}) answers: ${echoed}` };
 }
