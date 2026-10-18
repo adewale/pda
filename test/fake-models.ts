@@ -93,6 +93,139 @@ async function anthropic(request: Request): Promise<Response> {
   return anthropicStream(body.model ?? "?", `fake Anthropic (${body.model}) answers: ${lastUserText(body.messages)}`);
 }
 
+// ---------------------------------------------------------------- OpenAI
+
+/*
+ * The fake OpenAI is a model of its own, as the demo lane's faux provider is
+ * (test/worker.ts), speaking the Responses API: it obeys any `@@obey <tool>
+ * <arguments>` line it has just read by calling that tool, if it was offered;
+ * answers our summarizer (a `<conversation>` fence) with a short summary;
+ * and otherwise echoes the latest user message. Every answer starts with a
+ * reasoning item, as a reasoning model's does, and `[context N]` makes it
+ * report N input tokens.
+ *
+ * It holds the request to OpenAI's rules and refuses one that breaks them,
+ * as OpenAI does (400): a tool's output needs its call earlier in the input;
+ * a call it made beside a reasoning item comes back after that item, whose
+ * encrypted content it can verify; a strict tool lists every property as
+ * required. It keeps no state: the ids carry what it checks.
+ */
+
+type ResponsesItem = { readonly [key: string]: unknown };
+
+function partsText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content.map((part) => (part && typeof part === "object" && typeof (part as { text?: unknown }).text === "string" ? (part as { text: string }).text : "")).join("");
+}
+
+function itemText(item: ResponsesItem): string {
+  if (item.type === "function_call_output") return partsText(item.output);
+  return partsText(item.content);
+}
+
+/** Whether the model produced this item: an answer, a call, or its reasoning. */
+function produced(item: ResponsesItem): boolean {
+  return item.type === "reasoning" || item.type === "function_call" || (item.type === "message" && item.role === "assistant");
+}
+
+/** What OpenAI would refuse about this request, or null. */
+function openaiRefusal(input: readonly ResponsesItem[], tools: readonly ResponsesItem[]): string | null {
+  const calls = new Set<string>();
+  const reasoning = new Set<string>();
+  for (const item of input) {
+    if (item.type === "reasoning") {
+      const id = String(item.id ?? "");
+      if (id.startsWith("rs_fake_") && item.encrypted_content !== `enc_${id.slice(3)}`) return `The encrypted content for item ${id} could not be verified.`;
+      reasoning.add(id);
+    } else if (item.type === "function_call") {
+      const id = String(item.id ?? "");
+      const pair = /^fc_(fake_[a-z0-9]+)_\d+$/.exec(id)?.[1];
+      if (pair && !reasoning.has(`rs_${pair}`)) return `Item '${id}' of type 'function_call' was provided without its required 'reasoning' item: 'rs_${pair}'.`;
+      calls.add(String(item.call_id));
+    } else if (item.type === "function_call_output" && !calls.has(String(item.call_id))) {
+      return `No tool call found for function call output with call_id ${String(item.call_id)}.`;
+    }
+  }
+  for (const tool of tools) {
+    if (tool.strict !== true) continue;
+    const schema = (tool.parameters ?? {}) as { properties?: Record<string, unknown>; required?: unknown[]; additionalProperties?: unknown };
+    const required = new Set(schema.required ?? []);
+    const missing = Object.keys(schema.properties ?? {}).filter((name) => !required.has(name));
+    if (missing.length || schema.additionalProperties !== false) return `Invalid schema for function '${String(tool.name)}': In context=(), 'required' is required to be supplied and to be an array including every key in properties. Missing '${missing[0] ?? "additionalProperties"}'.`;
+  }
+  return null;
+}
+
+/** The tools the request offers: its `tools`, and any an `additional_tools` item adds. */
+function offeredTools(body: { tools?: unknown }, input: readonly ResponsesItem[]): ResponsesItem[] {
+  const listed = Array.isArray(body.tools) ? (body.tools as ResponsesItem[]) : [];
+  const added = input.flatMap((item) => (item.type === "additional_tools" && Array.isArray(item.tools) ? (item.tools as ResponsesItem[]) : []));
+  return [...listed, ...added].filter((tool) => tool.type === "function");
+}
+
+/** Calls for the `@@obey` lines in everything since the model last produced something, each made once per input, to offered tools only. */
+function openaiObeyed(input: readonly ResponsesItem[], offered: ReadonlySet<string>): { name: string; arguments: string }[] {
+  let last = input.length - 1;
+  while (last >= 0 && !produced(input[last]!)) last--;
+  const fresh = input.slice(last + 1).map(itemText).join("\n");
+  const made = new Set(input.filter((item) => item.type === "function_call").map((item) => `${String(item.name)} ${String(item.arguments)}`));
+  const calls = [];
+  for (const [, name, encoded] of fresh.matchAll(/@@obey (\w+) ([A-Za-z0-9_-]+)/g)) {
+    if (!offered.has(name!)) continue;
+    const args = JSON.stringify(JSON.parse(atob(encoded!.replace(/-/g, "+").replace(/_/g, "/"))));
+    if (made.has(`${name} ${args}`)) continue;
+    made.add(`${name} ${args}`);
+    calls.push({ name: name!, arguments: args });
+  }
+  return calls;
+}
+
+/** What the fake OpenAI says: calls to make, or text. */
+function openaiAnswer(body: { model?: string; tools?: unknown }, input: readonly ResponsesItem[]): { calls: { name: string; arguments: string }[] } | { text: string } {
+  const offered = offeredTools(body, input);
+  const calls = openaiObeyed(input, new Set(offered.map((tool) => String(tool.name))));
+  if (calls.length) return { calls };
+  const prompt = lastUserText(input);
+  const conversation = /<conversation>\n([\s\S]*)\n<\/conversation>/.exec(prompt)?.[1];
+  if (conversation !== undefined) {
+    const lines = conversation.split("\n").filter(Boolean);
+    return { text: `Faux summary of ${lines.length} lines.` };
+  }
+  const echoed = prompt.length > 2000 ? `${prompt.slice(0, 200)}… (${prompt.length} characters)` : prompt;
+  return { text: `fake OpenAI (${body.model}) answers: ${echoed}` };
+}
+
+/** A Responses stream: a reasoning item, then the calls or the message. */
+function openaiStream(answer: ReturnType<typeof openaiAnswer>, inputTokens: number): Response {
+  const token = `fake_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  const reasoning = { type: "reasoning", id: `rs_${token}`, summary: [], encrypted_content: `enc_${token}` };
+  const items: ResponsesItem[] = [reasoning];
+  const events: [string, unknown][] = [["response.created", { type: "response.created", response: { id: `resp_${token}`, status: "in_progress", output: [] } }]];
+  events.push(["response.output_item.added", { type: "response.output_item.added", output_index: 0, item: { ...reasoning, encrypted_content: undefined } }]);
+  events.push(["response.output_item.done", { type: "response.output_item.done", output_index: 0, item: reasoning }]);
+  if ("calls" in answer) {
+    answer.calls.forEach((call, i) => {
+      const item = { type: "function_call", id: `fc_${token}_${i}`, call_id: `call_${token}_${i}`, name: call.name, arguments: call.arguments, status: "completed" };
+      const index = i + 1;
+      items.push(item);
+      events.push(["response.output_item.added", { type: "response.output_item.added", output_index: index, item: { ...item, arguments: "", status: "in_progress" } }]);
+      events.push(["response.function_call_arguments.delta", { type: "response.function_call_arguments.delta", output_index: index, item_id: item.id, delta: call.arguments }]);
+      events.push(["response.function_call_arguments.done", { type: "response.function_call_arguments.done", output_index: index, item_id: item.id, arguments: call.arguments }]);
+      events.push(["response.output_item.done", { type: "response.output_item.done", output_index: index, item }]);
+    });
+  } else {
+    const item = { type: "message", id: `msg_${token}`, role: "assistant", status: "completed", content: [{ type: "output_text", text: answer.text, annotations: [] }] };
+    items.push(item);
+    events.push(["response.output_item.added", { type: "response.output_item.added", output_index: 1, item: { ...item, status: "in_progress", content: [] } }]);
+    events.push(["response.output_text.delta", { type: "response.output_text.delta", output_index: 1, content_index: 0, item_id: item.id, delta: answer.text }]);
+    events.push(["response.output_item.done", { type: "response.output_item.done", output_index: 1, item }]);
+  }
+  const usage = { input_tokens: inputTokens, input_tokens_details: { cached_tokens: 0 }, output_tokens: 8, output_tokens_details: { reasoning_tokens: 4 }, total_tokens: inputTokens + 8 };
+  events.push(["response.completed", { type: "response.completed", response: { id: `resp_${token}`, status: "completed", output: items, usage } }]);
+  return sse(events);
+}
+
 async function openai(request: Request, url: URL): Promise<Response> {
   const state = keyState(bearer(request), "sk-test-");
   if (url.pathname === "/v1/models" && request.method === "GET") {
@@ -104,16 +237,12 @@ async function openai(request: Request, url: URL): Promise<Response> {
     if (state !== "ok") {
       return Response.json({ error: { message: "Incorrect API key provided", type: "invalid_request_error", code: "invalid_api_key" } }, { status: 401 });
     }
-    const body = (await request.json().catch(() => ({}))) as { model?: string; input?: unknown };
-    const text = `fake OpenAI (${body.model}) answers: ${lastUserText(body.input)}`;
-    const item = { type: "message", id: "msg_fake", role: "assistant", status: "completed", content: [{ type: "output_text", text, annotations: [] }] };
-    return sse([
-      ["response.created", { type: "response.created", response: { id: "resp_fake", status: "in_progress", output: [] } }],
-      ["response.output_item.added", { type: "response.output_item.added", output_index: 0, item: { ...item, status: "in_progress", content: [] } }],
-      ["response.output_text.delta", { type: "response.output_text.delta", output_index: 0, content_index: 0, item_id: "msg_fake", delta: text }],
-      ["response.output_item.done", { type: "response.output_item.done", output_index: 0, item }],
-      ["response.completed", { type: "response.completed", response: { id: "resp_fake", status: "completed", output: [item], usage: { input_tokens: 12, output_tokens: 8, total_tokens: 20 } } }]
-    ]);
+    const body = (await request.json().catch(() => ({}))) as { model?: string; input?: unknown; tools?: unknown };
+    const input = Array.isArray(body.input) ? (body.input as ResponsesItem[]) : [];
+    const refusal = openaiRefusal(input, offeredTools(body, input));
+    if (refusal) return Response.json({ error: { message: refusal, type: "invalid_request_error", param: "input", code: null } }, { status: 400 });
+    const context = Number(/\[context (\d+)\]/.exec(lastUserText(input))?.[1] ?? 12);
+    return openaiStream(openaiAnswer(body, input), context);
   }
   return Response.json({ error: { message: "Not found" } }, { status: 404 });
 }
