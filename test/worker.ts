@@ -1,3 +1,4 @@
+import { DurableObject } from "cloudflare:workers";
 import {
   createAssistantMessageEventStream,
   fauxAssistantMessage,
@@ -10,7 +11,7 @@ import {
   type Provider,
   type TranscriptContext
 } from "@earendil-works/pi-ai";
-import type { ToolExecutionApi } from "@earendil-works/pi-durable";
+import type { Storage as PiStorage, ToolExecutionApi } from "@earendil-works/pi-durable";
 import { PersonalAgent as ProductionAgent } from "../src/agent";
 import type { ListEnv } from "../src/allowlist";
 import { SUMMARY_MESSAGE_PREFIX, SUMMARY_SYSTEM_PROMPT } from "../src/compaction";
@@ -408,6 +409,9 @@ function webOf(id: string) {
   return web;
 }
 
+/** Agents whose next pi write fails, as a storage error would, by Durable Object id. Module state, so it outlives a reset object. */
+const failingPiWrites = new Set<string>();
+
 /** The production agent with pi-ai's faux provider in place of AI Gateway. */
 export class PersonalAgent extends ProductionAgent {
   #summaryGate: { promise: Promise<void>; release: () => void } | undefined;
@@ -435,6 +439,24 @@ export class PersonalAgent extends ProductionAgent {
       out.end(await stream.result());
     })();
     return out;
+  }
+
+  /** pi's storage, whose next write fails once `piFailNextWrite` was called. */
+  protected override piStorage(storage: PiStorage): PiStorage {
+    const id = this.ctx.id.toString();
+    return new Proxy(storage, {
+      get(target, key) {
+        const value: unknown = Reflect.get(target, key, target);
+        if (typeof value !== "function") return value;
+        if (key !== "commit") return value.bind(target);
+        return (...args: unknown[]) => (failingPiWrites.delete(id) ? Promise.reject(new Error("SQLITE_IOERR: disk I/O error (test)")) : value.apply(target, args));
+      }
+    });
+  }
+
+  /** Make pi's next write fail. */
+  async piFailNextWrite(): Promise<void> {
+    failingPiWrites.add(this.ctx.id.toString());
   }
 
   /** Woken whenever a notification callback completes. */
@@ -528,7 +550,7 @@ export class PersonalAgent extends ProductionAgent {
     } as unknown as ToolExecutionApi;
     // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
     const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never));
-    const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
+    const text = (result.output ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }
 
@@ -721,7 +743,7 @@ export class PersonalAgent extends ProductionAgent {
     const api = { conversationId: "test", callId } as unknown as ToolExecutionApi;
     // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
     const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never));
-    const text = (result.content ?? []).map((part) => ("text" in part ? part.text : "")).join("");
+    const text = (result.output ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }
 
@@ -917,6 +939,27 @@ export class PersonalAgent extends ProductionAgent {
     return demoCalls.get(this.ctx.id.toString()) ?? 0;
   }
 
+  /** Own keys' providers, unchanged but for a record of each request, as the demo lane keeps one. */
+  protected override ownKeyProviders(): readonly Provider[] {
+    const id = this.ctx.id.toString();
+    return super.ownKeyProviders().map((inner) => ({
+      ...inner,
+      stream: (model, context, options) => {
+        recordRequest(id, context, ownKeyRequests);
+        return inner.stream(model, context, options);
+      },
+      streamSimple: (model, context, options) => {
+        recordRequest(id, context, ownKeyRequests);
+        return inner.streamSimple(model, context, options);
+      }
+    }));
+  }
+
+  /** Every request this agent made with the person's own key, oldest first. */
+  async ownKeyRequests(): Promise<DemoRequest[]> {
+    return ownKeyRequests.get(this.ctx.id.toString()) ?? [];
+  }
+
   /** Every demo-lane request this agent made, oldest first: what it was and what it carried. */
   async demoRequests(): Promise<DemoRequest[]> {
     return demoRequests.get(this.ctx.id.toString()) ?? [];
@@ -1087,12 +1130,20 @@ export type DemoRequest = {
   readonly tools: readonly string[];
   /** The prompt's sections as the request leaves them, by key. */
   readonly sections: Readonly<Record<string, string>>;
+  /** Each message's role, in order. */
+  readonly roles: readonly string[];
+  /** Each tool result's text, in order, its first 2,000 characters. */
+  readonly results: readonly string[];
+  /** The earlier answers' reasoning the request carries back: thinking blocks with the provider's signature. */
+  readonly reasoning: number;
 };
 const demoRequests = new Map<string, DemoRequest[]>();
+/** Every own-key request (Anthropic's or OpenAI's, through the fake vendors), as pi built it, by Durable Object id. */
+const ownKeyRequests = new Map<string, DemoRequest[]>();
 
-function recordRequest(id: string, context: TranscriptContext): void {
-  const list = demoRequests.get(id) ?? [];
-  demoRequests.set(id, list);
+function recordRequest(id: string, context: TranscriptContext, into = demoRequests): void {
+  const list = into.get(id) ?? [];
+  into.set(id, list);
   const users = context.messages.filter((m) => m.role === "user");
   const summary = isSummaryRequest(context);
   const last = textOf(users.at(-1)?.content as Message["content"]);
@@ -1117,6 +1168,9 @@ function recordRequest(id: string, context: TranscriptContext): void {
     messages: context.messages.length,
     tools,
     sections,
+    roles: context.messages.map((message) => message.role),
+    results: context.messages.flatMap((m) => (m.role === "toolResult" ? [textOf(m.content as Message["content"]).slice(0, 2_000)] : [])),
+    reasoning: context.messages.reduce((n, m) => n + (m.role === "assistant" ? m.content.filter((part) => part.type === "thinking" && Boolean(part.thinkingSignature)).length : 0), 0),
     images: users.flatMap((message) =>
       typeof message.content === "string"
         ? []
@@ -1169,6 +1223,12 @@ function priced(message: AssistantMessage): AssistantMessage {
   if (cost) usage = { ...usage, cost: { ...usage.cost, total: cost } };
   return usage === message.usage ? message : { ...message, usage };
 }
+
+/**
+ * A bare object with SQLite and nothing else, so test/pi-storage.test.ts can
+ * open pi's storage on an empty database, or on one with host tables in it.
+ */
+export class StorageProbe extends DurableObject {}
 
 export { CompanyLimiter, DomainBudget } from "../src/index";
 export { MockCompany } from "./mock-company";

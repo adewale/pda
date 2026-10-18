@@ -447,3 +447,19 @@ Each of these closed a specific gap, and each has a test:
   - **Fonts** stay the system's: the Content-Security-Policy allows fonts only from our origin.
 - **Consequences.** A Company that caches our client metadata shows the old name until its cache expires. "Demo" is also the name of the operator-paid model lane (`DEMO_ALLOWLIST`, the demo meter); the two meanings now sit side by side.
 - **When.** 14 October 2026.
+
+## 33. pi-durable 1.3: reopening pi after a storage error, no caches on timers, pi's storage conformance
+
+- **Context.** Earendil's post on running pi-durable on Durable Objects (16 October 2026) watches the harness's `closed` and resets the object when pi fails, and recommends pi's storage conformance suite for any storage that isn't pi's own. We were on pi-durable 1.1.0, two releases behind; 1.2.0 made a storage error close pi for good, and 1.3.0 fixed where the prompt goes after a summary. `agents` 0.28.1, the newest, neither watches `closed` nor uses pi's own Durable Object adapter: `openPiSessionStore` is its own, putting pi's tables under `pi_` beside ours.
+- **Decision.**
+  - **pi-durable, pi-ai, chord and pi-telemetry 1.3.0.** Our tools return `output`, as 1.2.0 renamed `content`. pi-durable's type makes `output` optional, so a tool still returning `content` type-checks and the model gets an empty result; the tests catch it, the compiler doesn't.
+  - **Reopen pi after a storage error.** The harness factory watches pi's `closed`; on `{ reason: "failed" }` the agent writes a `job` event `pi.session_failed` (the error's class only: a storage error can quote what was being written) and calls `ctx.abort()`. The object's sockets close, the page reconnects, and the next request or alarm opens pi from storage, whose commits are atomic. Before this, every later call failed with `SessionFailed` until Cloudflare evicted the object.
+  - **No caches kept on a timer** (`documentRetentionMs: 0`, `contextRetentionMs: 0`). pi keeps its document cache (new in 1.2.0) and a finished run's context for ten minutes, on a timer it arms only where a timer can be unreferenced. Under `nodejs_compat` a timer has an `unref()` that does nothing, so pi armed them, and a pending timer keeps a Durable Object from hibernating. On 1.1.0 this already held every agent awake for ten minutes after each turn, with its socket open: a test that evicts the object right after a turn hung, on 1.1.0 as on 1.3.0. With both at 0, each turn rebuilds its context from SQLite, which is local.
+  - **pi's storage conformance suite on the adapter we use** (`test/pi-storage.test.ts`): `registerStorageConformance` over `openPiSessionStore`, on an empty database and beside host tables named as pi's unprefixed ones. It passed on 1.1.0 and passes on 1.3.0.
+- **Checked, and not ours.** 1.2.0 stopped putting thinking in summary requests; our summarizer already leaves it out. 1.2.0 fails a turn whose blocking summary failed; ours declines instead, which pi treats as no summary, so the turn goes on as before (the existing test passes). 1.3.0's base64 fix for 3 MiB images; ours already encodes 32 KiB at a time. 1.2.0's display-only submissions; we make none.
+- **Alternatives.**
+  - *Wait for `agents` to watch `closed`.* Its newest release doesn't, and the factory hands us pi's harness, so the watch is a few lines of ours.
+  - *Retentions of `Infinity`.* pi still arms its longest timer, about 25 days, for them.
+  - *Stay on 1.1.0.* It misplaces the prompt after a summary, and the timers hold the object awake there too.
+- **Consequences.** A storage error now costs one turn and a reconnect, not every request until an eviction. Agents hibernate as soon as a turn ends. pi 1.3.0 brings `pi-codemode` and Photon as dependencies; neither is imported, so neither is in the bundle. The page's outbox resends a message lost with the reset under the same operation id.
+- **When.** 16 October 2026.

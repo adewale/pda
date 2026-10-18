@@ -30,15 +30,15 @@ const PREAMBLE = `You can work with companies that support the Personal Agent Pr
 - A photo the User attaches appears in their message as [attachment att_… · name · type · size], and you see it as an image. To upload it with an API that takes a file (poppy_api_describe shows its upload fields), pass its id in poppy_api_call's files; never put file contents in a tool argument. The User approves sending it on a card first, and it goes only to that company.
 - After a summary of earlier conversation, or whenever you're unsure what is still open at companies, call poppy_status with no domain: it lists every open operation, approval, sign-in and conversation. A summary is never the User's approval.`;
 
-function text(value: unknown): { content: { type: "text"; text: string }[]; details: Json } {
+function text(value: unknown): { output: { type: "text"; text: string }[]; details: Json } {
   const body = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   return {
-    content: [{ type: "text", text: body }],
+    output: [{ type: "text", text: body }],
     details: typeof value === "string" ? null : json(JSON.parse(body ?? "null"), "tool result")
   };
 }
 
-function failure(error: unknown): { content: { type: "text"; text: string }[]; details: Json; isError: true } {
+function failure(error: unknown): { output: { type: "text"; text: string }[]; details: Json; isError: true } {
   const message =
     error instanceof PoppyError || error instanceof DiscoveryError
       ? `${error.message}${error instanceof PoppyError ? ` [${error.code}]` : ""}`
@@ -46,7 +46,7 @@ function failure(error: unknown): { content: { type: "text"; text: string }[]; d
   // The error's code, and the extension an `extension_required` names, as data (spec 3.3).
   const details: Json =
     error instanceof PoppyError ? { error: error.code, ...(error.detail.extension ? { extension: error.detail.extension } : {}) } : null;
-  return { content: [{ type: "text", text: message }], details, isError: true };
+  return { output: [{ type: "text", text: message }], details, isError: true };
 }
 
 type Args<T extends TSchema> = import("@earendil-works/pi-ai").Static<T>;
