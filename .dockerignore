@@ -5,3 +5,5 @@
 !test/mock-company/**
 !interop/impls/**
 interop/impls/**/node_modules
+
+!spec/**

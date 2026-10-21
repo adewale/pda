@@ -17,7 +17,7 @@ export async function runWithRetry(cell: Cell, run: RunAttempt, retry: boolean):
   await run(cell, 1);
   if (!retry || !failed(cell)) return;
   const first = summary(cell);
-  const again: Cell = { agent: cell.agent, company: cell.company, scenario: cell.scenario, outcome: "unsupported", blame: null, rule: null, steps: [], checks: [], har: null };
+  const again: Cell = { agent: cell.agent, company: cell.company, scenario: cell.scenario, protocolVersion: cell.protocolVersion, specificationRevision: cell.specificationRevision, outcome: "unsupported", blame: null, rule: null, steps: [], checks: [], har: null };
   await run(again, 2);
   cell.outcome = again.outcome;
   cell.steps = again.steps;

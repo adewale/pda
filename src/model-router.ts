@@ -107,7 +107,7 @@ export type AccessOptions = {
   readonly lists: () => ListEnv;
   /** Gateway metadata `u`: a hash naming this agent, never the person. */
   readonly agent: string;
-  readonly domainBudget: (domain: string) => { spent(day: string): Promise<number>; add(day: string, usd: number): Promise<number> };
+  readonly domainBudget: (domain: string) => { spent(day: string): Promise<number>; add(day: string, usd: number, now?: number): Promise<number> };
   /** The demo lane's provider and model. Tests replace it with pi-ai's faux provider. */
   readonly demoLane: (route: DemoRoute) => LaneModel;
   /** pi-ai's own providers for people's keys. Never the AI binding. */
@@ -396,9 +396,10 @@ export class ModelAccess {
       if (lane.kind === "demo") {
         const cost = message.usage?.cost?.total ?? 0;
         if (cost > 0) {
-          const day = utcDay(this.#now());
-          this.#options.ledger.add(day, cost);
-          await this.#options.domainBudget(lane.domain).add(day, cost);
+          const now = this.#now();
+          const day = utcDay(now);
+          this.#options.ledger.add(day, cost, now);
+          await this.#options.domainBudget(lane.domain).add(day, cost, now);
         }
       }
       const ended = lane.kind === "own_key" && message.stopReason === "error" ? await this.#keyError(lane, message) : message;

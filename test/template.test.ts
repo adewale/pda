@@ -4,7 +4,7 @@
  * for and where it lives.
  *
  * What is scanned: every committed file a fork inherits except
- * documentation (Markdown, licenses and the protocol snapshots in `spec/`). That is the code (`src/`, `scripts/`, `public/`), the tests
+ * documentation (Markdown, `docs/` artifacts, licenses and protocol snapshots in `spec/`). That is the code (`src/`, `scripts/`, `public/`), the tests
  * (`test/`), the interop harness (`interop/`, its registry and known
  * failures included), CI (`.github/`, `.githooks/`) and the root config
  * files. Documentation (`*.md`) may name the live deployment: the README

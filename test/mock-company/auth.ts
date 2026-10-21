@@ -103,24 +103,17 @@ export class AuthServer {
     const client = await co.authenticateClient(form, co.hosts.tokenEndpoint);
     const grant = form.get("grant_type");
     const resource = form.get("resource");
-    // Without a DPoP header, only a Bearer token for the MCP server (4.3).
+    const isMcp = resource === co.hosts.mcpUrl;
+    const wantsDpop = !isMcp || (co.config.protocolVersion === "0.2" && co.config.mcpDpop);
     let jkt: string | null = null;
-    if (inbound.request.headers.get("DPoP")) {
-      jkt = await co.verifyDpop(inbound, undefined);
-    } else if (resource !== co.hosts.mcpUrl || (grant !== JWT_BEARER && grant !== "refresh_token")) {
+    if (co.config.protocolVersion !== "0.2" && wantsDpop && !inbound.request.headers.get("DPoP")) {
       co.violation("token.no-dpop", `token request (${grant}) without a DPoP proof`);
-      throw oauthError(400, "invalid_dpop_proof", "DPoP proof required", {
-        "WWW-Authenticate": 'DPoP error="invalid_dpop_proof"'
-      });
+      throw oauthError(400, "invalid_dpop_proof", "a DPoP proof is required");
     }
-    if (resource !== null && resource !== co.hosts.mcpUrl && !(co.config.apiResource && resource === co.hosts.api)) {
-      throw oauthError(400, "invalid_target", "unknown resource");
-    }
-    if (jkt === null && resource === co.hosts.mcpUrl) {
-      // Bearer is fine; DPoP plus the MCP resource would make a token MCP can't use.
-    } else if (jkt !== null && resource === co.hosts.mcpUrl) {
-      co.violation("token.mcp-dpop", "asked for a DPoP-bound token for the MCP server; MCP uses Bearer");
-    }
+    if (wantsDpop || inbound.request.headers.get("DPoP")) jkt = await co.verifyDpop(inbound, undefined);
+    if (resource !== null && !isMcp && !(co.config.apiResource && resource === co.hosts.api)) throw oauthError(400, "invalid_target", "unknown resource");
+    if (co.config.protocolVersion === "0.2" && isMcp && !wantsDpop) jkt = null;
+    else if (co.config.protocolVersion !== "0.2" && jkt !== null && isMcp) co.violation("token.mcp-dpop", "asked for a DPoP-bound token for the MCP server; MCP uses Bearer");
     const binding = { jkt, resource };
     switch (grant) {
       case JWT_BEARER:
@@ -639,8 +632,10 @@ export class AuthServer {
     if (signIn && !signIn.finished && signIn.sessionId !== context.session.id) {
       co.violation("mediated.code-other-session", `one-time code for ${signIn.id} submitted from another Session`);
     }
-    if (!signIn || signIn.sessionId !== context.session.id || signIn.finished) {
-      return json({ error: "not_found" }, 404);
+    if (!signIn || signIn.sessionId !== context.session.id) return json({ error: co.config.protocolVersion === "0.2" ? "sign_in_not_found" : "not_found" }, 404);
+    if (signIn.finished) {
+      if (co.config.protocolVersion === "0.2" && (signIn.expiresAt <= co.now() || signIn.attempts >= 3)) return json({ status: signIn.expiresAt <= co.now() ? "expired" : "failed" });
+      return json({ error: co.config.protocolVersion === "0.2" ? "sign_in_not_found" : "not_found" }, 404);
     }
     const body = JSON.parse(inbound.bodyText || "{}") as Record<string, unknown>;
     if ("credentials" in body || "password" in body || "email" in body) {

@@ -1,0 +1,916 @@
+{
+  "date": "2026-10-21",
+  "sourceBaseCommit": "d8515e7be4282014c6ebcf21d156ac689f333050",
+  "sourceState": "Audited working tree on upgrade/poppy-0.2 before publication; no deployment",
+  "protocolPin": {
+    "snapshot": "spec/draft-0.2-2026-10-19",
+    "protocolVersion": "0.2",
+    "revision": "2026-10-19",
+    "commit": "39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d",
+    "operationsVersion": "1",
+    "upstream": "https://github.com/personal-agent-protocol/personal-agent-protocol"
+  },
+  "lanes": {
+    "dual": {
+      "run": "2026-10-21T09:03:37Z",
+      "artifact": "interop/results/2026-10-21-audit-dual/results.json",
+      "isolation": {
+        "network": "poppy-interop-b3e2e9",
+        "internal": true,
+        "probe": {
+          "tcp 1.1.1.1:443": "ENETUNREACH",
+          "tcp 8.8.8.8:53": "ENETUNREACH",
+          "dns example.com": "EAI_AGAIN"
+        }
+      },
+      "counts": {
+        "pass": 102,
+        "fail": 0,
+        "unsupported": 54,
+        "error": 0
+      },
+      "checks": {
+        "error": 0,
+        "warning": 12
+      },
+      "cells": [
+        {"agent": "pda", "company": "pda-mock", "scenario": "D", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "D", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "D", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "S0", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "S0", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "S0", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "N", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "N", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "N", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "SD", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "SD", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "SV", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "SV", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "SVN", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "SVN", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SVN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "SM", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "SM", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "SMC", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "SMC", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SMC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "SX", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "SX", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "SXV", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "SXV", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SXV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "C", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "C", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "C", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "CI", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "CI", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "CI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "CS", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "CS", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "CS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "CA", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "CA", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "CA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "H", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "H", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "H", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "DC", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "DC", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "DC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "SO", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "SO", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "SE", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "SE", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "R", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "R", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "R", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "AO", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "AO", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "AO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "AM", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "AM", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "AM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "AS", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "AS", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "AS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "W", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "W", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "W", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "O", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "O", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "O", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "O2", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "O2", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "O2", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "OX", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "OX", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "OX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "OU", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "OU", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "OU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "RL", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "RL", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "RL", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "DP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "DP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "DP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "CM", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "CM", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "CM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "NREP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "NREP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "NREP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "CDUP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "CDUP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "CDUP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "CIDUP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "CIDUP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "CIDUP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "ODUP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "ODUP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "ODUP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "YR", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "YR", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "YR", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "YD", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "YD", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "YD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "YA", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "YA", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "YA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "YT", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "YT", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "YT", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "YS", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "YS", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "YS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "YK", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "YK", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "YK", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "YU", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "YU", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "YU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "YM", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "YM", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "YM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "XH", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "XH", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "XH", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "XI", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "XI", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "XI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "BX", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "BX", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "BX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "XB", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "XB", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "XB", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "XN", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "XN", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "XN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "XO", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "XO", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "XO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "XP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "XP", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "XP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "XE", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "XE", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "XE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "XR", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "XR", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "XR", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock", "scenario": "XT", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-strict", "scenario": "XT", "protocolVersion": "0.1", "specificationRevision": "2026-10-12", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "XT", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null}
+      ]
+    },
+    "crossProject": {
+      "run": "2026-10-21T09:03:37Z",
+      "artifact": "interop/results/2026-10-21-audit-cross/results.json",
+      "isolation": {
+        "network": "poppy-interop-dc9b73",
+        "internal": true,
+        "probe": {
+          "tcp 1.1.1.1:443": "ENETUNREACH",
+          "tcp 8.8.8.8:53": "ENETUNREACH",
+          "dns example.com": "EAI_AGAIN"
+        }
+      },
+      "counts": {
+        "pass": 211,
+        "fail": 7,
+        "unsupported": 52,
+        "error": 0
+      },
+      "checks": {
+        "error": 0,
+        "warning": 2
+      },
+      "cells": [
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "D", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "D", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "D", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "D", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "D", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "D", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "D", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "D", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "D", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "S0", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "S0", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "S0", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "S0", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "S0", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "S0", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "S0", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "S0", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "S0", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "N", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "N", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "N", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "N", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "N", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "N", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "N", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "N", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "N", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "SD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "SD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "SD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "SD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "SD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "SD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "SD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "SD", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "SV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "SV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "SV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "SV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "SV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "SV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "SV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "SV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SVN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "SVN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "SVN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "SVN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "SVN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "SVN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "SVN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "SVN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "SVN", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "SM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "SM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "SM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "SM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "SM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "SM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "SM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "SM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SMC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "SMC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "SMC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "SMC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "SMC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "SMC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "SMC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "SMC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "SMC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "SX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "SX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "SX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "SX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "SX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "SX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "SX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "SX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SXV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "SXV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "SXV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "SXV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "SXV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "SXV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "SXV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "SXV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "SXV", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "C", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "C", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "C", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "C", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "C", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "C", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "C", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "C", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "C", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "CI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "CI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "CI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "CI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "CI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "CI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "CI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "CI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "CI", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "CS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "CS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "CS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "CS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "fail", "blame": "agent", "rule": "grid"},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "CS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "fail", "blame": "agent", "rule": "grid"},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "CS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "fail", "blame": "agent", "rule": "grid"},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "CS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "CS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "CS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "CA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "CA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "CA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "CA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "CA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "CA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "CA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "CA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "CA", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "H", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "H", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "H", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "H", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "fail", "blame": "agent", "rule": "grid"},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "H", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "H", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "H", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "fail", "blame": "agent", "rule": "grid"},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "H", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "H", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "DC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "DC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "DC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "DC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "fail", "blame": null, "rule": "unattributed"},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "DC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "DC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "DC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "fail", "blame": null, "rule": "unattributed"},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "DC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "DC", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "SO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "SO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "SO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "SO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "SO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "SO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "SO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "SO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "SE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "SE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "SE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "SE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "SE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "SE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "SE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "SE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "SE", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "R", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "R", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "R", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "R", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "R", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "R", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "R", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "R", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "R", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "AO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "AO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "AO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "AO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "AO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "AO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "AO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "AO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "AO", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "AM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "AM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "AM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "AM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "AM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "AM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "AM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "AM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "AM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "AS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "AS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "AS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "AS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "AS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "AS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "AS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "AS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "AS", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "W", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "W", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "W", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "W", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "W", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "W", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "W", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "W", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "W", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "O", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "O", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "O", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "O", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "O", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "O", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "O", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "O", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "O", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "O2", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "O2", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "O2", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "O2", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "O2", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "O2", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "O2", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "O2", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "O2", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "OX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "OX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "OX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "OX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "OX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "OX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "OX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "OX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "OX", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "OU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "OU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "OU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "OU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "OU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "OU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "OU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "OU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "OU", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "RL", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "RL", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "RL", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "RL", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "RL", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "RL", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "RL", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "RL", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "RL", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "DP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "DP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "DP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "DP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "DP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "DP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "DP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "DP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "DP", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "unsupported", "blame": null, "rule": null},
+        {"agent": "pda", "company": "pda-mock-v02", "scenario": "CM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-ts-v02", "scenario": "CM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "pda", "company": "datalayer-py-v02", "scenario": "CM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "CM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "CM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "CM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "CM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-ts-v02", "scenario": "CM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null},
+        {"agent": "datalayer-py-v02", "company": "datalayer-py-v02", "scenario": "CM", "protocolVersion": "0.2", "specificationRevision": "2026-10-19", "outcome": "pass", "blame": null, "rule": null}
+      ],
+      "findings": [
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "CS", "reason": "step 4 (agent sse) refused: stream_unavailable (the conversation stream kept closing without events) [pda-mock-v02 passes CS with another agent; datalayer-ts-v02 fails it with every Company]"},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-ts-v02", "scenario": "CS", "reason": "step 4 (agent sse) refused: stream_unavailable (the conversation stream kept closing without events) [datalayer-ts-v02 passes CS with another agent; datalayer-ts-v02 fails it with every Company]"},
+        {"agent": "datalayer-ts-v02", "company": "datalayer-py-v02", "scenario": "CS", "reason": "step 4 (agent sse) refused: stream_unavailable (the conversation stream kept closing without events) [datalayer-py-v02 passes CS with another agent; datalayer-ts-v02 fails it with every Company]"},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "H", "reason": "step 3 (agent handoff) refused: invalid_response (conversation response was malformed) [pda-mock-v02 passes H with another agent; datalayer-ts-v02 fails it with every Company]"},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "H", "reason": "step 3 (agent handoff) refused: invalid_response (conversation response was malformed) [pda-mock-v02 passes H with another agent; datalayer-py-v02 fails it with every Company]"},
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "DC", "reason": "step 10 (agent close) refused: invalid_response (conversation response was malformed)"},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "DC", "reason": "step 10 (agent close) refused: invalid_response (conversation response was malformed)"}
+      ],
+      "warnings": [
+        {"agent": "datalayer-ts-v02", "company": "pda-mock-v02", "scenario": "SVN", "id": "dpop.nonce-ignored", "detail": "DPoP: proof without the nonce this key already used at https://auth.pda-mock-v02.company.interop.test (must keep using nonces)"},
+        {"agent": "datalayer-py-v02", "company": "pda-mock-v02", "scenario": "SVN", "id": "dpop.nonce-ignored", "detail": "DPoP: proof without the nonce this key already used at https://auth.pda-mock-v02.company.interop.test (must keep using nonces)"}
+      ]
+    }
+  },
+  "official": {
+    "artifact": "interop/results/2026-10-21-audit-official/official-validator.json",
+    "summary": {
+      "total": {
+        "pass": 69,
+        "fail": 0,
+        "warn": 0,
+        "skip": 5
+      },
+      "foundation": {
+        "pass": 41,
+        "fail": 0,
+        "warn": 0,
+        "skip": 1
+      },
+      "interfaces": {
+        "pass": 28,
+        "fail": 0,
+        "warn": 0,
+        "skip": 4
+      },
+      "sign-in": {
+        "pass": 0,
+        "fail": 0,
+        "warn": 0,
+        "skip": 0
+      },
+      "extensions": {
+        "pass": 0,
+        "fail": 0,
+        "warn": 0,
+        "skip": 0
+      }
+    },
+    "checks": [
+      {
+        "id": "discovery.https",
+        "status": "pass"
+      },
+      {
+        "id": "discovery.redirects-https",
+        "status": "pass"
+      },
+      {
+        "id": "discovery.json",
+        "status": "pass"
+      },
+      {
+        "id": "discovery.schema",
+        "status": "pass"
+      },
+      {
+        "id": "discovery.protocol-version",
+        "status": "pass"
+      },
+      {
+        "id": "discovery.domain-matches-host",
+        "status": "pass"
+      },
+      {
+        "id": "discovery.auth-present",
+        "status": "pass"
+      },
+      {
+        "id": "discovery.interface-present",
+        "status": "pass"
+      },
+      {
+        "id": "discovery.api-types",
+        "status": "pass"
+      },
+      {
+        "id": "metadata.published",
+        "status": "pass"
+      },
+      {
+        "id": "metadata.schema",
+        "status": "pass"
+      },
+      {
+        "id": "metadata.issuer-matches",
+        "status": "pass"
+      },
+      {
+        "id": "metadata.poppy-domains",
+        "status": "pass"
+      },
+      {
+        "id": "metadata.token-endpoint",
+        "status": "pass"
+      },
+      {
+        "id": "metadata.revocation-endpoint",
+        "status": "pass"
+      },
+      {
+        "id": "metadata.dpop-algs",
+        "status": "pass"
+      },
+      {
+        "id": "metadata.authorization-endpoint",
+        "status": "pass"
+      },
+      {
+        "id": "metadata.device-authorization-endpoint",
+        "status": "pass"
+      },
+      {
+        "id": "session.start",
+        "status": "pass"
+      },
+      {
+        "id": "session.response-schema",
+        "status": "pass"
+      },
+      {
+        "id": "session.token-type",
+        "status": "pass"
+      },
+      {
+        "id": "session.expires-in",
+        "status": "pass"
+      },
+      {
+        "id": "session.token-lifetime",
+        "status": "pass"
+      },
+      {
+        "id": "session.signed-out",
+        "status": "pass"
+      },
+      {
+        "id": "session.no-store",
+        "status": "pass"
+      },
+      {
+        "id": "session.renew",
+        "status": "pass"
+      },
+      {
+        "id": "session.unknown-session",
+        "status": "pass"
+      },
+      {
+        "id": "session.assertion-replay",
+        "status": "pass"
+      },
+      {
+        "id": "session.client-assertion-aud",
+        "status": "pass"
+      },
+      {
+        "id": "session.client-assertion-unknown-key",
+        "status": "pass"
+      },
+      {
+        "id": "session.assertion-unknown-key",
+        "status": "pass"
+      },
+      {
+        "id": "session.browser-assertion-rejected",
+        "status": "pass"
+      },
+      {
+        "id": "dpop.nonce",
+        "status": "skip"
+      },
+      {
+        "id": "dpop.token-replay",
+        "status": "pass"
+      },
+      {
+        "id": "dpop.token-htu",
+        "status": "pass"
+      },
+      {
+        "id": "dpop.accepted",
+        "status": "pass"
+      },
+      {
+        "id": "dpop.missing-proof",
+        "status": "pass"
+      },
+      {
+        "id": "dpop.bearer-scheme",
+        "status": "pass"
+      },
+      {
+        "id": "dpop.wrong-ath",
+        "status": "pass"
+      },
+      {
+        "id": "dpop.wrong-key",
+        "status": "pass"
+      },
+      {
+        "id": "dpop.resource-htu",
+        "status": "pass"
+      },
+      {
+        "id": "dpop.token-in-url",
+        "status": "pass"
+      },
+      {
+        "id": "openapi.loads",
+        "status": "pass"
+      },
+      {
+        "id": "openapi.version",
+        "status": "pass"
+      },
+      {
+        "id": "mcp.metadata",
+        "status": "pass"
+      },
+      {
+        "id": "mcp.authorization-servers",
+        "status": "pass"
+      },
+      {
+        "id": "mcp.no-token",
+        "status": "pass"
+      },
+      {
+        "id": "mcp.bearer-token",
+        "status": "skip"
+      },
+      {
+        "id": "mcp.bearer-accepted",
+        "status": "skip"
+      },
+      {
+        "id": "mcp.dpop-token-rejected",
+        "status": "pass"
+      },
+      {
+        "id": "mcp.dpop-server-token",
+        "status": "pass"
+      },
+      {
+        "id": "mcp.dpop-server-no-bearer",
+        "status": "pass"
+      },
+      {
+        "id": "mcp.dpop-server-accepted",
+        "status": "pass"
+      },
+      {
+        "id": "mcp.other-resource-rejected",
+        "status": "skip"
+      },
+      {
+        "id": "mcp.bearer-elsewhere-rejected",
+        "status": "skip"
+      },
+      {
+        "id": "conversations.start",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.retry-same-id",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.message-id-conflict",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.follow-up",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.empty-message",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.invalid-message-id",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.events-read",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.events-schema",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.user-message-recorded",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.retry-not-duplicated",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.wait",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.invalid-wait",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.unknown-cursor",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.not-found",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.close",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.close-event",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.close-again",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.closed-message",
+        "status": "pass"
+      },
+      {
+        "id": "conversations.closed-handoff",
+        "status": "pass"
+      }
+    ]
+  },
+  "tests": {
+    "fullSuite": {
+      "passed": 1668,
+      "failed": 0,
+      "skipped": 1,
+      "note": "All five projects and documented-reference checks pass after the consistency audit.",
+      "projects": {
+        "personalAgent": {
+          "passed": 1050,
+          "skipped": 1
+        },
+        "durability": {
+          "passed": 3
+        },
+        "ui": {
+          "passed": 198
+        },
+        "interop": {
+          "passed": 251
+        },
+        "properties": {
+          "passed": 166
+        }
+      }
+    },
+    "hypothesis": {
+      "passed": 16,
+      "note": "Rerun after the audit against the final protocol code."
+    },
+    "typecheck": "pass",
+    "build": "pass",
+    "snapshotIntegrity": "56 upstream file hashes; 48 official changelog dispositions",
+    "reimport": "all 56 file hashes match",
+    "upstreamDrift": "none detected in specification, changelog or pinned Company kit",
+    "regressionMutationChecks": {
+      "budgetRetention": "fails when metering-clock propagation is removed",
+      "mcpInitialization": "fails when callers stop awaiting shared initialization"
+    }
+  },
+  "legacyVectors": {
+    "source": "datalayer/personal-agent-protocol@00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65",
+    "counts": {
+      "pass": 23,
+      "fail": 3,
+      "n/a": 98
+    },
+    "differences": [
+      {
+        "id": "protocol.minor-version-newer",
+        "category": "reading",
+        "reason": "our client refuses it: version-unsupported"
+      },
+      {
+        "id": "protocol.third-party-extension-name",
+        "category": "reading",
+        "reason": "ours {\"plain\":[\"Gift Wrap!\",\"gift-wrap\",\"operations\"],\"third_party\":[\"example.com/gift-wrap\"],\"invalid\":[\"localhost/x\"]}, Datalayer's {\"plain\":[\"gift-wrap\",\"operations\"],\"third_party\":[\"example.com/gift-wrap\"],\"invalid\":[\"Gift Wrap!\",\"localhost/x\"]} (differs in plain, invalid). Our validator flags a plain name the protocol doesn't define (extension-plain-unknown) as a warning, whatever its characters; the draft defines no syntax for plain names (3.3)."
+      },
+      {
+        "id": "security.metadata-not-json",
+        "category": "reading",
+        "reason": "refused, but not for http-content-type, which our client doesn't refuse over; refused for: json-syntax"
+      }
+    ]
+  },
+  "earlierValidation": {
+    "sourceState": "Working tree on upgrade/poppy-0.2, before commit; no deployment",
+    "fullSuite": {
+      "passed": 1652,
+      "failed": 6,
+      "skipped": 1,
+      "note": "Six model-cost failures reproduced at unchanged baseline; subsequent focused checks cover final revision-helper and harness-policy edits."
+    },
+    "note": "Initial upgrade evidence is retained in the original gitignored run directories. The audit below fixes the baseline clock mismatch.",
+    "focusedChecks": {
+      "migrationAndDiscovery": 20,
+      "harness": 246,
+      "finalHarnessPolicy": 64
+    }
+  }
+}

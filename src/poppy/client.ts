@@ -20,13 +20,15 @@ import {
 import { currentKey, readIdentity, type AgentIdentity } from "./keys";
 import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup } from "./protocol-log";
 import { found, one, rows, type RowOf } from "../rows";
-import { accountsTable, domainsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
+import { accountsTable, domainsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
 import type { Card, DirectUpdate } from "./wire";
 import type { CheckedApiRequest } from "./apis";
 import { companyErrorCode, type KnownErrorCode, type PoppyErrorCode } from "./error-codes";
 import type { EndpointRequest } from "./outgoing";
 import type { Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
+import { domainFromInput } from "../domain";
+import { isDraft2, protocolRevision, supportsProtocol } from "./protocol-version";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
 export type PoppyHost = {
@@ -370,7 +372,7 @@ export class PoppyClient {
    * are the Guides'). Timed by the host's clock, like the client's waits.
    */
   async lookup(domain: string): Promise<Company | WebsiteOnly> {
-    const key = domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+    const key = domainFromInput(domain);
     const cached = one(
       this.sql,
       domainsTable.pick("company", "expires_at"),
@@ -378,7 +380,8 @@ export class PoppyClient {
       key
     );
     if (cached && cached.expires_at > this.host.now()) {
-      return JSON.parse(cached.company) as Company | WebsiteOnly;
+      const value = JSON.parse(cached.company) as Company | WebsiteOnly;
+      if (!isCompany(value) || (supportsProtocol(value.protocolVersion) && value.specificationRevision === protocolRevision(value.protocolVersion))) return value;
     }
     let discovered: Awaited<ReturnType<typeof discover>>;
     try {
@@ -389,6 +392,16 @@ export class PoppyClient {
       throw error;
     }
     const { result, cacheSeconds } = discovered;
+    if (isCompany(result) && isDraft2(result)) {
+      const aliases = rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ? AND domain != ? AND expires_at > ?", result.issuer, key, this.host.now());
+      if (aliases.some((row) => {
+        const alias = JSON.parse(row.company) as Company;
+        return alias.authFingerprint && alias.authFingerprint !== result.authFingerprint;
+      })) throw new DiscoveryError("Domains sharing an issuer have different auth declarations");
+    }
+    if (isCompany(result) && isDraft2(result) && result.domain.toLowerCase() !== key) {
+      await this.host.showCard({ id: `company-redirect-${key}`, kind: "notice", company: result.name, domain: result.domain, open: false, text: `You asked for ${key}. Its discovery leads to ${result.name} at ${result.domain}; this is the Company your agent will use.` });
+    }
     recordDiscovery(this.sql, key, discovered.report, isCompany(result) ? result : null);
     this.sql.exec(
       "INSERT OR REPLACE INTO poppy_domains (domain, issuer, company, expires_at) VALUES (?, ?, ?, ?)",
@@ -410,6 +423,33 @@ export class PoppyClient {
     );
     if (!row) throw new DiscoveryError(`No company known for issuer ${issuer}`);
     return JSON.parse(row.company) as Company;
+  }
+
+  /** Bind pending work to the interface where it began; never overwrite it. */
+  rememberCompany(kind: string, id: string, company: Company): void {
+    this.sql.exec("INSERT OR IGNORE INTO poppy_task_contexts (kind, task_id, issuer, company) VALUES (?, ?, ?, ?)", kind, id, company.issuer, JSON.stringify(company));
+  }
+
+  /** Revalidate the original domain before resuming credentials or consequential work. */
+  async resumeCompany(issuer: Issuer, kind: string, id: string): Promise<Company> {
+    let context = one(this.sql, taskContextsTable.pick("company"), "SELECT company FROM poppy_task_contexts WHERE kind = ? AND issuer = ? AND task_id = ?", kind, issuer, id);
+    if (!context) {
+      const candidates = rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ?", issuer);
+      const domains = new Set(candidates.map((row) => (JSON.parse(row.company) as Company).domain));
+      if (domains.size !== 1) throw new PoppyError("company_changed", "This older task has no unambiguous Company domain; start it again", 0);
+      context = candidates[0];
+    }
+    if (!context) throw new DiscoveryError("No discovery context for this task");
+    const original = JSON.parse(context.company) as Company;
+    const current = await this.company(original.domain);
+    const interfaces = (company: Company) => JSON.stringify([company.endpoints, company.signIn, company.web, company.conversations, company.extensions, company.apis.map((api) => [api.type, api.url, api.resource])]);
+    if (current.issuer !== issuer || current.protocolVersion !== original.protocolVersion || (original.authFingerprint && current.authFingerprint !== original.authFingerprint) || interfaces(current) !== interfaces(original) ||
+        (original.specificationRevision && current.specificationRevision !== original.specificationRevision)) {
+      await this.host.showCard({ id: `company-changed-${kind}-${id}`, kind: "notice", company: original.name, domain: original.domain, open: false, text: "This Company changed its protocol or interfaces while work was pending. Review its current status before starting a new task; an uncertain action must not be repeated." });
+      throw new PoppyError("company_changed", "The Company's issuer, protocol or interfaces changed while this task was pending; reconcile it before continuing", 0);
+    }
+    this.rememberCompany(kind, id, current);
+    return current;
   }
 
   /**
@@ -510,7 +550,7 @@ export class PoppyClient {
     const signing = await currentKey(this.host.env);
     // One retry for a new DPoP nonce, whenever it comes: after a 429 too.
     let nonceRetried = false;
-    let audience = endpoint;
+    let audience = isDraft2(company) ? company.issuer : endpoint;
     for (let attempt = 0; attempt < 3; attempt++) {
       await this.#respectLimit(company.issuer);
       // Each attempt gets new assertions and a new proof: Companies reject a reused jti.
@@ -560,7 +600,7 @@ export class PoppyClient {
         nonceRetried = true;
         continue;
       }
-      if (error === "invalid_client" && response.status === 401 && audience !== company.endpoints.token) {
+      if (!isDraft2(company) && error === "invalid_client" && response.status === 401 && audience !== company.endpoints.token) {
         recordOauth(this.sql, company, logged, answer);
         audience = company.endpoints.token;
         continue;
@@ -758,9 +798,10 @@ export class PoppyClient {
    * next token request binds a new token to it.
    */
   async token(company: Company, options: TokenOptions = {}): Promise<HeldToken> {
+    isDraft2(company); // Reject unknown versions even when a caller supplied cached state.
     await this.#recoverSignIns(company.issuer);
     const label = options.label ?? "main";
-    const key = `${company.issuer}|${label}|${options.resource ?? ""}|${options.scope ?? ""}|${options.bearer ? "bearer" : "dpop"}`;
+    const key = `${company.issuer}|${label}|${options.resource ?? ""}|${options.scope ?? ""}|${options.bearer ? "bearer" : "dpop"}|${company.protocolVersion}`;
     const dpop = options.bearer ? null : await this.dpopKey(company.issuer);
     const usable = () => {
       const held = this.#tokens.get(key);
@@ -788,6 +829,10 @@ export class PoppyClient {
     dpop: DpopKey | null
   ): Promise<HeldToken> {
     const response = await this.#obtainToken(company, label, options);
+    if (isDraft2(company) && !response.token_type) throw new PoppyError("invalid_response", "The token response has no token_type", 0);
+    if ((response.token_type ?? (options.bearer ? "Bearer" : "DPoP")).toLowerCase() !== (options.bearer ? "bearer" : "dpop")) {
+      throw new PoppyError("invalid_response", "The token type does not match the resource's authentication requirements", 0);
+    }
     const token: HeldToken = {
       value: response.access_token,
       type: options.bearer ? "Bearer" : "DPoP",
@@ -863,7 +908,7 @@ export class PoppyClient {
               signing,
               this.identity.clientId,
               userId,
-              company.endpoints.token
+              isDraft2(company) ? company.issuer : company.endpoints.token
             ),
             ...(current ? { session_id: current.session_id } : {}),
             // A signed-out token has no scopes (4.2), and some Companies reject
@@ -1018,6 +1063,9 @@ export class PoppyClient {
     const request = outgoing.init();
     const url = new URL(request.url);
     const bearer = options.bearer === true;
+    if (bearer && (!options.resource || options.resource !== request.url || !company.apis.some((api) => api.type === "mcp" && api.url === request.url))) {
+      throw new PoppyError("invalid_request", "A Bearer token is usable only at the exact MCP resource URL", 0);
+    }
     if (url.protocol !== "https:") {
       recordResource(this.sql, company, request, { bearer, nonce: false }, { refused: "not_https" });
       throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);

@@ -1,0 +1,64 @@
+# Changelog
+
+Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
+
+## Unreleased — Poppy 0.1 and draft 0.2
+
+Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d), Operations **v1**. [Local specification and official changelog](spec/draft-0.2-2026-10-19/README.md). [Upstream changelog](https://personalagentprotocol.org/docs/changelog#v0-2). Draft 0.2 is still in progress; this entry targets that exact revision.
+
+### Breaking Changes
+
+- Unknown pre-1.0 versions are refused before issuer metadata or credentials are used. Older PDA treated every `0.x` as compatible. Declared **0.1 remains supported** by its existing rules.
+- Invalid explicit validator protocol contexts are errors, rather than silently selecting a different version. Versionless client-metadata validation retains its 0.1 default.
+- A model cannot expand a task to another Company after reading Company or tool content unless the User's own task names that domain. A new task with no named domain can choose its first Company; later additions require the User to name them. This also prevents a Company from starting sign-in at another Company.
+- Pending work is bound to its original Company domain and profile. Ambiguous older work, or work whose issuer or wire version changed, is held for reconciliation. It is not silently replayed with different endpoints.
+
+### Added
+
+- Explicit 0.1 and 0.2 profiles over the existing validator and client, with version and revision in validation reports and interop cells.
+- A hash-verified, licensed copy of the 0.2 specification, guides, Operations text, official changelog, schemas and Company validator. `npm run check:spec` verifies it offline; `npm run spec:drift` compares upstream without changing the pin.
+- Separate 0.2 mock and Datalayer 0.25.0 peer entries reuse the existing adapters. Historical 0.1 peers and their pins remain available. The official Company validator runs in a separate one-sided lane.
+- Focused regression coverage for exact-version refusal, discovery redirects, issuer audiences, MCP DPoP/Bearer selection, approvals and cross-company prompt injection.
+- A 48-entry ledger accounts for every change in the pinned official changelog. CI verifies the snapshot and ledger; the importer refuses to overwrite snapshots.
+- An updated [ecosystem map](docs/ecosystem.md) and a [repeatable upgrade procedure](docs/upgrading.md).
+
+### Changed
+
+- Under 0.2, discovery checks the final serving host, preserving `www.`; domains sharing an issuer must agree on `auth`. Issuers remain exact strings and continue to key User IDs and Account Tokens.
+- Under 0.2, client and Session assertions name the issuer. The endpoint-audience fallback remains limited to 0.1. Assertions still live for one minute, within both versions' bounds.
+- MCP authentication follows the server's protected-resource metadata. DPoP-capable 0.2 servers receive proof-bound tokens; other MCP servers receive Bearer tokens bound to their exact resource URL.
+- Read and error validation, mock behavior, trace checks and known-failure matching use the selected protocol version. A 0.1 ambiguity cannot exempt a 0.2 failure.
+
+### Fixed
+
+- Removed accidental acceptance of newer draft versions under 0.1 validation rules.
+- Discovery caches keep exact requested host keys. Old unversioned caches are revalidated.
+- MCP session caches belong to each client and its DPoP keys, await shared initialization, clear failures and refresh metadata within its bounded cache lifetime.
+- Harness retries retain their protocol context, and simultaneous runs use separate result directories.
+- Versioned snapshot page names no longer collide between `0.1/spec` and `0.2/spec`.
+
+- Budget metering and retention use the same clock, fixing six date-dependent baseline test failures.
+- Snapshot parsing handles versioned pages and imported walkthrough constants. The requirement table is generated from the reviewed ledger.
+
+### Upgrading
+
+1. Review [the requirement delta and evidence](docs/poppy-0.2-upgrade.md), including limitations. Do not infer complete conformance from a version number.
+2. Install the existing lockfile with `npm ci --legacy-peer-deps`. Run `npm run check:spec`, `npm test`, `npm run typecheck`, and both interop lanes before deployment.
+3. Storage changes are additive. Keep the existing signing and encryption keys. Do not reset User IDs, Account Tokens or consent. Discovery caches can be refreshed; pending work retains its profile context.
+4. Check discovery and a read against a test Company, then sign in with a test account and approve a sandbox operation. Record the actual deployed commit and outcome before promoting this entry to a dated release.
+
+### Validation and rollout
+
+The combined own-code lane passes 102 cells; PDA passes all 74 exercised cross-project cells. The official validator passes 69 available checks with five skips. The full test suite passes with 1,668 tests and one intentional skip after the audit corrected the shared clock mismatch. Seven peer compatibility failures remain visible in [the upgrade evidence](docs/poppy-0.2-upgrade.md#validation). This change has not been deployed. Optional feedback submission and anonymous browsing remain separate features.
+
+### Rollback
+
+Return to the previous deployment with its original configuration and keys. An older 0.1-only binary cannot safely operate at a 0.2 Company: stop those tasks first. Preserve pending revocations and reconcile uncertain operation outcomes before retrying. Additive task-context records can remain in storage. See [compatibility and rollback](docs/upgrading.md#compatibility-and-rollback).
+
+## Baseline — 18 October 2026
+
+Repository baseline [`d8515e7`](https://github.com/adewale/pda/commit/d8515e7be4282014c6ebcf21d156ac689f333050), before this upgrade. This is a historical marker, not an invented release number. PDA implements draft 0.1 with Operations v1, a discovery validator, strict mock, interop grid, adversarial and property tests. Earlier changes are in [Git history](https://github.com/adewale/pda/commits/main/).
+
+## Maintaining this file
+
+For each release, move reviewed entries from Unreleased into a dated version entry. Include Breaking Changes, Added, Changed and Fixed where relevant, followed by Upgrading, Validation and Rollback. Name the Poppy version, exact upstream revision and Operations revision; link the official changelog and local snapshot. Explain operator actions and retain unresolved gates. Never mark a deployment or check complete without its evidence.

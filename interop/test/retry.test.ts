@@ -33,6 +33,16 @@ describe("flaky cells", () => {
     ]);
   });
 
+  it("retains the protocol context when a failed 0.2 cell is retried", async () => {
+    const cell = { ...blank(), protocolVersion: "0.2", specificationRevision: "2026-10-19" };
+    await runWithRetry(cell, async (target, attempt) => {
+      expect(target.protocolVersion).toBe("0.2");
+      expect(target.specificationRevision).toBe("2026-10-19");
+      target.outcome = attempt === 1 ? "fail" : "pass";
+    }, true);
+    expect(cell.flaky).toBe(true);
+  });
+
   it("retry errors too, and keep the second failure, not flaky", async () => {
     const cell = blank();
     await runWithRetry(cell, scripted("error", "fail"), true);

@@ -4,6 +4,12 @@ Oct 12, 2026 · Ade Oshineye
 
 This spec follows **Personal Agent Protocol ("Poppy") Draft 0.1, updated Oct 12, 2026**, its Operations extension (version 1) and its Guides, as copied in [`spec/draft-0.1-2026-10-12/`](spec/draft-0.1-2026-10-12/README.md). The 12 October update changed no wire rule of the 9 October text ([`spec/draft-0.1-2026-10-09/`](spec/draft-0.1-2026-10-09/README.md)) this spec was first written against, and [`spec/grounding.md`](spec/grounding.md) ties our claims to the text of both. It describes what is built, and marks what isn't. Why each part is built the way it is, and what was considered instead, is in [`docs/decisions.md`](docs/decisions.md); what is left to deploy and check is in [`docs/deployment-tasks.md`](docs/deployment-tasks.md). Earlier versions designed PAP support before the protocol was published; their A2A messages, agent cards, signed receipts and `sub = HMAC(userKey, …)` are withdrawn.
 
+## Protocol versions
+
+The body and Appendix A retain the 0.1 baseline and its test references. This branch adds 0.2 at the exact revision in [spec/upstream.json](spec/upstream.json). The [upgrade delta](docs/poppy-0.2-upgrade.md) defines the changed behavior and evidence: final-host discovery, issuer assertion audiences, metadata-selected MCP authentication, device-link checks and pending-work binding. Unknown 0.x versions are refused. Versionless validator inputs retain their 0.1 default.
+
+The 0.2 changes are unreleased. Deployment statements below refer to the recorded 0.1 deployment; they do not establish a deployed 0.2 journey. See [the changelog](CHANGELOG.md) and [upgrade procedure](docs/upgrading.md) before promotion or rollback.
+
 ## Summary
 
 One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one Durable Object running Pi via `PiHarness`, holding one never-ending conversation with Claude. That agent is also a **reference Personal Agent for Poppy**: it implements every part of Draft 0.1 that applies to a Personal Agent, plus the Operations extension, and it is built to be read, copied and tested against.

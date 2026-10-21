@@ -179,6 +179,13 @@ describe("known failures", () => {
     expect(knownFailure(failed("a", "c", "D"), any)).toBe(any[0]);
   });
 
+  it("never exempts a 0.2 failure with an unversioned 0.1 known failure", () => {
+    const target = { ...failed("a", "c", "D"), protocolVersion: "0.2" };
+    const entry = { agent: "*", company: "*", scenario: "*", blame: null, issue };
+    expect(knownFailure(target, [entry])).toBeUndefined();
+    expect(knownFailure(target, [{ ...entry, protocolVersion: "0.2" }])).toBeDefined();
+  });
+
   it("prefer the most specific entry, then the first", () => {
     const broad = { agent: "pi-poppy", company: "*", scenario: "*", blame: null, issue, reason: "broad" };
     const exact = { agent: "pi-poppy", company: "pda-mock-strict", scenario: "SE", blame: null, issue, reason: "exact" };

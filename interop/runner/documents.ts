@@ -40,7 +40,7 @@ function toChecks(report: Report, side: Side, what: string): Check[] {
 }
 
 /** Validate every Company domain whose poppy.json, and every client_id whose metadata, the recording holds. */
-export async function documentChecks(all: readonly Exchange[]): Promise<Check[]> {
+export async function documentChecks(all: readonly Exchange[], protocolVersion = "0.1"): Promise<Check[]> {
   const fetcher = recordedFetcher(all);
   const checks: Check[] = [];
   const domains = new Set<string>();
@@ -54,7 +54,7 @@ export async function documentChecks(all: readonly Exchange[]): Promise<Check[]>
   for (const domain of domains) checks.push(...toChecks(await validateCompany(fetcher, domain), "company", domain));
   for (const clientId of clientIds) {
     if (!all.some((x) => x.url.href === clientId)) continue;
-    checks.push(...toChecks(await validateClient(fetcher, clientId), "agent", clientId));
+    checks.push(...toChecks(await validateClient(fetcher, clientId, { protocolVersion }), "agent", clientId));
   }
   return checks;
 }

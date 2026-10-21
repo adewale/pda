@@ -13,6 +13,7 @@ on:
       - "src/poppy/**"
       - "src/validator/**"
       - "src/config.ts"
+      - "spec/**"
       - "test/mock-company/**"
       - "interop/**"
       - "package*.json"
@@ -23,6 +24,7 @@ on:
       - "src/poppy/**"
       - "src/validator/**"
       - "src/config.ts"
+      - "spec/**"
       - "test/mock-company/**"
       - "interop/**"
       - "package*.json"
@@ -49,7 +51,9 @@ jobs:
 
       - run: npm ci --legacy-peer-deps
 
-      - run: npm run interop -- --agents pda --companies pda-mock,pda-mock-strict
+      - run: npm run interop -- --agents pda --companies pda-mock,pda-mock-strict,pda-mock-v02
+
+      - run: npm run interop:official
 
       - name: Upload the grid, HAR files and container logs
         if: always()

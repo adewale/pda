@@ -584,6 +584,7 @@ export class Apis {
     const co = this.company;
     return {
       resource: co.hosts.mcpUrl,
+      ...(co.config.protocolVersion === "0.2" && co.config.mcpDpop ? { dpop_signing_alg_values_supported: ["ES256"] } : {}),
       authorization_servers: co.config.mcpPrmOmitIssuer ? [] : [co.hosts.issuer],
       bearer_methods_supported: ["header"],
       scopes_supported: [co.orderScopes.read, co.orderScopes.write]
@@ -602,6 +603,13 @@ export class Apis {
       context = await co.authorizeResource(inbound, true);
     } catch (error) {
       if (error instanceof HttpError && error.response.status === 401) {
+        if (co.config.protocolVersion === "0.2") {
+          const headers = new Headers(error.response.headers);
+          const metadata = `https://mcp.${co.hosts.domain}/.well-known/oauth-protected-resource/mcp`;
+          const challenge = headers.get("WWW-Authenticate") ?? 'DPoP error="invalid_token"';
+          headers.set("WWW-Authenticate", `${challenge}, resource_metadata="${metadata}", Bearer resource_metadata="${metadata}"`);
+          throw new HttpError(new Response(error.response.body, { status: 401, headers }));
+        }
         throw resourceError("Bearer", 401, "invalid_token", {
           headers: {
             "WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="https://mcp.${co.hosts.domain}/.well-known/oauth-protected-resource/mcp"`

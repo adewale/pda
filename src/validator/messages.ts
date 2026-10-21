@@ -68,6 +68,11 @@ const define = <T extends Record<string, Definition>>(catalog: T): { readonly [K
   ) as { readonly [K in keyof T]: Defined<T[K]> };
 
 export const MESSAGES = define({
+  "version-unsupported": {
+    basis: "MUST", title: "Unsupported protocol version",
+    explain: "Before 1.0, every major.minor version can break compatibility. An agent must explicitly support the declared version.",
+    fix: "Use a supported protocol version or upgrade the agent.", ref: spec("3.1", "fields")
+  },
   // Fetching
   "http-not-https": {
     basis: "MUST",
@@ -287,9 +292,9 @@ export const MESSAGES = define({
   "version-newer-minor": {
     basis: "Rule",
     note: true,
-    title: "Newer minor version",
+    title: "Historical newer-minor diagnostic",
     explain:
-      "A newer minor version doesn't break older agents: they use the document and ignore fields they don't recognise. It was checked against the newest rules this validator knows.",
+      "Retained for older saved reports. Current validation uses explicit supported versions and refuses unknown 0.x drafts; this diagnostic is no longer emitted.",
     fix: "Nothing to do.",
     ref: spec("3.1", "fields")
   },
@@ -463,9 +468,9 @@ export const MESSAGES = define({
   "api-type-newer": {
     basis: "MUST",
     note: true,
-    title: "API type from a newer version",
+    title: "Unknown API type skipped",
     explain:
-      "The document declares a newer minor version than this validator knows, which may define more API types (3.1: a newer minor version doesn't break older agents). Agents that don't know this type skip the API (6), so this is information.",
+      "This supported profile skips an unrecognized API type. It does not infer support for an unknown protocol version. The diagnostic ID is retained for saved reports.",
     fix: "Nothing to do, unless agents should use this API.",
     ref: spec("6", "apis")
   },

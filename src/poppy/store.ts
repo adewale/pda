@@ -11,6 +11,13 @@ import { storedOperation } from "./operation-value";
  * Tokens and DPoP keys are deliberately absent: they live only in memory.
  */
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS poppy_task_contexts (
+  kind TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  issuer TEXT NOT NULL,
+  company TEXT NOT NULL,
+  PRIMARY KEY (kind, issuer, task_id)
+);
 CREATE TABLE IF NOT EXISTS poppy_domains (
   domain TEXT PRIMARY KEY,
   issuer TEXT,
@@ -193,6 +200,7 @@ export function migrate(sql: Sql): void {
 /** Each table's columns as `SCHEMA` declares them, so a row read back is decoded, not cast (src/rows.ts). */
 const issuerColumn = textOf(issuerDecoder);
 
+export const taskContextsTable = table("poppy_task_contexts", { kind: text, task_id: text, issuer: issuerColumn, company: text });
 export const domainsTable = table("poppy_domains", { domain: text, issuer: nullable(issuerColumn), company: text, expires_at: integer });
 export const userIdsTable = table("poppy_user_ids", { issuer: issuerColumn, user_id: text });
 export const sessionsTable = table("poppy_sessions", {

@@ -660,7 +660,7 @@ export class Company {
     if (this.config.clientAssertionAud === "token-endpoint" && typeof payload.aud === "string" && ours.includes(payload.aud) && payload.aud !== this.hosts.tokenEndpoint) {
       throw oauthError(401, "invalid_client", "client assertion aud must be the token endpoint");
     }
-    const audiences = exact ? [endpoint] : ours;
+    const audiences = this.config.protocolVersion === "0.2" ? [this.hosts.issuer] : exact ? [endpoint] : ours;
     if (typeof payload.aud !== "string" || !audiences.includes(payload.aud)) {
       this.violation(
         "client-assertion.aud",
@@ -712,7 +712,7 @@ export class Company {
     const payload = await this.#verifyClientJwt(client, assertion, header, "session-assertion", () =>
       oauthError(400, "invalid_grant", "assertion did not verify")
     );
-    if (Array.isArray(payload.aud) || payload.aud !== this.hosts.tokenEndpoint) {
+    if (Array.isArray(payload.aud) || payload.aud !== (this.config.protocolVersion === "0.2" ? this.hosts.issuer : this.hosts.tokenEndpoint)) {
       this.violation(
         "session-assertion.aud",
         `Session assertion: aud must be the token_endpoint as a single string, got ${JSON.stringify(payload.aud)}`
@@ -978,7 +978,8 @@ export class Company {
 
   /** The Session Token on an API, conversation, operations or mediated request. */
   async authorizeResource(inbound: Inbound, mcp = false): Promise<ResourceContext> {
-    const scheme = mcp ? "Bearer" : "DPoP";
+    const dpopMcp = mcp && this.config.protocolVersion === "0.2" && this.config.mcpDpop;
+    const scheme = mcp && !dpopMcp ? "Bearer" : "DPoP";
     const header = inbound.request.headers.get("Authorization");
     if (!header) {
       this.violation("resource.no-token", `request without a Session Token: ${inbound.request.method} ${inbound.url.href}`);
@@ -987,7 +988,7 @@ export class Company {
     const [given, value] = header.split(" ", 2) as [string, string | undefined];
     if (!value) throw resourceError(scheme, 401, "invalid_token");
     const token = this.accessTokens.get(value);
-    if (mcp) {
+    if (mcp && !dpopMcp) {
       if (given !== "Bearer") {
         this.violation("mcp.not-bearer", `MCP request with ${given} scheme; MCP uses Bearer`);
         throw resourceError("Bearer", 401, "invalid_token");
@@ -1006,7 +1007,7 @@ export class Company {
         throw resourceError("DPoP", 401, "invalid_token");
       }
     }
-    if (!token) throw resourceError(scheme, 401, "invalid_token");
+    if (!token || (mcp && token.resource !== this.hosts.mcpUrl)) throw resourceError(scheme, 401, "invalid_token");
     if (token.expiresAt <= Date.now()) throw resourceError(scheme, 401, "invalid_token");
     const session = this.sessions.get(token.sessionId);
     if (!session || session.ended) {
@@ -1015,7 +1016,7 @@ export class Company {
       }
       throw resourceError(scheme, 401, "invalid_token");
     }
-    if (!mcp) {
+    if (!mcp || dpopMcp) {
       const jkt = await this.verifyDpop(inbound, value);
       if (jkt !== token.jkt) {
         this.violation("dpop.key-mismatch", "DPoP proof key isn't the key the token is bound to");
@@ -1042,7 +1043,8 @@ export class Company {
 
   /** `sign_in_required` or `insufficient_scope` unless the token covers `needed`. */
   requireScopes(context: ResourceContext, needed: readonly string[], mcp = false): void {
-    const scheme = mcp ? "Bearer" : "DPoP";
+    const dpopMcp = mcp && this.config.protocolVersion === "0.2" && this.config.mcpDpop;
+    const scheme = mcp && !dpopMcp ? "Bearer" : "DPoP";
     if (!context.signedIn) throw resourceError(scheme, 403, "sign_in_required");
     if (!needed.every((scope) => context.scope.includes(scope))) {
       throw resourceError(scheme, 403, "insufficient_scope", { scope: needed.join(" ") });

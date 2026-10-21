@@ -1,5 +1,8 @@
 # Our readings of the draft's open questions
 
+**Historical 0.1 policy.** These readings apply to our retained 9/12 October baseline. Draft 0.2 resolves several questions, including issuer audiences for client and Session assertions. See the [versioned upgrade delta](poppy-0.2-upgrade.md#old-readings) before using a reading as a current conformance exception.
+
+
 Where Poppy Draft 0.1 is ambiguous, we had to pick a behaviour. This file records each pick: which reading our client takes, which our strict and lenient mock Companies take, whether we're strict or lenient there, and why. The questions and their suggested fixes are in [spec-issues.md](spec-issues.md). Its "What we do" column summarises our answer, except for S1, S2, S3, S4, S7 and S23, where it links here for the reading and the reasoning.
 
 Back to [spec-issues.md](spec-issues.md) · [interop-spec.md §7](interop-spec.md#7-readings)

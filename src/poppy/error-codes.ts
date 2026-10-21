@@ -7,6 +7,7 @@
 
 /** Codes the agent raises itself: refusals before anything is sent, and failures of its own. */
 export const AGENT_ERROR_CODES = [
+  "company_changed",
   "approval_changed",
   "bad_api",
   "browser_join_failed",

@@ -24,7 +24,12 @@
     "validate": "node scripts/poppy-validate.ts",
     "check:docs": "node scripts/check-docs.mjs",
     "deps:check": "node scripts/deps-check.mjs",
-    "interop": "node interop/runner/cli.ts"
+    "interop": "node interop/runner/cli.ts",
+    "check:spec": "node scripts/check-spec.mjs",
+    "spec:drift": "node --use-env-proxy scripts/check-spec.mjs --drift",
+    "interop:official": "node interop/vectors/official/run.mjs",
+    "spec:import": "node scripts/spec-import.mjs",
+    "spec:docs": "node scripts/spec-ledger.mjs --write"
   },
   "dependencies": {
     "@cfworker/json-schema": "4.1.1",

@@ -1,3 +1,4 @@
+import { isDraft2 } from "./protocol-version";
 import { literal, reportError } from "../log";
 import { hasCode, PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
@@ -108,6 +109,7 @@ export async function sendMessage(
     wait?: number;
   }
 ): Promise<SendResult> {
+  if (request.conversationId) company = await client.resumeCompany(company.issuer, "conversation", request.conversationId);
   const endpoint = endpointOf(company);
   if (request.text !== undefined && looksLikeJson(request.text)) {
     throw new PoppyError("invalid_request", "Put structured details in data, not JSON in text", 0);
@@ -181,6 +183,7 @@ export async function sendMessage(
     throw new PoppyError("invalid_response", `${company.name} returned no conversation_id`, 0);
   }
   const id = response.conversation_id;
+  client.rememberCompany("conversation", id, company);
   if (!existing) {
     client.sql.exec(
       `INSERT OR IGNORE INTO poppy_conversations (id, issuer, label, parent, direct, status, responder, cursor, context, last_event_at, created_at)
@@ -503,7 +506,7 @@ export async function readConversation(
 ): Promise<number | null> {
   const row = conversation(client, id);
   if (!row || row.status === "closed") return null;
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "conversation", row.id);
   const endpoint = endpointOf(company);
   for (let round = 0; round < 10; round++) {
     const current = conversation(client, id)!;
@@ -569,6 +572,7 @@ export async function readConversation(
       // A Company's answer, read as the Guides ask (no duplicate members) and refused unless it is an object.
       const body = parseStrictJson(await client.readBody(response));
       if (!isObject(body)) throw new PoppyError("invalid_response", `${company.name}'s events answer isn't a JSON object`, response.status);
+      if (isDraft2(company) && (body.conversation_id !== id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || typeof body.status !== "string" || typeof body.responder !== "string")) throw new PoppyError("invalid_response", "The 0.2 conversation read is missing required fields", response.status);
       const events = Array.isArray(body.events) ? body.events : [];
       await handleEvents(client, company, conversation(client, id)!, events);
       if (typeof body.cursor === "string") saveCursor(client, id, body.cursor);
@@ -724,6 +728,7 @@ export async function handoff(
 ): Promise<{ status: string; responder: string }> {
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+  company = await client.resumeCompany(row.issuer, "conversation", id);
   await sendMessage(client, company, {
     label: row.label,
     callKey: `${callKey}|summary`,
@@ -746,6 +751,7 @@ export async function handoff(
 export async function closeConversation(client: PoppyClient, company: Company, id: string): Promise<void> {
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+  company = await client.resumeCompany(row.issuer, "conversation", id);
   try {
     const { body } = await client.resourceJson(
       company,
@@ -771,7 +777,7 @@ export async function startDirectConversation(
 ): Promise<string> {
   const parent = conversation(client, parentId);
   if (!parent) throw new PoppyError("conversation_not_found", `No conversation ${parentId}`, 404);
-  const company = client.companyByIssuer(parent.issuer);
+  const company = await client.resumeCompany(parent.issuer, "conversation", parent.id);
   const result = await sendMessage(client, company, {
     label: parent.label,
     callKey: `direct|${randomId()}`,
@@ -795,7 +801,7 @@ export async function startDirectConversation(
 export async function sayInDirect(client: PoppyClient, id: string, text: string): Promise<void> {
   const row = conversation(client, id);
   if (!row || !row.direct) throw new PoppyError("conversation_not_found", `No Direct Conversation ${id}`, 404);
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "conversation", row.id);
   await sendMessage(client, company, {
     label: row.label,
     callKey: `direct|${randomId()}`,
@@ -813,7 +819,7 @@ export async function sayInDirect(client: PoppyClient, id: string, text: string)
 export async function inviteUser(client: PoppyClient, id: string, reason: string): Promise<void> {
   const row = conversation(client, id);
   if (!row || row.direct) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "conversation", row.id);
   await client.host.showCard({
     id: `direct-invite-${id}`,
     kind: "direct_invite",
@@ -829,7 +835,7 @@ export async function inviteUser(client: PoppyClient, id: string, reason: string
 export async function declineDirect(client: PoppyClient, parentId: string): Promise<void> {
   const parent = conversation(client, parentId);
   if (!parent) return;
-  const company = client.companyByIssuer(parent.issuer);
+  const company = await client.resumeCompany(parent.issuer, "conversation", parent.id);
   await client.host.showCard({
     id: `direct-invite-${parentId}`,
     kind: "notice",
@@ -851,7 +857,7 @@ export async function declineDirect(client: PoppyClient, parentId: string): Prom
 export async function updateAvailability(client: PoppyClient): Promise<void> {
   for (const row of openConversations(client)) {
     if (row.direct || !contextDelta(client, row)) continue;
-    const company = client.companyByIssuer(row.issuer);
+    const company = await client.resumeCompany(row.issuer, "conversation", row.id);
     await sendMessage(client, company, {
       label: row.label,
       callKey: `context|${row.id}|${randomId()}`,

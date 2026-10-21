@@ -14,6 +14,8 @@ export type RegistryEntry = {
   readonly adversarial?: boolean;
   /** A directory holding a Dockerfile (local lane). */
   readonly build?: string;
+  /** Public source pins passed into a shared build; never credentials. */
+  readonly buildArgs?: Readonly<Record<string, string>>;
   /** The Docker build context, relative to the repository root; the build directory when absent. */
   readonly context?: string;
   /** A running deployment's domain or URL (live lane). */
@@ -28,6 +30,8 @@ export type RegistryEntry = {
   readonly subdomains?: readonly string[];
   /** Extra environment for the container. */
   readonly env?: Readonly<Record<string, string>>;
+  /** Provisioning helper for a one-sided vector lane; excluded from default M×N selection. */
+  readonly vectorsOnly?: boolean;
   readonly notes?: string;
 };
 
@@ -137,6 +141,8 @@ export type Blame = "agent" | "company" | "spec" | "harness" | null;
 export type Rule = "adversarial" | "violation" | "warning" | "grid" | "reading" | "unattributed" | null;
 
 export type Cell = {
+  protocolVersion?: string;
+  specificationRevision?: string;
   readonly agent: string;
   readonly company: string;
   readonly scenario: string;
@@ -166,6 +172,7 @@ export type Attempt = { readonly outcome: Outcome; readonly reason?: string; rea
  * the same cell is still unexpected.
  */
 export type KnownFailure = {
+  readonly protocolVersion?: string;
   readonly agent: string;
   readonly company: string;
   readonly scenario: string;

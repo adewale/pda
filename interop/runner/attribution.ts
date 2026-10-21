@@ -88,7 +88,7 @@ export type AttributionContext = {
  * Such cells go in the security grid, never in the interop pass rates, and
  * never stand in as grid references (spec §9, rule 2).
  */
-export function isSecurityCell(cell: Pick<Cell, "agent" | "company" | "scenario">, context: AttributionContext): boolean {
+export function isSecurityCell(cell: Pick<Cell, "agent" | "company" | "scenario" | "protocolVersion">, context: AttributionContext): boolean {
   const adv = context.adversarial ?? new Set<string>();
   if (adv.has(cell.agent) || adv.has(cell.company)) return true;
   const scenario = context.scenarios.get(cell.scenario);
@@ -239,7 +239,8 @@ export function attributeAll(
 const FIELDS = ["agent", "company", "scenario"] as const;
 
 /** Where a known failure may happen: its `agent`, `company` and `scenario` each name the cell's, or are `"*"` for any. */
-export function knownCovers(entry: KnownFailure, cell: Pick<Cell, "agent" | "company" | "scenario">): boolean {
+export function knownCovers(entry: KnownFailure, cell: Pick<Cell, "agent" | "company" | "scenario" | "protocolVersion">): boolean {
+  if ((entry.protocolVersion ?? "0.1") !== (cell.protocolVersion ?? "0.1")) return false;
   return FIELDS.every((field) => entry[field] === "*" || entry[field] === cell[field]);
 }
 
@@ -250,7 +251,7 @@ export function knownCovers(entry: KnownFailure, cell: Pick<Cell, "agent" | "com
  * any other step error. A cell that errored before any step gives `error`;
  * one that failed only on its checks gives `null`.
  */
-export function failureCode(cell: Pick<Cell, "steps" | "outcome">): string | null {
+export function failureCode(cell: Pick<Cell, "steps" | "outcome" | "protocolVersion">): string | null {
   const step = cell.steps.find((s) => !s.ok && !(s.error ?? "").startsWith("unsupported:"));
   if (!step) return cell.outcome === "error" ? "error" : null;
   const text = step.error ?? "";
@@ -261,7 +262,7 @@ export function failureCode(cell: Pick<Cell, "steps" | "outcome">): string | nul
 /** What a failed cell shows: its blame, its error checks, and its first failed step's code. */
 export type FailureSignature = { readonly blame: Blame; readonly checks: readonly string[]; readonly error: string | null };
 
-export function failureSignature(cell: Pick<Cell, "blame" | "checks" | "steps" | "outcome">): FailureSignature {
+export function failureSignature(cell: Pick<Cell, "blame" | "checks" | "steps" | "outcome" | "protocolVersion">): FailureSignature {
   const checks = [...new Set(cell.checks.filter((check) => check.severity === "error").map((check) => check.id))].sort();
   return { blame: cell.blame, checks, error: failureCode(cell) };
 }
@@ -272,7 +273,7 @@ export function failureSignature(cell: Pick<Cell, "blame" | "checks" | "steps" |
  * failed step's code (where a step failed). Anything else in the cell is a
  * different failure, and unexpected.
  */
-export function knownMatches(entry: KnownFailure, cell: Pick<Cell, "agent" | "company" | "scenario" | "blame" | "checks" | "steps" | "outcome">): boolean {
+export function knownMatches(entry: KnownFailure, cell: Pick<Cell, "agent" | "company" | "scenario" | "blame" | "checks" | "steps" | "outcome" | "protocolVersion">): boolean {
   if (!knownCovers(entry, cell)) return false;
   const seen = failureSignature(cell);
   return (
@@ -286,7 +287,7 @@ export function knownMatches(entry: KnownFailure, cell: Pick<Cell, "agent" | "co
 export const blamesOf = (entry: Pick<KnownFailure, "blame">): readonly Blame[] => (Array.isArray(entry.blame) ? entry.blame : [entry.blame as Blame]);
 
 /** The known failure that matches a failed cell: the most specific (fewest wildcards), first in the file on a tie. */
-export function knownFailure(cell: Pick<Cell, "agent" | "company" | "scenario" | "blame" | "checks" | "steps" | "outcome">, known: readonly KnownFailure[]): KnownFailure | undefined {
+export function knownFailure(cell: Pick<Cell, "agent" | "company" | "scenario" | "blame" | "checks" | "steps" | "outcome" | "protocolVersion">, known: readonly KnownFailure[]): KnownFailure | undefined {
   const wildcards = (entry: KnownFailure) => FIELDS.filter((field) => entry[field] === "*").length;
   let best: KnownFailure | undefined;
   for (const entry of known) {

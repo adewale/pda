@@ -11,6 +11,7 @@ import type { ScopeInfo } from "./wire";
 import type { Issuer } from "./issuer";
 import { companyErrorCode } from "./error-codes";
 import { keepReplaced, revokeReplaced } from "./signout";
+import { isDraft2 } from "./protocol-version";
 
 /** Pending sign-ins expire after this long (the Guides suggest Companies give a device code about 10 minutes). */
 const SIGN_IN_TTL_MS = 10 * 60 * 1000;
@@ -44,6 +45,10 @@ export function deviceLink(company: Company, value: unknown): string | null {
   const url = new URL(value);
   if (url.protocol !== "https:" || url.username || url.password) return null;
   const host = url.hostname.toLowerCase();
+  if (isDraft2(company)) {
+    const allowed = [new URL(company.issuer).hostname, ...(company.poppyDomains ?? [])].map((domain) => domain.toLowerCase());
+    return allowed.some((domain) => host === domain || host.endsWith(`.${domain}`)) ? url.href : null;
+  }
   const hosts = [company.issuer, company.endpoints.deviceAuthorization]
     .filter((endpoint): endpoint is string => !!endpoint)
     .map((endpoint) => new URL(endpoint).hostname.toLowerCase());
@@ -106,6 +111,7 @@ export async function startSignIn(
   await client.token(company, { label: request.label });
 
   const id = randomId("sgn_");
+  client.rememberCompany("signin", id, company);
   const base = { id, issuer: company.issuer };
   const scopeText = scopes.join(" ");
   const info = describeScopes(company, scopes);
@@ -250,7 +256,7 @@ function signedInText(company: Company, row: SignInRow, scope: string, who: "you
 
 /** Close the sign-in's card with how it ended, and tell the model, once; the card can word it for the User. */
 async function report(client: PoppyClient, row: SignInRow, text: string, cardText = text): Promise<void> {
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
   await client.host.showCard({ id: `signin-${row.id}`, kind: "notice", company: company.name, domain: company.domain, open: false, text: cardText });
   await client.host.notifyModel(`[system] ${text}`, `poppy-signin-${row.id}`);
 }
@@ -265,7 +271,7 @@ async function finish(
   row: SignInRow,
   outcome: { ok: true; response: TokenResponse } | { ok: false; message: string; expired?: boolean }
 ): Promise<void> {
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
   setStatus(client, row.id, outcome.ok ? "done" : outcome.expired ? "expired" : "failed");
   let text: string;
   let cardText: string | undefined;
@@ -341,7 +347,7 @@ function keepable(response: TokenResponse): KeptAnswer {
 
 /** Store the tokens from a code exchange's answer, then close the card. Safe to repeat. */
 async function finishExchange(client: PoppyClient, row: SignInRow, answer?: KeptAnswer): Promise<void> {
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
   let scope: string;
   if (row.status === "stored") {
     scope = (JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as { scope: string }).scope;
@@ -366,7 +372,7 @@ async function finishExchange(client: PoppyClient, row: SignInRow, answer?: Kept
 
 /** No answer we can trust: start a new Session, and ask the User to sign in again. */
 async function abandonExchange(client: PoppyClient, row: SignInRow): Promise<void> {
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
   const session = client.session(row.issuer, row.label);
   // A Session we already hold signed in renews with its Account Token, never the assertion.
   if (session && !session.signed_in) client.abandonSession(row.issuer, row.label);
@@ -429,7 +435,7 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
   }
   // Single use, whatever happens next.
   setStatus(client, row.id, "used");
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
   const secret = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as {
     state: string;
     verifier: string;
@@ -515,7 +521,7 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
     await finish(client, row, { ok: false, message: "the code expired before the User approved", expired: true });
     return null;
   }
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
   const secret = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as { device_code: string };
   try {
     const response = await client.tokenRequest(company, async () => {
@@ -554,7 +560,7 @@ async function mediatedResponse(
     await finish(client, row, { ok: false, message: "the company's reply was unreadable" });
     return "failed";
   }
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
   switch (body.status) {
     case "complete": {
       // Its tokens, decoded as any token response is: a malformed one signs nobody in.
@@ -612,7 +618,7 @@ export async function submitCredentials(
 ): Promise<"done" | "code" | "failed"> {
   const row = signIn(client, id);
   if (!row || row.type !== "mediated" || row.status !== "pending") return "failed";
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
   const mediated = company.signIn.mediated;
   if (!mediated) return "failed";
   const credentials: Record<string, string> = {};
@@ -644,7 +650,7 @@ export async function submitSignInCode(
 ): Promise<"done" | "code" | "failed"> {
   const row = signIn(client, id);
   if (!row || row.type !== "mediated" || row.status !== "code") return "failed";
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "signin", row.id);
   const { sign_in_id } = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as {
     sign_in_id: string;
   };

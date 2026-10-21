@@ -9,14 +9,9 @@ export type PoppyFacts = {
 
 export type ClientFacts = { jwksUri?: string };
 
-/**
- * The rules for one major version of the protocol. Minor versions within a
- * major only add things agents can ignore (spec 3.1), so one profile covers
- * them all; `minors` are the ones it was written against.
- */
+/** Rules for one explicitly supported wire version; incompatible drafts get separate profiles. */
 export type Profile = {
-  readonly major: number;
-  readonly minors: readonly number[];
+  readonly version: string;
   /** Human name, such as "Draft 0.1". */
   readonly name: string;
   poppy(c: Checker, doc: unknown, context: { requestedDomain?: string }): PoppyFacts;

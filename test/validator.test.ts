@@ -279,14 +279,14 @@ const POPPY_JSON: readonly Fixture[] = [
     also: (report) => expect(report.messages[0]!.text).toMatch(/version 1\.0/)
   },
   {
-    name: "chooses rules by protocol_version: a newer minor version, whose new fields are ignored",
+    name: "refuses a newer pre-1.0 version before checking its fields",
     run: () =>
       text("poppy", withPoppy((d) => {
         d.protocol_version = "0.7";
         d.loyalty = { tier: "gold" };
       })),
-    ids: ["version-newer-minor", "unknown-member"],
-    outcome: "valid"
+    ids: ["version-unsupported"],
+    outcome: "invalid"
   },
   {
     name: "chooses rules by protocol_version: none given",
@@ -363,13 +363,13 @@ const POPPY_JSON: readonly Fixture[] = [
     outcome: "invalid"
   },
   {
-    name: "takes an API type from a newer minor version as information",
+    name: "skips an unknown API type in the explicitly supported 0.2 profile",
     run: () =>
       text("poppy", withPoppy((d) => {
         d.protocol_version = "0.2";
         d.apis = [{ type: "graphql", url: "https://api.example.com/graphql", description: "Everything" }];
       })),
-    ids: ["version-newer-minor", "api-type-newer"],
+    ids: ["api-type-newer"],
     outcome: "valid"
   },
   {
@@ -1028,7 +1028,7 @@ describe("the message catalog", () => {
 
   it("has a fixture that produces every message", () => {
     const declared = new Set(fixtures.flatMap(declaredIds));
-    const missing = (Object.keys(MESSAGES) as MessageId[]).filter((id) => !declared.has(id));
+    const missing = (Object.keys(MESSAGES) as MessageId[]).filter((id) => !declared.has(id) && id !== "version-newer-minor");
     expect(missing).toEqual([]);
   });
 

@@ -1,6 +1,9 @@
 # Poppy interop harness specification
 
-Version 1. What an implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1 provides to join the M×N interop grid, and what the runner does with it. The rationale and plan are in [interop-testing.md](interop-testing.md); the code is in [`interop/`](../interop).
+The runner currently checks explicit 0.1 and 0.2 lanes. Each cell records the common `protocolVersion` and local `specificationRevision`; no common version is unsupported. Retries preserve that context. Unversioned known failures apply only to 0.1. Registry entries marked `vectorsOnly` are explicit provisioning helpers excluded from the default M×N grid. The official validator reuses provisioning and cleanup in its [one-sided lane](../interop/vectors/official/README.md); its checks do not contribute grid passes.
+
+
+Version 1. What an implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) provides to join the M×N interop grid, and what the runner does with it. The rationale and plan are in [interop-testing.md](interop-testing.md); the code is in [`interop/`](../interop).
 
 The key words MUST, SHOULD and MAY are used as in RFC 2119.
 

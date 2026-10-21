@@ -34,6 +34,7 @@ export type MockConfig = {
   readonly agent: boolean;
   readonly openapi: boolean;
   readonly mcp: boolean;
+  readonly mcpDpop: boolean;
   /** Also list an API of an unknown type, which agents must skip. */
   readonly unknownApi: boolean;
   /** Also list a conversation protocol of an unknown type. */
@@ -263,6 +264,7 @@ export type MockConfig = {
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
+  mcpDpop: false,
   protocolVersion: "0.1",
   organizationDomain: null,
   wellKnownRedirect: "none",

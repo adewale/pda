@@ -3,6 +3,7 @@ import { bareHost } from "../validator/primitives.ts";
 import type { Fetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
+import { protocolRevision } from "./protocol-version";
 
 /** Extensions this client supports, with the major version it implements. */
 export const SUPPORTED_EXTENSIONS = { operations: "1" } as const;
@@ -25,6 +26,10 @@ export type Company = {
   /** The issuer metadata's `poppy_domains`, lowercased (3.2). Absent from documents cached before it was kept. */
   readonly poppyDomains?: readonly string[];
   readonly protocolVersion: string;
+  readonly specificationRevision?: string;
+  /** Canonical auth for comparing aliases of the same issuer in 0.2. */
+  readonly authFingerprint?: string;
+  readonly feedback?: { readonly endpoint: string };
   readonly endpoints: {
     readonly token: string;
     readonly revocation: string;
@@ -128,7 +133,7 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
   }
   const doc = checked.poppy;
   const organization = doc.organization as Obj;
-  const orgDomain = bareHost(organization.domain as string);
+  const orgDomain = doc.protocol_version === "0.2" ? (organization.domain as string).toLowerCase() : bareHost(organization.domain as string);
   const name = str(organization.name) ?? orgDomain;
   const cacheSeconds = boundedCacheSeconds(checked.maxAgeSeconds);
 
@@ -213,6 +218,9 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
       domain: orgDomain,
       poppyDomains: strings(metadata.poppy_domains).map((entry) => entry.toLowerCase()),
       protocolVersion: doc.protocol_version as string,
+      specificationRevision: protocolRevision(doc.protocol_version as string),
+      authFingerprint: canonicalAuth(auth),
+      ...(isObj(doc.feedback) && typeof doc.feedback.endpoint === "string" ? { feedback: { endpoint: doc.feedback.endpoint } } : {}),
       endpoints,
       signIn,
       customScopes,
@@ -224,6 +232,12 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
     cacheSeconds,
     report: checked
   };
+}
+
+function canonicalAuth(value: unknown): string {
+  const sorted = (item: unknown): unknown => Array.isArray(item) ? item.map(sorted) : isObj(item)
+    ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, sorted(item[key])])) : item;
+  return JSON.stringify(sorted(value));
 }
 
 /**
@@ -239,6 +253,7 @@ export function tokenHostAllowed(company: Company, url: URL): boolean {
     company.conversations?.endpoint,
     company.extensions.operations?.endpoint,
     company.signIn.mediated?.endpoint,
+    company.feedback?.endpoint,
     ...company.apis.map((api) => api.url)
   ].flatMap((value) => (value && URL.canParse(value) ? [new URL(value).hostname.toLowerCase()] : []));
   if (listed.includes(host)) return true;
@@ -274,7 +289,8 @@ export function protocolEndpoint(company: Company, url: URL): string | null {
     company.signIn.mediated?.endpoint,
     company.conversations?.endpoint,
     company.extensions.operations?.endpoint,
-    company.web?.browserSessionEndpoint
+    company.web?.browserSessionEndpoint,
+    company.feedback?.endpoint
   ];
   for (const endpoint of endpoints) {
     if (!endpoint || !URL.canParse(endpoint)) continue;
