@@ -1,0 +1,11 @@
+{
+  "client_id": "https://raw.githubusercontent.com/adewale/pda/poppy-live-identity-20261021/poppy/interop/client.json",
+  "client_name": "Poppy Demo Agent (interop tests)",
+  "jwks_uri": "https://raw.githubusercontent.com/adewale/pda/poppy-live-identity-20261021/poppy/interop/jwks.json",
+  "token_endpoint_auth_method": "private_key_jwt",
+  "extensions": {
+    "operations": {
+      "version": "1"
+    }
+  }
+}
