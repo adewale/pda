@@ -68,7 +68,7 @@ function harnessFile(name: string): Uint8Array | null {
 
 /** The order scenarios run and are shown in; others follow by id. */
 export const SCENARIO_ORDER = [
-  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "O2", "OX", "OU", "RL", "DP", "CM",
+  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "O2", "OX", "OU", "RL", "DP", "CM", "ML",
   // Adversarial (docs/adversarial-interop.md): network faults, then malicious agent and Company.
   "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE", "XR", "XT"
 ];
@@ -153,10 +153,16 @@ export function loadRegistry(file = path.join(INTEROP, "registry.json")): Regist
     const key = `${entry.role}:${entry.name}`;
     if (seen.has(key)) throw new Error(`${file}: ${entry.name} is listed twice as ${entry.role}`);
     seen.add(key);
+    if (entry.protocolVersion !== undefined && !(PROTOCOL_VERSIONS as readonly string[]).includes(entry.protocolVersion)) throw new Error(`${file}: ${entry.name} has an unsupported protocolVersion`);
     if (!entry.commit) throw new Error(`${file}: ${entry.name} pins no commit`);
     if (!entry.build && !entry.url) throw new Error(`${file}: ${entry.name} has neither build nor url`);
   }
   return registry;
+}
+
+/** Live peers have no adapter manifest. Their declared version must be explicit. */
+export function liveCompanyManifest(entry: RegistryEntry, scenarios: readonly Scenario[]): Manifest {
+  return { interop: 1, name: entry.name, role: "company", commit: entry.commit, poppy: [entry.protocolVersion ?? "0.1"], scenarios: scenarios.map((s) => s.id) };
 }
 
 export function loadScenarios(dir = path.join(INTEROP, "scenarios")): Scenario[] {
@@ -363,7 +369,7 @@ async function runCells(options: {
   return cells;
 }
 
-async function runOne(
+export async function runOne(
   cell: Cell,
   scenario: Scenario,
   agent: Implementation,
@@ -401,7 +407,12 @@ async function runOne(
       } catch (error) {
         return { kind: "broken", detail: error instanceof Error ? error.message : String(error) };
       }
-      return reply(await control(agent.target, "POST", "/step", { op, company: company.domain, params: sent }), true);
+      const answer = reply(await control(agent.target, "POST", "/step", { op, company: company.domain, params: sent }), true);
+      if (!company.entry.build && op === "discover" && answer.kind === "ok") {
+        const found = answer.result as { poppy_version?: string };
+        if (found.poppy_version !== cell.protocolVersion) return { kind: "broken", detail: `Live Company declares ${found.poppy_version}, but this cell expects ${cell.protocolVersion}; update its registry entry before testing` };
+      }
+      return answer;
     },
     company: async (hook, params) => {
       const answer = await control(company.target, "POST", `/hooks/${hook}`, params);
@@ -706,7 +717,7 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
         // The key goes through the docker CLI's environment (`-e NAME`), never its arguments, so `ps` doesn't show it.
         const passed = Object.keys(live.secret).flatMap((key) => ["-e", key]);
         docker(
-          ["run", "-d", "--name", name, ...label, "-p", "127.0.0.1::8081", ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), ...passed, imageOf(impl.entry, registry, options.imageTag)],
+          ["run", "-d", "--name", name, ...label, ...(process.env.CODEX_PROXY_CERT ? ["--mount", `type=bind,src=${process.env.CODEX_PROXY_CERT},dst=/run/interop-live-ca.pem,readonly`, "-e", "NODE_EXTRA_CA_CERTS=/run/interop-live-ca.pem"] : []), "-p", "127.0.0.1::8081", ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]), ...passed, imageOf(impl.entry, registry, options.imageTag)],
           { quiet: true, env: live.secret }
         );
         containers.push(name);
@@ -724,7 +735,7 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
         return { status: response.status, body: parse(await response.text()) };
       };
       for (const impl of implementations.filter((item) => item.entry.role === "company")) {
-        impl.manifest = { interop: 1, name: impl.entry.name, role: "company", commit: impl.entry.commit, poppy: ["0.1"], scenarios: scenarios.map((s) => s.id) };
+        impl.manifest = liveCompanyManifest(impl.entry, scenarios);
       }
     }
 

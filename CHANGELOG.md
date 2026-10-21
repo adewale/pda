@@ -15,6 +15,8 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Added
 
+- A signed-out MCP tool-listing scenario and four live 0.2 targets. [Live evidence](docs/live-0.2-testing.md) separates completed checks from those requiring sign-in.
+
 - Explicit 0.1 and 0.2 profiles over the existing validator and client, with version and revision in validation reports and interop cells.
 - A hash-verified, licensed copy of the 0.2 specification, guides, Operations text, official changelog, schemas and Company validator. `npm run check:spec` verifies it offline; `npm run spec:drift` compares upstream without changing the pin.
 - Separate 0.2 mock and Datalayer 0.25.0 peer entries reuse the existing adapters. Historical 0.1 peers and their pins remain available. The official Company validator runs in a separate one-sided lane.
@@ -30,6 +32,8 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 - Read and error validation, mock behavior, trace checks and known-failure matching use the selected protocol version. A 0.1 ambiguity cannot exempt a 0.2 failure.
 
 ### Fixed
+
+- Live interop cells use the configured wire version and stop if discovery declares another version. Legacy live entries retain their 0.1 default.
 
 - Removed accidental acceptance of newer draft versions under 0.1 validation rules.
 - Discovery caches keep exact requested host keys. Old unversioned caches are revalidated.

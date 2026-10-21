@@ -189,3 +189,17 @@ describe("the agent adapter under the live identity", () => {
     expect(payload.sub).toBe(identity.clientId);
   });
 });
+
+it("uses matching public keys under a static-host path prefix", () => {
+  const file = path.join(dir, "static-host.json");
+  script(file, "--origin", ORIGIN);
+  const saved = JSON.parse(readFileSync(file, "utf8"));
+  saved.client_id = "https://static.example/repository/test/poppy/interop/client.json";
+  writeFileSync(file, JSON.stringify(saved));
+  const read = readLiveIdentity(file)!;
+  const live = liveIdentityFrom({ INTEROP_LIVE_CLIENT_ID: read.clientId, INTEROP_LIVE_KEY: JSON.stringify(read.key) })!;
+  const host = { env: { PUBLIC_ORIGIN: live.origin, POPPY_CLIENT_NAME: "Test", POPPY_LOGO_URI: "https://static.example/logo.svg", POPPY_SIGNING_JWKS: live.signingJwks, TOKEN_ENC_KEY: Buffer.alloc(32, 7).toString("base64") }, sql: memorySql() } as unknown as PoppyHost;
+  const client = new LiveIdentityClient(host, live);
+  expect(client.identity.clientId).toBe(saved.client_id);
+  expect(client.identity.jwksUri).toBe("https://static.example/repository/test/poppy/interop/jwks.json");
+});

@@ -1,0 +1,313 @@
+{
+  "date": "2026-10-21",
+  "sourceBaseCommit": "1b0edce8649cb5b5eaa1598f1aca507ef737ec8b",
+  "sourceState": "Working tree on test/live-poppy-0.2; no application deployment",
+  "protocolVersion": "0.2",
+  "specificationRevision": "2026-10-19",
+  "method": "Existing PDA client and live runner, one request per second per host, no automatic retries. Separate public test identity; no account credentials.",
+  "runs": {
+    "firstIdentity": {
+      "run": "2026-10-21T11:41:40Z",
+      "artifact": "interop/results/2026-10-21-live-0.2-first/results.json",
+      "cells": [
+        {
+          "company": "crosswalk-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "stacktree-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "planmyvisit-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "saferate-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "crosswalk-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "stacktree-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "planmyvisit-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "fail",
+          "reason": "step 1 (agent session) refused: invalid_client (PlanMyVisit by Autoura refused the token request (invalid_client))"
+        },
+        {
+          "company": "saferate-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "fail",
+          "reason": "step 1 (agent session) refused: invalid_client (Safe Rate refused the token request (invalid_client): client metadata could not be fetched: not a JSON response)"
+        },
+        {
+          "company": "crosswalk-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "fail",
+          "reason": "step 2 (agent mcp_list) refused: sign_in_required (crosswalk: sign_in_required)"
+        },
+        {
+          "company": "stacktree-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "planmyvisit-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "fail",
+          "reason": "step 2 (agent mcp_list) refused: invalid_client (PlanMyVisit by Autoura refused the token request (invalid_client))"
+        },
+        {
+          "company": "saferate-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "fail",
+          "reason": "step 2 (agent mcp_list) refused: invalid_client (Safe Rate refused the token request (invalid_client): client metadata could not be fetched: not a JSON response)"
+        }
+      ]
+    },
+    "jsonIdentity": {
+      "run": "2026-10-21T11:43:58Z",
+      "artifact": "interop/results/2026-10-21-live-0.2-json/results.json",
+      "cells": [
+        {
+          "company": "crosswalk-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "stacktree-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "planmyvisit-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "saferate-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "crosswalk-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "stacktree-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "planmyvisit-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "saferate-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "crosswalk-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "fail",
+          "reason": "step 2 (agent mcp_list) refused: sign_in_required (crosswalk: sign_in_required)"
+        },
+        {
+          "company": "stacktree-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "planmyvisit-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "fail",
+          "reason": "step 2 (agent mcp_list) refused: sign_in_required (PlanMyVisit by Autoura: sign_in_required)"
+        },
+        {
+          "company": "saferate-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        }
+      ]
+    },
+    "final": {
+      "run": "2026-10-21T11:47:00Z",
+      "artifact": "interop/results/2026-10-21-live-0.2-final/results.json",
+      "cells": [
+        {
+          "company": "crosswalk-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "stacktree-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "planmyvisit-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "saferate-live",
+          "scenario": "D",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "crosswalk-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "stacktree-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "planmyvisit-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "saferate-live",
+          "scenario": "S0",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "crosswalk-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "unsupported",
+          "reason": "step 2 (agent mcp_list) is unsupported: MCP tool listing requires Sign-In; this signed-out scenario cannot exercise it"
+        },
+        {
+          "company": "stacktree-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        },
+        {
+          "company": "planmyvisit-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "unsupported",
+          "reason": "step 2 (agent mcp_list) is unsupported: MCP tool listing requires Sign-In; this signed-out scenario cannot exercise it"
+        },
+        {
+          "company": "saferate-live",
+          "scenario": "ML",
+          "protocolVersion": "0.2",
+          "outcome": "pass",
+          "reason": null
+        }
+      ]
+    }
+  },
+  "planMyVisitConversation": {
+    "existingScenario": "C: pass",
+    "explicitSendReadClose": {
+      "sent": true,
+      "read": true,
+      "messageCount": 2,
+      "closed": true
+    }
+  },
+  "limits": [
+    "Live lane does not record wire traffic; step outcomes are not packet-level cryptographic evidence.",
+    "Crosswalk and PlanMyVisit tool listing requires Sign-In; unsupported does not count as pass.",
+    "First identity used GitHub text/plain metadata; PlanMyVisit and Safe Rate rejected it. Valid JSON hosting resolved both refusals.",
+    "Read-only Stacktree Device Sign-In challenge issued; approval-dependent checks pending. No authenticated reads, revocation, writes or purchase checks claimed."
+  ],
+  "validation": {
+    "fullSuite": {
+      "passed": 1750,
+      "skipped": 1,
+      "failed": 0,
+      "files": 77
+    },
+    "harnessTests": 254,
+    "typecheck": "pass",
+    "localD_S0_ML": {
+      "passed": 9,
+      "failed": 0,
+      "unsupported": 0,
+      "errors": 0
+    },
+    "versionRegressionMutation": "fails when the live manifest is restored to hard-coded 0.1",
+    "snapshotIntegrity": "48 changelog dispositions and 56 pinned upstream files verified"
+  }
+}

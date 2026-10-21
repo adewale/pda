@@ -34,8 +34,8 @@ export function liveIdentityFrom(env: { readonly INTEROP_LIVE_CLIENT_ID?: string
   } catch {
     throw new Error("INTEROP_LIVE_CLIENT_ID isn't a URL");
   }
-  if (url.protocol !== "https:" || url.pathname !== "/poppy/interop/client.json" || url.search || url.hash) {
-    throw new Error("INTEROP_LIVE_CLIENT_ID must be https://<origin>/poppy/interop/client.json");
+  if (url.protocol !== "https:" || url.username || url.password || !url.pathname.endsWith("/poppy/interop/client.json") || url.search || url.hash) {
+    throw new Error("INTEROP_LIVE_CLIENT_ID must be an HTTPS URL ending in /poppy/interop/client.json, without credentials, query or fragment");
   }
   let jwk: unknown;
   try {
@@ -67,8 +67,8 @@ export class LiveIdentityClient extends PoppyClient {
     this.identity = {
       ...readIdentity(host.env),
       clientId: live.clientId,
-      jwksUri: `${live.origin}/poppy/interop/jwks.json`,
-      redirectUri: `${live.origin}/poppy/interop/callback`
+      jwksUri: new URL("jwks.json", live.clientId).href,
+      redirectUri: new URL("callback", live.clientId).href
     };
   }
 }
