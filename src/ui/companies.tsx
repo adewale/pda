@@ -1,9 +1,8 @@
 import { Table } from "@cloudflare/kumo";
 import { ArrowLeftIcon, ChatsIcon, ShieldCheckIcon, StorefrontIcon, WarningCircleIcon } from "@phosphor-icons/react";
-import { useId, useState, type FormEvent } from "react";
 import type { ConnectedAccount, PendingSignOut, Permission } from "../poppy/wire";
 import type { PoppyView } from "../use-pi-session";
-import { SendAction, useSend, type Send } from "./connection";
+import { SendAction, type Send } from "./connection";
 import { Action, EmptyState, PageHeader, Section, Truncated } from "./controls";
 import { ACCESS, accessOfScope, ago, fullDate, untilDate, when } from "./format";
 import type { Issuer } from "../poppy/issuer";
@@ -52,126 +51,6 @@ function usesLeft(permission: Permission): string {
 
 function limitText(permission: Permission): string {
   return permission.maxAmount ? `up to ${permission.maxAmount} ${permission.currency ?? ""}`.trim() : "any amount";
-}
-
-/** Add a standing permission for one Company: persistent labels, inline checks, input kept on error. */
-function AddPermission({ company, send: sendFrame }: { company: CompanyRow; send: Send }) {
-  const { send, disabled, note } = useSend(sendFrame);
-  const [draft, setDraft] = useState({ account: "", action: "", maxAmount: "", currency: "USD", maxUses: "" });
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const ids = { action: useId(), amount: useId(), uses: useId() };
-  const accounts = company.accounts;
-  if (accounts.length === 0) {
-    return <p className="text-[13px] text-kumo-subtle">Sign in to {company.name} through your agent to add a standing permission.</p>;
-  }
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const found: Record<string, string> = {};
-    if (!draft.action.trim()) found.action = "Name the word or words the Company's summary must begin with, such as exchange.";
-    if (draft.maxAmount && !/^\d+(\.\d+)?$/.test(draft.maxAmount.trim())) found.amount = "Use a number, such as 50 or 49.99.";
-    if (draft.maxUses && !/^[1-9]\d*$/.test(draft.maxUses.trim())) found.uses = "Use a whole number of times, such as 3.";
-    setErrors(found);
-    if (Object.keys(found).length) return;
-    const account = accounts.find((item) => `${item.issuer}|${item.account}` === draft.account) ?? accounts[0]!;
-    if (disabled) return;
-    const sent = send({
-      type: "poppy.permission.add",
-      issuer: account.issuer,
-      account: account.account,
-      action: draft.action.trim(),
-      ...(draft.maxAmount ? { maxAmount: draft.maxAmount.trim(), currency: draft.currency } : {}),
-      ...(draft.maxUses ? { maxUses: Number(draft.maxUses) } : {})
-    });
-    // What the User filled in stays unless it went.
-    if (sent) setDraft({ ...draft, action: "", maxAmount: "", maxUses: "" });
-  };
-  const field =
-    "mt-1 block w-full rounded-lg bg-kumo-base px-3 py-2 text-base text-kumo-default ring ring-kumo-line placeholder:text-kumo-placeholder focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-brand aria-invalid:ring-kumo-danger";
-  const label = "block text-[13px] font-medium text-kumo-default";
-  return (
-    <form noValidate onSubmit={submit} className="space-y-4 rounded-xl p-4 ring ring-kumo-hairline" aria-label={`Add a standing permission at ${company.name}`}>
-      <p className="text-base font-semibold">Add a standing permission</p>
-      <label className={label}>
-        Account
-        <select className={field} value={draft.account} onChange={(event) => setDraft({ ...draft, account: event.target.value })}>
-          {accounts.map((account) => (
-            <option key={`${account.issuer}|${account.account}`} value={`${account.issuer}|${account.account}`}>
-              {account.account}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div>
-        <label className={label}>
-          Word or words {company.name}'s summary must begin with
-          <input
-            className={field}
-            value={draft.action}
-            placeholder="exchange"
-            aria-invalid={errors.action ? true : undefined}
-            aria-describedby={errors.action ? ids.action : undefined}
-            onChange={(event) => setDraft({ ...draft, action: event.target.value })}
-          />
-        </label>
-        {errors.action ? (
-          <p id={ids.action} className="mt-1 text-[13px] text-kumo-danger">
-            {errors.action}
-          </p>
-        ) : null}
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-[1fr_6rem_1fr]">
-        <div>
-          <label className={label}>
-            Up to
-            <input
-              className={`${field} tabular-nums`}
-              inputMode="decimal"
-              placeholder="50"
-              value={draft.maxAmount}
-              aria-invalid={errors.amount ? true : undefined}
-              aria-describedby={errors.amount ? ids.amount : undefined}
-              onChange={(event) => setDraft({ ...draft, maxAmount: event.target.value })}
-            />
-          </label>
-          {errors.amount ? (
-            <p id={ids.amount} className="mt-1 text-[13px] text-kumo-danger">
-              {errors.amount}
-            </p>
-          ) : null}
-        </div>
-        <label className={label}>
-          Currency
-          <input className={`${field} uppercase`} maxLength={3} value={draft.currency} onChange={(event) => setDraft({ ...draft, currency: event.target.value.toUpperCase() })} />
-        </label>
-        <div className="col-span-2 sm:col-span-1">
-          <label className={label}>
-            Number of times
-            <input
-              className={`${field} tabular-nums`}
-              inputMode="numeric"
-              placeholder="3"
-              value={draft.maxUses}
-              aria-invalid={errors.uses ? true : undefined}
-              aria-describedby={errors.uses ? ids.uses : undefined}
-              onChange={(event) => setDraft({ ...draft, maxUses: event.target.value })}
-            />
-          </label>
-          {errors.uses ? (
-            <p id={ids.uses} className="mt-1 text-[13px] text-kumo-danger">
-              {errors.uses}
-            </p>
-          ) : null}
-        </div>
-      </div>
-      <p className="text-[13px] text-pretty text-kumo-subtle">Leave the amount or the number of times empty for no limit. Terms the agent can't check, such as a renewal or a flag, still come to you.</p>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {note ? <div className="basis-full text-right">{note}</div> : null}
-        <Action type="submit" variant="primary" disabled={disabled}>
-          Add standing permission
-        </Action>
-      </div>
-    </form>
-  );
 }
 
 /**
@@ -262,10 +141,10 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
         {company.signOuts.some((signOut) => signOut.reason === "step_up") ? <NotAccepted company={company} reason="step_up" send={send} /> : null}
       </Section>
 
-      <Section title="Standing permissions" description={`Your agent approves ${company.name}'s proposals that match, within these limits. Anything else still asks you.`}>
+      <Section title="Standing permissions" description="Automatic approval is paused. Every operation needs your approval of its exact revision; stored permissions can be removed below.">
         {company.permissions.length === 0 ? (
           <EmptyState icon={<ShieldCheckIcon size={20} />} title="None yet">
-            Without one, your agent asks you before every change at {company.name}.
+            Your agent asks you before every change at {company.name}.
           </EmptyState>
         ) : (
           <ul className="divide-y divide-kumo-hairline rounded-xl ring ring-kumo-hairline">
@@ -273,7 +152,7 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
               <li key={permission.id} className="flex flex-wrap items-center gap-x-6 gap-y-2 p-4">
                 <div className="min-w-0 flex-1">
                   <p className="text-base">
-                    Proposals that say “{permission.action}”, {limitText(permission)}
+                    Paused: proposals that say “{permission.action}”, {limitText(permission)}
                   </p>
                   <p className="text-[13px] text-kumo-subtle tabular-nums">
                     {usesLeft(permission)} · Until {untilDate(permission.expiresAt)} · {permission.account}
@@ -286,7 +165,7 @@ function CompanyDetail({ company, view, send, onBack }: { company: CompanyRow; v
             ))}
           </ul>
         )}
-        <AddPermission company={company} send={send} />
+
       </Section>
 
       <Section title="Open conversations" description={`Conversations with ${company.name}'s agent that your agent is still following.`}>
@@ -338,7 +217,7 @@ export function CompaniesPage({
   if (company) return <CompanyDetail company={company} view={view} send={send} onBack={() => onSelect(null)} />;
   return (
     <div className="space-y-6">
-      <PageHeader title="Companies" description="Where your agent can act for you, with what access, and what it may approve without asking." />
+      <PageHeader title="Companies" description="Where your agent can act for you, with what access. Every operation asks for your approval." />
       {companies.length === 0 ? (
         <EmptyState icon={<StorefrontIcon size={20} />} title="No Companies yet">
           When you sign in at a Company through your agent, it appears here with the access you gave.

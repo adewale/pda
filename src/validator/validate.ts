@@ -15,8 +15,8 @@ export const VALIDATOR = { name: "poppy-validator", version: "1.0.0" } as const;
 /**
  * valid: no errors. invalid: an error, which is a MUST, an RFC's MUST or a
  * normative statement without a key word broken (docs/conformance-levels.md).
- * indeterminate: a document couldn't be fetched, or not within the limits
- * the Guides recommend, so it wasn't checked.
+ * indeterminate: fetching failed or a resource allowance prevented checks.
+ * Limits are implementation choices informed by the Guides.
  */
 export type Outcome = "valid" | "invalid" | "indeterminate";
 
@@ -55,7 +55,7 @@ export type Report = {
 };
 
 /** Messages after which the document wasn't fetched or read, so nothing in it was checked. */
-const UNREACHABLE = new Set(["http-failed", "http-status", "http-non-public-host", "http-non-public-address", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large"]);
+const UNREACHABLE = new Set(["http-failed", "http-status", "http-non-public-host", "http-non-public-address", "http-too-many-redirects", "http-redirect-not-allowed", "http-too-large", "json-resource-limit"]);
 
 function report(profile: Profile, documents: DocumentResult[], checkers: Checker[], skipped: Skipped[]): Report {
   const messages = checkers.flatMap((c) => c.messages);
@@ -79,21 +79,23 @@ function report(profile: Profile, documents: DocumentResult[], checkers: Checker
   };
 }
 
-/** Parse text into the checker's document; undefined when it isn't JSON. */
+/** Parse text into the checker's document; undefined if parsing is refused. */
 function parse(c: Checker, text: string): unknown {
   const parsed = parseJson(text);
   if (!parsed.ok) {
+    const id = parsed.resourceLimit ? "json-resource-limit" : "json-syntax";
+    const definition = MESSAGES[id];
     c.messages.push({
-      id: "json-syntax",
-      basis: MESSAGES["json-syntax"].basis,
-      severity: MESSAGES["json-syntax"].severity,
-      refuses: MESSAGES["json-syntax"].refuses,
+      id,
+      basis: definition.basis,
+      severity: definition.severity,
+      refuses: definition.refuses,
       document: c.document,
       pointer: "",
       line: parsed.position.line,
       column: parsed.position.column,
       text: `${parsed.error}.`,
-      ref: { label: "RFC 8259", url: "https://www.rfc-editor.org/rfc/rfc8259" }
+      ref: definition.ref
     });
     return undefined;
   }

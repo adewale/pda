@@ -106,6 +106,7 @@ export function hasCode(error: unknown, ...codes: readonly KnownErrorCode[]): er
  */
 export type RequestAnswer = number | "none";
 const answers = new WeakMap<object, RequestAnswer>();
+const unreadableAnswers = new WeakMap<object, number>();
 
 /** Mark `error` with what its request got back, and return it. */
 export function withAnswer<T>(error: T, answer: RequestAnswer): T {
@@ -116,6 +117,23 @@ export function withAnswer<T>(error: T, answer: RequestAnswer): T {
 /** What the request that threw `error` got back, if it reached a Company's API. */
 export function answerOf(error: unknown): RequestAnswer | undefined {
   return typeof error === "object" && error !== null ? answers.get(error) : undefined;
+}
+
+/** Headers arrived, but the dispatched request's response cannot establish its outcome. */
+export function withUnreadableAnswer<T>(error: T, status: number): T {
+  withAnswer(error, status);
+  if (typeof error === "object" && error !== null) unreadableAnswers.set(error, status);
+  return error;
+}
+
+export function unreadableAnswerOf(error: unknown): number | undefined {
+  return typeof error === "object" && error !== null ? unreadableAnswers.get(error) : undefined;
+}
+
+/** A preparation failure is not an answer to the approved application request. */
+export function withoutAnswer<T>(error: T): T {
+  if (typeof error === "object" && error !== null) { answers.delete(error); unreadableAnswers.delete(error); }
+  return error;
 }
 
 /** The Company asked us to wait longer than we hold a request open for. */
@@ -186,6 +204,8 @@ export type TokenOptions = {
   readonly scope?: string;
   /** A Bearer token for one MCP server; `resource` is its URL (spec 4.3). */
   readonly bearer?: boolean;
+  /** Internal authority check, after every asynchronous preparation and before each transport attempt. */
+  readonly beforeDispatch?: () => void;
 };
 
 export function scopeSet(scope: string | undefined | null): Set<string> {
@@ -1061,18 +1081,20 @@ export class PoppyClient {
           })
         );
       }
+      const outbound = new Request(url.href, {
+        method: request.method,
+        headers,
+        // Never follow a redirect with this proof or token (Guides).
+        redirect: "manual",
+        ...(request.form ? { body: request.form } : request.body !== undefined ? { body: JSON.stringify(request.body) } : {})
+      });
+      // No await between the authority check and fetch: a revocation during
+      // token renewal, nonce retries or a rate-limit wait wins before sending.
+      options.beforeDispatch?.();
       // A deadline for the answer to start; the caller reads the body with `readBody`.
       const response = await withDeadline(this.timeouts.requestMs + (request.waitMs ?? 0), (signal) =>
         raceAbort(
-          this.host.fetcher(
-            new Request(url.href, {
-              method: request.method,
-              headers,
-              // Never follow a redirect with this proof or token (Guides).
-              redirect: "manual",
-              ...(request.form ? { body: request.form } : request.body !== undefined ? { body: JSON.stringify(request.body) } : {})
-            })
-          ),
+          this.host.fetcher(outbound),
           signal
         )
       ).catch((error: unknown) => {
@@ -1141,12 +1163,17 @@ export class PoppyClient {
     options: TokenOptions = {}
   ): Promise<{ status: number; body: Json; headers: Headers }> {
     const response = await this.resource(company, request, options);
-    const body = await this.readJson(response);
+    let body: Json;
+    try {
+      const text = await this.readBody(response);
+      try { body = text ? parseStrictJson(text) : null; }
+      catch { throw new PoppyError("invalid_response", `${company.name} returned malformed JSON`, response.status); }
+    } catch (error) { throw withUnreadableAnswer(error, response.status); }
     if (response.status >= 400) {
       const code = companyErrorCode(isObject(body) ? body.error : undefined, response.status);
-      throw new PoppyError(code, `${company.name} returned ${code}`, response.status, {
+      throw withAnswer(new PoppyError(code, `${company.name} returned ${code}`, response.status, {
         ...(body !== null ? { body } : {})
-      });
+      }), response.status);
     }
     return { status: response.status, body, headers: response.headers };
   }

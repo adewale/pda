@@ -407,9 +407,9 @@ const CHECKS = {
       [`${SHOP_ISSUER}/poppy/conversations/${id}/events`]: { status: 200, json: input }
     });
     sql.exec(
-      `INSERT INTO poppy_conversations (id, issuer, label, parent, direct, status, responder, cursor, context, last_event_at, created_at)
-       VALUES (?, ?, 'main', NULL, 0, 'working', 'agent', NULL, NULL, ?, ?)`,
-      id, SHOP_ISSUER, Date.now(), Date.now()
+      `INSERT INTO poppy_conversations (id, issuer, remote_id, label, parent, direct, status, responder, cursor, context, last_event_at, created_at)
+       VALUES (?, ?, ?, 'main', NULL, 0, 'working', 'agent', NULL, NULL, ?, ?)`,
+      id, SHOP_ISSUER, id, Date.now(), Date.now()
     );
     await readConversation(client, id, 0);
     check(hits(log, `${SHOP_ISSUER}/poppy/conversations/${id}/events`) === 1, harness("the events endpoint wasn't read once"));
@@ -595,9 +595,9 @@ const CHECKS = {
       const events = `${SHOP_ISSUER}/poppy/conversations/${id}/events`;
       const { client, sql, log } = await clientWith({ [events]: answer });
       sql.exec(
-        `INSERT INTO poppy_conversations (id, issuer, label, parent, direct, status, responder, cursor, context, last_event_at, created_at)
-         VALUES (?, ?, 'main', NULL, 0, 'working', 'agent', NULL, NULL, ?, ?)`,
-        id, SHOP_ISSUER, Date.now(), Date.now()
+        `INSERT INTO poppy_conversations (id, issuer, remote_id, label, parent, direct, status, responder, cursor, context, last_event_at, created_at)
+         VALUES (?, ?, ?, 'main', NULL, 0, 'working', 'agent', NULL, NULL, ?, ?)`,
+        id, SHOP_ISSUER, id, Date.now(), Date.now()
       );
       const before = Date.now();
       const next = await readConversation(client, id, 0);

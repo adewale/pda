@@ -19,7 +19,7 @@ Some things look like they could be tools but are features of the agent or the p
 
 Two kinds of approval card exist, and they come from different places:
 
-- **A Company's proposal is Poppy's.** When a Company has the Operations extension and answers a write with an operation (Ops §4), the User approves its exact revision and terms on a card (Ops §5.1), and only then does the agent confirm it (Ops §5.2). A standing permission the User set can approve a proposal instead, within its limits (Ops §5.1). This is the only approval a Company ever sees.
+- **A Company's proposal is Poppy's.** When a Company has the Operations extension and answers a write with an operation (Ops §4), the User approves its exact revision and terms on a card (Ops §5.1), and only then does the agent confirm it (Ops §5.2). Generic standing approval is paused; every new operation uses the User's exact-revision card. This is the only approval a Company ever sees.
 - **Our own cards are this project's.** Every write a Company doesn't propose waits on a local approval card before anything is sent: an OpenAPI write whose description doesn't declare an operation, an MCP tool without `readOnlyHint: true`, and a website form submit. Every upload of the User's photo waits on one too, even to an endpoint that proposes. The draft doesn't ask for these; we add them so that nothing changes the User's account, and none of their files leaves, on the model's word alone ([decision 6](decisions.md#6-prompt-injection-defences-that-are-structural), [decision 26](decisions.md#26-photos-in-the-chat-uploaded-only-with-the-users-approval)). Once approved, the card's receipt says what the Company answered: done for a 2xx; sent as approved but answered with that status and error code, so nothing changed unless the Company says otherwise; or, with no answer, that it may or may not have reached the Company.
 - **Some writes get no card at all.** A write the Company's description leaves outside its Poppy Session (its own sign-in, session, token or compatibility endpoint) is refused before any card: the agent's only access is its Poppy Session ([readings.md](readings.md#poppy-session-only)).
 
@@ -43,7 +43,7 @@ No tool approves, confirms or cancels anything. A scheduled task's run is a back
 | Sign in during a conversation when the Company asks | §7.11 | None: the client reacts to the event, through `poppy_sign_in`'s card | As for signing in | `src/poppy/conversations.ts` |
 | Close a conversation | §7.12 | `poppy_close` | No | `src/poppy/conversations.ts` |
 | Read a Company's proposal, its terms, state and result | Ops §3, §6 | `poppy_operation` | No: reading only | `src/poppy/operations.ts` |
-| Approve, decline or cancel a proposal, or set a standing permission | Ops §5.1, §5.2, §7 | None: cards and the Companies page | It is the User's action | `src/poppy/operations.ts`, `src/poppy-ui.tsx` |
+| Approve, decline or cancel a proposal; remove paused standing permissions | Ops §5.1, §5.2, §7 | None: cards and the Companies page | It is the User's action | `src/poppy/operations.ts`, `src/poppy-ui.tsx` |
 | See what is still open at every Company: operations, approvals, sign-ins, conversations | Spans §4, §7 and Ops §3 | `poppy_status` | No | `src/poppy/tools.ts`, `src/poppy/activity.ts` |
 
 ## This project's own features
@@ -53,7 +53,7 @@ No tool approves, confirms or cancels anything. A scheduled task's run is a back
 | Read a public web page the User points it at, signed out, sending nothing about them, and answer a question about it: a reader with no tools reads the page and the agent gets only its answer; a page that needs JavaScript is rendered in Cloudflare Browser Run, which may send only GET and HEAD requests to public hosts | `read_url` | No; it can't send anything but the address, and the rendering browser can't post anything | `src/tools/web.ts`, `src/tools/render.ts`, `src/tools/extensions.ts` (the reader) |
 | Remember things about the User across the conversation | `remember` | No; the User sees and deletes every note in Settings | `src/tools/memory-store.ts` |
 | Search what it remembers | `recall` | No | `src/tools/memory-store.ts` |
-| Forget a note | `forget` | No | `src/tools/memory-store.ts` |
+| Forget an Agent noted note; User-source notes are deleted in Settings | `forget` | Settings for User-source deletion | `src/tools/memory-store.ts` |
 | The date and time in the User's time zone, or another | `now` | No | `src/tools/clock.ts` |
 | Date arithmetic and differences, with weekdays | `date_math` | No | `src/tools/clock.ts` |
 | Exact sums, including money | `calculate` | No | `src/tools/calculate.ts` |

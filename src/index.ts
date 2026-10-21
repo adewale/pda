@@ -1,4 +1,5 @@
 import type { AttachResult, Caller, KeyResult, PersonalAgent } from "./agent";
+import { BROWSER_SESSION_HEADER } from "./browser-sessions";
 import { isAllowed, maySignIn, readOwners } from "./allowlist";
 import { humanSize, MAX_ATTACHMENT_BYTES, MAX_PREVIEW_BYTES } from "./attachments";
 import { ConfigError, readSessionSecret, readSignInProviders } from "./config";
@@ -16,7 +17,7 @@ import {
   AuthError,
   clearSession,
   verifySession,
-  type Identity
+  type BrowserIdentity
 } from "./session";
 
 export { PersonalAgent } from "./agent";
@@ -44,20 +45,24 @@ function sameOrigin(request: Request): boolean {
  * request. What the agent is handed: who they are, and this request's id,
  * for the events of any turn the call starts.
  */
-async function signedIn(request: Request, env: Env): Promise<Caller> {
+async function signedIn(request: Request, env: Env): Promise<Caller & BrowserIdentity> {
   const identity = await verifySession(request, readSessionSecret(env));
   const event = currentEvent();
   event?.set({ sign_in_provider: literal(identity.provider) });
   if (!maySignIn(identity, env)) throw new AuthError("Not allowed to sign in");
-  // Pseudonymous: the agent's Durable Object id, as its events and the demo gateway's metadata carry it. Never the email or provider id.
-  event?.set({ signed_in: true, agent_id: agentId(env.PersonalAgent.idFromName(await agentNameFor(identity))), is_owner: isAllowed(identity, readOwners(env)) });
+  const agent = env.PersonalAgent.getByName(await agentNameFor(identity));
+  if (!await agent.admitBrowserSession(identity)) throw new AuthError("Session revoked");
+  // Pseudonymous: never the email or provider id.
+  event?.set({ signed_in: true, agent_id: agentId(agent.id), is_owner: isAllowed(identity, readOwners(env)) });
   const requestId = id(event?.fields.request_id);
   return requestId ? { ...identity, requestId } : identity;
 }
 
-/** The person's own agent, named by a hash of who they are. */
-async function agentFor(identity: Identity, env: Env): Promise<DurableObjectStub<PersonalAgent>> {
-  return env.PersonalAgent.getByName(await agentNameFor({ provider: identity.provider, sub: identity.sub }));
+/** Recheck admission after asynchronous request-body reads, before selecting the person's own agent. */
+async function agentFor(identity: BrowserIdentity, env: Env): Promise<DurableObjectStub<PersonalAgent>> {
+  const agent = env.PersonalAgent.getByName(await agentNameFor(identity));
+  if (!await agent.admitBrowserSession(identity)) throw new AuthError("Session revoked");
+  return agent;
 }
 
 /** This request's id: Cloudflare's `cf-ray`, or a new one where there is none (local dev, tests). */
@@ -127,11 +132,14 @@ async function handleWs(request: Request, env: Env): Promise<Response> {
   }
   const identity = await signedIn(request, env);
   const agent = await agentFor(identity, env);
+  const expectedWorkspace = new URL(request.url).searchParams.get("workspace");
+  if (!expectedWorkspace || expectedWorkspace !== agent.id.toString()) throw new AuthError("This tab belongs to another workspace");
   // Who this agent belongs to, for the demo check on its model calls.
   await agent.recordIdentity(identity);
   // Drop the query string so the client cannot pick a pi session; name this request, for the turns its messages start.
   const url = new URL(request.url);
   const forwarded = new Request(`${url.origin}/ws${identity.requestId ? `?request_id=${encodeURIComponent(identity.requestId)}` : ""}`, request);
+  forwarded.headers.set(BROWSER_SESSION_HEADER, identity.sessionId);
   return agent.fetch(forwarded);
 }
 
@@ -140,7 +148,7 @@ async function handleMe(request: Request, env: Env): Promise<Response> {
   if (request.method !== "GET") return text(405, "Method not allowed");
   const identity = await signedIn(request, env);
   return Response.json(
-    { email: identity.email, provider: identity.provider },
+    { email: identity.email, provider: identity.provider, workspaceId: (await agentFor(identity, env)).id.toString() },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
@@ -329,9 +337,15 @@ async function handlePush(request: Request, env: Env): Promise<Response> {
 }
 
 /** `POST /logout` from this origin only, so another site cannot sign you out. */
-function handleLogout(request: Request): Response {
+async function handleLogout(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return text(405, "Method not allowed");
   if (!sameOrigin(request)) return text(403, "Cross-origin logout refused");
+  try {
+    const identity = await verifySession(request, readSessionSecret(env));
+    await env.PersonalAgent.getByName(await agentNameFor(identity)).revokeBrowserSession(identity);
+  } catch (error) {
+    if (!(error instanceof AuthError)) throw error;
+  }
   return new Response(null, {
     status: 303,
     headers: { Location: "/", "Set-Cookie": clearSession(), "Cache-Control": "no-store" }
@@ -452,9 +466,11 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname === "/validator" || pathname.startsWith("/validator/")) {
       const response = await handleValidator(request, {
         fetcher: (outbound) => fetch(outbound),
+        allowRequest: async (inbound) =>
+          (await env.VALIDATOR_LIMITER.limit({ key: `input:${inbound.headers.get("CF-Connecting-IP") ?? "unknown"}` })).success,
         // URL checks fetch from the network: a few a minute per address.
         allowFetch: async (inbound) =>
-          (await env.VALIDATOR_LIMITER.limit({ key: inbound.headers.get("CF-Connecting-IP") ?? "unknown" })).success
+          (await env.VALIDATOR_LIMITER.limit({ key: `fetch:${inbound.headers.get("CF-Connecting-IP") ?? "unknown"}` })).success
       });
       if (response) return response;
     }
@@ -471,7 +487,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (pathname === "/api/memories" || pathname.startsWith("/api/memories/")) return await handleMemories(request, env);
     if (pathname === "/api/schedules" || pathname.startsWith("/api/schedules/")) return await handleSchedules(request, env);
     if (pathname.startsWith("/api/push/")) return await handlePush(request, env);
-    if (pathname === "/logout") return handleLogout(request);
+    if (pathname === "/logout") return await handleLogout(request, env);
     if (pathname.startsWith("/auth/")) return await handleAuth(request, env);
     // The interop test client's two documents, only when the deployment sets INTEROP_LIVE_JWKS.
     if (pathname.startsWith("/poppy/interop/")) return await handleInteropClientRoute(request, env);

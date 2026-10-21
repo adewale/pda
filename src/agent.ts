@@ -3,13 +3,16 @@ import type { Provider } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { createRegistry, Harness, type Extension, type Storage as PiStorage } from "@earendil-works/pi-durable";
 import { PiHarness } from "agents/harness/pi";
-import { Lifecycle } from "agents/lifecycle";
+import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle";
 import { WebSockets } from "agents/websockets";
 import { AgentLog, type Trigger } from "./agent-log";
 import { maySignIn, type ListEnv } from "./allowlist";
 import { AttachmentExpiry, attachmentsExtension } from "./attachment-images";
 import { AttachmentError, attachmentInfo, deleteAttachment, migrateAttachments, readAttachment, saveAttachment, type AttachmentInfo } from "./attachments";
 import { Ledger } from "./budget";
+import { BrowserSessions } from "./browser-sessions";
+import { AuthError, type BrowserIdentity } from "./session";
+import { TurnAuthority } from "./tools/turn-authority";
 import { COMPACTION_POLICY, compactionExtension } from "./compaction";
 import { TranscriptHistory } from "./history";
 import { agentId as pseudonym, code, configureLog, currentEvent, id, literal, type Safe } from "./log";
@@ -121,6 +124,8 @@ export type KeyResult = { ok: true; entitlement: Entitlement } | { ok: false; st
 
 /** One person's agent: a Pi harness whose root session is their one chat. */
 export class PersonalAgent extends DurableObject<Env> {
+  readonly browserSessions: BrowserSessions;
+  readonly turnAuthority: TurnAuthority;
   readonly registry = createRegistry();
   readonly harness: PiHarness;
   readonly sockets: PiSessionSockets;
@@ -157,6 +162,8 @@ export class PersonalAgent extends DurableObject<Env> {
     super(ctx, env);
     configureLog(env);
     for (const statement of SCHEMA) ctx.storage.sql.exec(statement);
+    this.browserSessions = new BrowserSessions(ctx, () => this.maySignInNow());
+    this.turnAuthority = new TurnAuthority(ctx.storage.sql, () => this.harness.storage());
     // The same pseudonymous id the demo gateway's metadata carries (`u`): never who the person is.
     const agentId = pseudonym(ctx.id);
     this.log = new AgentLog({ sql: ctx.storage.sql, agentId, companyName: (issuer) => this.#companyName(issuer) });
@@ -179,7 +186,8 @@ export class PersonalAgent extends DurableObject<Env> {
       onRefused: (entitlement) => this.#modelNotice(entitlement),
       onKeyRefused: (provider) => this.#keyRefusedNotice(provider),
       now: () => this.modelNow(),
-      onCall: (call) => this.log.modelCall(call)
+      onCall: (call) => this.log.modelCall(call),
+      onSettlementPending: () => this.#armAccounting()
     });
     const router = routerProvider(this.access, demoCatalogModel(env));
     let browser: PoppyBrowser | undefined;
@@ -223,9 +231,9 @@ export class PersonalAgent extends DurableObject<Env> {
     };
     this.generalTools = [
       webExtension(this.webTools),
-      memoryExtension(() => this.memories),
+      memoryExtension(() => this.memories, { fromUser: this.turnAuthority.isUser }),
       timeExtension({ userTimeZone: () => this.poppy.timeZone, now: () => this.clockNow() }),
-      scheduleExtension({ scheduler: () => this.schedules, userTimeZone: () => this.poppy.timeZone })
+      scheduleExtension({ scheduler: () => this.schedules, userTimeZone: () => this.poppy.timeZone, fromUser: this.turnAuthority.isUser })
     ];
     this.harness = new PiHarness({
       harness: async ({ storage, context }) => {
@@ -285,12 +293,44 @@ export class PersonalAgent extends DurableObject<Env> {
       defaults: { model: ROUTER_MODEL, thinkingLevel: config.thinkingLevel }
     });
     this.sockets = new PiSessionSockets(this.harness, this.registry, (tag) =>
-      this.ctx.getWebSockets(tag)
+      this.ctx.getWebSockets(tag).filter(socket => this.browserSessions.protect(socket))
     );
-    this.webSockets = new WebSockets(this.sockets.options());
+    const socketOptions = this.sockets.options();
+    this.webSockets = new WebSockets({
+      ...socketOptions,
+      getConnectionTags: async (connection, context) => [
+        ...(await socketOptions.getConnectionTags?.(connection, context) ?? []),
+        ...this.browserSessions.tags(context.request)
+      ],
+      handlers: {
+        ...socketOptions.handlers,
+        onConnect: (connection, context) => {
+          if (this.browserSessions.protect(connection)) return socketOptions.handlers?.onConnect?.(connection, context);
+        },
+        onMessage: async (connection, message) => {
+          if (!this.browserSessions.protect(connection)) return;
+          let forwarded = message;
+          if (typeof message === "string") {
+            let parsed: unknown;
+            try { parsed = JSON.parse(message); } catch { /* Upstream reports malformed JSON. */ }
+            if (typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "submit") {
+              const input = parsed as { type: "submit"; operationId?: unknown; id?: unknown };
+              const supplied = typeof input.operationId === "string" ? input.operationId : typeof input.id === "string" ? input.id : crypto.randomUUID();
+              if (supplied.length > 256) { connection.send(JSON.stringify({ type: "error", ...(typeof input.id === "string" ? { id: input.id } : {}), message: "Message identifier is too long" })); return; }
+              const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(supplied));
+              const operationId = `user-${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("")}`;
+              this.turnAuthority.record(operationId, "user");
+              forwarded = JSON.stringify({ ...input, operationId });
+            }
+          }
+          return socketOptions.handlers?.onMessage?.(connection, forwarded);
+        }
+      }
+    });
     this.history = new TranscriptHistory(this.harness, this.log);
     // The log first, to see the chat's frames; then Poppy and the page's history, so they see theirs before the chat socket does.
     this.lifecycle = Lifecycle.install(this)
+      .use(this.browserSessions)
       .use(this.log)
       .use(this.poppy)
       .use(this.schedules)
@@ -298,6 +338,7 @@ export class PersonalAgent extends DurableObject<Env> {
       .use(this.history)
       .use(this.webSockets)
       .use(this.harness);
+
   }
 
   /**
@@ -406,7 +447,7 @@ export class PersonalAgent extends DurableObject<Env> {
    * can't be called the run fails, and the notice says why.
    */
   protected async scheduledTurn(text: string, operationId: string): Promise<TaskStart> {
-    const { entitlement } = await this.access.decide();
+    const { entitlement } = await this.access.decide({ forQueue: true });
     if (entitlement.lane === "none") {
       await this.#modelNotice(entitlement);
       currentEvent()?.set({ model_refused: entitlement.reason ? literal(entitlement.reason) : null });
@@ -473,7 +514,7 @@ export class PersonalAgent extends DurableObject<Env> {
    * are allowed again.
    */
   protected async poppyNotify(text: string, operationId: string): Promise<void> {
-    const { entitlement } = await this.access.decide();
+    const { entitlement } = await this.access.decide({ forQueue: true });
     if (entitlement.lane === "none") {
       this.ctx.storage.sql.exec(
         "INSERT OR IGNORE INTO model_paused (operation_id, text, created_at) VALUES (?, ?, ?)",
@@ -491,6 +532,7 @@ export class PersonalAgent extends DurableObject<Env> {
 
   /** Hand pi a background input, saying first who started it, for its turn's event. */
   async #submit(text: string, operationId: string, trigger: Trigger, requestId?: Safe<"id">): Promise<void> {
+    this.turnAuthority.record(operationId, "background");
     this.log.submitted(operationId, trigger, requestId);
     await this.harness.submit(text, { operationId, whenBusy: "followUp" });
   }
@@ -509,7 +551,7 @@ export class PersonalAgent extends DurableObject<Env> {
   async #resumePaused(requestId?: Safe<"id">): Promise<void> {
     const held = rows(this.ctx.storage.sql, pausedTable.pick("operation_id", "text"), "SELECT operation_id, text FROM model_paused ORDER BY created_at");
     if (held.length === 0) return;
-    if ((await this.access.entitlement()).lane === "none") return;
+    if ((await this.access.decide({ forQueue: true })).entitlement.lane === "none") return;
     for (const row of held) {
       await this.#submit(row.text, row.operation_id, "held", requestId);
       this.ctx.storage.sql.exec("DELETE FROM model_paused WHERE operation_id = ?", row.operation_id);
@@ -538,6 +580,15 @@ export class PersonalAgent extends DurableObject<Env> {
    * model goes through if calls are allowed again.
    */
   async recordIdentity(identity: Caller): Promise<void> {
+    if ("sessionId" in identity && (typeof identity.sessionId !== "string" || !this.browserSessions.active(identity.sessionId))) throw new AuthError("Session revoked");
+    this.#storeIdentity(identity);
+    // Native RPC bypasses fetch/alarm/WebSocket startup.
+    await this.lifecycle.start();
+    if (await this.schedules.resumeSignedIn()) this.poppy.refreshActivity();
+    await this.#resumePaused(id(identity.requestId));
+  }
+
+  #storeIdentity(identity: Profile): void {
     this.ctx.storage.sql.exec(
       "INSERT OR REPLACE INTO agent_profile (slot, provider, sub, email, domain, updated_at) VALUES (1, ?, ?, ?, ?, ?)",
       identity.provider,
@@ -546,12 +597,17 @@ export class PersonalAgent extends DurableObject<Env> {
       identity.domain,
       Date.now()
     );
-    // Native RPC bypasses fetch/alarm/WebSocket startup. Settings and other
-    // authenticated RPCs must run recovery too, including rearming a schedule
-    // whose row survived but whose job was never persisted before a crash.
-    await this.lifecycle.start();
-    if (await this.schedules.resumeSignedIn()) this.poppy.refreshActivity();
-    await this.#resumePaused(id(identity.requestId));
+  }
+
+  /** Authenticated Worker edge only: admit a signed browser cookie without starting work. */
+  async admitBrowserSession(identity: BrowserIdentity): Promise<boolean> {
+    if (!maySignIn(identity, this.deployment())) return false;
+    this.#storeIdentity(identity);
+    return this.browserSessions.admit(identity.sessionId, identity.sessionExpiresAt);
+  }
+
+  async revokeBrowserSession(identity: BrowserIdentity): Promise<void> {
+    this.browserSessions.revoke(identity.sessionId, identity.sessionExpiresAt);
   }
 
   /** Which lane, today's demo spend, the key's provider and state. Never the key. */
@@ -706,8 +762,24 @@ export class PersonalAgent extends DurableObject<Env> {
     return { readWaitSeconds: 20 };
   }
 
+  async #armAccounting(): Promise<void> {
+    if (this.access.hasPendingSettlements()) {
+      await this.lifecycle.jobs.push({ fn: "model-accounting", id: "model-accounting", time: Date.now() + 60_000, singleflight: true });
+    }
+  }
+
+  async onJob({ job }: LifecycleJobContext): Promise<LifecycleJobOutcome | void> {
+    if (job.fn !== "model-accounting") return;
+    try { await this.access.flushSettlements(); }
+    catch (error) { await this.log.event("job", { job: literal("model.accounting"), outcome: literal("error") }).fail(error).emit(); }
+    if (this.access.hasPendingSettlements()) return { rescheduleAt: Date.now() + 60_000 };
+  }
+
   /** Host startup, after the harness has opened pi. */
   async onStart(): Promise<void> {
+    try { await this.access.flushSettlements(); }
+    catch (error) { await this.log.event("job", { job: literal("model.accounting"), outcome: literal("error") }).fail(error).emit(); }
+    await this.#armAccounting();
     // Sessions created before the model router named their own model; point them at it.
     await this.harness.session().setModel(ROUTER_MODEL);
     // Each run's turn event, from pi's own events.

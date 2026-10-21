@@ -25,14 +25,23 @@ type Message = {
 const ID = /^[A-Za-z0-9_-]{1,256}$/;
 
 export function conversation(client: PoppyClient, id: string): ConversationRow | undefined {
-  return one(client.sql, conversationRow, "SELECT * FROM poppy_conversations WHERE id = ?", id);
+  return one(client.sql, conversationRow, "SELECT * FROM poppy_conversations WHERE id = ? AND quarantined = 0", id);
+}
+
+/** Remote IDs belong to one issuer; only local handles identify work inside the agent. */
+function remoteConversation(client: PoppyClient, company: Company, remoteId: string): ConversationRow | undefined {
+  return one(client.sql, conversationRow, "SELECT * FROM poppy_conversations WHERE issuer = ? AND remote_id = ? AND quarantined = 0", company.issuer, remoteId);
+}
+
+function requireCompany(company: Company, row: ConversationRow): void {
+  if (row.issuer !== company.issuer) throw new PoppyError("conversation_not_found", `That conversation doesn't belong to ${company.name}`, 404);
 }
 
 export function openConversations(client: PoppyClient): ConversationRow[] {
   return rows(
     client.sql,
     conversationRow,
-    "SELECT * FROM poppy_conversations WHERE status != 'closed' ORDER BY last_event_at DESC"
+    "SELECT * FROM poppy_conversations WHERE status != 'closed' AND quarantined = 0 ORDER BY last_event_at DESC"
   );
 }
 
@@ -80,6 +89,7 @@ function rememberContext(client: PoppyClient, id: string, context: Record<string
 }
 
 export type SendResult = {
+  /** Stable local handle; the Company's wire ID stays in remote_id. */
   readonly conversationId: string;
   readonly status: string;
   readonly responder: string;
@@ -116,6 +126,13 @@ export async function sendMessage(
   if (request.conversationId && !existing) {
     throw new PoppyError("conversation_not_found", `No conversation ${request.conversationId}`, 404);
   }
+  if (existing) requireCompany(company, existing);
+  if (existing && existing.label !== request.label) throw new PoppyError("invalid_request", "That conversation belongs to another Session", 0);
+  const parent = request.parentConversationId ? conversation(client, request.parentConversationId) : undefined;
+  if (request.parentConversationId && (!parent || parent.direct || parent.status === "closed")) {
+    throw new PoppyError("conversation_not_found", "No open parent conversation for this Direct Conversation", 404);
+  }
+  if (parent) requireCompany(company, parent);
   // A Direct Conversation carries the User's own words, as written (7.10); ours stay out of it.
   if (existing?.direct && request.sender === "agent" && !request.contextOnly && (request.text !== undefined || request.data !== undefined)) {
     throw new PoppyError(
@@ -135,7 +152,7 @@ export async function sendMessage(
         throw new PoppyError("invalid_request", "A message needs text, data or context", 0);
       }
       return JSON.stringify({
-        ...(request.parentConversationId ? { parent_conversation_id: request.parentConversationId } : {}),
+        ...(parent ? { parent_conversation_id: parent.remote_id } : {}),
         message
       });
     })
@@ -151,7 +168,7 @@ export async function sendMessage(
 
   /** The POST, with the saved cursor when it waits for a reply (7.3): a read of the events after it. */
   const post = () => {
-    const url = new URL(existing ? `${endpoint}/${encodeURIComponent(existing.id)}/messages` : endpoint);
+    const url = new URL(existing ? `${endpoint}/${encodeURIComponent(existing.remote_id)}/messages` : endpoint);
     const cursor = existing ? conversation(client, existing.id)?.cursor : null;
     if (request.wait) {
       url.searchParams.set("wait", String(request.wait));
@@ -180,21 +197,40 @@ export async function sendMessage(
   if (!isObject(response) || typeof response.conversation_id !== "string" || !ID.test(response.conversation_id)) {
     throw new PoppyError("invalid_response", `${company.name} returned no conversation_id`, 0);
   }
-  const id = response.conversation_id;
+  const remoteId = response.conversation_id;
+  if (existing && remoteId !== existing.remote_id) {
+    throw new PoppyError("invalid_response", `${company.name} answered for a different conversation`, 0);
+  }
+  const mapped = existing ?? remoteConversation(client, company, remoteId);
+  if (mapped && mapped.label !== request.label) {
+    throw new PoppyError("invalid_response", `${company.name} reused a conversation ID from another Session`, 0);
+  }
+  if (mapped && (mapped.parent !== (parent?.id ?? null) || mapped.direct !== (parent ? 1 : 0)) && !existing) {
+    throw new PoppyError("invalid_response", `${company.name} reused a conversation ID for an unrelated conversation`, 0);
+  }
+  // Keep existing local handles compatible. A remote collision gets a fresh local handle;
+  // every later lookup uses the mapping, never an assumption that remote IDs are global.
+  const occupied = one(client.sql, found, "SELECT 1 AS found FROM poppy_conversations WHERE id = ?", remoteId);
+  const id = mapped?.id ?? (occupied ? randomId("local_cnv_") : remoteId);
   if (!existing) {
     client.sql.exec(
-      `INSERT OR IGNORE INTO poppy_conversations (id, issuer, label, parent, direct, status, responder, cursor, context, last_event_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+      `INSERT OR IGNORE INTO poppy_conversations (id, issuer, remote_id, label, parent, direct, status, responder, cursor, context, last_event_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
       id,
       company.issuer,
+      remoteId,
       request.label,
-      body.parent_conversation_id ?? null,
-      body.parent_conversation_id ? 1 : 0,
+      parent?.id ?? null,
+      parent ? 1 : 0,
       String(response.status ?? "working"),
       String(response.responder ?? "agent"),
       Date.now(),
       Date.now()
     );
+  }
+  const bound = conversation(client, id);
+  if (!bound || bound.issuer !== company.issuer || bound.remote_id !== remoteId) {
+    throw new PoppyError("invalid_response", "The conversation identity could not be bound", 0);
   }
   if (body.message.context && isObject(body.message.context)) rememberContext(client, id, body.message.context);
   updateState(client, id, response, true);
@@ -342,6 +378,7 @@ async function handleEvents(
   events: readonly Json[],
   options: { quietModel?: boolean } = {}
 ): Promise<{ sender: string; text?: string; data?: Json }[]> {
+  requireCompany(company, row);
   return oneReader(client, row.id, async () => {
     const replies: { sender: string; text?: string; data?: Json }[] = [];
     for (const event of events) {
@@ -471,12 +508,11 @@ async function handleEvent(
     }
     case "direct_opened":
     case "direct_closed": {
-      const child = typeof event.conversation_id === "string" ? event.conversation_id : null;
+      const child = typeof event.conversation_id === "string" ? remoteConversation(client, company, event.conversation_id) : undefined;
       if (event.type === "direct_closed") {
-        if (child) {
-          client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", child);
-          pushDirect(client, company, child);
-        }
+        if (!child || !child.direct || child.parent !== row.id) return;
+        client.sql.exec("UPDATE poppy_conversations SET status = 'closed' WHERE id = ?", child.id);
+        pushDirect(client, company, child.id);
         await client.host.notifyModel(
           `[system] The User's Direct Conversation with ${company.name} has ended; conversation ${row.id} takes messages again.`,
           operationId
@@ -507,7 +543,7 @@ export async function readConversation(
   const endpoint = endpointOf(company);
   for (let round = 0; round < 10; round++) {
     const current = conversation(client, id)!;
-    const url = new URL(`${endpoint}/${encodeURIComponent(id)}/events`);
+    const url = new URL(`${endpoint}/${encodeURIComponent(row.remote_id)}/events`);
     if (current.cursor) url.searchParams.set("cursor", current.cursor);
     url.searchParams.set("wait", String(waitSeconds));
     let response: Response;
@@ -684,6 +720,7 @@ export function pushDirect(
 ): void {
   const row = conversation(client, id);
   if (!row) return;
+  requireCompany(company, row);
   const messages: DirectMessage[] = rows(
     client.sql,
     inboxTable.pick("event"),
@@ -724,6 +761,7 @@ export async function handoff(
 ): Promise<{ status: string; responder: string }> {
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+  requireCompany(company, row);
   await sendMessage(client, company, {
     label: row.label,
     callKey: `${callKey}|summary`,
@@ -733,7 +771,7 @@ export async function handoff(
   });
   const { body } = await client.resourceJson(
     company,
-    EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(id)}/handoff`, body: {} }),
+    EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/handoff`, body: {} }),
     tokenOptions(company, row.label)
   );
   if (isObject(body)) updateState(client, id, body, true);
@@ -746,10 +784,11 @@ export async function handoff(
 export async function closeConversation(client: PoppyClient, company: Company, id: string): Promise<void> {
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
+  requireCompany(company, row);
   try {
     const { body } = await client.resourceJson(
       company,
-      EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(id)}/close`, body: {} }),
+      EndpointRequest.to(company, { method: "POST", url: `${endpointOf(company)}/${encodeURIComponent(row.remote_id)}/close`, body: {} }),
       tokenOptions(company, row.label)
     );
     if (isObject(body)) updateState(client, id, body);

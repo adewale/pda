@@ -24,8 +24,11 @@ async function signIn(a: Agent, c: Company) {
 
 /** The chat page: one WebSocket that says hello with `poppy.context` and keeps every `poppy.activity`. */
 async function page(a: Agent) {
+  const bootstrap = await worker.fetch(new Request(`${ORIGIN}/api/me`, { headers: { Cookie: a.cookie } }), env);
+  expect(bootstrap.status).toBe(200);
+  const { workspaceId } = await bootstrap.json() as { workspaceId: string };
   const response = await worker.fetch(
-    new Request(`${ORIGIN}/ws`, { headers: { Upgrade: "websocket", Origin: ORIGIN, Cookie: a.cookie } }),
+    new Request(`${ORIGIN}/ws?workspace=${encodeURIComponent(workspaceId)}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, Cookie: a.cookie } }),
     env
   );
   expect(response.status).toBe(101);
@@ -170,14 +173,14 @@ describe("poppy.activity", () => {
     p.socket.close();
   });
 
-  it("says when a standing permission decided", async () => {
+  it("keeps proposals waiting for the User when a legacy prose permission matches", async () => {
     const c = await company();
     const a = await agent();
     await signIn(a, c);
     await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD", maxUses: 1 });
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
     const p = await page(a);
-    expect(find(p.latest().log, "operation")).toMatchObject({ decidedBy: "standing_permission", result: "done" });
+    expect(find(p.latest().log, "operation")).toMatchObject({ decidedBy: null, result: "waiting" });
     p.socket.close();
   });
 
@@ -226,8 +229,8 @@ describe("poppy.activity over a long history", () => {
       ISSUER
     );
     await sql(
-      series(701, 1000, `INSERT INTO poppy_conversations (id, issuer, label, direct, status, responder, last_event_at, created_at)
-        SELECT 'c-' || i, ?, 'default', 0, 'closed', 'agent', ${T} + 5 * i + 3, ${T} + 5 * i + 3 FROM n`),
+      series(701, 1000, `INSERT INTO poppy_conversations (id, issuer, remote_id, label, direct, status, responder, last_event_at, created_at)
+        SELECT 'c-' || i, ?, 'c-' || i, 'default', 0, 'closed', 'agent', ${T} + 5 * i + 3, ${T} + 5 * i + 3 FROM n`),
       ISSUER
     );
     await sql(
@@ -246,7 +249,7 @@ describe("poppy.activity over a long history", () => {
       ISSUER
     );
     await sql(
-      "INSERT INTO poppy_conversations (id, issuer, label, direct, status, responder, last_event_at, created_at) VALUES ('c-open', ?, 'default', 0, 'working', 'agent', 3, 3)",
+      "INSERT INTO poppy_conversations (id, issuer, remote_id, label, direct, status, responder, last_event_at, created_at) VALUES ('c-open', ?, 'c-open', 'default', 0, 'working', 'agent', 3, 3)",
       ISSUER
     );
     await sql(
@@ -257,7 +260,7 @@ describe("poppy.activity over a long history", () => {
     );
     // A Direct Conversation older than any the log shows, and the newest message, sent in it.
     await sql(
-      "INSERT INTO poppy_conversations (id, issuer, label, direct, status, responder, last_event_at, created_at) VALUES ('d-old', ?, 'default', 1, 'closed', 'human', 4, 4)",
+      "INSERT INTO poppy_conversations (id, issuer, remote_id, label, direct, status, responder, last_event_at, created_at) VALUES ('d-old', ?, 'd-old', 'default', 1, 'closed', 'human', 4, 4)",
       ISSUER
     );
     await sql(

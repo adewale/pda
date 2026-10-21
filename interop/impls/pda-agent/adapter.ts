@@ -446,9 +446,11 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     };
   },
 
-  async read(_domain, params) {
+  async read(domain, params) {
+    const c = await company(domain);
     const id = text(params.conversation, "conversation");
-    if (!conversationRow(agent.client, id)) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
+    const stored = conversationRow(agent.client, id);
+    if (!stored || stored.issuer !== c.issuer) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
     await readConversation(agent.client, id, typeof params.wait === "number" ? params.wait : 0);
     const row = conversationRow(agent.client, id)!;
     let events = rows(agent.client.sql, inboxTable.pick("event"), "SELECT event FROM poppy_inbox WHERE conversation_id = ? ORDER BY seq", id);
@@ -477,9 +479,11 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
   async sse(domain, params) {
     const c = await company(domain);
     const id = text(params.conversation, "conversation");
+    const stored = conversationRow(agent.client, id);
+    if (!stored || stored.issuer !== c.issuer) throw new StepError(404, "unknown_conversation", `No conversation ${id}`);
     const endpoint = c.conversations?.endpoint.replace(/\/+$/, "");
     if (!endpoint) throw new PoppyStepError("no_company_agent", 0, "No conversation endpoint");
-    const url = new URL(`${endpoint}/${encodeURIComponent(id)}/events`);
+    const url = new URL(`${endpoint}/${encodeURIComponent(stored.remote_id)}/events`);
     const cursor = optional(params.cursor);
     if (cursor) url.searchParams.set("cursor", cursor);
     url.searchParams.set("wait", String(typeof params.wait === "number" ? params.wait : 1));

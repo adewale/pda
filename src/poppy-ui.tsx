@@ -303,7 +303,7 @@ function OperationCard({ card, send: sendFrame }: { card: Extract<Card, { kind: 
       meta={
         <>
           {card.account ? <>Account {card.account} · </> : null}View and change
-          {card.userApprovalRequired ? " · The Company asks for your approval, not a standing permission" : null}
+          {card.userApprovalRequired ? " · The Company requires your explicit approval" : null}
         </>
       }
       actions={

@@ -37,7 +37,7 @@ function Welcome() {
           Your agent never sees your password.
         </Capability>
         <Capability icon={<HandIcon size={20} />} title="It acts only with your approval,">
-          or within a standing permission you set.
+          and you review each proposed action before it is sent.
         </Capability>
         <Capability icon={<ClockIcon size={20} />} title="It keeps working while you're away,">
           and asks here when it needs you.
@@ -88,7 +88,7 @@ function Pending({ session }: { session: PiSession }) {
           {item.state === "failed" ? (
             <div role="alert" className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
               <p className="text-[13px] text-pretty text-kumo-danger">Your agent didn't take this message: {item.error}</p>
-              <Action variant="secondary" onClick={() => session.resend(item.id)}>
+              <Action variant="secondary" disabled={status === "unauthenticated"} onClick={() => session.resend(item.id)}>
                 Try again
               </Action>
               <Action variant="ghost" onClick={() => session.discard(item.id)}>
@@ -97,7 +97,7 @@ function Pending({ session }: { session: PiSession }) {
             </div>
           ) : (
             <p role="status" className="text-[13px] text-kumo-subtle">
-              {status === "open" ? "Sending" : "Waiting to connect. It goes once your agent is connected."}
+              {status === "unauthenticated" ? "Sign in again before sending. This message is kept in this tab." : status === "open" ? "Sending" : "Waiting to connect. It goes once your agent is connected."}
             </p>
           )}
         </div>
@@ -171,7 +171,7 @@ function Composer({ session }: { session: PiSession }) {
   const connected = session.status === "open";
   const [stopNotSent, setStopNotSent] = useState(false);
   const hintId = "composer-hint";
-  const sendable = (prompt.trim() !== "" || attachments.ready.length > 0) && !attachments.uploading;
+  const sendable = session.status !== "unauthenticated" && (prompt.trim() !== "" || attachments.ready.length > 0) && !attachments.uploading;
   /**
    * While a run is going, Enter queues a follow-up and Steer joins the run.
    * Enter and the Send button both come here. Sending doesn't wait for the
@@ -272,7 +272,7 @@ function Composer({ session }: { session: PiSession }) {
           )}
         </div>
         <p id={hintId} className="mt-1.5 text-[13px] text-kumo-subtle max-sm:sr-only">
-          {connected
+          {session.status === "unauthenticated" ? "Sign in again to send. Copy any draft you want to keep before reloading." : connected
             ? session.running
               ? "Enter queues a follow-up · Steer adds it to the current answer"
               : "Enter to send · Shift+Enter for a new line · Attach, paste or drop a photo"

@@ -4,6 +4,7 @@ import { assertPublicHost, PoppyFetchError } from "./fetch";
 import { toJson, type Json } from "./json";
 import { browserAssertion } from "./jwt";
 import { currentKey } from "./keys";
+import { randomId } from "./jwt";
 import { proposeLocal, registerExecutor } from "./operations";
 
 /** What the model gets from a page: text, links and forms, never cookies (Guides, "Web browsing"). */
@@ -45,7 +46,7 @@ export interface BrowserContextHandle {
   /** What submitting a form would send now, for the User to approve. */
   prepareSubmit(selector: string): Promise<FormSubmission>;
   /** Sends an approved submission, as it was approved. */
-  submit(submission: FormSubmission): Promise<PageSnapshot>;
+  submit(submission: FormSubmission, beforeDispatch?: () => void): Promise<PageSnapshot>;
   close(): Promise<void>;
 }
 
@@ -55,9 +56,12 @@ export interface PoppyBrowser {
 }
 
 type ContextEntry = {
+  readonly id: string;
   readonly context: Promise<BrowserContextHandle>;
   /** The Session the context joined; a context never outlives it. */
-  sessionId?: string;
+  sessionId: string | null;
+  account: string | null;
+  joined: boolean;
 };
 
 /**
@@ -75,6 +79,13 @@ function contextsOf(client: PoppyClient): Map<string, ContextEntry> {
     openContexts.set(client, contexts);
   }
   return contexts;
+}
+
+function checkContext(client: PoppyClient, company: Company, label: string, entry: ContextEntry): void {
+  const session = client.session(company.issuer, label);
+  if (contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry || entry.sessionId !== (session?.session_id ?? null) || entry.account !== (session?.account ?? null)) {
+    throw new PoppyError("approval_changed", "The open page belongs to an earlier account or Session. Open a fresh page.", 0);
+  }
 }
 
 async function dropContext(contexts: Map<string, ContextEntry>, key: string): Promise<void> {
@@ -147,22 +158,24 @@ async function sessionContext(
   returnTo: URL,
   rejoin = false
 ): Promise<BrowserContextHandle> {
-  const key = `${company.issuer}|${label}`;
+  const key = JSON.stringify([company.issuer, label]);
   const contexts = contextsOf(client);
   const endpoint = company.web?.browserSessionEndpoint;
   const open = (): ContextEntry => {
     if (contexts.size >= MAX_CONTEXTS) void dropContext(contexts, contexts.keys().next().value!);
-    const fresh: ContextEntry = { context: browser.newContext(pageGuard(company, endpoint)) };
+    const session = client.session(company.issuer, label);
+    const fresh: ContextEntry = { id: randomId("ctx_"), context: browser.newContext(pageGuard(company, endpoint)), sessionId: session?.session_id ?? null, account: session?.account ?? null, joined: false };
     contexts.set(key, fresh);
     return fresh;
   };
   let entry = contexts.get(key);
-  if (entry?.sessionId && entry.sessionId !== client.session(company.issuer, label)?.session_id) {
+  const before = client.session(company.issuer, label);
+  if (entry && (entry.sessionId !== (before?.session_id ?? null) || entry.account !== (before?.account ?? null))) {
     await dropContext(contexts, key);
     entry = undefined;
   }
   entry ??= open();
-  if (endpoint && (!entry.sessionId || rejoin)) {
+  if (endpoint && (!entry.joined || rejoin)) {
     // `return_to` must be HTTPS on the Company's own domain (spec 5).
     if (returnTo.protocol !== "https:" || !onCompanyDomain(company, returnTo)) {
       throw new PoppyError("invalid_request", `return_to must be on ${company.domain}`, 0);
@@ -170,7 +183,7 @@ async function sessionContext(
     await client.token(company, { label });
     const session = client.session(company.issuer, label)!;
     // Rejoining may have needed a new Session: then a new context too.
-    if (entry.sessionId && entry.sessionId !== session.session_id) {
+    if (entry.sessionId !== session.session_id || entry.account !== session.account) {
       await dropContext(contexts, key);
       entry = open();
     }
@@ -193,6 +206,8 @@ async function sessionContext(
       throw new PoppyError("browser_join_failed", `${company.name} didn't accept the browser into the Session`, result.status);
     }
     entry.sessionId = session.session_id;
+    entry.account = session.account;
+    entry.joined = true;
     if (joined && (result.status === 429 || result.status === 503)) await client.pageLimited(company, result.status, result.retryAfter);
   }
   return entry.context;
@@ -265,12 +280,11 @@ export async function browse(
     }
     return snapshotForModel(snapshot);
   }
-  const entry = contextsOf(client).get(`${company.issuer}|${label}`);
+  const entry = contextsOf(client).get(JSON.stringify([company.issuer, label]));
   if (!entry) throw new PoppyError("invalid_request", "Open a page first", 0);
-  if (entry.sessionId && entry.sessionId !== client.session(company.issuer, label)?.session_id) {
-    throw new PoppyError("invalid_request", "The Session this page was in has ended; open the page again", 0);
-  }
+  checkContext(client, company, label, entry);
   const handle = await entry.context;
+  checkContext(client, company, label, entry);
   if (action.kind === "click") {
     await client.beforeRequest(company);
     let snapshot = await handle.click(action.selector);
@@ -283,10 +297,13 @@ export async function browse(
     if (CREDENTIAL.test(action.selector)) {
       throw new PoppyError("refused", "The agent never types credentials or codes into a website; sign in with poppy_sign_in instead", 0);
     }
-    return snapshotForModel(await handle.fill(action.selector, action.value));
+    const snapshot = await handle.fill(action.selector, action.value);
+    checkContext(client, company, label, entry);
+    return snapshotForModel(snapshot);
   }
   const submission = await handle.prepareSubmit(action.selector);
-  const id = await proposeLocal(client, company, label, describeSubmission(company, action.selector, submission), { kind: "browse-submit", submission });
+  checkContext(client, company, label, entry);
+  const id = await proposeLocal(client, company, label, describeSubmission(company, action.selector, submission), { kind: "browse-submit", submission, binding: { account: entry.account, sessionId: entry.sessionId, contextId: entry.id } });
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
 
@@ -295,16 +312,16 @@ export async function browse(
  * Session's context, and only where the browser may go for the Company now
  * (its page and action checked again; the browser checks every hop too).
  */
-registerExecutor("browse-submit", async (client, company, { submission }, label) => {
+registerExecutor("browse-submit", async (client, company, { submission, binding }, label, execution) => {
   const guard = pageGuard(company);
   guard(new URL(submission.from));
   guard(new URL(submission.action));
-  const entry = contextsOf(client).get(`${company.issuer}|${label}`);
+  const entry = contextsOf(client).get(JSON.stringify([company.issuer, label]));
   if (!entry) throw new Error("The page is no longer open");
-  if (entry.sessionId && entry.sessionId !== client.session(company.issuer, label)?.session_id) {
-    throw new Error("The Session the form was in has ended; open the page again");
-  }
+  if (!binding || binding.contextId !== entry.id || binding.sessionId !== entry.sessionId || binding.account !== entry.account) throw new PoppyError("approval_changed", "The account, Session or page context changed. Review a fresh form.", 0);
+  checkContext(client, company, label, entry);
   await client.beforeRequest(company);
-  const snapshot = await (await entry.context).submit(submission);
+  const handle = await entry.context;
+  const snapshot = await handle.submit(submission, () => { execution.beforeDispatch(); checkContext(client, company, label, entry); });
   return `Now at ${snapshot.url} (HTTP ${snapshot.status}): ${snapshot.title}`;
 });

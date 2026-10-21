@@ -5,7 +5,7 @@
  */
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
-import { afterEach, expect } from "vitest";
+import { afterEach, beforeEach, expect } from "vitest";
 import type { Provider } from "../src/config";
 import type { PiServerMessage } from "../src/protocol";
 import { agentNameFor, createSession, type Identity } from "../src/session";
@@ -14,6 +14,16 @@ import { hostsFor, type MockCompany, type MockConfig, type MockRequest } from ".
 import worker, { type PersonalAgent } from "./worker";
 
 export const ORIGIN = "https://agent.example.com";
+
+let budgetScope = crypto.randomUUID();
+beforeEach(() => { budgetScope = crypto.randomUUID(); });
+
+async function prepareAgentBudget(identity: Identity): Promise<void> {
+  const name = await agentNameFor(identity);
+  createdAgents.add(name);
+  const stub = env.PersonalAgent.getByName(name) as unknown as DurableObjectStub<PersonalAgent>;
+  await stub.testBudgetScope(budgetScope);
+}
 
 /** A Google Workspace account at an allowlisted domain, or an allowlisted GitHub id. */
 export function person(sub = `user-${crypto.randomUUID()}`, provider: Provider = "google"): Identity {
@@ -28,6 +38,7 @@ export function cookiePair(setCookie: string): string {
 }
 
 export async function sessionCookie(identity: Identity, now?: number): Promise<string> {
+  await prepareAgentBudget(identity);
   return cookiePair(await createSession(identity, env.SESSION_SECRET, now));
 }
 
@@ -39,6 +50,18 @@ export function wsRequest(
   headers.set("Origin", init.origin ?? ORIGIN);
   if (init.cookie) headers.set("Cookie", init.cookie);
   return new Request(`${ORIGIN}/ws${init.query ?? ""}`, { headers });
+}
+
+/** A current browser bootstraps its immutable workspace before opening the socket. */
+export async function authenticatedWsRequest(init: { cookie: string; query?: string }): Promise<Request> {
+  const response = await fetchWorker(new Request(`${ORIGIN}/api/me`, { headers: { Cookie: init.cookie } }));
+  expect(response.status).toBe(200);
+  const { workspaceId } = await response.json() as { workspaceId: string };
+  expect(typeof workspaceId).toBe("string");
+  const query = new URLSearchParams(init.query);
+  // Explicit empty/mismatching workspace is preserved so callers can test refusal.
+  if (!query.has("workspace")) query.set("workspace", workspaceId);
+  return wsRequest({ cookie: init.cookie, query: `?${query}` });
 }
 
 export async function fetchWorker(request: Request, overrides: Partial<Env> = {}) {
@@ -83,7 +106,7 @@ export function follow(socket: WebSocket) {
 export async function connect(identity: Identity | string, query = "") {
   if (typeof identity !== "string") createdAgents.add(await agentNameFor(identity));
   const cookie = typeof identity === "string" ? identity : await sessionCookie(identity);
-  const response = await fetchWorker(wsRequest({ cookie, query }));
+  const response = await fetchWorker(await authenticatedWsRequest({ cookie, query }));
   expect(response.status).toBe(101);
   const socket = response.webSocket!;
   socket.accept();
@@ -201,6 +224,7 @@ export async function agent(identity: Identity = person()) {
   const name = await agentNameFor(identity);
   createdAgents.add(name);
   const stub = testEnv.PersonalAgent.getByName(name) as unknown as DurableObjectStub<PersonalAgent>;
+  await stub.testBudgetScope(budgetScope);
   // Who the agent belongs to, as the Worker records on every request: on the demo, so notices reach the model.
   await stub.recordIdentity(identity);
   return { stub, identity, cookie: await sessionCookie(identity) };
