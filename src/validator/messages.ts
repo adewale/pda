@@ -193,6 +193,14 @@ export const MESSAGES = define({
     fix: "Fix the syntax at the line and column given.",
     ref: rfc(8259)
   },
+  "json-resource-limit": {
+    basis: "Guides",
+    refuses: true,
+    title: "JSON location metadata exceeds the validator's resource allowance",
+    explain: "Our client limits cumulative escaped JSON-pointer strings to one million UTF-16 code units, before constructing them. A long member name repeated in every child's location can otherwise use far more memory than the document's byte size. This is an implementation policy for safely processing untrusted documents, not a JSON syntax error or a protocol requirement. Nothing was checked beyond this limit.",
+    fix: "Shorten long nested member names or reduce the number of values beneath them.",
+    ref: guides("Fetching metadata safely", "both-fetching")
+  },
   "json-duplicate-member": {
     basis: "SHOULD",
     refuses: true,

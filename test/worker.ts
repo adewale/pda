@@ -470,6 +470,29 @@ const failingPiWrites = new Set<string>();
 
 /** The production agent with pi-ai's faux provider in place of AI Gateway. */
 export class PersonalAgent extends ProductionAgent {
+  constructor(ctx: DurableObjectState, env: Env) {
+    // Each test owns its budget pool. Agents within the test still compete
+    // for the same domain allowance, and an eviction retains that pool.
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS test_budget_scope (singleton INTEGER PRIMARY KEY CHECK (singleton = 1), scope TEXT NOT NULL)");
+    const DomainBudget = new Proxy(env.DomainBudget, {
+      get(target, key) {
+        if (key === "getByName") {
+          return (name: string) => {
+            const scope = ctx.storage.sql.exec("SELECT scope FROM test_budget_scope WHERE singleton = 1").toArray()[0]?.scope;
+            return target.getByName(`${typeof scope === "string" ? scope : ctx.id.toString()}:${name}`);
+          };
+        }
+        const value: unknown = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    super(ctx, { ...env, DomainBudget });
+  }
+
+  async testBudgetScope(scope: string): Promise<void> {
+    this.ctx.storage.sql.exec("INSERT INTO test_budget_scope (singleton, scope) VALUES (1, ?) ON CONFLICT(singleton) DO UPDATE SET scope = excluded.scope", scope);
+  }
+
   #summaryGate: { promise: Promise<void>; release: () => void } | undefined;
 
   /** Hold only summary responses; foreground requests can still complete. */
@@ -822,7 +845,7 @@ export class PersonalAgent extends ProductionAgent {
     const extension = poppyExtension(() => this.poppy.client, () => this.poppy.browser);
     const tool = extension.tools?.find((candidate) => candidate.name === name);
     if (!tool) throw new Error(`No tool ${name}`);
-    const api = { conversationId: "test", callId } as unknown as ToolExecutionApi;
+    const api = { conversationId: "test", taskId: "test-poppy-task", callId } as unknown as ToolExecutionApi;
     // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
     const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never));
     const text = (result.output ?? []).map((part) => ("text" in part ? part.text : "")).join("");
@@ -968,7 +991,7 @@ export class PersonalAgent extends ProductionAgent {
       demoCalls.set(id, (demoCalls.get(id) ?? 0) + 1);
       const out = createAssistantMessageEventStream();
       void (async () => {
-        for await (const event of stream) out.push(event.type === "done" ? { ...event, message: price(event.message) } : event);
+        for await (const event of stream) out.push(event.type === "done" ? { ...event, message: price(event.message) } : event.type === "error" ? { ...event, error: price(event.error) } : event);
         out.end(price(await stream.result()));
       })();
       return out;
@@ -1330,12 +1353,15 @@ function fakeGateway(usage: GatewayUsage): Ai {
 /** A faux answer priced by the `[cost N]` marker its echo carries. */
 function priced(message: AssistantMessage): AssistantMessage {
   const text = message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
-  const cost = Number(/\[cost ([\d.]+)\]/.exec(text)?.[1] ?? 0);
+  const cost = Number(/\[cost ([\d.]+)\]/.exec(text)?.[1] ?? "0.000001");
   // `[context N]`: the answer reports a context of N tokens, as a provider's usage would, so pi measures the conversation at N.
   const context = Number(/\[context (\d+)\]/.exec(text)?.[1] ?? 0);
   let usage = message.usage;
   if (context) usage = { ...usage, input: context, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: context };
-  if (cost) usage = { ...usage, cost: { ...usage.cost, total: cost } };
+  // Real demo models have positive catalog prices. A zero-usage/zero-cost
+  // provider answer means accounting is unknown and now retains its hold;
+  // ordinary faux replies must therefore carry a small known charge too.
+  usage = { ...usage, cost: { ...usage.cost, total: cost } };
   return usage === message.usage ? message : { ...message, usage };
 }
 

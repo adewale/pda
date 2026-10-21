@@ -18,8 +18,8 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { createAI } from "agents/models/pi-ai";
 import { budgetDomain, maySignIn, onDemo, type ListEnv } from "./allowlist";
 import { budgetWindow } from "./compaction";
-import { nextUtcMidnight, utcDay, type Ledger } from "./budget";
-import { ConfigError, readModelConfig, readDemoCaps, type KeyProvider } from "./config";
+import { nextUtcMidnight, utcDay, type BudgetCall, type Ledger, type SharedBudget } from "./budget";
+import { ConfigError, readModelConfig, readDemoCaps, type ConfigEnv, type KeyProvider } from "./config";
 import {
   ANTHROPIC_WORKSPACE_HEADER,
   isKeyRefused,
@@ -95,7 +95,7 @@ type Lane =
   | { readonly kind: "demo"; readonly models: Models; readonly model: Model<Api>; readonly domain: string };
 
 export type AccessOptions = {
-  readonly env: Env;
+  readonly env: ConfigEnv;
   readonly keys: ModelKeys;
   readonly ledger: Ledger;
   /** The person's recorded identity, or null before the Worker has sent it. */
@@ -107,7 +107,9 @@ export type AccessOptions = {
   readonly lists: () => ListEnv;
   /** Gateway metadata `u`: a hash naming this agent, never the person. */
   readonly agent: string;
-  readonly domainBudget: (domain: string) => { spent(day: string): Promise<number>; add(day: string, usd: number): Promise<number> };
+  readonly domainBudget: (domain: string) => SharedBudget;
+  /** Arm durable retry before attempting a shared settlement. Startup also flushes the outbox. */
+  readonly onSettlementPending?: () => Promise<void>;
   /** The demo lane's provider and model. Tests replace it with pi-ai's faux provider. */
   readonly demoLane: (route: DemoRoute) => LaneModel;
   /** pi-ai's own providers for people's keys. Never the AI binding. */
@@ -155,7 +157,7 @@ export function modelErrorCode(message: Pick<AssistantMessage, "stopReason" | "e
 }
 
 /** The demo model's catalog entry: its name, limits and prices. Builds metadata only; nothing is called. */
-export function demoCatalogModel(env: Env): Model<Api> {
+export function demoCatalogModel(env: ConfigEnv): Model<Api> {
   const config = readModelConfig(env);
   const model = createAI({ binding: {} as Ai, id: config.demo.gatewayId })(config.demo.modelId) as Model<Api>;
   if (!model.cost || model.cost.input <= 0 || model.cost.output <= 0) {
@@ -222,6 +224,7 @@ class ModelRefused extends Error {
 export class ModelAccess {
   readonly #options: AccessOptions;
   #ownKeyModels: Models | undefined;
+  #settlements: Promise<void> | undefined;
 
   constructor(options: AccessOptions) {
     this.#options = options;
@@ -271,7 +274,7 @@ export class ModelAccess {
   }
 
   /** The lane now, and what Settings shows. */
-  async decide(): Promise<{ entitlement: Entitlement; lane: Lane | null }> {
+  async decide(options: { forQueue?: boolean } = {}): Promise<{ entitlement: Entitlement; lane: Lane | null }> {
     const { env, keys, ledger } = this.#options;
     const now = this.#now();
     const key = keys.info();
@@ -286,8 +289,9 @@ export class ModelAccess {
       const caps = readDemoCaps(env);
       const day = utcDay(now);
       domain = budgetDomain(profile);
-      const spentUsd = ledger.spent(day);
-      const domainSpent = await this.#options.domainBudget(domain).spent(day);
+      const spentUsd = options.forQueue ? ledger.charged(day) : ledger.spent(day);
+      const shared = this.#options.domainBudget(domain);
+      const domainSpent = options.forQueue ? await shared.charged(day) : await shared.spent(day);
       demo = {
         spentUsd,
         capUsd: caps.perUserUsd,
@@ -334,6 +338,26 @@ export class ModelAccess {
     return (await this.decide()).entitlement;
   }
 
+  hasPendingSettlements(): boolean {
+    return this.#options.ledger.pending().length > 0;
+  }
+
+  /** Durable outbox: an applied settlement whose RPC reply was lost is safe to send again. */
+  flushSettlements(): Promise<void> {
+    if (this.#settlements) return this.#settlements;
+    this.#settlements = (async () => {
+      for (;;) {
+        const pending = this.#options.ledger.pending();
+        if (pending.length === 0) return;
+        for (const call of pending) {
+          await this.#options.domainBudget(call.domain).settle(call.id, call.day, call.costUsd);
+          this.#options.ledger.acknowledged(call.id);
+        }
+      }
+    })().finally(() => { this.#settlements = undefined; });
+    return this.#settlements;
+  }
+
   /** One model call: decide, refuse before calling if need be, then meter what it cost. */
   route(
     outer: Model<Api>,
@@ -348,7 +372,30 @@ export class ModelAccess {
         await this.#options.onRefused(entitlement);
         throw new ModelRefused(refusalText(entitlement));
       }
-      return this.#meter(lane, call(lane.models, lane.model), entitlement, started);
+      let admission: BudgetCall | undefined;
+      if (lane.kind === "demo") {
+        // Known old settlements must be delivered before admitting new shared liabilities.
+        await this.flushSettlements();
+        const caps = readDemoCaps(this.#options.env);
+        const local = this.#options.ledger.begin(utcDay(this.#now()), lane.domain, caps.perUserUsd);
+        if (!local) {
+          const refused: Entitlement = { ...entitlement, lane: "none", reason: "user_cap", model: null };
+          this.#record(refused, null, started, null, "refused");
+          await this.#options.onRefused(refused);
+          throw new ModelRefused(refusalText(refused));
+        }
+        // If this RPC loses its reply, leave the local hold intact and do not call the vendor.
+        const shared = await this.#options.domainBudget(lane.domain).reserve(local.id, local.day, local.reservedUsd, caps.perDomainUsd);
+        if (!shared.accepted) {
+          this.#options.ledger.denied(local);
+          const refused: Entitlement = { ...entitlement, lane: "none", reason: "domain_cap", model: null, demo: entitlement.demo ? { ...entitlement.demo, domainCapped: true } : null };
+          this.#record(refused, null, started, null, "refused");
+          await this.#options.onRefused(refused);
+          throw new ModelRefused(refusalText(refused));
+        }
+        admission = this.#options.ledger.reserve(local, shared.reservedUsd);
+      }
+      return this.#meter(lane, call(lane.models, lane.model), entitlement, started, admission);
     });
   }
 
@@ -379,10 +426,11 @@ export class ModelAccess {
   }
 
   /** Forward the call's events, then record a demo call's cost, or a refused key. */
-  #meter(lane: Lane, inner: AssistantMessageEventStream, entitlement: Entitlement, started: number): AssistantMessageEventStream {
+  #meter(lane: Lane, inner: AssistantMessageEventStream, entitlement: Entitlement, started: number, admission?: BudgetCall): AssistantMessageEventStream {
     const out = createAssistantMessageEventStream();
     void (async () => {
       let final: AssistantMessage | undefined;
+      let terminal: AssistantMessageEvent | undefined;
       for await (const event of inner) {
         let forwarded: AssistantMessageEvent = event;
         if (event.type === "done") final = event.message;
@@ -390,24 +438,45 @@ export class ModelAccess {
           final = event.error;
           if (lane.kind === "own_key") forwarded = { ...event, error: await this.#keyError(lane, event.error) };
         }
-        out.push(forwarded);
+        // A done/error event resolves stream.result() immediately. Hold it until
+        // local accounting is durable, so the next tool/model call sees its cost.
+        if (event.type === "done" || event.type === "error") terminal = forwarded;
+        else out.push(forwarded);
       }
       const message = final ?? (await inner.result());
-      if (lane.kind === "demo") {
-        const cost = message.usage?.cost?.total ?? 0;
-        if (cost > 0) {
-          const day = utcDay(this.#now());
-          this.#options.ledger.add(day, cost);
-          await this.#options.domainBudget(lane.domain).add(day, cost);
+      if (lane.kind === "demo" && admission) {
+        const cost = message.usage?.cost?.total;
+        // Several SDK/provider failures fabricate an all-zero usage object when
+        // no usage arrived. Zero therefore does not prove an operator-paid call
+        // was free; retain its hold until authoritative usage is available.
+        const known = typeof cost === "number" && Number.isFinite(cost) && cost > 0;
+        const rejectedForContext = message.stopReason === "error" && modelErrorCode(message) === "context_too_long" &&
+          message.content.length === 0 && (message.usage?.output ?? 0) === 0;
+        if (known || rejectedForContext) {
+          // The day was fixed at admission. Midnight while streaming cannot move the charge.
+          // Positive reported usage is accounted even on an error/abort. A clean
+          // context rejection with no generated output can retry after compaction.
+          this.#options.ledger.complete(admission, known ? cost : 0);
+        }
+        if (this.hasPendingSettlements()) {
+          // Persist retry intent before the RPC; neither scheduling nor transport failure
+          // discards the successful model answer or the already durable outbox.
+          await this.#options.onSettlementPending?.().catch(() => undefined);
+          await this.flushSettlements().catch(() => undefined);
         }
       }
       const ended = lane.kind === "own_key" && message.stopReason === "error" ? await this.#keyError(lane, message) : message;
       this.#record(entitlement, lane, started, ended, null);
+      if (terminal) out.push(terminal);
       out.end(ended);
     })().catch((error: unknown) => {
       // Never leave pi waiting on a stream that can't finish; the turn's event says it failed.
       this.#record(entitlement, lane, started, null, `metering_${error instanceof Error ? error.name : "error"}`.slice(0, 64));
-      out.end();
+      out.end({
+        role: "assistant", content: [], api: lane.model.api, provider: lane.model.provider, model: lane.model.id,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "error", errorMessage: lane.kind === "demo" ? "The model stream ended without a recorded outcome. Its demo allowance remains reserved." : "The model stream ended without a recorded outcome.", timestamp: Date.now()
+      });
     });
     return out;
   }

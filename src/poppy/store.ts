@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS poppy_signins (
 CREATE TABLE IF NOT EXISTS poppy_conversations (
   id TEXT PRIMARY KEY,
   issuer TEXT NOT NULL,
+  remote_id TEXT NOT NULL DEFAULT '',
+  quarantined INTEGER NOT NULL DEFAULT 0,
   label TEXT NOT NULL,
   parent TEXT,
   direct INTEGER NOT NULL,
@@ -81,6 +83,17 @@ CREATE TABLE IF NOT EXISTS poppy_conversations (
   context TEXT,
   last_event_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS poppy_conversation_quarantine (
+  kind TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  quarantined_at INTEGER NOT NULL,
+  PRIMARY KEY (kind, source_id)
+);
+CREATE TABLE IF NOT EXISTS poppy_conversation_migration (
+  slot INTEGER PRIMARY KEY CHECK (slot = 1),
+  state TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS poppy_events (
   conversation_id TEXT NOT NULL,
@@ -111,6 +124,8 @@ CREATE TABLE IF NOT EXISTS poppy_operations (
   approved_by TEXT,
   permission_id TEXT,
   confirmed INTEGER NOT NULL DEFAULT 0,
+  approval_generation INTEGER NOT NULL DEFAULT 0,
+  cancel_requested INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL,
   altered_summary TEXT,
   PRIMARY KEY (issuer, operation_id)
@@ -184,8 +199,48 @@ export function migrate(sql: Sql): void {
   if (!sql.exec("PRAGMA table_info(poppy_signouts)").toArray().some((column) => column.name === "reason")) {
     sql.exec("ALTER TABLE poppy_signouts ADD COLUMN reason TEXT NOT NULL DEFAULT 'sign_out'");
   }
+  for (const column of ["approval_generation", "cancel_requested"]) {
+    if (!sql.exec("PRAGMA table_info(poppy_operations)").toArray().some((entry) => entry.name === column)) {
+      sql.exec(`ALTER TABLE poppy_operations ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
+    }
+  }
+  migrateConversationIdentity(sql);
   // After the tables its triggers watch.
   migrateProtocolLog(sql);
+}
+
+/** Old inboxes lack their source issuer, so a collision cannot be untangled safely. */
+function migrateConversationIdentity(sql: Sql): void {
+  const columns = sql.exec("PRAGMA table_info(poppy_conversations)").toArray();
+  if (!columns.some((column) => column.name === "remote_id")) {
+    // Persist the intent first: every later step is safe to repeat after a crash.
+    sql.exec("INSERT OR REPLACE INTO poppy_conversation_migration (slot, state) VALUES (1, 'pending')");
+    sql.exec("ALTER TABLE poppy_conversations ADD COLUMN remote_id TEXT NOT NULL DEFAULT ''");
+  }
+  if (!columns.some((column) => column.name === "quarantined")) {
+    sql.exec("ALTER TABLE poppy_conversations ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0");
+  }
+  const pending = sql.exec("SELECT state FROM poppy_conversation_migration WHERE slot = 1").toArray()[0]?.state === "pending";
+  if (pending) {
+    const at = Date.now();
+    for (const [kind, source, key] of [["conversation", "poppy_conversations", "id"], ["inbox", "poppy_inbox", "seq"], ["event", "poppy_events", null], ["message", "poppy_messages", "id"], ["card", "poppy_cards WHERE json_extract(card, '$.conversationId') IS NOT NULL", "id"]] as const) {
+      for (const row of sql.exec(`SELECT * FROM ${source}`)) {
+        const sourceId = key ? String(row[key]) : JSON.stringify([row.conversation_id, row.event_id]);
+        sql.exec("INSERT OR IGNORE INTO poppy_conversation_quarantine (kind, source_id, payload, quarantined_at) VALUES (?, ?, ?, ?)", kind, sourceId, JSON.stringify(row), at);
+      }
+    }
+    sql.exec("UPDATE poppy_conversations SET remote_id = id, quarantined = 1, status = 'closed', cursor = NULL, context = NULL");
+    sql.exec("DELETE FROM poppy_inbox");
+    sql.exec("DELETE FROM poppy_events");
+    sql.exec("UPDATE poppy_messages SET conversation_id = NULL WHERE conversation_id IS NOT NULL");
+    sql.exec("DELETE FROM poppy_cards WHERE json_extract(card, '$.conversationId') IS NOT NULL");
+    if (sql.exec("SELECT 1 FROM poppy_conversations LIMIT 1").toArray().length) {
+      const card = { id: "conversation-isolation-update", kind: "notice", company: "", open: true, text: "Earlier Company conversation records had uncertain company attribution and were quarantined during a security update. Those conversations were stopped locally; this did not cancel them at the Companies. Ask your agent to start a new conversation. No messages were resent." };
+      sql.exec("INSERT OR REPLACE INTO poppy_cards (id, card, open, updated_at) VALUES (?, ?, 1, ?)", card.id, JSON.stringify(card), at);
+    }
+    sql.exec("UPDATE poppy_conversation_migration SET state = 'done' WHERE slot = 1");
+  }
+  sql.exec("CREATE UNIQUE INDEX IF NOT EXISTS poppy_conversation_remote ON poppy_conversations (issuer, remote_id) WHERE quarantined = 0");
 }
 
 // ---------------------------------------------------------------- Rows
@@ -254,6 +309,8 @@ export const signInsTable = table("poppy_signins", {
 export const conversationsTable = table("poppy_conversations", {
   id: text,
   issuer: issuerColumn,
+  remote_id: text,
+  quarantined: integerOf(flag),
   label: text,
   parent: nullable(text),
   direct: integer,
@@ -264,6 +321,8 @@ export const conversationsTable = table("poppy_conversations", {
   last_event_at: integer,
   created_at: integer
 });
+export const conversationQuarantineTable = table("poppy_conversation_quarantine", { kind: text, source_id: text, payload: text, quarantined_at: integer });
+export const conversationMigrationTable = table("poppy_conversation_migration", { slot: integer, state: textOf(literal("pending", "done")) });
 export const eventsTable = table("poppy_events", { conversation_id: text, event_id: text });
 export const inboxTable = table("poppy_inbox", { seq: integer, conversation_id: text, event: text, created_at: integer });
 export const messagesTable = table("poppy_messages", { id: text, issuer: issuerColumn, conversation_id: nullable(text), body: text, created_at: integer });
@@ -278,6 +337,8 @@ export const operationsTable = table("poppy_operations", {
   approved_by: nullable(textOf(literal("user", "standing_permission"))),
   permission_id: nullable(text),
   confirmed: integer,
+  approval_generation: integer,
+  cancel_requested: integerOf(flag),
   updated_at: integer,
   /** Set when the Company changed a revision's terms in place (Ops 3.1 forbids it): what it then said. */
   altered_summary: nullable(text)

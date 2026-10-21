@@ -95,9 +95,22 @@ function MobileBar({ title, waiting, onChat }: { title: string; waiting: number;
   );
 }
 
-/** Shown only while the page isn't connected to the agent; the agent itself keeps working. */
-function ConnectionBanner({ status }: { status: PiSession["status"] }) {
+/** Connection status, with explicit recovery when this browser no longer has access. */
+function ConnectionBanner({ status, outbox }: { status: PiSession["status"]; outbox: PiSession["outbox"] }) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   if (status === "open") return null;
+  if (status === "unauthenticated") return <div role="alert" className="shrink-0 space-y-2 border-b border-kumo-hairline bg-kumo-warning-tint px-4 py-3 text-sm">
+    <p className="font-semibold">This connection no longer has access. Sign in again to continue.</p>
+    <p>Unsent messages and drafts remain in this tab. Copy anything you want to keep before reloading; it will not be sent automatically to another session.</p>
+    <div className="flex flex-wrap items-center gap-3">
+      {outbox.length ? <Action variant="secondary" onClick={() => {
+        void Promise.resolve().then(() => navigator.clipboard.writeText(outbox.map(item => item.text).join("\n\n"))).then(() => setCopyState("copied"), () => setCopyState("failed"));
+      }}>Copy pending messages</Action> : null}
+      <a className="font-medium text-kumo-link underline" href="/">Reload and check sign-in</a>
+    </div>
+    {copyState === "copied" ? <p role="status">Pending messages copied. Copy any text still in the message box separately.</p> : null}
+    {copyState === "failed" ? <p role="status">Copy was unavailable. Select and copy your pending messages and draft before reloading.</p> : null}
+  </div>;
   return (
     <div role="status" className="flex shrink-0 items-start gap-2 border-b border-kumo-hairline bg-kumo-elevated px-4 py-2 text-[13px] text-kumo-default">
       <WifiSlashIcon size={16} aria-hidden className="mt-px shrink-0 text-kumo-subtle" />
@@ -180,7 +193,7 @@ export function Workspace({ identity, session }: { identity: Identity; session: 
           </Sidebar>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-kumo-canvas">
             <MobileBar title={label} waiting={waiting} onChat={route.place === "chat" ? null : () => navigate({ place: "chat", company: null })} />
-            <ConnectionBanner status={session.status} />
+            <ConnectionBanner status={session.status} outbox={session.outbox} />
             <ModelBanner entitlement={entitlement} onSettings={route.place === "settings" ? null : () => navigate({ place: "settings", company: null })} />
             <main ref={main} className={route.place === "chat" ? "min-h-0 flex-1" : "min-h-0 flex-1 overflow-y-auto"}>
               {route.place === "chat" ? (

@@ -25,8 +25,11 @@ const exchange = {
 
 /** The page's WebSocket, keeping every protocol frame, raw and parsed. */
 async function page(a: Agent) {
+  const bootstrap = await worker.fetch(new Request(`${ORIGIN}/api/me`, { headers: { Cookie: a.cookie } }), env);
+  expect(bootstrap.status).toBe(200);
+  const { workspaceId } = await bootstrap.json() as { workspaceId: string };
   const response = await worker.fetch(
-    new Request(`${ORIGIN}/ws`, { headers: { Upgrade: "websocket", Origin: ORIGIN, Cookie: a.cookie } }),
+    new Request(`${ORIGIN}/ws?workspace=${encodeURIComponent(workspaceId)}`, { headers: { Upgrade: "websocket", Origin: ORIGIN, Cookie: a.cookie } }),
     env
   );
   expect(response.status).toBe(101);

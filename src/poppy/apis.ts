@@ -1,6 +1,6 @@
 import { Validator, type OutputUnit } from "@cfworker/json-schema";
 import { attachmentInfo, humanSize, readAttachment, type AttachmentInfo } from "../attachments";
-import { PoppyClient, PoppyError, scopeSet, withAnswer } from "./client";
+import { answerOf, PoppyClient, PoppyError, scopeSet, withAnswer, withoutAnswer, withUnreadableAnswer } from "./client";
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
@@ -12,6 +12,20 @@ import { firstTime, intent, type Sql } from "./store";
 import { companyErrorCode } from "./error-codes";
 
 type Api = Company["apis"][number];
+
+type ApprovalBinding = { readonly account: string | null; readonly sessionId: string };
+async function approvalBinding(client: PoppyClient, company: Company, label: string, resource?: string): Promise<ApprovalBinding> {
+  await client.token(company, { label, ...(resource ? { bearer: true, resource } : {}) });
+  const session = client.session(company.issuer, label);
+  if (!session) throw new PoppyError("approval_changed", "No Session for this approval", 0);
+  return { account: session.account, sessionId: session.session_id };
+}
+function checkApprovalBinding(client: PoppyClient, company: Company, label: string, binding?: ApprovalBinding): void {
+  const session = client.session(company.issuer, label);
+  if (!binding || !session || session.session_id !== binding.sessionId || session.account !== binding.account) {
+    throw new PoppyError("approval_changed", "The account or Session changed. Review a fresh request before sending it.", 0);
+  }
+}
 
 export function findApi(company: Company, type: Api["type"], url?: string): Api {
   const matches = company.apis.filter((api) => api.type === type && (!url || api.url === url));
@@ -817,7 +831,7 @@ function answerForModel(answer: ApiAnswer): Json {
  * a write sent without our card because its description says it proposes: a
  * 2xx without an operation is then the Company breaking its description.
  */
-async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRequest, expectsProposal = false): Promise<ApiAnswer> {
+async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRequest, expectsProposal = false, beforeDispatch?: () => void): Promise<ApiAnswer> {
   const { company, op, api, write } = checked;
   if (write) refuseWhileConfirming(client, company.issuer, write);
   // Read-only lookups ask for a read-only token when the account allows (Guides).
@@ -825,9 +839,9 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
   const response = await client.resource(company, checked, {
     label,
     ...(api.resource ? { resource: api.resource } : {}),
-    ...(readOnly ? { scope: readOnly } : {})
+    ...(readOnly ? { scope: readOnly } : {}), ...(beforeDispatch ? { beforeDispatch } : {})
   });
-  const text = await client.readBody(response);
+  const text = await client.readBody(response).catch(error => { throw withUnreadableAnswer(error, response.status); });
   let body: Json = null;
   try {
     body = text ? parseStrictJson(text) : null;
@@ -889,13 +903,13 @@ export async function callOpenApi(
     ...request,
     idempotencyKey: () => intent(client.sql, `idem|${request.callKey}`, () => crypto.randomUUID())
   });
-  const ask = () =>
+  const ask = async () =>
     proposeLocal(
       client,
       company,
       label,
       checked.describe(),
-      { kind: "openapi", call: checked.call, method: checked.method, url: checked.url, ...(checked.attachments.length ? { attachments: [...checked.attachments] } : {}) },
+      { kind: "openapi", call: checked.call, method: checked.method, url: checked.url, binding: await approvalBinding(client, company, label), ...(checked.attachments.length ? { attachments: [...checked.attachments] } : {}) },
       intent(client.sql, `approval|${request.callKey}`, () => randomId("apr_"))
     );
   if (checked.attachments.length) {
@@ -925,7 +939,7 @@ export async function callOpenApi(
  * approved, and the Company didn't do it as far as it says. Nor is a
  * proposal we can't use.
  */
-registerExecutor("openapi", async (client, company, approval, label) => {
+registerExecutor("openapi", async (client, company, approval, label, execution) => {
   const checked = await CheckedApiRequest.check(client, company, approval.call);
   if (checked.method !== approval.method || checked.url !== approval.url) {
     throw new PoppyError(
@@ -934,7 +948,7 @@ registerExecutor("openapi", async (client, company, approval, label) => {
       0
     );
   }
-  const answer = await sendApi(client, label, checked);
+  const answer = await sendApi(client, label, checked, false, () => { execution.beforeDispatch(); checkApprovalBinding(client, company, label, approval.binding); });
   if (answer.kind === "unusable") {
     throw withAnswer(new PoppyError("unusable_proposal", `${company.name} proposed an operation the agent can't use, so nothing was done`, 202), 202);
   }
@@ -953,7 +967,12 @@ registerExecutor("openapi", async (client, company, approval, label) => {
 
 const MCP_VERSION = "2025-06-18";
 type McpSession = { sessionId: string | null; tools: Json[] | null };
-const mcpSessions = new Map<string, McpSession>();
+const mcpClients = new WeakMap<PoppyClient, Map<string, McpSession>>();
+function mcpSessions(client: PoppyClient): Map<string, McpSession> {
+  let sessions = mcpClients.get(client);
+  if (!sessions) mcpClients.set(client, sessions = new Map());
+  return sessions;
+}
 
 /**
  * Protected resource metadata (RFC 9728) must name the Company's issuer as an
@@ -995,12 +1014,12 @@ async function rpcResult(client: PoppyClient, response: Response, id: number): P
   }
   const message = messages.find((item) => isObject(item) && item.id === id);
   if (!isObject(message)) throw new PoppyError("mcp_error", "The MCP server didn't answer the request", response.status);
-  if (isObject(message.error)) throw new PoppyError("mcp_error", `MCP error: ${String(message.error.message ?? message.error.code)}`, response.status);
+  if (isObject(message.error)) throw withAnswer(new PoppyError("mcp_error", `MCP error: ${String(message.error.message ?? message.error.code)}`, response.status), response.status);
   return message.result ?? null;
 }
 
-async function mcpRequest(client: PoppyClient, company: Company, label: string, api: Api, method: string, params: Json, sessionKey: string): Promise<{ result: Json; sessionId: string | null }> {
-  const session = mcpSessions.get(sessionKey);
+async function mcpRequest(client: PoppyClient, company: Company, label: string, api: Api, method: string, params: Json, sessionKey: string, beforeDispatch?: () => void): Promise<{ result: Json; sessionId: string | null }> {
+  const session = mcpSessions(client).get(sessionKey);
   const id = Math.floor(Math.random() * 1e9);
   // MCP uses Bearer tokens, each issued for this server's url only (spec 4.3).
   const response = await client.resource(
@@ -1015,10 +1034,10 @@ async function mcpRequest(client: PoppyClient, company: Company, label: string, 
         ...(session?.sessionId ? { "Mcp-Session-Id": session.sessionId } : {})
       }
     }),
-    { label, bearer: true, resource: api.url }
+    { label, bearer: true, resource: api.url, ...(beforeDispatch ? { beforeDispatch } : {}) }
   );
   if (response.status === 404 && session?.sessionId) {
-    mcpSessions.delete(sessionKey);
+    mcpSessions(client).delete(sessionKey);
     await response.body?.cancel();
     throw withAnswer(new PoppyError("mcp_session_expired", "The MCP session expired", 404), 404);
   }
@@ -1026,19 +1045,24 @@ async function mcpRequest(client: PoppyClient, company: Company, label: string, 
     await response.body?.cancel();
     throw withAnswer(new PoppyError(`http_${response.status}`, `${api.url} returned HTTP ${response.status}`, response.status), response.status);
   }
-  return { result: await rpcResult(client, response, id), sessionId: response.headers.get("Mcp-Session-Id") };
+  let result: Json;
+  try { result = await rpcResult(client, response, id); }
+  catch (error) { throw method === "tools/call" && answerOf(error) === undefined ? withUnreadableAnswer(error, response.status) : error; }
+  return { result, sessionId: response.headers.get("Mcp-Session-Id") };
 }
 
 async function mcpSession(client: PoppyClient, company: Company, label: string, api: Api): Promise<string> {
-  const key = `${company.issuer}|${label}|${api.url}`;
-  if (mcpSessions.has(key)) return key;
+  await client.token(company, { label, bearer: true, resource: api.url });
+  const bound = client.session(company.issuer, label);
+  const key = JSON.stringify([company.issuer, label, api.url, bound?.session_id, bound?.account, bound?.signed_in]);
+  if (mcpSessions(client).has(key)) return key;
   await checkResourceMetadata(client, company, api);
   const { sessionId } = await mcpRequest(client, company, label, api, "initialize", {
     protocolVersion: MCP_VERSION,
     capabilities: {},
     clientInfo: { name: client.identity.clientName, version: "0.1" }
   }, key);
-  mcpSessions.set(key, { sessionId, tools: null });
+  mcpSessions(client).set(key, { sessionId, tools: null });
   // `notifications/initialized` is a notification: no id, and no answer to wait for.
   const response = await client.resource(
     company,
@@ -1058,7 +1082,7 @@ async function mcpSession(client: PoppyClient, company: Company, label: string, 
 export async function listMcpTools(client: PoppyClient, company: Company, label: string, apiUrl?: string): Promise<Json[]> {
   const api = findApi(company, "mcp", apiUrl);
   const key = await mcpSession(client, company, label, api);
-  const session = mcpSessions.get(key)!;
+  const session = mcpSessions(client).get(key)!;
   if (!session.tools) {
     const { result } = await mcpRequest(client, company, label, api, "tools/list", {}, key);
     session.tools = isObject(result) && Array.isArray(result.tools) ? result.tools : [];
@@ -1076,13 +1100,15 @@ async function performMcp(
   company: Company,
   label: string,
   call: { apiUrl: string; tool: string; args: Json },
-  expectsProposal = false
+  expectsProposal = false,
+  beforeDispatch?: () => void
 ): Promise<Json> {
   const api = findApi(company, "mcp", call.apiUrl);
   const write = `MCP ${api.url} ${call.tool} ${JSON.stringify(call.args)}`;
   refuseWhileConfirming(client, company.issuer, write);
-  const key = await mcpSession(client, company, label, api);
-  const { result } = await mcpRequest(client, company, label, api, "tools/call", { name: call.tool, arguments: call.args }, key);
+  const key = await mcpSession(client, company, label, api).catch(error => { throw withoutAnswer(error); });
+  const { result } = await mcpRequest(client, company, label, api, "tools/call", { name: call.tool, arguments: call.args }, key, beforeDispatch);
+  if (isObject(result) && result.isError === true) throw withAnswer(new PoppyError("mcp_error", `The MCP tool reported an error: ${JSON.stringify(result).slice(0, 1_000)}`, 200), 200);
   if (isObject(result) && isObject(result.structuredContent) && isObject(result.structuredContent.operation)) {
     const operation = await handleProposal(client, company, label, result.structuredContent.operation);
     if (operation) {
@@ -1091,7 +1117,7 @@ async function performMcp(
     }
     return { unusable: true, note: UNUSABLE, result };
   }
-  if (expectsProposal && !(isObject(result) && result.isError === true)) {
+  if (expectsProposal) {
     await actedWithoutProposal(client, company, `its tool ${call.tool}`, 200, result);
     return { unproposed: true, note: UNPROPOSED, result };
   }
@@ -1129,7 +1155,7 @@ export async function callMcpTool(
   const call = { apiUrl: api.url, tool: request.tool, args: request.args };
   if (readOnly) return performMcp(client, company, label, call);
   if (company.extensions.operations && mcpToolProposes(tool)) return performMcp(client, company, label, call, true);
-  const id = await proposeLocal(client, company, label, `${company.name}: run ${request.tool} with ${JSON.stringify(request.args)}`, { kind: "mcp", call });
+  const id = await proposeLocal(client, company, label, `${company.name}: run ${request.tool} with ${JSON.stringify(request.args)}`, { kind: "mcp", call, binding: await approvalBinding(client, company, label, api.url) });
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
 
@@ -1157,8 +1183,8 @@ function checkMcpArgs(company: Company, name: string, inputSchema: Json | undefi
 }
 
 /** An approved MCP call: sent only to an MCP server the Company still lists (`findApi`). */
-registerExecutor("mcp", async (client, company, approval, label) => {
-  const result = await performMcp(client, company, label, approval.call);
+registerExecutor("mcp", async (client, company, approval, label, execution) => {
+  const result = await performMcp(client, company, label, approval.call, false, () => { execution.beforeDispatch(); checkApprovalBinding(client, company, label, approval.binding); });
   return JSON.stringify(result).slice(0, 2_000);
 });
 

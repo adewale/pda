@@ -504,7 +504,7 @@ export class PoppyCapability extends LifecycleCapability {
         this.#sendSettings();
         return;
       case "poppy.permission.remove":
-        removePermission(client, frame.id);
+        await removePermission(client, frame.id);
         this.#sendSettings();
         return;
       case "poppy.card.dismiss":

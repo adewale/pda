@@ -1,5 +1,5 @@
 import { ATTACHMENT_TYPES, type AttachmentInfo } from "../attachments";
-import { array, boolean, integer, json, literal, object, optional, record, string, tagged, tryDecode, type Decoded, type Decoder } from "../decode";
+import { array, boolean, integer, json, literal, nullable, object, optional, record, string, tagged, tryDecode, type Decoded, type Decoder } from "../decode";
 import { isObject } from "./json";
 
 /**
@@ -34,6 +34,7 @@ const openApiCall = object({
 });
 
 const mcpCall = object({ apiUrl: string, tool: string, args: json });
+const binding = object({ account: nullable(string), sessionId: string });
 
 /** Exactly what a website form sends (browser.ts `FormSubmission`). */
 const submission = object({
@@ -46,9 +47,9 @@ const submission = object({
 
 const approval = tagged("kind", {
   /** `method` and `url` are what the card showed; the call is checked again and must still make exactly them. */
-  openapi: object({ v: literal(APPROVAL_VERSION), kind: literal("openapi"), call: openApiCall, method: string, url: string, attachments: optional(array(attachment)) }),
-  mcp: object({ v: literal(APPROVAL_VERSION), kind: literal("mcp"), call: mcpCall }),
-  "browse-submit": object({ v: literal(APPROVAL_VERSION), kind: literal("browse-submit"), submission })
+  openapi: object({ v: literal(APPROVAL_VERSION), kind: literal("openapi"), call: openApiCall, method: string, url: string, binding: optional(binding), attachments: optional(array(attachment)) }),
+  mcp: object({ v: literal(APPROVAL_VERSION), kind: literal("mcp"), call: mcpCall, binding: optional(binding) }),
+  "browse-submit": object({ v: literal(APPROVAL_VERSION), kind: literal("browse-submit"), submission, binding: optional(object({ account: nullable(string), sessionId: nullable(string), contextId: string })) })
 });
 
 export type StoredApproval = Decoded<typeof approval>;

@@ -1,5 +1,5 @@
 import type { BrowserContextHandle, FormSubmission, PageGuard, PageSnapshot, PoppyBrowser } from "./browser";
-import { PoppyError } from "./client";
+import { PoppyError, unreadableAnswerOf, withAnswer, withUnreadableAnswer } from "./client";
 import { assertPublicHost, PoppyFetchError, readLimitedBytes, type Fetcher } from "./fetch";
 
 /**
@@ -461,13 +461,15 @@ class FetchContext implements BrowserContextHandle {
 
   async #navigate(
     start: URL,
-    init: { method: "GET" | "POST"; body?: URLSearchParams | FormData; origin?: string; discardBody?: boolean }
+    init: { method: "GET" | "POST"; body?: URLSearchParams | FormData; origin?: string; discardBody?: boolean; beforeDispatch?: () => void }
   ): Promise<Fetched> {
     if (this.#closed) throw new PoppyError("invalid_request", "The page is no longer open", 0);
     const signal = AbortSignal.timeout(this.#options.timeoutMs);
     let current = start;
     let method = init.method;
     let body = init.body;
+    let sent = false;
+    let answered: number | undefined;
     try {
       for (let hop = 0; ; hop++) {
         this.#check(current);
@@ -477,9 +479,12 @@ class FetchContext implements BrowserContextHandle {
         if (cookie) headers.set("Cookie", cookie);
         if (body instanceof URLSearchParams) headers.set("Content-Type", "application/x-www-form-urlencoded");
         if (hop === 0 && init.origin && method === "POST") headers.set("Origin", init.origin);
-        const response = await this.#fetcher(
-          new Request(current.href, { method, headers, redirect: "manual", signal, ...(body ? { body } : {}) })
-        );
+        const outbound = new Request(current.href, { method, headers, redirect: "manual", signal, ...(body ? { body } : {}) });
+        init.beforeDispatch?.();
+        sent = true;
+        answered = undefined;
+        const response = await this.#fetcher(outbound);
+        answered = response.status;
         this.#jar.store(current, response.headers.getSetCookie());
         const location = response.headers.get("Location");
         if (response.status >= 300 && response.status < 400 && location) {
@@ -504,8 +509,8 @@ class FetchContext implements BrowserContextHandle {
           if (init.discardBody) await response.body?.cancel();
           else bytes = await readLimitedBytes(response, this.#options.maxBytes, signal);
         } catch (error) {
-          if (error instanceof PoppyFetchError) throw new PoppyError("too_large", `${current.href} is larger than ${this.#options.maxBytes} bytes`, 0);
-          throw error;
+          const failure = error instanceof PoppyFetchError ? new PoppyError("too_large", `${current.href} is larger than ${this.#options.maxBytes} bytes`, 0) : error;
+          throw init.method === "POST" ? withUnreadableAnswer(failure, response.status) : failure;
         }
         return {
           url: current,
@@ -516,8 +521,11 @@ class FetchContext implements BrowserContextHandle {
         };
       }
     } catch (error) {
-      if (signal.aborted) throw new PoppyError("timeout", `${current.host} took longer than ${this.#options.timeoutMs / 1000} s`, 0);
-      throw error;
+      const failure = signal.aborted ? new PoppyError("timeout", `${current.host} took longer than ${this.#options.timeoutMs / 1000} s`, 0) : error;
+      const unreadable = unreadableAnswerOf(error);
+      if (unreadable !== undefined) throw withUnreadableAnswer(failure, unreadable);
+      if (init.method === "POST" && sent) throw withAnswer(failure, answered ?? "none");
+      throw failure;
     }
   }
 
@@ -757,13 +765,13 @@ class FetchContext implements BrowserContextHandle {
     return { from: page.url.href, method, action: action.href, enctype, fields };
   }
 
-  async submit(submission: FormSubmission): Promise<PageSnapshot> {
+  async submit(submission: FormSubmission, beforeDispatch?: () => void): Promise<PageSnapshot> {
     const action = new URL(submission.action);
     if (submission.method === "GET") {
       // A GET form replaces the action's query with its fields (HTML, "mutate action URL").
       action.search = new URLSearchParams(submission.fields.map((field) => [field.name, field.value])).toString();
       action.hash = "";
-      return this.#load(await this.#navigate(action, { method: "GET" }));
+      return this.#load(await this.#navigate(action, { method: "GET", beforeDispatch }));
     }
     let body: URLSearchParams | FormData;
     if (submission.enctype === "multipart/form-data") {
@@ -772,7 +780,7 @@ class FetchContext implements BrowserContextHandle {
     } else {
       body = new URLSearchParams(submission.fields.map((field) => [field.name, field.value]));
     }
-    return this.#load(await this.#navigate(action, { method: "POST", body, origin: new URL(submission.from).origin }));
+    return this.#load(await this.#navigate(action, { method: "POST", body, origin: new URL(submission.from).origin, beforeDispatch }));
   }
 
   async close(): Promise<void> {

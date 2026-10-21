@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toIssuer } from "../../src/poppy/issuer";
 import type { Card } from "../../src/poppy/wire";
@@ -15,6 +15,7 @@ import { usePiSession } from "../../src/use-pi-session";
  */
 
 type Handlers = {
+  shouldReconnectOnClose?: (event: CloseEvent) => boolean;
   onOpen?: (event: Event) => void;
   onClose?: (event: CloseEvent) => void;
   onMessage?: (event: MessageEvent) => void;
@@ -37,10 +38,10 @@ class FakeSocket {
       this.handlers.onOpen?.(new Event("open"));
     });
   }
-  close() {
+  close(code = 1006, reason = "Network interruption") {
     act(() => {
       this.readyState = WebSocket.CLOSED;
-      this.handlers.onClose?.(new Event("close") as CloseEvent);
+      this.handlers.onClose?.(new CloseEvent("close", { code, reason }));
     });
   }
   receive(frame: Frame) {
@@ -61,7 +62,7 @@ vi.mock("agents/react", () => ({
 }));
 
 function Page() {
-  return <Workspace identity={{ email: "ada@example.com", provider: "google" }} session={usePiSession()} />;
+  return <Workspace identity={{ email: "ada@example.com", provider: "google" }} session={usePiSession("workspace-a")} />;
 }
 
 const box = () => screen.getByRole("textbox", { name: "Message your agent" }) as HTMLTextAreaElement;
@@ -78,11 +79,117 @@ function type(text: string) {
 beforeEach(() => {
   socket = new FakeSocket();
   window.history.replaceState(null, "", "/");
-  vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404 })));
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/me" ? Response.json({ workspaceId: "workspace-a" }) : new Response("Not found", { status: 404 })));
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("a browser session that no longer has access", () => {
+  it("stops retrying a policy close, preserves pending text and drafts, and offers explicit sign-in recovery", () => {
+    render(<Page />);
+    socket.open();
+    type("Pending message to preserve");
+    SEND_WITH.Enter();
+    type("Unsent draft to preserve");
+    socket.close(1008, "Sign in again");
+    expect(screen.getByText("This connection no longer has access. Sign in again to continue.")).toBeTruthy();
+    expect(screen.queryByText(/Reconnecting to your agent/)).toBeNull();
+    expect(screen.getByText("Pending message to preserve")).toBeTruthy();
+    expect(box().value).toBe("Unsent draft to preserve");
+    expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole("link", { name: "Reload and check sign-in" }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("button", { name: "Copy pending messages" })).toBeTruthy();
+    expect(socket.handlers.shouldReconnectOnClose?.(new CloseEvent("close", { code: 1008 }))).toBe(false);
+    expect(socket.handlers.shouldReconnectOnClose?.(new CloseEvent("close", { code: 1006 }))).toBe(false);
+    SEND_WITH.Enter();
+    expect(box().value).toBe("Unsent draft to preserve");
+    expect(socket.submits()).toHaveLength(1);
+    // An unexpected later socket open cannot silently flush an old account's text.
+    socket.open();
+    expect(socket.submits()).toHaveLength(1);
+    expect(screen.getByText("This connection no longer has access. Sign in again to continue.")).toBeTruthy();
+  });
+
+  it("copies pending messages only on request and keeps the unsent draft separate", async () => {
+    const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    try {
+      render(<Page />);
+      type("Queued text to keep");
+      SEND_WITH.Enter();
+      type("Draft not submitted");
+      socket.close(1008, "Sign in again");
+      expect(writeText).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Copy pending messages" }));
+      expect(await screen.findByText("Pending messages copied. Copy any text still in the message box separately.")).toBeTruthy();
+      expect(writeText).toHaveBeenCalledWith("Queued text to keep");
+      expect(box().value).toBe("Draft not submitted");
+      expect(socket.submits()).toEqual([]);
+    } finally {
+      if (previous) Object.defineProperty(navigator, "clipboard", previous);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("recognizes a rejected reconnect upgrade through an authenticated status check without replaying pending text", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/me" ? new Response(null, { status: 401 }) : Response.json({ reviews: [] }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<Page />);
+    socket.open();
+    type("Keep this pending message");
+    SEND_WITH.Enter();
+    type("Keep this draft too");
+    socket.close(1006, "Upgrade failed");
+    expect(await screen.findByText("This connection no longer has access. Sign in again to continue.")).toBeTruthy();
+    expect(fetcher.mock.calls.some(([input]) => input === "/api/me")).toBe(true);
+    expect(socket.handlers.shouldReconnectOnClose?.(new CloseEvent("close", { code: 1006 }))).toBe(false);
+    socket.open();
+    expect(socket.submits()).toHaveLength(1);
+    expect(screen.getByText("Keep this pending message")).toBeTruthy();
+    expect(box().value).toBe("Keep this draft too");
+  });
+
+  it("bounds a stalled identity check while retaining the same workspace-bound reconnect operation", async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    try {
+      vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) !== "/api/me") return Promise.resolve(Response.json({ reviews: [] }));
+        return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("Timed out", "TimeoutError")), { once: true }));
+      }));
+      render(<Page />);
+      socket.open();
+      type("Keep this operation on a slow auth check");
+      SEND_WITH.Enter();
+      const original = socket.submits()[0];
+      socket.close();
+      socket.open();
+      expect(timeout).toHaveBeenCalledWith(10_000);
+      expect(socket.submits()).toEqual([original]);
+      await act(async () => { controller.abort(); });
+      await waitFor(() => expect(socket.submits()).toEqual([original, original]));
+      expect(screen.queryByText("This connection no longer has access. Sign in again to continue.")).toBeNull();
+    } finally { timeout.mockRestore(); }
+  });
+
+  it("keeps automatic reconnect and operation IDs when a network close still has valid authentication", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input) === "/api/me" ? Response.json({ provider: "google", email: "ada@example.com", workspaceId: "workspace-a" }) : Response.json({ reviews: [] }));
+    vi.stubGlobal("fetch", fetcher);
+    render(<Page />);
+    socket.open();
+    type("Retry the same pending operation");
+    SEND_WITH.Enter();
+    const original = socket.submits()[0];
+    socket.close(1006);
+    await waitFor(() => expect(fetcher.mock.calls.some(([input]) => input === "/api/me")).toBe(true));
+    expect(screen.queryByText("This connection no longer has access. Sign in again to continue.")).toBeNull();
+    expect(socket.handlers.shouldReconnectOnClose?.(new CloseEvent("close", { code: 1006 }))).toBe(true);
+    socket.open();
+    await waitFor(() => expect(socket.submits()).toEqual([original, original]));
+  });
 });
 
 describe("sending before the socket is open", () => {
@@ -113,7 +220,7 @@ describe("sending before the socket is open", () => {
   // What was seen live: the page still showed the socket open, the box emptied, and nothing reached the agent.
   it.each(Object.keys(SEND_WITH) as (keyof typeof SEND_WITH)[])(
     "keeps a message sent with %s after the socket stopped being open but before the page heard it close",
-    (how) => {
+    async (how) => {
       render(<Page />);
       socket.open();
       socket.readyState = WebSocket.CLOSED;
@@ -126,7 +233,7 @@ describe("sending before the socket is open", () => {
       socket.close();
       expect(screen.getByText("Waiting to connect. It goes once your agent is connected.")).toBeTruthy();
       socket.open();
-      expect(socket.submits().map((frame) => frame.input)).toEqual(["Book a table for two"]);
+      await waitFor(() => expect(socket.submits().map((frame) => frame.input)).toEqual(["Book a table for two"]));
     }
   );
 
@@ -164,7 +271,7 @@ describe("sending on an open socket", () => {
 });
 
 describe("a socket that drops and reopens", () => {
-  it("sends a queued message once, sends again only what the agent didn't answer, with the same operation id, and never one it answered", () => {
+  it("sends a queued message once, sends again only what the agent didn't answer, with the same operation id, and never one it answered", async () => {
     render(<Page />);
     type("one");
     SEND_WITH.Enter();
@@ -184,12 +291,12 @@ describe("a socket that drops and reopens", () => {
     socket.close();
     socket.open();
 
-    expect(socket.submits().map((frame) => [frame.input, frame.operationId])).toEqual([
+    await waitFor(() => expect(socket.submits().map((frame) => [frame.input, frame.operationId])).toEqual([
       ["one", one.operationId],
       ["two", two.operationId],
       ["two", two.operationId],
       ["three", expect.any(String)]
-    ]);
+    ]));
     for (const frame of socket.submits().slice(2)) socket.receive({ type: "result", id: String(frame.id), result: null });
     expect(screen.queryByText("two")).toBeNull();
     expect(screen.queryByText("three")).toBeNull();
@@ -289,10 +396,11 @@ describe("card actions while the socket isn't open", () => {
     expect(decisions()).toEqual([]);
   });
 
-  it("enables them again once it reopens", () => {
+  it("enables them again once it reopens", async () => {
     pageWithCards();
     socket.close();
     socket.open();
+    await waitFor(() => expect(cardButtons(CARD_OF["Approve on an approval"]).some(button => !button.disabled)).toBe(true));
     for (const title of Object.values(CARD_OF)) {
       expect(cardButtons(title).some((button) => button.disabled)).toBe(false);
       expect(within(card(title)).queryByRole("status")).toBeNull();
@@ -301,7 +409,7 @@ describe("card actions while the socket isn't open", () => {
 });
 
 describe("card actions on a socket that has just closed, before the page heard", () => {
-  it.each(Object.keys(CARD_ACTIONS) as (keyof typeof CARD_ACTIONS)[])("doesn't send %s, says so on the card, and sends it once the socket is back", (what) => {
+  it.each(Object.keys(CARD_ACTIONS) as (keyof typeof CARD_ACTIONS)[])("doesn't send %s, says so on the card, and sends it once the socket is back", async (what) => {
     pageWithCards();
     socket.readyState = WebSocket.CLOSED;
     CARD_ACTIONS[what]();
@@ -311,6 +419,7 @@ describe("card actions on a socket that has just closed, before the page heard",
 
     socket.close();
     socket.open();
+    await waitFor(() => expect(cardButtons(CARD_OF[what]).some(button => !button.disabled)).toBe(true));
     expect(within(card(CARD_OF[what])).getByRole("alert").textContent).toBe(NOT_SENT);
     if (what === "a one-time code") fireEvent.click(screen.getByRole("button", { name: "Submit code" }));
     else CARD_ACTIONS[what]();
@@ -334,7 +443,7 @@ describe("card actions on a socket that has just closed, before the page heard",
 });
 
 describe("settings actions and the socket", () => {
-  it("disables Sign out while closed, says Not sent in the stale window, and signs out once the socket is back", () => {
+  it("disables Sign out while closed, says Not sent in the stale window, and signs out once the socket is back", async () => {
     const issuer = toIssuer("https://auth.acme.example");
     window.history.replaceState(null, "", `/companies?company=${encodeURIComponent(issuer)}`);
     render(<Page />);
@@ -347,6 +456,7 @@ describe("settings actions and the socket", () => {
     expect(screen.getAllByText(CONNECTING).length).toBeGreaterThan(0);
 
     socket.open();
+    await waitFor(() => expect(signOut().disabled).toBe(false));
     socket.readyState = WebSocket.CLOSED;
     fireEvent.click(signOut());
     expect(decisions()).toEqual([]);
@@ -354,6 +464,7 @@ describe("settings actions and the socket", () => {
 
     socket.close();
     socket.open();
+    await waitFor(() => expect(signOut().disabled).toBe(false));
     fireEvent.click(signOut());
     expect(decisions()).toEqual([{ type: "poppy.signout", issuer, account: "a***@example.com" }]);
   });
