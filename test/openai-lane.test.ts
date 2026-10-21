@@ -62,7 +62,7 @@ describe("the own-key OpenAI lane", () => {
     const a = await onOpenAI();
     const page = "https://news.example.com/harbour";
     await a.stub.webServe(page, { headers: HTML, body: "<main><h1>Harbour reopens</h1><p>The harbour reopens on 3 November after repairs costing £4.2m.</p></main>" });
-    await say(a, `When does it reopen? ${obey("read_url", { url: page, question: "When does the harbour reopen?" })}`);
+    await say(a, `Read <${page}>. When does it reopen? ${obey("read_url", { url: page, question: "When does the harbour reopen?" })}`);
 
     const requests = await a.stub.ownKeyRequests();
     const readers = requests.filter((request) => request.reader);
@@ -86,7 +86,7 @@ describe("the own-key OpenAI lane", () => {
     const a = await onOpenAI();
     const page = "https://news.example.com/story";
     await a.stub.webServe(page, { headers: HTML, body: "<main><p>A short story about a harbour.</p></main>" });
-    await say(a, `What's this? ${obey("read_url", { url: page })}`);
+    await say(a, `What's this <${page}>? ${obey("read_url", { url: page })}`);
     await say(a, "Thanks");
     const requests = await a.stub.ownKeyRequests();
     expect(requests.find((request) => request.reader)!.last.endsWith(`\n\nThe question: ${DEFAULT_QUESTION}`)).toBe(true);

@@ -9,6 +9,7 @@ type Me =
   | { readonly state: "loading" }
   | {
       readonly state: "signed-in";
+      readonly workspaceId: string;
       readonly email: string | null;
       readonly provider: "google" | "github";
     }
@@ -57,6 +58,7 @@ function useMe(): Me {
         if (cancelled) return;
         if (response.ok) {
           const body = (await response.json()) as {
+            workspaceId: string;
             email: string | null;
             provider: "google" | "github";
           };
@@ -206,8 +208,8 @@ function SignedOut({ message, providers }: { message: string | null; providers: 
   );
 }
 
-function SignedIn({ email, provider }: { email: string | null; provider: "google" | "github" }) {
-  const session = usePiSession();
+function SignedIn({ email, provider, workspaceId }: { email: string | null; provider: "google" | "github"; workspaceId: string }) {
+  const session = usePiSession(workspaceId);
   return <Workspace identity={{ email, provider }} session={session} />;
 }
 
@@ -217,5 +219,5 @@ export function App() {
     return <div className="h-dvh bg-kumo-canvas" />;
   }
   if (me.state === "signed-out") return <SignedOut message={me.message} providers={me.providers} />;
-  return <SignedIn email={me.email} provider={me.provider} />;
+  return <SignedIn email={me.email} provider={me.provider} workspaceId={me.workspaceId} />;
 }

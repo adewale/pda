@@ -261,7 +261,9 @@ it("releases the confirmation guard when persisting its recovery job fails", asy
   try {
     await expect(approveAndConfirm(w.client, w.company.issuer, id, revision, "user")).rejects.toThrow("recovery job unavailable");
     expect((await w.mock.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
+    const generation = w.sql.exec("SELECT approval_generation FROM poppy_operations WHERE issuer = ? AND operation_id = ?", w.company.issuer, id).toArray()[0]!.approval_generation;
     await approveAndConfirm(w.client, w.company.issuer, id, revision, "user");
+    expect(w.sql.exec("SELECT approval_generation FROM poppy_operations WHERE issuer = ? AND operation_id = ?", w.company.issuer, id).toArray()[0]!.approval_generation).toBe(generation);
     expect((await w.mock.state()).operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
     expect((await w.mock.state()).performs).toBe(1);
     expect((await w.mock.state()).recorded).toEqual([]);

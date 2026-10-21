@@ -522,41 +522,15 @@ describe("Companies page", () => {
     ]);
   });
 
-  it("adds a permission from labelled fields, for the chosen account", () => {
-    const otherGlobexAccount = { ...accounts[1]!, account: "other***@example.com" };
-    const { sent } = renderCompanies({ accounts: [accounts[0]!, otherGlobexAccount, accounts[1]!] });
-    fireEvent.click(screen.getByRole("button", { name: "Globex" }));
-    fireEvent.change(screen.getByLabelText("Account"), { target: { value: "https://auth.globex.example|g***@example.com" } });
-    fireEvent.change(screen.getByLabelText(/Word or words Globex's summary must begin with/), { target: { value: "rebook" } });
-    fireEvent.change(screen.getByLabelText("Up to"), { target: { value: "50" } });
-    fireEvent.change(screen.getByLabelText("Currency"), { target: { value: "eur" } });
-    fireEvent.change(screen.getByLabelText("Number of times"), { target: { value: "2" } });
-    expect(sent).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Add standing permission" }));
-    expect(sent).toEqual([
-      {
-        type: "poppy.permission.add",
-        issuer: toIssuer("https://auth.globex.example"),
-        account: "g***@example.com",
-        action: "rebook",
-        maxAmount: "50",
-        currency: "EUR",
-        maxUses: 2
-      }
-    ]);
-  });
-
-  it("checks the form inline and keeps what was typed", () => {
-    const { sent } = renderCompanies({ accounts });
+  it("pauses existing standing permissions and offers no new automatic approval grants", () => {
+    const { sent } = renderCompanies({ accounts, permissions });
     fireEvent.click(screen.getByRole("button", { name: "Acme" }));
-    const amount = screen.getByLabelText("Up to") as HTMLInputElement;
-    fireEvent.change(amount, { target: { value: "lots" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add standing permission" }));
+    expect(screen.getByText(/Automatic approval is paused/)).toBeTruthy();
+    expect(screen.getByText(/Paused: proposals that say/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add standing permission" })).toBeNull();
     expect(sent).toEqual([]);
-    expect(screen.getByText(/Name the word or words the Company's summary must begin with/)).toBeTruthy();
-    expect(screen.getByText(/Use a number/)).toBeTruthy();
-    expect(amount.value).toBe("lots");
-    expect(amount.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Remove standing permission" }));
+    expect(sent).toEqual([{ type: "poppy.permission.remove", id: "perm_1" }]);
   });
 
   it("offers no permission form before an account is connected", () => {

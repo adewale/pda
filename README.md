@@ -35,7 +35,7 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 **Everyday help**
 
 - Read a web page you point it at: "What does this article say?" It sends nothing about you, only the address. A page that needs JavaScript, such as a timetable or a shop built as an app, it loads in a fresh browser in Cloudflare's Browser Run that only reads, up to 10 pages an hour.
-- Remember things you tell it: "Remember I'm vegetarian." Ask it to forget one, or see and delete every note in Settings.
+- Remember things you tell it: "Remember I'm vegetarian." See and delete User-supplied notes in Settings; the agent can remove its own deductions.
 - Dates, time zones and sums: "What date is 90 days from today?", "What time is it in Tokyo?", "What's 15% of €84.20?"
 - Reminders: "Remind me at 5pm to call the bank." It shows in the chat at that time, and on your phone or laptop if you turn on notifications in Settings.
 - Tasks on a schedule: "Every weekday at 9, check whether my print order has shipped." The agent does it in the background and tells you; anything it would change still waits for your approval. Settings lists every reminder and task, with Cancel.
@@ -43,7 +43,7 @@ Every step's exchanges also appear in Activity's protocol log, with their spec s
 **You stay in control**
 
 - Nothing that changes your account happens until you approve it on a card.
-- Standing permissions let small repeat actions through without asking each time, within limits you set.
+- Every operation asks for approval of its exact revision. Generic standing permissions are paused; older grants remain removable.
 - Activity shows what the agent did, where and with what access, and every protocol exchange behind it.
 - Your photos leave the agent only in an upload you approved, to the one company it names.
 
@@ -87,7 +87,7 @@ None of this has been sent to the draft's authors yet. They take feedback by ema
 ## How it's built
 
 - **One agent per person.** Each Google or GitHub sign-in gets its own Durable Object running Pi, with its conversation, Poppy state, tokens and keys in its own SQLite. One person's agent can't read another's, and work survives crashes and deploys.
-- **Approval stays on the page.** Company text reaches the model labelled as information, never as approval. A write waits for your approval of exactly what will be sent, unless the Company has the Operations extension and its own API description says that call only proposes an operation (an OpenAPI `202` carrying `operation`, or an MCP tool whose output declares one). Then you approve the Company's proposal and its terms instead. Sending your photo or file always waits for you. A standing permission covers a proposal only when the Company's summary begins with the permission's action and every term is an amount within its limit, a date, or one of the record ids in the draft's example (`order_id`, `item_id`, `replacement_sku`); anything else comes to you.
+- **Approval stays on the page.** Company text reaches the model labelled as information, never as approval. A write waits for your approval of exactly what will be sent, unless the Company has the Operations extension and its own API description says that call only proposes an operation (an OpenAPI `202` carrying `operation`, or an MCP tool whose output declares one). Then you approve the Company's proposal and its terms instead. Sending your photo or file always waits for you. Generic standing approval is paused because summary prefixes and generic terms cannot establish complete authorization. Existing grants cannot approve new work.
 - **Secrets stay out of the model.** Session Tokens and DPoP keys live only in memory; Account Tokens and pasted model keys are sealed with AES-GCM and bound to their row; the model's tools never take or return a credential.
 - **General tools beside Poppy.** `read_url` reads one public page with no cookies or credentials, renders a page that needs JavaScript in Browser Run, where the page can send only GET and HEAD requests to public hosts, and hands it to a reader with no tools, so the agent gets an answer about the page, labelled untrusted, never the page itself; `remember`, `recall` and `forget` keep short notes in the agent's own SQLite, never secrets; `now`, `date_math` and `calculate` do time zones, calendar arithmetic and exact decimal sums. All are ours, in `src/tools/`; Browser Run is the only service they use beyond the page itself.
 - **Reminders and tasks on the agent's own alarm.** `remind_me`, `schedule_task`, `list_scheduled` and `cancel_scheduled` keep rows in the agent's SQLite, and the Durable Object's alarm runs each on time, with no page open. A reminder makes no model call; a task is a background turn with no extra powers, metered like any other. Only a turn the User's own message started can set or cancel one. Notifications go by Web Push, encrypted for each browser, only to the browsers' own push services.

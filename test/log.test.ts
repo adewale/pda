@@ -21,7 +21,7 @@ import { routeOf } from "../src/index";
 import { agentNameFor } from "../src/session";
 import { PoppyError } from "../src/poppy/client";
 import { DiscoveryError } from "../src/poppy/discovery";
-import { agent, cards, chat, company, connect, fetchWorker, follow, ORIGIN, person, signInDirect, tool, until, wideEvents, wsRequest, type Agent } from "./agent-helpers";
+import { agent, authenticatedWsRequest, cards, chat, company, connect, fetchWorker, follow, ORIGIN, person, signInDirect, tool, until, wideEvents, type Agent } from "./agent-helpers";
 import { obey } from "./worker";
 
 type Event = Record<string, any>;
@@ -104,7 +104,7 @@ describe("turn events", () => {
   it("writes one for the User's message, naming the socket's request and the model call", async () => {
     const a = await agent();
     const mark = await a.stub.poppyLogMark();
-    const request = wsRequest({ cookie: a.cookie });
+    const request = await authenticatedWsRequest({ cookie: a.cookie });
     request.headers.set("cf-ray", "ray-socket-1");
     const response = await fetchWorker(request);
     expect(response.status).toBe(101);

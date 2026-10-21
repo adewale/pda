@@ -33,11 +33,10 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 - Removed accidental acceptance of newer draft versions under 0.1 validation rules.
 - Discovery caches keep exact requested host keys. Old unversioned caches are revalidated.
-- MCP session caches belong to each client and its DPoP keys, await shared initialization, clear failures and refresh metadata within its bounded cache lifetime.
+- MCP session caches belong to each client and its DPoP keys, await shared initialization, clear failures and refresh metadata within its bounded cache lifetime. Account or sign-in changes invalidate the active session and tool catalogue.
 - Harness retries retain their protocol context, and simultaneous runs use separate result directories.
 - Versioned snapshot page names no longer collide between `0.1/spec` and `0.2/spec`.
-
-- Budget metering and retention use the same clock, fixing six date-dependent baseline test failures.
+- Legacy budget retention uses its caller's clock. Production metering retains main's durable reservations, admission-day charges and idempotent settlement outbox.
 - Snapshot parsing handles versioned pages and imported walkthrough constants. The requirement table is generated from the reviewed ledger.
 
 ### Upgrading
@@ -49,7 +48,7 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Validation and rollout
 
-The combined own-code lane passes 102 cells; PDA passes all 74 exercised cross-project cells. The official validator passes 69 available checks with five skips. The full test suite passes with 1,668 tests and one intentional skip after the audit corrected the shared clock mismatch. Seven peer compatibility failures remain visible in [the upgrade evidence](docs/poppy-0.2-upgrade.md#validation). This change has not been deployed. Optional feedback submission and anonymous browsing remain separate features.
+The combined own-code lane passes 102 cells; PDA passes all 74 exercised cross-project cells. The official validator passes 69 available checks with five skips. The full test suite passes with 1,747 tests and one intentional skip after integrating main PR #12 and the upgrade audit. Seven peer compatibility failures remain visible in [the upgrade evidence](docs/poppy-0.2-upgrade.md#validation). This change has not been deployed. Optional feedback submission and anonymous browsing remain separate features.
 
 ### Rollback
 

@@ -18,7 +18,7 @@ export type Parsed =
       readonly duplicates: readonly Duplicate[];
       readonly bom: boolean;
     }
-  | { readonly ok: false; readonly error: string; readonly position: Position };
+  | { readonly ok: false; readonly error: string; readonly position: Position; readonly resourceLimit?: true };
 
 /** RFC 6901: `~` becomes `~0` and `/` becomes `~1`. */
 export function pointer(parent: string, key: string | number): string {
@@ -26,6 +26,16 @@ export function pointer(parent: string, key: string | number): string {
 }
 
 class SyntaxProblem extends Error {}
+class ResourceProblem extends SyntaxProblem {}
+
+/**
+ * Position keys can repeat a long ancestor name for every child. Count
+ * their UTF-16 code units cumulatively, before allocating or hashing each
+ * path. One million units bounds the pointer strings themselves to about
+ * 2 MB; this is an implementation allowance, not a JSON conformance rule
+ * or a bound on all memory used by parsing and validation.
+ */
+export const JSON_PARSE_LIMITS = { pointerCharacters: 1_000_000 } as const;
 
 const MAX_DEPTH = 64;
 
@@ -49,9 +59,20 @@ export function parseJson(input: string): Parsed {
 
   const positions = new Map<string, Position>();
   const duplicates: Duplicate[] = [];
+  let pointerCharacters = 0;
   let i = 0;
   const fail = (message: string): never => {
     throw new SyntaxProblem(message);
+  };
+  const childPointer = (parent: string, key: string | number): string => {
+    const name = String(key);
+    let length = parent.length + 1 + name.length;
+    for (const char of name) if (char === "~" || char === "/") length++;
+    if (pointerCharacters + length > JSON_PARSE_LIMITS.pointerCharacters) {
+      throw new ResourceProblem("The document exceeds the validator's cumulative JSON-pointer allocation allowance");
+    }
+    pointerCharacters += length;
+    return pointer(parent, name);
   };
   const space = () => {
     while (i < text.length && " \t\n\r".includes(text[i]!)) i++;
@@ -91,7 +112,7 @@ export function parseJson(input: string): Parsed {
       if (text[i] !== '"') fail("Expected a member name in double quotes");
       const keyStart = i;
       const key = string();
-      const child = pointer(path, key);
+      const child = childPointer(path, key);
       if (seen.has(key)) duplicates.push({ pointer: child, name: key, position: at(keyStart) });
       seen.add(key);
       space();
@@ -126,7 +147,7 @@ export function parseJson(input: string): Parsed {
       return result;
     }
     for (;;) {
-      result.push(value(pointer(path, result.length), depth + 1));
+      result.push(value(childPointer(path, result.length), depth + 1));
       space();
       if (text[i] === ",") {
         i++;
@@ -174,6 +195,6 @@ export function parseJson(input: string): Parsed {
     return { ok: true, value: result, positions, duplicates, bom };
   } catch (error) {
     if (!(error instanceof SyntaxProblem)) throw error;
-    return { ok: false, error: error.message, position: at(Math.min(i, text.length)) };
+    return { ok: false, error: error.message, position: at(Math.min(i, text.length)), ...(error instanceof ResourceProblem ? { resourceLimit: true as const } : {}) };
   }
 }

@@ -16,9 +16,13 @@ export type Identity = {
 };
 
 type SessionPayload = Identity & {
+  /** Random per-login identifier; revocation is held by the person's agent. */
+  readonly sid: string;
   /** Expiry, in seconds since the epoch. */
   readonly exp: number;
 };
+
+export type BrowserIdentity = Identity & { readonly sessionId: string; readonly sessionExpiresAt: number };
 
 /** `__Host-` pins the cookie to this origin: Secure, Path=/, no Domain. */
 export const SESSION_COOKIE = "__Host-session";
@@ -101,6 +105,7 @@ export async function createSession(
   now = Date.now()
 ): Promise<string> {
   const payload: SessionPayload = {
+    sid: crypto.randomUUID(),
     provider: identity.provider,
     sub: identity.sub,
     email: identity.email,
@@ -120,7 +125,7 @@ export function clearSession(): string {
 export async function verifySession(
   request: Request,
   secret: string
-): Promise<Identity> {
+): Promise<BrowserIdentity> {
   const token = readCookie(request, SESSION_COOKIE);
   if (!token) throw new AuthError("No session cookie");
   const payload = await unsign<SessionPayload>(token, secret);
@@ -129,12 +134,15 @@ export async function verifySession(
     (payload.provider !== "google" && payload.provider !== "github") ||
     typeof payload.sub !== "string" ||
     payload.sub === "" ||
-    typeof payload.exp !== "number"
+    typeof payload.exp !== "number" || !Number.isSafeInteger(payload.exp) ||
+    typeof payload.sid !== "string" || !/^[0-9a-f-]{36}$/.test(payload.sid)
   ) {
     throw new AuthError("Malformed session");
   }
   if (payload.exp * 1000 <= Date.now()) throw new AuthError("Session expired");
   return {
+    sessionId: payload.sid,
+    sessionExpiresAt: payload.exp * 1000,
     provider: payload.provider,
     sub: payload.sub,
     email: typeof payload.email === "string" ? payload.email : null,

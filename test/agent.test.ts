@@ -149,6 +149,12 @@ describe("the /ws route", () => {
     expect((await fetchWorker(wsRequest({ cookie }))).status).toBe(401);
   });
 
+  it("requires a fresh sign-in for a legacy cookie without a revocable login id", async () => {
+    const token = await sign({ ...person(), exp: Math.floor(Date.now() / 1000) + 3600 }, env.SESSION_SECRET);
+    const cookie = `${SESSION_COOKIE}=${token}`;
+    expect((await fetchWorker(new Request(`${ORIGIN}/api/me`, { headers: { Cookie: cookie } }))).status).toBe(401);
+  });
+
   it("refuses an expired session", async () => {
     const longAgo = Date.now() - 31 * 24 * 60 * 60 * 1000;
     const cookie = await sessionCookie(person(), longAgo);
@@ -298,7 +304,7 @@ describe("sign-in", () => {
     expect(response.headers.get("Location")).toBe("/");
     const session = sessionFrom(response)!;
     expect(session).toContain("HttpOnly; Secure; SameSite=Lax");
-    expect(await me(response)).toEqual({ email: "octo@example.com", provider: "github" });
+    expect(await me(response)).toEqual({ email: "octo@example.com", provider: "github", workspaceId: expect.any(String) });
 
     const again = sessionFrom(await signIn("github", GITHUB_ALLOWED))!;
     const first = await connect(cookiePair(session));
@@ -321,7 +327,7 @@ describe("sign-in", () => {
     const response = await signIn("google", GOOGLE_ALLOWED);
     expect(response.status).toBe(303);
     expect(response.headers.get("Location")).toBe("/");
-    expect(await me(response)).toEqual({ email: "g@example.com", provider: "google" });
+    expect(await me(response)).toEqual({ email: "g@example.com", provider: "google", workspaceId: expect.any(String) });
   });
 
   it("lets in a Google Workspace account at an allowlisted domain", async () => {
@@ -331,7 +337,7 @@ describe("sign-in", () => {
       hd: "workspace.example"
     });
     expect(response.headers.get("Location")).toBe("/");
-    expect(await me(response)).toEqual({ email: "anyone@workspace.example", provider: "google" });
+    expect(await me(response)).toEqual({ email: "anyone@workspace.example", provider: "google", workspaceId: expect.any(String) });
   });
 
   it("refuses accounts that are not on the allowlist", async () => {
@@ -528,7 +534,7 @@ describe("sign-in: Google's ID token", () => {
     it(`accepts an ID token whose ${name}`, async () => {
       const response = await signIn("google", who);
       expect(response.headers.get("Location")).toBe("/");
-      expect(await me(response)).toEqual({ email: "g@example.com", provider: "google" });
+      expect(await me(response)).toEqual({ email: "g@example.com", provider: "google", workspaceId: expect.any(String) });
     });
   }
 
@@ -573,7 +579,7 @@ describe("sign-in: GitHub's API", () => {
       // GitHub accounts are allowed by id, so only the email shown is affected.
       const response = await signIn("github", { ...GITHUB_ALLOWED, github: { emails } });
       expect(response.headers.get("Location")).toBe("/");
-      expect(await me(response)).toEqual({ email: null, provider: "github" });
+      expect(await me(response)).toEqual({ email: null, provider: "github", workspaceId: expect.any(String) });
     });
   }
 });
@@ -622,8 +628,13 @@ describe("configuration", () => {
     expect(html).toContain("Google API Services User Data Policy</a>, including the Limited Use requirements");
     expect(html).toContain("Attached photos are deleted after 30 days");
     expect(html).toContain("notes about you are kept in its storage until you delete them");
-    expect(html).toContain("Nothing about you goes with it: no cookies, no sign-in, nothing but the page's address");
-    expect(html).toContain("in Cloudflare's Browser Run, which runs the page's own scripts, sends only requests that read, and is closed afterwards. It gets the page's address and nothing about you.");
+    expect(html).toContain("The address itself can contain private information in its hostname, path or query");
+    expect(html).toContain("General page reads send no cookies or account credentials");
+    expect(html).toContain("in Cloudflare's Browser Run, which runs the page's own scripts, allows only public requests that read, and is closed afterwards");
+    expect(html).toContain("Those scripts can contact other public websites");
+    expect(html).toContain("receive messages and requests your model generates");
+    expect(html).toContain("Notes marked as something you said can only be deleted in Settings");
+    expect(html).toContain("and your agent and everything it stores will be deleted within 30 days");
     // The operator's logs (src/log.ts): how the agent worked, never what anyone said, for Workers Logs' retention.
     expect(html).toContain("They don't record what you, your agent or anyone else said, and hold no tokens, keys, codes or your email");
     expect(html).toContain("kept for Cloudflare Workers Logs' retention period: 7 days on Workers Paid, 3 days on Workers Free");

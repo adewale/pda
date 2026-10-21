@@ -35,7 +35,7 @@ You can send while the page is still connecting or reconnecting. The message sho
 
 **Reading a web page you name.** "What does https://example.com/article say?" It sends only the address: no cookies, no sign-in, nothing about you. It can't search, so give it the address. A page that needs JavaScript, such as a shop built as an app, it loads in a fresh browser in Cloudflare's Browser Run that only reads, up to 10 such pages an hour. It treats what a page says as information, never as your instructions.
 
-**Remembering.** "Remember I'm vegetarian." It keeps short notes, one fact each, and sees the newest 50 with every message. It won't save a password, code, key or card number. "Forget that I'm vegetarian" deletes one. Deleting a note doesn't remove what you said from the conversation itself, which the agent can still read.
+**Remembering.** "Remember I'm vegetarian." It keeps short notes, one fact each, and sees the newest 50 with every message. It won't save a password, code, key or card number. Delete a User-supplied note in Settings → Memory; a model tool cannot delete these protected notes. The agent may remove its own deductions. Deleting a note doesn't remove what you said from the conversation itself, which the agent can still read.
 
 **Dates, times and sums.** "What date is 90 days from today?", "What time is it in Tokyo?", "What's 15% of €84.20?" It uses your browser's time zone, and sums are exact to the cent.
 
@@ -53,7 +53,7 @@ Nothing that changes your account at a company happens until you approve it. Eac
 - **A company's proposal** shows the company's summary, its price and its terms. Approving lets your agent confirm exactly that.
 - **Our own card** covers every other change your agent would make: it shows the exact request, and only Approve sends it, once.
 - **Sending a photo** always has its own card, showing the photo and the company it goes to.
-- **Standing permissions** let small repeat proposals through without asking. On the **Companies** page, open a company you've signed in to through your agent and **Add a standing permission**: the word or words the company's summary must begin with (such as "exchange"), optionally an amount up to which it applies, and a number of times. Terms the agent can't check, such as a renewal or a flag, still come to you, and a company can always insist on asking you.
+- **Standing permissions are paused.** Every new operation asks you to approve its exact revision. Older permissions remain visible on the Company's page and can be removed; they no longer authorize new work. The old summary-prefix matcher could not check the full action and every term.
 
 Signing in to a company, signing out, and talking to a company's staff directly in a Direct Conversation are also yours to do on the page; the agent can only ask.
 

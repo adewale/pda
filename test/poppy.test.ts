@@ -1846,6 +1846,7 @@ describe("6 APIs", () => {
         kind: "openapi",
         method: "POST",
         url: `${c.hosts.api}/orders/ord_7Hk2/exchanges`,
+        binding: { account: "default", sessionId: expect.any(String) },
         call: expect.objectContaining({ operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: exchangeWrite(c).body })
       });
     });
@@ -2356,24 +2357,29 @@ describe("Operations extension", () => {
     expect((await c.stub.state()).performs).toBe(0);
   });
 
-  it("confirms under a standing permission within its limits", async () => {
+  it("requires explicit approval even when a stored standing permission is within its limits", async () => {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
     await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD", maxUses: 1 });
     await tool(a, "poppy_api_call", exchangeCall(c));
     const state = await c.stub.state();
-    expect(state.operations[0]).toMatchObject({ state: "succeeded", approvedBy: "standing_permission" });
+    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
+    const card = (await cards(a)).find((item) => item.kind === "operation")!;
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "succeeded", approvedBy: "user" });
   });
 
-  it("asks the User once a standing permission's uses are spent", async () => {
+  it("requires a separate approval for each operation despite a stored standing permission", async () => {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
     await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD", maxUses: 1 });
     await tool(a, "poppy_api_call", exchangeCall(c));
-    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "succeeded", approvedBy: "standing_permission" });
-    // A second exchange: the one use is spent, so the User decides.
+    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
+    const firstCard = (await cards(a)).find((item) => item.kind === "operation")!;
+    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: firstCard.operationId, revision: firstCard.revision, decision: "approve" });
+    // A second exchange requires a new per-revision User approval.
     await tool(a, "poppy_api_call", exchangeCall(c));
     const state = await c.stub.state();
     expect(state.operations).toHaveLength(2);
@@ -2561,7 +2567,7 @@ describe("Operations extension", () => {
     expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
   });
 
-  it("confirms under a standing permission that covers the action and every term: its money, a date, and which order and item", async () => {
+  it("asks the User even when legacy numeric, date and record heuristics would cover a standing permission", async () => {
     const { c } = await underPermission(
       {
         summary: "Exchange the Stormline Jacket (M) for the Insulated Jacket (M) for 20.00 GBP more, with a 10.00 GBP fee if cancelled, delivered on 20 October.",
@@ -2569,15 +2575,15 @@ describe("Operations extension", () => {
       },
       { action: "exchange", maxAmount: "50", currency: "GBP" }
     );
-    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "succeeded", approvedBy: "standing_permission" });
+    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
   });
 
-  it("confirms any amount under a standing permission set with no limit, as the page offers it", async () => {
+  it("asks the User when a legacy standing permission has no amount limit", async () => {
     const { c } = await underPermission(
       { summary: "Exchange the jacket for 900.00 GBP more.", terms: { ...ids, price_difference: { amount: "900.00", currency: "GBP" } } },
       { action: "Exchange the jacket" }
     );
-    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "succeeded", approvedBy: "standing_permission" });
+    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
   });
 
   it("matches a standing permission's action only at the start of the summary, word for word, and checks only the terms it can", () => {

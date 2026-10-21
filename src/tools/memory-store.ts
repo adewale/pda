@@ -2,7 +2,8 @@ import { literal } from "../decode";
 import { integer, one, rows, table, text, textOf, type RowOf } from "../rows";
 /**
  * The agent's memory: short notes in the person's own Durable Object SQLite,
- * kept until they forget them in Settings or ask the agent to. Each note is
+ * kept until they delete them in Settings; the model may also remove its
+ * own Agent noted deductions. Each note is
  * one fact, at most 500 characters, with when it was saved and whose it is:
  * something the User said, or something the agent concluded. Nothing that
  * looks like a credential is kept. No Worker APIs beyond `SqlStorage`'s
@@ -249,6 +250,18 @@ export class MemoryStore {
     const found = this.get(id);
     if (!found) return false;
     this.#sql.exec("DELETE FROM memories WHERE id = ?", id);
+    return true;
+  }
+
+  /** Model tools may clean up their own deductions, never delete a User statement. */
+  forgetByAgent(id: number): boolean {
+    if (!Number.isSafeInteger(id)) return false;
+    const found = this.get(id);
+    if (!found) return false;
+    if (found.source === "user") {
+      throw new MemoryError("Not deleted: this is a User said note. The User deletes it in Settings → Memory; a model tool cannot authorize that deletion.");
+    }
+    this.#sql.exec("DELETE FROM memories WHERE id = ? AND source = 'agent'", id);
     return true;
   }
 

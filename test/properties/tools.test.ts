@@ -176,6 +176,13 @@ function expression(tc: TC, depth: number): Built {
 }
 
 describe("calculate", () => {
+  it("rejects an oversized intermediate before a later zero divisor, and still names an in-bounds zero divisor", () => {
+    expect(() => calculate("(0) / ((0) * ((1e590)^3))")).toThrow("A number in the calculation is too large");
+    expect(() => calculate("0 * ((1e590)^3)")).toThrow("A number in the calculation is too large");
+    expect(() => calculate("(0) / ((0) * ((1e100)^3))")).toThrow("Division by zero");
+    expect(() => calculate("(0/0) + ((1e590)^3)")).toThrow("Division by zero");
+  });
+
   it(
     "agrees exactly with fraction arithmetic on any expression of decimals, operators and functions, refusing only division by zero",
     property((tc) => {
@@ -184,23 +191,20 @@ describe("calculate", () => {
       const bits = largestBits;
       tc.note(built.text);
       // The calculator refuses numbers over 4,000 bits; the reference has no limit, so a refusal must follow a huge step.
-      let result: ReturnType<typeof calculate> | undefined;
-      if (built.value !== null) {
-        try {
-          result = calculate(built.text);
-        } catch (error) {
-          expect(error).toBeInstanceOf(CalcError);
-          expect((error as Error).message, built.text).toMatch(/too large/);
-          expect(bits, built.text).toBeGreaterThan(3000);
-          return;
-        }
-      }
-      if (built.value === null) {
-        expect(() => calculate(built.text)).toThrow(CalcError);
-        expect(() => calculate(built.text)).toThrow(/Division by zero/);
+      let result: ReturnType<typeof calculate>;
+      try {
+        result = calculate(built.text);
+      } catch (error) {
+        expect(error).toBeInstanceOf(CalcError);
+        if (built.value === null && /Division by zero/.test((error as Error).message)) return;
+        // A bounded eager evaluator may refuse an oversized operand before
+        // reaching a zero divisor. Both reference outcomes need the same
+        // independent size witness; see docs/calculator-property-triage.md.
+        expect((error as Error).message, built.text).toMatch(/too large/);
+        expect(bits, built.text).toBeGreaterThan(3000);
         return;
       }
-      if (!result) return;
+      if (built.value === null) throw new Error(`The calculator accepted division by zero: ${built.text}`);
       const shown = decimalFraction(result.result);
       const exact = built.value;
       if (result.exact) {

@@ -249,6 +249,13 @@ const VALID: readonly Fixture[] = [
 
 const POPPY_JSON: readonly Fixture[] = [
   {
+    name: "refuses cumulative JSON location amplification as an implementation limit, not a syntax error",
+    run: () => text("poppy", { ["x".repeat(4_000)]: Array(300).fill(0) }),
+    ids: ["json-resource-limit"],
+    outcome: "indeterminate",
+    also: (report) => expect(report).toMatchObject({ refused: true, counts: { error: 0, warning: 1 } })
+  },
+  {
     name: "reports a JSON syntax error with line and column",
     run: () => text("poppy", '{\n  "protocol_version": "0.1",\n  "organization": {\n}'),
     ids: { contains: ["json-syntax"] },
@@ -1059,6 +1066,7 @@ describe("the message catalog", () => {
       "http-redirect-not-allowed",
       "http-failed",
       "http-too-large",
+      "json-resource-limit",
       "json-duplicate-member",
       "not-https-url-unstated",
       "url-has-fragment-unstated",

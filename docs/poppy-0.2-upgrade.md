@@ -105,17 +105,19 @@ Known-failure entries without a version are scoped to 0.1. They cannot exempt a 
 
 ## Validation
 
+Integrated main `93777e3` (PR #12): keep its issuer-scoped conversation handles, durable cancellation/approval checks, paused generic standing approvals, per-login revocation, input provenance, validator limits and durable budget settlement. These are not replaced by the version upgrade.
+
 Results are local and isolated; no production deployment or real purchase is claimed. [Committed result summary](interop-results/2026-10-21-poppy-0.2.json) records each cell and official check without tokens or full traffic. Raw JSON, HAR, HTML and container logs remain in the gitignored artifact directories named there. Runs used the working tree before commit; they are not checks of a deployed release.
 
 | Check | Result |
 | --- | --- |
 | Complete eligible PDA × own mocks, both 0.1 lanes and 0.2 | **102 pass, 0 fail, 54 unsupported, 0 error; no warnings**. Each mock entry has 34 passes. Includes eligible fault/adversarial scenarios against our own code. |
-| 0.2 ordinary cross-project 3×3 grid, 30 scenarios | **211 pass, 7 fail, 52 unsupported, 0 error**; no failing trace checks, two nonce warnings from SDK device polling. PDA: **74 pass, 0 fail**, 16 unsupported. Unsupported is not a pass. |
+| 0.2 ordinary cross-project 3×3 grid, 30 scenarios | **211 pass, 7 fail, 52 unsupported, 0 error**; no failing trace checks, two nonce warnings from SDK device polling. PDA: **74 pass, 0 fail**, 16 unsupported, repeated as a separate column after the final MCP account-cache fix. Unsupported is not a pass. |
 | Pinned official Company validator × 0.2 mock | **69 pass, 0 fail, 0 warn, 5 skip**. No automated sign-in or Operations checks in this revision. Kept outside M×N totals. |
-| Full local suite | **1,668 pass, 1 skip, 0 fail** across all five projects. The audit fixed the shared metering/retention clock mismatch behind the six baseline failures and aligned the template inventory with its documentation-artifact boundary. Initial failing evidence remains recorded in the result summary. |
-| Final focused checks | The full suite includes migration, MCP lifecycle, budget retention, snapshot parser and harness-policy regressions. The two targeted clock/race regressions also fail when their fixes are reverted. |
+| Full local suite | **1,747 pass, 1 skip, 0 fail** across all five projects. Includes main PR #12's security and durable budget fixes plus account-bound MCP lifecycle checks. Legacy ledger retention uses the injected clock; production charges remain on their admission day. The template inventory excludes documentation artifacts. Initial failing evidence remains recorded in the result summary. |
+| Final focused checks | The full suite includes migration, MCP lifecycle, budget retention, snapshot parser and harness-policy regressions. The targeted clock/race and MCP account-isolation regressions also fail when their fixes are reverted. |
 | Python Hypothesis | **16 pass**, including generated state-machine journeys. |
-| Type checking and production build | Pass. Existing bundle-size warning remains. |
+| Type checking, production build and browser smoke | Pass. Real local Chromium/workerd verifies chat, reload, mobile navigation, logout and revoked-session recovery with no uncaught browser errors; synthetic model and identity. Existing bundle-size warning remains. |
 | Snapshot/ledger/import/drift | 56 upstream hashes and 48 official-change dispositions verified; importing from the pinned Git objects reproduces all hashes; no drift detected in upstream main, including the pinned Company validator. |
 | Retained Datalayer 0.1 vectors | 23 pass, 3 reading/policy differences, 98 not applicable; zero `our-bug` failures. Differences: intentional unknown-0.x refusal, extension-name syntax, non-JSON metadata diagnostic. These are separate from M×N totals. |
 

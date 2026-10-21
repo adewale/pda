@@ -26,7 +26,7 @@ import type {
   ProtocolCompany
 } from "./poppy/wire";
 
-export type ConnectionStatus = "connecting" | "open" | "closed";
+export type ConnectionStatus = "connecting" | "open" | "closed" | "unauthenticated";
 
 /** What the agent is doing and has done at Companies; null until the agent says. */
 export type ActivityView = {
@@ -174,9 +174,28 @@ const PRESENCE_EVERY_MS = 2 * 60_000;
  * `reduceEvents` the tests use. A reconnect gets a fresh snapshot, so there
  * is nothing to resume from.
  */
-export function usePiSession() {
+export function usePiSession(workspaceId: string) {
   const [state, setState] = useState<State>(INITIAL_STATE);
-  const agentRef = useRef<{ send(data: string): void; readonly readyState: number } | null>(null);
+  const agentRef = useRef<{ send(data: string): void; close?(code?: number, reason?: string): void; readonly readyState: number } | null>(null);
+  const accessEnded = useRef(false);
+  const connectionEpoch = useRef(0);
+  useEffect(() => () => { connectionEpoch.current++; }, []);
+  const opened = useRef(false);
+  const verifiedSocket = useRef(false);
+  const authCheck = useRef<Promise<boolean> | null>(null);
+  const checkWorkspace = (): Promise<boolean> => fetch("/api/me", { credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(10_000) })
+    .then(async response => {
+      if (response.status === 401) return false;
+      if (!response.ok) return true; // The workspace-bound WebSocket still enforces identity at the edge.
+      const body = await response.json() as { workspaceId?: unknown };
+      return body.workspaceId === workspaceId;
+    }).catch(() => true); // Network failure alone does not end a valid workspace-bound connection.
+  const endAccess = () => {
+    accessEnded.current = true;
+    verifiedSocket.current = false;
+    setState(current => ({ ...current, status: "unauthenticated" }));
+    try { agentRef.current?.close?.(1000, "Sign in again"); } catch { /* All send paths remain blocked. */ }
+  };
   /** The outbox as it is now, for the socket's handlers; `state.outbox` is its copy for rendering. */
   const outboxRef = useRef<readonly Outgoing[]>([]);
   const setOutbox = (next: readonly Outgoing[]) => {
@@ -186,7 +205,7 @@ export function usePiSession() {
   /** Sends every waiting message, oldest first, if the socket is open; otherwise they wait for `onOpen`. */
   const flush = () => {
     const socket = agentRef.current;
-    if (socket?.readyState !== WebSocket.OPEN) return;
+    if (accessEnded.current || !verifiedSocket.current || socket?.readyState !== WebSocket.OPEN) return;
     const { send, outbox } = takeWaiting(outboxRef.current);
     if (send.length === 0) return;
     setOutbox(outbox);
@@ -204,20 +223,53 @@ export function usePiSession() {
   const agent = useAgent({
     agent: "personal-agent",
     basePath: "ws",
+    query: { workspace: workspaceId },
+    // A policy close needs explicit sign-in/reload. Retrying forever cannot
+    // repair an expired session or a retired agent generation.
+    shouldReconnectOnClose: event => !accessEnded.current && event.code !== 1008,
     onOpen: () => {
-      setState((current) => ({ ...current, status: "open" }));
-      // The person's locale and time zone, for conversations with companies.
-      const frame: PoppyClientFrame = {
-        type: "poppy.context",
-        locale: navigator.language,
-        time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      const epoch = ++connectionEpoch.current;
+      if (accessEnded.current) return;
+      const finishOpen = () => {
+        if (epoch !== connectionEpoch.current || accessEnded.current || agentRef.current?.readyState !== WebSocket.OPEN) return;
+        verifiedSocket.current = true;
+        setState((current) => ({ ...current, status: "open" }));
+        const frame: PoppyClientFrame = {
+          type: "poppy.context",
+          locale: navigator.language,
+          time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        };
+        agentRef.current?.send(JSON.stringify(frame));
+        flush();
       };
-      agentRef.current?.send(JSON.stringify(frame));
-      flush();
+      if (!opened.current) {
+        opened.current = true;
+        finishOpen(); // The initial upgrade is bound to the workspace from the page's authenticated /api/me.
+      } else {
+        // A reconnect cannot release queued text before an in-progress identity check.
+        const check = authCheck.current ?? checkWorkspace();
+        authCheck.current = check;
+        void check.then(same => {
+          if (epoch !== connectionEpoch.current || accessEnded.current) return;
+          if (same) finishOpen();
+          else endAccess();
+        });
+      }
     },
-    onClose: () => {
+    onClose: event => {
+      const epoch = ++connectionEpoch.current;
+      verifiedSocket.current = false;
+      if (event.code === 1008) accessEnded.current = true;
       setOutbox(unanswered(outboxRef.current));
-      setState((current) => ({ ...current, status: "closed" }));
+      setState((current) => ({ ...current, status: accessEnded.current ? "unauthenticated" : "closed" }));
+      if (!accessEnded.current) {
+        // A rejected upgrade appears as 1006. Preserve drafts while checking its authenticated workspace.
+        const check = checkWorkspace();
+        authCheck.current = check;
+        void check.then(same => {
+          if (!same && epoch === connectionEpoch.current && !accessEnded.current) endAccess();
+        });
+      }
     },
     onMessage: (event) => {
       let message: ServerMessage;
@@ -294,7 +346,7 @@ export function usePiSession() {
    */
   const sendPoppy = useCallback(
     (frame: PoppyClientFrame): boolean => {
-      if (agent.readyState !== WebSocket.OPEN) return false;
+      if (accessEnded.current || !verifiedSocket.current || agent.readyState !== WebSocket.OPEN) return false;
       agent.send(JSON.stringify(frame));
       return true;
     },
@@ -304,7 +356,7 @@ export function usePiSession() {
   /** Stop and reset, which aren't queued either: true when the frame went. */
   const send = useCallback(
     (message: ClientMessage): boolean => {
-      if (agent.readyState !== WebSocket.OPEN) return false;
+      if (accessEnded.current || !verifiedSocket.current || agent.readyState !== WebSocket.OPEN) return false;
       agent.send(JSON.stringify(message));
       return true;
     },

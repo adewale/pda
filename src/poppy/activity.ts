@@ -59,7 +59,7 @@ const approvalRow = object({
 
 const signInRow = signInsTable.pick("id", "type", "issuer", "account", "scopes", "status", "expires_at", "created_at");
 
-const conversationRow = conversationsTable.pick("id", "issuer", "direct", "status", "responder", "last_event_at", "created_at");
+const conversationRow = conversationsTable.pick("id", "issuer", "quarantined", "direct", "status", "responder", "last_event_at", "created_at");
 
 /** A reminder or task that ran (src/tools/schedule-store.ts `schedule_runs`). */
 const scheduleRunRow = object({ id: integer, kind: text, text, ran_at: integer, outcome: text, detail: nullable(text) });
@@ -191,7 +191,7 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
   const conversations = rows(
     sql,
     conversationsTable.pick("id", "issuer", "direct", "status", "responder"),
-    "SELECT id, issuer, direct, status, responder FROM poppy_conversations WHERE status != 'closed' ORDER BY last_event_at DESC"
+    "SELECT id, issuer, direct, status, responder FROM poppy_conversations WHERE status != 'closed' AND quarantined = 0 ORDER BY last_event_at DESC"
   ).map((row) => ({
     ...where(row.issuer),
     conversation: row.id,
@@ -249,11 +249,12 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       ? []
       : rows(
           sql,
-          object({ id: text }),
-          `SELECT DISTINCT json_extract(event, '$.message.operation.operation_id') AS id FROM poppy_inbox
-           WHERE json_extract(event, '$.message.operation.operation_id') IN (SELECT value FROM json_each(?))`,
+          object({ id: text, issuer: conversationsTable.columns.issuer }),
+          `SELECT DISTINCT json_extract(i.event, '$.message.operation.operation_id') AS id, c.issuer AS issuer FROM poppy_inbox i
+           JOIN poppy_conversations c ON c.id = i.conversation_id AND c.quarantined = 0
+           WHERE json_extract(i.event, '$.message.operation.operation_id') IN (SELECT value FROM json_each(?))`,
           JSON.stringify(recentOperations.map((row) => row.operation_id))
-        ).map((row) => row.id)
+        ).map((row) => JSON.stringify([row.issuer, row.id]))
   );
   for (const row of recentOperations) {
     const operation = row.operation;
@@ -278,7 +279,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       what: `${company} proposed`,
       quote: operation.summary,
       quoteBy: "company",
-      how: operationsFromAgent.has(row.operation_id) ? "company_agent" : "api",
+      how: operationsFromAgent.has(JSON.stringify([row.issuer, row.operation_id])) ? "company_agent" : "api",
       access: "view_and_change",
       decidedBy: row.approved_by === "user" ? "you" : row.approved_by === "standing_permission" ? "standing_permission" : null,
       result,
@@ -336,7 +337,11 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
     const company = name(row.issuer);
     const result = APPROVAL_RESULT[row.status] ?? "unknown";
     // What an approved API call returned stays out of the log; what the website showed, and why something failed, go in.
-    const outcome = row.result && (result !== "done" || row.kind === "browse-submit") ? clip(row.result) : undefined;
+    // A failure can carry a Company's arbitrary error_description. Keep those
+    // words on its approval card and out of the Activity/diagnostics surface.
+    const outcome = row.status === "failed"
+      ? "The approved request could not be completed. See its approval card for details."
+      : row.result && (result !== "done" || row.kind === "browse-submit") ? clip(row.result) : undefined;
     log.push({
       id: `approval-${row.id}`,
       at: row.created_at,
@@ -465,8 +470,9 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   }
 
   // Conversations with the Company's agent, and Direct Conversations.
-  const conversationColumns = "id, issuer, direct, status, responder, last_event_at, created_at";
+  const conversationColumns = "id, issuer, quarantined, direct, status, responder, last_event_at, created_at";
   for (const row of rows(sql, conversationRow, ...newest("poppy_conversations", conversationColumns, "created_at"))) {
+    if (row.quarantined) continue;
     const company = name(row.issuer);
     log.push({
       id: `conversation-${row.id}`,
@@ -482,7 +488,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       result: row.status !== "closed" ? "in_progress" : "done"
     });
   }
-  for (const row of rows(sql, conversationRow, `SELECT ${conversationColumns} FROM poppy_conversations WHERE status != 'closed'`)) {
+  for (const row of rows(sql, conversationRow, `SELECT ${conversationColumns} FROM poppy_conversations WHERE status != 'closed' AND quarantined = 0`)) {
     const company = name(row.issuer);
     inProgress.push({
       id: `conversation-${row.id}`,
