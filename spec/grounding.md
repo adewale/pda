@@ -1,5 +1,7 @@
 # Grounding: our claims against the text of Draft 0.1
 
+**Historical baseline, checked 17 October:** this file grounds the 9/12 October snapshots, not the subsequently revised draft. [Official commits on 15–16 October](https://github.com/personal-agent-protocol/personal-agent-protocol/commits/95fcbf22c5991a0090061aed3dbeb68c0ea575e0/) change wire requirements. Client and Session assertions now target the issuer; browser assertions still target their browser endpoint. Other changes are described in [the ecosystem map](../docs/ecosystem.md#the-spec). The old verdicts and keyword counts below need reconciliation before being used as current-spec claims. No new local snapshot or conformance migration is implied by this source survey.
+
 What the Personal Agent Protocol (Poppy) says, quoted, for every claim we make about it: the spec issues in [docs/spec-issues.md](../docs/spec-issues.md), the readings in [docs/readings.md](../docs/readings.md), the rows of Appendix A in [pda-spec.md](../pda-spec.md#appendix-a-personal-agent-requirements), the mock Company's checks, the validator's messages, and the section numbers our code cites.
 
 The text is the snapshot in [draft-0.1-2026-10-12/](draft-0.1-2026-10-12/README.md), retrieved on 13 October 2026. The rows below were written against the earlier snapshot, [draft-0.1-2026-10-09/](draft-0.1-2026-10-09/README.md) (retrieved 12 October), and every quotation in them is also in the newer one, word for word ([below](#has-the-spec-changed-since-9-and-11-october)). Quotations are verbatim from its `pages/*.md`, with "…" for omissions; Guides quotations show code as backticks. Anchors are the site's: `spec#sending-tokens` is <https://personalagentprotocol.org/docs/spec#sending-tokens>, `ops#confirm` is the Operations page, `guides#agent-dpop` the Guides. The anchors for each section are in the snapshot's `html/*.html`.
@@ -7,7 +9,7 @@ The text is the snapshot in [draft-0.1-2026-10-12/](draft-0.1-2026-10-12/README.
 **Verdicts** for the spec issues:
 - **Still applies:** the text says what the issue says it does, and the problem stands.
 - **Partly addressed:** the text already covers part of the problem; the issue's row now says which part.
-- **Fixed:** the text has changed and the problem is gone. None are: no requirement has changed (below).
+- **Fixed:** the text has changed and the problem is gone. None had changed at the 13 October baseline; this verdict does not cover the later revisions.
 - **Misread:** the issue misstated the text.
 
 The six misread issues, S6, S15, S21, N36, N37 and N38, were withdrawn from docs/spec-issues.md on 12 October, which leaves it 62 (20 S, 42 N). Their rows stay below, with the counts as they were, as the record of why: each quotes the text that answers the issue. S6 was misread only in part; the rest of its row, that "same domain" is undefined, is our reading in readings.md.

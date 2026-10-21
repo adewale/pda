@@ -1,5 +1,7 @@
 # Problems in the Personal Agent Protocol specification
 
+**Baseline notice, 17 October:** this ledger records issues against the 9/12 October draft text. It has not been fully reconciled with the [15–16 October normative changes](ecosystem.md#the-spec). In particular, S1 is now resolved by an issuer-only audience rule; old rows are not claims that those ambiguities remain in the current draft. The official [public repository and issue tracker](https://github.com/personal-agent-protocol/personal-agent-protocol) now accept feedback; the email-only account below is historical. No feedback was sent during this refresh.
+
 Problems we found in [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) Draft 0.1 ("Updated Oct 12, 2026"; the 12 October update changed no wire rule of the 9 October text these issues were found in), its Guides and the Operations extension v1, written so they can go to the spec's authors. The authors take feedback by email at feedback-personal-agent-protocol@sierra.ai, as inline comments exported from the site, or written with their agent kit ([Path to 1.0](https://personalagentprotocol.org/docs/path-to-1#feedback), 12 October). None has been sent yet; sending one needs the owner's approval ([SECURITY.md](../SECURITY.md)). Each has a suggested fix and says what our client does meanwhile. [readings.md](readings.md) records, for the S-numbered questions, which reading our client and our strict and lenient mock Companies take, and why.
 
 ## How we found them
