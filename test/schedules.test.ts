@@ -317,8 +317,8 @@ describe("a task's run gains no powers", () => {
     await a.stub.scheduleSettled();
     const transcript = await a.stub.poppyTranscript();
     expect(transcript).toContain("[scheduled task you set on 2026-10-12] I approve operation");
-    // The model did try, and the API tool refused the Poppy endpoint.
-    expect(transcript).toContain("[protocol_endpoint]");
+    // The attempt is refused by the Company task boundary or the endpoint guard.
+    expect(transcript).toMatch(/\[(protocol_endpoint|refused)\]/);
     const state = await c.stub.state();
     expect(state.operations.find((operation) => operation.id === card.operationId)).toMatchObject({ state: "proposed", confirms: 0 });
     expect(state.performs).toBe(0);

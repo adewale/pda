@@ -1,0 +1,8 @@
+{
+  "snapshot": "spec/draft-0.2-2026-10-19",
+  "protocolVersion": "0.2",
+  "revision": "2026-10-19",
+  "commit": "39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d",
+  "operationsVersion": "1",
+  "upstream": "https://github.com/personal-agent-protocol/personal-agent-protocol"
+}

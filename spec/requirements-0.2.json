@@ -1,0 +1,344 @@
+{
+  "protocolVersion": "0.2",
+  "revision": "2026-10-19",
+  "commit": "39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d",
+  "scope": "Disposition of every official changelog entry; not a complete normative conformance claim.",
+  "changes": [
+    {
+      "change": "Breaking: HTTPS everywhere.",
+      "disposition": "Shared + stricter profile",
+      "implementation": "src/validator/primitives.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "Existing HTTPS checks cover endpoints; 0.2 treats all protocol URLs as a requirement."
+    },
+    {
+      "change": "Breaking: Versions before 1.0.",
+      "disposition": "Changed",
+      "implementation": "src/poppy/protocol-version.ts",
+      "evidence": "test/poppy-0.2.test.ts",
+      "notes": "Exact 0.1/0.2 dispatch; unsupported versions stop before issuer metadata."
+    },
+    {
+      "change": "Breaking: Redirects and addresses.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/prompt-injection.test.ts",
+      "notes": "Manual redirects, URL/address safety and no credential forwarding; isolated interop hosts are an explicit test-only exception."
+    },
+    {
+      "change": "Breaking: Which domain `poppy.json` speaks for.",
+      "disposition": "Changed",
+      "implementation": "src/poppy/discovery.ts",
+      "evidence": "test/poppy-0.2.test.ts",
+      "notes": "Final serving host, case only; requested-host caches retain www."
+    },
+    {
+      "change": "Breaking: One issuer per Company.",
+      "disposition": "Company obligation + shared",
+      "implementation": "src/poppy/issuer.ts",
+      "evidence": "test/properties/model.test.ts",
+      "notes": "Exact full issuer keys User IDs and sealed Account Tokens. Client cannot verify whether an issuer represents one legal Company."
+    },
+    {
+      "change": "Which Company a document speaks for.",
+      "disposition": "Shared",
+      "implementation": "src/validator/profiles/draft-0.2.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "Mutual issuer/domain checks; RFC 8414 insertion for issuer paths."
+    },
+    {
+      "change": "Breaking: One `auth` per issuer.",
+      "disposition": "Changed",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.2.test.ts",
+      "notes": "Compare auth fingerprints for currently cached domains sharing an issuer; cannot compare unseen domains."
+    },
+    {
+      "change": "Breaking: DPoP algorithms.",
+      "disposition": "Changed",
+      "implementation": "src/validator/profiles/draft-0.2.ts",
+      "evidence": "test/poppy-0.2.test.ts",
+      "notes": "Sign ES256; optional OAuth list must include ES256."
+    },
+    {
+      "change": "Breaking: `extension_required` responses.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "interop/runner/checks.ts",
+      "notes": "Existing error/challenge handling; optional unknown extensions are not negotiated."
+    },
+    {
+      "change": "Breaking: Assertion audience.",
+      "disposition": "Changed",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.2.test.ts",
+      "notes": "Issuer audience for both assertions in 0.2; endpoint fallback remains 0.1 only."
+    },
+    {
+      "change": "User IDs for anonymous browsing.",
+      "disposition": "Optional deferred + privacy",
+      "implementation": "src/privacy.ts",
+      "evidence": "docs/upgrading.md",
+      "notes": "Pairwise IDs remain private; anonymous sessions are not offered."
+    },
+    {
+      "change": "Breaking: Assertion lifetimes and replay.",
+      "disposition": "Shared + Company obligation",
+      "implementation": "src/poppy/jwt.ts",
+      "evidence": "test/properties/jwt.test.ts",
+      "notes": "Fresh random jti and 60-second assertions fit the five-minute maximum. Replay rejection belongs to Companies."
+    },
+    {
+      "change": "Breaking: A DPoP key per User ID.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/properties/model.test.ts",
+      "notes": "DPoP key is per client/User and exact issuer; separate client instances never share it."
+    },
+    {
+      "change": "Breaking: DPoP Proof checks.",
+      "disposition": "Company obligation",
+      "implementation": "test/mock-company/core.ts",
+      "evidence": "test/properties/jwt.test.ts",
+      "notes": "Production PDA sends RFC 9449 proofs. The independent mock and trace checks exercise validation; not a production Company service."
+    },
+    {
+      "change": "Breaking: DPoP errors at APIs and conversations.",
+      "disposition": "Shared + mock changed",
+      "implementation": "test/mock-company/apis.ts",
+      "evidence": "test/poppy-0.2.test.ts",
+      "notes": "Nonce retry and error parsing reused; MCP mock preserves DPoP challenge/errors."
+    },
+    {
+      "change": "Which requests carry a DPoP Proof.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Proof on token/resource requests; no proof required for revocation/device authorization."
+    },
+    {
+      "change": "Breaking: DPoP at MCP servers.",
+      "disposition": "Changed",
+      "implementation": "src/poppy/apis.ts",
+      "evidence": "test/poppy-0.2.test.ts",
+      "notes": "Select DPoP/Bearer from protected-resource metadata, bind resource and token type, send Bearer only to the exact listed URL."
+    },
+    {
+      "change": "`rate_limited` body.",
+      "disposition": "Shared + Company obligation",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Existing Retry-After and rate-limit handling; protocol endpoints have the defined body, API bodies remain API-specific."
+    },
+    {
+      "change": "Breaking: A Session stays tied to its account.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/properties/model.test.ts",
+      "notes": "Existing account_mismatch handling starts a new Session; no account switch within an existing Session."
+    },
+    {
+      "change": "Breaking: Device sign-in links.",
+      "disposition": "Changed",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/ui/device-link.test.tsx",
+      "notes": "0.2 links use issuer host/poppy_domains or their subdomains; cards display Company name/domain."
+    },
+    {
+      "change": "Breaking: Mediated Sign-In responses.",
+      "disposition": "Shared + mock changed",
+      "implementation": "test/mock-company/auth.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Mediated statuses are parsed independently of transport success; 0.2 mock repeats terminal statuses and distinguishes unknown IDs."
+    },
+    {
+      "change": "Breaking: Mediated Sign-In credentials.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/prompt-injection.test.ts",
+      "notes": "Protected credential frames bypass the model and are not retained as a credential store. User must provide them again."
+    },
+    {
+      "change": "Breaking: Mediated Sign-In for the right Company.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Credential/code card binds to issuer and displays Company name/domain; no stored credential lookup is offered."
+    },
+    {
+      "change": "Work after a token expires.",
+      "disposition": "Shared + Company obligation",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Token expiry renews access and does not erase accepted work. Company decides running-work policy after revocation."
+    },
+    {
+      "change": "Breaking: After sign-out.",
+      "disposition": "Shared + mock changed",
+      "implementation": "src/poppy/signout.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Stop local account use immediately, retain failed revocation work, require User sign-in; 0.2 mock protects account-bound Operations after sign-out."
+    },
+    {
+      "change": "Sessions from plain MCP clients.",
+      "disposition": "Not a plain MCP client",
+      "implementation": "src/poppy/apis.ts",
+      "evidence": "docs/poppy-0.2-upgrade.md",
+      "notes": "PDA uses Poppy User IDs and Sessions. Plain MCP client lifecycle is a Company obligation outside PDA role."
+    },
+    {
+      "change": "Conversation query parameters.",
+      "disposition": "Shared + mock changed",
+      "implementation": "test/mock-company/conversations.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Query parameters already used; 0.2 mock rejects fractional, negative or nonnumeric wait."
+    },
+    {
+      "change": "Breaking: Messages.",
+      "disposition": "Mock changed",
+      "implementation": "test/mock-company/conversations.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Keep accepted context-only messages and original message fields; Company sets role."
+    },
+    {
+      "change": "Long polling.",
+      "disposition": "Shared",
+      "implementation": "test/mock-company/conversations.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Cap long polls by waiting for cap; PDA reads again when send has no reply."
+    },
+    {
+      "change": "Breaking: Read fields.",
+      "disposition": "Shared + diagnostics changed",
+      "implementation": "interop/runner/checks.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Required read fields are checked, including conversation_id in 0.2; unknown event types remain skippable."
+    },
+    {
+      "change": "Streaming.",
+      "disposition": "Shared",
+      "implementation": "test/mock-company/conversations.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Last-Event-ID wins over cursor; trace and SDK tests exercise reconnects."
+    },
+    {
+      "change": "Repeated requests.",
+      "disposition": "Shared",
+      "implementation": "test/mock-company/conversations.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Repeated handoff/close preserve state without duplicating effects."
+    },
+    {
+      "change": "`user_requested`.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "A user_requested event offers a card; does not change responder/status or authorize User words."
+    },
+    {
+      "change": "Conversation errors.",
+      "disposition": "Shared + Company obligation",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Existing invalid_request/rate_limited parsing; mock implements invalid wait errors."
+    },
+    {
+      "change": "Feedback.",
+      "disposition": "Optional deferred",
+      "implementation": "src/validator/profiles/draft-0.2.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "Validate feedback discovery and require auth, but do not send reports automatically; privacy UX is separate."
+    },
+    {
+      "change": "Breaking: Security considerations.",
+      "disposition": "Changed",
+      "implementation": "src/poppy/task-scope.ts",
+      "evidence": "test/prompt-injection.test.ts",
+      "notes": "Task Company boundary plus existing secret/approval boundaries; Company/tool content cannot add another domain."
+    },
+    {
+      "change": "Browser assertion audience.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/browser.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Browser assertion keeps its endpoint audience and distinct typ; issuer rule applies to OAuth assertions only."
+    },
+    {
+      "change": "`extension_required` in conversations and Operations.",
+      "disposition": "Shared + Company obligation",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "interop/runner/checks.ts",
+      "notes": "API/MCP/protocol error channels remain distinct; no per-tool extension negotiation is invented."
+    },
+    {
+      "change": "Breaking: Operations after sign-out.",
+      "disposition": "Mock changed",
+      "implementation": "test/mock-company/operations.ts",
+      "evidence": "test/poppy-0.2.test.ts",
+      "notes": "Account-owned operation requires current sign-in to the same account. Client never manufactures approval."
+    },
+    {
+      "change": "Operations.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/operations.ts",
+      "evidence": "test/poppy-0.2.test.ts",
+      "notes": "Operation card includes terms and exact revision; only approved revision can confirm."
+    },
+    {
+      "change": "Examples.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/jwt.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Random proof IDs, idempotent message/confirmation machinery and API write approval reused."
+    },
+    {
+      "change": "Guides.",
+      "disposition": "Shared + Company obligation",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "ES256 and issuer audiences; protected credentials discarded. Company replay/reconnect challenges remain Company duties."
+    },
+    {
+      "change": "Guides: key refetches, rate limits, and running work.",
+      "disposition": "Company guidance",
+      "implementation": "test/mock-company/core.ts",
+      "evidence": "docs/poppy-0.2-upgrade.md",
+      "notes": "Company key refetch/rate-limit/running-work rules are not a Personal Agent feature. Mock checks do not certify deployed Companies."
+    },
+    {
+      "change": "Guides: hosting several companies.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/issuer.ts",
+      "evidence": "test/properties/model.test.ts",
+      "notes": "Full issuer paths are distinct; exact issuer scopes identities and tokens."
+    },
+    {
+      "change": "Guides: conversations after sign-out.",
+      "disposition": "Shared + Company obligation",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy.test.ts",
+      "notes": "Client preserves conversations; sign_in_required asks User to sign in rather than silently doing so."
+    },
+    {
+      "change": "Guides: user ID privacy.",
+      "disposition": "Privacy changed; optional deferred",
+      "implementation": "src/privacy.ts",
+      "evidence": "docs/upgrading.md",
+      "notes": "Explain signed-out recognition and account linking; no anonymous mode claim."
+    },
+    {
+      "change": "Guides: finding a company.",
+      "disposition": "Changed",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.2.test.ts",
+      "notes": "Discovery redirect to another domain produces a notice before sign-in/acting."
+    },
+    {
+      "change": "Guides: matching the spec.",
+      "disposition": "Shared",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/prompt-injection.test.ts",
+      "notes": "ES256, manual redirect refusal, protected credentials, and signed-out ordinary browsing retained."
+    }
+  ]
+}

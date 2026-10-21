@@ -1,5 +1,5 @@
 /**
- * Rules for major version 0 of the protocol (Draft 0.1, updated 12 Oct 2026; its rules are those of 9 Oct).
+ * Rules for Draft 0.1 of the protocol (Draft 0.1, updated 12 Oct 2026; its rules are those of 9 Oct).
  *
  * Each rule is its own exported function, so the profile for a later
  * version can reuse the ones that still apply, replace the ones that
@@ -171,16 +171,7 @@ export function checkAgent(c: Checker, agent: Obj): void {
   if (!poppy) c.report("no-poppy-protocol", "/agent/protocols", "agent.protocols has no entry of type poppy.");
 }
 
-/** Minor versions of 0.x this profile was written against; a document declaring a newer one may use what it adds (3.1). */
-const MINORS = [1];
-
-/** Whether a poppy.json declares a 0.x minor version newer than this profile knows. */
-function newerMinor(version: unknown): boolean {
-  const match = typeof version === "string" ? /^0\.(0|[1-9]\d*)$/.exec(version) : null;
-  return match !== null && Number(match[1]) > Math.max(...MINORS);
-}
-
-export function checkApis(c: Checker, apis: unknown[], newer = false): void {
+export function checkApis(c: Checker, apis: unknown[], allowUnknownTypes = false): void {
   apis.forEach((entry, index) => {
     const at = `/apis/${index}`;
     if (!isObject(entry)) {
@@ -189,7 +180,7 @@ export function checkApis(c: Checker, apis: unknown[], newer = false): void {
     }
     const type = member<string>(c, entry, at, "type", "string", true, spec("6", "apis"));
     if (type !== undefined && !API_TYPES.includes(type)) {
-      if (newer) c.report("api-type-newer", `${at}/type`, `Agents that don't know APIs of type ${JSON.stringify(type)} skip them.`);
+      if (allowUnknownTypes) c.report("api-type-newer", `${at}/type`, `Agents that don't know APIs of type ${JSON.stringify(type)} skip them.`);
       else c.report("api-type-unknown", `${at}/type`, `${JSON.stringify(type)} isn't an API type of this version (openapi or mcp); agents skip it.`);
     }
     const url = httpsMember(c, entry, at, "url", true, spec("6", "apis"), OURS);
@@ -256,7 +247,7 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   const apis = member<unknown[]>(c, doc, "", "apis", "array", false);
   const web = member<Obj>(c, doc, "", "web", "object", false);
   if (agent) checkAgent(c, agent);
-  if (apis) checkApis(c, apis, newerMinor(doc.protocol_version));
+  if (apis) checkApis(c, apis, c.protocolVersion === "0.2");
   const browserSession = web ? checkWeb(c, web) : false;
   if (!("agent" in doc) && !("apis" in doc) && !("web" in doc)) {
     c.report("nothing-offered", "", "poppy.json has none of agent, apis or web.");
@@ -272,7 +263,7 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
 
   const extensions = member<Obj>(c, doc, "", "extensions", "object", false);
   if (extensions) checkExtensions(c, extensions);
-  unknownMembers(c, doc, "", ["protocol_version", "organization", "auth", "agent", "apis", "web", "extensions"]);
+  unknownMembers(c, doc, "", ["protocol_version", "organization", "auth", "agent", "apis", "web", "extensions", ...(c.protocolVersion === "0.2" ? ["feedback"] : [])]);
   return facts;
 }
 
@@ -433,8 +424,7 @@ export function checkJwks(c: Checker, doc: unknown): void {
 }
 
 export const draft0: Profile = {
-  major: 0,
-  minors: MINORS,
+  version: "0.1",
   name: "Draft 0.1",
   poppy: checkPoppy,
   oauthMetadata: checkOAuthMetadata,

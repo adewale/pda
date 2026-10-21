@@ -58,6 +58,7 @@ from personal_agent_protocol.crypto import JoseDpopProofProvider, JoseSigner
 from personal_agent_protocol.demo.kit import DpopKeys, MemoryVault
 from personal_agent_protocol.errors import PersonalAgentProtocolError
 from personal_agent_protocol.mcp import McpClient
+import personal_agent_protocol.mcp as pap_mcp
 from personal_agent_protocol.mediated import MediatedSignInClient
 from personal_agent_protocol.models import ClientMetadata, DiscoveredCompany, Operation
 from personal_agent_protocol.operations import (
@@ -89,6 +90,7 @@ ORIGIN = os.environ.get("INTEROP_ORIGIN", f"https://{_DOMAIN}").rstrip("/")
 DOMAIN = urlsplit(ORIGIN).hostname or ""
 SECRET = os.environ.get("INTEROP_SECRET", "")
 COMMIT = os.environ.get("INTEROP_COMMIT") or os.environ.get("UPSTREAM_COMMIT", "unknown")
+WIRE_VERSION = os.environ.get("INTEROP_POPPY_VERSION", "0.1")
 ALLOW_TEST_HOSTS = os.environ.get("INTEROP_ALLOW_TEST_HOSTS") == "1"
 CA_FILE = os.environ.get("SSL_CERT_FILE") or "/interop/ca.pem"
 TENANT = "interop"
@@ -107,7 +109,7 @@ MANIFEST = {
     "name": NAME,
     "role": "agent",
     "commit": COMMIT,
-    "poppy": ["0.1"],
+    "poppy": [WIRE_VERSION],
     "extensions": ["operations"],
     "scenarios": [
         "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "R", "SE", "SO",
@@ -565,6 +567,7 @@ async def op_signin(host: str, params: dict[str, Any]) -> dict[str, Any]:  # noq
     if method == "device":
         started = await DeviceSignInClient(reactor=agent.reactor, http_client=agent.http).begin(
             device_authorization_endpoint=metadata.device_authorization_endpoint,  # type: ignore[arg-type]
+            **({"organization": state.company.document.organization, "poppy_domains": metadata.poppy_domains} if WIRE_VERSION == "0.2" else {}),
             token_endpoint=metadata.token_endpoint,
             issuer=metadata.issuer,
             client_id=agent.client_id,
@@ -897,22 +900,26 @@ async def op_api(host: str, params: dict[str, Any]) -> dict[str, Any]:  # noqa: 
         metadata = metadata_of(state)
 
         async def mcp_call(session: SessionState, token: SessionToken):  # type: ignore[no-untyped-def]
+            modern = WIRE_VERSION == "0.2"
+            dpop = (await pap_mcp.fetch_mcp_server_metadata(agent.http, url, issuer=metadata.issuer)).supports_dpop if modern else False
+            method = "token_for_mcp" if modern else "bearer_for_mcp"
             if session.account_reference is not None:
-                refreshed = await AccountTokenClient(
+                refreshed = await getattr(AccountTokenClient(
                     reactor=agent.reactor, http_client=agent.http
-                ).bearer_for_mcp(
+                ), method)(
                     session.account_reference,
                     context=account_context(state, session),
                     session_id=token.session_id,
                     resource=url,
+                    **({"dpop": dpop} if modern else {}),
                 )
                 if refreshed.token is None:
                     raise PoppyRefusal(refreshed.status, 0, "no Bearer token for the MCP server")
                 bearer = refreshed.token
             else:
-                bearer = await SessionClient(
+                bearer = await getattr(SessionClient(
                     reactor=agent.reactor, http_client=agent.http
-                ).bearer_for_mcp(
+                ), method)(
                     client_id=agent.client_id,
                     pairwise_user_id=session.pairwise,
                     issuer=metadata.issuer,
@@ -920,8 +927,9 @@ async def op_api(host: str, params: dict[str, Any]) -> dict[str, Any]:  # noqa: 
                     tenant_id=TENANT,
                     session_id=token.session_id,
                     resource=url,
+                    **({"dpop": dpop} if modern else {}),
                 )
-            return await McpClient(http_client=agent.http, token=bearer, url=url).call_tool(
+            return await McpClient(http_client=agent.http, token=bearer, url=url, **({"reactor": agent.reactor, "who": who(state, session)} if modern else {})).call_tool(
                 str(params["tool"]), args
             )
 

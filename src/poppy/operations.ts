@@ -340,6 +340,7 @@ export async function handleProposal(
     return null;
   }
   let { operation } = parsed;
+  client.rememberCompany("operation", operation.operation_id, company);
   const existing = stored(client, company.issuer, operation.operation_id);
   const previous = existing ? existing.operation : undefined;
   if (previous && previous.revision > operation.revision) return previous;
@@ -591,13 +592,13 @@ export async function confirm(client: PoppyClient, issuer: Issuer, operationId: 
   }
   const key = CONFIRMING(issuer, operationId);
   if (client.inFlight.has(key)) return;
-  const company = client.companyByIssuer(issuer);
-  const endpoint = endpointOf(company);
   // Reserve synchronously: persisting the follow-up yields, so another
   // approval could otherwise enter before the first request is marked busy.
   client.inFlight.add(key);
   let dispatched = false;
   try {
+    const company = await client.resumeCompany(issuer, "operation", operationId);
+    const endpoint = endpointOf(company);
     setConfirmed(client, issuer, operationId, SENT);
     await scheduleTracking(client, issuer, operationId, client.host.now() + CONFIRM_CHECK_MS);
     try {
@@ -760,7 +761,7 @@ export async function retryApproved(client: PoppyClient, issuer: Issuer): Promis
     }
     let operation: Operation;
     try {
-      ({ operation } = await readOperation(client, client.companyByIssuer(issuer), row));
+      ({ operation } = await readOperation(client, await client.resumeCompany(issuer, "operation", row.operation_id), row));
     } catch (error) {
       if (!(error instanceof PoppyError)) throw error;
       if (error.is("operation_not_found")) await markLost(client, client.companyByIssuer(issuer), row);
@@ -786,7 +787,7 @@ export async function trackOperation(client: PoppyClient, issuer: Issuer, operat
   if (FINAL.has(known.state)) return null;
   // A proposal with no confirm outstanding has nothing to follow up.
   if (known.state === "proposed" && row.confirmed !== SENT && !row.cancel_requested) return null;
-  const company = client.companyByIssuer(issuer);
+  const company = await client.resumeCompany(issuer, "operation", operationId);
   let read;
   try {
     read = await readOperation(client, company, row);
@@ -836,8 +837,6 @@ export async function trackOperation(client: PoppyClient, issuer: Issuer, operat
 export async function cancelOperation(client: PoppyClient, issuer: Issuer, operationId: string): Promise<void> {
   const row = stored(client, issuer, operationId);
   if (!row || isLost(row.confirmed) || FINAL.has(row.operation.state)) return;
-  const company = client.companyByIssuer(issuer);
-  const endpoint = endpointOf(company);
   // Withdrawal is durable before the first await. A failed cancellation,
   // restart or a late response must never restore authority to confirm.
   client.sql.exec(
@@ -846,6 +845,8 @@ export async function cancelOperation(client: PoppyClient, issuer: Issuer, opera
   );
   if (row.confirmed !== SENT && row.operation.state !== "in_progress") releasePermission(client, row);
   await scheduleTracking(client, issuer, operationId, client.host.now() + 5_000);
+  const company = await client.resumeCompany(issuer, "operation", operationId);
+  const endpoint = endpointOf(company);
   await showOperation(client, company, stored(client, issuer, operationId)!);
   const key = `cancel|${issuer}|${operationId}`;
   if (client.inFlight.has(key)) return;
@@ -1100,6 +1101,7 @@ export async function proposeLocal(
   }
   if (existing && existing.status !== "pending") return id;
   if (!existing) {
+    client.rememberCompany("approval", id, company);
     client.sql.exec(
       "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
       id,
@@ -1129,7 +1131,7 @@ const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "req
 export async function decideLocal(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<void> {
   const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!row || row.status !== "pending") return;
-  const company = client.companyByIssuer(row.issuer);
+  const company = await client.resumeCompany(row.issuer, "approval", id);
   const card = (status: "approved" | "declined" | "done" | "refused" | "failed" | "unknown", result?: string, answer?: { status: number; error?: string }) =>
     client.host.showCard({
       id: `approval-${id}`,

@@ -36,9 +36,11 @@ import {
   operationsEndpoint,
   parseClientMetadata,
 } from "../lib/index.js";
+import * as papSdk from "../lib/index.js";
 import { JoseSigner } from "../lib/server.js";
 
-const UPSTREAM_COMMIT = "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65";
+const UPSTREAM_COMMIT = process.env.INTEROP_COMMIT || "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65";
+const WIRE_VERSION = process.env.INTEROP_POPPY_VERSION || "0.1";
 const NAME = process.env.INTEROP_NAME || "datalayer-ts";
 const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${NAME}.agent.interop.test`).replace(/\/$/, "");
 const SECRET = process.env.INTEROP_SECRET || "";
@@ -49,7 +51,7 @@ const MANIFEST = {
   name: NAME,
   role: "agent",
   commit: UPSTREAM_COMMIT,
-  poppy: ["0.1"],
+  poppy: [WIRE_VERSION],
   extensions: ["operations"],
   scenarios: ["D", "S0", "N", "SD", "SV", "SVN", "SXV", "SM", "SMC", "SX", "SE", "SO", "R", "RL", "C", "CI", "CS", "CA", "AO", "AS", "AM", "O", "OX", "H", "DC", "W", "O2", "CM", "XH", "XI", "BX", "XB", "XN", "XO", "XE", "XR", "XT"],
   readings: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit" },
@@ -518,19 +520,23 @@ async function mcpOnce(c, token, params) {
   const api = apis.find((a) => a.type === "mcp" && (a.url === params.api || params.api === undefined || params.api === "mcp"));
   if (!api) throw new StepError(409, "no_api", "the Company lists no MCP server");
   const metadata = oauth(c);
+  const modern = WIRE_VERSION === "0.2";
+  const dpop = modern && (await papSdk.fetchMcpServerMetadata(api.url, { issuer: metadata.issuer, fetch: world.fetch })).supportsDpop;
+  const method = modern ? "tokenForMcp" : "bearerForMcp";
   let bearer;
   if (c.accountRef) {
-    const result = await new AccountTokenClient({ reactor: world.reactor, fetch: world.fetch }).bearerForMcp(c.accountRef, {
+    const result = await new AccountTokenClient({ reactor: world.reactor, fetch: world.fetch })[method](c.accountRef, {
       context: accountContext(c),
       sessionId: token.sessionId,
       resource: api.url,
+      ...(modern ? { dpop } : {}),
     });
     if (result.status !== "signed_in" || !result.token) {
       throw new Refusal(String(result.status ?? "no_bearer"), 0, "no Bearer token for the MCP server");
     }
     bearer = result.token;
   } else {
-    bearer = await new SessionClient({ reactor: world.reactor, fetch: world.fetch }).bearerForMcp({
+    bearer = await new SessionClient({ reactor: world.reactor, fetch: world.fetch })[method]({
       clientId: world.clientId,
       pairwiseUserId: c.pairwise,
       issuer: metadata.issuer,
@@ -538,9 +544,10 @@ async function mcpOnce(c, token, params) {
       tenantId: TENANT,
       sessionId: token.sessionId,
       resource: api.url,
+      ...(modern ? { dpop } : {}),
     });
   }
-  const client = new McpClient({ token: bearer, url: api.url, fetch: world.fetch });
+  const client = new McpClient({ token: bearer, url: api.url, fetch: world.fetch, ...(modern ? { reactor: world.reactor, who: who(c) } : {}) });
   const result = await client.callTool(String(params.tool), params.args ?? {});
   if (result.operation?.operation_id) c.operations.set(result.operation.operation_id, result.operation);
   return {
@@ -611,6 +618,7 @@ const ops = {
       const client = new DeviceSignInClient({ reactor: world.reactor, fetch: world.fetch });
       const start = await client.begin({
         deviceAuthorizationEndpoint: metadata.device_authorization_endpoint,
+        ...(WIRE_VERSION === "0.2" ? { organization: c.discovered.document.organization, poppyDomains: metadata.poppy_domains } : {}),
         tokenEndpoint: metadata.token_endpoint,
         issuer: metadata.issuer,
         clientId: world.clientId,

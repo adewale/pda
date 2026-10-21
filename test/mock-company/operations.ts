@@ -202,6 +202,7 @@ export class Operations {
       (record.account
         ? context.signedIn && context.account === record.account
         : record.sessionId === context.session.id);
+    if (record && record.clientId === context.session.clientId && record.userId === context.session.userId && record.account && !context.signedIn && this.company.config.protocolVersion === "0.2") throw new HttpError(json({ error: "sign_in_required" }, 403));
     if (!record || !ok) throw new HttpError(json({ error: "operation_not_found" }, 404));
     this.#expire(record);
     return record;

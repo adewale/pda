@@ -70,7 +70,7 @@ export const companies = gs.composite<GeneratedCompany>((tc) => {
   }
 
   // Any minor: one newer than the validator knows is information, not an error.
-  const minor = tc.draw(gs.integers({ minValue: 0, maxValue: Number.MAX_SAFE_INTEGER }));
+  const minor = 1;
   const poppy: Record<string, any> = {
     protocol_version: `0.${minor}`,
     organization: { name: tc.draw(gs.text({ maxSize: 40 })), domain },

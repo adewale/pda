@@ -10,12 +10,13 @@ import { describe, expect, it } from "vitest";
 
 type Stored = { file: string; sha256: string };
 type Manifest = {
+  files?: Record<string, string>;
   pages: { name: string; markdown: Stored; content_html: Stored }[];
   walkthrough_bundle: { markdown?: Stored } | null;
 };
 
 const manifests = import.meta.glob("../spec/*/manifest.json", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
-const stored = import.meta.glob(["../spec/*/pages/*.md", "../spec/*/html/*.html"], { query: "?raw", import: "default", eager: true }) as Record<
+const stored = import.meta.glob(["../spec/*/pages/*.md", "../spec/*/html/*.html", "../spec/*/kit/**/*", "../spec/*/LICENSE"], { query: "?raw", import: "default", eager: true }) as Record<
   string,
   string
 >;
@@ -27,6 +28,7 @@ async function sha256(text: string): Promise<string> {
 
 /** Every file a manifest names, with the hash it records. */
 function recorded(manifest: Manifest): Stored[] {
+  if (manifest.files) return Object.entries(manifest.files).map(([file, sha256]) => ({ file, sha256 }));
   return [
     ...manifest.pages.flatMap((page) => [page.markdown, page.content_html]),
     ...(manifest.walkthrough_bundle?.markdown ? [manifest.walkthrough_bundle.markdown] : [])

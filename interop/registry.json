@@ -230,6 +230,85 @@
           }
         }
       }
+    },
+    {
+      "name": "pda-mock-v02",
+      "role": "company",
+      "owner": "self",
+      "source": "https://github.com/adewale/pda",
+      "commit": "HEAD",
+      "build": "interop/impls/pda-mock",
+      "context": ".",
+      "notes": "Same mock and image, draft 0.2 rules; MCP DPoP enabled. Separate from the retained 0.1 peers.",
+      "env": {
+        "INTEROP_POPPY_VERSION": "0.2"
+      }
+    },
+    {
+      "name": "official-validator",
+      "role": "agent",
+      "source": "https://github.com/personal-agent-protocol/personal-agent-protocol",
+      "commit": "39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d",
+      "build": "interop/impls/official-validator",
+      "context": ".",
+      "notes": "Identity host only, no interop scenarios. npm run interop:official runs the unmodified validator as a separate one-sided lane in the harness network.",
+      "vectorsOnly": true
+    },
+    {
+      "name": "datalayer-ts-v02",
+      "role": "agent",
+      "source": "https://github.com/datalayer/personal-agent-protocol",
+      "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc",
+      "build": "interop/impls/datalayer-ts-agent",
+      "notes": "TypeScript SDK clients driven directly; no model. BSD-3-Clause. SDK 0.25.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
+      "buildArgs": {
+        "COMMIT": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+      },
+      "env": {
+        "INTEROP_POPPY_VERSION": "0.2"
+      }
+    },
+    {
+      "name": "datalayer-ts-v02",
+      "role": "company",
+      "source": "https://github.com/datalayer/personal-agent-protocol",
+      "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc",
+      "build": "interop/impls/datalayer-ts-company",
+      "notes": "Manzanita reference Company on the TypeScript CompanyService. BSD-3-Clause. SDK 0.25.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
+      "buildArgs": {
+        "COMMIT": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+      },
+      "env": {
+        "INTEROP_POPPY_VERSION": "0.2"
+      }
+    },
+    {
+      "name": "datalayer-py-v02",
+      "role": "agent",
+      "source": "https://github.com/datalayer/personal-agent-protocol",
+      "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc",
+      "build": "interop/impls/datalayer-py-agent",
+      "notes": "Python SDK clients driven directly; no model. BSD-3-Clause. SDK 0.25.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
+      "buildArgs": {
+        "UPSTREAM_COMMIT": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+      },
+      "env": {
+        "INTEROP_POPPY_VERSION": "0.2"
+      }
+    },
+    {
+      "name": "datalayer-py-v02",
+      "role": "company",
+      "source": "https://github.com/datalayer/personal-agent-protocol",
+      "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc",
+      "build": "interop/impls/datalayer-py-company",
+      "notes": "Manzanita reference Company; hooks call the Python CompanyService in process. BSD-3-Clause. SDK 0.25.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
+      "buildArgs": {
+        "UPSTREAM_COMMIT": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+      },
+      "env": {
+        "INTEROP_POPPY_VERSION": "0.2"
+      }
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 **A Personal Agent for [Poppy](https://personalagentprotocol.org/), the Personal Agent Protocol, built alongside the tools we used to test it: a validator, a strict mock Company, an interop harness that runs other projects' code, and 64 written-up spec issues.** It is for the draft's authors and for people implementing either side of the protocol.
 
-Poppy is a draft standard, published as Draft 0.1 on 9 October 2026 and updated on 12 October with no change to its wire rules, for AI agents acting for people at companies. This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, starts a Session, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page before an action that changes your account. The status is alpha. The agent has run against one live Company, print-with-poppy's store, as far as asking to upload a photo; otherwise against our mock and other projects' demos and SDKs. Of the deployed products we know of that publish `poppy.json`, print-with-poppy's store is in the grid (its code, offline) and [Spot](docs/ecosystem.md#companies-you-can-reach) isn't.
+Poppy is a draft standard. PDA retains Draft 0.1 support and adds explicit Draft 0.2 support at a pinned upstream revision (19 October 2026); the upgrade is unreleased and its evidence is in [the changelog](CHANGELOG.md) and [upgrade delta](docs/poppy-0.2-upgrade.md). This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, starts a Session, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page before an action that changes your account. The status is alpha. The agent has run against one live Company, print-with-poppy's store, as far as asking to upload a photo; otherwise against our mock and other projects' demos and SDKs. Of the deployed products we know of that publish `poppy.json`, print-with-poppy's store is in the grid (its code, offline) and [Spot](docs/ecosystem.md#companies-you-can-reach) isn't.
 
 ## See it work: ordering a print from print-with-poppy
 
@@ -104,6 +104,8 @@ The design is [pda-spec.md](pda-spec.md); how to use the agent and check it work
 - **JavaScript:** `read_url` renders a page that needs it in Browser Run, signed out and read only. Browsing a Company's site in a Session (`poppy_browse`) still runs no JavaScript, so a site that needs it to show a page or send a form can't be used there.
 - **Not built:** skills, web search, reminders by email, and "delete my agent" (today the operator deletes an agent by hand when asked, as the privacy policy promises).
 - Everything still open is in [TODO.md](TODO.md).
+
+Release notes and migration instructions: [CHANGELOG.md](CHANGELOG.md). Exact upstream inputs: [spec/upstream.json](spec/upstream.json). Upgrade procedure: [docs/upgrading.md](docs/upgrading.md).
 
 ## Run it yourself
 

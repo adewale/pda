@@ -154,7 +154,7 @@ const sha256 = (text: string) => createHash("sha256").update(text).digest("base6
 const agentRequests = (all: readonly Exchange[]) => all.filter((x) => x.direction === "to-company" && !x.probe && !x.injected);
 
 /** Client and Session assertions: header, lifetime, jti, audience. */
-export function assertionChecks(all: readonly Exchange[]): Check[] {
+export function assertionChecks(all: readonly Exchange[], protocolVersion = "0.1"): Check[] {
   const found: Check[] = [];
   const seen = { "client-assertion": new Set<string>(), "session-assertion": new Set<string>() };
   for (const x of agentRequests(all)) {
@@ -181,18 +181,22 @@ export function assertionChecks(all: readonly Exchange[]): Check[] {
       } else {
         const lifetime = payload.exp - payload.iat;
         if (lifetime > 300) found.push(check(`${kind}.lifetime`, x, `lifetime ${lifetime} s, over the 300 even lenient Companies allow`));
-        else if (lifetime > 60) found.push(check(`${kind}.lifetime`, x, `lifetime ${lifetime} s, over the 60 strict Companies allow`));
+        else if (protocolVersion !== "0.2" && lifetime > 60) found.push(check(`${kind}.lifetime`, x, `lifetime ${lifetime} s, over the 60 strict Companies allow`));
       }
       if (typeof payload.jti !== "string" || payload.jti === "") found.push(check(`${kind}.jti-missing`, x, "no jti"));
       else if (seen[kind].has(payload.jti)) found.push(check(`${kind}.jti-reused`, x, `jti ${payload.jti} again`));
       else seen[kind].add(payload.jti);
+      if (protocolVersion === "0.2") {
+        const issuer = all.filter(isServerMetadata).map((exchange) => jsonBody(exchange.responseBody) as Record<string, unknown> | undefined).find((doc) => doc && typeof doc === "object" && !Array.isArray(doc) && [doc.token_endpoint, doc.revocation_endpoint, doc.device_authorization_endpoint].includes(x.url.href));
+        if (!issuer || typeof issuer !== "object" || Array.isArray(issuer) || payload.aud !== issuer.issuer) found.push({ ...check(kind === "client-assertion" ? "client-assertion.aud-array" : "session-assertion.aud", x, "0.2 assertion audience must equal the issuer exactly"), id: `${kind}.aud`, basis: "MUST", severity: "error" });
+      }
       if (kind === "client-assertion") {
         if (Array.isArray(payload.aud)) found.push(check("client-assertion.aud-array", x, "aud is an array"));
         if (clientId && (payload.iss !== clientId || payload.sub !== clientId)) {
           found.push(check("client-assertion.iss-sub", x, `iss ${JSON.stringify(payload.iss)}, sub ${JSON.stringify(payload.sub)}, client_id ${clientId}`));
         }
       } else {
-        if (payload.aud !== withoutQuery(x.url)) found.push(check("session-assertion.aud", x, `aud ${JSON.stringify(payload.aud)} at ${withoutQuery(x.url)}`));
+        if (protocolVersion !== "0.2" && payload.aud !== withoutQuery(x.url)) found.push(check("session-assertion.aud", x, `aud ${JSON.stringify(payload.aud)} at ${withoutQuery(x.url)}`));
         if (clientId && payload.iss !== clientId) found.push(check("session-assertion.iss", x, `iss ${JSON.stringify(payload.iss)}, client_id ${clientId}`));
       }
     }
@@ -372,12 +376,13 @@ const SEND_PATH = /\/conversations(?:\/[^/]+\/messages)?$/;
  * `null`. So `null` there departs from nothing, and any other value is
  * `company.events-cursor`, a Reading.
  */
-function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait-reply-shape"): Check[] {
+function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait-reply-shape", protocolVersion = "0.1"): Check[] {
   const body = jsonBody(x.responseBody);
   if (!body || typeof body !== "object" || Array.isArray(body)) return [check(id, x, `not a JSON object: ${x.responseBody.slice(0, 120)}`)];
   const read = body as Record<string, unknown>;
   const problems: string[] = [];
   const events = read.events;
+  if (protocolVersion === "0.2" && typeof read.conversation_id !== "string") problems.push("no string conversation_id");
   if (!Array.isArray(events)) problems.push("events isn't an array");
   if (!("has_more" in read)) problems.push("no has_more");
   else if (typeof read.has_more !== "boolean") problems.push("has_more isn't a boolean");
@@ -398,7 +403,7 @@ function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait
 }
 
 /** Company responses: WWW-Authenticate, Retry-After, OAuth error bodies, token responses, events. */
-export function companyChecks(all: readonly Exchange[]): Check[] {
+export function companyChecks(all: readonly Exchange[], protocolVersion = "0.1"): Check[] {
   const found: Check[] = [];
   for (const x of agentRequests(all)) {
     const auth = authorization(x);
@@ -422,7 +427,7 @@ export function companyChecks(all: readonly Exchange[]): Check[] {
     if (x.method === "GET" && /\/events$/.test(x.url.pathname) && x.status === 200) {
       const type = x.responseHeaders.get("content-type") ?? "";
       if (type.includes("application/json")) {
-        found.push(...readShapeChecks(x, "company.events-shape"));
+        found.push(...readShapeChecks(x, "company.events-shape", protocolVersion));
       } else if (type.includes("text/event-stream")) {
         for (const block of x.responseBody.replace(/\r\n?/g, "\n").split("\n\n")) {
           const lines = block.split("\n");
@@ -436,7 +441,7 @@ export function companyChecks(all: readonly Exchange[]): Check[] {
       }
     }
     if (x.method === "POST" && x.url.searchParams.has("wait") && (x.status === 201 || x.status === 202) && SEND_PATH.test(x.url.pathname)) {
-      if ((x.responseHeaders.get("content-type") ?? "").includes("application/json")) found.push(...readShapeChecks(x, "company.wait-reply-shape"));
+      if ((x.responseHeaders.get("content-type") ?? "").includes("application/json")) found.push(...readShapeChecks(x, "company.wait-reply-shape", protocolVersion));
     }
   }
   return found;
@@ -728,7 +733,7 @@ export function metadataFetchChecks(all: readonly Exchange[]): Check[] {
 }
 
 /** Every trace check. */
-export function traceChecks(all: readonly Exchange[], callbacks: readonly string[] = []): Check[] {
+export function traceChecks(all: readonly Exchange[], callbacks: readonly string[] = [], protocolVersion = "0.1"): Check[] {
   return [
     ...browserAssertionChecks(all),
     ...browserSessionResponseChecks(all),
@@ -736,13 +741,13 @@ export function traceChecks(all: readonly Exchange[], callbacks: readonly string
     ...directParentChecks(all),
     ...confirmRepeatChecks(all),
     ...metadataFetchChecks(all),
-    ...assertionChecks(all),
+    ...assertionChecks(all, protocolVersion),
     ...dpopChecks(all),
     ...tokenInUrlChecks(all),
     ...unlistedHostChecks(all),
     ...redirectChecks(all),
     ...retryAfterChecks(all),
-    ...companyChecks(all),
+    ...companyChecks(all, protocolVersion),
     ...authorizationResponseChecks(callbacks, all)
   ];
 }

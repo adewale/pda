@@ -9,15 +9,24 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --quiet "$UPSTREAM" /upstream \
+RUN --mount=type=secret,id=proxy_ca --mount=type=secret,id=system_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    if [ -f /run/secrets/system_ca ]; then export GIT_SSL_CAINFO=/run/secrets/system_ca PIP_CERT=/run/secrets/system_ca; fi; \
+    git clone --quiet "$UPSTREAM" /upstream \
  && git -C /upstream checkout --quiet "$UPSTREAM_COMMIT"
 
 # Interop-only upstream patches (none needed at this commit; see README).
 COPY patches/ /patches/
-RUN for p in /patches/*.patch; do [ -e "$p" ] || continue; git -C /upstream apply "$p"; done
+RUN --mount=type=secret,id=proxy_ca --mount=type=secret,id=system_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    if [ -f /run/secrets/system_ca ]; then export GIT_SSL_CAINFO=/run/secrets/system_ca PIP_CERT=/run/secrets/system_ca; fi; \
+    for p in /patches/*.patch; do [ -e "$p" ] || continue; git -C /upstream apply "$p"; done
 
 COPY constraints.txt /adapter/constraints.txt
-RUN pip install --no-cache-dir -c /adapter/constraints.txt "/upstream[server]"
+RUN --mount=type=secret,id=proxy_ca --mount=type=secret,id=system_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    if [ -f /run/secrets/system_ca ]; then export GIT_SSL_CAINFO=/run/secrets/system_ca PIP_CERT=/run/secrets/system_ca; fi; \
+    pip install --no-cache-dir -c /adapter/constraints.txt "/upstream[server]"
 
 COPY adapter.py /adapter/adapter.py
 

@@ -246,7 +246,8 @@ export class Conversations {
     if (message.context) {
       conversation.context = { ...conversation.context, ...(message.context as Record<string, unknown>) };
     }
-    const { context: _context, ...shown } = message;
+    const { context: _context, ...withoutContext } = message;
+    const shown = this.company.config.protocolVersion === "0.2" ? message : withoutContext;
     this.#add(conversation, { type: "message", message: { ...shown, role: "user" } });
     if (message.text !== undefined || message.data !== undefined) this.#reply(context, conversation, message);
   }
@@ -310,7 +311,11 @@ export class Conversations {
   #params(inbound: Inbound): { cursor: string | null; wait: number } {
     const cursor =
       inbound.request.headers.get("Last-Event-ID") ?? inbound.url.searchParams.get("cursor");
-    const wait = Number(inbound.url.searchParams.get("wait") ?? "0");
+    const rawWait = inbound.url.searchParams.get("wait") ?? "0";
+    const wait = Number(rawWait);
+    if (this.company.config.protocolVersion === "0.2" && (!/^\d+$/.test(rawWait) || !Number.isSafeInteger(wait))) {
+      throw new HttpError(json({ error: "invalid_request" }, 400));
+    }
     return { cursor, wait: Number.isFinite(wait) && wait > 0 ? wait : 0 };
   }
 

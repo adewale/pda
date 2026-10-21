@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { protocolRevision, PROTOCOL_REVISION, PROTOCOL_VERSIONS } from "../../src/poppy/protocol-version.ts";
 /**
  * The Poppy interop runner (docs/interop-spec.md):
  *
@@ -57,7 +58,7 @@ import type { Cell, Check, KnownFailure, Manifest, Registry, RegistryEntry, Role
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const INTEROP = path.join(ROOT, "interop");
-const SPEC = "Personal Agent Protocol Draft 0.1";
+const SPEC = `Personal Agent Protocol Drafts ${PROTOCOL_VERSIONS.join(" and ")} (${PROTOCOL_REVISION})`;
 
 /** A file scenarios upload (`args.files`), from `interop/files/`; null if there's none by that name. */
 function harnessFile(name: string): Uint8Array | null {
@@ -339,6 +340,13 @@ async function runCells(options: {
           cell.reason = broken;
           continue;
         }
+        const versions = company.manifest!.poppy.filter((version) => agent.manifest!.poppy.includes(version));
+        if (!versions.length) {
+          cell.reason = "No common Poppy protocol version";
+          continue;
+        }
+        cell.protocolVersion = versions.at(-1);
+        cell.specificationRevision = protocolRevision(cell.protocolVersion!);
         const missing = [agent, company].filter((impl) => !impl.manifest!.scenarios.includes(scenario.id)).map((impl) => impl.entry.name);
         const hooks = (scenario.needs?.company ?? []).filter((hook) => !company.hooks.includes(hook));
         if (missing.length || hooks.length) {
@@ -436,10 +444,12 @@ async function runOne(
     writeFileSync(path.join(options.resultsDir, file), `${JSON.stringify(har, null, 1)}\n`);
     cell.har = file;
     const recorded = exchanges(har);
-    checks.push(...traceChecks(recorded, callbacks));
-    checks.push(...(await documentChecks(recorded)));
-    checks.push(...readingChecks(recorded, agent.manifest?.readings ?? {}));
-    checks.push(...refusedReadingChecks(recorded, company.manifest?.readings ?? {}));
+    checks.push(...traceChecks(recorded, callbacks, cell.protocolVersion));
+    checks.push(...(await documentChecks(recorded, cell.protocolVersion)));
+    if (cell.protocolVersion !== "0.2") {
+      checks.push(...readingChecks(recorded, agent.manifest?.readings ?? {}));
+      checks.push(...refusedReadingChecks(recorded, company.manifest?.readings ?? {}));
+    }
   }
   const violations = await control(company.target, "GET", "/violations").catch(() => ({ status: 0, body: null }));
   const recordedViolations = (violations.body as { violations?: RecordedViolation[] } | null)?.violations;
@@ -492,7 +502,7 @@ export function selected(registry: Registry, role: Role, names: readonly string[
   const runs = (entry: RegistryEntry) =>
     lane === "live" ? (role === "agent" ? !!entry.build && entry.owner === "self" : !!entry.url) : !!entry.build;
   const all = registry.implementations.filter((entry) => entry.role === role && runs(entry));
-  if (!names) return all;
+  if (!names) return all.filter((entry) => !entry.vectorsOnly);
   for (const name of names) {
     if (!all.some((entry) => entry.name === name)) throw new Error(`No ${role} ${name} in the registry for the ${lane} lane`);
   }
@@ -505,7 +515,7 @@ export function selected(registry: Registry, role: Role, names: readonly string[
  * apart by `env`) share one image, named after the first in the registry.
  */
 export function imageOf(entry: RegistryEntry, registry: Registry, tag = "latest"): string {
-  const same = (other: RegistryEntry) => other.role === entry.role && other.build === entry.build && (other.context ?? other.build) === (entry.context ?? entry.build);
+  const same = (other: RegistryEntry) => other.role === entry.role && other.build === entry.build && (other.context ?? other.build) === (entry.context ?? entry.build) && JSON.stringify(other.buildArgs ?? {}) === JSON.stringify(entry.buildArgs ?? {});
   const first = entry.build ? (registry.implementations.find(same) ?? entry) : entry;
   return `poppy-interop/${first.role}-${first.name}:${tag}`;
 }
@@ -523,11 +533,14 @@ async function buildImages(entries: readonly RegistryEntry[], registry: Registry
       return {
         key: image.replace(/^poppy-interop\//, "").replace(/:[^:]+$/, ""),
         targets: sharing.map((item) => `${item.role}-${item.name}`),
-        args: ["build", "-t", image, "-f", path.join(dir, "Dockerfile"), context]
+        args: ["build", ...Object.entries(entry.buildArgs ?? {}).flatMap(([key, value]) => ["--build-arg", `${key}=${value}`]), "-t", image, "-f", path.join(dir, "Dockerfile"), context]
       };
     })
   ];
   log(`building ${builds.map((b) => b.key).join(", ")}`);
+  if (process.env.CODEX_PROXY_CERT) {
+    for (const build of builds) build.args.splice(1, 0, "--secret", `id=proxy_ca,src=${process.env.CODEX_PROXY_CERT}`, "--secret", "id=system_ca,src=/etc/ssl/certs/ca-certificates.crt");
+  }
   const results = await mapConcurrent(builds, buildJobs, async (b) => {
     const result = { ...b, ...(await dockerAsync(b.args)) };
     // Retain completed logs even if a later build is interrupted.
@@ -540,7 +553,7 @@ async function buildImages(entries: readonly RegistryEntry[], registry: Registry
   return failures;
 }
 
-export async function main(argv: readonly string[]): Promise<number> {
+export async function main(argv: readonly string[], provisioned?: (context: { containers: Record<string, string>; runDir: string }) => Promise<void>): Promise<number> {
   const options = parseOptions(argv);
   const log = (line: string) => console.log(line);
   const registry = loadRegistry();
@@ -562,9 +575,9 @@ export async function main(argv: readonly string[]): Promise<number> {
   if (!agents.length || !companies.length) throw new Error("Nothing to run: no agents or no Companies selected");
 
   const run = new Date().toISOString().replace(/\.\d+Z$/, "Z");
-  const runDir = options.out ? path.resolve(options.out) : path.join(INTEROP, "results", run.replace(/:/g, "-"));
-  const logs = path.join(runDir, "logs");
   const tag = randomBytes(3).toString("hex");
+  const runDir = options.out ? path.resolve(options.out) : path.join(INTEROP, "results", `${run.replace(/:/g, "-")}-${tag}`);
+  const logs = path.join(runDir, "logs");
   const exec = (args: string[]) => docker(args, { quiet: true });
   const tooFull = lowDisk(dockerFreeGb(tag, exec), options.minFreeGb);
   if (tooFull) throw new Error(tooFull);
@@ -737,6 +750,10 @@ export async function main(argv: readonly string[]): Promise<number> {
     }
     for (const impl of implementations) if (impl.broken) log(`! ${impl.broken}`);
 
+    if (provisioned) {
+      if (options.lane !== "local" || implementations.some((impl) => impl.broken)) throw new Error("External validator requires healthy isolated containers");
+      await provisioned({ containers: Object.fromEntries(implementations.map((impl) => [impl.target, `${names.network}-${impl.target}`])), runDir });
+    }
     cells = await runCells({
       scenarios,
       agents: implementations.filter((impl) => impl.entry.role === "agent"),

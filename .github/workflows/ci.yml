@@ -33,6 +33,8 @@ jobs:
       # agents declares many optional peers.
       - run: npm ci --legacy-peer-deps
 
+      - run: npm run check:spec
+
       - run: npm run typecheck
 
       # Keep whole-runtime resets in the durability suite as an explicit policy.

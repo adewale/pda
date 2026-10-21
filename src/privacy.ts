@@ -8,7 +8,7 @@
 import { ConfigError } from "./config.ts";
 
 /** Bumped whenever the policy's text changes. */
-export const PRIVACY_UPDATED = "12 October 2026";
+export const PRIVACY_UPDATED = "21 October 2026";
 
 export type PrivacyEnv = {
   readonly PRIVACY_CONTACT?: unknown;
@@ -72,6 +72,7 @@ export function privacyPage(env: PrivacyEnv): Response {
 <h2>Who else sees it</h2>
 <ul>
 <li><strong>The AI model provider</strong> receives your conversation so it can reply: Anthropic, through Cloudflare's AI Gateway, when the operator pays; or Anthropic or OpenAI directly, under your own account, when you use your own key.</li>
+<li><strong>Recognition at companies:</strong> each Company gets its own random User ID for you and can recognize you across signed-out visits. Signing in links those visits to your account there. Your agent keeps the mapping private. It does not currently offer anonymous browsing sessions.</li>
 <li><strong>Companies you ask your agent to work with</strong> receive messages and requests your model generates. Proposed account actions require your confirmation. You sign in to a company on its own page, and a photo is sent only after you approve it.</li>
 <li><strong>Websites you ask your agent to read</strong> receive a request for that page from Cloudflare's network. General page reads send no cookies or account credentials. The address itself can contain private information in its hostname, path or query. A page that needs JavaScript may also be loaded in a fresh browser in Cloudflare's Browser Run, which runs the page's own scripts, allows only public requests that read, and is closed afterwards. Those scripts can contact other public websites.</li>
 <li><strong>Your browser's push service</strong>, if you turn on notifications on a device: Google, Mozilla, Apple or Microsoft, depending on the browser, carries each notification to it. A notification carries only a reminder's words, or that a scheduled task ran, encrypted so that only your device can read it.</li>

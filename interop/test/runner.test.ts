@@ -7,7 +7,7 @@ import { upstreamFor } from "../proxy/routing.mjs";
 import { VIOLATION_IDS } from "../../test/mock-company/violations.ts";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
 import { TRACE_CHECKS } from "../runner/checks.ts";
-import { gridCoverage, imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions } from "../runner/cli.ts";
+import { gridCoverage, imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions, selected } from "../runner/cli.ts";
 import { dockerAsync, mapConcurrent, proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
 import { cellId, renderReport } from "../runner/report.ts";
@@ -114,6 +114,12 @@ describe("the registry and known failures", () => {
     expect(partial).toEqual({ agent: false, company: false, scenario: false });
     // The live lane never judges a * scenario: it runs only the live ones.
     expect(gridCoverage(registry, "live", { agents: honest("agent"), companies: [], scenarios: all }, all).scenario).toBe(false);
+  });
+
+  it("provisions the official validator only when explicitly selected for its vector lane", () => {
+    const registry = loadRegistry();
+    expect(selected(registry, "agent", null, "local").some((entry) => entry.name === "official-validator")).toBe(false);
+    expect(selected(registry, "agent", ["official-validator"], "local")).toHaveLength(1);
   });
 
   it("lists our agent and the reference Company, each with a Dockerfile", () => {

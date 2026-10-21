@@ -1,3 +1,4 @@
+import { isDraft2 } from "./protocol-version";
 import { Validator, type OutputUnit } from "@cfworker/json-schema";
 import { attachmentInfo, humanSize, readAttachment, type AttachmentInfo } from "../attachments";
 import { answerOf, PoppyClient, PoppyError, scopeSet, withAnswer, withoutAnswer, withUnreadableAnswer } from "./client";
@@ -966,19 +967,26 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
 // ---------------------------------------------------------------- MCP
 
 const MCP_VERSION = "2025-06-18";
-type McpSession = { sessionId: string | null; tools: Json[] | null };
-const mcpClients = new WeakMap<PoppyClient, Map<string, McpSession>>();
-function mcpSessions(client: PoppyClient): Map<string, McpSession> {
-  let sessions = mcpClients.get(client);
-  if (!sessions) mcpClients.set(client, sessions = new Map());
-  return sessions;
+type McpSession = { sessionId: string | null; tools: Json[] | null; bearer: boolean; expiresAt: number };
+type McpState = {
+  sessions: Map<string, McpSession>;
+  initializing: Map<string, Promise<void>>;
+  metadata: Map<string, Promise<{ bearer: boolean; expiresAt: number }>>;
+  bindings: Map<string, { fingerprint: string; generation: number; key: string }>;
+};
+// Client-owned caches die with the client and its DPoP keys; no cross-user global session state.
+const mcpClients = new WeakMap<PoppyClient, McpState>();
+function mcpState(client: PoppyClient): McpState {
+  let state = mcpClients.get(client);
+  if (!state) mcpClients.set(client, (state = { sessions: new Map(), initializing: new Map(), metadata: new Map(), bindings: new Map() }));
+  return state;
 }
 
 /**
  * Protected resource metadata (RFC 9728) must name the Company's issuer as an
  * authorization server, or the server isn't the Company's (spec 6).
  */
-async function checkResourceMetadata(client: PoppyClient, company: Company, api: Api): Promise<void> {
+async function checkResourceMetadata(client: PoppyClient, company: Company, api: Api): Promise<{ bearer: boolean; expiresAt: number }> {
   const url = new URL(api.url);
   const candidates = [
     `${url.origin}/.well-known/oauth-protected-resource${url.pathname === "/" ? "" : url.pathname}`,
@@ -986,9 +994,17 @@ async function checkResourceMetadata(client: PoppyClient, company: Company, api:
   ];
   for (const candidate of candidates) {
     try {
-      const { json } = await fetchJson(client.host.fetcher, candidate);
+      const { json, maxAgeSeconds } = await fetchJson(client.host.fetcher, candidate, isDraft2(company) ? { maxRedirects: 0 } : {});
+      const mode = (bearer: boolean) => ({ bearer, expiresAt: Date.now() + boundedCacheSeconds(maxAgeSeconds) * 1000 });
       if (isObject(json) && Array.isArray(json.authorization_servers)) {
-        if (json.authorization_servers.includes(company.issuer)) return;
+        if (json.authorization_servers.includes(company.issuer)) {
+          if (!isDraft2(company)) return mode(true);
+          if (json.resource !== api.url) throw new PoppyError("bad_api", "MCP metadata resource must equal its exact URL", 0);
+          const algs = json.dpop_signing_alg_values_supported;
+          if (algs === undefined) return mode(true);
+          if (!Array.isArray(algs) || !algs.includes("ES256") || algs.some((alg) => typeof alg !== "string")) throw new PoppyError("bad_api", "MCP DPoP algorithms must include ES256", 0);
+          return mode(false);
+        }
         throw new PoppyError("bad_api", `${api.url} doesn't name ${company.issuer} as its authorization server`, 0);
       }
     } catch (error) {
@@ -1019,9 +1035,10 @@ async function rpcResult(client: PoppyClient, response: Response, id: number): P
 }
 
 async function mcpRequest(client: PoppyClient, company: Company, label: string, api: Api, method: string, params: Json, sessionKey: string, beforeDispatch?: () => void): Promise<{ result: Json; sessionId: string | null }> {
-  const session = mcpSessions(client).get(sessionKey);
+  const sessions = mcpState(client).sessions;
+  const session = sessions.get(sessionKey);
   const id = Math.floor(Math.random() * 1e9);
-  // MCP uses Bearer tokens, each issued for this server's url only (spec 4.3).
+  // The protected-resource metadata selects DPoP or Bearer; each token names this URL.
   const response = await client.resource(
     company,
     EndpointRequest.mcp(company, {
@@ -1034,10 +1051,10 @@ async function mcpRequest(client: PoppyClient, company: Company, label: string, 
         ...(session?.sessionId ? { "Mcp-Session-Id": session.sessionId } : {})
       }
     }),
-    { label, bearer: true, resource: api.url, ...(beforeDispatch ? { beforeDispatch } : {}) }
+    { label, bearer: session?.bearer ?? true, resource: api.url, ...(beforeDispatch ? { beforeDispatch } : {}) }
   );
   if (response.status === 404 && session?.sessionId) {
-    mcpSessions(client).delete(sessionKey);
+    sessions.delete(sessionKey);
     await response.body?.cancel();
     throw withAnswer(new PoppyError("mcp_session_expired", "The MCP session expired", 404), 404);
   }
@@ -1052,37 +1069,72 @@ async function mcpRequest(client: PoppyClient, company: Company, label: string, 
 }
 
 async function mcpSession(client: PoppyClient, company: Company, label: string, api: Api): Promise<string> {
-  await client.token(company, { label, bearer: true, resource: api.url });
+  const { sessions, initializing, metadata, bindings } = mcpState(client);
+  const resourceKey = JSON.stringify([company.issuer, api.url, company.protocolVersion, company.specificationRevision, company.authFingerprint]);
+  let loading = metadata.get(resourceKey);
+  if (loading && (await loading).expiresAt <= Date.now()) loading = undefined;
+  if (!loading) {
+    loading = checkResourceMetadata(client, company, api);
+    metadata.set(resourceKey, loading);
+    void loading.catch(() => { if (metadata.get(resourceKey) === loading) metadata.delete(resourceKey); });
+  }
+  const mode = await loading;
+  // Refresh credentials before choosing a cache entry: sign-in/account changes
+  // must never reuse the previous account's MCP session or tool catalogue.
+  await client.token(company, { label, bearer: mode.bearer, resource: api.url });
   const bound = client.session(company.issuer, label);
-  const key = JSON.stringify([company.issuer, label, api.url, bound?.session_id, bound?.account, bound?.signed_in]);
-  if (mcpSessions(client).has(key)) return key;
-  await checkResourceMetadata(client, company, api);
-  const { sessionId } = await mcpRequest(client, company, label, api, "initialize", {
-    protocolVersion: MCP_VERSION,
-    capabilities: {},
-    clientInfo: { name: client.identity.clientName, version: "0.1" }
-  }, key);
-  mcpSessions(client).set(key, { sessionId, tools: null });
-  // `notifications/initialized` is a notification: no id, and no answer to wait for.
-  const response = await client.resource(
-    company,
-    EndpointRequest.mcp(company, {
-      method: "POST",
-      url: api.url,
-      body: { jsonrpc: "2.0", method: "notifications/initialized" },
-      accept: "application/json, text/event-stream",
-      headers: { "MCP-Protocol-Version": MCP_VERSION, ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}) }
-    }),
-    { label, bearer: true, resource: api.url }
-  );
-  await response.body?.cancel();
+  const slot = JSON.stringify([resourceKey, label]);
+  const fingerprint = JSON.stringify([bound?.session_id, bound?.account, bound?.signed_in]);
+  let binding = bindings.get(slot);
+  if (!binding || binding.fingerprint !== fingerprint) {
+    // Returning to signed-out state must not resurrect a pre-sign-in session.
+    // Generations also keep an older in-flight initialization out of the cache.
+    if (binding) sessions.delete(binding.key);
+    const generation = (binding?.generation ?? 0) + 1;
+    binding = { fingerprint, generation, key: JSON.stringify([slot, fingerprint, generation]) };
+    bindings.set(slot, binding);
+  }
+  const key = binding.key;
+  const pending = initializing.get(key);
+  if (pending) { await pending; return key; }
+  const cached = sessions.get(key);
+  if (cached && cached.expiresAt > Date.now()) return key;
+  sessions.delete(key);
+  const initialize = (async () => {
+    sessions.set(key, { sessionId: null, tools: null, ...mode });
+    try {
+      const { sessionId } = await mcpRequest(client, company, label, api, "initialize", {
+        protocolVersion: MCP_VERSION,
+        capabilities: {},
+        clientInfo: { name: client.identity.clientName, version: "0.1" }
+      }, key);
+      sessions.set(key, { sessionId, tools: null, ...mode });
+      const response = await client.resource(
+        company,
+        EndpointRequest.mcp(company, {
+          method: "POST", url: api.url,
+          body: { jsonrpc: "2.0", method: "notifications/initialized" },
+          accept: "application/json, text/event-stream",
+          headers: { "MCP-Protocol-Version": MCP_VERSION, ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}) }
+        }),
+        { label, bearer: mode.bearer, resource: api.url }
+      );
+      await response.body?.cancel();
+      if (!response.ok) throw new PoppyError(`http_${response.status}`, "The MCP server refused initialization", response.status);
+    } catch (error) {
+      sessions.delete(key);
+      throw error;
+    }
+  })();
+  initializing.set(key, initialize);
+  try { await initialize; } finally { initializing.delete(key); }
   return key;
 }
 
 export async function listMcpTools(client: PoppyClient, company: Company, label: string, apiUrl?: string): Promise<Json[]> {
   const api = findApi(company, "mcp", apiUrl);
   const key = await mcpSession(client, company, label, api);
-  const session = mcpSessions(client).get(key)!;
+  const session = mcpState(client).sessions.get(key)!;
   if (!session.tools) {
     const { result } = await mcpRequest(client, company, label, api, "tools/list", {}, key);
     session.tools = isObject(result) && Array.isArray(result.tools) ? result.tools : [];

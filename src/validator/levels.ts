@@ -7,7 +7,7 @@
  */
 
 /**
- * What a requirement rests on, in the Personal Agent Protocol's Draft 0.1,
+ * What a requirement rests on, in the supported Personal Agent Protocol drafts,
  * which uses the BCP 14 key words only in capitals (RFC 2119, RFC 8174):
  *
  * - `MUST`: MUST, MUST NOT or a required field.

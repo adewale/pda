@@ -1,5 +1,6 @@
 import { Type, type TSchema } from "@earendil-works/pi-ai";
-import type { Extension, ToolRegistration } from "@earendil-works/pi-durable";
+import { GenerationTask, hook, type Extension, type ToolRegistration } from "@earendil-works/pi-durable";
+import { TaskCompanyScope } from "./task-scope";
 import { callMcpTool, callOpenApi, describeOpenApi, listMcpTools } from "./apis";
 import { openAtCompanies } from "./activity";
 import { browse, type BrowseAction, type PoppyBrowser } from "./browser";
@@ -80,12 +81,29 @@ const Label = Type.Optional(
 
 /** The `poppy` Pi extension: the model's tools. They never see tokens, keys, codes or credentials. */
 export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBrowser): Extension {
+  const scope = new TaskCompanyScope();
+  const scopedTool: typeof tool = (definition, run) => tool(definition, async (args, key) => {
+    const domain = (args as { domain?: unknown }).domain;
+    if (typeof domain === "string") {
+      if (!scope.allow(domain)) throw new PoppyError("refused", "The User's task hasn't authorized contacting this Company. Ask the User before sending it information.", 0);
+    }
+    const answer = await run(args, key);
+    if (typeof domain === "string") scope.receivedCompanyContent();
+    return answer;
+  });
   const company = (domain: string) => client().company(domain);
   return {
     name: "poppy",
+    hooks: [hook(GenerationTask, { beforeRequest: ({ messages }) => {
+      const users = messages.map((message, index) => ({ message, index })).filter(({ message }) => message.role === "user").map(({ message, index }) => ({ index, text: typeof message.content === "string" ? message.content : message.content.map((part) => part.type === "text" ? part.text : "").join("") }));
+      const trusted = users.slice().reverse().find(({ text }) => !text.trimStart().startsWith("[") || text.startsWith("[attachment "));
+      const foreign = (users.at(-1)?.text ?? "").trimStart().startsWith("[") || messages.slice((trusted?.index ?? -1) + 1).some((message) => message.role === "toolResult");
+      scope.update(trusted?.text ?? "", foreign, `${trusted?.index ?? -1}:${trusted?.text ?? ""}`);
+      return undefined;
+    } })],
     sections: [{ key: "poppy", render: () => PREAMBLE, tag: true }],
     tools: [
-      tool(
+      scopedTool(
         {
           name: "poppy_discover",
           description: "Find out what a company offers personal agents: sign-in types and scopes, APIs, its agent, website, extensions. Doesn't start a session or sign in.",
@@ -113,7 +131,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           };
         }
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_sign_in",
           description:
@@ -139,7 +157,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             : { status: `waiting for the User (${result.type} sign-in card shown)`, note: "End your turn; you'll be told when it finishes." };
         }
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_status",
           description:
@@ -169,7 +187,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           };
         }
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_message",
           description:
@@ -197,7 +215,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           return result;
         }
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_read",
           description: "Recent messages in a conversation with a company.",
@@ -210,7 +228,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           return { conversation: id, status: row.status, responder: row.responder, messages: recentMessages(client(), id) };
         }
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_handoff",
           description: "Ask for a person at the company to join the conversation. Give a short summary of the problem for them first. Doesn't bring the User in; for that, use poppy_invite_user.",
@@ -223,7 +241,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           return handoff(client(), client().companyByIssuer(row.issuer), id, summary, callKey);
         }
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_invite_user",
           description:
@@ -236,7 +254,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           return { status: "offered to the User; they decide whether to start it" };
         }
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_close",
           description: "Close a conversation when the task is done. Doesn't cancel anything it started.",
@@ -250,7 +268,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           return { conversation: id, status: "closed" };
         }
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_api_describe",
           description: "List a company's OpenAPI operations, or describe one operation's inputs.",
@@ -259,7 +277,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         },
         async ({ domain, api, operation: name }) => describeOpenApi(client(), await company(domain), api, name)
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_api_call",
           description:
@@ -306,7 +324,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           });
         }
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_mcp_list",
           description: "List the tools on a company's MCP server.",
@@ -315,7 +333,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         },
         async ({ domain, api, session }) => ({ tools: await listMcpTools(client(), await company(domain), session ?? "main", api) })
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_mcp_call",
           description: "Call a tool on a company's MCP server. Tools that change things may propose an operation or wait for the User's approval.",
@@ -336,7 +354,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         async ({ domain, tool: name, args, api, session }) =>
           callMcpTool(client(), await company(domain), session ?? "main", { tool: name, args: json(args ?? {}, "args"), ...(api ? { apiUrl: api } : {}) })
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_browse",
           description:
@@ -364,7 +382,7 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           return browse(client(), browser(), await company(domain), session ?? "main", step);
         }
       ),
-      tool(
+      scopedTool(
         {
           name: "poppy_operation",
           description: "Read an operation a company proposed: its terms, state and result. Can't approve or confirm it: only the User can, on the card, or a standing permission they set.",

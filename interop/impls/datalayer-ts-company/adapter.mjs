@@ -37,7 +37,8 @@ import {
   ManzanitaPlugin,
 } from "../lib/demo/manzanita.js";
 
-const UPSTREAM_COMMIT = "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65";
+const UPSTREAM_COMMIT = process.env.INTEROP_COMMIT || "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65";
+const WIRE_VERSION = process.env.INTEROP_POPPY_VERSION || "0.1";
 const NAME = process.env.INTEROP_NAME || "datalayer-ts";
 const ORIGIN = (process.env.INTEROP_ORIGIN || `https://${NAME}.company.interop.test`).replace(/\/$/, "");
 const DOMAIN = new URL(ORIGIN).hostname;
@@ -50,7 +51,7 @@ const MANIFEST = {
   name: NAME,
   role: "company",
   commit: UPSTREAM_COMMIT,
-  poppy: ["0.1"],
+  poppy: [WIRE_VERSION],
   extensions: ["operations"],
   scenarios: ["D", "S0", "SD", "SV", "SXV", "SMC", "SX", "SE", "SO", "R", "C", "CI", "CS", "CA", "AO", "AS", "O", "OX", "DC", "W", "O2", "CM"],
   // S1: a client assertion's aud may be the issuer, the token endpoint or the endpoint it

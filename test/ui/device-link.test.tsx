@@ -11,6 +11,7 @@ import { toIssuer } from "../../src/poppy/issuer";
  */
 
 const company = {
+  protocolVersion: "0.1",
   issuer: toIssuer("https://login.acme-id.example"),
   name: "Acme",
   domain: "acme.example",
@@ -94,4 +95,12 @@ describe("deviceLink", () => {
       expect(onCompany(url.hostname)).toBe(true);
     })
   );
+});
+
+// 0.2 trusts the issuer host and published poppy_domains, not an unrelated device endpoint.
+it("uses the narrower 0.2 device-link trust boundary", () => {
+  const v02 = { ...company, protocolVersion: "0.2", poppyDomains: ["acme.example"] };
+  expect(deviceLink(v02, "https://login.acme-id.example/device")).not.toBeNull();
+  expect(deviceLink(v02, "https://www.acme.example/device")).not.toBeNull();
+  expect(deviceLink(v02, "https://device.acme-auth.example/activate")).toBeNull();
 });

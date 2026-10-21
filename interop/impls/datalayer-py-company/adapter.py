@@ -97,7 +97,7 @@ MANIFEST = {
     "name": NAME,
     "role": "company",
     "commit": COMMIT,
-    "poppy": ["0.1"],
+    "poppy": [os.environ.get("INTEROP_POPPY_VERSION", "0.1")],
     "extensions": ["operations"],
     # Not SM: Manzanita's one account always asks for a one-time code (SMC). Not AM: its
     # MCP tools all need a signed-in user. Not N, RL, H: the Company has no DPoP nonces,

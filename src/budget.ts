@@ -83,7 +83,7 @@ export class Ledger {
     return (row ? Number(row.cost_usd) : 0) + Number(calls.total);
   }
 
-  add(day: string, costUsd: number): void {
+  add(day: string, costUsd: number, now = Date.now()): void {
     dollars(costUsd);
     this.#sql.exec(
       `INSERT INTO model_spend (day, cost_usd, calls) VALUES (?, ?, 1)
@@ -92,7 +92,7 @@ export class Ledger {
       costUsd
     );
     // A week is plenty for a daily cap.
-    this.#sql.exec("DELETE FROM model_spend WHERE day < ?", utcDay(Date.now() - 7 * 86_400_000));
+    this.#sql.exec("DELETE FROM model_spend WHERE day < ?", utcDay(now - 7 * 86_400_000));
   }
 
   /** Synchronous local admission, before any RPC can yield to another call. */
@@ -163,9 +163,9 @@ export class DomainBudget extends DurableObject<Env> {
     return new Ledger(this.ctx.storage.sql).charged(day);
   }
 
-  async add(day: string, costUsd: number): Promise<number> {
+  async add(day: string, costUsd: number, now = Date.now()): Promise<number> {
     const ledger = new Ledger(this.ctx.storage.sql);
-    ledger.add(day, costUsd);
+    ledger.add(day, costUsd, now);
     return ledger.spent(day);
   }
 

@@ -68,7 +68,7 @@ const MANIFEST = {
   name: NAME,
   role: "agent",
   commit: COMMIT,
-  poppy: ["0.1"],
+  poppy: ["0.1", "0.2"],
   extensions: ["operations"],
   scenarios: ADVERSARY
     ? [...ATTACKS]

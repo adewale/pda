@@ -76,7 +76,9 @@ const PROFILE = process.env.INTEROP_MOCK_PROFILE === "strict" ? "strict" : "leni
 if (process.env.INTEROP_MOCK_PROFILE && process.env.INTEROP_MOCK_PROFILE !== PROFILE) {
   throw new Error(`INTEROP_MOCK_PROFILE must be lenient or strict, not ${process.env.INTEROP_MOCK_PROFILE}`);
 }
-const BASE: Partial<MockConfig> = { ...MOCK_BASE, strictAssertions: PROFILE === "strict" };
+const WIRE_VERSION = process.env.INTEROP_POPPY_VERSION ?? "0.1";
+if (!["0.1", "0.2"].includes(WIRE_VERSION)) throw new Error("Unsupported mock wire version");
+const BASE: Partial<MockConfig> = { ...MOCK_BASE, protocolVersion: WIRE_VERSION, mcpDpop: WIRE_VERSION === "0.2", strictAssertions: WIRE_VERSION === "0.1" && PROFILE === "strict" };
 
 // `PUBLIC_ORIGIN` is where the mock would reach our Worker directly in tests;
 // here no host matches it, so every client document is fetched over the network.
@@ -95,7 +97,7 @@ const MANIFEST = {
   name: NAME,
   role: "company",
   commit: COMMIT,
-  poppy: ["0.1"],
+  poppy: [WIRE_VERSION],
   extensions: ["operations"],
   scenarios: ADVERSARY
     ? ATTACK_IDS
