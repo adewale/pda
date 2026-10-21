@@ -21,7 +21,7 @@ import { memoryState } from "../shared/cloudflare-workers.ts";
 import { authorized, body, failure, json, serve, setting } from "../shared/serve.ts";
 import { memorySql } from "./sqlite.ts";
 import { AttachmentError, migrateAttachments, saveAttachment } from "../../../src/attachments.ts";
-import { callMcpTool, callOpenApi } from "../../../src/poppy/apis.ts";
+import { callMcpTool, callOpenApi, listMcpTools } from "../../../src/poppy/apis.ts";
 import { PoppyClient, PoppyError, type JobName, type PoppyHost } from "../../../src/poppy/client.ts";
 import { closeConversation, conversation as conversationRow, handoff, readConversation, sendMessage } from "../../../src/poppy/conversations.ts";
 import { browse } from "../../../src/poppy/browser.ts";
@@ -74,7 +74,7 @@ const MANIFEST = {
     ? [...ATTACKS]
     : [
         "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
-        "H", "DC", "W", "O2", "CM",
+        "H", "DC", "W", "O2", "CM", "ML",
         // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
         "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE", "XR", "XT"
       ],
@@ -544,6 +544,19 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     }
     const ids = events.map((event) => event.id).filter((value): value is string => !!value);
     return { events, last_id: ids.at(-1) ?? null };
+  },
+
+  async mcp_list(domain, params) {
+    const c = await company(domain);
+    try {
+      const tools = await listMcpTools(agent.client, c, label(params));
+      return { tools: tools.map((tool) => isRecord(tool) ? { name: tool.name } : tool) };
+    } catch (error) {
+      if (error instanceof PoppyError && error.is("sign_in_required", "insufficient_scope")) {
+        throw new StepError(501, "authentication_required", "MCP tool listing requires Sign-In; this signed-out scenario cannot exercise it");
+      }
+      throw error;
+    }
   },
 
   async api(domain, params) {

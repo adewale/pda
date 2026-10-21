@@ -7,7 +7,7 @@ import { upstreamFor } from "../proxy/routing.mjs";
 import { VIOLATION_IDS } from "../../test/mock-company/violations.ts";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
 import { TRACE_CHECKS } from "../runner/checks.ts";
-import { gridCoverage, imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions, selected } from "../runner/cli.ts";
+import { gridCoverage, liveCompanyManifest, imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions, runOne, selected } from "../runner/cli.ts";
 import { dockerAsync, mapConcurrent, proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
 import { cellId, renderReport } from "../runner/report.ts";
@@ -267,4 +267,40 @@ describe("the report", () => {
     expect(html).toContain("<h2>Stale known failures</h2>");
     expect(html).toContain("pi-poppy × * SE");
   });
+});
+
+// A live 0.2 peer must not inherit the historical 0.1 label.
+it("attributes live cells to the configured wire version and preserves legacy entries", () => {
+  const registry = loadRegistry();
+  const scenarios = loadScenarios();
+  const stacktree = registry.implementations.find((entry) => entry.name === "stacktree-live")!;
+  expect(liveCompanyManifest(stacktree, scenarios).poppy).toEqual(["0.2"]);
+  const old = registry.implementations.find((entry) => entry.name === "alpine-retail-live")!;
+  expect(liveCompanyManifest(old, scenarios).poppy).toEqual(["0.1"]);
+});
+
+it("stops a live version mismatch before a Session request can send credentials", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "live-version-mismatch-"));
+  const registry = loadRegistry();
+  const agentEntry = registry.implementations.find((entry) => entry.name === "pda" && entry.role === "agent")!;
+  const companyEntry = registry.implementations.find((entry) => entry.name === "stacktree-live")!;
+  const implementation = (entry: typeof agentEntry) => ({ entry, target: entry.name, domain: "company.example", manifest: null, hooks: [], broken: null });
+  const calls: string[] = [];
+  const cell: Cell = { agent: "pda", company: "stacktree-live", scenario: "S0", protocolVersion: "0.2", outcome: "unsupported", blame: null, rule: null, steps: [], checks: [], har: null };
+  try {
+    await runOne(cell, loadScenarios().find((scenario) => scenario.id === "S0")!, implementation(agentEntry), implementation(companyEntry), {
+      resultsDir: dir, proxy: null,
+      control: async (_target, _method, pathname, body) => {
+        if (pathname === "/reset") return { status: 200, body: {} };
+        if (pathname === "/step") {
+          calls.push((body as { op: string }).op);
+          return { status: 200, body: { ok: true, result: { poppy_version: "0.1" } } };
+        }
+        return { status: 501, body: {} };
+      }
+    });
+    expect(cell.outcome).toBe("error");
+    expect(cell.reason).toContain("declares 0.1");
+    expect(calls).toEqual(["discover"]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

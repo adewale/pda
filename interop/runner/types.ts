@@ -20,6 +20,8 @@ export type RegistryEntry = {
   readonly context?: string;
   /** A running deployment's domain or URL (live lane). */
   readonly url?: string;
+  /** Expected declared version of a live Company; old entries default to 0.1. */
+  readonly protocolVersion?: string;
   /**
    * A live Company's fixture (spec §10): it has no adapter, so no `fixture`
    * hook, and a scenario that calls one of its operations needs to know which

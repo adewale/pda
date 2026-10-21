@@ -1,0 +1,39 @@
+{
+  "id": "ML",
+  "title": "MCP tool listing without calling a tool",
+  "requirements": [
+    "4.3",
+    "6"
+  ],
+  "live": true,
+  "needs": {
+    "agent": [
+      "discover",
+      "mcp_list"
+    ]
+  },
+  "steps": [
+    {
+      "agent": "discover",
+      "save": "d"
+    },
+    {
+      "expect": {
+        "${d.apis}": {
+          "$contains": "mcp"
+        }
+      }
+    },
+    {
+      "agent": "mcp_list",
+      "save": "r"
+    },
+    {
+      "expect": {
+        "${r.tools}": {
+          "$length_gte": 1
+        }
+      }
+    }
+  ]
+}

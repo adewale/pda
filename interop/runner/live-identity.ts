@@ -42,8 +42,8 @@ export function readLiveIdentity(file = LIVE_IDENTITY_FILE): LiveIdentity | null
   } catch {
     throw new Error(`${path.basename(file)}: client_id isn't a URL`);
   }
-  if (url.protocol !== "https:" || url.pathname !== "/poppy/interop/client.json" || url.search || url.hash) {
-    throw new Error(`${path.basename(file)}: client_id must be https://<origin>/poppy/interop/client.json`);
+  if (url.protocol !== "https:" || url.username || url.password || !url.pathname.endsWith("/poppy/interop/client.json") || url.search || url.hash) {
+    throw new Error(`${path.basename(file)}: client_id must be an HTTPS URL ending in /poppy/interop/client.json, without credentials, query or fragment`);
   }
   const key = value.key;
   const strings = ["kty", "crv", "x", "y", "d", "kid"].every((name) => typeof key[name] === "string" && key[name] !== "");

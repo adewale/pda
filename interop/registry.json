@@ -309,6 +309,42 @@
       "env": {
         "INTEROP_POPPY_VERSION": "0.2"
       }
+    },
+    {
+      "name": "crosswalk-live",
+      "role": "company",
+      "source": "https://crosswalk.to",
+      "commit": "unknown",
+      "url": "https://crosswalk.to",
+      "protocolVersion": "0.2",
+      "notes": "Live signed-out 0.2 test target; deployed commit unknown. No adversarial scenarios or account changes."
+    },
+    {
+      "name": "stacktree-live",
+      "role": "company",
+      "source": "https://stacktr.ee",
+      "commit": "unknown",
+      "url": "https://stacktr.ee",
+      "protocolVersion": "0.2",
+      "notes": "Live signed-out 0.2 test target; deployed commit unknown. No adversarial scenarios or account changes."
+    },
+    {
+      "name": "planmyvisit-live",
+      "role": "company",
+      "source": "https://www.planmyvisit.to",
+      "commit": "unknown",
+      "url": "https://www.planmyvisit.to",
+      "protocolVersion": "0.2",
+      "notes": "Live signed-out 0.2 test target; deployed commit unknown. No adversarial scenarios or account changes."
+    },
+    {
+      "name": "saferate-live",
+      "role": "company",
+      "source": "https://saferate.com",
+      "commit": "unknown",
+      "url": "https://saferate.com",
+      "protocolVersion": "0.2",
+      "notes": "Live signed-out 0.2 test target; deployed commit unknown. No adversarial scenarios or account changes."
     }
   ]
 }
