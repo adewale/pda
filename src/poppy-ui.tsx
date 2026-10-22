@@ -1,6 +1,8 @@
 import { cn, InputArea, Tabs } from "@cloudflare/kumo";
+import { Dialog } from "@cloudflare/kumo/primitives/dialog";
 import {
   ArrowSquareOutIcon,
+  CaretUpIcon,
   CheckCircleIcon,
   DeviceMobileIcon,
   HandIcon,
@@ -14,7 +16,7 @@ import {
   XIcon
 } from "@phosphor-icons/react";
 import qrcode from "qrcode-generator";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { humanSize } from "./attachments";
 import type { Card, DirectUpdate, ScopeInfo } from "./poppy/wire";
 import { AttachmentThumb } from "./ui/attachments";
@@ -673,24 +675,67 @@ export function PoppyCards({ view, send }: { view: PoppyView; send: Send }) {
   );
 }
 
-/** The tray pinned above the chat: everything waiting for the User, with a count. */
-export function NeedsYouTray({ view, send, extra }: { view: PoppyView; send: Send; extra?: ReactNode }) {
+/** New requests rise into view; putting the sheet away never answers a request. */
+export function NeedsYouSheet({ view, send, extra, extraIds = [] }: { view: PoppyView; send: Send; extra?: ReactNode; extraIds?: readonly string[] }) {
   const items = needsYou(view.cards);
-  const count = items.length + (extra ? 1 : 0);
-  if (count === 0) return null;
+  const count = items.length + extraIds.length;
+  // Ignore refreshed frames and removals. A new card, sign-in step, or operation
+  // revision must draw attention again, even when the total count stays the same.
+  const keys = [
+    ...items.map((card) => JSON.stringify([card.id, card.kind, card.kind === "operation" ? card.revision : null])),
+    ...extraIds.map((id) => JSON.stringify(["direct", id]))
+  ];
+  const [visibility, setVisibility] = useState({ keys, open: count > 0 });
+  if (keys.length !== visibility.keys.length || keys.some((key, index) => key !== visibility.keys[index])) {
+    setVisibility({ keys, open: count > 0 && (visibility.open || keys.some((key) => !visibility.keys.includes(key))) });
+  }
+  const title = useRef<HTMLHeadingElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   return (
-    <section aria-labelledby="needs-you" className="max-h-[45dvh] shrink-0 overflow-y-auto border-b border-kumo-hairline bg-kumo-elevated">
-      <div className="mx-auto max-w-3xl space-y-3 px-4 py-4 sm:px-6">
-        <h2 id="needs-you" className="flex items-center gap-2 text-base font-semibold text-kumo-strong">
-          Needs you
-          <span className="rounded-full bg-kumo-warning-tint px-2 text-[13px] font-semibold text-kumo-warning tabular-nums">{count}</span>
-        </h2>
-        {extra}
-        {items.map((card) => (
-          <PoppyCard key={card.id} card={card} send={send} />
-        ))}
-      </div>
-    </section>
+    <Dialog.Root open={visibility.open && count > 0} onOpenChange={(open) => setVisibility({ keys, open })}>
+      {count > 0 ? (
+        <div className="shrink-0 bg-kumo-base px-4 pt-3 sm:px-6">
+          <Dialog.Trigger
+            ref={trigger}
+            render={<Action variant="secondary" className="mx-auto flex w-full max-w-3xl justify-between gap-3 bg-kumo-warning-tint" />}
+          >
+            <span className="flex items-center gap-2">
+              <HandIcon size={18} aria-hidden className="text-kumo-warning" />
+              Needs you
+              <span className="rounded-full bg-kumo-base px-2 text-[13px] font-semibold text-kumo-warning tabular-nums">{count}</span>
+            </span>
+            <CaretUpIcon size={16} aria-hidden />
+          </Dialog.Trigger>
+        </div>
+      ) : null}
+      <Dialog.Portal keepMounted>
+        <Dialog.Backdrop className="needs-you-backdrop fixed inset-0 z-40 bg-black/30" />
+        <Dialog.Popup
+          aria-modal="true"
+          initialFocus={title}
+          finalFocus={() => trigger.current ?? document.getElementById("chat-title")}
+          className="needs-you-sheet fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[85dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl bg-kumo-elevated text-kumo-default shadow-2xl ring ring-kumo-hairline outline-none"
+        >
+          <header className="shrink-0 border-b border-kumo-hairline px-4 pb-3 sm:px-6">
+            <div aria-hidden className="mx-auto my-3 h-1 w-10 rounded-full bg-kumo-line" />
+            <div className="flex items-center justify-between gap-3">
+              <Dialog.Title ref={title} tabIndex={-1} className="flex items-center gap-2 text-base font-semibold text-kumo-strong">
+                Needs you
+                <span className="rounded-full bg-kumo-warning-tint px-2 text-[13px] font-semibold text-kumo-warning tabular-nums">{count}</span>
+              </Dialog.Title>
+              <Dialog.Close render={<IconAction label="Close requests" variant="ghost" icon={<XIcon size={20} />} />} />
+            </div>
+            <Dialog.Description className="mt-1 text-[13px] text-kumo-subtle">Your agent is waiting for you. You can come back to these requests anytime.</Dialog.Description>
+          </header>
+          <div className="min-h-0 space-y-3 overflow-y-auto overscroll-contain px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
+            {extra}
+            {items.map((card) => (
+              <PoppyCard key={card.id} card={card} send={send} />
+            ))}
+          </div>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

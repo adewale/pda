@@ -2,7 +2,7 @@ import { cn, InputArea, Loader } from "@cloudflare/kumo";
 import { ClockIcon, HandIcon, ImageIcon, MagnifyingGlassIcon, PaperPlaneRightIcon, SignInIcon, StopIcon } from "@phosphor-icons/react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ATTACHMENT_TYPES } from "../attachments";
-import { DirectConversations, HiddenDirectRow, NeedsYouTray, openDirect, Receipts } from "../poppy-ui";
+import { DirectConversations, HiddenDirectRow, NeedsYouSheet, openDirect, Receipts } from "../poppy-ui";
 import type { PiSession } from "../use-pi-session";
 import { attachProblem, PendingAttachments, removeAttachment, uploadAttachment, withMarkers, type PendingAttachment } from "./attachments";
 import { NOT_SENT } from "./connection";
@@ -289,7 +289,7 @@ function Composer({ session }: { session: PiSession }) {
 }
 
 /**
- * Chat, the home place: what needs the User pinned on top, the conversation,
+ * Chat, the home place: what needs the User in a bottom sheet, the conversation,
  * receipts for what was resolved, and the composer. A Direct Conversation
  * opens beside it on wide screens and over it on phones.
  */
@@ -318,23 +318,6 @@ export function ChatPage({
         <h1 id="chat-title" tabIndex={-1} className="sr-only">
           Chat with your agent
         </h1>
-        <NeedsYouTray
-          view={poppy}
-          send={sendPoppy}
-          extra={
-            put.length ? (
-              <>
-                {put.map((update) => (
-                  <HiddenDirectRow
-                    key={update.conversationId}
-                    update={update}
-                    onOpen={() => setHidden(new Set([...hidden].filter((id) => id !== update.conversationId)))}
-                  />
-                ))}
-              </>
-            ) : undefined
-          }
-        />
         <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl space-y-5 px-4 py-6 sm:px-6">
             {empty ? <Welcome /> : null}
@@ -352,6 +335,18 @@ export function ChatPage({
             ) : null}
           </div>
         </div>
+        <NeedsYouSheet
+          view={poppy}
+          send={sendPoppy}
+          extraIds={put.map((update) => update.conversationId)}
+          extra={put.map((update) => (
+            <HiddenDirectRow
+              key={update.conversationId}
+              update={update}
+              onOpen={() => setHidden(new Set([...hidden].filter((id) => id !== update.conversationId)))}
+            />
+          ))}
+        />
         <Composer session={session} />
       </section>
       {shown.length ? (

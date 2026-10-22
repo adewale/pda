@@ -156,27 +156,30 @@ describe("rail", () => {
   });
 });
 
-describe("needs-you tray", () => {
-  it("is pinned above the conversation, counts what needs the User, and puts the count in the rail and the title", () => {
+describe("needs-you sheet", () => {
+  it("opens over the conversation, counts what needs the User, and puts the count in the rail and the title", async () => {
     const fixture = session(
       { messages: Array.from({ length: 30 }, (_, index): TranscriptMessage => ({ id: `m${index}`, role: "user", parts: [{ type: "text", text: `message ${index}` }], timestamp: index })) },
       { cards: [approval, signIn, done] }
     );
     open("/", fixture);
-    const tray = screen.getByRole("region", { name: /Needs you/ });
+    const tray = screen.getByRole("dialog", { name: /Needs you/ });
+    expect(tray.getAttribute("aria-modal")).toBe("true");
     expect(within(tray).getByRole("heading", { name: /Needs you/ }).textContent).toBe("Needs you2");
     expect(within(tray).getByText("Acme: submit the form #checkout on the website")).toBeTruthy();
     expect(within(tray).getByRole("link", { name: /Sign in on Globex's page/ })).toBeTruthy();
 
-    // Pinned: outside the part that scrolls, and before it.
+    // Portalled outside the transcript, so opening doesn't move the conversation.
     const transcript = screen.getByText("message 0").closest(".overflow-y-auto")!;
     expect(transcript.contains(tray)).toBe(false);
-    expect(tray.compareDocumentPosition(transcript) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tray.closest("main")).toBeNull();
 
     // The resolved notice is a receipt in the conversation, not in the tray.
     expect(within(tray).queryByText("Signed in to Acme.")).toBeNull();
     expect(within(transcript as HTMLElement).getByText("Signed in to Acme.")).toBeTruthy();
 
+    fireEvent.click(within(tray).getByRole("button", { name: "Close requests" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Needs you/ })).toBeNull());
     expect(screen.getByRole("link", { name: /^Chat\s*, 2 things need you$/ })).toBeTruthy();
     expect(document.title).toBe("(2) Poppy Demo Agent");
   });
@@ -191,7 +194,7 @@ describe("needs-you tray", () => {
   it("holds failures that need the User until they dismiss them", () => {
     const failed: Card = { id: "error-1", kind: "notice", company: "", open: false, text: "That didn't work: Acme is unreachable" };
     const { sent } = open("/", session({}, { cards: [failed] }));
-    const tray = screen.getByRole("region", { name: /Needs you/ });
+    const tray = screen.getByRole("dialog", { name: /Needs you/ });
     expect(within(tray).getByText(/Acme is unreachable/)).toBeTruthy();
     fireEvent.click(within(tray).getByRole("button", { name: "Dismiss" }));
     expect(sent).toEqual([{ type: "poppy.card.dismiss", id: "error-1" }]);
@@ -199,7 +202,8 @@ describe("needs-you tray", () => {
 
   it("isn't there, and the title has no count, when nothing needs the User", () => {
     open("/", session({}, { cards: [done] }));
-    expect(screen.queryByRole("region", { name: /Needs you/ })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /Needs you/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Needs you/ })).toBeNull();
     expect(document.title).toBe("Poppy Demo Agent");
     expect(screen.getByRole("link", { name: "Chat" })).toBeTruthy();
   });
@@ -215,6 +219,55 @@ describe("needs-you tray", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open conversation" }));
     expect(screen.getByRole("complementary", { name: "Conversation with Acme" })).toBeTruthy();
     expect(fixture.sent).toEqual([]);
+  });
+
+  it("puts requests away without deciding, restores focus, and lets the User reopen them", async () => {
+    const { sent } = open("/", session({}, { cards: [approval] }));
+    const sheet = screen.getByRole("dialog", { name: /Needs you/ });
+    await waitFor(() => expect(document.activeElement).toBe(within(sheet).getByRole("heading", { name: /Needs you/ })));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Close requests" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const trigger = screen.getByRole("button", { name: /Needs you/ });
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(sent).toEqual([]);
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: /Needs you/ })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(sent).toEqual([]);
+  });
+
+  it("reopens for new requests even at the same count, but stays put away on refreshed frames", async () => {
+    const fixture = session({}, { cards: [approval] });
+    const page = open("/", fixture);
+    const update = (cards: Card[]) => page.rerender(<Workspace identity={IDENTITY} session={{ ...fixture.value, poppy: { ...fixture.value.poppy, cards } }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Close requests" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    update([{ ...approval }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    update([signIn]);
+    expect(screen.getByRole("dialog", { name: /Needs you/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Sign in on Globex's page/ })).toBeTruthy();
+    update([done]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByRole("button", { name: /Needs you/ })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Chat with your agent" })));
+    expect(page.sent).toEqual([]);
+  });
+
+  it("opens when a request arrives during chat and again for changed operation terms", async () => {
+    const fixture = session();
+    const page = open("/", fixture);
+    const update = (cards: Card[]) => page.rerender(<Workspace identity={IDENTITY} session={{ ...fixture.value, poppy: { ...fixture.value.poppy, cards } }} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const operation: Card = { id: "op-1", kind: "operation", company: "Acme", open: true, issuer: toIssuer("https://acme.example"), operationId: "o1", revision: 1, state: "proposed", summary: "Print 2 photos", account: null, highlights: [], userApprovalRequired: true };
+    update([operation]);
+    expect(screen.getByRole("dialog", { name: /Needs you/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close requests" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    update([{ ...operation, revision: 2, summary: "Print 3 photos" }]);
+    expect(within(screen.getByRole("dialog")).getByText("Print 3 photos")).toBeTruthy();
+    expect(page.sent).toEqual([]);
   });
 });
 
