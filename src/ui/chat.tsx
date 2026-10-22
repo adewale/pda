@@ -2,7 +2,7 @@ import { cn, InputArea, Loader } from "@cloudflare/kumo";
 import { ClockIcon, HandIcon, ImageIcon, MagnifyingGlassIcon, PaperPlaneRightIcon, SignInIcon, StopIcon } from "@phosphor-icons/react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ATTACHMENT_TYPES } from "../attachments";
-import { DirectConversations, HiddenDirectRow, NeedsYouSheet, openDirect, Receipts } from "../poppy-ui";
+import { DirectConversations, HiddenDirectRow, NeedsYouPanel, openDirect, Receipts } from "../poppy-ui";
 import type { PiSession } from "../use-pi-session";
 import { attachProblem, PendingAttachments, removeAttachment, uploadAttachment, withMarkers, type PendingAttachment } from "./attachments";
 import { NOT_SENT } from "./connection";
@@ -289,7 +289,7 @@ function Composer({ session }: { session: PiSession }) {
 }
 
 /**
- * Chat, the home place: what needs the User in a bottom sheet, the conversation,
+ * Chat, the home place: what needs the User docked above the composer, the conversation,
  * receipts for what was resolved, and the composer. A Direct Conversation
  * opens beside it on wide screens and over it on phones.
  */
@@ -335,7 +335,7 @@ export function ChatPage({
             ) : null}
           </div>
         </div>
-        <NeedsYouSheet
+        <NeedsYouPanel
           view={poppy}
           send={sendPoppy}
           extraIds={put.map((update) => update.conversationId)}

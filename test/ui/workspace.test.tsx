@@ -156,30 +156,32 @@ describe("rail", () => {
   });
 });
 
-describe("needs-you sheet", () => {
-  it("opens over the conversation, counts what needs the User, and puts the count in the rail and the title", async () => {
+describe("needs-you panel", () => {
+  it("docks above the composer, counts pending requests, and keeps the conversation available", async () => {
     const fixture = session(
       { messages: Array.from({ length: 30 }, (_, index): TranscriptMessage => ({ id: `m${index}`, role: "user", parts: [{ type: "text", text: `message ${index}` }], timestamp: index })) },
       { cards: [approval, signIn, done] }
     );
     open("/", fixture);
-    const tray = screen.getByRole("dialog", { name: /Needs you/ });
-    expect(tray.getAttribute("aria-modal")).toBe("true");
-    expect(within(tray).getByRole("heading", { name: /Needs you/ }).textContent).toBe("Needs you2");
+    const tray = screen.getByRole("region", { name: /Needs you/ });
+    expect(tray.getAttribute("aria-modal")).toBeNull();
+    expect(within(tray).getByRole("heading", { name: "2 requests" }).textContent).toBe("2 requests");
     expect(within(tray).getByText("Acme: submit the form #checkout on the website")).toBeTruthy();
     expect(within(tray).getByRole("link", { name: /Sign in on Globex's page/ })).toBeTruthy();
 
-    // Portalled outside the transcript, so opening doesn't move the conversation.
+    // Docked after the transcript and before the still-usable composer.
     const transcript = screen.getByText("message 0").closest(".overflow-y-auto")!;
     expect(transcript.contains(tray)).toBe(false);
-    expect(tray.closest("main")).toBeNull();
+    expect(tray.closest("main")).toBeTruthy();
+    expect(transcript.compareDocumentPosition(tray) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tray.compareDocumentPosition(screen.getByRole("textbox", { name: "Message your agent" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     // The resolved notice is a receipt in the conversation, not in the tray.
     expect(within(tray).queryByText("Signed in to Acme.")).toBeNull();
     expect(within(transcript as HTMLElement).getByText("Signed in to Acme.")).toBeTruthy();
 
-    fireEvent.click(within(tray).getByRole("button", { name: "Close requests" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: /Needs you/ })).toBeNull());
+    fireEvent.click(within(tray).getByRole("button", { name: "Collapse requests" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: /Needs you/ })).toBeNull());
     expect(screen.getByRole("link", { name: /^Chat\s*, 2 things need you$/ })).toBeTruthy();
     expect(document.title).toBe("(2) Poppy Demo Agent");
   });
@@ -194,7 +196,7 @@ describe("needs-you sheet", () => {
   it("holds failures that need the User until they dismiss them", () => {
     const failed: Card = { id: "error-1", kind: "notice", company: "", open: false, text: "That didn't work: Acme is unreachable" };
     const { sent } = open("/", session({}, { cards: [failed] }));
-    const tray = screen.getByRole("dialog", { name: /Needs you/ });
+    const tray = screen.getByRole("region", { name: /Needs you/ });
     expect(within(tray).getByText(/Acme is unreachable/)).toBeTruthy();
     fireEvent.click(within(tray).getByRole("button", { name: "Dismiss" }));
     expect(sent).toEqual([{ type: "poppy.card.dismiss", id: "error-1" }]);
@@ -202,7 +204,7 @@ describe("needs-you sheet", () => {
 
   it("isn't there, and the title has no count, when nothing needs the User", () => {
     open("/", session({}, { cards: [done] }));
-    expect(screen.queryByRole("dialog", { name: /Needs you/ })).toBeNull();
+    expect(screen.queryByRole("region", { name: /Needs you/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Needs you/ })).toBeNull();
     expect(document.title).toBe("Poppy Demo Agent");
     expect(screen.getByRole("link", { name: "Chat" })).toBeTruthy();
@@ -223,17 +225,18 @@ describe("needs-you sheet", () => {
 
   it("puts requests away without deciding, restores focus, and lets the User reopen them", async () => {
     const { sent } = open("/", session({}, { cards: [approval] }));
-    const sheet = screen.getByRole("dialog", { name: /Needs you/ });
-    await waitFor(() => expect(document.activeElement).toBe(within(sheet).getByRole("heading", { name: /Needs you/ })));
-    fireEvent.click(within(sheet).getByRole("button", { name: "Close requests" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const sheet = screen.getByRole("region", { name: /Needs you/ });
+    const close = within(sheet).getByRole("button", { name: "Collapse requests" });
+    close.focus();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Collapse requests" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull());
     const trigger = screen.getByRole("button", { name: /Needs you/ });
     await waitFor(() => expect(document.activeElement).toBe(trigger));
     expect(sent).toEqual([]);
     fireEvent.click(trigger);
-    expect(screen.getByRole("dialog", { name: /Needs you/ })).toBeTruthy();
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("region", { name: /Needs you/ })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Collapse requests" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull());
     expect(sent).toEqual([]);
   });
 
@@ -241,17 +244,18 @@ describe("needs-you sheet", () => {
     const fixture = session({}, { cards: [approval] });
     const page = open("/", fixture);
     const update = (cards: Card[]) => page.rerender(<Workspace identity={IDENTITY} session={{ ...fixture.value, poppy: { ...fixture.value.poppy, cards } }} />);
-    fireEvent.click(screen.getByRole("button", { name: "Close requests" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Collapse requests" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull());
     update([{ ...approval }]);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull();
     update([signIn]);
-    expect(screen.getByRole("dialog", { name: /Needs you/ })).toBeTruthy();
+    expect(screen.getByRole("region", { name: /Needs you/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Sign in on Globex's page/ })).toBeTruthy();
+    screen.getByRole("button", { name: "Cancel sign-in" }).focus();
     update([done]);
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull());
     expect(screen.queryByRole("button", { name: /Needs you/ })).toBeNull();
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Chat with your agent" })));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Message your agent" })));
     expect(page.sent).toEqual([]);
   });
 
@@ -259,14 +263,57 @@ describe("needs-you sheet", () => {
     const fixture = session();
     const page = open("/", fixture);
     const update = (cards: Card[]) => page.rerender(<Workspace identity={IDENTITY} session={{ ...fixture.value, poppy: { ...fixture.value.poppy, cards } }} />);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull();
     const operation: Card = { id: "op-1", kind: "operation", company: "Acme", open: true, issuer: toIssuer("https://acme.example"), operationId: "o1", revision: 1, state: "proposed", summary: "Print 2 photos", account: null, highlights: [], userApprovalRequired: true };
     update([operation]);
-    expect(screen.getByRole("dialog", { name: /Needs you/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Close requests" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("region", { name: /Needs you/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse requests" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull());
     update([{ ...operation, revision: 2, summary: "Print 3 photos" }]);
-    expect(within(screen.getByRole("dialog")).getByText("Print 3 photos")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Needs you" })).getByText("Print 3 photos")).toBeTruthy();
+    expect(page.sent).toEqual([]);
+  });
+
+  it("announces an arriving request without taking focus or stopping the User from chatting", () => {
+    const fixture = session();
+    const page = open("/", fixture);
+    const composer = screen.getByRole("textbox", { name: "Message your agent" });
+    composer.focus();
+    fireEvent.change(composer, { target: { value: "Keep this draft" } });
+    page.rerender(<Workspace identity={IDENTITY} session={{ ...fixture.value, poppy: { ...fixture.value.poppy, cards: [approval] } }} />);
+    expect(screen.getByRole("region", { name: "Needs you" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Approval request" })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(composer);
+    expect((composer as HTMLTextAreaElement).value).toBe("Keep this draft");
+    expect(page.container.querySelector('[aria-live="polite"]')?.textContent).toContain("1 request needs you");
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(page.submitted).toEqual(["Keep this draft"]);
+    expect(page.sent).toEqual([]);
+    expect(screen.getByRole("region", { name: "Needs you" })).toBeTruthy();
+  });
+
+  it("keeps sign-in input while collapsed and focuses the heading only on a deliberate reopen", () => {
+    const credentials: Card = { id: "credentials-1", kind: "signin_credentials", company: "Globex", open: true, signInId: "s1", reason: "To see your orders", scopes: signIn.kind === "signin_link" ? signIn.scopes : [], fields: [{ name: "username", label: "Username", secret: false }] };
+    const { sent } = open("/", session({}, { cards: [credentials] }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Username" }), { target: { value: "ada" } });
+    screen.getByRole("button", { name: "Collapse requests" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Collapse requests" }));
+    const trigger = screen.getByRole("button", { name: /Needs you/ });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Sign-in request" }));
+    expect((screen.getByRole("textbox", { name: "Username" }) as HTMLInputElement).value).toBe("ada");
+    expect(sent).toEqual([]);
+  });
+
+  it("keeps focus in the panel when the focused request is replaced at the same count", () => {
+    const fixture = session({}, { cards: [signIn] });
+    const page = open("/", fixture);
+    screen.getByRole("button", { name: "Cancel sign-in" }).focus();
+    page.rerender(<Workspace identity={IDENTITY} session={{ ...fixture.value, poppy: { ...fixture.value.poppy, cards: [approval] } }} />);
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Approval request" }));
     expect(page.sent).toEqual([]);
   });
 });

@@ -163,21 +163,13 @@ html[data-settled] .enter {
   }
 }
 
-/* Requests slide up from the bottom; Base UI keeps the sheet mounted while closing. */
-.needs-you-sheet {
+/* A newly opened request rises from the composer without covering it or moving focus. */
+html[data-settled] .needs-you-panel {
   transition: transform 220ms var(--ease-out), opacity 220ms var(--ease-out);
-}
-.needs-you-sheet[data-starting-style],
-.needs-you-sheet[data-ending-style] {
-  transform: translateY(100%);
-  opacity: 0;
-}
-.needs-you-backdrop {
-  transition: opacity 220ms var(--ease-out);
-}
-.needs-you-backdrop[data-starting-style],
-.needs-you-backdrop[data-ending-style] {
-  opacity: 0;
+  @starting-style {
+    transform: translateY(12px);
+    opacity: 0;
+  }
 }
 
 /* The Direct Conversation sheet rises over the chat on phones; beside it, it only fades. */
@@ -199,14 +191,7 @@ html[data-settled] .sheet {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .needs-you-sheet,
-  .needs-you-backdrop {
-    transition: opacity 150ms linear;
-  }
-  .needs-you-sheet[data-starting-style],
-  .needs-you-sheet[data-ending-style] {
-    transform: none;
-  }
+  html[data-settled] .needs-you-panel,
   html[data-settled] .enter,
   html[data-settled] .sheet {
     transition: opacity 150ms linear;
