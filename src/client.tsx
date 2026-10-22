@@ -1,8 +1,10 @@
 import { GithubLogoIcon, GoogleLogoIcon } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Workspace } from "./ui/shell";
 import { usePiSession } from "./use-pi-session";
 import "./styles.css";
+
+const PublicPage = lazy(() => import("./public/pages"));
 
 /** Who is signed in, from `/api/me`; the Worker checks the session cookie. */
 type Me =
@@ -193,6 +195,9 @@ function SignedOut({ message, providers }: { message: string | null; providers: 
       </main>
       <footer className="mx-auto w-full max-w-[1080px] px-6">
         <nav aria-label="About" className="flex flex-wrap gap-x-5 gap-y-1.5 border-t-2 border-ink pt-3 pb-5 text-xs text-granite">
+          <a href="/about" className="underline underline-offset-2 hover:text-kumo-default">
+            About
+          </a>
           <a href="https://personalagentprotocol.org" className="underline underline-offset-2 hover:text-kumo-default">
             Personal Agent Protocol
           </a>
@@ -213,11 +218,19 @@ function SignedIn({ email, provider, workspaceId }: { email: string | null; prov
   return <Workspace identity={{ email, provider }} session={session} />;
 }
 
-export function App() {
+function AgentApp() {
   const me = useMe();
   if (me.state === "loading") {
     return <div className="h-dvh bg-kumo-canvas" />;
   }
   if (me.state === "signed-out") return <SignedOut message={me.message} providers={me.providers} />;
   return <SignedIn email={me.email} provider={me.provider} workspaceId={me.workspaceId} />;
+}
+
+export function App() {
+  const path = window.location.pathname.replace(/\/+$/, "");
+  if (path === "/about" || path === "/ecosystem") {
+    return <Suspense fallback={<p role="status" className="p-6">Loading…</p>}><PublicPage page={path === "/about" ? "about" : "ecosystem"} /></Suspense>;
+  }
+  return <AgentApp />;
 }

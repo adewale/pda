@@ -694,6 +694,12 @@ describe("the workers.dev host, once PUBLIC_ORIGIN is a domain of its own", () =
     expect(response.headers.get("Location")).toBe("https://agent.test/settings?tab=model");
   });
 
+  it.each(["/about", "/ecosystem"])("redirects the public page %s on the old host", async (path) => {
+    const response = await fetchWorker(new Request(`${OLD}${path}`), DOMAIN);
+    expect(response.status).toBe(308);
+    expect(response.headers.get("Location")).toBe(`https://agent.test${path}`);
+  });
+
   it("sends an API call there too, as a 308 so a POST stays a POST", async () => {
     const response = await fetchWorker(new Request(`${OLD}/logout`, { method: "POST" }), DOMAIN);
     expect(response.status).toBe(308);

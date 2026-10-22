@@ -107,12 +107,12 @@ const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
  * This repository's own URL: the `source` of the interop registry's
  * `owner: "self"` entries. A fork inherits it, and it is right there: it says
  * where those images' code comes from, and known failures link to its
- * issues. It grants nothing and nothing calls it. Allowed only in those two
- * files.
+ * issues. The About page also links to the public source project. This URL
+ * grants no deployment access; the exception is limited to source attribution.
  */
 const registry = JSON.parse(sources["interop/registry.json"]!) as { implementations: { owner?: string; source?: string }[] };
 const REPO_URLS = new Set(registry.implementations.filter((entry) => entry.owner === "self").map((entry) => entry.source));
-const REPO_URL_ALLOWED_IN = new Set(["interop/registry.json", "interop/known-failures.json"]);
+const REPO_URL_ALLOWED_IN = new Set(["interop/registry.json", "interop/known-failures.json", "src/public/project.ts"]);
 
 /**
  * Other projects the interop harness pins, as `owner/repo`, from the
@@ -229,7 +229,7 @@ describe("the committed template", () => {
     for (const repo of UPSTREAM_REPOS) expect(repo).toMatch(/^[\w.-]+\/[\w.-]+$/);
   });
 
-  it("names this repository's own URL only in the interop registry and known failures", () => {
+  it("names this repository's own URL only in the interop references and public source attribution", () => {
     expect(REPO_URLS.size).toBe(1);
     const [url] = [...REPO_URLS];
     expect(url).toMatch(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/);

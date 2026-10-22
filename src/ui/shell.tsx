@@ -178,6 +178,7 @@ export function Workspace({ identity, session }: { identity: Identity; session: 
               <Nav route={route} navigate={navigate} waiting={waiting} />
             </Sidebar.Content>
             <Sidebar.Footer className="h-auto flex-col items-stretch gap-1 border-kumo-hairline py-3 whitespace-normal">
+              <a href="/about" className="public-link inline-flex min-h-11 items-center text-sm">About</a>
               <p className="min-w-0 text-[13px] text-kumo-subtle">
                 <span className="block truncate font-medium text-kumo-default" title={identity.email ?? undefined}>
                   {identity.email ?? "Signed in"}
