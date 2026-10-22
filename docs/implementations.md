@@ -1,7 +1,18 @@
 # Poppy implementations
 
-**Dated source survey.** This catalogue preserves the 12–18 October observations extracted from [PR #11](https://github.com/adewale/pda/pull/11). The [ecosystem map](ecosystem.md#current-ecosystem--21-october-2026) has current version and tooling findings; the [upgrade delta](poppy-0.2-upgrade.md) records the implemented 0.2 behavior. Statements below that PDA has yet to migrate describe the 18 October baseline.
+**Dated source survey.** This catalogue preserves the 12–18 October observations extracted from [PR #11](https://github.com/adewale/pda/pull/11). The [ecosystem map](ecosystem.md#current-ecosystem) was refreshed on **22 October 2026** and has current version and tooling findings; the [upgrade delta](poppy-0.2-upgrade.md) records the implemented 0.2 behavior. Statements below that PDA has yet to migrate describe the 18 October baseline.
 
+## Targeted source refresh — 22 October 2026
+
+These updates supplement the dated catalogue below. They are source and directory observations, not new conformance runs. The 13 October pins, 17 October full-grid results and 21 October 0.2 results remain at their recorded revisions.
+
+| Project or lead | Latest observation | Evidence and limits |
+| --- | --- | --- |
+| Datalayer SDKs and Manzanita | 0.26.0 at `0ff43c5` adds `Idempotency-Key` on API writes and per-Session idempotency records in its reference Companies. It retains the 0.2-only profile introduced in 0.25.0 and records a review of official revision `39b35bd`. Its README now corrects the stale missing-feature list. | [Pinned changelog](https://github.com/datalayer/personal-agent-protocol/blob/0ff43c55cc303c3165cb2d5841eca026e1c7c699/CHANGELOG.md). Its [0.26.0 report](https://github.com/datalayer/personal-agent-protocol/blob/0ff43c55cc303c3165cb2d5841eca026e1c7c699/docs/docs/protocol/conformance-report.mdx) lists 99 passes per language pairing; this refresh did not run 0.26.0. PDA retains its separate 0.17.0 and 0.25.0 peers. |
+| Print with Poppy | Head `e4aef11` targets draft 0.2 and Operations v1. Client and Session assertions require the exact issuer as audience, including at revocation; old endpoint audiences are rejected. Its README documents production running 0.2 on Cloudflare and an isolated sandbox. | [Pinned upgrade guide](https://github.com/spenciefy/print-with-poppy/blob/e4aef115b5c240082149bcb354bae19ef5ef148e/docs/POPPY-0.2.md), [deployment notes](https://github.com/spenciefy/print-with-poppy/blob/e4aef115b5c240082149bcb354bae19ef5ef148e/README.md). These are upstream claims and source observations, not a new PDA live run. The old grid still exercises its pinned 0.1 code. |
+| Northlight Flowers and Ferretería Andes | PAP Checker's later 22 October directory read lists Northlight Flowers as 0.2 with Direct, Device and Mediated Sign-In. An earlier read listed Ferretería Andes at `fork-london-tile-ships.trycloudflare.com` as 0.2 with Device Sign-In and conversations (first seen 21 October); the later read no longer lists it. | [Directory](https://papchecker.com/sites). Leads only: neither deployment was fetched or exercised by PDA in this refresh. Ferretería Andes has no current availability established. The directory still lists Print with Poppy as 0.1, so it can lag upstream deployment notes. |
+
+## Historical survey — 11–18 October
 
 Every public implementation of [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/) (Draft 0.1) we could find, surveyed on **11 October 2026**, twice on **12 October 2026** (a second pass that evening) and again on **18 October 2026**, with the grid's pins rechecked on **13 October**. Sierra and Meta announced it on 7 October and published the draft on 9 October, so everything listed is at most a few days old. The whole ecosystem around them (the spec, checkers, demo Companies, adjacent projects, and how they work together) is mapped in [ecosystem.md](ecosystem.md).
 
