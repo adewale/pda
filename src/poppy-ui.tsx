@@ -117,7 +117,7 @@ function CardFrame({
   const id = useId();
   const inPanel = useContext(RequestPanelContext);
   return (
-    <article aria-labelledby={id} className={cn("enter p-4", inPanel ? undefined : "rounded-xl bg-kumo-base ring ring-kumo-hairline")}>
+    <article aria-labelledby={id} className={cn("p-4", inPanel ? undefined : "enter rounded-xl bg-kumo-base ring ring-kumo-hairline")}>
       <div className="flex items-start gap-3">
         <span aria-hidden className="mt-0.5 shrink-0 text-kumo-warning">
           {icon}
@@ -141,7 +141,7 @@ function CardFrame({
       {actions ? (
         <div
           data-card-actions
-          className="sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-wrap justify-end gap-2 rounded-b-xl bg-kumo-base px-4 py-3 shadow-[0_-8px_12px_-8px_rgb(0_0_0/0.15)]"
+          className={cn("sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-wrap justify-end gap-2 bg-kumo-base px-4 py-3 shadow-[0_-8px_12px_-8px_rgb(0_0_0/0.15)]", inPanel ? undefined : "rounded-b-xl")}
         >
           {note ? <div className="basis-full text-right">{note}</div> : null}
           {actions}
@@ -478,7 +478,7 @@ const TONE_ICON: Record<Tone, ReactNode> = {
 function Receipt({ tone, company, children, action, note }: { tone: Tone; company: string; children: ReactNode; action?: ReactNode; note?: ReactNode }) {
   const inPanel = useContext(RequestPanelContext);
   return (
-    <div className={cn("enter flex min-h-10 items-start gap-2", inPanel ? "px-4 py-3" : "py-1")}>
+    <div className={cn("flex min-h-10 items-start gap-2", inPanel ? "px-4 py-3" : "enter py-1")}>
       <span aria-hidden className="mt-0.5 shrink-0">
         {TONE_ICON[tone]}
       </span>
@@ -745,7 +745,7 @@ export function NeedsYouPanel({ view, send, extra, extraIds = [] }: { view: Popp
             aria-controls={panelId}
             onFocus={() => { focusOnOpen.current = true; }}
             onBlur={() => { focusOnOpen.current = false; }}
-            className="mx-auto flex w-full max-w-3xl justify-between gap-3 bg-kumo-warning-tint"
+            className="mx-auto flex w-full max-w-3xl justify-between gap-3 rounded-t-xl rounded-b-none bg-kumo-warning-tint"
             onClick={() => {
               focusOnOpen.current = true;
               setVisibility({ keys, open: true });
@@ -764,7 +764,7 @@ export function NeedsYouPanel({ view, send, extra, extraIds = [] }: { view: Popp
           id={panelId}
           hidden={!expanded}
           aria-label="Needs you"
-          className="needs-you-panel mx-auto flex max-h-[min(28rem,55dvh)] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-kumo-base text-kumo-default shadow-sm ring ring-kumo-line"
+          className="needs-you-panel mx-auto flex max-h-[min(28rem,55dvh)] w-full max-w-3xl flex-col overflow-hidden rounded-t-xl border-x border-t border-kumo-line bg-kumo-base text-kumo-default"
           onFocusCapture={() => { focusInside.current = true; }}
           onBlurCapture={(event) => {
             if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusInside.current = false;

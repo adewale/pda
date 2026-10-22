@@ -163,11 +163,12 @@ html[data-settled] .enter {
   }
 }
 
-/* A newly opened request rises from the composer without covering it or moving focus. */
+/* Reveal upward from the composer seam: the panel's square bottom edge stays fixed. */
 html[data-settled] .needs-you-panel {
-  transition: transform 220ms var(--ease-out), opacity 220ms var(--ease-out);
+  clip-path: inset(0);
+  transition: clip-path 220ms var(--ease-out), opacity 220ms var(--ease-out);
   @starting-style {
-    transform: translateY(12px);
+    clip-path: inset(100% 0 0);
     opacity: 0;
   }
 }
@@ -197,6 +198,11 @@ html[data-settled] .sheet {
     transition: opacity 150ms linear;
     @starting-style {
       transform: none;
+    }
+  }
+  html[data-settled] .needs-you-panel {
+    @starting-style {
+      clip-path: inset(0);
     }
   }
 }
