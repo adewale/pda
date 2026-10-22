@@ -48,7 +48,7 @@ You can send while the page is still connecting or reconnecting. The message sho
 
 ## Approvals and standing permissions
 
-Nothing that changes your account at a company happens until you approve it. Each request appears as a card in the chat and in the **Needs you** tray, with **Approve** and **Decline**.
+Nothing that changes your account at a company happens until you approve it. Each request opens in the **Needs you** panel above the message box, with **Approve** and **Decline**. You can keep chatting while it is open. Collapse the panel, or press Escape while working in it, without answering; the **Needs you** button keeps the pending count and opens it again. Anything you entered in a sign-in form stays there while the panel is collapsed.
 
 - **A company's proposal** shows the company's summary, its price and its terms. Approving lets your agent confirm exactly that.
 - **Our own card** covers every other change your agent would make: it shows the exact request, and only Approve sends it, once.

@@ -1,6 +1,7 @@
 import { cn, InputArea, Tabs } from "@cloudflare/kumo";
 import {
   ArrowSquareOutIcon,
+  CaretUpIcon,
   CheckCircleIcon,
   DeviceMobileIcon,
   HandIcon,
@@ -14,7 +15,7 @@ import {
   XIcon
 } from "@phosphor-icons/react";
 import qrcode from "qrcode-generator";
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { humanSize } from "./attachments";
 import type { Card, DirectUpdate, ScopeInfo } from "./poppy/wire";
 import { AttachmentThumb } from "./ui/attachments";
@@ -91,6 +92,8 @@ export function CompanySays({ company, children, className }: { company: string;
   );
 }
 
+const RequestPanelContext = createContext(false);
+
 /** One request waiting for the User. Primary action last, at the right. */
 function CardFrame({
   domain,
@@ -112,8 +115,9 @@ function CardFrame({
   note?: ReactNode;
 }) {
   const id = useId();
+  const inPanel = useContext(RequestPanelContext);
   return (
-    <article aria-labelledby={id} className="enter rounded-xl bg-kumo-base p-4 ring ring-kumo-hairline">
+    <article aria-labelledby={id} className={cn("p-4", inPanel ? undefined : "enter rounded-xl bg-kumo-base ring ring-kumo-hairline")}>
       <div className="flex items-start gap-3">
         <span aria-hidden className="mt-0.5 shrink-0 text-kumo-warning">
           {icon}
@@ -137,7 +141,7 @@ function CardFrame({
       {actions ? (
         <div
           data-card-actions
-          className="sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-wrap justify-end gap-2 rounded-b-xl bg-kumo-base px-4 py-3 shadow-[0_-8px_12px_-8px_rgb(0_0_0/0.15)]"
+          className={cn("sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-wrap justify-end gap-2 bg-kumo-base px-4 py-3 shadow-[0_-8px_12px_-8px_rgb(0_0_0/0.15)]", inPanel ? undefined : "rounded-b-xl")}
         >
           {note ? <div className="basis-full text-right">{note}</div> : null}
           {actions}
@@ -472,8 +476,9 @@ const TONE_ICON: Record<Tone, ReactNode> = {
 
 /** A one-line record of something resolved: what happened, and where. */
 function Receipt({ tone, company, children, action, note }: { tone: Tone; company: string; children: ReactNode; action?: ReactNode; note?: ReactNode }) {
+  const inPanel = useContext(RequestPanelContext);
   return (
-    <div className="enter flex min-h-10 items-start gap-2 py-1">
+    <div className={cn("flex min-h-10 items-start gap-2", inPanel ? "px-4 py-3" : "enter py-1")}>
       <span aria-hidden className="mt-0.5 shrink-0">
         {TONE_ICON[tone]}
       </span>
@@ -673,24 +678,120 @@ export function PoppyCards({ view, send }: { view: PoppyView; send: Send }) {
   );
 }
 
-/** The tray pinned above the chat: everything waiting for the User, with a count. */
-export function NeedsYouTray({ view, send, extra }: { view: PoppyView; send: Send; extra?: ReactNode }) {
+function requestLabel(card: Card | undefined): string {
+  if (!card) return "Conversation";
+  switch (card.kind) {
+    case "signin_link":
+    case "signin_device":
+    case "signin_credentials":
+    case "signin_code":
+      return "Sign-in request";
+    case "operation":
+      return "Review this action";
+    case "approval":
+      return card.status === "unknown" ? "Check the outcome" : "Approval request";
+    case "direct_invite":
+      return "Conversation request";
+    case "notice":
+      return card.id.startsWith("reminder-") ? "Reminder" : card.id.startsWith("error-") ? "Request failed" : "Notice";
+  }
+}
+
+/** Requests dock above the composer. Opening never takes focus from the conversation. */
+export function NeedsYouPanel({ view, send, extra, extraIds = [] }: { view: PoppyView; send: Send; extra?: ReactNode; extraIds?: readonly string[] }) {
   const items = needsYou(view.cards);
-  const count = items.length + (extra ? 1 : 0);
-  if (count === 0) return null;
+  const count = items.length + extraIds.length;
+  // Ignore refreshed frames and removals. A new card, sign-in step, or operation
+  // revision must draw attention again, even when the total count stays the same.
+  const keys = [
+    ...items.map((card) => JSON.stringify([card.id, card.kind, card.kind === "operation" ? card.revision : null])),
+    ...extraIds.map((id) => JSON.stringify(["direct", id]))
+  ];
+  const [visibility, setVisibility] = useState({ keys, open: count > 0 });
+  if (keys.length !== visibility.keys.length || keys.some((key, index) => key !== visibility.keys[index])) {
+    setVisibility({ keys, open: count > 0 && (visibility.open || keys.some((key) => !visibility.keys.includes(key))) });
+  }
+  const panelId = useId();
+  const title = useRef<HTMLHeadingElement>(null);
+  const panel = useRef<HTMLElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const focusInside = useRef(false);
+  const focusOnOpen = useRef(false);
+  const expanded = visibility.open && count > 0;
+  const requestVersion = JSON.stringify(keys);
+  const label = count === 1 ? requestLabel(items[0]) : `${count} requests`;
+  const collapse = () => setVisibility({ keys, open: false });
+  useLayoutEffect(() => {
+    if (expanded && (focusOnOpen.current || (focusInside.current && !panel.current?.contains(document.activeElement)))) {
+      focusOnOpen.current = false;
+      title.current?.focus({ preventScroll: true });
+    } else if (!expanded && focusInside.current) {
+      focusInside.current = false;
+      const target = trigger.current ?? document.querySelector<HTMLElement>('[aria-label="Message your agent"]') ?? document.getElementById("chat-title");
+      target?.focus({ preventScroll: true });
+    }
+  }, [expanded, count, requestVersion]);
   return (
-    <section aria-labelledby="needs-you" className="max-h-[45dvh] shrink-0 overflow-y-auto border-b border-kumo-hairline bg-kumo-elevated">
-      <div className="mx-auto max-w-3xl space-y-3 px-4 py-4 sm:px-6">
-        <h2 id="needs-you" className="flex items-center gap-2 text-base font-semibold text-kumo-strong">
-          Needs you
-          <span className="rounded-full bg-kumo-warning-tint px-2 text-[13px] font-semibold text-kumo-warning tabular-nums">{count}</span>
-        </h2>
-        {extra}
-        {items.map((card) => (
-          <PoppyCard key={card.id} card={card} send={send} />
-        ))}
+    <>
+      <p aria-live="polite" className="sr-only" aria-atomic="true">
+        {count > 0 ? `${count === 1 ? "1 request needs" : `${count} requests need`} you. ${label}${items[0]?.company ? ` from ${items[0].company}` : ""}.` : ""}
+      </p>
+      <div hidden={count === 0} className="mx-auto w-full max-w-3xl shrink-0 px-4 pt-3 sm:px-6">
+        {!expanded && count > 0 ? (
+          <Action
+            ref={trigger}
+            variant="secondary"
+            aria-expanded={false}
+            aria-controls={panelId}
+            onFocus={() => { focusOnOpen.current = true; }}
+            onBlur={() => { focusOnOpen.current = false; }}
+            className="mx-auto flex w-full max-w-3xl justify-between gap-3 rounded-t-xl rounded-b-none bg-kumo-warning-tint"
+            onClick={() => {
+              focusOnOpen.current = true;
+              setVisibility({ keys, open: true });
+            }}
+          >
+            <span className="flex items-center gap-2">
+              <HandIcon size={18} aria-hidden className="text-kumo-warning" />
+              Needs you
+              <span className="rounded-full bg-kumo-base px-2 text-[13px] font-semibold text-kumo-warning tabular-nums">{count}</span>
+            </span>
+            <CaretUpIcon size={16} aria-hidden />
+          </Action>
+        ) : null}
+        <section
+          ref={panel}
+          id={panelId}
+          hidden={!expanded}
+          aria-label="Needs you"
+          className="needs-you-panel mx-auto flex max-h-[min(28rem,55dvh)] w-full max-w-3xl flex-col overflow-hidden rounded-t-xl border-x border-t border-kumo-line bg-kumo-base text-kumo-default"
+          onFocusCapture={() => { focusInside.current = true; }}
+          onBlurCapture={(event) => {
+            if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) focusInside.current = false;
+          }}
+          onKeyDownCapture={(event) => {
+            if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              event.stopPropagation();
+              collapse();
+            }
+          }}
+        >
+          <header className="flex shrink-0 items-center justify-between gap-3 border-b border-kumo-hairline py-1 pr-2 pl-4">
+            <h2 ref={title} tabIndex={-1} className="text-[13px] font-medium text-kumo-subtle">{label}</h2>
+            <IconAction label="Collapse requests" variant="ghost" icon={<XIcon size={16} />} onClick={collapse} />
+          </header>
+          <div role="group" aria-label="Request details" tabIndex={0} className="min-h-0 overflow-y-auto overscroll-contain divide-y divide-kumo-hairline">
+            <RequestPanelContext value={true}>
+              {extra}
+              {items.map((card) => (
+                <PoppyCard key={card.id} card={card} send={send} />
+              ))}
+            </RequestPanelContext>
+          </div>
+        </section>
       </div>
-    </section>
+    </>
   );
 }
 
@@ -832,8 +933,9 @@ export function DirectConversations({ view, send, onHide }: { view: PoppyView; s
 
 /** Shown in the tray while a Direct Conversation is open but hidden. */
 export function HiddenDirectRow({ update, onOpen }: { update: DirectUpdate; onOpen: () => void }) {
+  const inPanel = useContext(RequestPanelContext);
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl bg-kumo-base p-3 ring ring-kumo-hairline">
+    <div className={cn("flex flex-wrap items-center gap-3", inPanel ? "p-4" : "rounded-xl bg-kumo-base p-3 ring ring-kumo-hairline")}>
       <UsersIcon size={16} aria-hidden className="shrink-0 text-kumo-warning" />
       <p className="min-w-0 flex-1 text-base">You're talking with {update.company}</p>
       <Action variant="primary" onClick={onOpen}>
