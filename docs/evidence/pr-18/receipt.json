@@ -1,0 +1,53 @@
+{
+  "base_source_sha": "42a464871bc02e6396428a153a2e0d9befb6699d",
+  "head_source_sha": "67302cb07a77a5398c8f6d4005765ccbc8d68b63",
+  "captured_at": "2026-10-22",
+  "browser": "Chromium 154.0.8037.57 on Debian 13",
+  "artifacts": [
+    {
+      "path": "docs/evidence/pr-18/sdk-before.png",
+      "sha256": "2e611d705180effc347c8667e6b5d98e94908415ac38887852901b5316269b69",
+      "bytes": 43954
+    },
+    {
+      "path": "docs/evidence/pr-18/sdk-after.png",
+      "sha256": "28b919d2ee28511dc6f9057ec5e5b738e11f2b2c4351a262439c8a4abf7c1bcc",
+      "bytes": 65092
+    },
+    {
+      "path": "docs/evidence/pr-18/companies-before.png",
+      "sha256": "dd5ab0d569ef96dadc7eeb99fbaa2bdf2cf4cddf249406b7232515332c69a6b4",
+      "bytes": 50534
+    },
+    {
+      "path": "docs/evidence/pr-18/companies-after.png",
+      "sha256": "0f621611f99b185dab37f09ef2f582a57a99ded997881a9a0ef7091067025956",
+      "bytes": 75267
+    }
+  ],
+  "input": "docs/ecosystem.md at each source revision",
+  "input_git_blobs": {
+    "base": "4ef13c6660d7f7f25a12254ec03276ec686ab937",
+    "head": "37462ccb5efcc13862d310be7dc696a7c3ea0b06"
+  },
+  "renderer": {
+    "endpoint": "https://api.github.com/markdown",
+    "mode": "gfm",
+    "context": "adewale/pda"
+  },
+  "viewport": {
+    "width": 1400,
+    "height": 1000,
+    "deviceScaleFactor": 1
+  },
+  "capture": "Element screenshots of the Both-sides SDKs and Live Companies rows; same local stylesheet and viewport. GitHub Markdown API HTML, not GitHub page chrome.",
+  "rendered_html_sha256": {
+    "base": "868600debace4298f6075203a4aa43c5960a11a1978e9fef3e6697b01e545296",
+    "head": "b1fdb49d7a73dd5f6f69d7e25ed493db56a45e5e49ee71d4e40ee2ece31e9a6e"
+  },
+  "checks": {
+    "source_git_blob_hashes_match": true,
+    "historical_catalogue_and_scorecard_unchanged": true
+  },
+  "limitation": "These images show the documented version and evidence changes. They do not prove deployed support or conformance."
+}
