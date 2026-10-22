@@ -99,6 +99,8 @@ const EXACT_ROUTES = [
   "/activity",
   "/companies",
   "/settings",
+  "/about",
+  "/ecosystem",
   "/ws",
   "/api/me",
   "/api/sign-in-options",
@@ -432,7 +434,7 @@ function outcomeOf(status: number): "error" | "refused" | "rejected" | "success"
 const WORKERS_DEV = "workers.dev";
 
 /** The page's own paths: `run_worker_first` sends them here, and the static files answer them. */
-export const PAGE_PATHS: ReadonlySet<string> = new Set(["/", "/activity", "/companies", "/settings"]);
+export const PAGE_PATHS: ReadonlySet<string> = new Set(["/", "/activity", "/companies", "/settings", "/about", "/ecosystem"]);
 
 /**
  * A request to a `workers.dev` host, when `PUBLIC_ORIGIN` is another domain,

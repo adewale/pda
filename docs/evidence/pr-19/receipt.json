@@ -1,0 +1,71 @@
+{
+  "base_source_sha": "42a464871bc02e6396428a153a2e0d9befb6699d",
+  "head_source_sha": "be6d460812bf0cd06fd3f720014cc3fe7fdc3e3f",
+  "captured_at": "2026-10-22",
+  "browser": "Chromium 154.0.8037.57 on Debian 13",
+  "artifacts": [
+    {
+      "path": "docs/evidence/pr-19/about-before.png",
+      "sha256": "7aa2d8113e297607d3efe2e1823797670aeac3da1bf3e8b1f7bea338d7185439",
+      "bytes": 61169
+    },
+    {
+      "path": "docs/evidence/pr-19/about-after.png",
+      "sha256": "c265e502b61534329c8aed3dc556335d0baaef7854f48c62e8775412851c89f4",
+      "bytes": 94988
+    },
+    {
+      "path": "docs/evidence/pr-19/ecosystem-after.png",
+      "sha256": "26df5db986f54c7e8713179ff6ae4d0c877ecc230b43a4322eecdc17eba0d553",
+      "bytes": 137222
+    },
+    {
+      "path": "docs/evidence/pr-19/table-mobile-after.png",
+      "sha256": "78597389f4f6795508dbbe98d6a591a837760f5c7e5740d899e037a804e01ef5",
+      "bytes": 81884
+    },
+    {
+      "path": "docs/evidence/pr-19/history-mobile-after.png",
+      "sha256": "0798ed061a2be867cb97e06d3859de982102c0e60223c4e656e4e67ab5689592",
+      "bytes": 60633
+    }
+  ],
+  "input": "test/wrangler.jsonc; unsigned browser at /about, /ecosystem and /ecosystem#scorecard",
+  "input_sha256": "d5ef959fc3aacf7327ce7599561e445939eb9cc328b516edc9a8f4d5d2468dd7",
+  "renderer": "Production Vite build served by local workerd; setup reused from scripts/app-smoke.mjs",
+  "viewports": {
+    "desktop": {
+      "width": 1100,
+      "height": 960,
+      "deviceScaleFactor": 1
+    },
+    "mobile": {
+      "width": 375,
+      "height": 812,
+      "deviceScaleFactor": 1
+    }
+  },
+  "capture": "Baseline /about uses base Worker-first routing and displays the sign-in page. Head screenshots show the public About page, the ecosystem summary, a mobile table scrolled horizontally by 160px and the scorecard reached by a fragment link.",
+  "checks": {
+    "signedOutPage": true,
+    "publicAboutAndEcosystem": true,
+    "publicPagesNeedNoIdentityOrSocket": true,
+    "ecosystemMobileTablesAndDeepLinks": true,
+    "authenticatedWorkspaceAndWebSocket": true,
+    "chatReply": true,
+    "chatSurvivesReload": true,
+    "deepRoutes": true,
+    "mobileLayout": true,
+    "revokedSessionShowsRecoveryAndRetainsDraft": true,
+    "logoutAndReloadSignsOut": true,
+    "uncaughtBrowserErrors": 0,
+    "runtime": "local workerd",
+    "assets": "production Vite build",
+    "builtThisRun": false,
+    "model": "synthetic test provider",
+    "authentication": "production signed-cookie verifier with synthetic test identity",
+    "liveOAuthOrModelVerified": false
+  },
+  "reproduce_behavior": "npm ci --legacy-peer-deps; npm run build; node scripts/app-smoke.mjs --skip-build --output /tmp/pda-app-evidence.json",
+  "limitation": "Local synthetic deployment, light theme and these viewports. No production deployment, live OAuth provider or Company journey is verified. The map uses the 21 October source at this head; PR #18 updates the survey separately."
+}

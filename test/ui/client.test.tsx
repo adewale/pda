@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App, SIGN_IN_ERRORS } from "../../src/client";
+import { ECOSYSTEM_SOURCE, PROJECT_URL } from "../../src/public/project";
 
 /**
  * A smoke test of the page itself (`src/client.tsx`) when no one is signed
@@ -34,6 +35,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  window.history.replaceState(null, "", "/");
 });
 
 /** Mount the real page fresh; Testing Library unmounts it after each case.
@@ -65,6 +67,8 @@ describe("sign-in page", () => {
   it("links the privacy policy from the sign-in page", async () => {
     await openPage("");
     expect(screen.getByRole("link", { name: "Privacy" }).getAttribute("href")).toBe("/privacy");
+    expect(screen.getByRole("link", { name: "About" }).getAttribute("href")).toBe("/about");
+    expect(document.querySelector('a[href="/ecosystem"]')).toBeNull();
   });
 
   it("says what the agent is, above the footer", async () => {
@@ -93,5 +97,46 @@ describe("sign-in page", () => {
   it("shows no message without a signin_error", async () => {
     await openPage("");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+
+describe("public information pages", () => {
+  it.each(["/about", "/about/"])("opens %s without asking for an identity and links the project, validator and map", async (path) => {
+    window.history.replaceState(null, "", path);
+    render(<App />);
+    await screen.findByRole("heading", { level: 1, name: "About Poppy Demo Agent" });
+    expect(screen.getByRole("link", { name: /View the GitHub project/ }).getAttribute("href")).toBe(PROJECT_URL);
+    expect(screen.getByRole("link", { name: /^Validator/ }).getAttribute("href")).toBe("/validator");
+    expect(screen.getByRole("link", { name: /^Ecosystem map/ }).getAttribute("href")).toBe("/ecosystem");
+    expect(document.title).toBe("About · Poppy Demo Agent");
+    expect(meRequests).toEqual([]);
+  });
+
+  it("renders the source map with working repository links, scrollable tables and closed historical results", async () => {
+    window.history.replaceState(null, "", "/ecosystem");
+    render(<App />);
+    await screen.findByRole("heading", { level: 1, name: "The Poppy ecosystem" });
+    expect(screen.getByRole("link", { name: /Read the source on GitHub/ }).getAttribute("href")).toBe(ECOSYSTEM_SOURCE);
+    const heading = screen.getByRole("heading", { name: /^Current ecosystem/ });
+    expect(screen.getByRole("link", { name: "Current ecosystem" }).getAttribute("href")).toBe(`#${heading.id}`);
+    expect(screen.getByRole("link", { name: "local 0.2 copy" }).getAttribute("href")).toBe(`${PROJECT_URL}/blob/main/spec/draft-0.2-2026-10-19/README.md`);
+    expect(screen.getAllByRole("region", { name: "Ecosystem comparison table" }).every(table => table.tabIndex === 0)).toBe(true);
+    expect(document.querySelector("details")!.open).toBe(false);
+    expect(document.querySelector('a[href="/ecosystem"]')).toBeNull();
+    expect(meRequests).toEqual([]);
+  });
+
+  it("opens historical results when a section fragment is followed, including a direct deep link", async () => {
+    window.history.replaceState(null, "", "/ecosystem#scorecard");
+    render(<App />);
+    await screen.findByRole("heading", { name: "Scorecard" });
+    expect(document.querySelector("details")!.open).toBe(true);
+    expect(screen.getByRole("link", { name: "View the interoperability diagram on GitHub" }).getAttribute("href")).toBe(`${ECOSYSTEM_SOURCE}#how-they-work-together`);
+    act(() => { document.querySelector("details")!.open = false; });
+    await waitFor(() => expect(document.querySelector("details")!.open).toBe(false));
+    act(() => { window.location.hash = "open-fault-lines"; window.dispatchEvent(new HashChangeEvent("hashchange")); });
+    await waitFor(() => expect(document.querySelector("details")!.open).toBe(true));
+    expect(meRequests).toEqual([]);
   });
 });
