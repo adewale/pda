@@ -8,12 +8,12 @@ const root = path.resolve(import.meta.dirname, "../../..");
 process.chdir(root);
 let checked = false;
 let failed = false;
-const result = await main(["--agents", "official-validator", "--companies", "pda-mock-v02", "--scenarios", "D", ...process.argv.slice(2)], async ({ containers, runDir }) => {
+const result = await main(["--agents", "official-validator", "--companies", "lenient-company-v02", "--scenarios", "D", ...process.argv.slice(2)], async ({ containers, runDir }) => {
   // The empty scenario manifest intentionally keeps validator results out of M×N pass rates.
   const container = containers["agent-official-validator"];
   const pin = JSON.parse(readFileSync(path.join(root, "spec/upstream.json"), "utf8"));
   const source = `/repo/${pin.snapshot}/kit/company/validate/index.ts`;
-  const { output, code } = await dockerAsync(["exec", "-w", "/state", container, "node", source, "check", "https://pda-mock-v02.company.interop.test", "--json"]);
+  const { output, code } = await dockerAsync(["exec", "-w", "/state", container, "node", source, "check", "https://lenient-company-v02.company.interop.test", "--json"]);
   const report = JSON.parse(output);
   failed = code !== 0;
   writeFileSync(path.join(runDir, "official-validator.json"), `${JSON.stringify(report, null, 2)}\n`);

@@ -16,7 +16,7 @@ import { authorized, body, failure, json, serve, setting } from "../shared/serve
 import { MockCompany } from "../../../test/mock-company/index.ts";
 import type { MockConfig } from "../../../test/mock-company/types.ts";
 
-const NAME = process.env.INTEROP_NAME ?? "pda-mock";
+const NAME = process.env.INTEROP_NAME ?? "lenient-company";
 const SECRET = setting("INTEROP_SECRET");
 const COMMIT = process.env.INTEROP_COMMIT ?? "unknown";
 /** Interop-only: the adversarial Company (`evil-company`). Off unless the registry sets it. */
@@ -58,12 +58,12 @@ placeInteropCompanies();
 /**
  * Two profiles, chosen by `INTEROP_MOCK_PROFILE` (registry `env`), one image:
  *
- * - `lenient` (default; `pda-mock`, the reference Company for attribution
+ * - `lenient` (default; `lenient-company`, the reference Company for attribution
  *   rule 2): the conformance suite's S2-lenient settings
  *   (`strictAssertions: false`: no `typ` or `kid` needed, assertions up to
  *   300 s). Section 8 of the interop spec treats S2 as a warning, so the
  *   reference Company doesn't refuse an agent for it.
- * - `strict` (`pda-mock-strict`): `strictAssertions` on, as the strictest
+ * - `strict` (`strict-company`): `strictAssertions` on, as the strictest
  *   live Companies are; it declares S2 `jwt-60s`.
  *
  * Both start from the shared base: rotating Account Tokens (scenario R) and
@@ -161,4 +161,4 @@ async function control(request: Request): Promise<Response> {
 
 serve(8080, (request) => mock.fetch(request));
 serve(8081, control);
-console.log(`pda-mock (${PROFILE}): ${NAME}.${COMPANY_SUFFIX} on 8080, control on 8081`);
+console.log(`lenient-company (${PROFILE}): ${NAME}.${COMPANY_SUFFIX} on 8080, control on 8081`);

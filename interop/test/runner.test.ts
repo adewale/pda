@@ -16,8 +16,8 @@ import { recording } from "./helpers.ts";
 
 describe("options", () => {
   it("parses lists, the lane and per-implementation settings", () => {
-    const options = parseOptions(["--agents", "pda", "--companies", "pda-mock,x", "--scenarios", "D,SD", "--set", "pda:INTEROP_FAULT=assertion-typ", "--no-build"]);
-    expect(options).toMatchObject({ agents: ["pda"], companies: ["pda-mock", "x"], scenarios: ["D", "SD"], lane: "local", build: false, keep: false });
+    const options = parseOptions(["--agents", "pda", "--companies", "lenient-company,x", "--scenarios", "D,SD", "--set", "pda:INTEROP_FAULT=assertion-typ", "--no-build"]);
+    expect(options).toMatchObject({ agents: ["pda"], companies: ["lenient-company", "x"], scenarios: ["D", "SD"], lane: "local", build: false, keep: false });
     expect(options.set.get("pda")).toEqual({ INTEROP_FAULT: "assertion-typ" });
     expect(parseOptions([]).agents).toBeNull();
     expect(() => parseOptions(["--lane", "moon"])).toThrow("--lane must be local or live");
@@ -125,7 +125,7 @@ describe("the registry and known failures", () => {
   it("lists our agent and the reference Company, each with a Dockerfile", () => {
     const registry = loadRegistry();
     const names = registry.implementations.map((entry) => `${entry.role}:${entry.name}`);
-    expect(names).toEqual(expect.arrayContaining(["agent:pda", "company:pda-mock"]));
+    expect(names).toEqual(expect.arrayContaining(["agent:pda", "company:lenient-company"]));
     for (const entry of registry.implementations.filter((item) => item.build)) {
       expect(readFileSync(path.join(import.meta.dirname, "../..", entry.build!, "Dockerfile"), "utf8")).toContain("FROM ");
     }
@@ -150,18 +150,18 @@ describe("the registry and known failures", () => {
   it("builds one image for entries that differ only in env: the strict mock is the reference mock's image", () => {
     const registry = loadRegistry();
     const entry = (name: string) => registry.implementations.find((item) => item.role === "company" && item.name === name)!;
-    expect(imageOf(entry("pda-mock"), registry)).toBe("poppy-interop/company-pda-mock:latest");
-    expect(imageOf(entry("pda-mock-strict"), registry)).toBe("poppy-interop/company-pda-mock:latest");
-    expect(entry("pda-mock-strict").env).toEqual({ INTEROP_MOCK_PROFILE: "strict" });
+    expect(imageOf(entry("lenient-company"), registry)).toBe("poppy-interop/company-lenient-company:latest");
+    expect(imageOf(entry("strict-company"), registry)).toBe("poppy-interop/company-lenient-company:latest");
+    expect(entry("strict-company").env).toEqual({ INTEROP_MOCK_PROFILE: "strict" });
     expect(imageOf(entry("datalayer-ts"), registry)).toBe("poppy-interop/company-datalayer-ts:latest");
   });
 });
 
 describe("the network", () => {
   it("routes every Company and agent name to its container", () => {
-    expect(upstreamFor("pda-mock.company.interop.test")).toBe("company-pda-mock");
-    expect(upstreamFor("auth.pda-mock.company.interop.test:443")).toBe("company-pda-mock");
-    expect(upstreamFor("www.uk.pda-mock.company.interop.test")).toBe("company-pda-mock");
+    expect(upstreamFor("lenient-company.company.interop.test")).toBe("company-lenient-company");
+    expect(upstreamFor("auth.lenient-company.company.interop.test:443")).toBe("company-lenient-company");
+    expect(upstreamFor("www.uk.lenient-company.company.interop.test")).toBe("company-lenient-company");
     expect(upstreamFor("pda.agent.interop.test")).toBe("agent-pda");
     expect(upstreamFor("runner.interop.test")).toBeNull();
     expect(upstreamFor("example.com")).toBeNull();
@@ -210,7 +210,7 @@ describe("discovery documents from the recording", () => {
 describe("the report", () => {
   it("draws a grid per scenario and a section per cell, escaping what implementations said", () => {
     const cells: Cell[] = [
-      { agent: "pda", company: "pda-mock", scenario: "SD", outcome: "pass", blame: null, rule: null, steps: [], checks: [], har: "SD/pda__pda-mock.har" },
+      { agent: "pda", company: "lenient-company", scenario: "SD", outcome: "pass", blame: null, rule: null, steps: [], checks: [], har: "SD/pda__lenient-company.har" },
       { agent: "pda", company: "x", scenario: "SD", outcome: "fail", blame: "agent", rule: "violation", steps: [{ actor: "agent", op: "session", ms: 3, ok: false, error: "<script>" }], checks: [], har: null }
     ];
     const html = renderReport({
@@ -219,7 +219,7 @@ describe("the report", () => {
       spec: "Draft 0.1",
       implementations: [
         { name: "pda", role: "agent", commit: "abc", readings: { S1: "token-endpoint" }, relaxations: [] },
-        { name: "pda-mock", role: "company", commit: "abc", readings: {}, relaxations: [] },
+        { name: "lenient-company", role: "company", commit: "abc", readings: {}, relaxations: [] },
         { name: "x", role: "company", commit: "def", readings: {}, relaxations: ["Accepts *.interop.test"] }
       ],
       scenarios: [{ id: "SD", title: "Direct Sign-In", steps: [] }],
@@ -275,8 +275,19 @@ it("attributes live cells to the configured wire version and preserves legacy en
   const scenarios = loadScenarios();
   const stacktree = registry.implementations.find((entry) => entry.name === "stacktree-live")!;
   expect(liveCompanyManifest(stacktree, scenarios).poppy).toEqual(["0.2"]);
-  const old = registry.implementations.find((entry) => entry.name === "alpine-retail-live")!;
+  const old = registry.implementations.find((entry) => entry.name === "ilmer-live")!;
   expect(liveCompanyManifest(old, scenarios).poppy).toEqual(["0.1"]);
+});
+
+it("limits a live Company to the scenarios its entry allows: the real Print with Poppy store gets discovery only", () => {
+  const registry = loadRegistry();
+  const scenarios = loadScenarios();
+  const store = registry.implementations.find((entry) => entry.name === "print-with-poppy-live")!;
+  expect(liveCompanyManifest(store, scenarios).scenarios).toEqual(["D"]);
+  const alpine = registry.implementations.find((entry) => entry.name === "alpine-retail-live")!;
+  expect([...liveCompanyManifest(alpine, scenarios).scenarios].sort()).toEqual(["C", "D", "N", "S0"]);
+  const stacktree = registry.implementations.find((entry) => entry.name === "stacktree-live")!;
+  expect(liveCompanyManifest(stacktree, scenarios).scenarios).toHaveLength(scenarios.length);
 });
 
 it("stops a live version mismatch before a Session request can send credentials", async () => {

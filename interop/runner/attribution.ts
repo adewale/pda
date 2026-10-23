@@ -11,7 +11,8 @@
  *    reading explains (`reading.<id>.refused`: an assertion `aud` or `typ`
  *    its S1 or S2 reading doesn't accept), when the readings are incompatible.
  * 1b. below a failure (docs/conformance-levels.md): with no error to decide
- *    it, a check the Company recorded at a lower level. Our reading (basis
+ *    it, a check one side recorded of the other at a lower level (the mock
+ *    Company of the agent, the strict fake agent of the Company). Our reading (basis
  *    Reading) blames the spec (rule `reading`), unless both sides declared
  *    compatible readings of its question and the agent sent otherwise
  *    (rule `warning`, the agent). A SHOULD or the Guides, recorded on one
@@ -20,7 +21,7 @@
  * 2. grid: the agent passes the scenario against the reference Company but
  *    this Company fails it with every agent that ran it (blame the Company);
  *    or this agent fails it with every Company it ran against while this
- *    Company passes it with another agent (blame the agent).
+ *    Company passes it with the reference agent, or any other (blame the agent).
  * 3. reading: the two sides declare incompatible readings of a question the
  *    scenario depends on, or that an error check belongs to, and the trace
  *    shows that question mattered: a `reading.<id>.refused` check, or a
@@ -32,9 +33,11 @@ import { isBasis, levelOf, type Level } from "../../src/validator/levels.ts";
 import { compatible, questionOf, REFUSED_READING } from "./readings.ts";
 import type { Blame, Cell, Check, KnownFailure, Rule, Scenario } from "./types.ts";
 
-export const REFERENCE_COMPANY = "pda-mock";
+export const REFERENCE_COMPANY = "lenient-company";
+/** The reference agent: the fake Personal Agent that accepts every reading giving no more access (spec §9, rule 2). */
+export const REFERENCE_AGENT = "lenient-personal-agent";
 
-/** One entry of a Company adapter's `GET /violations` (interop/impls/shared/mock-hooks.ts). */
+/** One entry of an adapter's `GET /violations`: the mock Company's (interop/impls/shared/mock-hooks.ts) or the strict fake agent's. */
 export type RecordedViolation = { readonly id: string; readonly basis?: unknown; readonly level?: unknown; readonly detail: string };
 
 /**
@@ -48,6 +51,16 @@ export function companyRecorded(violation: RecordedViolation, company: string, s
   const basis = isBasis(violation.basis) ? violation.basis : null;
   const failure = basis === null || levelOf(basis) === "failure";
   return { id: violation.id, side: "agent", severity: failure && !security ? "error" : "warning", basis, exchange: null, detail: violation.detail, source: `company:${company}` };
+}
+
+/**
+ * A check the strict fake agent recorded (interop/impls/pda-agent/profiles.ts), as a cell
+ * check against the Company, with the same levels as `companyRecorded`.
+ */
+export function agentRecorded(violation: RecordedViolation, agent: string, security: boolean): Check {
+  const basis = isBasis(violation.basis) ? violation.basis : null;
+  const failure = basis === null || levelOf(basis) === "failure";
+  return { id: violation.id, side: "company", severity: failure && !security ? "error" : "warning", basis, exchange: null, detail: violation.detail, source: `agent:${agent}` };
 }
 
 /** A check's level: from its basis, or, without one, `failure` for an error and `warning` otherwise. */
@@ -78,7 +91,8 @@ export type AttributionContext = {
   readonly readings: Readings;
   readonly scenarios: ReadonlyMap<string, Scenario>;
   readonly reference?: string;
-  /** Implementation names that misbehave on purpose (evil-agent, evil-company). */
+  readonly referenceAgent?: string;
+  /** Implementation names that misbehave on purpose (evil-personal-agent, evil-company). */
   readonly adversarial?: ReadonlySet<string>;
 };
 
@@ -99,6 +113,7 @@ export function attribute(cell: Cell, grid: readonly Cell[], context: Attributio
   if (cell.outcome === "error") return { blame: "harness", rule: null };
   if (cell.outcome !== "fail") return { blame: null, rule: null };
   const reference = context.reference ?? REFERENCE_COMPANY;
+  const referenceAgent = context.referenceAgent ?? REFERENCE_AGENT;
 
   // Rule 0, adversarial (applied first). In a cell with an adversarial side, that side's
   // violations are expected; the cell passes when the honest side refuses. A failure is the
@@ -154,11 +169,11 @@ export function attribute(cell: Cell, grid: readonly Cell[], context: Attributio
     if (!compatible(question, agent, company)) return reading(question);
   }
 
-  // Below a failure (docs/conformance-levels.md): what the Company recorded as a warning or a
-  // tentative reading, when no error decided the cell. These are the Company's own record of the
-  // request it refused (or let through), so they say why the cell failed; the runner's passive
-  // trace and validator warnings don't, and aren't counted here.
-  const recorded = cell.checks.filter((check) => check.source.startsWith("company:") && check.severity !== "error" && check.basis);
+  // Below a failure (docs/conformance-levels.md): what one side recorded of the other as a warning
+  // or a tentative reading, when no error decided the cell: the Company's record of the request it
+  // refused (or let through), or the strict fake agent's of the answer it refused. They say why the
+  // cell failed; the runner's passive trace and validator warnings don't, and aren't counted here.
+  const recorded = cell.checks.filter((check) => (check.source.startsWith("company:") || check.source.startsWith("agent:")) && check.severity !== "error" && check.basis);
   // A reading of ours (basis Reading): the spec's open question, unless both sides declared
   // compatible readings of it and the agent sent otherwise, which is its own departure.
   const tentative = recorded.find((found) => levelOf(found.basis!) === "tentative");
@@ -188,6 +203,13 @@ export function attribute(cell: Cell, grid: readonly Cell[], context: Attributio
       return { blame: "company", rule: "grid", detail: `${cell.agent} passes ${cell.scenario} against ${reference}; ${cell.company} fails it with every agent` };
     }
   }
+  // The same rule from the agent's side, against the reference agent.
+  if (cell.agent !== referenceAgent && at(referenceAgent, cell.company)?.outcome === "pass") {
+    const withThisAgent = same.filter((other) => other.agent === cell.agent);
+    if (withThisAgent.every((other) => other.outcome === "fail")) {
+      return { blame: "agent", rule: "grid", detail: `${cell.company} passes ${cell.scenario} with ${referenceAgent}; ${cell.agent} fails it at every Company` };
+    }
+  }
   const withAgent = same.filter((other) => other.agent === cell.agent);
   const companyPassesElsewhere = same.some((other) => other.company === cell.company && other.agent !== cell.agent && other.outcome === "pass");
   if (withAgent.every((other) => other.outcome === "fail") && companyPassesElsewhere) {
@@ -196,7 +218,7 @@ export function attribute(cell: Cell, grid: readonly Cell[], context: Attributio
 
   // 3. reading, only where the trace shows the question mattered: the Company refused what its
   // reading doesn't accept (`reading.<id>.refused`), or recorded an error of that question.
-  // Two declarations that merely differ prove nothing: poppy-demo × pda-mock fails D on its
+  // Two declarations that merely differ prove nothing: poppy-demo × lenient-company fails D on its
   // issuer-origin rule, not on S3, though the two read S3 differently.
   const evidenced = new Set([...refused, ...explained.filter((found): found is string => found !== null)]);
   const scenario = context.scenarios.get(cell.scenario);

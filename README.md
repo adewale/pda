@@ -117,7 +117,7 @@ npm test                         # five suites + documentation references; no ex
 npm run typecheck
 npm run check:docs               # standalone reference check; already included in npm test
 npm run validate -- example.com  # the validator CLI
-npm run interop -- --agents pda --companies pda-mock   # the grid, in Docker
+npm run interop -- --agents pda --companies lenient-company   # the grid, in Docker
 ```
 
 To deploy your own copy, follow [docs/setup.md](docs/setup.md) in the order [docs/deployment-tasks.md](docs/deployment-tasks.md) gives.

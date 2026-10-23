@@ -20,7 +20,7 @@ async function execute(id: string, statuses: readonly number[], errors: readonly
   const key = { ...await exportJWK(privateKey), kid: "attack-key" };
   const records: Spec[] = [];
   const ctx = {
-    clientId: "https://evil-agent.agent.interop.test/poppy/client.json", signingJwks: JSON.stringify([key]),
+    clientId: "https://evil-personal-agent.agent.interop.test/poppy/client.json", signingJwks: JSON.stringify([key]),
     fetcher: async (request: Request) => {
       const n = records.length;
       if (statuses[n] === undefined) throw new Error("attack made an unexpected extra request");

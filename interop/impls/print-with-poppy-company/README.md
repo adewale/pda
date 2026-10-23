@@ -31,16 +31,23 @@ The store admits a Session only for a `client_id` its operator listed, so the ad
 | Agent | `client_id` |
 | --- | --- |
 | pda | `https://pda.agent.interop.test/poppy/client.json` |
+| lenient-personal-agent, strict-personal-agent, sloppy-personal-agent (our fakes) | `https://<name>.agent.interop.test/poppy/client.json` |
 | datalayer-ts, datalayer-py, pi-poppy, poppy-demo, adonis-agora | `https://<name>.agent.interop.test/agent.json` |
 | everruns | `https://everruns.agent.interop.test/api/v1/poppy/agent.json` |
 
-This is the store's ordinary configuration, not a relaxation. The adversarial `evil-agent` isn't listed: it never runs against a third-party Company (spec section 13). An agent added to the registry later needs adding here, or `--set print-with-poppy:AGENT_CLIENT_IDS=…`.
+This is the store's ordinary configuration, not a relaxation. The adversarial `evil-personal-agent` isn't listed: it never runs against a third-party Company (spec section 13). An agent added to the registry later needs adding here, or `--set print-with-poppy:AGENT_CLIENT_IDS=…`.
 
 ### The compatibility path is off
 
 Besides native Poppy, the store offers a non-Poppy "HTTP compatibility" path: `POST /api/agent-sessions` hands out a Bearer guest token that the API accepts with no agent identity, assertion or DPoP. Upstream turns it on by default in demo mode. The adapter sets `ALLOW_COMPAT_AGENT_SESSIONS=false`, so the grid tests Poppy only: `/api/agent-sessions` answers 404 `not_available` and a `Bearer` token is refused with `invalid_token` (checked at `260dbb4` in a container with no network, where `/openapi.json` lists only the `DPoP` scheme and no `startGuestAgentSession`). Until `c147418` that setting couldn't turn it off in demo mode, and the adapter carried a one-line patch to `server/config.ts`; upstream now honours an explicit `false` (`tests/compat-config.test.ts`), so the patch is gone and the store runs unchanged.
 
 Demo mode keeps the store's own browser demo: `/api/demo/agent.json` (a built-in agent identity, accepted without the allowlist), `/api/demo/session` and the `Demo` authorization scheme its web page uses, and `/api/demo/pay` and `/api/demo/ship`. None is in its discovery document or OpenAPI description, and no grid agent uses them; they are in the manifest's `relaxations` with demo mode.
+
+## Moving the pin to `e4aef11` (0.2), 23 October: blocked
+
+Upstream's head `e4aef115b5c240082149bcb354bae19ef5ef148e` (22 October) speaks only draft 0.2. Moving the pin needs four changes to this adapter: the commit in the `Dockerfile`, the adapter and the registry; `src/ordering-method.ts` copied beside `src/offer.ts`, since `server/` now imports it; the manifest's `poppy` set to `["0.2"]`; and its readings S1 `issuer` and S2 `lenient-300s` (`server/auth.ts`: the issuer as `aud`, `exp - iat <= 300`). The sign-in pages, the `records` table, the code email and `/api/health` are unchanged, so the hooks carry over.
+
+What blocks it: the store now refuses to connect to any private address when it fetches an agent's client metadata (`publicAddress` in `server/protocol-url.ts`, checked at connection time), and has no setting to relax that. The grid's internal network has private addresses, so with the new pin every agent, `pda` included, is refused at its first Session with `invalid_client` ("Invalid agent identity."), 40 cells in a run on 23 October. A build-time patch letting through only the run's own subnet would work, but it changes upstream's SSRF guard, which the project hasn't done before ("Unpatched" in the registry), so it waits for the owner. The other way is a test mode upstream, limited to the run's network or a reserved suffix such as `.interop.test`, as [N42](../../../docs/spec-issues.md#n42) suggests; asking for one goes to its maintainer, with the owner's approval.
 
 ## Source refresh, 17 October (pin unchanged)
 
