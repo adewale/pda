@@ -2,7 +2,6 @@ import { cn, InputArea, Tabs } from "@cloudflare/kumo";
 import {
   ArrowSquareOutIcon,
   CaretUpIcon,
-  CheckCircleIcon,
   DeviceMobileIcon,
   HandIcon,
   InfoIcon,
@@ -11,17 +10,19 @@ import {
   SignInIcon,
   UserIcon,
   UsersIcon,
-  WarningCircleIcon,
   XIcon
 } from "@phosphor-icons/react";
 import qrcode from "qrcode-generator";
-import { createContext, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { humanSize } from "./attachments";
-import type { Card, DirectUpdate, ScopeInfo } from "./poppy/wire";
+import type { ActivityResult, Card, DirectUpdate, ScopeInfo } from "./poppy/wire";
 import { AttachmentThumb } from "./ui/attachments";
 import { useSend, type Send } from "./ui/connection";
 import { Action, ActionLink, IconAction, useNow } from "./ui/controls";
-import { ACCESS, accessOfScope, countdown, fullDate } from "./ui/format";
+import { ACCESS, accessOfScope, countdown, fullDate, RESULT } from "./ui/format";
+import { redactQueries, resultFacts } from "./ui/result-facts";
+import { Status, STATUS_STYLE } from "./ui/status";
+import { APPROVAL_RESULT, approvalBatches } from "./ui/steps";
 import type { PoppyView } from "./use-pi-session";
 
 /** A Company-supplied link, only if it is an HTTPS URL: never `javascript:`, `data:` or `http:`. */
@@ -294,10 +295,35 @@ function DeviceCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "si
   );
 }
 
+/** An amount as money where it reads as one ("14.50" USD → "$14.50"), else as the Company wrote it. */
+export function money(total: { amount: string; currency: string }): string {
+  if (/^\d+(\.\d+)?$/.test(total.amount) && /^[A-Z]{3}$/.test(total.currency)) {
+    try {
+      return new Intl.NumberFormat(undefined, { style: "currency", currency: total.currency }).format(Number(total.amount));
+    } catch {
+      // An unknown currency code: as written.
+    }
+  }
+  return `${total.amount} ${total.currency}`;
+}
+
+/** "Cost (total): 15.00 USD" → ["Cost (total)", "15.00 USD"], so the terms line up as a two-column list. */
+function termRow(line: string): [string, string] | [string] {
+  const split = line.indexOf(": ");
+  return split > 0 ? [line.slice(0, split), line.slice(split + 2)] : [line];
+}
+
+/**
+ * A proposed operation: the only card that can cost money, so it looks it.
+ * The total from its terms in large figures and on the button, the Company's
+ * own summary quoted as theirs (verbatim, Operations 5.1), then every cost,
+ * date and condition the terms name, lined up, and links to any previews.
+ */
 function OperationCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "operation" }>; send: Send }) {
   const { send, disabled, note } = useSend(sendFrame);
   const decide = (decision: "approve" | "decline" | "cancel") =>
     send({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision });
+  const total = card.total ? money(card.total) : null;
   return (
     <CardFrame
       domain={card.domain}
@@ -316,24 +342,61 @@ function OperationCard({ card, send: sendFrame }: { card: Extract<Card, { kind: 
             Decline
           </Action>
           <Action variant="primary" disabled={disabled} onClick={() => decide("approve")}>
-            Approve
+            {total ? `Approve ${total}` : "Approve"}
           </Action>
         </>
       }
     >
+      {total ? (
+        <p className="flex items-baseline gap-2" data-total>
+          <span className="text-[13px] text-kumo-subtle">Total</span>
+          <span className="text-2xl font-semibold text-kumo-strong tabular-nums">{total}</span>
+        </p>
+      ) : null}
       {/* The Company's own words, verbatim (Operations extension 5.1). */}
-      <CompanySays company={card.company}>{card.summary}</CompanySays>
+      <CompanySays company={card.company} className="border-l-2 border-kumo-line pl-3">
+        {card.summary}
+      </CompanySays>
       {card.previousSummary ? (
         <p className="text-[13px] text-kumo-subtle">
           Changed from: <del>{card.previousSummary}</del>
         </p>
       ) : null}
-      <ul className="space-y-0.5 text-[13px] text-kumo-subtle tabular-nums">
-        {card.highlights.map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-        {card.expiresAt ? <li>Approve before {new Date(card.expiresAt).toLocaleString()}</li> : null}
-      </ul>
+      <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-0.5 text-[13px] text-kumo-subtle tabular-nums">
+        {[...card.highlights, ...(card.expiresAt ? [`Approve before: ${new Date(card.expiresAt).toLocaleString()}`] : [])].map((line) => {
+          const [label, value] = termRow(line);
+          return value === undefined ? (
+            <dd key={line} className="col-span-2">
+              {label}
+            </dd>
+          ) : (
+            <div key={line} className="contents">
+              <dt className="min-w-0 break-words">{label}</dt>
+              <dd className="text-right text-kumo-default">{value}</dd>
+            </div>
+          );
+        })}
+      </dl>
+      {card.previews?.length ? (
+        <div className="text-[13px]">
+          <p className="text-kumo-subtle">Previews at {card.company}, each in a new tab:</p>
+          <ul className="flex flex-wrap gap-x-3">
+            {card.previews.flatMap((preview) => {
+              const href = httpsHref(preview.url);
+              return href
+                ? [
+                    <li key={href}>
+                      <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-1 font-medium text-kumo-link underline">
+                        {preview.label}
+                        <ArrowSquareOutIcon size={14} aria-hidden />
+                      </a>
+                    </li>
+                  ]
+                : [];
+            })}
+          </ul>
+        </div>
+      ) : null}
     </CardFrame>
   );
 }
@@ -447,43 +510,110 @@ function ApprovalCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "
   );
 }
 
-const APPROVAL_STATUS: Record<Extract<Card, { kind: "approval" }>["status"], string> = {
-  pending: "Waiting for you",
-  approved: "Approved",
-  declined: "You declined",
-  done: "Done, as you approved",
-  refused: "Sent as you approved, but not done",
-  failed: "Failed after you approved",
-  unknown: "Outcome unknown"
-};
+type ApprovalCardOf = Extract<Card, { kind: "approval" }>;
 
-const OPERATION_STATE: Record<string, string> = {
-  proposed: "Approved, confirming",
-  in_progress: "In progress",
-  succeeded: "Done",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  expired: "Expired"
-};
+/** One photo in a batch: ticked to send, with its size, its pixels once it has loaded, and how it stands once sent. */
+function BatchTile({ card, ticked, onToggle, decided }: { card: ApprovalCardOf; ticked: boolean; onToggle: () => void; decided: boolean }) {
+  const [pixels, setPixels] = useState<string | null>(null);
+  const photo = card.attachments?.[0];
+  // Waiting until the User decides; then each tile follows its own card, so the User sees which went and which didn't.
+  const status: ActivityResult | null = !decided ? null : card.status === "pending" ? (ticked ? "in_progress" : "declined") : APPROVAL_RESULT[card.status];
+  const detail = card.answer ? `${card.answer.status}${card.answer.error ? ` ${card.answer.error}` : ""}` : null;
+  const name = photo?.name ?? card.summary;
+  return (
+    <li className={cn("flex min-w-0 flex-col gap-1 rounded-lg p-1.5 ring", ticked ? "ring-kumo-line" : "opacity-60 ring-kumo-hairline")} data-tile={status ?? (ticked ? "ticked" : "unticked")}>
+      <label className={cn("flex min-w-0 flex-col gap-1", decided ? "cursor-default" : "cursor-pointer")}>
+        {photo ? (
+          <img
+            src={`/api/attachments/${encodeURIComponent(photo.id)}`}
+            alt={photo.name}
+            loading="lazy"
+            onLoad={(event) => setPixels(`${event.currentTarget.naturalWidth}×${event.currentTarget.naturalHeight}`)}
+            className="image-outline aspect-[4/3] w-full rounded-md object-cover"
+          />
+        ) : null}
+        <span className="flex min-w-0 items-start gap-1.5 text-[13px]">
+          <input type="checkbox" checked={ticked} disabled={decided} onChange={onToggle} className="mt-0.5 size-4 shrink-0 accent-kumo-brand" />
+          <span className="min-w-0">
+            <span className="block truncate font-medium text-kumo-default">{name}</span>
+            <span className="block text-kumo-subtle tabular-nums">{[photo ? humanSize(photo.size) : null, pixels].filter(Boolean).join(" · ")}</span>
+          </span>
+        </span>
+      </label>
+      {status ? <Status result={status} detail={detail} className="text-[13px] font-medium" /> : null}
+    </li>
+  );
+}
 
-type Tone = "success" | "danger" | "info";
+/**
+ * Uploads of the User's photos to one Company's same address, decided on one
+ * card: every photo shown, each ticked to start, and a button that counts
+ * what it sends. Unticked photos are declined, so the model hears the User
+ * didn't want them. The agent checks the batch again before sending anything
+ * (operations.ts `decideLocalBatch`), sends them one at a time, and each tile
+ * shows how its photo went. Anything else that waits keeps its own card.
+ */
+function BatchApprovalCard({ cards, decided, send: sendFrame, onDecided }: { cards: readonly ApprovalCardOf[]; decided: boolean; send: Send; onDecided: () => void }) {
+  const { send, disabled, note } = useSend(sendFrame);
+  const [unticked, setUnticked] = useState<ReadonlySet<string>>(() => new Set());
+  const first = cards[0]!;
+  const ticked = cards.filter((card) => !unticked.has(card.approvalId)).length;
+  const decide = (approve: boolean) => {
+    const decisions = cards.map((card) => ({ approvalId: card.approvalId, decision: approve && !unticked.has(card.approvalId) ? ("approve" as const) : ("decline" as const) }));
+    if (send({ type: "poppy.approvals", decisions })) onDecided();
+  };
+  const toggle = (id: string) => setUnticked((current) => {
+    const next = new Set(current);
+    if (!next.delete(id)) next.add(id);
+    return next;
+  });
+  const done = cards.filter((card) => card.status !== "pending" && card.status !== "approved").length;
+  return (
+    <CardFrame
+      domain={first.domain}
+      icon={<HandIcon size={16} />}
+      note={note}
+      title={decided ? `Sending your photos to ${first.company}` : `Send ${cards.length} photos to ${first.company}?`}
+      meta={decided ? `${done} of ${cards.length} finished` : "Your photos leave your agent only if you approve, and go only to this Company. Untick any you don't want sent."}
+      actions={
+        decided ? undefined : (
+          <>
+            <Action variant="secondary" disabled={disabled} onClick={() => decide(false)}>
+              Decline all
+            </Action>
+            <Action variant="primary" disabled={disabled || ticked === 0} onClick={() => decide(true)}>
+              {ticked === cards.length ? `Send ${ticked} photos` : `Send ${ticked} of ${cards.length} photos`}
+            </Action>
+          </>
+        )
+      }
+    >
+      <ul aria-label={`Photos to send to ${first.company}`} className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5">
+        {cards.map((card) => (
+          <BatchTile key={card.approvalId} card={card} ticked={!unticked.has(card.approvalId)} decided={decided} onToggle={() => toggle(card.approvalId)} />
+        ))}
+      </ul>
+      <p className="text-[13px] text-pretty break-words text-kumo-subtle">Each goes to {first.summary.replace(/^Send your photo “[^”]*” \([^)]*\) to /, "")}</p>
+    </CardFrame>
+  );
+}
 
-const TONE_ICON: Record<Tone, ReactNode> = {
-  success: <CheckCircleIcon size={16} className="text-kumo-success" />,
-  danger: <WarningCircleIcon size={16} className="text-kumo-danger" />,
-  info: <InfoIcon size={16} className="text-kumo-subtle" />
-};
-
-/** A one-line record of something resolved: what happened, and where. */
-function Receipt({ tone, company, children, action, note }: { tone: Tone; company: string; children: ReactNode; action?: ReactNode; note?: ReactNode }) {
+/** A one-line record of something resolved: its state's mark and word, what happened, and where. */
+function Receipt({ result, detail, company, children, action, note }: { result: ActivityResult; detail?: string | null; company: string; children: ReactNode; action?: ReactNode; note?: ReactNode }) {
   const inPanel = useContext(RequestPanelContext);
   return (
-    <div className={cn("flex min-h-10 items-start gap-2", inPanel ? "px-4 py-3" : "enter py-1")}>
-      <span aria-hidden className="mt-0.5 shrink-0">
-        {TONE_ICON[tone]}
+    <div className={cn("flex min-h-10 items-start gap-2", inPanel ? "px-4 py-3" : "enter py-1")} data-receipt={result}>
+      <span aria-hidden className={cn("mt-0.5 shrink-0", STATUS_STYLE[result].className)}>
+        {STATUS_STYLE[result].icon}
       </span>
-      <div className={cn("min-w-0 flex-1 text-[13px] text-pretty break-words", tone === "danger" ? "text-kumo-danger" : "text-kumo-subtle")}>
-        {company ? <span className="font-medium text-kumo-default">{company} · </span> : null}
+      <div className="min-w-0 flex-1 text-[13px] text-pretty break-words text-kumo-default">
+        <p>
+          <span className={cn("font-medium", STATUS_STYLE[result].className)}>
+            {RESULT[result]}
+            {detail ? <span className="tabular-nums"> · {detail}</span> : null}
+          </span>
+          {company ? <span className="text-kumo-subtle"> · {company}</span> : null}
+        </p>
         {children}
         {note}
       </div>
@@ -492,37 +622,56 @@ function Receipt({ tone, company, children, action, note }: { tone: Tone; compan
   );
 }
 
-function ClosedCard({ card, send: sendFrame }: { card: Card; send: Send }) {
+/** A request's outcome when no step in the chat shows it, or an operation's, which comes later than the step that proposed it. */
+function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; onAsk?: ((text: string) => void) | undefined }) {
   // A receipt's buttons are disabled while the page isn't connected; the banner at the top says why, so each line doesn't.
   const { send, disabled, note } = useSend(sendFrame, { quiet: true });
+  const inPanel = useContext(RequestPanelContext);
   const dismiss = (
     <IconAction label="Dismiss" variant="ghost" icon={<XIcon size={16} />} disabled={disabled} onClick={() => send({ type: "poppy.card.dismiss", id: card.id })} className="-my-2" />
   );
   switch (card.kind) {
     case "notice": {
       const error = card.id.startsWith("error-");
-      return (
-        <Receipt tone={error ? "danger" : "info"} company={card.company} action={dismiss} note={note}>
-          {card.text}
+      return error ? (
+        <Receipt result="failed" company={card.company} action={dismiss} note={note}>
+          <p>{card.text}</p>
         </Receipt>
+      ) : (
+        <div className={cn("flex min-h-10 items-start gap-2 text-[13px] text-kumo-subtle", inPanel ? "px-4 py-3" : "enter py-1")}>
+          <InfoIcon size={16} aria-hidden className="mt-0.5 shrink-0" />
+          <p className="min-w-0 flex-1 text-pretty break-words">
+            {card.company ? <span className="font-medium">{card.company} · </span> : null}
+            {card.text}
+            {note}
+          </p>
+          {dismiss}
+        </div>
       );
     }
     case "approval": {
-      if (card.status === "refused") {
-        // Sent, and the Company answered with an error: never "done".
-        const answered = card.answer ? `${card.answer.status}${card.answer.error ? ` (${card.answer.error})` : ""}` : "with an error";
-        return (
-          <Receipt tone="danger" company={card.company} action={dismiss} note={note}>
-            Sent as you approved, but {card.company} answered {answered}: {card.summary}
-            <span className="block text-kumo-subtle">Nothing changed unless {card.company} says otherwise.</span>
-          </Receipt>
-        );
-      }
-      const tone: Tone = card.status === "failed" || card.status === "unknown" ? "danger" : card.status === "declined" ? "info" : "success";
+      const result = APPROVAL_RESULT[card.status];
+      // Done only for a 2xx, and then "as you approved"; a refusal shows the Company's status and code (decision 6).
+      const detail = card.answer
+        ? `${card.answer.status}${card.answer.error ? ` ${card.answer.error}` : ""}`
+        : card.status === "done"
+          ? "as you approved"
+          : card.status === "failed"
+            ? "after you approved"
+            : null;
+      const answered = card.answer ? `${card.answer.status}${card.answer.error ? ` (${card.answer.error})` : ""}` : "with an error";
+      // What the Company answered, as a few facts; never its raw body, and never a URL (src/ui/result-facts.ts).
+      const facts = card.status === "done" ? resultFacts(card.result).facts : [];
       return (
-        <Receipt tone={tone} company={card.company} action={dismiss} note={note}>
-          {APPROVAL_STATUS[card.status]}: {card.summary}
-          {card.result ? <span className="block text-kumo-subtle">{card.result}</span> : null}
+        <Receipt result={result} detail={detail} company={card.company} action={dismiss} note={note}>
+          <p className="text-kumo-subtle">{card.summary}</p>
+          {facts.length ? <p className="text-kumo-subtle tabular-nums">{facts.join(" · ")}</p> : null}
+          {card.status === "refused" ? (
+            <p>
+              Sent as you approved, but {card.company} answered {answered}. Nothing changed unless {card.company} says otherwise.
+            </p>
+          ) : null}
+          {card.status !== "done" && card.status !== "refused" && card.result ? <p>{redactQueries(card.result)}</p> : null}
         </Receipt>
       );
     }
@@ -530,37 +679,39 @@ function ClosedCard({ card, send: sendFrame }: { card: Card; send: Send }) {
       const decided = card.approvedBy === "standing_permission" ? "approved by standing permission" : card.approvedBy === "user" ? "approved by you" : null;
       if (card.lost) {
         return (
-          <Receipt tone={card.lost === "unknown" ? "danger" : "info"} company={card.company} action={dismiss} note={note}>
-            {card.company} no longer has this, so nothing more can be done with it: “{card.summary}”
-            <span className="block text-kumo-subtle">
+          <Receipt result={card.lost === "unknown" ? "unknown" : "failed"} company={card.company} action={dismiss} note={note}>
+            <p>{card.company} no longer has this, so nothing more can be done with it: “{card.summary}”</p>
+            <p className="text-kumo-subtle">
               {card.lost === "unknown"
                 ? `It may have happened: check with ${card.company} before asking again.`
                 : decided
                   ? "It wasn't done. Ask your agent again if you still want it."
                   : "Nothing was confirmed."}
-            </span>
+            </p>
           </Receipt>
         );
       }
       if (card.alteredSummary !== undefined) {
         // The Company changed this revision's terms after they were shown (Operations 3.1 forbids it).
         return (
-          <Receipt tone="danger" company={card.company} action={dismiss} note={note}>
-            {card.state === "proposed"
-              ? `${card.company} changed these terms after you saw them, without a new revision, so your agent won't confirm them: “${card.summary}”`
-              : `${card.company} now reports different terms from the ones ${decided ? "you approved" : "you saw"}: “${card.summary}”`}
-            <span className="block text-kumo-subtle">
+          <Receipt result="failed" company={card.company} action={dismiss} note={note}>
+            <p>
+              {card.state === "proposed"
+                ? `${card.company} changed these terms after you saw them, without a new revision, so your agent won't confirm them: “${card.summary}”`
+                : `${card.company} now reports different terms from the ones ${decided ? "you approved" : "you saw"}: “${card.summary}”`}
+            </p>
+            <p className="text-kumo-subtle">
               {card.state === "proposed"
                 ? `It now says: “${card.alteredSummary}”. Ask your agent for a new proposal if you still want it.`
                 : `It says: “${card.alteredSummary}”. Check with ${card.company} what was done.`}
-            </span>
+            </p>
           </Receipt>
         );
       }
       if (card.state === "in_progress") {
         return (
           <Receipt
-            tone="info"
+            result="in_progress"
             company={card.company}
             note={note}
             action={
@@ -574,39 +725,13 @@ function ClosedCard({ card, send: sendFrame }: { card: Card; send: Send }) {
               </Action>
             }
           >
-            In progress{decided ? `, ${decided}` : ""}: “{card.summary}”
+            <p className="text-kumo-subtle">
+              {decided ? `${decided[0]!.toUpperCase()}${decided.slice(1)}: ` : ""}“{card.summary}”
+            </p>
           </Receipt>
         );
       }
-      const tone: Tone = card.state === "succeeded" ? "success" : card.state === "failed" ? "danger" : "info";
-      return (
-        <Receipt tone={tone} company={card.company}>
-          <span>
-            {OPERATION_STATE[card.state] ?? card.state}
-            {decided ? ` · ${decided}` : ""}
-          </span>
-          {card.result ? (
-            <span className="block text-kumo-default">
-              {card.company} says: {card.result}
-            </span>
-          ) : null}
-          {card.links?.length ? (
-            <span className="mt-1 flex flex-wrap gap-x-3">
-              {card.links.flatMap((link) => {
-                const href = httpsHref(link.url);
-                return href
-                  ? [
-                      <a key={href} href={href} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-1 font-medium text-kumo-link underline">
-                        Open {link.label} at {card.company}
-                        <ArrowSquareOutIcon size={14} aria-hidden />
-                      </a>
-                    ]
-                  : [];
-              })}
-            </span>
-          ) : null}
-        </Receipt>
-      );
+      return <OperationReceipt card={card} decided={decided} onAsk={onAsk} />;
     }
     default:
       // Sign-in and invitation cards become notices when they close.
@@ -614,9 +739,68 @@ function ClosedCard({ card, send: sendFrame }: { card: Card; send: Send }) {
   }
 }
 
-/** One card: a request while it waits for the User, a one-line receipt once resolved. */
-export function PoppyCard({ card, send }: { card: Card; send: Send }) {
-  if (!card.open) return <ClosedCard card={card} send={send} />;
+const OPERATION_RESULT: Record<string, ActivityResult> = {
+  proposed: "in_progress",
+  in_progress: "in_progress",
+  succeeded: "done",
+  failed: "failed",
+  cancelled: "cancelled",
+  expired: "expired"
+};
+
+/**
+ * An operation that finished: its state, the total, what the Company says
+ * came of it, and the pages it named on its own hosts (a checkout opens in a
+ * new tab, so the conversation stays where it is). Poppy says nothing of a
+ * payment made at a checkout afterwards, so the User can ask their agent to
+ * look at the order.
+ */
+function OperationReceipt({ card, decided, onAsk }: { card: Extract<Card, { kind: "operation" }>; decided: string | null; onAsk?: ((text: string) => void) | undefined }) {
+  const result = OPERATION_RESULT[card.state] ?? "unknown";
+  const links = (card.links ?? []).flatMap((link) => {
+    const href = httpsHref(link.url);
+    return href ? [{ label: link.label, href }] : [];
+  });
+  return (
+    <section aria-label={`${card.company}: ${RESULT[result]}`} className="enter rounded-xl p-4 ring ring-kumo-hairline" data-operation-receipt={card.state}>
+      <Receipt result={result} detail={decided} company={card.company}>
+        {card.total ? (
+          <p className="mt-1 text-xl font-semibold text-kumo-strong tabular-nums" data-total>
+            {money(card.total)}
+          </p>
+        ) : null}
+        {card.result ? (
+          <CompanySays company={card.company} className="mt-2 border-l-2 border-kumo-line pl-3 [&_blockquote]:text-[13px]">
+            {card.result}
+          </CompanySays>
+        ) : null}
+        {links.length || (onAsk && result === "done") ? (
+          <div className="mt-2 flex flex-wrap items-center gap-x-4">
+            {links.map((link) => (
+              <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-1 font-medium text-kumo-link underline">
+                Open {link.label} at {card.company}
+                <ArrowSquareOutIcon size={14} aria-hidden />
+              </a>
+            ))}
+            {onAsk && result === "done" ? (
+              <button
+                type="button"
+                onClick={() => onAsk(`Check the status of this at ${card.company}: ${card.summary.slice(0, 200)}`)}
+                className="inline-flex min-h-10 items-center font-medium text-kumo-link underline underline-offset-4"
+              >
+                Ask your agent to check on it
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </Receipt>
+    </section>
+  );
+}
+
+/** One card: a request while it waits for the User, a one-line receipt once resolved. `onAsk` lets a receipt ask the agent something for the User. */
+export function PoppyCard({ card, send, onAsk }: { card: Card; send: Send; onAsk?: (text: string) => void }) {
+  if (!card.open) return <ClosedCard card={card} send={send} onAsk={onAsk} />;
   switch (card.kind) {
     case "signin_link":
       return <SignInLinkCard card={card} send={send} />;
@@ -651,7 +835,7 @@ export function needsYou(cards: readonly Card[]): Card[] {
   );
 }
 
-/** Resolved cards, for receipts under the transcript. */
+/** Resolved cards: outcomes the chat places by time (`ChatPage`). */
 export function receipts(cards: readonly Card[]): Card[] {
   const pinned = new Set(needsYou(cards));
   return cards.filter((card) => !pinned.has(card));
@@ -699,12 +883,30 @@ function requestLabel(card: Card | undefined): string {
 
 /** Requests dock above the composer. Opening never takes focus from the conversation. */
 export function NeedsYouPanel({ view, send, extra, extraIds = [] }: { view: PoppyView; send: Send; extra?: ReactNode; extraIds?: readonly string[] }) {
-  const items = needsYou(view.cards);
-  const count = items.length + extraIds.length;
-  // Ignore refreshed frames and removals. A new card, sign-in step, or operation
-  // revision must draw attention again, even when the total count stays the same.
+  // A batch the User decided stays in view, each photo with its progress, until every one has finished.
+  const [decided, setDecided] = useState<readonly { key: string; ids: readonly string[] }[]>([]);
+  const byId = new Map(view.cards.map((card) => [card.id, card]));
+  const sending = decided
+    .map((batch) => ({ key: batch.key, cards: batch.ids.map((id) => byId.get(id)).filter((card): card is ApprovalCardOf => card?.kind === "approval") }))
+    .filter((batch) => batch.cards.some((card) => card.status === "pending" || card.status === "approved"));
+  useEffect(() => {
+    if (sending.length !== decided.length) setDecided(decided.filter((batch) => sending.some((item) => item.key === batch.key)));
+  });
+  const inBatch = new Set(sending.flatMap((batch) => batch.cards.map((card) => card.id)));
+  const entries = [
+    ...sending.map((batch) => ({ kind: "batch" as const, key: batch.key, cards: batch.cards, decided: true })),
+    ...approvalBatches(needsYou(view.cards).filter((card) => !inBatch.has(card.id))).map((entry) => (entry.kind === "batch" ? { ...entry, decided: false } : entry))
+  ];
+  const items = entries.map((entry) => (entry.kind === "card" ? entry.card : entry.cards[0]!));
+  const count = entries.length + extraIds.length;
+  // Ignore refreshed frames and removals. A new card, sign-in step, operation
+  // revision or photo joining a batch must draw attention again, even when the total count stays the same.
   const keys = [
-    ...items.map((card) => JSON.stringify([card.id, card.kind, card.kind === "operation" ? card.revision : null])),
+    ...entries.map((entry) =>
+      entry.kind === "card"
+        ? JSON.stringify([entry.card.id, entry.card.kind, entry.card.kind === "operation" ? entry.card.revision : null])
+        : JSON.stringify(["batch", entry.key, entry.cards.map((card) => card.id)])
+    ),
     ...extraIds.map((id) => JSON.stringify(["direct", id]))
   ];
   const [visibility, setVisibility] = useState({ keys, open: count > 0 });
@@ -719,7 +921,8 @@ export function NeedsYouPanel({ view, send, extra, extraIds = [] }: { view: Popp
   const focusOnOpen = useRef(false);
   const expanded = visibility.open && count > 0;
   const requestVersion = JSON.stringify(keys);
-  const label = count === 1 ? requestLabel(items[0]) : `${count} requests`;
+  const firstEntry = entries[0];
+  const label = count === 1 ? (firstEntry?.kind === "batch" ? `Send ${firstEntry.cards.length} photos` : requestLabel(items[0])) : `${count} requests`;
   const collapse = () => setVisibility({ keys, open: false });
   useLayoutEffect(() => {
     if (expanded && (focusOnOpen.current || (focusInside.current && !panel.current?.contains(document.activeElement)))) {
@@ -784,27 +987,24 @@ export function NeedsYouPanel({ view, send, extra, extraIds = [] }: { view: Popp
           <div role="group" aria-label="Request details" tabIndex={0} className="min-h-0 overflow-y-auto overscroll-contain divide-y divide-kumo-hairline">
             <RequestPanelContext value={true}>
               {extra}
-              {items.map((card) => (
-                <PoppyCard key={card.id} card={card} send={send} />
-              ))}
+              {entries.map((entry) =>
+                entry.kind === "card" ? (
+                  <PoppyCard key={entry.card.id} card={entry.card} send={send} />
+                ) : (
+                  <BatchApprovalCard
+                    key={`batch-${entry.key}`}
+                    cards={entry.cards}
+                    decided={entry.decided}
+                    send={send}
+                    onDecided={() => setDecided((current) => [...current, { key: entry.key, ids: entry.cards.map((card) => card.id) }])}
+                  />
+                )
+              )}
             </RequestPanelContext>
           </div>
         </section>
       </div>
     </>
-  );
-}
-
-/** Resolved requests as one-line receipts, under the transcript. */
-export function Receipts({ view, send }: { view: PoppyView; send: Send }) {
-  const items = receipts(view.cards);
-  if (items.length === 0) return null;
-  return (
-    <section aria-label="Resolved requests" className="border-t border-kumo-hairline pt-3">
-      {items.map((card) => (
-        <PoppyCard key={card.id} card={card} send={send} />
-      ))}
-    </section>
   );
 }
 

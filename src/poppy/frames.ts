@@ -26,6 +26,7 @@ export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
     decision: literal("approve", "decline", "cancel")
   }),
   "poppy.approval": object({ type: literal("poppy.approval"), approvalId: string, decision }),
+  "poppy.approvals": object({ type: literal("poppy.approvals"), decisions: array(object({ approvalId: string, decision })) }),
   "poppy.direct.start": object({ type: literal("poppy.direct.start"), conversationId: string, text: string }),
   "poppy.direct.decline": object({ type: literal("poppy.direct.decline"), conversationId: string }),
   "poppy.direct.say": object({ type: literal("poppy.direct.say"), conversationId: string, text: string }),

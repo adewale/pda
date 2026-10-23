@@ -50,9 +50,11 @@ You can send while the page is still connecting or reconnecting. The message sho
 
 Nothing that changes your account at a company happens until you approve it. Each request opens in the **Needs you** panel above the message box, with **Approve** and **Decline**. You can keep chatting while it is open. Collapse the panel, or press Escape while working in it, without answering; the **Needs you** button keeps the pending count and opens it again. Anything you entered in a sign-in form stays there while the panel is collapsed.
 
-- **A company's proposal** shows the company's summary, its price and its terms. Approving lets your agent confirm exactly that.
+- **A company's proposal** shows the company's summary, its total in large figures, and its terms. The button says the total ("Approve $14.50"). Approving lets your agent confirm exactly that.
 - **Our own card** covers every other change your agent would make: it shows the exact request, and only Approve sends it, once.
-- **Sending a photo** always has its own card, showing the photo and the company it goes to.
+- **Sending a photo** always needs a card showing the photo and the company it goes to. Several photos going to the same place at one company share one card: each photo is a tile, ticked to start, and the button counts what it sends ("Send 9 of 10 photos"). Untick any you don't want sent; your agent hears that you declined them. Once you decide, each tile shows how its photo went. A photo for another company, or anything that isn't a photo, keeps its own card.
+
+When you've decided, the outcome shows on the line in the chat where your agent asked: "Sent “lake.jpg” to Print Shop", or "Couldn't send “meadow.gif”" with the company's status code and **Ask your agent to try again**. The company's raw answer, and every exchange in order, are behind **Details** and in **Activity → Protocol**; a link from Details opens that company's log. Links in an answer that carry a signature or a token show as "…" after the address, because anyone holding one could use it.
 - **Standing permissions are paused.** Every new operation asks you to approve its exact revision. Older permissions remain visible on the Company's page and can be removed; they no longer authorize new work. The old summary-prefix matcher could not check the full action and every term.
 
 Signing in to a company, signing out, and talking to a company's staff directly in a Direct Conversation are also yours to do on the page; the agent can only ask.

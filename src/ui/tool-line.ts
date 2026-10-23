@@ -28,6 +28,26 @@ export type ToolOutcome = {
   readonly text?: string;
 };
 
+/**
+ * How the request a call put on a card ended, once the User decided: from
+ * the card while the agent keeps it, then from Activity's log. A call that
+ * asked for approval reads "Waiting for you" until this says otherwise.
+ */
+export type ToolDecision = {
+  readonly result: "waiting" | "in_progress" | "done" | "declined" | "failed" | "unknown";
+  /** The User's photos it sends, by name, when the card still says. */
+  readonly photos?: readonly string[];
+};
+
+/** The approval a call asked for (`{ proposed: "apr_…" }`), or the operation it proposed (`{ proposed: { operation_id } }`). */
+export function proposedBy(outcome: ToolOutcome | undefined): { approvalId: string } | { operationId: string } | null {
+  if (!outcome || outcome.error || !isRecord(outcome.details)) return null;
+  const proposed = outcome.details.proposed;
+  if (typeof proposed === "string" && proposed.startsWith("apr_")) return { approvalId: proposed };
+  if (isRecord(proposed) && typeof proposed.operation_id === "string") return { operationId: proposed.operation_id };
+  return null;
+}
+
 type Args = Record<string, unknown>;
 
 const QUOTE_LIMIT = 120;
@@ -178,7 +198,8 @@ export function describeToolCall(
   name: string,
   args: unknown,
   outcome?: ToolOutcome,
-  companies: ReadonlyMap<string, string> = new Map()
+  companies: ReadonlyMap<string, string> = new Map(),
+  decision?: ToolDecision
 ): ToolLine | null {
   if (!name.startsWith("poppy_")) return generalLine(name, isRecord(args) ? args : {}, outcome);
   const a: Args = isRecord(args) ? args : {};
@@ -222,9 +243,41 @@ export function describeToolCall(
       const match = /^(GET|POST|PUT|PATCH|DELETE)\s+(\S+)/i.exec(operation);
       // An upload names the User's photos by attachment id; sending one always waits for their approval.
       const files = isRecord(a.files) ? Object.keys(a.files).length : 0;
-      if (files) return line(`Asked you to approve sending ${files === 1 ? "your photo" : "your photos"} to ${company}`, "API", "view and change");
+      if (files) {
+        const photos = decision?.photos?.length ? clip(decision.photos.map((photo) => `“${photo}”`).join(", "), 80) : files === 1 ? "your photo" : "your photos";
+        const upload = (text: string, state: ToolState = "done"): ToolLine => ({ text, how: "API", access: "view and change", state });
+        switch (decision?.result) {
+          case "in_progress":
+            return upload(`Sending ${photos} to ${company}`, "running");
+          case "done":
+            return upload(`Sent ${photos} to ${company}`);
+          case "declined":
+            return upload(`You declined sending ${photos} to ${company}`);
+          case "failed":
+            return upload(`Couldn't send ${photos} to ${company}`, "failed");
+          case "unknown":
+            return upload(`Sent ${photos} to ${company}, but the outcome is unknown`, "failed");
+          default:
+            return line(`Asked you to approve sending ${photos} to ${company}`, "API", "view and change");
+        }
+      }
       if (match && match[1]!.toUpperCase() === "GET") return line(`Read ${noun(match[2]!)} at ${company}`, "API", "view");
-      if (state === "waiting") return line(`Asked you to approve a change at ${company}`, "API", "view and change");
+      if (state === "waiting") {
+        const where = match ? `: ${noun(match[2]!)}` : "";
+        switch (decision?.result) {
+          case "in_progress":
+            return { ...line(`Making the change you approved at ${company}${where}`, "API", "view and change"), state: "running" };
+          case "done":
+            return { ...line(`Made the change you approved at ${company}${where}`, "API", "view and change"), state: "done" };
+          case "declined":
+            return { ...line(`You declined a change at ${company}${where}`, "API", "view and change"), state: "done" };
+          case "failed":
+          case "unknown":
+            return { ...line(`The change you approved at ${company}${where} didn't go through`, "API", "view and change"), state: "failed" };
+          default:
+            return line(`Asked you to approve a change at ${company}`, "API", "view and change");
+        }
+      }
       if (match) return line(`Made a change at ${company}: ${noun(match[2]!)}`, "API", "view and change");
       return line(`Used “${words(operation || "an operation")}” at ${company}`, "API", null);
     }

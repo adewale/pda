@@ -1,0 +1,3 @@
+/* The page's own styles, with Tailwind pointed at its sources: this folder is Vite's root, so it wouldn't find them. */
+@import "../../../src/styles.css";
+@source "../../../src";

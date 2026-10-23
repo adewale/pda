@@ -1,14 +1,15 @@
 import { cn, InputArea, Loader } from "@cloudflare/kumo";
 import { ClockIcon, HandIcon, ImageIcon, MagnifyingGlassIcon, PaperPlaneRightIcon, SignInIcon, StopIcon } from "@phosphor-icons/react";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ATTACHMENT_TYPES } from "../attachments";
-import { DirectConversations, HiddenDirectRow, NeedsYouPanel, openDirect, Receipts } from "../poppy-ui";
+import { DirectConversations, HiddenDirectRow, NeedsYouPanel, openDirect, PoppyCard, receipts } from "../poppy-ui";
 import type { PiSession } from "../use-pi-session";
 import { attachProblem, PendingAttachments, removeAttachment, uploadAttachment, withMarkers, type PendingAttachment } from "./attachments";
 import { NOT_SENT } from "./connection";
 import { Action, IconAction, useNow } from "./controls";
 import { countdown } from "./format";
-import { Transcript, UserMessage } from "./transcript";
+import { approvalsOnSteps, stepDecisions } from "./steps";
+import { Transcript, UserMessage, type TimelineEvent } from "./transcript";
 
 function Capability({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
   return (
@@ -289,21 +290,31 @@ function Composer({ session }: { session: PiSession }) {
 }
 
 /**
- * Chat, the home place: what needs the User docked above the composer, the conversation,
- * receipts for what was resolved, and the composer. A Direct Conversation
- * opens beside it on wide screens and over it on phones.
+ * Chat, the home place: the conversation, with each request's outcome on the
+ * step that asked for it and other outcomes placed by time; what needs the
+ * User docked above the composer; and the composer. Nothing is pinned under
+ * the agent's newest message. A Direct Conversation opens beside it on wide
+ * screens and over it on phones.
  */
 export function ChatPage({
   session,
   hidden,
-  setHidden
+  setHidden,
+  onProtocol
 }: {
   session: PiSession;
   /** Direct Conversations the User put away for now. */
   hidden: ReadonlySet<string>;
   setHidden: (next: ReadonlySet<string>) => void;
+  /** Open a Company's protocol log in Activity, by its domain. */
+  onProtocol?: (domain: string) => void;
 }) {
   const { poppy, sendPoppy, messages, live, running, tools, error } = session;
+  const decisions = useMemo(() => stepDecisions(poppy.cards, poppy.activity?.log ?? []), [poppy.cards, poppy.activity]);
+  const onSteps = useMemo(() => approvalsOnSteps(live ? [...messages, live] : messages), [messages, live]);
+  const events: TimelineEvent[] = receipts(poppy.cards)
+    .filter((card) => !(card.kind === "approval" && onSteps.has(card.approvalId)))
+    .map((card) => ({ key: card.id, at: card.at ?? Number.POSITIVE_INFINITY, node: <PoppyCard card={card} send={sendPoppy} onAsk={(text) => session.submit(text)} /> }));
   const runningTools = tools.map((tool) => tool.name);
   const scroller = useStickToBottom(messages, live, running, poppy.cards, session.outbox);
   const empty = messages.length === 0 && !live && !running && session.outbox.length === 0;
@@ -319,12 +330,20 @@ export function ChatPage({
           Chat with your agent
         </h1>
         <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-3xl space-y-5 px-4 py-6 sm:px-6">
+          <div className="mx-auto max-w-3xl space-y-6 px-4 py-6 sm:px-6">
             {empty ? <Welcome /> : null}
-            <Transcript messages={messages} live={live} runningTools={runningTools} onRetry={(text) => session.submit(text)} summaries={session.summaries} />
+            <Transcript
+              messages={messages}
+              live={live}
+              runningTools={runningTools}
+              onRetry={(text) => session.submit(text)}
+              summaries={session.summaries}
+              decisions={decisions}
+              events={events}
+              {...(onProtocol ? { onProtocol } : {})}
+            />
             <Pending session={session} />
             <Working session={session} />
-            <Receipts view={poppy} send={sendPoppy} />
             {error ? (
               <div role="alert" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-kumo-danger-tint px-4 py-3">
                 <p className="min-w-0 flex-1 text-base text-pretty text-kumo-danger">Your agent reported a problem: {error}</p>

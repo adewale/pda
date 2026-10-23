@@ -20,7 +20,9 @@ import {
   approveAndConfirm,
   cancelOperation,
   decideLocal,
+  decideLocalBatch,
   permissions,
+  recoverApprovalBatches,
   recoverInterruptedApprovals,
   recoverOperations,
   removePermission,
@@ -212,6 +214,7 @@ export class PoppyCapability extends LifecycleCapability {
     if (!this.#hasPoppyState()) return;
     await this.#units.job({ job: literal("poppy.recover") }, async () => {
       await recoverInterruptedApprovals(this.client);
+      await recoverApprovalBatches(this.client);
       await recoverOperations(this.client);
       // A Direct Sign-In the restart interrupted: finish it, or start a new Session (4.5).
       await recoverSignIns(this.client).catch((error: unknown) => reportError(error, { source: literal("poppy.signin_recovery") }));
@@ -322,14 +325,20 @@ export class PoppyCapability extends LifecycleCapability {
     }
   }
 
+  /** Take a closed card out of every page's list now, as dismissing it does. */
+  retireCard(id: string): void {
+    this.#options.storage.sql.exec("UPDATE poppy_cards SET open = 0, updated_at = 0 WHERE id = ?", id);
+    this.#sendCards();
+  }
+
   /** Open cards, plus closed ones from the last hour so outcomes stay visible. */
   #sendCards(socket?: WebSocket): void {
     const cards = rows(
       this.#options.storage.sql,
-      cardsTable.pick("card"),
-      "SELECT card FROM poppy_cards WHERE open = 1 OR updated_at > ? ORDER BY updated_at",
+      cardsTable.pick("card", "updated_at"),
+      "SELECT card, updated_at FROM poppy_cards WHERE open = 1 OR updated_at > ? ORDER BY updated_at",
       Date.now() - 60 * 60_000
-    ).map((row) => JSON.parse(row.card) as Card);
+    ).map((row) => ({ ...(JSON.parse(row.card) as Card), at: row.updated_at }));
     const frame: PoppyServerFrame = { type: "poppy.cards", cards };
     if (socket) socket.send(JSON.stringify(frame));
     else this.#broadcast(frame);
@@ -469,6 +478,9 @@ export class PoppyCapability extends LifecycleCapability {
       case "poppy.approval":
         await decideLocal(client, frame.approvalId, frame.decision);
         return;
+      case "poppy.approvals":
+        await decideLocalBatch(client, frame.decisions);
+        return;
       case "poppy.direct.start":
         await startDirectConversation(client, frame.conversationId, frame.text);
         return;
@@ -508,8 +520,7 @@ export class PoppyCapability extends LifecycleCapability {
         this.#sendSettings();
         return;
       case "poppy.card.dismiss":
-        this.#options.storage.sql.exec("UPDATE poppy_cards SET open = 0, updated_at = 0 WHERE id = ?", frame.id);
-        this.#sendCards();
+        this.retireCard(frame.id);
         return;
     }
   }
@@ -594,6 +605,7 @@ function frameFields(frame: PoppyClientFrame): Fields {
     ...("issuer" in frame ? { issuer: origin(frame.issuer) } : {}),
     ...(frame.type === "poppy.operation" ? { operation_id: id(frame.operationId) } : {}),
     ...(frame.type === "poppy.approval" ? { approval_id: id(frame.approvalId) } : {}),
+    ...(frame.type === "poppy.approvals" ? { approvals: frame.decisions.length, approved: frame.decisions.filter((item) => item.decision === "approve").length } : {}),
     ...(frame.type === "poppy.permission.add" ? { action: code(frame.action) } : {})
   };
 }

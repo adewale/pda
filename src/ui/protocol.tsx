@@ -10,7 +10,7 @@ import {
   TreeStructureIcon,
   WarningCircleIcon
 } from "@phosphor-icons/react";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { ProtocolCompany, ProtocolEntry, ProtocolOutcome } from "../poppy/wire";
 import type { ProtocolLogView, ProtocolView } from "../use-pi-session";
 import { useConnected, type Send } from "./connection";
@@ -143,8 +143,13 @@ function Export({ log }: { log: ProtocolLogView }) {
   );
 }
 
-function CompanyProtocol({ company, log, send }: { company: ProtocolCompany; log: ProtocolLogView | undefined; send: Send }) {
-  const [open, setOpen] = useState(false);
+function CompanyProtocol({ company, log, send, start = false }: { company: ProtocolCompany; log: ProtocolLogView | undefined; send: Send; start?: boolean }) {
+  // Open from the start when the chat's "See every exchange" led here, and brought into view.
+  const [open, setOpen] = useState(start);
+  const item = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (start) item.current?.scrollIntoView?.({ block: "start" });
+  }, [start]);
   const panel = useId();
   const connected = useConnected();
   // Ask when opened, again whenever the log grows while it's open, and again on reconnecting: a request while disconnected doesn't go.
@@ -153,7 +158,7 @@ function CompanyProtocol({ company, log, send }: { company: ProtocolCompany; log
   }, [open, connected, company.key, company.lastSeq, send]);
   const name = `${company.company}${company.domain && company.domain !== company.company ? ` (${company.domain})` : ""}`;
   return (
-    <li>
+    <li ref={item}>
       <h3>
         <button
           type="button"
@@ -252,7 +257,7 @@ export function Diagnostics({ diagnostics, send }: { diagnostics: ProtocolView["
 }
 
 /** Every Company's protocol log, each behind its own disclosure. */
-export function ProtocolList({ protocol, send }: { protocol: ProtocolView; send: Send }) {
+export function ProtocolList({ protocol, send, openDomain = null }: { protocol: ProtocolView; send: Send; openDomain?: string | null }) {
   if (protocol.companies === null) return <SkeletonRows rows={1} label="Loading the protocol view" />;
   if (protocol.companies.length === 0) {
     return (
@@ -264,7 +269,13 @@ export function ProtocolList({ protocol, send }: { protocol: ProtocolView; send:
   return (
     <ul className="divide-y divide-kumo-hairline rounded-xl ring ring-kumo-hairline" aria-label="Protocol logs by Company">
       {protocol.companies.map((company) => (
-        <CompanyProtocol key={company.key} company={company} log={protocol.logs[company.key]} send={send} />
+        <CompanyProtocol
+          key={company.key}
+          company={company}
+          log={protocol.logs[company.key]}
+          send={send}
+          start={openDomain !== null && (company.domain?.toLowerCase() === openDomain.toLowerCase() || company.key === openDomain)}
+        />
       ))}
     </ul>
   );

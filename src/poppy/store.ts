@@ -166,6 +166,14 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   result TEXT,
   created_at INTEGER NOT NULL
 );
+-- Approvals decided together on one card (operations.ts decideLocalBatch): the model is told once, when every one is done.
+-- A row with told = 0 after a restart is told then, from what its approvals' rows say.
+CREATE TABLE IF NOT EXISTS poppy_approval_batches (
+  id TEXT PRIMARY KEY,
+  ids TEXT NOT NULL,
+  told INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS poppy_intents (
   call_key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
@@ -375,6 +383,7 @@ export const approvalsTable = table("poppy_approvals", {
   result: nullable(text),
   created_at: integer
 });
+export const approvalBatchesTable = table("poppy_approval_batches", { id: text, ids: text, told: integer, created_at: integer });
 export const intentsTable = table("poppy_intents", { call_key: text, value: text, created_at: integer });
 export const cardsTable = table("poppy_cards", { card: text, id: text, open: integer, updated_at: integer });
 

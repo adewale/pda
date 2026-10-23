@@ -1,0 +1,167 @@
+{
+  "before": {
+    "source_sha": "9e0d7b04442836645d44820b4bf36efcadf41895",
+    "source_has_uncommitted_changes_in_src": false,
+    "artifacts": [
+      {
+        "path": "before-chat-desktop.png",
+        "scene": "chat",
+        "viewport": "1280×900",
+        "sha256": "08f0b91cf2e1b65ce69bf9109a718988fd9f667c15927372f96f6aacf2c5a102",
+        "bytes": 260082
+      },
+      {
+        "path": "before-chat-mobile.png",
+        "scene": "chat",
+        "viewport": "390×844",
+        "sha256": "ee49f623805f558af535f1d7afda67e297e709985822991161624c7c1a419b91",
+        "bytes": 94571
+      },
+      {
+        "path": "before-batch-desktop.png",
+        "scene": "batch",
+        "viewport": "1280×900",
+        "sha256": "17f1ba1ed5e3b593298403e061d5249dcdeb375be35eabdd1366ca253c65cba4",
+        "bytes": 107311
+      },
+      {
+        "path": "before-batch-mobile.png",
+        "scene": "batch",
+        "viewport": "390×844",
+        "sha256": "2f4bd41f9b5547693ca8232605bc30fbf923debafe79ed346000bdaf14c84523",
+        "bytes": 59826
+      },
+      {
+        "path": "before-order-desktop.png",
+        "scene": "order",
+        "viewport": "1280×900",
+        "sha256": "5e5311638652d3f02a2d2d4acc16645f0b8de9df364752fbd7beef7258b7afcc",
+        "bytes": 188753
+      },
+      {
+        "path": "before-ordered-desktop.png",
+        "scene": "ordered",
+        "viewport": "1280×900",
+        "sha256": "4ab8374456dd14f05919cd9752daf15dd3003dd8bed08f6ff1f03575f2ecaf17",
+        "bytes": 246700
+      },
+      {
+        "path": "before-activity-desktop.png",
+        "scene": "activity",
+        "viewport": "1280×900",
+        "sha256": "2db631a93c6643fafa395d0f9a9dc51d9ec10d684ca3ae7b0462131cbded8567",
+        "bytes": 164490
+      },
+      {
+        "path": "before-companies-desktop.png",
+        "scene": "companies",
+        "viewport": "1280×900",
+        "sha256": "3d4b34f35e8564660cea1f24eeaf596a4707592eaaf28dc1e244c78185c735d6",
+        "bytes": 44070
+      }
+    ]
+  },
+  "after": {
+    "source_sha": "55a0ea4d186d65a2df254b237c9d166abf3aa06e",
+    "source_has_uncommitted_changes_in_src": false,
+    "artifacts": [
+      {
+        "path": "after-chat-desktop.png",
+        "scene": "chat",
+        "viewport": "1280×900",
+        "sha256": "63ba7a621912a5632c9c7e076817028332ee94967177a5147a76269acce2f7d7",
+        "bytes": 192307
+      },
+      {
+        "path": "after-chat-mobile.png",
+        "scene": "chat",
+        "viewport": "390×844",
+        "sha256": "0943f52806b70e5a16dcda4212e56783fa931d82f9f107ce46d847b6a294c299",
+        "bytes": 74790
+      },
+      {
+        "path": "after-batch-desktop.png",
+        "scene": "batch",
+        "viewport": "1280×900",
+        "sha256": "e5e243e302ee1dbc7b14a35a1fd4bef1c654be756937a882e73fbc12226d408b",
+        "bytes": 183259
+      },
+      {
+        "path": "after-batch-mobile.png",
+        "scene": "batch",
+        "viewport": "390×844",
+        "sha256": "b75087401adc6e1ef7a2f0d8a5d1ad2dc1be9c598dc201adae220712c771125b",
+        "bytes": 74764
+      },
+      {
+        "path": "after-order-desktop.png",
+        "scene": "order",
+        "viewport": "1280×900",
+        "sha256": "78c5ffb29859ba89a519b7ebb332cd394ac04ee189c7c646dcc915fb74e7b2bb",
+        "bytes": 139959
+      },
+      {
+        "path": "after-ordered-desktop.png",
+        "scene": "ordered",
+        "viewport": "1280×900",
+        "sha256": "f02414b1537b3c897f3b58163de97f6e50bf869574c0dc4a0758879caa439146",
+        "bytes": 140589
+      },
+      {
+        "path": "after-activity-desktop.png",
+        "scene": "activity",
+        "viewport": "1280×900",
+        "sha256": "0832e1e8acb5a791092bb1e0dbee2a611b7abb5a7f7bf92fc6d5b3404bc024a2",
+        "bytes": 119237
+      },
+      {
+        "path": "after-companies-desktop.png",
+        "scene": "companies",
+        "viewport": "1280×900",
+        "sha256": "126eabf785e6119c78dca35289bf59ab84cc1aa0263ffd0d40a84b14db822c3c",
+        "bytes": 44740
+      }
+    ]
+  },
+  "browser": "Google Chrome for Testing 153.0.8010.12",
+  "fixture": "docs/evidence/chat-review/fixture.tsx",
+  "captured_at": "2026-10-23",
+  "films": [
+    {
+      "path": "after-flow.mp4",
+      "source_sha": "0891c5b3ee18775e7ba3e9e4f58443e86a0e7b12",
+      "scene": "flow",
+      "viewport": "1280×800",
+      "seconds": 28.7,
+      "sha256": "15ce2e79b0d7fd972d8fc10c9e6c6cfe1d0736d4bf18af9a87b1815a53fe0d12",
+      "bytes": 564361
+    },
+    {
+      "path": "after-flow.gif",
+      "source_sha": "0891c5b3ee18775e7ba3e9e4f58443e86a0e7b12",
+      "scene": "flow",
+      "viewport": "1280×800",
+      "seconds": 28.7,
+      "sha256": "730496d7257f26ae1fd662833e003adcb7c1b7d1527262f155b150b486f4dd14",
+      "bytes": 1091972
+    },
+    {
+      "path": "before-flow.mp4",
+      "source_sha": "9e0d7b04442836645d44820b4bf36efcadf41895",
+      "scene": "flow",
+      "viewport": "1280×800",
+      "seconds": 39.2,
+      "sha256": "3ae4d172f5c64c185b6461fbe10166b337106441260ffab2fb6a9102362ba9fb",
+      "bytes": 987089
+    },
+    {
+      "path": "before-flow.gif",
+      "source_sha": "9e0d7b04442836645d44820b4bf36efcadf41895",
+      "scene": "flow",
+      "viewport": "1280×800",
+      "seconds": 39.2,
+      "sha256": "2a3a75cbb0f3d5df471e1c0ff238633c32ff8441829c573cbf818defe4eef3a7",
+      "bytes": 2027211
+    }
+  ]
+}
