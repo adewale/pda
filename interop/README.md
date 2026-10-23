@@ -19,7 +19,7 @@ npm run interop -- --agents lenient-personal-agent,strict-personal-agent,sloppy-
 | --- | --- |
 | `--agents a,b`, `--companies x,y` | Implementations by registry name; all of each role by default. |
 | `--scenarios D,SD` | Scenario ids; all by default. |
-| `--lane local\|live` | `local` (default): containers on a private network with no internet access ([Isolation](#isolation)). `live`: our agent against registry entries with a `url`, signed-out scenarios only, one request a second. |
+| `--lane local\|live` | `local` (default): containers on a private network with no internet access ([Isolation](#isolation)). `live`: our agents (`pda` and the lenient and strict fakes) against registry entries with a `url`, signed-out scenarios only, one request a second. |
 | `--no-build` | Use the images already built. |
 | `--build-jobs n` | Build at most `n` images concurrently (default 2), to bound compilation memory and disk pressure. |
 | `--keep` | Leave the containers and network running afterwards, for debugging. |
@@ -132,7 +132,7 @@ test/                Unit tests for the runner, in Node (interop/vitest.config.t
 
 ### The fake implementations
 
-Our two adapters each register a set of fakes: our own code with a profile, built to test the other side. Each set has a lenient, a strict and an evil member, and the agents add a sloppy one. They are `owner: "self"`; the honest fakes are `fake: true`, which keeps them out of the live lane, and the evil ones `adversarial: true` (spec §13).
+Our two adapters each register a set of fakes: our own code with a profile, built to test the other side. Each set has a lenient, a strict and an evil member, and the agents add a sloppy one. They are `owner: "self"`; the honest fakes are `fake: true` and the evil ones `adversarial: true` (spec §13). The lenient and strict agents may run in the live lane, with its identity; the sloppy one is `"live": false` and never does.
 
 | | Personal Agent (`impls/pda-agent`) | Company (`impls/pda-mock`) |
 | --- | --- | --- |

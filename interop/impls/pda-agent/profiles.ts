@@ -13,7 +13,12 @@
  * - `strict`: runs the runner's own Company-side checks and the validator
  *   over everything it receives, and refuses at the first finding of any
  *   level, a SHOULD or the Guides included. It serves what it found at
- *   `GET /violations`, as the mock does for the agent.
+ *   `GET /violations`, as the mock does for the agent. In the live lane,
+ *   which records nothing, these are the only checks a cell gets.
+ *
+ * The lenient and strict agents send what `pda` sends (the lenient one adds
+ * retries that name the same Company), so they may run in the live lane; the
+ * sloppy agent may not (registry `"live": false`).
  * - `sloppy`: what real agents get wrong, declared honestly in its
  *   readings: assertions without `typ` that live 300 s (S2
  *   `lenient-300s`), a client and Session assertion `aud` of the token
@@ -171,11 +176,27 @@ const headerMap = (headers: Headers) => new Map([...headers].map(([name, value])
  */
 export class StrictObserver {
   readonly #exchanges: Exchange[] = [];
+  /** The agent's own host: what a Company fetches from it is `to-agent`. */
+  readonly #ownHost: string | null;
   readonly #seen = new Set<string>();
   readonly recorded: Recorded[] = [];
   /** Set by a finding, read and cleared by the step that was running. */
   refusal: StrictRefusal | null = null;
   #version = "0.1";
+
+  /**
+   * `ownHost` is the agent's own host. In the local lane every host is a `*.interop.test` name
+   * that says whose it is; in the live lane, a host that isn't the agent's is the Company's.
+   */
+  constructor(ownHost: string | null = null) {
+    this.#ownHost = ownHost;
+  }
+
+  #direction(host: string): Pick<Exchange, "direction" | "peer"> {
+    const named = direction(host);
+    if (named.direction !== "other") return named;
+    return host === this.#ownHost ? { direction: "to-agent", peer: null } : { direction: "to-company", peer: host };
+  }
 
   /** Record one exchange; returns the findings it newly shows. A response body that streams isn't read. */
   async observe(request: { method: string; url: string; headers: Headers; body: string }, response: Response, started: number): Promise<Check[]> {
@@ -195,7 +216,7 @@ export class StrictObserver {
       index: this.#exchanges.length,
       method: request.method,
       url,
-      ...direction(url.hostname),
+      ...this.#direction(url.hostname),
       probe: false,
       injected: false,
       fault: null,

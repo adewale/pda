@@ -64,7 +64,7 @@ const LIVE = liveIdentityFrom({ INTEROP_LIVE_CLIENT_ID: process.env.INTEROP_LIVE
 // Read once; nothing else in this process needs the key in its environment.
 delete process.env.INTEROP_LIVE_KEY;
 if (LIVE && ADVERSARY) throw new Error("The adversarial agent never takes the live identity");
-if (LIVE && PROFILE) throw new Error("A fake Personal Agent never takes the live identity");
+if (LIVE && PROFILE === "sloppy") throw new Error("The sloppy fake agent never takes the live identity");
 const ORIGIN = LIVE?.origin ?? process.env.INTEROP_ORIGIN ?? `https://${NAME}.agent.interop.test`;
 const COMMIT = process.env.INTEROP_COMMIT ?? "unknown";
 /** Interop-only: break the agent on purpose. `assertion-typ` drops `typ` from client and Session assertions. */
@@ -231,7 +231,7 @@ async function newAgent(): Promise<Agent> {
       }
     }
   } as unknown as Env;
-  const strict = PROFILE === "strict" ? new StrictObserver() : null;
+  const strict = PROFILE === "strict" ? new StrictObserver(new URL(ORIGIN).hostname) : null;
   const sql = memorySql();
   migrate(sql);
   migrateAttachments(sql);

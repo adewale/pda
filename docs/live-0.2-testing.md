@@ -60,3 +60,19 @@ Our agent's client through the live lane, signed out, one request a second. The 
 - **Alpine now declares 0.2**, and accepted 0.2's issuer audience on both assertions. C sent "Hello", read its Company Agent's reply, and sent a second message; the scenario doesn't close the conversation. This is Alpine's first 0.2 run; its earlier runs were 0.1 (13 and 14 October). Its registry entry now names 0.2.
 - **Print with Poppy admits registered agents only**, so our fresh test identity was refused, as expected. Its source at `e4aef11` already allowlists `https://poppydemoagent.dev/poppy/client.json` for the production store and for its Cloudflare sandbox (`pwp-cf-sandbox.spencersyen.workers.dev`), in `wrangler.jsonc`. `sandbox.printwithpoppy.com` still runs on Railway (its `docs/CLOUDFLARE-CUTOVER.md`), whose allowlist is deployment config we can't see; its [sandbox guide](https://github.com/spenciefy/print-with-poppy/blob/e4aef115b5c240082149bcb354bae19ef5ef148e/docs/SANDBOX.md) still names DPA's old `client_id`, `https://personal-agent.adewale-883.workers.dev/poppy/client.json`, which has answered 404 since the switch on 15 October. Whether the deployed agent can open a Session there is untested. The live store was only discovered: nothing was ordered or sent past discovery.
 - Results are in the gitignored `interop/results/` runs of 23 October; no tokens or traffic are copied here. No findings were posted to another project.
+
+## The fake agents live, 23 October
+
+The lenient and strict fake agents (interop-spec §2.1) now run in the live lane with the same test identity; the sloppy one never does. The first attempt ran them as plain `pda`: the live lane didn't pass a registry entry's `env`, so neither container got its `INTEROP_AGENT_PROFILE`. Fixed (`liveAgentEnv` in `interop/runner/cli.ts`, with a test), then run again, signed out, one request a second:
+
+| Company | Scenarios | Lenient | Strict |
+| --- | --- | --- | --- |
+| Alpine Retail | D, S0, N | 3 pass | 3 pass |
+| Crosswalk, PlanMyVisit | D, S0, ML | 2 pass, ML unsupported (sign-in) | 2 pass, ML unsupported |
+| Safe Rate | D, S0, ML | 3 pass | 3 pass |
+| Stacktree | D, S0, ML | 3 pass | **refused at discovery**: its server metadata lists neither `private_key_jwt` nor the JWT bearer grant (`validator.metadata-auth-method`, `validator.metadata-grant-type`). Both rest on our reading, so the cells are blamed on the spec (rule `reading`), not on Stacktree. |
+| Print with Poppy (store) | D | pass | pass |
+
+The strict agent is the only source of checks in a live cell, since the live lane records nothing. Stacktree is the first live Company it refused; `pda` and the lenient agent tolerate those warnings.
+
+**A mistake in that run.** S0 and ML were also run against `print-with-poppy-live`, whose notes allow discovery only. The store got two signed-out token requests from the test identity and refused both (`invalid_client`: unregistered agent); nothing past that was sent, and nothing was ordered. The registry now enforces such limits: `liveScenarios` (interop-spec §2) gives the store `D` only and Alpine Retail the four scenarios its developer agreed to, and any other scenario is unsupported before a request is made.

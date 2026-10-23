@@ -11,7 +11,7 @@ import type { Company } from "../../src/poppy/discovery.ts";
 import { memorySql } from "../impls/pda-agent/sqlite.ts";
 import type { PoppyHost } from "../../src/poppy/client.ts";
 import { LiveIdentityClient, liveIdentityFrom } from "../impls/pda-agent/live-identity.ts";
-import { loadRegistry, selected } from "../runner/cli.ts";
+import { liveAgentEnv, loadRegistry, selected } from "../runner/cli.ts";
 import { LIVE_CLIENT_ID_VAR, LIVE_KEY_VAR, liveIdentityEnv, liveIdentityNotice, readLiveIdentity } from "../runner/live-identity.ts";
 import type { RegistryEntry } from "../runner/types.ts";
 
@@ -104,6 +104,8 @@ describe("the runner's live identity", () => {
     expect(liveIdentityEnv("local", pda, identity)).toEqual(none);
     expect(liveIdentityEnv("live", pda, null)).toEqual(none);
     expect(liveIdentityEnv("live", entry("agent", "evil-personal-agent"), identity)).toEqual(none);
+    expect(liveIdentityEnv("live", { ...pda, name: "sloppy-personal-agent", live: false }, identity)).toEqual(none);
+    expect(liveIdentityEnv("live", { ...pda, name: "strict-personal-agent", fake: true }, identity).public).toEqual({ [LIVE_CLIENT_ID_VAR]: identity.clientId });
     expect(liveIdentityEnv("live", thirdPartyAgent, identity)).toEqual(none);
     expect(liveIdentityEnv("live", entry("company", "lenient-company"), identity)).toEqual(none);
   });
@@ -112,12 +114,20 @@ describe("the runner's live identity", () => {
     const agents = selected(registry, "agent", null, "live");
     expect(agents.map((item: RegistryEntry) => item.name)).toContain("pda");
     expect(agents.every((item: RegistryEntry) => item.owner === "self")).toBe(true);
-    // Nor the fake Personal Agents: they exist to test our own Companies, never a public deployment.
-    expect(agents.some((item: RegistryEntry) => item.fake)).toBe(false);
+    // The lenient and strict fakes send what pda sends, so they may; the sloppy one, whose departures are deliberate, may not.
+    expect(agents.map((item: RegistryEntry) => item.name)).toEqual(expect.arrayContaining(["lenient-personal-agent", "strict-personal-agent"]));
+    expect(agents.some((item: RegistryEntry) => item.live === false)).toBe(false);
     expect(() => selected(registry, "agent", ["sloppy-personal-agent"], "live")).toThrow(/No agent/);
     expect(() => selected(registry, "agent", [thirdPartyAgent.name], "live")).toThrow(/No agent/);
     // The local lane still runs everyone's.
     expect(selected(registry, "agent", null, "local").map((item: RegistryEntry) => item.name)).toContain(thirdPartyAgent.name);
+  });
+
+  it("gives a live fake agent its profile from the registry, so it isn't pda under another name", () => {
+    const strict = registry.implementations.find((item: RegistryEntry) => item.name === "strict-personal-agent")!;
+    const env = liveAgentEnv(strict, "s", "c", { NODE_OPTIONS: "--use-env-proxy" }, { [LIVE_CLIENT_ID_VAR]: "https://id.example/client.json" });
+    expect(env).toMatchObject({ INTEROP_AGENT_PROFILE: "strict", INTEROP_NAME: "strict-personal-agent", NODE_OPTIONS: "--use-env-proxy", [LIVE_CLIENT_ID_VAR]: "https://id.example/client.json" });
+    expect(env).not.toHaveProperty(LIVE_KEY_VAR);
   });
 
   it("says why S0, N and C will fail when there's no identity", () => {

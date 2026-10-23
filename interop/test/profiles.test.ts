@@ -191,6 +191,12 @@ describe("the strict agent", () => {
     expect(observer.recorded).toHaveLength(1);
   });
 
+  it("in the live lane, takes every host but its own for the Company's", async () => {
+    const observer = new StrictObserver("cdn.example");
+    await observer.observe(request("https://shop.example/api/orders", { authorization: "DPoP abc" }), Response.json({ error: "invalid_token" }, { status: 401 }), Date.now());
+    expect(observer.recorded.map((found) => found.id)).toEqual(["company.www-authenticate"]);
+  });
+
   it("doesn't read a streamed body", async () => {
     const observer = new StrictObserver();
     const stream = new Response(new ReadableStream({ start() {} }), { headers: { "content-type": "text/event-stream" } });

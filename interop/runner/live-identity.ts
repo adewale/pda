@@ -70,7 +70,7 @@ export function liveIdentityEnv(
   entry: RegistryEntry,
   identity: LiveIdentity | null
 ): { readonly public: Readonly<Record<string, string>>; readonly secret: Readonly<Record<string, string>> } {
-  if (lane !== "live" || !identity || entry.role !== "agent" || entry.owner !== "self" || entry.adversarial) return { public: {}, secret: {} };
+  if (lane !== "live" || !identity || entry.role !== "agent" || entry.owner !== "self" || entry.adversarial || entry.live === false) return { public: {}, secret: {} };
   return { public: { [LIVE_CLIENT_ID_VAR]: identity.clientId }, secret: { [LIVE_KEY_VAR]: JSON.stringify(identity.key) } };
 }
 

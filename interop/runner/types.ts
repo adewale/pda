@@ -12,11 +12,10 @@ export type RegistryEntry = {
   readonly owner?: "self";
   /** An implementation that misbehaves on purpose (evil-personal-agent, evil-company). The live lane refuses it (spec §10). */
   readonly adversarial?: boolean;
-  /**
-   * A fake implementation, built to test the other side: the fake Personal Agents
-   * (lenient-, strict- and sloppy-personal-agent). The live lane never runs it (spec §10).
-   */
+  /** A fake implementation, built to test the other side: the fake Personal Agents (spec §2.1). */
   readonly fake?: boolean;
+  /** `false`: never runs in the live lane, and never gets its identity (the sloppy fake agent; spec §10). */
+  readonly live?: false;
   /** A directory holding a Dockerfile (local lane). */
   readonly build?: string;
   /** Public source pins passed into a shared build; never credentials. */
@@ -25,6 +24,12 @@ export type RegistryEntry = {
   readonly context?: string;
   /** A running deployment's domain or URL (live lane). */
   readonly url?: string;
+  /**
+   * The only scenarios the live lane may run against this Company: what its owner agreed to,
+   * or what its notes allow (the real store gets discovery only). Others are unsupported, before
+   * anything is sent. Absent: every live scenario.
+   */
+  readonly liveScenarios?: readonly string[];
   /** Expected declared version of a live Company; old entries default to 0.1. */
   readonly protocolVersion?: string;
   /**

@@ -279,6 +279,17 @@ it("attributes live cells to the configured wire version and preserves legacy en
   expect(liveCompanyManifest(old, scenarios).poppy).toEqual(["0.1"]);
 });
 
+it("limits a live Company to the scenarios its entry allows: the real Print with Poppy store gets discovery only", () => {
+  const registry = loadRegistry();
+  const scenarios = loadScenarios();
+  const store = registry.implementations.find((entry) => entry.name === "print-with-poppy-live")!;
+  expect(liveCompanyManifest(store, scenarios).scenarios).toEqual(["D"]);
+  const alpine = registry.implementations.find((entry) => entry.name === "alpine-retail-live")!;
+  expect([...liveCompanyManifest(alpine, scenarios).scenarios].sort()).toEqual(["C", "D", "N", "S0"]);
+  const stacktree = registry.implementations.find((entry) => entry.name === "stacktree-live")!;
+  expect(liveCompanyManifest(stacktree, scenarios).scenarios).toHaveLength(scenarios.length);
+});
+
 it("stops a live version mismatch before a Session request can send credentials", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "live-version-mismatch-"));
   const registry = loadRegistry();

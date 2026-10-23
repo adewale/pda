@@ -162,7 +162,8 @@ export function loadRegistry(file = path.join(INTEROP, "registry.json")): Regist
 
 /** Live peers have no adapter manifest. Their declared version must be explicit. */
 export function liveCompanyManifest(entry: RegistryEntry, scenarios: readonly Scenario[]): Manifest {
-  return { interop: 1, name: entry.name, role: "company", commit: entry.commit, poppy: [entry.protocolVersion ?? "0.1"], scenarios: scenarios.map((s) => s.id) };
+  const ids = scenarios.map((s) => s.id);
+  return { interop: 1, name: entry.name, role: "company", commit: entry.commit, poppy: [entry.protocolVersion ?? "0.1"], scenarios: entry.liveScenarios ? ids.filter((id) => entry.liveScenarios!.includes(id)) : ids };
 }
 
 export function loadScenarios(dir = path.join(INTEROP, "scenarios")): Scenario[] {
@@ -511,18 +512,33 @@ export function gridCoverage(
 
 /**
  * The implementations a lane can run, by role. The live lane runs only our
- * own agent (`owner: "self"`, built here, not a fake) against Companies with a
- * `url` (spec §10): no third-party image, and its identity's key goes to nothing else.
+ * own agents (`owner: "self"`, built here: `pda` and the lenient and strict fakes,
+ * not one marked `"live": false`) against Companies with a `url` (spec §10): no
+ * third-party image, and its identity's key goes to nothing else.
  */
 export function selected(registry: Registry, role: Role, names: readonly string[] | null, lane: "local" | "live"): RegistryEntry[] {
   const runs = (entry: RegistryEntry) =>
-    lane === "live" ? (role === "agent" ? !!entry.build && entry.owner === "self" && !entry.fake : !!entry.url) : !!entry.build;
+    lane === "live" ? (role === "agent" ? !!entry.build && entry.owner === "self" && entry.live !== false : !!entry.url) : !!entry.build;
   const all = registry.implementations.filter((entry) => entry.role === role && runs(entry));
   if (!names) return all.filter((entry) => !entry.vectorsOnly);
   for (const name of names) {
     if (!all.some((entry) => entry.name === name)) throw new Error(`No ${role} ${name} in the registry for the ${lane} lane`);
   }
   return all.filter((entry) => names.includes(entry.name));
+}
+
+/**
+ * A live-lane agent container's environment: the runner's own variables, the registry's `env`
+ * (a fake agent's `INTEROP_AGENT_PROFILE`), then `--set`, then the live identity's public half.
+ */
+export function liveAgentEnv(
+  entry: RegistryEntry,
+  secret: string,
+  commit: string,
+  set: Readonly<Record<string, string>> | undefined,
+  identity: Readonly<Record<string, string>>
+): Record<string, string> {
+  return { INTEROP_SECRET: secret, INTEROP_NAME: entry.name, INTEROP_COMMIT: commit, INTEROP_PACE_MS: "1000", ...(entry.env ?? {}), ...(set ?? {}), ...identity };
 }
 
 /**
@@ -718,7 +734,7 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
       for (const impl of implementations.filter((item) => item.entry.role === "agent" && !item.broken)) {
         const name = `${names.network}-${impl.target}`;
         const live = liveIdentityEnv(options.lane, impl.entry, identity);
-        const env = { INTEROP_SECRET: secret, INTEROP_NAME: impl.entry.name, INTEROP_COMMIT: commitOf(impl.entry), INTEROP_PACE_MS: "1000", ...(options.set.get(impl.entry.name) ?? {}), ...live.public };
+        const env = liveAgentEnv(impl.entry, secret, commitOf(impl.entry), options.set.get(impl.entry.name), live.public);
         // The key goes through the docker CLI's environment (`-e NAME`), never its arguments, so `ps` doesn't show it.
         const passed = Object.keys(live.secret).flatMap((key) => ["-e", key]);
         docker(

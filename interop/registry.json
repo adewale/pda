@@ -23,7 +23,7 @@
       "env": {
         "INTEROP_AGENT_PROFILE": "lenient"
       },
-      "notes": "The pda image with the lenient profile (interop/impls/pda-agent/profiles.ts): accepts every reading of what a Company does that gives no more access, such as server metadata at either S3 location and another of the Company's names as a client assertion aud after invalid_client. The reference agent for attribution rule 2. Never in the live lane."
+      "notes": "The pda image with the lenient profile (interop/impls/pda-agent/profiles.ts): accepts every reading of what a Company does that gives no more access, such as server metadata at either S3 location and another of the Company's names as a client assertion aud after invalid_client. The reference agent for attribution rule 2. Sends what pda sends, so it may run in the live lane."
     },
     {
       "name": "strict-personal-agent",
@@ -37,13 +37,14 @@
       "env": {
         "INTEROP_AGENT_PROFILE": "strict"
       },
-      "notes": "The pda image with the strict profile: runs the runner's Company-side checks and the validator over everything it receives, refuses at the first finding of any level (a SHOULD or the Guides included), and serves its findings at GET /violations. Never in the live lane."
+      "notes": "The pda image with the strict profile: runs the runner's Company-side checks and the validator over everything it receives, refuses at the first finding of any level (a SHOULD or the Guides included), and serves its findings at GET /violations: in the live lane, which records nothing, the only checks a cell gets."
     },
     {
       "name": "sloppy-personal-agent",
       "role": "agent",
       "owner": "self",
       "fake": true,
+      "live": false,
       "source": "https://github.com/adewale/pda",
       "commit": "HEAD",
       "build": "interop/impls/pda-agent",
@@ -51,7 +52,7 @@
       "env": {
         "INTEROP_AGENT_PROFILE": "sloppy"
       },
-      "notes": "The pda image with the sloppy profile: the mistakes real agents make, declared honestly: assertions without typ that live 300 s (S2 lenient-300s), a token-endpoint aud everywhere (S1 token-endpoint), scope on a signed-out Session request (S4 poppy-read). Honest, not adversarial. Never in the live lane."
+      "notes": "The pda image with the sloppy profile: the mistakes real agents make, declared honestly: assertions without typ that live 300 s (S2 lenient-300s), a token-endpoint aud everywhere (S1 token-endpoint), scope on a signed-out Session request (S4 poppy-read). Honest, not adversarial. Never in the live lane (\"live\": false): its departures are deliberate."
     },
     {
       "name": "lenient-company",
@@ -257,6 +258,7 @@
     {
       "name": "alpine-retail-live",
       "role": "company",
+      "liveScenarios": ["D", "S0", "N", "C"],
       "source": "https://www.alpine-retail.com",
       "commit": "unknown",
       "url": "https://www.alpine-retail.com",
@@ -392,6 +394,7 @@
     {
       "name": "print-with-poppy-live",
       "role": "company",
+      "liveScenarios": ["D"],
       "source": "https://github.com/spenciefy/print-with-poppy",
       "commit": "unknown",
       "url": "https://printwithpoppy.com",
