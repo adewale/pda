@@ -4,6 +4,8 @@ For someone signing in for the first time: how to get in, how the model is paid 
 
 Back to the [README](../README.md) · Each tool and where it comes from: [capabilities.md](capabilities.md)
 
+Public pages need no sign-in: `/about` introduces the project and links to the Poppy ecosystem map at `/about/ecosystem`. The map has an About breadcrumb, section links and tables that scroll sideways on narrow screens. `/validator` checks Poppy documents, `/validator/messages` explains its results, and `/privacy` describes how the app handles your data.
+
 ## Signing in
 
 Open the address the operator gave you (the live deployment is https://poppydemoagent.dev) and choose **Google** or **GitHub**. The agent asks Google only for your email address; it reads nothing else from either account.
