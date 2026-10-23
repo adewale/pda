@@ -1,4 +1,4 @@
-import { approvalAttachments, readApproval, storedApproval, type ApprovalKind, type ApprovalOf, type NewApproval } from "./approvals";
+import { approvalAttachments, approvalBatchKey, readApproval, storedApproval, type ApprovalKind, type ApprovalOf, type NewApproval } from "./approvals";
 import { answerOf, hasCode, PoppyClient, PoppyError, unreadableAnswerOf } from "./client";
 import { tokenHostAllowed, type Company } from "./discovery";
 import { canonicalJson, isObject, toJson, type Json } from "./json";
@@ -7,7 +7,7 @@ import { FINAL_STATES, parseOperation, type Operation } from "./operation-value"
 import { EndpointRequest } from "./outgoing";
 import { backoff } from "./pace";
 import { one, rows, type RowOf } from "../rows";
-import { approvalsTable, operationsTable, permissionsTable, proposalsTable } from "./store";
+import { approvalBatchesTable, approvalsTable, operationsTable, permissionsTable, proposalsTable } from "./store";
 import type { Issuer } from "./issuer";
 
 
@@ -171,12 +171,67 @@ export function resultLinks(company: Company, data: Json | undefined): { label: 
   return links.slice(0, 4);
 }
 
+/**
+ * The total `terms` name, shown large on the card: the `{ amount, currency }`
+ * under a key with "total" in it (and not "sub") nearest the top, "total"
+ * or "grand_total" first. None when terms don't name
+ * one; the card then has no large figure, and the highlights still list every cost.
+ */
+export function termsTotal(terms: Json | undefined): { amount: string; currency: string } | undefined {
+  let level: Json[] = terms === undefined ? [] : [terms];
+  for (let depth = 0; depth < 4 && level.length; depth++) {
+    const next: Json[] = [];
+    for (const value of level) {
+      if (Array.isArray(value)) next.push(...value);
+      if (!isObject(value)) continue;
+      // "total" or "grand_total" before any other total at the same depth; a subtotal never.
+      const totals = Object.entries(value)
+        .filter(([key]) => /total/i.test(key) && !/sub/i.test(key))
+        .sort(([a], [b]) => Number(!/^(grand[_ -]?)?total$/i.test(a)) - Number(!/^(grand[_ -]?)?total$/i.test(b)));
+      for (const [, item] of totals) {
+        if (isObject(item) && (typeof item.amount === "string" || typeof item.amount === "number") && typeof item.currency === "string") {
+          return { amount: String(item.amount), currency: item.currency };
+        }
+      }
+      next.push(...Object.values(value));
+    }
+    level = next;
+  }
+  return undefined;
+}
+
+/**
+ * Previews `terms` link to, such as a print's crop: HTTPS URLs on the
+ * Company's own hosts under a key with "preview" in it, each labelled by
+ * where it is ("items 1 preview"). The page links them; it never loads them,
+ * since its Content-Security-Policy takes images from our origin only.
+ */
+export function termsPreviews(company: Company, terms: Json | undefined): { label: string; url: string }[] {
+  const found: { label: string; url: string }[] = [];
+  const walk = (value: Json, path: string[], inPreview: boolean) => {
+    if (found.length >= 12) return;
+    if (typeof value === "string") {
+      if (!inPreview || !URL.canParse(value)) return;
+      const url = new URL(value);
+      if (url.protocol !== "https:" || url.username || url.password || !tokenHostAllowed(company, url)) return;
+      found.push({ label: path.join(" ").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim() || "preview", url: url.href });
+      return;
+    }
+    if (Array.isArray(value)) value.forEach((item, index) => walk(item, [...path, String(index + 1)], inPreview));
+    else if (isObject(value)) for (const [key, item] of Object.entries(value)) walk(item, [...path, key], inPreview || /preview/i.test(key));
+  };
+  if (terms !== undefined) walk(terms, [], false);
+  return found;
+}
+
 async function showOperation(client: PoppyClient, company: Company, row: OperationRow): Promise<void> {
   const operation = row.operation;
   const lost = lostOutcome(row.confirmed) ?? undefined;
   const altered = row.altered_summary ?? undefined;
   const open = !lost && !row.cancel_requested && altered === undefined && operation.state === "proposed" && row.approved_revision !== operation.revision;
   const links = FINAL.has(operation.state) ? resultLinks(company, operation.result?.data) : [];
+  const total = termsTotal(operation.terms);
+  const previews = termsPreviews(company, operation.terms);
   await client.host.showCard({
     id: `op-${row.issuer}-${operation.operation_id}`,
     kind: "operation",
@@ -199,7 +254,9 @@ async function showOperation(client: PoppyClient, company: Company, row: Operati
     ...(links.length ? { links } : {}),
     ...(lost ? { lost } : {}),
     ...(altered !== undefined ? { alteredSummary: altered } : {}),
-    ...(row.approved_by ? { approvedBy: row.approved_by } : {})
+    ...(row.approved_by ? { approvedBy: row.approved_by } : {}),
+    ...(total ? { total } : {}),
+    ...(previews.length ? { previews } : {})
   });
 }
 
@@ -1121,16 +1178,27 @@ export async function proposeLocal(
     approvalId: id,
     summary,
     status: "pending",
-    ...attachments
+    ...attachments,
+    ...batchKeyOf(company.issuer, stored)
   });
   return id;
 }
 
+function batchKeyOf(issuer: string, request: string): { batchKey?: string } {
+  const key = approvalBatchKey(issuer, request);
+  return key ? { batchKey: key } : {};
+}
+
 const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "request", "status");
 
-export async function decideLocal(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<void> {
+/**
+ * Decide one local approval and do what it says. Returns what the model is to
+ * be told, or null when it was already decided; the caller tells the model,
+ * once for one card and once for a batch (`decideLocal`, `decideLocalBatch`).
+ */
+async function decideOne(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<string | null> {
   const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
-  if (!row || row.status !== "pending") return;
+  if (!row || row.status !== "pending") return null;
   const company = await client.resumeCompany(row.issuer, "approval", id);
   const card = (status: "approved" | "declined" | "done" | "refused" | "failed" | "unknown", result?: string, answer?: { status: number; error?: string }) =>
     client.host.showCard({
@@ -1144,13 +1212,13 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
       status,
       ...(result ? { result } : {}),
       ...(answer ? { answer } : {}),
-      ...approvalAttachments(row.request)
+      ...approvalAttachments(row.request),
+      ...batchKeyOf(row.issuer, row.request)
     });
   if (decision === "decline") {
     client.sql.exec("UPDATE poppy_approvals SET status = 'declined' WHERE id = ?", id);
     await card("declined");
-    await client.host.notifyModel(`[system] The User declined: ${row.summary}`, `poppy-approval-${id}`);
-    return;
+    return `[system] The User declined: ${row.summary}`;
   }
   // A request stored in another form, or tampered with, is never sent.
   const read = readApproval(row.request);
@@ -1158,11 +1226,12 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
     const result = `Not sent: this approval can't be sent, because ${read.problem}. Nothing was sent; ask again if you still want it.`;
     client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = ? WHERE id = ?", result, id);
     await card("failed", result);
-    await client.host.notifyModel(`[system] The User approved, but the stored request couldn't be sent (${read.problem}), so nothing was sent: ${row.summary}. Ask again if the User still wants it.`, `poppy-approval-${id}`);
-    return;
+    return `[system] The User approved, but the stored request couldn't be sent (${read.problem}), so nothing was sent: ${row.summary}. Ask again if the User still wants it.`;
   }
   // Marked before the call: if the object dies mid-call it is never retried (Safety).
   client.sql.exec("UPDATE poppy_approvals SET status = 'executing' WHERE id = ?", id);
+  // The card says it is being sent, so a page shows each one's progress (a batch's tiles, the step that asked).
+  await card("approved");
   try {
     const result = await run(client, company, read.value, row.label, { beforeDispatch: () => {
       const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
@@ -1172,7 +1241,7 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
     } });
     client.sql.exec("UPDATE poppy_approvals SET status = 'done', result = ? WHERE id = ?", result, id);
     await card("done", result);
-    await client.host.notifyModel(`[system] Done, as the User approved: ${row.summary}. Result: ${result}`, `poppy-approval-${id}`);
+    return `[system] Done, as the User approved: ${row.summary}. Result: ${result}`;
   } catch (error) {
     // A Company's refusal keeps its code, as tool failures show it.
     const message = error instanceof PoppyError ? `${error.message} [${error.code}]` : error instanceof Error ? error.message : String(error);
@@ -1183,19 +1252,14 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
       const result = `Sent as you approved; ${name} answered HTTP ${unreadableStatus}, but its response could not be read or validated. It may have processed the request. Check with ${name} before asking again; this request will not be resent automatically.`;
       client.sql.exec("UPDATE poppy_approvals SET status = 'unknown', result = ? WHERE id = ?", result, id);
       await card("unknown", result, { status: unreadableStatus });
-      await client.host.notifyModel(`[system] The approved request reached ${name} and answered HTTP ${unreadableStatus}, but its result could not be read or validated. It may have happened. Tell the User to check with ${name}; do not retry automatically: ${row.summary}.`, `poppy-approval-${id}`);
-      return;
+      return `[system] The approved request reached ${name} and answered HTTP ${unreadableStatus}, but its result could not be read or validated. It may have happened. Tell the User to check with ${name}; do not retry automatically: ${row.summary}.`;
     }
     if (answer === "none") {
       // Sent, and no answer came: it may have happened (Safety). Never retried.
       const result = `Sent as you approved, but no answer came from ${name}, so it may or may not have reached them. Check with ${name} before asking again.`;
       client.sql.exec("UPDATE poppy_approvals SET status = 'unknown', result = ? WHERE id = ?", result, id);
       await card("unknown", result);
-      await client.host.notifyModel(
-        `[system] Sent as the User approved, but no answer came from ${name} (${message}), so it may or may not have happened: ${row.summary}. Tell the User to check with ${name}; it won't be retried automatically.`,
-        `poppy-approval-${id}`
-      );
-      return;
+      return `[system] Sent as the User approved, but no answer came from ${name} (${message}), so it may or may not have happened: ${row.summary}. Tell the User to check with ${name}; it won't be retried automatically.`;
     }
     if (typeof answer === "number") {
       // The Company answered, and not with success: sent as approved, not done as far as it says.
@@ -1204,21 +1268,122 @@ export async function decideLocal(client: PoppyClient, id: string, decision: "ap
       const result = `Sent as you approved, but ${name} answered ${answered}. Nothing changed unless ${name} says otherwise.`;
       client.sql.exec("UPDATE poppy_approvals SET status = 'refused', result = ? WHERE id = ?", result, id);
       await card("refused", result, { status: answer, ...(code ? { error: code } : {}) });
-      await client.host.notifyModel(
-        `[system] Sent as the User approved, but ${name} answered ${answered}, so it wasn't done as far as ${name} says: ${row.summary}. Don't tell the User it was done. ${message}`,
-        `poppy-approval-${id}`
-      );
-      return;
+      return `[system] Sent as the User approved, but ${name} answered ${answered}, so it wasn't done as far as ${name} says: ${row.summary}. Don't tell the User it was done. ${message}`;
     }
     // No answer marked: the agent refused it before sending, couldn't get a Session Token, or couldn't read the answer.
     client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = ? WHERE id = ?", message, id);
     await card("failed", message);
-    await client.host.notifyModel(`[system] The approved action failed: ${row.summary}. ${message}`, `poppy-approval-${id}`);
+    return `[system] The approved action failed: ${row.summary}. ${message}`;
+  }
+}
+
+/** Decide one local approval, from its own card, and tell the model what happened. */
+export async function decideLocal(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<void> {
+  const notice = await decideOne(client, id, decision);
+  if (notice) await client.host.notifyModel(notice, `poppy-approval-${id}`);
+}
+
+/** The most approvals one card decides: a print shop keeps 100 photos a Session. */
+export const BATCH_LIMIT = 100;
+
+/**
+ * Approvals the User decided together on one card (`poppy.approvals`). Every
+ * one must still be waiting and share one batch key (`approvalBatchKey`):
+ * uploads of the User's photos to one Company's same method and URL. A batch
+ * that mixes anything else is refused whole, so a request can't ride along
+ * on another's card. They are sent one at a time, each recorded on its own
+ * row, and the model is told once, when all are done, rather than starting
+ * a turn for each. Ones already decided are skipped, so a replay is harmless.
+ */
+export async function decideLocalBatch(client: PoppyClient, decisions: readonly { approvalId: string; decision: "approve" | "decline" }[]): Promise<void> {
+  const ids = decisions.map((item) => item.approvalId);
+  if (decisions.length === 0 || decisions.length > BATCH_LIMIT || new Set(ids).size !== ids.length) {
+    throw new PoppyError("batch_refused", `Decide 1 to ${BATCH_LIMIT} different requests at once.`, 0);
+  }
+  const waiting = decisions.flatMap((item) => {
+    const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", item.approvalId);
+    return row && row.status === "pending" ? [{ ...item, row }] : [];
+  });
+  if (waiting.length === 0) return;
+  const keys = new Set(waiting.map((item) => approvalBatchKey(item.row.issuer, item.row.request)));
+  if (keys.size !== 1 || keys.has(undefined)) {
+    throw new PoppyError("batch_refused", "These requests can't be decided together. Decide each on its own card.", 0);
+  }
+  const batch = randomId("apb_");
+  client.sql.exec(
+    "INSERT INTO poppy_approval_batches (id, ids, told, created_at) VALUES (?, ?, 0, ?)",
+    batch,
+    JSON.stringify(waiting.map((item) => item.approvalId)),
+    Date.now()
+  );
+  const lines: string[] = [];
+  for (const item of waiting) {
+    try {
+      const notice = await decideOne(client, item.approvalId, item.decision);
+      if (notice) lines.push(notice.replace(/^\[system\] /, ""));
+    } catch (error) {
+      // One that couldn't be decided doesn't stop the rest; the model hears why.
+      lines.push(`This one couldn't be decided (${error instanceof PoppyError ? error.code : "error"}): ${item.row.summary}`);
+    }
+  }
+  await tellBatch(client, batch, lines);
+}
+
+async function tellBatch(client: PoppyClient, batch: string, lines: readonly string[]): Promise<void> {
+  if (lines.length) {
+    await client.host.notifyModel(
+      `[system] The User decided ${lines.length === 1 ? "this request" : `${lines.length} requests together`} on one card:\n${lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}`,
+      `poppy-approvals-${batch}`
+    );
+  }
+  client.sql.exec("UPDATE poppy_approval_batches SET told = 1 WHERE id = ?", batch);
+}
+
+const BATCH_STATUS: Record<string, string> = {
+  declined: "The User declined",
+  done: "Done, as the User approved",
+  refused: "Sent as the User approved, but the Company refused it, so it wasn't done as far as the Company says",
+  failed: "The approved action failed",
+  unknown: "Its outcome is unknown: it may or may not have happened, and it won't be retried automatically"
+};
+
+/**
+ * After a restart: a batch the agent stopped part way through. Run after
+ * `recoverInterruptedApprovals`, so one stopped mid-call already reads
+ * unknown. The model is told what each row says; one still waiting keeps its
+ * card, for the User to decide again.
+ */
+export async function recoverApprovalBatches(client: PoppyClient): Promise<void> {
+  for (const batch of rows(client.sql, approvalBatchesTable.pick("id", "ids"), "SELECT id, ids FROM poppy_approval_batches WHERE told = 0")) {
+    let ids: unknown;
+    try {
+      ids = JSON.parse(batch.ids);
+    } catch {
+      ids = [];
+    }
+    const lines = (Array.isArray(ids) ? ids : []).flatMap((id) => {
+      const row = typeof id === "string" ? one(client.sql, approvalsTable.pick("summary", "status", "result"), "SELECT summary, status, result FROM poppy_approvals WHERE id = ?", id) : undefined;
+      const status = row ? BATCH_STATUS[row.status] : undefined;
+      if (!row || !status) return [];
+      return [`${status}: ${row.summary}.${row.status === "done" && row.result ? ` Result: ${row.result}` : ""}`];
+    });
+    await tellBatch(client, batch.id, lines);
   }
 }
 
 /** After a restart: approvals left mid-call have an unknown outcome; say so, never retry. */
 export async function recoverInterruptedApprovals(client: PoppyClient): Promise<void> {
+  // One in a batch the model hasn't heard about yet is told with its batch (recoverApprovalBatches).
+  const batched = new Set(
+    rows(client.sql, approvalBatchesTable.pick("ids"), "SELECT ids FROM poppy_approval_batches WHERE told = 0").flatMap((row) => {
+      try {
+        const ids: unknown = JSON.parse(row.ids);
+        return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+      } catch {
+        return [];
+      }
+    })
+  );
   for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'executing'")) {
     let company = "the company";
     try {
@@ -1242,6 +1407,7 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
       result: `It may have happened: check with ${company} before asking again.`,
       ...approvalAttachments(row.request)
     });
+    if (batched.has(row.id)) continue;
     await client.host.notifyModel(
       `[system] An approved action was interrupted and its outcome is unknown: ${row.summary}. Tell the User to check with ${company}; it won't be retried automatically.`,
       `poppy-approval-${row.id}`

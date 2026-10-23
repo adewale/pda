@@ -19,6 +19,8 @@ type CardBase = {
   readonly domain?: string;
   /** Open cards wait for the User; closed ones show an outcome. */
   readonly open: boolean;
+  /** When the card last changed, in epoch ms: set as cards are sent, so the page can place an outcome in the conversation. */
+  readonly at?: number;
 };
 
 export type Card =
@@ -83,6 +85,10 @@ export type Card =
        */
       readonly alteredSummary?: string;
       readonly approvedBy?: string;
+      /** The total from `terms`, where they name one (`{ amount, currency }` under a key with "total" in it), shown large on the card. */
+      readonly total?: { readonly amount: string; readonly currency: string };
+      /** HTTPS links on the Company's own hosts that `terms` names under a key with "preview" in it, such as a print's crop. */
+      readonly previews?: readonly { readonly label: string; readonly url: string }[];
     })
   | (CardBase & {
       readonly kind: "approval";
@@ -101,6 +107,12 @@ export type Card =
       readonly answer?: { readonly status: number; readonly error?: string };
       /** The User's photos the request sends: names, types and sizes, which the page shows with the photo itself. */
       readonly attachments?: readonly { readonly id: string; readonly name: string; readonly type: string; readonly size: number }[];
+      /**
+       * Approvals waiting with the same key may be decided together on one
+       * card (`poppy.approvals`): uploads of the User's photos to one
+       * Company's same method and URL. Absent on every other approval.
+       */
+      readonly batchKey?: string;
     })
   | (CardBase & {
       readonly kind: "direct_invite";
@@ -338,6 +350,14 @@ export type PoppyClientFrame =
       readonly decision: "approve" | "decline" | "cancel";
     }
   | { readonly type: "poppy.approval"; readonly approvalId: string; readonly decision: "approve" | "decline" }
+  /**
+   * Several approvals decided on one card. The agent checks again that they
+   * share one `batchKey`, sends them one at a time, and tells the model once.
+   */
+  | {
+      readonly type: "poppy.approvals";
+      readonly decisions: readonly { readonly approvalId: string; readonly decision: "approve" | "decline" }[];
+    }
   | { readonly type: "poppy.direct.start"; readonly conversationId: string; readonly text: string }
   | { readonly type: "poppy.direct.decline"; readonly conversationId: string }
   | { readonly type: "poppy.direct.say"; readonly conversationId: string; readonly text: string }

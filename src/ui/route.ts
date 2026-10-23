@@ -20,13 +20,14 @@ const PATHS: Record<Place, string> = {
 export function parseRoute(location: { readonly pathname: string; readonly search: string }): Route {
   const path = location.pathname.replace(/\/+$/, "") || "/";
   const place = (Object.keys(PATHS) as Place[]).find((key) => PATHS[key] === path) ?? "chat";
-  const company = place === "companies" ? new URLSearchParams(location.search).get("company") : null;
+  // Companies: the Company whose page is open. Activity: the Company whose protocol log is open.
+  const company = place === "companies" || place === "activity" ? new URLSearchParams(location.search).get("company") : null;
   return { place, company: company || null };
 }
 
 export function routePath(route: Route): string {
   const path = PATHS[route.place];
-  return route.place === "companies" && route.company ? `${path}?company=${encodeURIComponent(route.company)}` : path;
+  return (route.place === "companies" || route.place === "activity") && route.company ? `${path}?company=${encodeURIComponent(route.company)}` : path;
 }
 
 /** The current place, and a way to go somewhere else without reloading. */

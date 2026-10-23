@@ -502,3 +502,104 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ confirms: 1 })]);
   });
 });
+
+/** The first bytes of a GIF, which the print shop doesn't take (422 invalid_image). */
+function gif(size = 2000): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(size).fill(0x42);
+  bytes.set([0x47, 0x49, 0x46, 0x38, 0x39, 0x61]);
+  return bytes;
+}
+
+describe("photos the User decides to send together on one card", () => {
+  /** One upload call per photo, as the model makes them, each waiting on its own approval. */
+  async function uploads(a: Awaited<ReturnType<typeof poppyAgent>>, c: Company, files: readonly AttachmentInfo[]) {
+    for (const [index, info] of files.entries()) {
+      await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: info.id } }, `call-${index}`);
+    }
+    return (await cards(a)).filter((card) => card.kind === "approval" && card.open);
+  }
+
+  it("sends each approved photo once, one at a time, declines the rest, and tells the model once", async () => {
+    const c = await company({ printShop: true });
+    const a = await poppyAgent();
+    const files = [await attached(a, jpeg(3000), { name: "lake.jpg" }), await attached(a, jpeg(3000), { name: "harbour.jpg" }), await attached(a, gif(), { name: "meadow.gif", type: "image/gif" }), await attached(a, jpeg(3000), { name: "spare.jpg" })];
+    const waiting = await uploads(a, c, files);
+    // Every one an upload to the same address: one key, which the page batches by.
+    expect(new Set(waiting.map((card) => card.batchKey))).toEqual(new Set([`${c.hosts.issuer} POST ${c.hosts.api}/photos`]));
+
+    await a.stub.poppyFrame({
+      type: "poppy.approvals",
+      decisions: waiting.map((card, index) => ({ approvalId: card.approvalId, decision: index === 3 ? "decline" : "approve" }))
+    });
+    expect(await photoRequests(c)).toHaveLength(3);
+    const after = (await cards(a)).filter((card) => card.kind === "approval");
+    expect(after.map((card) => [card.attachments[0].name, card.status, card.answer ?? null])).toEqual([
+      ["lake.jpg", "done", null],
+      ["harbour.jpg", "done", null],
+      ["meadow.gif", "refused", { status: 422, error: "invalid_image" }],
+      ["spare.jpg", "declined", null]
+    ]);
+    // One notice for the four, numbered, each with what happened; none of its own.
+    const notices = await a.stub.poppyNotices();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatch(/^\[system\] The User decided 4 requests together on one card:\n1\. Done, as the User approved: Send your photo “lake\.jpg”/);
+    expect(notices[0]).toContain("3. Sent as the User approved, but Mock Shop");
+    expect(notices[0]).toContain("answered 422 (invalid_image)");
+    expect(notices[0]).toContain("4. The User declined: Send your photo “spare.jpg”");
+    // Sent again, it does nothing: each was decided once.
+    await a.stub.poppyFrame({ type: "poppy.approvals", decisions: waiting.map((card) => ({ approvalId: card.approvalId, decision: "approve" })) });
+    expect(await photoRequests(c)).toHaveLength(3);
+    expect(await a.stub.poppyNotices()).toHaveLength(1);
+  });
+
+  it("refuses a batch whose requests go to different Companies, and sends nothing", async () => {
+    const c = await company({ printShop: true });
+    const d = await company({ printShop: true });
+    const a = await poppyAgent();
+    const here = await uploads(a, c, [await attached(a)]);
+    await tool(a, "poppy_api_call", { domain: d.domain, operation: "uploadPhoto", files: { photo: (await attached(a)).id } }, "call-other");
+    const there = (await cards(a)).filter((card) => card.kind === "approval" && card.open && !here.some((item) => item.id === card.id));
+    expect(here[0]!.batchKey).not.toBe(there[0]!.batchKey);
+    await a.stub.poppyFrame({
+      type: "poppy.approvals",
+      decisions: [...here, ...there].map((card) => ({ approvalId: card.approvalId, decision: "approve" }))
+    });
+    expect(await photoRequests(c)).toEqual([]);
+    expect(await photoRequests(d)).toEqual([]);
+    expect((await cards(a)).filter((card) => card.kind === "approval" && card.open)).toHaveLength(2);
+    expect(await a.stub.poppyNotices()).toEqual([]);
+  });
+
+  it("refuses a batch with a request that isn't an upload of the User's photo", async () => {
+    const c = await company({ printShop: true });
+    const a = await poppyAgent();
+    const [photo] = await uploads(a, c, [await attached(a)]);
+    // A website form the agent filled waits on its own approval, with no batch key.
+    const other = { approvalId: "apr_not_an_upload" };
+    await a.stub.poppySql(
+      "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at) VALUES (?, ?, 'x', 'Submit a form', ?, 'pending', 0)",
+      other.approvalId,
+      c.hosts.issuer,
+      JSON.stringify({ v: 2, kind: "browse-submit", submission: { from: `https://${c.domain}/`, method: "POST", action: `https://${c.domain}/f`, enctype: "application/x-www-form-urlencoded", fields: [] } })
+    );
+    await a.stub.poppyFrame({ type: "poppy.approvals", decisions: [photo!, other].map((card) => ({ approvalId: card.approvalId, decision: "approve" })) });
+    expect(await photoRequests(c)).toEqual([]);
+    expect(JSON.parse(await a.stub.poppySql("SELECT status FROM poppy_approvals ORDER BY created_at"))).toEqual([{ status: "pending" }, { status: "pending" }]);
+  });
+
+  it("tells the model after a restart what a batch it stopped part way through did, and leaves the rest waiting", async () => {
+    const c = await company({ printShop: true });
+    const a = await poppyAgent();
+    const [first, second] = await uploads(a, c, [await attached(a, jpeg(3000), { name: "lake.jpg" }), await attached(a, jpeg(3000), { name: "harbour.jpg" })]);
+    // The first was sent and the agent stopped before the second, and before telling the model.
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: first!.approvalId, decision: "approve" });
+    await a.stub.poppySql("DELETE FROM test_notices");
+    await a.stub.poppySql("INSERT INTO poppy_approval_batches (id, ids, told, created_at) VALUES ('apb_test', ?, 0, 0)", JSON.stringify([first!.approvalId, second!.approvalId]));
+    await a.stub.poppyRestart();
+    const notice = await a.stub.poppyWaitForNotice("The User decided");
+    expect(notice).toContain("1. Done, as the User approved: Send your photo “lake.jpg”");
+    expect(notice).not.toContain("harbour.jpg");
+    expect(JSON.parse(await a.stub.poppySql("SELECT told FROM poppy_approval_batches"))).toEqual([{ told: 1 }]);
+    expect((await cards(a)).find((card) => card.id === second!.id)).toMatchObject({ open: true, status: "pending" });
+  });
+});

@@ -743,7 +743,9 @@ export class PersonalAgent extends DurableObject<Env> {
       .exec("SELECT card FROM poppy_cards WHERE id = 'model-access' AND open = 1")
       .toArray()[0];
     if (!open) return;
+    // Closed and kept out of the chat: the warning going away says it, and a lasting "back on" line was only noise.
     await this.#showModelCard("Model calls are back on.", false);
+    this.poppy.retireCard("model-access");
   }
 
   async #showModelCard(text: string, open: boolean): Promise<void> {

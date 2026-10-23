@@ -404,6 +404,8 @@ describe("no key", () => {
     );
     const card = (JSON.parse(await stub.poppyCards()) as Array<{ id: string; open: boolean }>).find((item) => item.id === "model-access");
     expect(card?.open).toBe(false);
+    // Closed and kept out of the chat, as a dismissed card is: the warning going away says it.
+    expect(JSON.parse(await stub.poppySql("SELECT updated_at FROM poppy_cards WHERE id = 'model-access'"))).toEqual([{ updated_at: 0 }]);
     connection.socket.close();
   });
 });

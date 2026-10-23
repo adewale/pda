@@ -92,3 +92,15 @@ export function approvalAttachments(text: string): { attachments?: readonly Atta
   const read = tryDecode(optional(array(attachment)), isObject(parsed) ? parsed.attachments : undefined, "attachments");
   return read.ok && read.value?.length ? { attachments: read.value } : {};
 }
+
+/**
+ * Which approvals may be decided together on one card: uploads of the
+ * User's photos to one Company's same method and URL. A batch never spans
+ * Companies, endpoints or kinds of request, so nothing else can ride in it
+ * unseen. Undefined for every other approval, and for one that can't be read.
+ */
+export function approvalBatchKey(issuer: string, text: string): string | undefined {
+  const read = readApproval(text);
+  if (!read.ok || read.value.kind !== "openapi" || !read.value.attachments?.length) return undefined;
+  return `${issuer} ${read.value.method} ${read.value.url}`;
+}

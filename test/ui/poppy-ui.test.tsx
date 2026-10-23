@@ -251,7 +251,8 @@ describe("operation card (Operations extension 5.1)", () => {
     const { sent } = renderCards(operationCard({ previousSummary: "Exchange for size S." }));
     expect(screen.getByText("Exchange the blue jumper (size M) for size L. No charge.")).toBeTruthy();
     expect(screen.getByText("Exchange for size S.")).toBeTruthy();
-    expect(screen.getByText("Cost: 0.00 GBP")).toBeTruthy();
+    // Each term lined up as a label and its value.
+    expect(screen.getByText("Cost").nextElementSibling?.textContent).toBe("0.00 GBP");
     expect(screen.getByText(/a\*\*\*@example\.com/)).toBeTruthy();
     expect(sent).toEqual([]);
   });
@@ -329,7 +330,8 @@ describe("local approval card", () => {
 
   it("says an approved write the Company did is done", () => {
     const text = receipt({ status: "done", result: '{"status":201}' });
-    expect(text).toContain("Done, as you approved: Acme: POST /orders");
+    expect(text).toContain("Done · as you approved · Acme");
+    expect(text).toContain("Acme: POST /orders");
   });
 
   it("says an approved write the Company answered with an error was sent, not done, with its status and code", () => {
@@ -338,11 +340,12 @@ describe("local approval card", () => {
       answer: { status: 500, error: "server_error" },
       result: "Sent as you approved, but Acme answered 500 (server_error). Nothing changed unless Acme says otherwise."
     });
-    expect(text).toContain("Sent as you approved, but Acme answered 500 (server_error): Acme: POST /orders");
+    expect(text).toContain("Failed · 500 server_error · Acme");
+    expect(text).toContain("Sent as you approved, but Acme answered 500 (server_error).");
     expect(text).toContain("Nothing changed unless Acme says otherwise.");
     expect(text).not.toContain("Done");
     // No code: the status alone.
-    expect(receipt({ status: "refused", answer: { status: 504 } })).toContain("Acme answered 504: Acme: POST /orders");
+    expect(receipt({ status: "refused", answer: { status: 504 } })).toContain("Acme answered 504.");
     // Shown as a failure, as an approved write that failed is.
     const { container } = renderCards({ ...approvalCard, open: false, status: "refused", answer: { status: 500 } });
     expect(container.querySelector(".text-kumo-danger")).not.toBeNull();
@@ -351,7 +354,7 @@ describe("local approval card", () => {
   it("says an approved write that got no answer may or may not have reached the Company, and keeps it in front of the User", () => {
     const result = "Sent as you approved, but no answer came from Acme, so it may or may not have reached them. Check with Acme before asking again.";
     const text = receipt({ status: "unknown", result });
-    expect(text).toContain("Outcome unknown: Acme: POST /orders");
+    expect(text).toContain("Outcome unknown · Acme");
     expect(text).toContain(result);
     expect(text).not.toContain("Done");
     expect(needsYou([{ ...approvalCard, open: false, status: "unknown", result }])).toHaveLength(1);
@@ -359,7 +362,7 @@ describe("local approval card", () => {
 
   it("says an approved write that was never sent failed", () => {
     const text = receipt({ status: "failed", result: "The User's attachment att_1 is gone (deleted, or past its 30 days), so nothing was sent [no_attachment]" });
-    expect(text).toContain("Failed after you approved: Acme: POST /orders");
+    expect(text).toContain("Failed · after you approved · Acme");
     expect(text).toContain("so nothing was sent");
   });
 });

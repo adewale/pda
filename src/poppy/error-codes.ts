@@ -9,6 +9,7 @@
 export const AGENT_ERROR_CODES = [
   "company_changed",
   "approval_changed",
+  "batch_refused",
   "bad_api",
   "browser_join_failed",
   "conversation_not_found",

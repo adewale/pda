@@ -198,11 +198,11 @@ export function Workspace({ identity, session }: { identity: Identity; session: 
             <ModelBanner entitlement={entitlement} onSettings={route.place === "settings" ? null : () => navigate({ place: "settings", company: null })} />
             <main ref={main} className={route.place === "chat" ? "min-h-0 flex-1" : "min-h-0 flex-1 overflow-y-auto"}>
               {route.place === "chat" ? (
-                <ChatPage session={session} hidden={hidden} setHidden={setHidden} />
+                <ChatPage session={session} hidden={hidden} setHidden={setHidden} onProtocol={(domain) => navigate({ place: "activity", company: domain })} />
               ) : (
                 <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8 [&_h1]:outline-none" >
                   {route.place === "activity" ? (
-                    <ActivityPage activity={session.poppy.activity} protocol={session.poppy.protocol} send={session.sendPoppy} />
+                    <ActivityPage activity={session.poppy.activity} protocol={session.poppy.protocol} send={session.sendPoppy} openProtocol={route.company} />
                   ) : route.place === "companies" ? (
                     <CompaniesPage
                       view={session.poppy}

@@ -1,33 +1,18 @@
 import { cn, Table } from "@cloudflare/kumo";
-import { CheckCircleIcon, CircleIcon, ClockIcon, HourglassIcon, ListChecksIcon, WarningCircleIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { CaretRightIcon, ClockIcon, ListChecksIcon } from "@phosphor-icons/react";
+import { useState } from "react";
 import type { ActivityEntry, ActivityResult, ActivityTask } from "../poppy/wire";
 import type { ActivityView, ProtocolView } from "../use-pi-session";
 import { SendAction, type Send } from "./connection";
 import { Action, EmptyState, PageHeader, Section, SkeletonRows, Truncated, useNow } from "./controls";
 import { ACCESS, ago, countdown, DECIDED, fullDate, HOW, RESULT, when } from "./format";
+import { activityGroups } from "./steps";
+import { Status } from "./status";
 import { PROTOCOL_LOG_LIMIT } from "../poppy/wire";
 import { Diagnostics, ProtocolList } from "./protocol";
 
-const RESULT_STYLE: Record<ActivityResult, { className: string; icon: ReactNode }> = {
-  waiting: { className: "text-kumo-warning", icon: <HourglassIcon size={16} aria-hidden /> },
-  in_progress: { className: "text-kumo-default", icon: <ClockIcon size={16} aria-hidden /> },
-  done: { className: "text-kumo-success", icon: <CheckCircleIcon size={16} aria-hidden /> },
-  declined: { className: "text-kumo-subtle", icon: <CircleIcon size={16} aria-hidden /> },
-  cancelled: { className: "text-kumo-subtle", icon: <CircleIcon size={16} aria-hidden /> },
-  expired: { className: "text-kumo-subtle", icon: <CircleIcon size={16} aria-hidden /> },
-  failed: { className: "text-kumo-danger", icon: <WarningCircleIcon size={16} aria-hidden /> },
-  unknown: { className: "text-kumo-danger", icon: <WarningCircleIcon size={16} aria-hidden /> }
-};
-
 function Result({ result }: { result: ActivityResult }) {
-  const style = RESULT_STYLE[result];
-  return (
-    <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap", style.className)}>
-      {style.icon}
-      {RESULT[result]}
-    </span>
-  );
+  return <Status result={result} />;
 }
 
 /** What happened, with any quoted words and the outcome in the words of whoever wrote them. */
@@ -131,35 +116,83 @@ function Log({ entries }: { entries: readonly ActivityEntry[] }) {
           </Table.Row>
         </Table.Header>
         <Table.Body className="max-md:block">
-          {entries.map((entry) => (
-            <Table.Row key={entry.id} className="max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)_auto] max-md:gap-x-3 max-md:gap-y-1 max-md:px-4 max-md:py-3">
-              <Table.Cell className="align-top whitespace-nowrap tabular-nums text-kumo-subtle max-md:col-start-1 max-md:row-start-1 max-md:p-0!">
-                <time dateTime={new Date(entry.at).toISOString()} title={fullDate(entry.at)}>
-                  {when(entry.at)}
-                </time>
-              </Table.Cell>
-              <Table.Cell className="max-w-40 align-top max-md:col-start-2 max-md:row-start-1 max-md:max-w-none max-md:p-0! max-md:font-medium">
-                <Truncated text={entry.company} />
-              </Table.Cell>
-              <Table.Cell className="align-top max-md:col-span-3 max-md:row-start-2 max-md:p-0!">
-                <What entry={entry} />
-                <p className="mt-0.5 text-[13px] text-kumo-subtle md:hidden">
-                  {how(entry)} · Decided by: {decided(entry)}
-                </p>
-              </Table.Cell>
-              <Table.Cell className="align-top max-md:hidden">
-                {entry.how ? HOW[entry.how] : null}
-                {entry.access ? <span className="block text-[13px] whitespace-nowrap text-kumo-subtle">{ACCESS[entry.access].toLowerCase()} access</span> : null}
-              </Table.Cell>
-              <Table.Cell className={cn("align-top whitespace-nowrap max-lg:hidden", entry.decidedBy ? null : "text-kumo-subtle")}>{decided(entry)}</Table.Cell>
-              <Table.Cell className="align-top max-md:col-start-3 max-md:row-start-1 max-md:p-0!">
-                <Result result={entry.result} />
-              </Table.Cell>
-            </Table.Row>
-          ))}
+          {activityGroups(entries).map((group) =>
+            group.kind === "entry" ? <LogRow key={group.entry.id} entry={group.entry} /> : <UploadRows key={group.entries[0]!.id} target={group.target} entries={group.entries} />
+          )}
         </Table.Body>
       </Table>
     </div>
+  );
+}
+
+function LogRow({ entry, nested = false }: { entry: ActivityEntry; nested?: boolean }) {
+  return (
+    <Table.Row className="max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)_auto] max-md:gap-x-3 max-md:gap-y-1 max-md:px-4 max-md:py-3">
+      <Table.Cell className="align-top whitespace-nowrap tabular-nums text-kumo-subtle max-md:col-start-1 max-md:row-start-1 max-md:p-0!">
+        <time dateTime={new Date(entry.at).toISOString()} title={fullDate(entry.at)}>
+          {when(entry.at)}
+        </time>
+      </Table.Cell>
+      <Table.Cell className="max-w-40 align-top max-md:col-start-2 max-md:row-start-1 max-md:max-w-none max-md:p-0! max-md:font-medium">
+        {nested ? null : <Truncated text={entry.company} />}
+      </Table.Cell>
+      <Table.Cell className={cn("align-top max-md:col-span-3 max-md:row-start-2 max-md:p-0!", nested && "pl-8")}>
+        <What entry={entry} />
+        <p className="mt-0.5 text-[13px] text-kumo-subtle md:hidden">
+          {how(entry)} · Decided by: {decided(entry)}
+        </p>
+      </Table.Cell>
+      <Table.Cell className="align-top max-md:hidden">
+        {entry.how ? HOW[entry.how] : null}
+        {entry.access ? <span className="block text-[13px] whitespace-nowrap text-kumo-subtle">{ACCESS[entry.access].toLowerCase()} access</span> : null}
+      </Table.Cell>
+      <Table.Cell className={cn("align-top whitespace-nowrap max-lg:hidden", entry.decidedBy ? null : "text-kumo-subtle")}>{decided(entry)}</Table.Cell>
+      <Table.Cell className="align-top max-md:col-start-3 max-md:row-start-1 max-md:p-0!">
+        <Result result={entry.result} />
+      </Table.Cell>
+    </Table.Row>
+  );
+}
+
+/** Photo uploads to one Company, one after another: one row, which opens to show each photo's own row. */
+function UploadRows({ target, entries }: { target: string; entries: readonly ActivityEntry[] }) {
+  const [open, setOpen] = useState(false);
+  const first = entries[0]!;
+  const counts = new Map<ActivityResult, number>();
+  for (const entry of entries) counts.set(entry.result, (counts.get(entry.result) ?? 0) + 1);
+  // The row's result is the one that most needs a look: anything not done before done.
+  const worst = (["unknown", "failed", "waiting", "in_progress", "expired", "cancelled", "declined", "done"] as const).find((result) => counts.has(result))!;
+  return (
+    <>
+      <Table.Row className="max-md:grid max-md:grid-cols-[auto_minmax(0,1fr)_auto] max-md:gap-x-3 max-md:gap-y-1 max-md:px-4 max-md:py-3" data-uploads={entries.length}>
+        <Table.Cell className="align-top whitespace-nowrap tabular-nums text-kumo-subtle max-md:col-start-1 max-md:row-start-1 max-md:p-0!">
+          <time dateTime={new Date(first.at).toISOString()} title={fullDate(first.at)}>
+            {when(first.at)}
+          </time>
+        </Table.Cell>
+        <Table.Cell className="max-w-40 align-top max-md:col-start-2 max-md:row-start-1 max-md:max-w-none max-md:p-0! max-md:font-medium">
+          <Truncated text={first.company} />
+        </Table.Cell>
+        <Table.Cell className="align-top max-md:col-span-3 max-md:row-start-2 max-md:p-0!">
+          <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex min-h-10 items-start gap-1.5 text-left">
+            <CaretRightIcon size={16} aria-hidden className={cn("mt-1 shrink-0 text-kumo-subtle motion-safe:transition-transform", open && "rotate-90")} />
+            <span className="min-w-0 text-pretty break-words">
+              Asked you to approve sending {entries.length} photos to {target}
+              <span className="block text-[13px] text-kumo-subtle">{[...counts.entries()].map(([result, count]) => `${count} ${RESULT[result].toLowerCase()}`).join(" · ")}</span>
+            </span>
+          </button>
+        </Table.Cell>
+        <Table.Cell className="align-top max-md:hidden">
+          {first.how ? HOW[first.how] : null}
+          {first.access ? <span className="block text-[13px] whitespace-nowrap text-kumo-subtle">{ACCESS[first.access].toLowerCase()} access</span> : null}
+        </Table.Cell>
+        <Table.Cell className={cn("align-top whitespace-nowrap max-lg:hidden", first.decidedBy ? null : "text-kumo-subtle")}>{decided(first)}</Table.Cell>
+        <Table.Cell className="align-top max-md:col-start-3 max-md:row-start-1 max-md:p-0!">
+          <Result result={worst} />
+        </Table.Cell>
+      </Table.Row>
+      {open ? entries.map((entry) => <LogRow key={entry.id} entry={entry} nested />) : null}
+    </>
   );
 }
 
@@ -167,7 +200,7 @@ function Log({ entries }: { entries: readonly ActivityEntry[] }) {
  * Activity: what the agent is doing at Companies now, each with a way to stop
  * it where the protocol allows, and a log of everything it has done.
  */
-export function ActivityPage({ activity, protocol, send }: { activity: ActivityView | null; protocol: ProtocolView; send: Send }) {
+export function ActivityPage({ activity, protocol, send, openProtocol = null }: { activity: ActivityView | null; protocol: ProtocolView; send: Send; openProtocol?: string | null }) {
   return (
     <div className="space-y-8">
       <PageHeader title="Activity" description="What your agent is doing at Companies, and everything it has done there." />
@@ -181,7 +214,7 @@ export function ActivityPage({ activity, protocol, send }: { activity: ActivityV
         title="Protocol"
         description={`Each Poppy request your agent made to a Company, oldest first, with its spec section and what came back: the last ${PROTOCOL_LOG_LIMIT} per Company. Never headers, bodies, tokens, keys or codes.`}
       >
-        <ProtocolList protocol={protocol} send={send} />
+        <ProtocolList protocol={protocol} send={send} openDomain={openProtocol} />
       </Section>
       <Section
         title="Diagnostics"
