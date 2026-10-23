@@ -1,0 +1,20 @@
+Comparing with spec/draft-0.1-2026-10-12 (retrieved 2026-10-13T14:51:50Z)
+sitemap        DIFFERS
+home           body DIFFERS  text DIFFERS
+introduction   body DIFFERS  text same     updated Oct 12, 2026 -> null
+spec           GONE from the sitemap
+extensions     GONE from the sitemap
+operations     GONE from the sitemap
+guides         GONE from the sitemap
+path-to-1      body DIFFERS  text DIFFERS  updated Oct 12, 2026 -> null
+license        body DIFFERS  text same
+contributions  body DIFFERS  text same
+changelog      NEW in the sitemap
+0.2-spec       NEW in the sitemap
+0.2-extensions NEW in the sitemap
+0.2-operations NEW in the sitemap
+0.2-guides     NEW in the sitemap
+videos         NEW in the sitemap
+walkthroughs   body DIFFERS  text DIFFERS
+
+14 text change(s); run with --save to store a new snapshot.

@@ -1,0 +1,1705 @@
+{
+  "checked_at": "2026-10-23",
+  "source_commit": "fc5f7f9bcf664cd71bfdd281ce7e532f869720bc",
+  "transport": "Node 24 fetch through the managed HTTP proxy, with TLS verification; not the CLI DNS-pinned fetcher",
+  "method": "validateTarget; sequential hosts; public discovery and issuer metadata GETs only",
+  "results": [
+    {
+      "host": "printwithpoppy.com",
+      "checked_at": "2026-10-23T16:33:58.509Z",
+      "protocol_version": "0.2",
+      "organization": "Print with Poppy",
+      "auth_issuer": "https://printwithpoppy.com",
+      "sign_in": [
+        "direct",
+        "mediated"
+      ],
+      "apis": [
+        "openapi"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 3
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://printwithpoppy.com/.well-known/poppy.json sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://printwithpoppy.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://printwithpoppy.com/.well-known/poppy.json",
+          "finalUrl": "https://printwithpoppy.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": null,
+          "parsed_json_sha256": "5d4fc2febc80ce09b17bb48c3bc4cd46f4fc2a51c8373dcf1feff5e7ce093e03"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://printwithpoppy.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://printwithpoppy.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": null,
+          "parsed_json_sha256": "1e0f595b6b017b0c2d9743dd66e55ad731608468fa3bbfa72b5a5c0ccd4dec36"
+        }
+      ],
+      "requests": [
+        "https://printwithpoppy.com/.well-known/poppy.json",
+        "https://printwithpoppy.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "skipped": []
+    },
+    {
+      "host": "sandbox.printwithpoppy.com",
+      "checked_at": "2026-10-23T16:34:00.366Z",
+      "protocol_version": "0.2",
+      "organization": "Print with Poppy — Agent Sandbox",
+      "auth_issuer": "https://sandbox.printwithpoppy.com",
+      "sign_in": [
+        "mediated"
+      ],
+      "apis": [
+        "openapi"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://sandbox.printwithpoppy.com/.well-known/poppy.json sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+          "finalUrl": "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": null,
+          "parsed_json_sha256": "97328fa7348980194b4aaf22f5fbcd144e31fb60a876b53634cbc9e14f90093f"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": null,
+          "parsed_json_sha256": "531b781c619ff09b1f15514899ef814a8dfcee384c7b000796e023bcf9e37350"
+        }
+      ],
+      "requests": [
+        "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+        "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "skipped": []
+    },
+    {
+      "host": "archon.technology",
+      "checked_at": "2026-10-23T16:34:01.519Z",
+      "protocol_version": "0.2",
+      "organization": "archon.social",
+      "auth_issuer": "https://archon.technology/names/poppy",
+      "sign_in": [
+        "direct",
+        "device"
+      ],
+      "apis": [
+        "openapi"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://archon.technology/.well-known/poppy.json",
+          "finalUrl": "https://archon.technology/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "4885a736b48688753c31c3f41f530284b5a4756bcb30ce0e08fbc2a770c4abf6"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://archon.technology/.well-known/oauth-authorization-server/names/poppy",
+          "finalUrl": "https://archon.technology/.well-known/oauth-authorization-server/names/poppy",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "c2b9f5abb402f13389c8352019a3ae1e4756645131faf47376eab719ba42f050"
+        }
+      ],
+      "requests": [
+        "https://archon.technology/.well-known/poppy.json",
+        "https://archon.technology/.well-known/oauth-authorization-server/names/poppy"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "skipped": []
+    },
+    {
+      "host": "flowers.papsandbox.com",
+      "checked_at": "2026-10-23T16:34:04.703Z",
+      "protocol_version": "0.2",
+      "organization": "Northlight Flowers",
+      "auth_issuer": "https://flowers.papsandbox.com",
+      "sign_in": [
+        "direct",
+        "device",
+        "mediated"
+      ],
+      "apis": [
+        "openapi",
+        "mcp"
+      ],
+      "website": true,
+      "company_agent": true,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://flowers.papsandbox.com/.well-known/poppy.json",
+          "finalUrl": "https://flowers.papsandbox.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "957c6f156d240e1bc6521d4253c5435469d9c1c93b79a83da1ff806620580f3f"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://flowers.papsandbox.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://flowers.papsandbox.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "128855e63dee1f6712369b79398c95f847ee6675b68cc8c0c2961ac39116b131"
+        }
+      ],
+      "requests": [
+        "https://flowers.papsandbox.com/.well-known/poppy.json",
+        "https://flowers.papsandbox.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "skipped": []
+    },
+    {
+      "host": "crosswalk.to",
+      "checked_at": "2026-10-23T16:34:06.324Z",
+      "protocol_version": "0.2",
+      "organization": "crosswalk",
+      "auth_issuer": "https://crosswalk.to/poppy",
+      "sign_in": [
+        "direct"
+      ],
+      "apis": [
+        "mcp"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://crosswalk.to/.well-known/poppy.json",
+          "finalUrl": "https://crosswalk.to/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 3600,
+          "parsed_json_sha256": "15527c9d1e22416b96e892f320da5690ce934fcb10b573a19877bbd05bb544ed"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://crosswalk.to/.well-known/oauth-authorization-server/poppy",
+          "finalUrl": "https://crosswalk.to/.well-known/oauth-authorization-server/poppy",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 3600,
+          "parsed_json_sha256": "7cdc5cb9259c47f380845ee94b5bcb210c2ae99fcf616b20998ef3c7122d9e2f"
+        }
+      ],
+      "requests": [
+        "https://crosswalk.to/.well-known/poppy.json",
+        "https://crosswalk.to/.well-known/oauth-authorization-server/poppy"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "skipped": []
+    },
+    {
+      "host": "stacktr.ee",
+      "checked_at": "2026-10-23T16:34:08.251Z",
+      "protocol_version": "0.2",
+      "organization": "Stacktree",
+      "auth_issuer": "https://api.stacktr.ee",
+      "sign_in": [
+        "direct",
+        "device"
+      ],
+      "apis": [
+        "mcp",
+        "openapi"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 3,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://api.stacktr.ee/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+        },
+        {
+          "id": "metadata-auth-method",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/token_endpoint_auth_methods_supported",
+          "text": "token_endpoint_auth_methods_supported doesn't include private_key_jwt."
+        },
+        {
+          "id": "metadata-grant-type",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/grant_types_supported",
+          "text": "grant_types_supported doesn't include urn:ietf:params:oauth:grant-type:jwt-bearer."
+        },
+        {
+          "id": "metadata-grant-type",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/grant_types_supported",
+          "text": "grant_types_supported doesn't include urn:ietf:params:oauth:grant-type:device_code."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://stacktr.ee/.well-known/poppy.json",
+          "finalUrl": "https://stacktr.ee/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 3600,
+          "parsed_json_sha256": "d054dc2d1268f0e25179bc768d60e31a7386d1ab9e9341a98ea5927e35820c8c"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://api.stacktr.ee/.well-known/oauth-authorization-server",
+          "finalUrl": "https://api.stacktr.ee/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": null,
+          "parsed_json_sha256": "d1eb1312334407b23de8c90b594e02da9e023516fcf26dd1a42f2dc6b2cb5cbd"
+        }
+      ],
+      "requests": [
+        "https://stacktr.ee/.well-known/poppy.json",
+        "https://api.stacktr.ee/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "skipped": []
+    },
+    {
+      "host": "www.planmyvisit.to",
+      "checked_at": "2026-10-23T16:34:10.778Z",
+      "protocol_version": "0.2",
+      "organization": "PlanMyVisit by Autoura",
+      "auth_issuer": "https://api.autoura.com/api/auth",
+      "sign_in": [
+        "direct",
+        "device"
+      ],
+      "apis": [
+        "mcp"
+      ],
+      "website": false,
+      "company_agent": true,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.planmyvisit.to/.well-known/poppy.json",
+          "finalUrl": "https://www.planmyvisit.to/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 600,
+          "parsed_json_sha256": "322f23600b72eb5e2354b4688facc0c87cb50e116f208b4f31e060b7b828ba2a"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth",
+          "finalUrl": "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 0,
+          "parsed_json_sha256": "2154a68e9225312a643f9f327b27676ea1d8aac7c5b79d2a90b2c85dabe49545"
+        }
+      ],
+      "requests": [
+        "https://www.planmyvisit.to/.well-known/poppy.json",
+        "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "skipped": []
+    },
+    {
+      "host": "saferate.com",
+      "checked_at": "2026-10-23T16:34:11.960Z",
+      "protocol_version": "0.2",
+      "organization": "Safe Rate",
+      "auth_issuer": "https://saferate.com",
+      "sign_in": [
+        "direct"
+      ],
+      "apis": [
+        "mcp"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://saferate.com/.well-known/poppy.json",
+          "finalUrl": "https://saferate.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 3600,
+          "parsed_json_sha256": "00e3526f8d7f637053de077103521c648e6c69f6af5ab2ed3d7bf23e60090013"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://saferate.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://saferate.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 3600,
+          "parsed_json_sha256": "c88f961a2d0ee701075e56b9d0aa1268cbf12dfdcc4ca986e946cd419c471420"
+        }
+      ],
+      "requests": [
+        "https://saferate.com/.well-known/poppy.json",
+        "https://saferate.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "skipped": []
+    },
+    {
+      "host": "ample.computer",
+      "checked_at": "2026-10-23T16:34:12.885Z",
+      "protocol_version": "0.1",
+      "organization": "Ample Computer",
+      "auth_issuer": "https://api.ample.computer/poppy",
+      "sign_in": [
+        "direct"
+      ],
+      "apis": [
+        "mcp"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "invalid",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "organization-domain-mismatch",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/organization/domain",
+          "text": "organization.domain is \"api.ample.computer\", but the document was requested for ample.computer."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://ample.computer/.well-known/poppy.json",
+          "finalUrl": "https://api.ample.computer/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "bdb3407f3264f0fe5b7982fea5e80884d8bd40a6265191bcb15b8d7e1f41190b"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://api.ample.computer/.well-known/oauth-authorization-server/poppy",
+          "finalUrl": "https://api.ample.computer/.well-known/oauth-authorization-server/poppy",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "85b01b7d5538724b5e6b9b3c1f1b3b3df9e7a56c38627a8818ddb8493a42d5ba"
+        }
+      ],
+      "requests": [
+        "https://ample.computer/.well-known/poppy.json",
+        "https://api.ample.computer/.well-known/poppy.json",
+        "https://api.ample.computer/.well-known/oauth-authorization-server/poppy"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "withpoppyseed.dev",
+      "checked_at": "2026-10-23T16:34:15.540Z",
+      "protocol_version": "0.1",
+      "organization": "Poppy Travel",
+      "auth_issuer": "https://www.withpoppyseed.dev",
+      "sign_in": [
+        "direct",
+        "device",
+        "mediated"
+      ],
+      "apis": [
+        "mcp",
+        "openapi"
+      ],
+      "website": true,
+      "company_agent": true,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://withpoppyseed.dev/.well-known/poppy.json",
+          "finalUrl": "https://www.withpoppyseed.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "d0d157ac9e26983dc83ecb4849aa207b7168d1860e9443245fc48371a291b6c5"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://www.withpoppyseed.dev/.well-known/oauth-authorization-server",
+          "finalUrl": "https://www.withpoppyseed.dev/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "6f41a37e1069faa11a528946644ff674ba1701fa73df646eb43a5ea91ddb42ef"
+        }
+      ],
+      "requests": [
+        "https://withpoppyseed.dev/.well-known/poppy.json",
+        "https://www.withpoppyseed.dev/.well-known/poppy.json",
+        "https://www.withpoppyseed.dev/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "poppy-receiver.roundtrip.workers.dev",
+      "checked_at": "2026-10-23T16:34:18.083Z",
+      "protocol_version": "0.1",
+      "organization": "Northstar Outfitters",
+      "auth_issuer": "https://poppy-receiver.roundtrip.workers.dev",
+      "sign_in": [
+        "direct"
+      ],
+      "apis": [
+        "openapi"
+      ],
+      "website": true,
+      "company_agent": true,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json",
+          "finalUrl": "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "bcc3cf153948a92800862553a4e15e0bd6fae8735ea0f826c1f8cda9f8a5aeb6"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://poppy-receiver.roundtrip.workers.dev/.well-known/oauth-authorization-server",
+          "finalUrl": "https://poppy-receiver.roundtrip.workers.dev/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "9742a06f63c7d17c1c08ff74f5936616c5663768531e103f5cb58d208d48b31b"
+        }
+      ],
+      "requests": [
+        "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json",
+        "https://poppy-receiver.roundtrip.workers.dev/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "tilopay.shop",
+      "checked_at": "2026-10-23T16:34:19.422Z",
+      "protocol_version": "0.1",
+      "organization": "Tilopay",
+      "auth_issuer": "https://mcp.tilopay.com",
+      "sign_in": [],
+      "apis": [
+        "mcp"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "invalid",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "organization-domain-mismatch",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/organization/domain",
+          "text": "organization.domain is \"tilo.shop\", but the document was requested for tilopay.shop."
+        },
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://tilopay.shop/.well-known/poppy.json",
+          "finalUrl": "https://tilo.shop/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "793c7ef60e33aeeda7bbd96d44254ac59667e04f418261717b129ffef664ee17"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://mcp.tilopay.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://mcp.tilopay.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "cedfbbf902ba8827c67c702c58f22829c703db6b02a3dc4f3d6fded86322d091"
+        }
+      ],
+      "requests": [
+        "https://tilopay.shop/.well-known/poppy.json",
+        "https://tilo.shop/.well-known/poppy.json",
+        "https://mcp.tilopay.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "tilopay.tilopay.shop",
+      "checked_at": "2026-10-23T16:34:22.734Z",
+      "protocol_version": "0.1",
+      "organization": "Tilopay",
+      "auth_issuer": "https://mcp.tilopay.com",
+      "sign_in": [],
+      "apis": [
+        "mcp"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "invalid",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "organization-domain-mismatch",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/organization/domain",
+          "text": "organization.domain is \"tilo.shop\", but the document was requested for tilopay.tilopay.shop."
+        },
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://tilopay.tilopay.shop/.well-known/poppy.json",
+          "finalUrl": "https://tilo.shop/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "793c7ef60e33aeeda7bbd96d44254ac59667e04f418261717b129ffef664ee17"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://mcp.tilopay.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://mcp.tilopay.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "cedfbbf902ba8827c67c702c58f22829c703db6b02a3dc4f3d6fded86322d091"
+        }
+      ],
+      "requests": [
+        "https://tilopay.tilopay.shop/.well-known/poppy.json",
+        "https://tilo.shop/.well-known/poppy.json",
+        "https://mcp.tilopay.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "emorahealth.com",
+      "checked_at": "2026-10-23T16:34:23.857Z",
+      "protocol_version": "0.1",
+      "organization": "Emora Health",
+      "auth_issuer": "https://www.emorahealth.com/poppy",
+      "sign_in": [],
+      "apis": [],
+      "website": false,
+      "company_agent": true,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://emorahealth.com/.well-known/poppy.json",
+          "finalUrl": "https://www.emorahealth.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "3f6e4a1a65c7c5b77136ffc45394471cede7c654a0f5a6ac1dd614ea7f252dcd"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy",
+          "finalUrl": "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "70a5d470d6298010a826f1e6468d2a9d8b6666e1f82c2a2123e422bf527e0685"
+        }
+      ],
+      "requests": [
+        "https://emorahealth.com/.well-known/poppy.json",
+        "https://www.emorahealth.com/.well-known/poppy.json",
+        "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "rentourbins.com",
+      "checked_at": "2026-10-23T16:34:25.094Z",
+      "protocol_version": "0.1",
+      "organization": "Rent Our Bins",
+      "auth_issuer": null,
+      "sign_in": [],
+      "apis": [],
+      "website": true,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://rentourbins.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "website-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "No auth: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://rentourbins.com/.well-known/poppy.json",
+          "finalUrl": "https://rentourbins.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 0,
+          "parsed_json_sha256": "f21d82b0253fc05eecece557c6319adeecdc56b7700ce926f0f5b55dd876aca1"
+        }
+      ],
+      "requests": [
+        "https://rentourbins.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "neutral-state-jev-dub-bench.vercel.app",
+      "checked_at": "2026-10-23T16:34:25.349Z",
+      "protocol_version": "0.1",
+      "organization": "Dub",
+      "auth_issuer": "https://neutral-state-jev-dub-bench.vercel.app",
+      "sign_in": [
+        "direct"
+      ],
+      "apis": [
+        "mcp"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/poppy.json",
+          "finalUrl": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "aca34464230a22ed4305ef908836c67894aee48a7764aefd53bbfffa6f1c7271"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/oauth-authorization-server",
+          "finalUrl": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "0ff3a59c1245cc41950d4e6c07df6b761dff32f0de30fe8647ca0a6361a84917"
+        }
+      ],
+      "requests": [
+        "https://neutral-state-jev-dub-bench.vercel.app/.well-known/poppy.json",
+        "https://neutral-state-jev-dub-bench.vercel.app/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "neutral-state-jev-os-bench.vercel.app",
+      "checked_at": "2026-10-23T16:34:27.766Z",
+      "protocol_version": "0.1",
+      "organization": "OpenStatus",
+      "auth_issuer": "https://neutral-state-jev-os-bench.vercel.app",
+      "sign_in": [
+        "direct"
+      ],
+      "apis": [
+        "mcp"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://neutral-state-jev-os-bench.vercel.app/.well-known/poppy.json",
+          "finalUrl": "https://neutral-state-jev-os-bench.vercel.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "8d5aab7dd8e2e9186bf0d0bfc4df88422ce6a8e4b444ba5239e4b66edce807c3"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://neutral-state-jev-os-bench.vercel.app/.well-known/oauth-authorization-server",
+          "finalUrl": "https://neutral-state-jev-os-bench.vercel.app/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "9fba8f72cb8c5d5fd6d28909c07b1f4b385361ade7946793174c63751c91cda0"
+        }
+      ],
+      "requests": [
+        "https://neutral-state-jev-os-bench.vercel.app/.well-known/poppy.json",
+        "https://neutral-state-jev-os-bench.vercel.app/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "ax-air.com",
+      "checked_at": "2026-10-23T16:34:29.717Z",
+      "protocol_version": "0.1",
+      "organization": "Ax Air",
+      "auth_issuer": null,
+      "sign_in": [],
+      "apis": [],
+      "website": true,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://ax-air.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "website-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "No auth: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://ax-air.com/.well-known/poppy.json",
+          "finalUrl": "https://ax-air.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 0,
+          "parsed_json_sha256": "242e307aa50841dc9904946ccafdbd70029884dc1031371401643dbe8775e565"
+        }
+      ],
+      "requests": [
+        "https://ax-air.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "notjustabank.com",
+      "checked_at": "2026-10-23T16:34:30.280Z",
+      "protocol_version": "0.1",
+      "organization": "Not Just a Bank",
+      "auth_issuer": "https://bank.notjustabank.com",
+      "sign_in": [
+        "direct"
+      ],
+      "apis": [
+        "openapi"
+      ],
+      "website": true,
+      "company_agent": false,
+      "outcome": "invalid",
+      "counts": {
+        "error": 1,
+        "warning": 1,
+        "info": 2
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://notjustabank.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "organization-domain-mismatch",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/organization/domain",
+          "text": "organization.domain is \"bank.notjustabank.com\", but the document was requested for notjustabank.com."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "document": "poppy",
+          "pointer": "/auth/custom_scopes",
+          "text": "northpine:payment_tokens is offered but auth.custom_scopes doesn't describe it."
+        },
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://bank.notjustabank.com/.well-known/oauth-authorization-server may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://notjustabank.com/.well-known/poppy.json",
+          "finalUrl": "https://notjustabank.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 0,
+          "parsed_json_sha256": "1c8ddc5d1e824cb2bb7186e045b9cdb33d7e7e21df3565eb871c091e1f4d7c2a"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://bank.notjustabank.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://bank.notjustabank.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 0,
+          "parsed_json_sha256": "c603b9c68c060cfc4c0ea4bd6e7e9f57d85f266999fe52375a25181857658145"
+        }
+      ],
+      "requests": [
+        "https://notjustabank.com/.well-known/poppy.json",
+        "https://bank.notjustabank.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "spotmeplease.com",
+      "checked_at": "2026-10-23T16:34:31.482Z",
+      "protocol_version": "0.1",
+      "organization": "Spot",
+      "auth_issuer": "https://spotmeplease.com",
+      "sign_in": [
+        "direct"
+      ],
+      "apis": [
+        "mcp"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://spotmeplease.com/.well-known/poppy.json",
+          "finalUrl": "https://spotmeplease.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "7e3c32ac50523213139b260a4fc7ae42a5e827109962594bdafc23e6e79b7bbb"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://spotmeplease.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://spotmeplease.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "21391fea9e4c09c19e7070594fc07113345476151414697357322996e28ec4ad"
+        }
+      ],
+      "requests": [
+        "https://spotmeplease.com/.well-known/poppy.json",
+        "https://spotmeplease.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "poppy.ilmer.org",
+      "checked_at": "2026-10-23T16:34:32.386Z",
+      "protocol_version": "0.1",
+      "organization": "Ilmer Past",
+      "auth_issuer": "https://poppy.ilmer.org",
+      "sign_in": [],
+      "apis": [],
+      "website": true,
+      "company_agent": true,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 4
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/organization/url",
+          "text": "organization.url isn't defined in this version; agents ignore it."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/web/url",
+          "text": "web.url isn't defined in this version; agents ignore it."
+        },
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/description",
+          "text": "description isn't defined in this version; agents ignore it."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://poppy.ilmer.org/.well-known/poppy.json",
+          "finalUrl": "https://poppy.ilmer.org/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "d9090378ee4f74f89e6405bd8ef1c97f798bb525fa32375f46585f76151b239b"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://poppy.ilmer.org/.well-known/oauth-authorization-server",
+          "finalUrl": "https://poppy.ilmer.org/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "f6a7197c6e1f33396f4f3f0c9c4bcd6704aa7b1160c865d82791894773a1154f"
+        }
+      ],
+      "requests": [
+        "https://poppy.ilmer.org/.well-known/poppy.json",
+        "https://poppy.ilmer.org/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "www.ilmer.org",
+      "checked_at": "2026-10-23T16:34:34.127Z",
+      "protocol_version": "0.1",
+      "organization": "Ilmer Past",
+      "auth_issuer": "https://poppy.ilmer.org",
+      "sign_in": [],
+      "apis": [],
+      "website": true,
+      "company_agent": true,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 5
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.ilmer.org/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/organization/url",
+          "text": "organization.url isn't defined in this version; agents ignore it."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/web/url",
+          "text": "web.url isn't defined in this version; agents ignore it."
+        },
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/description",
+          "text": "description isn't defined in this version; agents ignore it."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.ilmer.org/.well-known/poppy.json",
+          "finalUrl": "https://www.ilmer.org/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 0,
+          "parsed_json_sha256": "531cf55f0a106a9988c5cad1a85c3de19d0efc178de2223f9025e6028d904c45"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://poppy.ilmer.org/.well-known/oauth-authorization-server",
+          "finalUrl": "https://poppy.ilmer.org/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "f6a7197c6e1f33396f4f3f0c9c4bcd6704aa7b1160c865d82791894773a1154f"
+        }
+      ],
+      "requests": [
+        "https://www.ilmer.org/.well-known/poppy.json",
+        "https://poppy.ilmer.org/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "salespeak.ai",
+      "checked_at": "2026-10-23T16:34:34.996Z",
+      "protocol_version": "0.1",
+      "organization": "Salespeak",
+      "auth_issuer": "https://04b145b019ebeb4e.agents.salespeak.ai",
+      "sign_in": [],
+      "apis": [],
+      "website": false,
+      "company_agent": true,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://salespeak.ai/.well-known/poppy.json",
+          "finalUrl": "https://04b145b019ebeb4e.agents.salespeak.ai/.well-known/poppy.json?domain=salespeak.ai",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "45f07dc286f07d2f67e9f75aa010a334f616a27fde791da1ac4327c7b77beac2"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://04b145b019ebeb4e.agents.salespeak.ai/.well-known/oauth-authorization-server",
+          "finalUrl": "https://04b145b019ebeb4e.agents.salespeak.ai/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "9eb5ff597bd70ea7cdb373a19b94d06910ad82aaa103121ef3e4d488dfaf5af4"
+        }
+      ],
+      "requests": [
+        "https://salespeak.ai/.well-known/poppy.json",
+        "https://04b145b019ebeb4e.agents.salespeak.ai/.well-known/poppy.json?domain=salespeak.ai",
+        "https://04b145b019ebeb4e.agents.salespeak.ai/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "www.alpine-retail.com",
+      "checked_at": "2026-10-23T16:34:36.649Z",
+      "protocol_version": "0.2",
+      "organization": "Alpine Retail",
+      "auth_issuer": "https://www.alpine-retail.com",
+      "sign_in": [
+        "direct",
+        "mediated"
+      ],
+      "apis": [
+        "openapi"
+      ],
+      "website": true,
+      "company_agent": true,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.alpine-retail.com/.well-known/poppy.json",
+          "finalUrl": "https://www.alpine-retail.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "815ee7986dfb141d343ec9bddb73153fb84846abe5f05ae204fd84b1c939857a"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://www.alpine-retail.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://www.alpine-retail.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "0dfe036c8daeb5576290569e287aff78febff135c3fb73af784bbdc618603242"
+        }
+      ],
+      "requests": [
+        "https://www.alpine-retail.com/.well-known/poppy.json",
+        "https://www.alpine-retail.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "skipped": []
+    },
+    {
+      "host": "windomsports.com",
+      "checked_at": "2026-10-23T16:34:37.485Z",
+      "protocol_version": "0.1",
+      "organization": "Windom Sports",
+      "auth_issuer": "https://windomsports.com",
+      "sign_in": [
+        "direct"
+      ],
+      "apis": [
+        "mcp"
+      ],
+      "website": false,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 3,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://windomsports.com/.well-known/oauth-authorization-server may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "metadata-auth-method",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/token_endpoint_auth_methods_supported",
+          "text": "token_endpoint_auth_methods_supported doesn't include private_key_jwt."
+        },
+        {
+          "id": "metadata-grant-type",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/grant_types_supported",
+          "text": "grant_types_supported doesn't include urn:ietf:params:oauth:grant-type:jwt-bearer."
+        },
+        {
+          "id": "metadata-grant-type",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/grant_types_supported",
+          "text": "grant_types_supported doesn't include refresh_token."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://windomsports.com/.well-known/poppy.json",
+          "finalUrl": "https://windomsports.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 300,
+          "parsed_json_sha256": "d15cccf9a30c0a8f4193f73bbbb90082c3ef1fab70ca68efbfdca6b2295c0709"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://windomsports.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://windomsports.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 0,
+          "parsed_json_sha256": "d998a38e657c176e0261a1ca39bf9da7954d02362af6aee12fd45a24cfca21aa"
+        }
+      ],
+      "requests": [
+        "https://windomsports.com/.well-known/poppy.json",
+        "https://windomsports.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "getvibe.dev",
+      "checked_at": "2026-10-23T16:34:38.222Z",
+      "protocol_version": "0.1",
+      "organization": "The Vibe Suite",
+      "auth_issuer": null,
+      "sign_in": [],
+      "apis": [],
+      "website": true,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://getvibe.dev/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "website-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "No auth: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://getvibe.dev/.well-known/poppy.json",
+          "finalUrl": "https://getvibe.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "maxAgeSeconds": 0,
+          "parsed_json_sha256": "5aaf3234a9586cb64a9ad918bfc747ff28cd591ff9bd0cd3ab4c1db3eed02f3c"
+        }
+      ],
+      "requests": [
+        "https://getvibe.dev/.well-known/poppy.json"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "origin-platform-labs.netlify.app",
+      "checked_at": "2026-10-23T16:34:38.816Z",
+      "protocol_version": "0.1",
+      "organization": "Origin Platform Labs",
+      "auth_issuer": null,
+      "sign_in": [],
+      "apis": [],
+      "website": true,
+      "company_agent": false,
+      "outcome": "valid",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "website-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "No auth: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://origin-platform-labs.netlify.app/.well-known/poppy.json",
+          "finalUrl": "https://origin-platform-labs.netlify.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "maxAgeSeconds": 3600,
+          "parsed_json_sha256": "deaa814e66fef450cb9a47e0cf9aff7d2d640b98ecab994839cef76fb32b0ca7"
+        }
+      ],
+      "requests": [
+        "https://origin-platform-labs.netlify.app/.well-known/poppy.json"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "skipped": []
+    },
+    {
+      "host": "intercom.io",
+      "checked_at": "2026-10-23T16:34:39.821Z",
+      "protocol_version": null,
+      "organization": null,
+      "auth_issuer": null,
+      "sign_in": [],
+      "apis": [],
+      "website": false,
+      "company_agent": false,
+      "outcome": "indeterminate",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.intercom.com/.well-known/poppy.json answered HTTP 404."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://intercom.io/.well-known/poppy.json",
+          "finalUrl": "https://www.intercom.com/.well-known/poppy.json",
+          "status": 404,
+          "maxAgeSeconds": null
+        }
+      ],
+      "requests": [
+        "https://intercom.io/.well-known/poppy.json",
+        "https://www.intercom.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "skipped": []
+    }
+  ]
+}
