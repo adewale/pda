@@ -34,7 +34,7 @@ The store admits a Session only for a `client_id` its operator listed, so the ad
 | datalayer-ts, datalayer-py, pi-poppy, poppy-demo, adonis-agora | `https://<name>.agent.interop.test/agent.json` |
 | everruns | `https://everruns.agent.interop.test/api/v1/poppy/agent.json` |
 
-This is the store's ordinary configuration, not a relaxation. The adversarial `evil-agent` isn't listed: it never runs against a third-party Company (spec section 13). An agent added to the registry later needs adding here, or `--set print-with-poppy:AGENT_CLIENT_IDS=…`.
+This is the store's ordinary configuration, not a relaxation. The adversarial `evil-personal-agent` isn't listed: it never runs against a third-party Company (spec section 13). An agent added to the registry later needs adding here, or `--set print-with-poppy:AGENT_CLIENT_IDS=…`.
 
 ### The compatibility path is off
 

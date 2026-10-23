@@ -102,10 +102,10 @@ const nrep: Scenario = { id: "NREP", title: "replay", adversary: "network", faul
 const scenarios = new Map<string, Scenario>([["YR", yr], ["XH", xh], ["NREP", nrep]]);
 
 describe("attribution rule 0 (adversarial)", () => {
-  const context = { readings: { agent: {}, company: {} }, scenarios, adversarial: new Set(["evil-agent", "evil-company"]) };
+  const context = { readings: { agent: {}, company: {} }, scenarios, adversarial: new Set(["evil-personal-agent", "evil-company"]) };
 
   it("blames the honest side when it doesn't refuse the attack", () => {
-    expect(attribute(cell("evil-agent", "pda-mock", "fail", "YR"), [], context)).toMatchObject({ blame: "company", rule: "adversarial" });
+    expect(attribute(cell("evil-personal-agent", "lenient-company", "fail", "YR"), [], context)).toMatchObject({ blame: "company", rule: "adversarial" });
     expect(attribute(cell("pda", "evil-company", "fail", "XH"), [], { ...context, scenarios: new Map([["XH", { ...xh, permitted_by: undefined }]]) })).toMatchObject({ blame: "agent", rule: "adversarial" });
   });
 
@@ -114,19 +114,19 @@ describe("attribution rule 0 (adversarial)", () => {
   });
 
   it("passes and errored adversarial cells keep their usual blame", () => {
-    expect(attribute(cell("evil-agent", "pda-mock", "pass", "YR"), [], context)).toEqual({ blame: null, rule: null });
-    expect(attribute(cell("evil-agent", "pda-mock", "error", "YR"), [], context)).toEqual({ blame: "harness", rule: null });
+    expect(attribute(cell("evil-personal-agent", "lenient-company", "pass", "YR"), [], context)).toEqual({ blame: null, rule: null });
+    expect(attribute(cell("evil-personal-agent", "lenient-company", "error", "YR"), [], context)).toEqual({ blame: "harness", rule: null });
   });
 
   it("marks security cells and keeps them out of the grid (rule 2)", () => {
-    expect(isSecurityCell(cell("evil-agent", "pda-mock", "fail", "YR"), context)).toBe(true);
-    expect(isSecurityCell(cell("pda", "pda-mock", "fail", "NREP"), context)).toBe(true);
-    expect(isSecurityCell(cell("pda", "pda-mock", "fail", "SD"), context)).toBe(false);
+    expect(isSecurityCell(cell("evil-personal-agent", "lenient-company", "fail", "YR"), context)).toBe(true);
+    expect(isSecurityCell(cell("pda", "lenient-company", "fail", "NREP"), context)).toBe(true);
+    expect(isSecurityCell(cell("pda", "lenient-company", "fail", "SD"), context)).toBe(false);
     // A security cell never stands in as a grid cell for an honest one: here the
     // evil agent passing against `other` would, if counted, say `other` doesn't
     // fail with every agent, and leave the honest failure unattributed.
     const honest: Cell = { ...cell("pda", "other", "fail", "SD") };
-    const grid = [honest, cell("pda", "pda-mock", "pass", "SD"), cell("evil-agent", "other", "pass", "SD")];
+    const grid = [honest, cell("pda", "lenient-company", "pass", "SD"), cell("evil-personal-agent", "other", "pass", "SD")];
     attributeAll(grid, { ...context, scenarios: new Map([["SD", { id: "SD", title: "x", steps: [] }]]) });
     expect(grid[2]!.security).toBe(true);
     expect(honest.security).toBeFalsy();
@@ -139,8 +139,8 @@ const self = { owner: "self" as const };
 
 describe("the own-project rule", () => {
   const pda = entry({ name: "pda", role: "agent", ...self });
-  const mock = entry({ name: "pda-mock", role: "company", ...self });
-  const evilAgent = entry({ name: "evil-agent", role: "agent", adversarial: true });
+  const mock = entry({ name: "lenient-company", role: "company", ...self });
+  const evilAgent = entry({ name: "evil-personal-agent", role: "agent", adversarial: true });
   const evilCompany = entry({ name: "evil-company", role: "company", adversarial: true });
   const outsider = entry({ name: "datalayer-ts", role: "company" });
   const outsiderAgent = entry({ name: "pi-poppy", role: "agent" });

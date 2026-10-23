@@ -12,7 +12,49 @@
       "notes": "Drives src/poppy directly (PoppyClient, sign-in, conversations, APIs, operations) in Node; no model."
     },
     {
-      "name": "pda-mock",
+      "name": "lenient-personal-agent",
+      "role": "agent",
+      "owner": "self",
+      "fake": true,
+      "source": "https://github.com/adewale/pda",
+      "commit": "HEAD",
+      "build": "interop/impls/pda-agent",
+      "context": ".",
+      "env": {
+        "INTEROP_AGENT_PROFILE": "lenient"
+      },
+      "notes": "The pda image with the lenient profile (interop/impls/pda-agent/profiles.ts): accepts every reading of what a Company does that gives no more access, such as server metadata at either S3 location and another of the Company's names as a client assertion aud after invalid_client. The reference agent for attribution rule 2. Never in the live lane."
+    },
+    {
+      "name": "strict-personal-agent",
+      "role": "agent",
+      "owner": "self",
+      "fake": true,
+      "source": "https://github.com/adewale/pda",
+      "commit": "HEAD",
+      "build": "interop/impls/pda-agent",
+      "context": ".",
+      "env": {
+        "INTEROP_AGENT_PROFILE": "strict"
+      },
+      "notes": "The pda image with the strict profile: runs the runner's Company-side checks and the validator over everything it receives, refuses at the first finding of any level (a SHOULD or the Guides included), and serves its findings at GET /violations. Never in the live lane."
+    },
+    {
+      "name": "sloppy-personal-agent",
+      "role": "agent",
+      "owner": "self",
+      "fake": true,
+      "source": "https://github.com/adewale/pda",
+      "commit": "HEAD",
+      "build": "interop/impls/pda-agent",
+      "context": ".",
+      "env": {
+        "INTEROP_AGENT_PROFILE": "sloppy"
+      },
+      "notes": "The pda image with the sloppy profile: the mistakes real agents make, declared honestly: assertions without typ that live 300 s (S2 lenient-300s), a token-endpoint aud everywhere (S1 token-endpoint), scope on a signed-out Session request (S4 poppy-read). Honest, not adversarial. Never in the live lane."
+    },
+    {
+      "name": "lenient-company",
       "role": "company",
       "owner": "self",
       "source": "https://github.com/adewale/pda",
@@ -22,7 +64,7 @@
       "notes": "The mock Company from test/mock-company with its S2-lenient settings (strictAssertions off), the reference Company for attribution rule 2. Serves its recorded violations at GET /violations."
     },
     {
-      "name": "pda-mock-strict",
+      "name": "strict-company",
       "role": "company",
       "owner": "self",
       "source": "https://github.com/adewale/pda",
@@ -32,10 +74,10 @@
       "env": {
         "INTEROP_MOCK_PROFILE": "strict"
       },
-      "notes": "The same image as pda-mock with the mock's strict profile: assertion typ \"JWT\", a kid naming a published key and a 60-second lifetime (S2 jwt-60s), as the strictest live Companies require."
+      "notes": "The same image as lenient-company with the mock's strict profile: assertion typ \"JWT\", a kid naming a published key and a 60-second lifetime (S2 jwt-60s), as the strictest live Companies require."
     },
     {
-      "name": "evil-agent",
+      "name": "evil-personal-agent",
       "role": "agent",
       "adversarial": true,
       "source": "https://github.com/adewale/pda",
@@ -58,7 +100,7 @@
       "env": {
         "INTEROP_ADVERSARY": "company"
       },
-      "notes": "The adversarial Company: the pda-mock image with INTEROP_ADVERSARY=company, reconfigured per attack by the arm hook. Runs only against our own owner:self agent, never in the live lane (docs/adversarial-interop.md; SECURITY.md)."
+      "notes": "The adversarial Company: the lenient-company image with INTEROP_ADVERSARY=company, reconfigured per attack by the arm hook. Runs only against our own owner:self agent, never in the live lane (docs/adversarial-interop.md; SECURITY.md)."
     },
     {
       "name": "datalayer-ts",
@@ -233,7 +275,7 @@
       }
     },
     {
-      "name": "pda-mock-v02",
+      "name": "lenient-company-v02",
       "role": "company",
       "owner": "self",
       "source": "https://github.com/adewale/pda",

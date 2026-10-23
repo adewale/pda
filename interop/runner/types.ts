@@ -10,8 +10,13 @@ export type RegistryEntry = {
   readonly commit: string;
   /** `"self"` marks an implementation this project owns. Adversarial cells run only against self-owned honest sides. */
   readonly owner?: "self";
-  /** An implementation that misbehaves on purpose (evil-agent, evil-company). The live lane refuses it (spec §10). */
+  /** An implementation that misbehaves on purpose (evil-personal-agent, evil-company). The live lane refuses it (spec §10). */
   readonly adversarial?: boolean;
+  /**
+   * A fake implementation, built to test the other side: the fake Personal Agents
+   * (lenient-, strict- and sloppy-personal-agent). The live lane never runs it (spec §10).
+   */
+  readonly fake?: boolean;
   /** A directory holding a Dockerfile (local lane). */
   readonly build?: string;
   /** Public source pins passed into a shared build; never credentials. */

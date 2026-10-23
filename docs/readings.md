@@ -18,13 +18,14 @@ Back to [spec-issues.md](spec-issues.md) · [interop-spec.md §7](interop-spec.m
 - **What we accept** is lenient where the readings differ only in shape (an error's location, a cursor's spelling, a missing display name) and every reading leads to the same access.
 - **How it's graded** is separate from what we do. A check that rests on a reading is tentative everywhere: a warning in the mock, the validator and the grid, and a failure it causes is the spec's ([conformance-levels.md](conformance-levels.md)). Being strict in behaviour never makes the other side's departure a violation.
 
-## The three implementations
+## The implementations
 
 | Name | What it is | Settings |
 | --- | --- | --- |
 | **Client** | `src/poppy/`, the Personal Agent; `pda` in the [interop registry](../interop/registry.json) | One behaviour |
-| **Strict mock** | `test/mock-company/` with its defaults (`DEFAULT_CONFIG` in `types.ts`), as the conformance tests run it; `pda-mock-strict` in the grid | `strictAssertions: true`, `clientAssertionAud: "lenient"`, `nonceScope: "company"` |
-| **Lenient mock** | The same mock with `strictAssertions: false`; `pda-mock`, the grid's reference Company for attribution rule 2 | As the strict mock, except S2. Both report every check with its basis and level; a warning or reading never fails a cell ([conformance-levels.md](conformance-levels.md)) |
+| **Strict mock** | `test/mock-company/` with its defaults (`DEFAULT_CONFIG` in `types.ts`), as the conformance tests run it; `strict-company` in the grid | `strictAssertions: true`, `clientAssertionAud: "lenient"`, `nonceScope: "company"` |
+| **Lenient mock** | The same mock with `strictAssertions: false`; `lenient-company`, the grid's reference Company for attribution rule 2 | As the strict mock, except S2. Both report every check with its basis and level; a warning or reading never fails a cell ([conformance-levels.md](conformance-levels.md)) |
+| **Fake Personal Agents** | The client with a profile in the adapter's network seam (`interop/impls/pda-agent/profiles.ts`), for testing Companies: `lenient-personal-agent`, `strict-personal-agent`, `sloppy-personal-agent` ([interop-spec §2.1](interop-spec.md#21-the-fake-implementations)) | Readings in `PROFILE_READINGS`: the lenient agent reads S3 `either`; the strict agent the client's; the sloppy agent S1 `token-endpoint`, S2 `lenient-300s`, S4 `poppy-read` |
 
 The conformance tests also run sign-in, Sessions and sign-out under six other profiles (`PROFILES` in `test/poppy.test.ts`): exact `aud` (S1), a DPoP nonce per origin and per Company (S23), lenient assertions (S2), a trailing-slash issuer (S7), and an issuer with a path (S3). So the client is tested against both answers to S1, S2, S7 and S23, and against an issuer with a path, not only the mock's default.
 
@@ -51,7 +52,7 @@ Each adapter declares these in its manifest (`readings` in `interop/impls/pda-ag
 - **Client:** header `typ: "JWT"`, a `kid` naming a published key, and `exp` 60 s after `iat`, on both client and Session assertions (`ASSERTION_SECONDS` in `src/poppy/jwt.ts`).
 - **Strict mock:** refuses an assertion without `typ: "JWT"` (`client-assertion.typ`, `session-assertion.typ`), without a published `kid` (`.kid`), or living longer than 60 s (`.lifetime`).
 - **Lenient mock:** no `typ` or `kid` needed, and assertions up to 300 s (`MAX_ASSERTION_LIFETIME`), which it declares as `lenient-300s`: the runner counts it compatible with agents reading `jwt-60s`, `lenient-120s` or `lenient-300s`, not with `any`. (`lenient-120s`, any `typ` and at most 120 s, is print-with-poppy's reading, and Datalayer 0.10.0's.) It still refuses a DPoP proof or browser assertion used as one (`client-assertion.wrong-typ`, `session-assertion.browser-typ`), an algorithm other than ES256 or RS256, a bad signature against the published keys, and a reused `jti`, and records an embedded key (`.embedded-key`).
-- **Why.** Both mocks are strict on the parts that stop confusion and replay: a distinct `typ` for the other JWT kinds (see N25), a signature from a published key, single-use `jti`. Requiring `typ: "JWT"` on top, and 60 s rather than 300, is what the strictest live Companies do, so the client sends it and the strict mock checks it. The lenient mock is the grid's reference Company: its job is attribution, not gatekeeping, and the interop spec treats S2 as a warning. If it refused typ-less agents, every cell for pi-poppy's and adonis-agora's agents would stop at the first token request and nothing past it would be tested. `pda-mock-strict` runs in the same grid, so the strict reading is still checked.
+- **Why.** Both mocks are strict on the parts that stop confusion and replay: a distinct `typ` for the other JWT kinds (see N25), a signature from a published key, single-use `jti`. Requiring `typ: "JWT"` on top, and 60 s rather than 300, is what the strictest live Companies do, so the client sends it and the strict mock checks it. The lenient mock is the grid's reference Company: its job is attribution, not gatekeeping, and the interop spec treats S2 as a warning. If it refused typ-less agents, every cell for pi-poppy's and adonis-agora's agents would stop at the first token request and nothing past it would be tested. `strict-company` runs in the same grid, so the strict reading is still checked.
 
 ### <a id="s3"></a>S3: metadata location for an issuer with a path
 
@@ -106,7 +107,7 @@ These aren't declared in the grid's manifests, because they don't change what go
 
 ## Mismatches between declarations and code
 
-None known. The three found while writing this were fixed: `pda-mock` now declares S2 `lenient-300s`, which is what it enforces; the mocks can serve an issuer with a path, so `insertion` is tested; and [interop-spec.md §4](interop-spec.md#4-manifest)'s example manifest shows the `pda` adapter's own readings.
+None known. The three found while writing this were fixed: `lenient-company` now declares S2 `lenient-300s`, which is what it enforces; the mocks can serve an issuer with a path, so `insertion` is tested; and [interop-spec.md §4](interop-spec.md#4-manifest)'s example manifest shows the `pda` adapter's own readings.
 
 ## Gaps in our own code
 

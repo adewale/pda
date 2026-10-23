@@ -1,10 +1,12 @@
 # Interop grid results
 
+**Names.** On 23 October 2026 our mocks and adversarial agent were renamed: `pda-mock` is now `lenient-company`, `pda-mock-strict` `strict-company`, `pda-mock-v02` `lenient-company-v02` and `evil-agent` `evil-personal-agent`. The snapshots here keep the names they were run under.
+
 **21 October 2026:** [dual-version upgrade evidence](../poppy-0.2-upgrade.md#validation), with a [per-cell result summary](2026-10-21-poppy-0.2.json). The historical snapshots below retain their original dates and pins. CI now also runs the 0.2 mock and the official validator separately.
 
 A snapshot: the summary of one run of the [interop harness](../../interop/README.md), on 13 October 2026, with the 12 October runs kept below it. It isn't regenerated, so it goes stale as the code changes. The full results (`results.json`, the `index.html` grid and a HAR file per cell) aren't committed. To get them:
 
-- **Run the grid locally** (needs Docker): `npm run interop` with the command below, or `npm run interop -- --agents pda --companies pda-mock,pda-mock-strict` for our own pair. Each run writes to `interop/results/<run>/` (gitignored); [interop spec](../interop-spec.md) section 9 describes the files.
+- **Run the grid locally** (needs Docker): `npm run interop` with the command below, or `npm run interop -- --agents pda --companies lenient-company,strict-company` for our own pair. Each run writes to `interop/results/<run>/` (gitignored); [interop spec](../interop-spec.md) section 9 describes the files.
 - **Download CI's**: the Interop workflow (`.github/workflows/interop.yml`) runs our agent against both of our mocks and uploads the `interop-results` artifact from each run.
 
 For current validation, see [the two complete isolated grid runs on 17 October](https://github.com/adewale/pda/actions/runs/38988240129). The dated snapshot below is retained as historical context.

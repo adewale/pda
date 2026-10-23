@@ -51,7 +51,7 @@ jobs:
 
       - run: npm ci --legacy-peer-deps
 
-      - run: npm run interop -- --agents pda --companies pda-mock,pda-mock-strict,pda-mock-v02
+      - run: npm run interop -- --agents pda --companies lenient-company,strict-company,lenient-company-v02
 
       - run: npm run interop:official
 

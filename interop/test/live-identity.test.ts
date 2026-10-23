@@ -103,15 +103,18 @@ describe("the runner's live identity", () => {
     const none = { public: {}, secret: {} };
     expect(liveIdentityEnv("local", pda, identity)).toEqual(none);
     expect(liveIdentityEnv("live", pda, null)).toEqual(none);
-    expect(liveIdentityEnv("live", entry("agent", "evil-agent"), identity)).toEqual(none);
+    expect(liveIdentityEnv("live", entry("agent", "evil-personal-agent"), identity)).toEqual(none);
     expect(liveIdentityEnv("live", thirdPartyAgent, identity)).toEqual(none);
-    expect(liveIdentityEnv("live", entry("company", "pda-mock"), identity)).toEqual(none);
+    expect(liveIdentityEnv("live", entry("company", "lenient-company"), identity)).toEqual(none);
   });
 
   it("runs only our own agents in the live lane, so no third-party image ever sees the key", () => {
     const agents = selected(registry, "agent", null, "live");
     expect(agents.map((item: RegistryEntry) => item.name)).toContain("pda");
     expect(agents.every((item: RegistryEntry) => item.owner === "self")).toBe(true);
+    // Nor the fake Personal Agents: they exist to test our own Companies, never a public deployment.
+    expect(agents.some((item: RegistryEntry) => item.fake)).toBe(false);
+    expect(() => selected(registry, "agent", ["sloppy-personal-agent"], "live")).toThrow(/No agent/);
     expect(() => selected(registry, "agent", [thirdPartyAgent.name], "live")).toThrow(/No agent/);
     // The local lane still runs everyone's.
     expect(selected(registry, "agent", null, "local").map((item: RegistryEntry) => item.name)).toContain(thirdPartyAgent.name);

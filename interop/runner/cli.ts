@@ -27,7 +27,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { attributeAll, companyRecorded, levelCounts, staleKnown, unexpected, type RecordedViolation } from "./attribution.ts";
+import { agentRecorded, attributeAll, companyRecorded, levelCounts, staleKnown, unexpected, type RecordedViolation } from "./attribution.ts";
 import { runCell, toReply, withWebPage, type Driver, type Reply, type RunnerReply } from "./cell.ts";
 import { makeCertificates } from "./certs.ts";
 import { traceChecks } from "./checks.ts";
@@ -462,11 +462,16 @@ export async function runOne(
       checks.push(...refusedReadingChecks(recorded, company.manifest?.readings ?? {}));
     }
   }
-  const violations = await control(company.target, "GET", "/violations").catch(() => ({ status: 0, body: null }));
-  const recordedViolations = (violations.body as { violations?: RecordedViolation[] } | null)?.violations;
-  if (violations.status === 200 && Array.isArray(recordedViolations)) {
-    const isSecurity = !!scenario.adversary || !!scenario.faults?.length || !!agent.entry.adversarial || !!company.entry.adversarial;
-    for (const violation of recordedViolations) checks.push(companyRecorded(violation, company.entry.name, isSecurity));
+  // What each side recorded of the other: the mock Company of the agent, the strict fake agent of the Company (spec §5.3).
+  const isSecurity = !!scenario.adversary || !!scenario.faults?.length || !!agent.entry.adversarial || !!company.entry.adversarial;
+  for (const [side, recorder] of [["company", company], ["agent", agent]] as const) {
+    if (side === "company" && !company.entry.build) continue;
+    const violations = await control(recorder.target, "GET", "/violations").catch(() => ({ status: 0, body: null }));
+    const recordedViolations = (violations.body as { violations?: RecordedViolation[] } | null)?.violations;
+    if (violations.status !== 200 || !Array.isArray(recordedViolations)) continue;
+    for (const violation of recordedViolations) {
+      checks.push(side === "company" ? companyRecorded(violation, company.entry.name, isSecurity) : agentRecorded(violation, agent.entry.name, isSecurity));
+    }
   }
   cell.checks = checks;
   // In an adversarial cell the attacking side's own violations are expected (rule 0): don't fail
@@ -506,12 +511,12 @@ export function gridCoverage(
 
 /**
  * The implementations a lane can run, by role. The live lane runs only our
- * own agent (`owner: "self"`, built here) against Companies with a `url`
- * (spec §10): no third-party image, and its identity's key goes to nothing else.
+ * own agent (`owner: "self"`, built here, not a fake) against Companies with a
+ * `url` (spec §10): no third-party image, and its identity's key goes to nothing else.
  */
 export function selected(registry: Registry, role: Role, names: readonly string[] | null, lane: "local" | "live"): RegistryEntry[] {
   const runs = (entry: RegistryEntry) =>
-    lane === "live" ? (role === "agent" ? !!entry.build && entry.owner === "self" : !!entry.url) : !!entry.build;
+    lane === "live" ? (role === "agent" ? !!entry.build && entry.owner === "self" && !entry.fake : !!entry.url) : !!entry.build;
   const all = registry.implementations.filter((entry) => entry.role === role && runs(entry));
   if (!names) return all.filter((entry) => !entry.vectorsOnly);
   for (const name of names) {
@@ -522,7 +527,7 @@ export function selected(registry: Registry, role: Role, names: readonly string[
 
 /**
  * An implementation's image. Entries of one role that build the same
- * directory in the same context (`pda-mock` and `pda-mock-strict`, told
+ * directory in the same context (`lenient-company` and `strict-company`, told
  * apart by `env`) share one image, named after the first in the registry.
  */
 export function imageOf(entry: RegistryEntry, registry: Registry, tag = "latest"): string {

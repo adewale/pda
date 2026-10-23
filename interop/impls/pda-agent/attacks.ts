@@ -1,7 +1,7 @@
 /**
  * The adversarial Personal Agent's attacks (docs/adversarial-interop.md, Part B).
  * Interop-only: this file is bundled into the pda-agent image but runs only
- * when the adapter is armed (the `evil-agent` registry entry sets
+ * when the adapter is armed (the `evil-personal-agent` registry entry sets
  * `INTEROP_ADVERSARY=agent`). None of it is in `src/poppy`; it crafts raw
  * OAuth and resource requests with jose, over the recording proxy, to turn
  * the mock Company's `TAMPERS` checks (test/mock-company.test.ts) into wire

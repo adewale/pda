@@ -9,9 +9,10 @@ Needs Node 24 or later, Docker (Docker Desktop, colima, or Docker on Linux) and 
 ```sh
 npm ci --legacy-peer-deps
 npm run interop                                        # everything in the registry
-npm run interop -- --agents pda --companies pda-mock   # one pair
+npm run interop -- --agents pda --companies lenient-company   # one pair
 npm run interop -- --scenarios D,SD,O --no-build       # some scenarios, reusing built images
 npm run interop -- --set pda:INTEROP_FAULT=assertion-typ --scenarios S0   # a deliberately broken agent
+npm run interop -- --agents lenient-personal-agent,strict-personal-agent,sloppy-personal-agent --companies lenient-company,strict-company   # the fakes against each other
 ```
 
 | Option | Meaning |
@@ -28,15 +29,15 @@ npm run interop -- --set pda:INTEROP_FAULT=assertion-typ --scenarios S0   # a de
 | `--out dir` | Where to write results, instead of `interop/results/<run>/`. |
 | `--image-tag tag` | Build and run under a Docker tag (default `latest`); `--image-tag adv` keeps a full grid run's `:latest` images untouched. The only way to keep a side build of our images: don't `docker tag` them by hand, and `docker image rm poppy-interop/<image>:<tag>` a side tag when you're done with it (the runner never removes images). |
 
-**Adversarial cells** (the malicious `evil-agent`/`evil-company` and the fault-injection proxy; [`docs/adversarial-interop.md`](../docs/adversarial-interop.md)) run only against our own `owner: "self"` implementations, on the local lane, never live, with one exception: `evil-company` may attack other projects' agents. No flag lifts the rest ([`SECURITY.md`](../SECURITY.md), [`docs/interop-spec.md`](../docs/interop-spec.md) §13). They appear in a separate security grid in `index.html` and never count toward the interop pass rates. Run with no `--agents` and `--scenarios`, `npm run interop` pairs every adversarial scenario with every implementation too; the runner refuses each such cell with a third-party side, other than an agent facing `evil-company`, before anything is sent and records it as `error`, blame `harness` (spec §13), so that command always exits 1. A full grid is the honest scenarios with every agent and Company ([the command](../docs/interop-results/README.md)) plus the three security commands below.
+**Adversarial cells** (the malicious `evil-personal-agent`/`evil-company` and the fault-injection proxy; [`docs/adversarial-interop.md`](../docs/adversarial-interop.md)) run only against our own `owner: "self"` implementations, on the local lane, never live, with one exception: `evil-company` may attack other projects' agents. No flag lifts the rest ([`SECURITY.md`](../SECURITY.md), [`docs/interop-spec.md`](../docs/interop-spec.md) §13). They appear in a separate security grid in `index.html` and never count toward the interop pass rates. Run with no `--agents` and `--scenarios`, `npm run interop` pairs every adversarial scenario with every implementation too; the runner refuses each such cell with a third-party side, other than an agent facing `evil-company`, before anything is sent and records it as `error`, blame `harness` (spec §13), so that command always exits 1. A full grid is the honest scenarios with every agent and Company ([the command](../docs/interop-results/README.md)) plus the three security commands below.
 
 ```sh
-npm run interop -- --image-tag adv --agents evil-agent --companies pda-mock,pda-mock-strict --scenarios YR,YD,YA,YT,YS,YK,YU,YM
+npm run interop -- --image-tag adv --agents evil-personal-agent --companies lenient-company,strict-company --scenarios YR,YD,YA,YT,YS,YK,YU,YM
 npm run interop -- --image-tag adv --agents pda --companies evil-company --scenarios XH,XI,BX,XB,XN,XO,XP,XE,XR,XT
-npm run interop -- --image-tag adv --agents pda --companies pda-mock,pda-mock-strict --scenarios NREP,CDUP,CIDUP,ODUP
+npm run interop -- --image-tag adv --agents pda --companies lenient-company,strict-company --scenarios NREP,CDUP,CIDUP,ODUP
 ```
 
-`--image-tag adv` builds our images under a side tag so a grid run in progress keeps its `:latest` ones. When no grid is running, `--no-build` reuses `:latest` instead (`evil-agent` and `evil-company` are our two images with `INTEROP_ADVERSARY` set). A side tag stays on Docker's disk until you remove it: `docker image rm poppy-interop/agent-pda:adv poppy-interop/company-pda-mock:adv poppy-interop/proxy:adv`.
+`--image-tag adv` builds our images under a side tag so a grid run in progress keeps its `:latest` ones. When no grid is running, `--no-build` reuses `:latest` instead (`evil-personal-agent` and `evil-company` are our two images with `INTEROP_ADVERSARY` set). A side tag stays on Docker's disk until you remove it: `docker image rm poppy-interop/agent-pda:adv poppy-interop/company-lenient-company:adv poppy-interop/proxy:adv`.
 
 Each run writes:
 
@@ -107,8 +108,8 @@ scenarios/           One JSON file per scenario (spec section 6)
 files/               Files scenarios upload (an api step's args.files): lake.jpg, a 480×360 photo drawn for the purpose
 runner/              The CLI, cell runner, checks, attribution and report
 proxy/               The recording TLS proxy and the control relay (Node, no dependencies)
-impls/pda-agent/     Our agent: src/poppy in Node, no model
-impls/pda-mock/      Our mock Company (test/mock-company) behind the hooks API, as pda-mock (lenient) and pda-mock-strict
+impls/pda-agent/     Our agent: src/poppy in Node, no model, registered as pda, the three fake Personal Agents (profiles.ts) and evil-personal-agent (attacks.ts)
+impls/pda-mock/      Our mock Company (test/mock-company) behind the hooks API, registered as lenient-company, strict-company, lenient-company-v02 and evil-company
 impls/shared/        What our two adapters share: the HTTP shim, the esbuild bundle, and the mock's hooks (mock-hooks.ts, also used by test/hypothesis)
 vectors/datalayer/   Runs Datalayer's conformance cases against src/poppy and src/validator (spec section 11)
 vectors/validators/  Our validator against poppy-validator and poppy-sidecar on the same documents
@@ -120,7 +121,8 @@ test/                Unit tests for the runner, in Node (interop/vitest.config.t
 1. Write an adapter in `interop/impls/<name>-agent/` or `interop/impls/<name>-company/` with a `Dockerfile` whose base images are pinned by digest ([Base images](#base-images)). The container serves the implementation on port 8080 (plain HTTP; the proxy terminates TLS) and the adapter API on port 8081:
    - every adapter: `GET /manifest`, `GET /healthz`, `POST /reset` (spec section 5.1);
    - an agent: `POST /step` (5.2), driving the implementation's own protocol code, never a model;
-   - a Company: `GET /hooks` and `POST /hooks/<name>` (5.3), and `GET /violations` if it records the agent's mistakes.
+   - a Company: `GET /hooks` and `POST /hooks/<name>` (5.3), and `GET /violations` if it records the agent's mistakes;
+   - either side may serve `GET /violations` with what it recorded of the other (an agent's findings are checks against the Company).
 2. Build URLs from `INTEROP_ORIGIN`, trust `/interop/ca.pem`, and authenticate control calls with `INTEROP_SECRET`. Any relaxation the implementation needs (accepting `*.interop.test`, a private CA, an unknown peer) must be a setting that is off by default, listed in the manifest's `relaxations`.
 3. Add an entry to `registry.json` with a pinned `commit`. A Company that serves subdomains beyond the defaults lists them in `subdomains`.
 4. Run `npm run interop -- --agents pda --companies <name>` (or the converse) and look at `index.html`.
@@ -128,9 +130,23 @@ test/                Unit tests for the runner, in Node (interop/vitest.config.t
 
 ## Our adapters
 
+### The fake implementations
+
+Our two adapters each register a set of fakes: our own code with a profile, built to test the other side. Each set has a lenient, a strict and an evil member, and the agents add a sloppy one. They are `owner: "self"`; the honest fakes are `fake: true`, which keeps them out of the live lane, and the evil ones `adversarial: true` (spec §13).
+
+| | Personal Agent (`impls/pda-agent`) | Company (`impls/pda-mock`) |
+| --- | --- | --- |
+| Real | `pda`: src/poppy as the Durable Object runs it | none: we don't build a Company |
+| Lenient | `lenient-personal-agent`, the reference agent: accepts every reading of what a Company does that gives no more access (S3 metadata at either location; another of the Company's names as `aud` after `invalid_client` at an endpoint without DPoP) | `lenient-company`, the reference Company: S2-lenient assertions |
+| Strict | `strict-personal-agent`: runs the runner's Company-side checks and the validator over everything it receives, refuses at the first finding of any level, a SHOULD or the Guides included, and serves its findings at `GET /violations` | `strict-company`: `typ: "JWT"`, a published `kid` and 60-second assertions |
+| Sloppy | `sloppy-personal-agent`: the mistakes real agents make, declared honestly in its readings: no `typ`, 300-second assertions, a token-endpoint `aud` everywhere, `scope` on a signed-out Session | none |
+| Evil | `evil-personal-agent`: raw wire attacks (`attacks.ts`) | `evil-company`: the mock reconfigured per attack |
+
+`INTEROP_AGENT_PROFILE` (`lenient`, `strict` or `sloppy`) and `INTEROP_MOCK_PROFILE` set the profile, from the registry's `env`. An agent's profile lives only in the adapter's network seam (`impls/pda-agent/profiles.ts`): `src/poppy` runs unchanged. Renamed on 23 October 2026: `pda-mock` is now `lenient-company`, `pda-mock-strict` `strict-company`, `pda-mock-v02` `lenient-company-v02` and `evil-agent` `evil-personal-agent`. Results and dated notes from before then use the old names.
+
 **pda-agent** bundles `src/poppy` with esbuild and runs it in Node: the same `PoppyClient`, sign-in, conversation, API and operations code the Durable Object runs. Node's built-in SQLite stands in for the Durable Object's (`impls/pda-agent/sqlite.ts` implements the part of `SqlStorage` src/poppy uses), and jobs the Durable Object would schedule run when a step waits on them. It needs no relaxation: `*.interop.test` names pass src/poppy's public-host check, and Node trusts the run's CA. `web_join` (scenario W) browses as `poppy_browse` does, with src/poppy's fetch-based browser, which joins the Session and follows the 303 with the Company's cookie; Node has no `HTMLRewriter`, so the adapter stands in one that reads every page as empty (W judges the join on the wire, not what a page says). `confirm_again` (O2) sends the agent's recorded confirm again through the client's own DPoP-bound request, since src/poppy never re-confirms an operation it knows was confirmed. `INTEROP_FAULT=assertion-typ` re-signs every client and Session assertion without `typ`, in the adapter's network seam, to prove attribution; it is off unless set and never reaches `src/`. In the live lane, `INTEROP_LIVE_CLIENT_ID` and `INTEROP_LIVE_KEY` make it sign as the interop test client ([above](#the-live-lanes-identity); `impls/pda-agent/live-identity.ts`), with src/poppy's `PoppyClient` unchanged but for its `identity`.
 
-**pda-mock** runs the conformance suite's mock Company unchanged, moved to `<name>.company.interop.test` by `placeCompanies` in `test/mock-company/types.ts`. It rotates Account Tokens and polls devices every second. Its hooks map to the RPC the conformance tests use, and every violation it records becomes an agent-side error check. `INTEROP_MOCK_PROFILE` picks its settings: `pda-mock`, the reference Company for attribution rule 2, runs the S2-lenient profile (`strictAssertions: false`, as the conformance suite's "lenient assertions" profile: no `typ` or `kid` needed, assertions up to 300 s) and declares S2 `any`, since the spec treats S2 as a warning; **pda-mock-strict** is the same image with `INTEROP_MOCK_PROFILE=strict` (registry `env`), refuses assertions without `typ: "JWT"`, a published `kid` and a 60-second lifetime, and declares S2 `jwt-60s`. A typ-less agent that declares S2 `any` fails there by rule 3 (reading), not rule 1.
+**pda-mock** runs the conformance suite's mock Company unchanged, moved to `<name>.company.interop.test` by `placeCompanies` in `test/mock-company/types.ts`. It rotates Account Tokens and polls devices every second. Its hooks map to the RPC the conformance tests use, and every violation it records becomes an agent-side error check. `INTEROP_MOCK_PROFILE` picks its settings: `lenient-company`, the reference Company for attribution rule 2, runs the S2-lenient profile (`strictAssertions: false`, as the conformance suite's "lenient assertions" profile: no `typ` or `kid` needed, assertions up to 300 s) and declares S2 `any`, since the spec treats S2 as a warning; **strict-company** is the same image with `INTEROP_MOCK_PROFILE=strict` (registry `env`), refuses assertions without `typ: "JWT"`, a published `kid` and a 60-second lifetime, and declares S2 `jwt-60s`. A typ-less agent that declares S2 `any` fails there by rule 3 (reading), not rule 1.
 
 ## Base images
 

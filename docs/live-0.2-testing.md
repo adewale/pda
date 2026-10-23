@@ -35,7 +35,7 @@ npm run interop -- --lane live --agents pda \
   --scenarios D,S0,ML --no-retry
 ```
 
-A proxy-based environment additionally supplies `--set pda:NODE_OPTIONS=--use-env-proxy` and its configured CA via `CODEX_PROXY_CERT`. Run the local D/S0/ML cells against pda-mock, pda-mock-strict and pda-mock-v02 before using a changed adapter live: all nine cells passed.
+A proxy-based environment additionally supplies `--set pda:NODE_OPTIONS=--use-env-proxy` and its configured CA via `CODEX_PROXY_CERT`. Run the local D/S0/ML cells against lenient-company, strict-company and lenient-company-v02 before using a changed adapter live: all nine cells passed.
 
 ## Regression checks
 

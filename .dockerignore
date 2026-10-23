@@ -1,9 +1,10 @@
 # Interop images built with the repository root as context (interop/registry.json "context": ".")
-# need only src/, test/mock-company/ and interop/impls/.
+# need only src/, test/mock-company/, interop/impls/ and interop/runner/ (the strict fake agent's checks).
 **
 !src/**
 !test/mock-company/**
 !interop/impls/**
+!interop/runner/**
 interop/impls/**/node_modules
 
 !spec/**
