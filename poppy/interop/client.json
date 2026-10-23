@@ -1,0 +1,11 @@
+{
+  "client_id": "https://cdn.jsdelivr.net/gh/adewale/pda@poppy-live-json-20261023/poppy/interop/client.json",
+  "client_name": "Poppy Demo Agent (interop tests)",
+  "jwks_uri": "https://cdn.jsdelivr.net/gh/adewale/pda@poppy-live-json-20261023/poppy/interop/jwks.json",
+  "token_endpoint_auth_method": "private_key_jwt",
+  "extensions": {
+    "operations": {
+      "version": "1"
+    }
+  }
+}

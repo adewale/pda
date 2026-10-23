@@ -1,0 +1,13 @@
+{
+  "keys": [
+    {
+      "kty": "EC",
+      "x": "Y_8t_Z3LJctUMOVhI8Tbf5OJp_yCysYTQ5KTPm_k7uk",
+      "y": "rKdEx4AOVQga866KXrrP4UYbszDwiSRzdUJRJikk_V0",
+      "crv": "P-256",
+      "kid": "pda-live-20261023",
+      "alg": "ES256",
+      "use": "sig"
+    }
+  ]
+}
