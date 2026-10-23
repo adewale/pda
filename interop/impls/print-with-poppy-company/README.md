@@ -31,6 +31,7 @@ The store admits a Session only for a `client_id` its operator listed, so the ad
 | Agent | `client_id` |
 | --- | --- |
 | pda | `https://pda.agent.interop.test/poppy/client.json` |
+| lenient-personal-agent, strict-personal-agent, sloppy-personal-agent (our fakes) | `https://<name>.agent.interop.test/poppy/client.json` |
 | datalayer-ts, datalayer-py, pi-poppy, poppy-demo, adonis-agora | `https://<name>.agent.interop.test/agent.json` |
 | everruns | `https://everruns.agent.interop.test/api/v1/poppy/agent.json` |
 

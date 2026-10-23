@@ -513,14 +513,14 @@
       "reason": "Reading S1, blamed on the spec: Tipping Co checks every client assertion's aud against its token endpoint, at /oauth/revoke too (token.ts authenticateClient, revoke.ts), and answers 401 invalid_client to an assertion whose aud is the revocation endpoint. Both Datalayer agents and pi-poppy send the endpoint called (S1 endpoint); pda did too, and since 13 October tries the token endpoint after that invalid_client and passes; adonis-agora and Tipping Co's own agent send the token endpoint and pass. The first signed-in Company in the grid with this reading."
     },
     {
-      "agent": "pda",
+      "agent": "*",
       "company": "print-with-poppy",
       "scenario": "OU",
       "blame": "company",
       "checks": [],
       "errors": ["expect ${p.status}"],
       "issue": "https://github.com/adewale/pda/blob/main/docs/spec-issues.md#s22",
-      "reason": "Since 13 October our agent sends a write straight to a Company with Operations only when every success response its description declares is a proposal that requires `operation` (S22, after an audit found an optional `operation` let a write skip the User's approval). print-with-poppy's proposeOrder declares one 202 whose schema has an `operation` property but no `required`, so our agent asks the User on its own card first and the step returns `held`, not the 202 OU expects. A one-line fix in its description (`required: [\"operation\"]`) restores the direct proposal."
+      "reason": "Since 13 October our agent sends a write straight to a Company with Operations only when every success response its description declares is a proposal that requires `operation` (S22, after an audit found an optional `operation` let a write skip the User's approval). print-with-poppy's proposeOrder declares one 202 whose schema has an `operation` property but no `required`, so our agent (and the lenient and strict fakes, which run the same client) asks the User on its own card first and the step returns `held`, not the 202 OU expects. A one-line fix in its description (`required: [\"operation\"]`) restores the direct proposal."
     },
     {
       "agent": "pi-poppy",
@@ -557,6 +557,17 @@
       ],
       "issue": "https://github.com/adewale/pda/blob/main/docs/interop-spec.md#21-the-fake-implementations",
       "reason": "By design, reading S2: the sloppy fake agent sends assertions without typ that live 300 s and declares S2 lenient-300s; strict-company declares jwt-60s and refuses them with invalid_client at the first Session. The lenient reference lenient-company accepts them."
+    },
+    {
+      "agent": "sloppy-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_client"
+      ],
+      "issue": "https://github.com/adewale/pda/blob/main/docs/interop-spec.md#21-the-fake-implementations",
+      "reason": "By design, reading S2: the sloppy fake agent's assertions live 300 s and it declares S2 lenient-300s; print-with-poppy at its pin reads lenient-120s and refuses them with invalid_client at the first Session."
     },
     {
       "agent": "sloppy-personal-agent",

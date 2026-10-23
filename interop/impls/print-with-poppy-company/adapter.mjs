@@ -32,6 +32,9 @@ const INNER = `http://127.0.0.1:${PORT}`;
 // <name>.agent.interop.test. AGENT_CLIENT_IDS (comma-separated) replaces the list.
 const GRID_AGENTS = [
   'https://pda.agent.interop.test/poppy/client.json',
+  'https://lenient-personal-agent.agent.interop.test/poppy/client.json',
+  'https://strict-personal-agent.agent.interop.test/poppy/client.json',
+  'https://sloppy-personal-agent.agent.interop.test/poppy/client.json',
   'https://datalayer-ts.agent.interop.test/agent.json',
   'https://datalayer-py.agent.interop.test/agent.json',
   'https://pi-poppy.agent.interop.test/agent.json',
