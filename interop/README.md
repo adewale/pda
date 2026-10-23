@@ -118,6 +118,8 @@ test/                Unit tests for the runner, in Node (interop/vitest.config.t
 
 ## Add an implementation
 
+For another project's maintainers, [docs/testing-with-us.md](../docs/testing-with-us.md) says what we need from them and what we never do; this section is how we write the adapter.
+
 1. Write an adapter in `interop/impls/<name>-agent/` or `interop/impls/<name>-company/` with a `Dockerfile` whose base images are pinned by digest ([Base images](#base-images)). The container serves the implementation on port 8080 (plain HTTP; the proxy terminates TLS) and the adapter API on port 8081:
    - every adapter: `GET /manifest`, `GET /healthz`, `POST /reset` (spec section 5.1);
    - an agent: `POST /step` (5.2), driving the implementation's own protocol code, never a model;
