@@ -218,7 +218,8 @@
       "source": "https://www.alpine-retail.com",
       "commit": "unknown",
       "url": "https://www.alpine-retail.com",
-      "notes": "Live lane only, with its developer's approval (13 October 2026): signed-out D, S0, N and C, with the live lane's public identity since 14 October; N reads inventory for a product code its own API lists. Its source isn't public, so no local adapter yet and no adversarial cells. Direct and Mediated (phone) sign-in, a Company Agent, and an OpenAPI API of three DPoP-protected GETs; no Operations.",
+      "protocolVersion": "0.2",
+      "notes": "Live lane only, with its developer's approval (13 October 2026): signed-out D, S0, N and C, with the live lane's public identity since 14 October; N reads inventory for a product code its own API lists. Declares 0.2 since at least 23 October. Its source isn't public, so no local adapter yet and no adversarial cells. Direct and Mediated (phone) sign-in, a Company Agent, and an OpenAPI API of three DPoP-protected GETs; no Operations.",
       "fixture": {
         "openapi_public": {
           "api": "openapi",
@@ -345,6 +346,24 @@
       "url": "https://saferate.com",
       "protocolVersion": "0.2",
       "notes": "Live signed-out 0.2 test target; deployed commit unknown. No adversarial scenarios or account changes."
+    },
+    {
+      "name": "print-with-poppy-live",
+      "role": "company",
+      "source": "https://github.com/spenciefy/print-with-poppy",
+      "commit": "unknown",
+      "url": "https://printwithpoppy.com",
+      "protocolVersion": "0.2",
+      "notes": "Live store with real payments and prints: discovery (D) only. Agents need its allowlist; never order here. Use print-with-poppy-sandbox-live for anything past discovery."
+    },
+    {
+      "name": "print-with-poppy-sandbox-live",
+      "role": "company",
+      "source": "https://github.com/spenciefy/print-with-poppy",
+      "commit": "unknown",
+      "url": "https://sandbox.printwithpoppy.com",
+      "protocolVersion": "0.2",
+      "notes": "Print with Poppy's Agent Sandbox: real Poppy Sessions and approvals, simulated payment, fulfilment and shipping. Signed-out scenarios only; deployed commit unknown. No adversarial scenarios."
     }
   ]
 }

@@ -46,3 +46,17 @@ The full suite passes: **1,750 tests and one intentional skip**, across 77 files
 A Stacktree Device Sign-In challenge requested only `poppy:read`. Completing authentication needs the User's test account. Authenticated reads, revocation, account switching, write approvals and sandbox purchases have not been established by this run. The static identity has no Direct Sign-In callback; test that journey with a deployed staging app and test account.
 
 No adversarial traffic, personal data, purchases or paid model calls from PDA were used. PlanMyVisit may use its own model to answer test greetings. No findings were posted to another project.
+
+# Live tests — 23 October 2026: Alpine Retail and Print with Poppy
+
+Our agent's client through the live lane, signed out, one request a second. The identity was a fresh test key, its public half on the `poppy-live-json-20261023` branch served through jsDelivr (`https://cdn.jsdelivr.net/gh/adewale/pda@poppy-live-json-20261023/poppy/interop/client.json`); its private key stayed on the runner. The validator CLI checked each host first.
+
+| Company | Validator (0.2) | D | S0 | N | C |
+| --- | --- | --- | --- | --- | --- |
+| Alpine Retail (`www.alpine-retail.com`) | Valid, no messages | Pass | Pass | Pass | Pass |
+| Print with Poppy (`printwithpoppy.com`, real payments) | Valid, 3 info | Pass | not run | not run | not run |
+| Print with Poppy Agent Sandbox (`sandbox.printwithpoppy.com`) | Valid, 2 info | Pass | **Fail**: `invalid_client`, "This agent must register its HTTPS metadata URL before opening a session." | n/a | n/a |
+
+- **Alpine now declares 0.2**, and accepted 0.2's issuer audience on both assertions. C sent "Hello", read its Company Agent's reply, and sent a second message; the scenario doesn't close the conversation. This is Alpine's first 0.2 run; its earlier runs were 0.1 (13 and 14 October). Its registry entry now names 0.2.
+- **Print with Poppy admits registered agents only.** Its [sandbox guide](https://github.com/spenciefy/print-with-poppy/blob/main/docs/SANDBOX.md) lists DPA as `https://personal-agent.adewale-883.workers.dev/poppy/client.json`, which has answered 404 since the switch to `poppydemoagent.dev` on 15 October. So the deployed agent can't open a Session at the sandbox or the store either, until `https://poppydemoagent.dev/poppy/client.json` is registered (by email to its operator; production and sandbox separately). See [deployment-tasks.md](deployment-tasks.md). The live store was only discovered: nothing was ordered or sent past discovery.
+- Results are in the gitignored `interop/results/` runs of 23 October; no tokens or traffic are copied here. No findings were posted to another project.

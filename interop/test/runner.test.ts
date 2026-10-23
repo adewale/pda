@@ -275,7 +275,7 @@ it("attributes live cells to the configured wire version and preserves legacy en
   const scenarios = loadScenarios();
   const stacktree = registry.implementations.find((entry) => entry.name === "stacktree-live")!;
   expect(liveCompanyManifest(stacktree, scenarios).poppy).toEqual(["0.2"]);
-  const old = registry.implementations.find((entry) => entry.name === "alpine-retail-live")!;
+  const old = registry.implementations.find((entry) => entry.name === "ilmer-live")!;
   expect(liveCompanyManifest(old, scenarios).poppy).toEqual(["0.1"]);
 });
 
