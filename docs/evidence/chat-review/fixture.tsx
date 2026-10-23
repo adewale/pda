@@ -3,8 +3,9 @@
  * styles, given a fixed session instead of the agent's socket, so the same
  * input renders at the base commit and at the head. Every name, domain and
  * photo is an example; the photos are test patterns `capture.mjs` makes.
- * Pick a scene with `?scene=`.
+ * Pick a scene with `?scene=`; `flow` is the scripted journey `record.mjs` films.
  */
+import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./fixture.css";
 import { attachmentMarker, type AttachmentInfo } from "../../../src/attachments";
@@ -180,27 +181,118 @@ const SCENES: Record<string, { messages?: TranscriptMessage[]; running?: boolean
   companies: { poppy: { protocol } }
 };
 
-const scene = SCENES[new URLSearchParams(location.search).get("scene") ?? "chat"] ?? SCENES.chat!;
-const session = {
-  messages: scene.messages ?? [],
-  live: null,
-  running: scene.running ?? false,
-  tools: [],
-  queued: 0,
-  retry: null,
-  model: { provider: "anthropic", modelId: "anthropic/claude-sonnet-5-5" },
-  error: null,
-  status: "open",
-  catalog: [],
-  summaries: new Set<string>(),
-  poppy: { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...scene.poppy },
-  outbox: [],
-  submit: () => undefined,
-  resend: () => undefined,
-  discard: () => undefined,
-  abort: () => undefined,
-  reset: () => undefined,
-  sendPoppy: (_frame: PoppyClientFrame) => true
-} as unknown as PiSession;
+function sessionOf(messages: readonly TranscriptMessage[], running: boolean, poppy: Partial<PoppyView>, handlers: { submit?: (text: string) => void; sendPoppy?: (frame: PoppyClientFrame) => boolean } = {}): PiSession {
+  return {
+    messages,
+    live: null,
+    running,
+    tools: [],
+    queued: 0,
+    retry: null,
+    model: { provider: "anthropic", modelId: "anthropic/claude-sonnet-5-5" },
+    error: null,
+    status: "open",
+    catalog: [],
+    summaries: new Set<string>(),
+    poppy: { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
+    outbox: [],
+    submit: handlers.submit ?? (() => undefined),
+    resend: () => undefined,
+    discard: () => undefined,
+    abort: () => undefined,
+    reset: () => undefined,
+    sendPoppy: handlers.sendPoppy ?? ((_frame: PoppyClientFrame) => true)
+  } as unknown as PiSession;
+}
 
-createRoot(document.getElementById("root")!).render(<Workspace identity={{ email: "ada@example.com", provider: "google" }} session={session} />);
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** What the agent tells the model about one photo, as operations.ts words it. */
+function outcomeNotice(index: number): string {
+  const card = decided[index] as Extract<Card, { kind: "approval" }>;
+  return card.status === "done"
+    ? `Done, as the User approved: ${card.summary}. Result: ${answer(index)}`
+    : `Sent as the User approved, but ${SHOP} answered 422 (invalid_image), so it wasn't done as far as ${SHOP} says: ${card.summary}.`;
+}
+
+/**
+ * The bug report's journey as one scripted session, for `record.mjs`: ten
+ * photos waiting, the User's decisions, each photo sent in turn (the GIF
+ * refused), an address, the order, its checkout. The page is the real one
+ * and its clicks are real; this stands in for the agent, answering the
+ * frames the page sends as the agent does: one notice per photo decided on
+ * its own card, one for a batch.
+ */
+function Flow() {
+  const [messages, setMessages] = useState<TranscriptMessage[]>(conversation.slice(0, 6));
+  const [cards, setCards] = useState<Card[]>(PHOTOS.map((_, index) => approval(index, { at: Date.now() })));
+  const [running, setRunning] = useState(false);
+  const decidedCount = useRef(0);
+  const say = (message: Omit<TranscriptMessage, "timestamp">) => setMessages((current) => [...current, { ...message, timestamp: Date.now() } as TranscriptMessage]);
+  const setCard = (id: string, card: Card) => setCards((current) => current.map((item) => (item.id === id ? { ...card, at: Date.now() } : item)));
+
+  const afterPhotos = async (notices: string[]) => {
+    for (const [index, text] of notices.entries()) say({ id: `n-${Date.now()}-${index}`, role: "user", parts: [{ type: "text", text }] });
+    setRunning(true);
+    await pause(1200);
+    setRunning(false);
+    say(conversation[7]!);
+  };
+
+  /** One photo sent: in progress, then the shop's answer. */
+  const send = async (index: number) => {
+    setCard(`approval-apr_${index}`, approval(index, { open: false, status: "approved" }));
+    await pause(260);
+    setCard(`approval-apr_${index}`, decided[index]!);
+  };
+
+  const sendPoppy = (frame: PoppyClientFrame): boolean => {
+    if (frame.type === "poppy.approvals") {
+      void (async () => {
+        for (const item of frame.decisions) await send(Number(item.approvalId.slice("apr_".length)));
+        await pause(400);
+        await afterPhotos([`[system] The User decided ${frame.decisions.length} requests together on one card:\n${frame.decisions.map((item, n) => `${n + 1}. ${outcomeNotice(Number(item.approvalId.slice(4)))}`).join("\n")}`]);
+      })();
+    } else if (frame.type === "poppy.approval") {
+      const index = Number(frame.approvalId.slice("apr_".length));
+      void (async () => {
+        await send(index);
+        // A photo decided on its own card: the model hears about it on its own (one turn each before this branch).
+        say({ id: `n-${index}`, role: "user", parts: [{ type: "text", text: `[system] ${outcomeNotice(index)}` }] });
+        decidedCount.current += 1;
+        if (decidedCount.current === PHOTOS.length) {
+          await pause(400);
+          await afterPhotos([]);
+        }
+      })();
+    } else if (frame.type === "poppy.operation" && frame.decision === "approve") {
+      void (async () => {
+        setCard(`op-${ISSUER}-op_1`, order({ open: false, state: "in_progress", approvedBy: "user" }));
+        await pause(1400);
+        setCard(`op-${ISSUER}-op_1`, order({ open: false, state: "succeeded", approvedBy: "user", result: "Order ord_1 is ready for payment. Nothing has been charged or printed yet.", links: [{ label: "checkout", url: "https://prints.example/checkout/ord_1" }] }));
+        await pause(600);
+        say({ id: "a9", role: "assistant", parts: [{ type: "text", text: "Your order is ready: **$14.50**. Nothing has been charged or printed yet; completing checkout starts printing." }] });
+      })();
+    }
+    return true;
+  };
+
+  const submit = (text: string) => {
+    say({ id: `u-${Date.now()}`, role: "user", parts: [{ type: "text", text }] });
+    void (async () => {
+      setRunning(true);
+      await pause(1500);
+      setRunning(false);
+      say({ id: "a8", role: "assistant", parts: [{ type: "text", text: `Thanks. ${SHOP} has proposed the order for the nine photos; its terms are on the card below.` }] });
+      setCards((current) => [...current, order({ at: Date.now() })]);
+    })();
+  };
+
+  return <Workspace identity={{ email: "ada@example.com", provider: "google" }} session={sessionOf(messages, running, { cards, protocol }, { submit, sendPoppy })} />;
+}
+
+const name = new URLSearchParams(location.search).get("scene") ?? "chat";
+const scene = SCENES[name] ?? SCENES.chat!;
+createRoot(document.getElementById("root")!).render(
+  name === "flow" ? <Flow /> : <Workspace identity={{ email: "ada@example.com", provider: "google" }} session={sessionOf(scene.messages ?? [], scene.running ?? false, scene.poppy)} />
+);

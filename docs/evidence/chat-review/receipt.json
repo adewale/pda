@@ -125,5 +125,43 @@
   },
   "browser": "Google Chrome for Testing 153.0.8010.12",
   "fixture": "docs/evidence/chat-review/fixture.tsx",
-  "captured_at": "2026-10-23"
+  "captured_at": "2026-10-23",
+  "films": [
+    {
+      "path": "after-flow.mp4",
+      "source_sha": "0891c5b3ee18775e7ba3e9e4f58443e86a0e7b12",
+      "scene": "flow",
+      "viewport": "1280×800",
+      "seconds": 28.7,
+      "sha256": "15ce2e79b0d7fd972d8fc10c9e6c6cfe1d0736d4bf18af9a87b1815a53fe0d12",
+      "bytes": 564361
+    },
+    {
+      "path": "after-flow.gif",
+      "source_sha": "0891c5b3ee18775e7ba3e9e4f58443e86a0e7b12",
+      "scene": "flow",
+      "viewport": "1280×800",
+      "seconds": 28.7,
+      "sha256": "730496d7257f26ae1fd662833e003adcb7c1b7d1527262f155b150b486f4dd14",
+      "bytes": 1091972
+    },
+    {
+      "path": "before-flow.mp4",
+      "source_sha": "9e0d7b04442836645d44820b4bf36efcadf41895",
+      "scene": "flow",
+      "viewport": "1280×800",
+      "seconds": 39.2,
+      "sha256": "3ae4d172f5c64c185b6461fbe10166b337106441260ffab2fb6a9102362ba9fb",
+      "bytes": 987089
+    },
+    {
+      "path": "before-flow.gif",
+      "source_sha": "9e0d7b04442836645d44820b4bf36efcadf41895",
+      "scene": "flow",
+      "viewport": "1280×800",
+      "seconds": 39.2,
+      "sha256": "2a3a75cbb0f3d5df471e1c0ff238633c32ff8441829c573cbf818defe4eef3a7",
+      "bytes": 2027211
+    }
+  ]
 }
