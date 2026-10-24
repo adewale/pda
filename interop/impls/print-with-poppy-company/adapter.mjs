@@ -42,7 +42,8 @@ const GRID_AGENTS = [
   'https://pi-poppy.agent.interop.test/agent.json',
   'https://poppy-demo.agent.interop.test/agent.json',
   'https://adonis-agora.agent.interop.test/agent.json',
-  'https://everruns.agent.interop.test/api/v1/poppy/agent.json'
+  'https://everruns.agent.interop.test/api/v1/poppy/agent.json',
+  'https://tipping-co.agent.interop.test/agent.json'
 ];
 const AGENT_CLIENT_IDS = process.env.AGENT_CLIENT_IDS || GRID_AGENTS.join(',');
 
