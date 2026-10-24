@@ -79,16 +79,16 @@ The strict agent is the only source of checks in a live cell, since the live lan
 
 # Live tests — 24 October 2026: the identity on poppydemoagent.dev
 
-The live lane signed as the deployed Worker's own interop test client, `https://poppydemoagent.dev/poppy/interop/client.json` (key `interop-2026-10-13`, the private half in the runner's gitignored `interop/.live-identity.json`), not a static-hosted one. Signed out, one request a second, all three agents that may run live:
+The live lane signed as the deployed Worker's own interop test client, `https://poppydemoagent.dev/poppy/interop/client.json` (key `interop-2026-10-13`, the private half in the runner's gitignored `interop/.live-identity.json`), where 21 and 23 October's runs used static-hosted test keys. Signed out, one request a second, all three agents that may run live:
 
 | Company | Scenarios | pda | Lenient | Strict |
 | --- | --- | --- | --- | --- |
 | Print with Poppy Agent Sandbox (`sandbox.printwithpoppy.com`) | D, S0 | 2 pass | 2 pass | 2 pass |
 | Alpine Retail | D, S0, N, C | 4 pass | 4 pass | 4 pass |
 
-18 pass, 0 fail, with no checks failed or warned.
+18 pass, 0 fail, and no check failed or warned.
 
-- **The sandbox opens a Session for our agent's domain.** It refused two identities before with the same `invalid_client`, "This agent must register its HTTPS metadata URL before opening a session.": 23 October's jsDelivr-hosted test key, and, in this day's first run, the interop client on the old `workers.dev` host, whose `/poppy/*` has answered 404 since 15 October. It accepted the one on `poppydemoagent.dev`. Whether it admits that `client_id` by name, by host, or because its metadata could be fetched, we can't see. The production client, `/poppy/client.json`, wasn't tried. Nothing past a signed-out Session was sent; the sandbox's payments are simulated in any case.
+- **The sandbox opens a Session for our agent's domain.** It had refused two identities with `invalid_client` ("This agent must register its HTTPS metadata URL before opening a session."). One was 23 October's test key on jsDelivr; the other, in this day's first run, was the interop client on the old `workers.dev` host, whose `/poppy/*` has answered 404 since 15 October. Because Alpine accepted the jsDelivr identity's metadata on 23 October, the sandbox's refusal wasn't about fetching it: it admits agents by `client_id` or by host, and we can't see which. The production client, `/poppy/client.json`, wasn't tried. Nothing past a signed-out Session was sent; the sandbox's payments are simulated in any case.
 - **Alpine accepts the interop identity on the new domain**, with all four of the scenarios its developer agreed to (`liveScenarios`). Its earlier runs used the `workers.dev` identity (13 and 14 October) and a jsDelivr one (23 October).
-- **Why the first run failed.** `interop/.live-identity.json` was made on 13 October and still named the `workers.dev` `client_id`; `scripts/interop-live-identity.mjs` only warns when `PUBLIC_ORIGIN` differs, and the runner signed with the stale name. The key was already the one the Worker serves, so only the file's `client_id` changed. A runner that moved domains checks that the `live identity:` line the runner prints names `PUBLIC_ORIGIN`.
+- **Why the first run failed.** `interop/.live-identity.json` was made on 13 October and still named the `workers.dev` `client_id`. The runner reads that name without comparing it with `PUBLIC_ORIGIN`, and `scripts/interop-live-identity.mjs`, which would have warned, wasn't run after the move. The key was already the one the Worker serves, so only the file's `client_id` changed. After a domain move, check that the runner's `live identity:` line names `PUBLIC_ORIGIN`.
 - Results are in the gitignored `interop/results/` runs of 24 October (`c7aa1c`, `ac6137`, `fa4be4`, `3e86d5`); no tokens or traffic are copied here. No findings were posted to another project.
