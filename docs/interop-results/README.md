@@ -89,6 +89,32 @@ A snapshot: the summary of one run of the [interop harness](../../interop/README
 
 For 0.2-era validation, see [the two complete isolated grid runs on 17 October](https://github.com/adewale/pda/actions/runs/38988240129). The dated snapshot below is retained as historical context.
 
+## 24 October: our four agents against every Company
+
+The full local grid with `pda` and the three honest fake agents (interop spec [§2.1](../interop-spec.md#21-the-fake-implementations)) against all 16 Companies of the local lane, at the pins in [`interop/registry.json`](../../interop/registry.json): print-with-poppy at `3360d8b` (draft 0.2), Datalayer at `00216eb` and, for the two 0.2 Companies, `97c1386`, and the rest as on 13 October. Our code is `b711a10` (PR #26's pre-flight and the live-lane fix below). Every image was rebuilt (`2026-10-24T15:33:30Z`); after the two adapter fixes below, the four Companies they touch ran again (`2026-10-24T16:08:48Z`), and the counts take those cells from the second run:
+
+```sh
+npm run interop -- --agents pda,lenient-personal-agent,strict-personal-agent,sloppy-personal-agent
+npm run interop -- --agents pda,lenient-personal-agent,strict-personal-agent,sloppy-personal-agent --companies pi-poppy,poppyseed,adonis-agora,everruns
+```
+
+**2,336 cells: 1,006 pass, 248 fail, 1,082 unsupported, 0 errors.** Every failure matches a known failure, none is flaky and no known failure is stale. Egress probe `ENETUNREACH`, `ENETUNREACH`, `EAI_AGAIN`. The first command also paired every adversarial scenario with every third-party Company, and the runner refused those 1,056 cells before anything was sent (`error`, blame `harness`, spec §13), so it exits 1, as a run without `--scenarios` always does.
+
+Pass / fail / unsupported, by agent (rows) and Company (columns):
+
+| | lenient-company | strict-company | evil-company | lenient-company-v02 | datalayer-ts | datalayer-py | datalayer-ts-v02 | datalayer-py-v02 | pi-poppy | poppy-demo | poppyseed | ilmer | print-with-poppy | adonis-agora | everruns | tipping-co |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **pda** | 35 / 0 / 18 | 35 / 0 / 18 | 10 / 0 / 43 | 35 / 0 / 18 | 22 / 0 / 9 | 22 / 0 / 9 | 22 / 0 / 9 | 22 / 0 / 9 | 24 / 0 / 7 | 12 / 0 / 19 | 24 / 0 / 7 | 5 / 0 / 26 | 10 / 0 / 21 | 22 / 0 / 9 | 4 / 0 / 27 | 9 / 0 / 22 |
+| **lenient-personal-agent** | 35 / 0 / 18 | 35 / 0 / 18 | 10 / 0 / 43 | 35 / 0 / 18 | 22 / 0 / 9 | 22 / 0 / 9 | 22 / 0 / 9 | 22 / 0 / 9 | 24 / 0 / 7 | 12 / 0 / 19 | 24 / 0 / 7 | 5 / 0 / 26 | 10 / 0 / 21 | 22 / 0 / 9 | 4 / 0 / 27 | 9 / 0 / 22 |
+| **strict-personal-agent** | 35 / 0 / 18 | 35 / 0 / 18 | 10 / 0 / 43 | 35 / 0 / 18 | 22 / 0 / 9 | 22 / 0 / 9 | 22 / 0 / 9 | 22 / 0 / 9 | 24 / 0 / 7 | 12 / 0 / 19 | 24 / 0 / 7 | 5 / 0 / 26 | 10 / 0 / 21 | 22 / 0 / 9 | 4 / 0 / 27 | 9 / 0 / 22 |
+| **sloppy-personal-agent** | 35 / 0 / 18 | 1 / 34 / 18 | 10 / 0 / 43 | 1 / 34 / 18 | 1 / 21 / 9 | 1 / 21 / 9 | 1 / 21 / 9 | 1 / 21 / 9 | 1 / 23 / 7 | 1 / 11 / 19 | 1 / 23 / 7 | 1 / 4 / 26 | 1 / 10 / 20 | 1 / 22 / 8 | 1 / 3 / 27 | 9 / 0 / 22 |
+
+- **`pda`, the lenient and the strict agent pass every cell they run**, at every Company, and come out the same as each other. The strict agent refuses at its first finding of any level, so no Company in the grid gave it a SHOULD or a Guides finding to refuse.
+- **Every sloppy-agent failure is a declared departure meeting a stricter Company**, which is what that agent is for. Its 300 s assertions without `typ` (S2 `lenient-300s`) meet `strict-company`, poppy-demo and Ilmer (`jwt-60s`) and Datalayer, pi-poppy and poppyseed (`lenient-120s`); the token endpoint as `aud` meets the draft 0.2 Companies, which want the issuer; and `scope=poppy:read` on a signed-out Session (S4 `poppy-read`) meets adonis-agora and everruns, which read S4 `omit` and answer `invalid_scope`. Its one pass at each is discovery. It passes everything it runs at `lenient-company` and Tipping Co.
+- **The first run left 170 failures unexpected, all the sloppy agent's.** Two were our adapters' mistakes: pi-poppy's and poppyseed's declared S2 `any`, though both accept assertions of at most 120 s (pi-poppy's `maxLifetimeSec: 120`, poppyseed's "assertion lifetime exceeds 120 seconds"), so their refusals carried no evidence and stayed unattributed. They now declare `lenient-120s`. And the runner's refusal evidence (`reading.<id>.refused`, spec §8) covered S1 and S2 only; it now covers an S4 `omit` Company's `invalid_scope` too. After both, every one of those failures is blamed on the spec by rule 3, or on the agent where draft 0.2 is explicit, and each is a [`known-failures.json`](../../interop/known-failures.json) entry. None was upstream's bug or a possible vulnerability.
+
+The security grid ran the same day with `--image-tag adv`: 34 cells, all pass ([below](#security-grid)).
+
 ## Public snapshot: 13 October, 30 scenarios, 8 agents, 12 Companies
 
 The first full grid with every pin at its upstream's head of 13 October ([interop-testing.md](../interop-testing.md#pins-moved-on-13-october)): Datalayer at 0.17.0 (`00216eb`), Ilmer at `de0d1ec`, adonis-agora's AuthKit at 0.80.0 (`fe2a3ff`) and agent at 0.80.1 (`e139b95`), everruns at `aceb2e2`, print-with-poppy at `246727d`; pi-poppy (`11ea106`), poppy-demo (`02a9b30`) and poppyseed (`f479fb6`) hadn't moved. everruns is in the grid for the first time rather than in runs of its own, and Tipping Co (timothyohare, `fb7b4e6`) is new on both sides. Our code is `3ac7f67` plus the mock's `client_id` change below, after the seven refactors merged that morning. Every image was rebuilt in the first run (`2026-10-13T04:53:27Z`); the honest scenarios then ran again with the same images (`2026-10-13T05:18:57Z`), after two known failures were widened, and every one of the 2,880 cells came out the same:
@@ -280,3 +306,5 @@ npm run interop -- --no-build --agents pda --companies pda-mock,pda-mock-strict 
 
 Later on 13 October, after the agent's conversation reads and operation tracking were paced and the attacks `XR` (endless reading) and `XT` (an operation in progress for ever) were added, our agent ran against both mocks and `evil-company`, all ten of its scenarios included: 78 cells, 78 pass, 0 fail.
 
+
+On 24 October the three commands in [interop/README.md](../../interop/README.md) (now with `--image-tag adv`, the renamed `evil-personal-agent`, `lenient-company` and `strict-company`, and `XR` and `XT` in the second) ran beside the grid above, each on its own internal network: `evil-personal-agent` 16 of 16 against both mocks, `pda` 10 of 10 against `evil-company`, and the network faults 8 of 8. 34 cells, all pass.

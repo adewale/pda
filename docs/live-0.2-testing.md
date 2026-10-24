@@ -92,3 +92,29 @@ The live lane signed as the deployed Worker's own interop test client, `https://
 - **Alpine accepts the interop identity on the new domain**, with all four of the scenarios its developer agreed to (`liveScenarios`). Its earlier runs used the `workers.dev` identity (13 and 14 October) and a jsDelivr one (23 October).
 - **Why the first run failed.** `interop/.live-identity.json` was made on 13 October and still named the `workers.dev` `client_id`. The runner reads that name without comparing it with `PUBLIC_ORIGIN`, and `scripts/interop-live-identity.mjs`, which would have warned, wasn't run after the move. The key was already the one the Worker serves, so only the file's `client_id` changed. After a domain move, check that the runner's `live identity:` line names `PUBLIC_ORIGIN`. Since then the runner fetches the identity before a live run and stops when its `client_id` doesn't answer, or its key set doesn't hold the runner's key ([interop-spec §10](interop-spec.md#10-lanes)).
 - Results are in the gitignored `interop/results/` runs of 24 October (`c7aa1c`, `ac6137`, `fa4be4`, `3e86d5`); no tokens or traffic are copied here. No findings were posted to another project.
+
+# Live tests — 24 October 2026, afternoon: every live Company, with the pre-flight
+
+PR #26's runner, which fetches the live identity as a Company would before any agent starts (interop spec §10), signed as `https://poppydemoagent.dev/poppy/interop/client.json`, key `interop-2026-10-13`. `scripts/interop-live-identity.mjs` printed that `client_id` with no warning, and its key set matched the deployed `jwks.json`. Signed out, one request a second, `pda` and the lenient and strict fakes:
+
+```sh
+npm run interop -- --lane live --agents pda,lenient-personal-agent,strict-personal-agent \
+  --companies print-with-poppy-sandbox-live,alpine-retail-live,crosswalk-live,stacktree-live,planmyvisit-live,saferate-live,print-with-poppy-live \
+  --scenarios D,S0,N,C,ML
+```
+
+| Company | D | S0 | N | C | ML |
+| --- | --- | --- | --- | --- | --- |
+| Alpine Retail | 3 pass | 3 pass | 3 pass | 3 pass | not agreed |
+| Print with Poppy Agent Sandbox | 3 pass | 3 pass | not agreed | not agreed | not agreed |
+| Print with Poppy (store, real payments) | 3 pass | not agreed | not agreed | not agreed | not agreed |
+| Crosswalk | 3 pass | 3 pass | no public read | no conversations | sign-in required |
+| PlanMyVisit | 3 pass | 3 pass | no public read | 3 pass | sign-in required |
+| Safe Rate | 3 pass | 3 pass | no public read | no conversations | 3 pass |
+| Stacktree | 2 pass, strict refuses | 2 pass, strict refuses | no public read | no conversations; strict refuses | 2 pass, strict refuses |
+
+51 pass, 4 fail, 50 unsupported, 0 errors. No agent was marked broken, and the four failures are one known failure: the strict agent refuses Stacktree at discovery, because its server metadata lists neither `private_key_jwt` nor the JWT bearer and device code grants (`validator.metadata-auth-method`, `validator.metadata-grant-type`). Both rest on our reading, so the cells are blamed on the spec. On 23 October it named two of those; the device code grant is new.
+
+- **"Not agreed"** is a registry `liveScenarios` limit: the runner marks the cell unsupported before a request is made. The real store got discovery only.
+- **The first run of the command failed 21 cells it should have called unsupported.** N failed at the four Companies whose registry entries name no public read (`${fixture.openapi_public.api} refers to nothing`), and C at the three whose discovery says `conversations: false`. A live Company has no manifest, so the lane couldn't tell "doesn't offer it" from "broke it". Now a live Company's fixture is checked before the run, and C's and ML's discovery expectations are marked `offers`: a live Company that misses one is unsupported, while a Company with an adapter, which claims the scenario, still fails (interop spec §6, §10). The table is the second run.
+- Results are in the gitignored `interop/results/` runs `dde469` (the first) and `06b01e`; no tokens or traffic are copied here. No findings were posted to another project.
