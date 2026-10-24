@@ -11,7 +11,7 @@
     { "expect": { "${m.conversation}": { "$exists": true }, "${m.message_id}": { "$exists": true } } },
     { "agent": "read", "params": { "conversation": "${m.conversation}", "wait": 2 }, "save": "r" },
     { "expect": { "${r.messages}": { "$some": { "role": "company" } }, "${r.cursor}": { "$exists": true } } },
-    { "agent": "close", "params": { "conversation": "${m.conversation}" }, "save": "c", "note": "Nothing is left open at a real Company (7.12)." },
+    { "agent": "close", "params": { "conversation": "${m.conversation}" }, "save": "c", "note": "Nothing is left open at a real Company (7.12). C, which a Company may have agreed to before CL existed, leaves it open." },
     { "expect": { "${c.status}": "closed" } }
   ]
 }

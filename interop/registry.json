@@ -258,7 +258,7 @@
     {
       "name": "alpine-retail-live",
       "role": "company",
-      "liveScenarios": ["D", "S0", "N", "CL"],
+      "liveScenarios": ["D", "S0", "N", "C"],
       "source": "https://www.alpine-retail.com",
       "commit": "unknown",
       "url": "https://www.alpine-retail.com",

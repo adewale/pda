@@ -18,7 +18,7 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 - Public About and ecosystem pages. About links to the GitHub project, the Validator and the ecosystem map; the map uses the repository's Markdown, keeps historical results in a disclosure and is linked only from About.
 - A signed-out MCP tool-listing scenario and four live 0.2 targets. [Live evidence](docs/live-0.2-testing.md) separates completed checks from those requiring sign-in.
 - The official Company validator now runs against Datalayer's two 0.2 SDK Companies as well as our mock, and in file mode in the validator cross-check, over 99 documents that declare 0.2. A flawed-Company lane (`npm run interop:flaws`) gives our mock one of ten known flaws at a time and records which checkers notice: the official validator, and our adversarial and strict agents. [`spec/official-checks-0.2.json`](spec/official-checks-0.2.json) maps each of the validator's 74 checks to ours. [The lanes](interop/vectors/official/README.md).
-- The live lane's conversation scenario is now `CL`: its message says it is a test needing no action, and it closes the conversation it opened.
+- A live conversation scenario, `CL`, that closes the conversation it opens, and a live greeting that says it is a test needing no action. `C` stays live for the Companies that agreed to it by name.
 
 - Explicit 0.1 and 0.2 profiles over the existing validator and client, with version and revision in validation reports and interop cells.
 - A hash-verified, licensed copy of the 0.2 specification, guides, Operations text, official changelog, schemas and Company validator. `npm run check:spec` verifies it offline; `npm run spec:drift` compares upstream without changing the pin.
