@@ -1,8 +1,7 @@
 {
   "id": "C",
-  "title": "Conversation: send and read",
+  "title": "Conversation: send and read, left open",
   "requirements": ["7.2", "7.3", "7.5"],
-  "live": true,
   "needs": { "agent": ["discover", "send", "read"] },
   "steps": [
     { "agent": "discover", "save": "d" },

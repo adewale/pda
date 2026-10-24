@@ -92,7 +92,7 @@ Datalayer already applies it to Poppy: 124 shared JSON cases in `protocol/fixtur
 | Sessions | `S0` signed-out Session; `N` DPoP nonce, retried with a fresh proof |
 | Sign-in | `SD` Direct (PKCE, `iss`); `SV` Device (polling, `slow_down`); `SM` Mediated (and a wrong password); `SX` denied |
 | Lifecycle | `R` renew and rotate; `SE` Session ended by the Company, then recovery; `SO` sign out and revoke |
-| Conversations | `C` send and read (cursor, `has_more`); `CI` retry with the same message id; `CS` SSE and resume; `CA` `sign_in_required` mid-conversation; `H` handoff; `DC` Direct Conversation |
+| Conversations | `C` send and read (cursor, `has_more`), left open; `CL` the same with a labelled message, then a close (the live lane's); `CC` a conversation left open, closed by the Company, then `conversation_closed` and a new one; `CI` retry with the same message id; `CS` SSE and resume; `CA` `sign_in_required` mid-conversation; `H` handoff; `DC` Direct Conversation |
 | APIs | `AO` OpenAPI call; `AM` MCP call; `AS` `insufficient_scope` |
 | Browser | `W` browser Session join |
 | Operations | `O` propose, approve, confirm; `O2` confirm twice, performed once; `OX` decline; `OU` a photo uploaded as `multipart/form-data`, then a write that proposes an operation in a signed-out Session, approved and confirmed (print-with-poppy's order; N19) |

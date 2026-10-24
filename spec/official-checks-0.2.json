@@ -79,9 +79,9 @@
     { "id": "conversations.unknown-cursor", "ours": [] },
     { "id": "conversations.not-found", "ours": ["attack:YU"], "note": "YU expects a refusal of another User's conversation, not this exact error." },
     { "id": "conversations.close", "ours": ["scenario:CL", "scenario:DC"] },
-    { "id": "conversations.close-event", "ours": [] },
+    { "id": "conversations.close-event", "ours": ["scenario:CC"], "note": "A close the Company makes itself, which our client reads as a state event; not a close the agent asked for." },
     { "id": "conversations.close-again", "ours": [] },
-    { "id": "conversations.closed-message", "ours": [] },
+    { "id": "conversations.closed-message", "ours": ["scenario:CC"] },
     { "id": "conversations.closed-handoff", "ours": [] }
   ]
 }

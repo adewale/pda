@@ -124,7 +124,7 @@ const MANIFEST = {
   scenarios: ADVERSARY
     ? ATTACK_IDS
     : [
-        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
+        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
         "H", "DC", "W", "O2", "CM", "ML",
         // Honest Company against the fault-injection proxy and the adversarial agent.
         "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM"
