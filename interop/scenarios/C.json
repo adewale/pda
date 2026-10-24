@@ -2,7 +2,6 @@
   "id": "C",
   "title": "Conversation: send and read",
   "requirements": ["7.2", "7.3", "7.5"],
-  "live": true,
   "needs": { "agent": ["discover", "send", "read"] },
   "steps": [
     { "agent": "discover", "save": "d" },

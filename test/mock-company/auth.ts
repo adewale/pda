@@ -172,6 +172,8 @@ export class AuthServer {
     }
     if (token.rotated) {
       co.violation("account-token.rotated-reused", "used an Account Token after the Company rotated it (4.8)");
+    }
+    if (token.rotated && !co.flawed("accept-rotated-account-token")) {
       if (co.config.reuseDetection) {
         // Reuse means the token leaked: revoke every token descended from the sign-in (RFC 9700 4.14.2).
         for (const other of co.accountTokens.values()) {

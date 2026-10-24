@@ -1,0 +1,17 @@
+{
+  "id": "CL",
+  "title": "Conversation at a live Company: a labelled test message, read, then close",
+  "requirements": ["7.2", "7.3", "7.5", "7.12"],
+  "live": true,
+  "needs": { "agent": ["discover", "send", "read", "close"] },
+  "steps": [
+    { "agent": "discover", "save": "d" },
+    { "expect": { "${d.conversations}": true } },
+    { "agent": "send", "params": { "text": "${fixture.prompts.hello}" }, "save": "m", "note": "In the live lane the greeting says it is a test and needs no action (cli.ts LIVE_GREETING)." },
+    { "expect": { "${m.conversation}": { "$exists": true }, "${m.message_id}": { "$exists": true } } },
+    { "agent": "read", "params": { "conversation": "${m.conversation}", "wait": 2 }, "save": "r" },
+    { "expect": { "${r.messages}": { "$some": { "role": "company" } }, "${r.cursor}": { "$exists": true } } },
+    { "agent": "close", "params": { "conversation": "${m.conversation}" }, "save": "c", "note": "Nothing is left open at a real Company (7.12)." },
+    { "expect": { "${c.status}": "closed" } }
+  ]
+}
