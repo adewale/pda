@@ -1,0 +1,762 @@
+{
+  "date": "2026-10-23",
+  "method": "Public GitHub repository heads, revision-pinned source documents and incremental comparisons; no third-party code executed",
+  "repositories": [
+    {
+      "repository": "personal-agent-protocol/personal-agent-protocol",
+      "head": "39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d",
+      "committed_at": "2026-10-19T16:03:07Z",
+      "subject": "Make examples and guides match the spec (#71)",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/tree/39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d"
+    },
+    {
+      "repository": "datalayer/personal-agent-protocol",
+      "head": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
+      "committed_at": "2026-10-22T12:06:19Z",
+      "subject": "0.26.0: Idempotency-Key on API writes and idempotency records in the reference companies; upstream 39b35bd reviewed",
+      "url": "https://github.com/datalayer/personal-agent-protocol/tree/0ff43c55cc303c3165cb2d5841eca026e1c7c699"
+    },
+    {
+      "repository": "spenciefy/print-with-poppy",
+      "head": "e4aef115b5c240082149bcb354bae19ef5ef148e",
+      "committed_at": "2026-10-22T19:41:23Z",
+      "subject": "Verify successful Cloudflare sign-in form submissions (#18)",
+      "url": "https://github.com/spenciefy/print-with-poppy/tree/e4aef115b5c240082149bcb354bae19ef5ef148e"
+    },
+    {
+      "repository": "richardanaya/pi-poppy",
+      "head": "11ea10630180740f16ccd507b8f90f69870c7e32",
+      "committed_at": "2026-10-10T03:55:17Z",
+      "subject": "Explain each Poppy tool and group them in the README.",
+      "url": "https://github.com/richardanaya/pi-poppy/tree/11ea10630180740f16ccd507b8f90f69870c7e32"
+    },
+    {
+      "repository": "irvinebroque/poppy-demo",
+      "head": "02a9b304e92fdfee465c57f2822742eecac8bdc8",
+      "committed_at": "2026-10-09T21:16:32Z",
+      "subject": "first",
+      "url": "https://github.com/irvinebroque/poppy-demo/tree/02a9b304e92fdfee465c57f2822742eecac8bdc8"
+    },
+    {
+      "repository": "akshay5995/poppyseed",
+      "head": "69f9233242f46db943b79008a668d7e79aa8b733",
+      "committed_at": "2026-10-15T13:24:04Z",
+      "subject": "Keep LICENSE plain MIT so GitHub detects it; move the spec note to NOTICE",
+      "url": "https://github.com/akshay5995/poppyseed/tree/69f9233242f46db943b79008a668d7e79aa8b733"
+    },
+    {
+      "repository": "everruns/everruns",
+      "head": "8a7fc2f11c393ddfa379be4ac61373cdb7863f30",
+      "committed_at": "2026-10-23T09:48:02Z",
+      "subject": "chore(deps): bump rust from 1.99.0-slim to 1.99.1-slim in /crates/server (#4857)",
+      "url": "https://github.com/everruns/everruns/tree/8a7fc2f11c393ddfa379be4ac61373cdb7863f30"
+    },
+    {
+      "repository": "DavideCarvalho/adonis-agora-agent",
+      "head": "e5c84f6a0c75f8b568650bd0d3bf3023e64d7756",
+      "committed_at": "2026-10-23T16:27:10Z",
+      "subject": "fix(ai-sdk): historyWindow summary as a system message no longer fails the turn (#459)",
+      "url": "https://github.com/DavideCarvalho/adonis-agora-agent/tree/e5c84f6a0c75f8b568650bd0d3bf3023e64d7756"
+    },
+    {
+      "repository": "DavideCarvalho/adonis-agora-authkit",
+      "head": "3077535a4ff99ef74c814b686ee27b2cebdff09b",
+      "committed_at": "2026-10-23T15:55:12Z",
+      "subject": "chore: version packages",
+      "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/tree/3077535a4ff99ef74c814b686ee27b2cebdff09b"
+    },
+    {
+      "repository": "rbirkby/Ilmer.org",
+      "head": "86713f0d06c86068b41c367c6c2af61f37e27e15",
+      "committed_at": "2026-10-20T18:41:03Z",
+      "subject": "feat: shadow on scrollable timeline anniversary.",
+      "url": "https://github.com/rbirkby/Ilmer.org/tree/86713f0d06c86068b41c367c6c2af61f37e27e15"
+    },
+    {
+      "repository": "timothyohare/personal-agent-protocol",
+      "head": "fb7b4e64ad343d9406055a995f4beb06269c1ce6",
+      "committed_at": "2026-10-12T14:12:11Z",
+      "subject": "docs: record gate-mutation 95.8% for Checkpoint D; pin one address-range mutant",
+      "url": "https://github.com/timothyohare/personal-agent-protocol/tree/fb7b4e64ad343d9406055a995f4beb06269c1ce6"
+    },
+    {
+      "repository": "ketanbj/openavt",
+      "head": "9e99b622515b20d1b8d5405be229c7199d73dd60",
+      "committed_at": "2026-10-12T21:55:39Z",
+      "subject": "Merge pull request #11 from ketanbj/fix/release-source-capabilities",
+      "url": "https://github.com/ketanbj/openavt/tree/9e99b622515b20d1b8d5405be229c7199d73dd60"
+    },
+    {
+      "repository": "allowfy/allowfy-check",
+      "head": "11137ada084f3689d73d2ae23f2c00958a7022e2",
+      "committed_at": "2026-10-20T19:11:24Z",
+      "subject": "0.1.3: --help, clear errors for unknown options and URLs, a note when a path is given",
+      "url": "https://github.com/allowfy/allowfy-check/tree/11137ada084f3689d73d2ae23f2c00958a7022e2"
+    },
+    {
+      "repository": "ora/poppy-ax",
+      "head": "f6b5cc3c0d8d8e680f0d2429eac31ea9a6214cb6",
+      "committed_at": "2026-10-21T21:01:18Z",
+      "subject": "docs(setup): point builders at the official implementation kit (#15)",
+      "url": "https://github.com/ora/poppy-ax/tree/f6b5cc3c0d8d8e680f0d2429eac31ea9a6214cb6"
+    },
+    {
+      "repository": "akshay5995/poppy-agent-demo",
+      "head": "a5c0bdc34f423ee924216f4268eb28d704dfa731",
+      "committed_at": "2026-10-16T14:43:18Z",
+      "subject": "poppy-agent: a personal agent for Pi that speaks the Personal Agent Protocol",
+      "url": "https://github.com/akshay5995/poppy-agent-demo/tree/a5c0bdc34f423ee924216f4268eb28d704dfa731"
+    },
+    {
+      "repository": "JaviChulvi/awesome-poppy",
+      "head": "68d554bb80468502fa93c630a19be3c9f395a427",
+      "committed_at": "2026-10-20T21:04:57Z",
+      "subject": "Add Allowfy Check to Check Your Implementation (#14)",
+      "url": "https://github.com/JaviChulvi/awesome-poppy/tree/68d554bb80468502fa93c630a19be3c9f395a427"
+    },
+    {
+      "repository": "Flaxscrip/poppy-test-agent",
+      "head": "7012e7447b0cb06d90b54785e821e503f32e20cd",
+      "committed_at": "2026-10-23T11:09:08Z",
+      "subject": "Test Personal Agent metadata for the Poppy Company validator",
+      "url": "https://github.com/Flaxscrip/poppy-test-agent/tree/7012e7447b0cb06d90b54785e821e503f32e20cd"
+    }
+  ],
+  "comparisons": [
+    {
+      "key": "everruns-delta",
+      "url": "https://github.com/everruns/everruns/compare/9adc3ef...8a7fc2f11c393ddfa379be4ac61373cdb7863f30",
+      "base": "9adc3ef3ab3ca87f95f36a37baecc2dbd72657db",
+      "head": "8a7fc2f11c393ddfa379be4ac61373cdb7863f30",
+      "total_commits": 19,
+      "files": [
+        ".deepsec/package.json",
+        ".deepsec/pnpm-lock.yaml",
+        ".github/scripts/ci/test_policy.py",
+        ".github/workflows/ci.yml",
+        ".github/workflows/docs-deploy.yml",
+        ".github/workflows/durable-object.yml",
+        ".github/workflows/mcp-scale-evals.yml",
+        ".github/workflows/wasm-providers.yml",
+        "Cargo.lock",
+        "Cargo.toml",
+        "apps/docs/.node-version",
+        "apps/docs/package.json",
+        "apps/docs/pnpm-lock.yaml",
+        "apps/docs/pnpm-workspace.yaml",
+        "apps/docs/src/lib/mermaid-diagrams.ts",
+        "apps/ui/package.json",
+        "apps/ui/pnpm-lock.yaml",
+        "apps/ui/pnpm-workspace.yaml",
+        "apps/ui/src/lib/api/generated/openapi.ts",
+        "clippy.toml",
+        "crates/contracts/src/runtime/capabilities/collect.rs",
+        "crates/contracts/src/runtime/capabilities/mod.rs",
+        "crates/contracts/src/runtime/capabilities/tests_collect_tests.rs",
+        "crates/contracts/src/runtime/mcp_server.rs",
+        "crates/contracts/src/runtime/mcp_server_tests.rs",
+        "crates/contracts/src/runtime/mod.rs",
+        "crates/contracts/src/runtime/runtime_agent.rs",
+        "crates/contracts/src/runtime/tool_catalog.rs",
+        "crates/contracts/src/runtime/tool_context.rs",
+        "crates/contracts/src/runtime/tool_surface.rs",
+        "crates/contracts/src/runtime/tools/mod.rs",
+        "crates/core/src/builtins/tool_search.rs",
+        "crates/core/src/builtins/tool_search/tests.rs",
+        "crates/core/src/builtins/tool_search_bounded_tests.rs",
+        "crates/core/src/engine/execution/act.rs",
+        "crates/core/src/engine/execution/act_client_policy.rs",
+        "crates/core/src/engine/execution/act_surface.rs",
+        "crates/core/src/engine/execution/reason.rs",
+        "crates/core/src/engine/execution/reason/tool_changes.rs",
+        "crates/core/src/host/host.rs",
+        "crates/core/src/host/host/execution_capabilities.rs",
+        "crates/core/src/host/mcp.rs",
+        "crates/core/src/host/mcp_cache.rs",
+        "crates/core/src/lib.rs",
+        "crates/core/src/mcp/bin/mcp_stdio_echo.rs",
+        "crates/core/src/mcp/capability.rs",
+        "crates/core/src/mcp/discovery.rs",
+        "crates/core/src/mcp/http.rs",
+        "crates/core/src/mcp/mod.rs",
+        "crates/core/src/mcp/stdio.rs",
+        "crates/core/src/runtime_context.rs",
+        "crates/core/tests/consolidated/mcp/http_transport.rs",
+        "crates/core/tests/consolidated/mcp/protocol_negotiation.rs",
+        "crates/core/tests/consolidated/mcp/stdio_transport.rs",
+        "crates/durable-object/Cargo.lock",
+        "crates/durable/src/lib.rs",
+        "crates/durable/src/persistence/mod.rs",
+        "crates/durable/src/persistence/postgres.rs",
+        "crates/durable/src/persistence/postgres/begin.rs",
+        "crates/durable/src/persistence/postgres/dlq.rs",
+        "crates/durable/src/persistence/postgres/event_log.rs",
+        "crates/durable/src/persistence/postgres/schema.rs",
+        "crates/durable/src/persistence/postgres/task_queue.rs",
+        "crates/durable/tests/agent_reliability_test.rs",
+        "crates/durable/tests/postgres_integration_test.rs",
+        "crates/everruns/src/capability.rs",
+        "crates/everruns/src/mcp.rs",
+        "crates/everruns/tests/fixtures/external-consumer/Cargo.lock",
+        "crates/everruns/tests/host/main.rs",
+        "crates/everruns/tests/host/mcp_catalog_lifecycle.rs",
+        "crates/everruns/tests/host/mcp_runtime_test.rs",
+        "crates/everruns/tests/host/tool_catalog_lifecycle.rs",
+        "crates/integrations/src/bashkit/mod.rs",
+        "crates/integrations/src/bashkit/tests/runtime.rs",
+        "crates/integrations/src/bashkit/tools_in_shell/builtin.rs",
+        "crates/integrations/src/bashkit/tools_in_shell/catalog.rs",
+        "crates/integrations/src/bashkit/tools_in_shell/deferred_tests.rs",
+        "crates/integrations/src/bashkit/tools_in_shell/mod.rs",
+        "crates/integrations/src/bashkit/tools_in_shell/plan.rs",
+        "crates/integrations/src/bashkit/tools_in_shell/preflight.rs",
+        "crates/integrations/src/bashkit/tools_in_shell/ratings_tests.rs",
+        "crates/integrations/src/bashkit/tools_in_shell/tests.rs",
+        "crates/integrations/src/lua/code_mode.rs",
+        "crates/integrations/src/lua/mod.rs",
+        "crates/integrations/src/lua/nested_tool.rs",
+        "crates/integrations/src/lua/nested_tool_tests.rs",
+        "crates/internal-protocol/proto/worker.proto",
+        "crates/llm-tests/tests/tool_search_test.rs",
+        "crates/server/Dockerfile",
+        "crates/server/src/background/event_retention.rs",
+        "crates/server/src/background/sandbox_history_retention.rs",
+        "crates/server/src/domains/credentials/management.rs",
+        "crates/server/src/domains/credentials/service.rs",
+        "crates/server/src/domains/mcp_servers/deferred/mod.rs",
+        "crates/server/src/domains/mcp_servers/deferred/tests.rs",
+        "crates/server/src/domains/mcp_servers/scoped_mcp/cache_tests.rs",
+        "crates/server/src/domains/mcp_servers/scoped_mcp/mod.rs",
+        "crates/server/src/domains/mcp_servers/scoped_mcp/tests.rs",
+        "crates/server/src/listeners/automatic_session_titles/tests.rs",
+        "crates/server/src/storage/agentid/mod.rs",
+        "crates/server/src/storage/pact_delegation.rs",
+        "crates/server/src/storage/repositories/agent_channels/conversion.rs",
+        "crates/server/src/storage/repositories/session_databases.rs",
+        "crates/server/src/storage/runtime/sandbox_checkpoint.rs",
+        "crates/server/src/storage/runtime_identity/mod.rs",
+        "crates/server/src/storage/runtime_identity/tests.rs",
+        "crates/server/src/storage/transaction.rs",
+        "crates/server/src/worker_link/grpc_service/worker/support.rs",
+        "crates/server/tests/domain/main.rs",
+        "crates/server/tests/domain/mcp_endpoint_test/capability_mcp_acts_as.rs",
+        "crates/server/tests/domain/mcp_oauth_user_switch_test/tool_cache.rs",
+        "crates/server/tests/domain/service_mcp_oauth_lifecycle_test.rs",
+        "crates/server/tests/server_integration/main.rs",
+        "crates/test-support/src/mcp.rs",
+        "crates/worker/Dockerfile",
+        "crates/worker/src/grpc_adapters.rs",
+        "crates/worker/src/grpc_adapters/mcp_definitions.rs",
+        "crates/worker/src/grpc_adapters/tests.rs",
+        "deny.toml",
+        "docker/Dockerfile.unified",
+        "docs/api/openapi.json",
+        "docs/capabilities/tool-search.md",
+        "docs/capabilities/tools-in-shell.md",
+        "docs/changelog/2026-10-21-large-mcp-catalogs/index.md",
+        "docs/features/large-mcp-catalogs.md",
+        "docs/features/mcp.md",
+        "docs/schemas/agent/v1.json",
+        "evals/generic/Cargo.lock",
+        "evals/generic/Cargo.toml",
+        "evals/guardrail-calibration/Cargo.lock",
+        "evals/mcp-scale/.gitignore",
+        "evals/mcp-scale/Cargo.lock",
+        "evals/mcp-scale/Cargo.toml",
+        "evals/mcp-scale/HOSTED_QUALIFICATION.md",
+        "evals/mcp-scale/HTTP_FIXTURE.md",
+        "evals/mcp-scale/README.md",
+        "evals/mcp-scale/dataset.jsonl",
+        "evals/mcp-scale/historical/python-prototype/README.md",
+        "evals/mcp-scale/historical/python-prototype/cases.jsonl",
+        "evals/mcp-scale/historical/python-prototype/cloud_run.py",
+        "evals/mcp-scale/historical/python-prototype/evaluate.py",
+        "evals/mcp-scale/historical/python-prototype/fixture/README.md",
+        "evals/mcp-scale/historical/python-prototype/fixture/server.py",
+        "evals/mcp-scale/historical/python-prototype/fixture/test_server.py",
+        "evals/mcp-scale/historical/python-prototype/gateway.py",
+        "evals/mcp-scale/historical/python-prototype/requirements.txt",
+        "evals/mcp-scale/historical/python-prototype/results/offline.json",
+        "evals/mcp-scale/historical/python-prototype/results/runtime-diagnostic.json",
+        "evals/mcp-scale/historical/python-prototype/results/runtime-live-2000-verification.json",
+        "evals/mcp-scale/historical/python-prototype/results/runtime-live-2000.json",
+        "evals/mcp-scale/historical/python-prototype/results/runtime-live.json",
+        "evals/mcp-scale/historical/python-prototype/results/runtime-probe-direct.json",
+        "evals/mcp-scale/historical/python-prototype/results/runtime-probe-gateway.json",
+        "evals/mcp-scale/historical/python-prototype/results/runtime-task-verification.json",
+        "evals/mcp-scale/historical/python-prototype/results/surfaces-cli-probe.json",
+        "evals/mcp-scale/historical/python-prototype/results/surfaces-hybrid-live.json",
+        "evals/mcp-scale/historical/python-prototype/results/surfaces-hybrid-probe.json",
+        "evals/mcp-scale/historical/python-prototype/results/surfaces-hybrid-result-parity.json",
+        "evals/mcp-scale/historical/python-prototype/results/surfaces-hybrid-verification.json",
+        "evals/mcp-scale/historical/python-prototype/results/surfaces-native-probe.json",
+        "evals/mcp-scale/historical/python-prototype/results/yolop-backend-audit.jsonl",
+        "evals/mcp-scale/historical/python-prototype/results/yolop-final-state.json",
+        "evals/mcp-scale/historical/python-prototype/results/yolop-live.json",
+        "evals/mcp-scale/historical/python-prototype/results/yolop-task-verification.json",
+        "evals/mcp-scale/historical/python-prototype/retrieval.py",
+        "evals/mcp-scale/historical/python-prototype/runtime/Cargo.lock.snapshot",
+        "evals/mcp-scale/historical/python-prototype/runtime/Cargo.toml.snapshot",
+        "evals/mcp-scale/historical/python-prototype/runtime/src/main.rs",
+        "evals/mcp-scale/historical/python-prototype/test_evaluate.py",
+        "evals/mcp-scale/historical/python-prototype/test_gateway.py",
+        "evals/mcp-scale/historical/python-prototype/test_verify.py",
+        "evals/mcp-scale/historical/python-prototype/verify_rollback.py",
+        "evals/mcp-scale/historical/python-prototype/verify_surface_results.py",
+        "evals/mcp-scale/mira.toml",
+        "evals/mcp-scale/results/hosted-manual-2026-10-19.jsonl.gz",
+        "evals/mcp-scale/results/hosted-manual-2026-10-19.manifest.json",
+        "evals/mcp-scale/results/live-description-2000-10.jsonl.gz",
+        "evals/mcp-scale/results/live-description-600-10-serial-retry.jsonl.gz",
+        "evals/mcp-scale/results/live-description-600-10.jsonl.gz",
+        "evals/mcp-scale/results/live-read-rollback-2000-1.jsonl.gz",
+        "evals/mcp-scale/results/live-read-rollback-600-1.jsonl.gz",
+        "evals/mcp-scale/results/post-fix-cli-2000-smoke.jsonl.gz",
+        "evals/mcp-scale/results/qualification-summary.json",
+        "evals/mcp-scale/results/shipping-2026-10-21-live.jsonl.gz",
+        "evals/mcp-scale/results/shipping-2026-10-21-stress.json",
+        "evals/mcp-scale/results/shipping-2026-10-21-summary.json",
+        "evals/mcp-scale/results/tool-search-index-stress.json",
+        "evals/mcp-scale/src/bin/mcp_http_fixture.rs",
+        "evals/mcp-scale/src/fixture.rs",
+        "evals/mcp-scale/src/main.rs",
+        "evals/mcp-scale/src/scorers.rs",
+        "evals/mcp-scale/src/stress.rs",
+        "evals/mcp-scale/src/subject.rs",
+        "evals/platform-capability/Cargo.lock",
+        "evals/platform-capability/catalog.json",
+        "evals/tool-search-reveal/Cargo.lock",
+        "evals/tools-in-shell/Cargo.lock",
+        "evals/tools-in-shell/Cargo.toml",
+        "evals/web-search-providers/Cargo.lock",
+        "examples/durable-object-agent/Cargo.lock",
+        "examples/weekend-concierge-host/Cargo.lock",
+        "knowledge/execution/capabilities.md",
+        "knowledge/execution/index.md",
+        "knowledge/execution/large-mcp-catalogs.md",
+        "knowledge/execution/lua-execution.md",
+        "knowledge/execution/tool-search.md",
+        "knowledge/execution/tool-surfaces.md",
+        "knowledge/execution/tools-in-shell.md",
+        "knowledge/integrations/user-mcp-servers.md",
+        "knowledge/log.md",
+        "knowledge/project/ci-build-time.md",
+        "knowledge/project/dependency-surface.md",
+        "knowledge/security/threat-model.md",
+        "knowledge/test-cases/agents/index.md",
+        "knowledge/test-cases/agents/large_mcp_catalogs/TC001_paginated_catalog_discovery_and_search.md",
+        "knowledge/test-cases/agents/large_mcp_catalogs/TC002_authorized_server_metadata_and_colliding_names.md",
+        "knowledge/test-cases/agents/large_mcp_catalogs/TC003_native_cli_hybrid_registry_parity.md",
+        "knowledge/test-cases/agents/large_mcp_catalogs/TC004_dynamic_catalog_changes_and_replay.md",
+        "knowledge/test-cases/agents/large_mcp_catalogs/TC005_discovery_limits_and_incomplete_catalogs.md",
+        "knowledge/test-cases/agents/large_mcp_catalogs/TC006_deferred_server_loading_limits_and_scope.md",
+        "knowledge/test-cases/agents/large_mcp_catalogs/index.md",
+        "scripts/ci-prepare-linker.sh",
+        "scripts/smoke-docker-compose.sh",
+        "tests/wasm-providers/Cargo.lock"
+      ],
+      "truncated_at_api_file_cap": false
+    },
+    {
+      "key": "agent-delta",
+      "url": "https://github.com/DavideCarvalho/adonis-agora-agent/compare/51df9f1...e5c84f6a0c75f8b568650bd0d3bf3023e64d7756",
+      "base": "51df9f1e0d72d381ebcca54a80ef8dfd18edd05a",
+      "head": "e5c84f6a0c75f8b568650bd0d3bf3023e64d7756",
+      "total_commits": 15,
+      "files": [
+        ".changeset/history-summary-system-message.md",
+        "PARITY.md",
+        "packages/adonis/CHANGELOG.md",
+        "packages/adonis/docs/channels.mdx",
+        "packages/adonis/docs/concepts/agent-loop.mdx",
+        "packages/adonis/docs/config-reference.mdx",
+        "packages/adonis/docs/diagnostics.mdx",
+        "packages/adonis/docs/programmatic-api.mdx",
+        "packages/adonis/docs/stores/lucid.mdx",
+        "packages/adonis/docs/streaming-and-http.mdx",
+        "packages/adonis/package.json",
+        "packages/adonis/providers/agent_provider.ts",
+        "packages/adonis/skills/agent-setup/SKILL.md",
+        "packages/adonis/src/agent-deps-factory.ts",
+        "packages/adonis/src/agent-deps.ts",
+        "packages/adonis/src/agent-loop.ts",
+        "packages/adonis/src/agent-service.ts",
+        "packages/adonis/src/ai-sdk/ai-sdk-model.ts",
+        "packages/adonis/src/channels/adapters/evolution_api.ts",
+        "packages/adonis/src/channels/adapters/telegram.ts",
+        "packages/adonis/src/channels/adapters/whatsapp_cloud.ts",
+        "packages/adonis/src/channels/executor.ts",
+        "packages/adonis/src/channels/handler.ts",
+        "packages/adonis/src/channels/http.ts",
+        "packages/adonis/src/channels/index.ts",
+        "packages/adonis/src/channels/types.ts",
+        "packages/adonis/src/chat-queue-service.ts",
+        "packages/adonis/src/define_config.ts",
+        "packages/adonis/src/durable/agent-run-context.ts",
+        "packages/adonis/src/index.ts",
+        "packages/adonis/src/message-timestamps.ts",
+        "packages/adonis/src/spi/agent-store.ts",
+        "packages/adonis/src/spi/chat-queue.ts",
+        "packages/adonis/src/stores/lucid-schema.ts",
+        "packages/adonis/src/stores/lucid.ts",
+        "packages/adonis/src/testing/in-memory-store.ts",
+        "packages/adonis/src/types.ts",
+        "packages/adonis/test/channels-coalesce.spec.ts",
+        "packages/adonis/test/channels-durable-steps.spec.ts",
+        "packages/adonis/test/history-window-ai-sdk-e2e.spec.ts",
+        "packages/adonis/test/message-fields.spec.ts",
+        "packages/adonis/test/message-sent-at.spec.ts",
+        "packages/dashboard/package.json",
+        "pnpm-lock.yaml"
+      ],
+      "truncated_at_api_file_cap": false
+    },
+    {
+      "key": "authkit-delta",
+      "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/compare/75156d6...3077535a4ff99ef74c814b686ee27b2cebdff09b",
+      "base": "75156d6ca15f757649ea41b5a907ce6b5f7076c5",
+      "head": "3077535a4ff99ef74c814b686ee27b2cebdff09b",
+      "total_commits": 16,
+      "files": [
+        ".github/workflows/check-skills.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/docs.yml",
+        ".github/workflows/pullfrog.yml",
+        ".github/workflows/release.yml",
+        ".github/workflows/skills-follow-the-api.yml",
+        "apps/docs/package.json",
+        "package.json",
+        "packages/authkit-client/CHANGELOG.md",
+        "packages/authkit-client/package.json",
+        "packages/authkit-server/CHANGELOG.md",
+        "packages/authkit-server/package.json",
+        "packages/authkit-testing/CHANGELOG.md",
+        "packages/authkit-testing/package.json",
+        "pnpm-lock.yaml",
+        "pnpm-workspace.yaml"
+      ],
+      "truncated_at_api_file_cap": false
+    }
+  ],
+  "everruns_poppy_tree_comparison": [
+    {
+      "path": "crates/capabilities/src/capabilities/poppy_client",
+      "base_sha": "ac6ec5984e769c7a784893fc3c8eeb227db847fa",
+      "head_sha": "ac6ec5984e769c7a784893fc3c8eeb227db847fa"
+    },
+    {
+      "path": "crates/capabilities/src/capabilities/poppy_client/client.rs",
+      "base_sha": "8a57df669cd0534a0a5fe7c6c09ea760f62680a3",
+      "head_sha": "8a57df669cd0534a0a5fe7c6c09ea760f62680a3"
+    },
+    {
+      "path": "crates/capabilities/src/capabilities/poppy_client/framework.rs",
+      "base_sha": "11dfb63c3c5de9118d3381b4a384fc7e9b0aa165",
+      "head_sha": "11dfb63c3c5de9118d3381b4a384fc7e9b0aa165"
+    },
+    {
+      "path": "crates/capabilities/src/capabilities/poppy_client/key.rs",
+      "base_sha": "f9897b15d4b84031763ed36529cd372fafca0759",
+      "head_sha": "f9897b15d4b84031763ed36529cd372fafca0759"
+    },
+    {
+      "path": "crates/capabilities/src/capabilities/poppy_client/mod.rs",
+      "base_sha": "90d2cf1797d9e2090837e3acccce86696ac4695e",
+      "head_sha": "90d2cf1797d9e2090837e3acccce86696ac4695e"
+    },
+    {
+      "path": "crates/capabilities/src/capabilities/poppy_client/protocol.rs",
+      "base_sha": "20f6a52facebdb8fdb493835b9f601375af2c944",
+      "head_sha": "20f6a52facebdb8fdb493835b9f601375af2c944"
+    },
+    {
+      "path": "crates/server/migrations/legacy/203_poppy_channels.sql",
+      "base_sha": "f2dd1290b6bb21887a58c575bd8d0cb721a0c999",
+      "head_sha": "f2dd1290b6bb21887a58c575bd8d0cb721a0c999"
+    },
+    {
+      "path": "crates/server/migrations/legacy/218_poppy_personal_agent.sql",
+      "base_sha": "b4af74e54e2146eefcfc1e5809a29ff2bad7c327",
+      "head_sha": "b4af74e54e2146eefcfc1e5809a29ff2bad7c327"
+    },
+    {
+      "path": "crates/server/src/channels/poppy",
+      "base_sha": "54c01889476056d39338a510b7ca863fc95840bd",
+      "head_sha": "54c01889476056d39338a510b7ca863fc95840bd"
+    },
+    {
+      "path": "crates/server/src/channels/poppy/client.rs",
+      "base_sha": "098efcd831c1e43968169ecfe76f93d3c5a0b63f",
+      "head_sha": "098efcd831c1e43968169ecfe76f93d3c5a0b63f"
+    },
+    {
+      "path": "crates/server/src/channels/poppy/conversations.rs",
+      "base_sha": "645b16d3b06386a4e680b9fec227de8f2d372f80",
+      "head_sha": "645b16d3b06386a4e680b9fec227de8f2d372f80"
+    },
+    {
+      "path": "crates/server/src/channels/poppy/discovery.rs",
+      "base_sha": "0374bf07c7d7adabc92f8066e3bfa4f19149ba4d",
+      "head_sha": "0374bf07c7d7adabc92f8066e3bfa4f19149ba4d"
+    },
+    {
+      "path": "crates/server/src/channels/poppy/dpop.rs",
+      "base_sha": "7987897985970ca34c9cf365953ca19e08f57f6f",
+      "head_sha": "7987897985970ca34c9cf365953ca19e08f57f6f"
+    },
+    {
+      "path": "crates/server/src/channels/poppy/events.rs",
+      "base_sha": "0e32365b404a2eb2d308bda84cfb99fed26a46cb",
+      "head_sha": "0e32365b404a2eb2d308bda84cfb99fed26a46cb"
+    },
+    {
+      "path": "crates/server/src/channels/poppy/mod.rs",
+      "base_sha": "f8ca05b0f26916199f73feec6619a92e6092a3e0",
+      "head_sha": "f8ca05b0f26916199f73feec6619a92e6092a3e0"
+    },
+    {
+      "path": "crates/server/src/channels/poppy/tokens.rs",
+      "base_sha": "4c72ea3fd811349971164b17c7aa6f4c530008f0",
+      "head_sha": "4c72ea3fd811349971164b17c7aa6f4c530008f0"
+    },
+    {
+      "path": "crates/server/src/domains/agent_channels/record/poppy.rs",
+      "base_sha": "aa6068d56c890ec843fed0032639519a8f0dc2ce",
+      "head_sha": "aa6068d56c890ec843fed0032639519a8f0dc2ce"
+    },
+    {
+      "path": "crates/server/src/domains/poppy_agent",
+      "base_sha": "3dc28793b36c48c25fd87271c8a4cfa31d97c9de",
+      "head_sha": "3dc28793b36c48c25fd87271c8a4cfa31d97c9de"
+    },
+    {
+      "path": "crates/server/src/domains/poppy_agent/commands.rs",
+      "base_sha": "0502c6b6775b263b022bf2de2860d773b0d450a7",
+      "head_sha": "0502c6b6775b263b022bf2de2860d773b0d450a7"
+    },
+    {
+      "path": "crates/server/src/domains/poppy_agent/mod.rs",
+      "base_sha": "803681505dc0f8fd0628d5316b7f490c7b664104",
+      "head_sha": "803681505dc0f8fd0628d5316b7f490c7b664104"
+    },
+    {
+      "path": "crates/server/src/storage/poppy.rs",
+      "base_sha": "455e9a6a84d51bc9974b1df74227fd46be5089a3",
+      "head_sha": "455e9a6a84d51bc9974b1df74227fd46be5089a3"
+    },
+    {
+      "path": "crates/server/src/storage/poppy_agent.rs",
+      "base_sha": "1255d56e0dba3138ece8ef06da5ca743e31e6b4b",
+      "head_sha": "1255d56e0dba3138ece8ef06da5ca743e31e6b4b"
+    },
+    {
+      "path": "crates/server/tests/domain/channel_poppy_test.rs",
+      "base_sha": "2ebe2de4a4c5a8b6f4f7b7046f7a5fa17e838ca2",
+      "head_sha": "2ebe2de4a4c5a8b6f4f7b7046f7a5fa17e838ca2"
+    },
+    {
+      "path": "crates/server/tests/domain/poppy_agent_test.rs",
+      "base_sha": "553487766936502185eadfa302300a74def055d4",
+      "head_sha": "553487766936502185eadfa302300a74def055d4"
+    },
+    {
+      "path": "crates/worker/src/internal_commands/poppy.rs",
+      "base_sha": "161d08f2a043176afb8622d34d4301833a4873c4",
+      "head_sha": "161d08f2a043176afb8622d34d4301833a4873c4"
+    },
+    {
+      "path": "docs/capabilities/poppy-personal-agent.md",
+      "base_sha": "3229349df5f50f8a5f392d37fba8e2e2698e631a",
+      "head_sha": "3229349df5f50f8a5f392d37fba8e2e2698e631a"
+    },
+    {
+      "path": "docs/changelog/2026-10-10-poppy-personal-agents",
+      "base_sha": "f54954bee817c7e152194168a8a1b9d4f8b97f5c",
+      "head_sha": "f54954bee817c7e152194168a8a1b9d4f8b97f5c"
+    },
+    {
+      "path": "docs/changelog/2026-10-10-poppy-personal-agents/index.md",
+      "base_sha": "f6665fd52e136ffdfffc467ba9481e8a92e11aed",
+      "head_sha": "f6665fd52e136ffdfffc467ba9481e8a92e11aed"
+    },
+    {
+      "path": "docs/changelog/2026-10-11-poppy-framework-personal-agents",
+      "base_sha": "dde0830f745a6b35e70cdc444d1cadd27c29e349",
+      "head_sha": "dde0830f745a6b35e70cdc444d1cadd27c29e349"
+    },
+    {
+      "path": "docs/changelog/2026-10-11-poppy-framework-personal-agents/index.md",
+      "base_sha": "9f4d76642608bfa1d00153609d5971a7b4063a69",
+      "head_sha": "9f4d76642608bfa1d00153609d5971a7b4063a69"
+    },
+    {
+      "path": "docs/features/poppy.md",
+      "base_sha": "77b4f590eb90164b552c08d5ae75328b63b7d596",
+      "head_sha": "77b4f590eb90164b552c08d5ae75328b63b7d596"
+    },
+    {
+      "path": "examples/poppy-personal-agent",
+      "base_sha": "36b6b0b9a2e7a7073712849ff51a984d3e8b762e",
+      "head_sha": "36b6b0b9a2e7a7073712849ff51a984d3e8b762e"
+    },
+    {
+      "path": "examples/poppy-personal-agent/Cargo.toml",
+      "base_sha": "d5f3cca3b99a0f8f49f74db5b6073ad7e994d5b7",
+      "head_sha": "d5f3cca3b99a0f8f49f74db5b6073ad7e994d5b7"
+    },
+    {
+      "path": "examples/poppy-personal-agent/README.md",
+      "base_sha": "1d75479ff80b0f769a1112e6a71d3ad0df22827f",
+      "head_sha": "1d75479ff80b0f769a1112e6a71d3ad0df22827f"
+    },
+    {
+      "path": "examples/poppy-personal-agent/src",
+      "base_sha": "d4e271b2301a4ac82ce81ec77e1211deede85792",
+      "head_sha": "d4e271b2301a4ac82ce81ec77e1211deede85792"
+    },
+    {
+      "path": "examples/poppy-personal-agent/src/lib.rs",
+      "base_sha": "decd5d911fcbaa77f2cd04c18750738571d7bac3",
+      "head_sha": "decd5d911fcbaa77f2cd04c18750738571d7bac3"
+    },
+    {
+      "path": "examples/poppy-personal-agent/src/main.rs",
+      "base_sha": "88a3f6f85ca4fc10dd146d233348f03fb4223a1b",
+      "head_sha": "88a3f6f85ca4fc10dd146d233348f03fb4223a1b"
+    },
+    {
+      "path": "examples/poppy-personal-agent/tests",
+      "base_sha": "bdc5ea1b8b2c8527c9fabd83e7ffafb5fe80d8ca",
+      "head_sha": "bdc5ea1b8b2c8527c9fabd83e7ffafb5fe80d8ca"
+    },
+    {
+      "path": "examples/poppy-personal-agent/tests/pi_poppy.rs",
+      "base_sha": "3f19c3344c95a0df3575d971af7b42e7e1a4752b",
+      "head_sha": "3f19c3344c95a0df3575d971af7b42e7e1a4752b"
+    },
+    {
+      "path": "knowledge/integrations/poppy-channel.md",
+      "base_sha": "5c4f1c9414580b1a3bf75f14e33a715d7344dde6",
+      "head_sha": "5c4f1c9414580b1a3bf75f14e33a715d7344dde6"
+    },
+    {
+      "path": "knowledge/integrations/poppy-personal-agent.md",
+      "base_sha": "494dff20006b8e94ff361294bb4f5fe4750dd509",
+      "head_sha": "494dff20006b8e94ff361294bb4f5fe4750dd509"
+    },
+    {
+      "path": "scripts/poppy-interop.sh",
+      "base_sha": "7575f4cafe33590e311fc381f528c943905a3dad",
+      "head_sha": "7575f4cafe33590e311fc381f528c943905a3dad"
+    },
+    {
+      "path": "scripts/poppy-interop",
+      "base_sha": "3cf3b2201c3dfb6e73546d37ae831d605e5925e8",
+      "head_sha": "3cf3b2201c3dfb6e73546d37ae831d605e5925e8"
+    },
+    {
+      "path": "scripts/poppy-interop/company.ts",
+      "base_sha": "96a5209610424f400f86f84980eb8b6c783334ed",
+      "head_sha": "96a5209610424f400f86f84980eb8b6c783334ed"
+    },
+    {
+      "path": "scripts/poppy-interop/driver.ts",
+      "base_sha": "0006aeb8b68ec14ba14eb3996b35af3627d1cfa4",
+      "head_sha": "0006aeb8b68ec14ba14eb3996b35af3627d1cfa4"
+    },
+    {
+      "path": "scripts/poppy-interop/pap_verify.py",
+      "base_sha": "2477c60c317dcecbee8f7220d0b72e977f79bb2d",
+      "head_sha": "2477c60c317dcecbee8f7220d0b72e977f79bb2d"
+    }
+  ],
+  "discussion_observations": [
+    {
+      "number": 25,
+      "title": "A verified human signal for sessions",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/25",
+      "updated_at": "2026-10-23T15:31:55Z",
+      "state": "open"
+    },
+    {
+      "number": 35,
+      "title": "Align with OAuth and AIMS terminology",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/35",
+      "updated_at": "2026-10-23T15:23:21Z",
+      "state": "open"
+    },
+    {
+      "number": 28,
+      "title": "Extension proposal: Task grants, so the User approves one operation on the Company's page (RFC 9396)",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/28",
+      "updated_at": "2026-10-23T12:20:33Z",
+      "state": "open"
+    },
+    {
+      "number": 29,
+      "title": "Extension proposal: Upstream intent-to-domain discovery prior to poppy.json handoff",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/29",
+      "updated_at": "2026-10-22T06:49:41Z",
+      "state": "open"
+    },
+    {
+      "number": 31,
+      "title": "4.1: An agent that runs on the User's own devices can't hold the `private_key_jwt` key without a cloud signer that sees every Company",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/31",
+      "updated_at": "2026-10-22T03:36:34Z",
+      "state": "open"
+    },
+    {
+      "number": 22,
+      "title": "Extensions proposal: Push notifications extension - let a Company tell the Personal Agent something happened",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/22",
+      "updated_at": "2026-10-22T03:36:33Z",
+      "state": "open"
+    },
+    {
+      "number": 36,
+      "title": "4.2: A User can't have more than one agent in the same Personal Agent",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/36",
+      "updated_at": "2026-10-22T03:36:32Z",
+      "state": "open"
+    },
+    {
+      "number": 34,
+      "title": "Extension proposal: data-handling declarations in poppy.json (training, retention, regions)",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/34",
+      "updated_at": "2026-10-21T17:54:21Z",
+      "state": "open"
+    },
+    {
+      "number": 33,
+      "title": "4.1: `redirect_uris` must be HTTPS on the `client_id` domain, which rules out the redirects desktop apps and browser extensions use",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/33",
+      "updated_at": "2026-10-21T17:53:11Z",
+      "state": "open"
+    },
+    {
+      "number": 32,
+      "title": "5: A conforming agent can't act in the User's own signed-in browser at any participating Company",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/32",
+      "updated_at": "2026-10-21T17:52:00Z",
+      "state": "open"
+    },
+    {
+      "number": 30,
+      "title": "cite rfc7523bis and state the intentional departure from its lenient grant-assertion aud rule",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/30",
+      "updated_at": "2026-10-21T15:58:11Z",
+      "state": "open"
+    },
+    {
+      "number": 27,
+      "title": "Implementation report: Donna, a personal agent, live on Draft 0.2 since 20 October",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/27",
+      "updated_at": "2026-10-21T10:49:55Z",
+      "state": "open"
+    }
+  ],
+  "limits": "Sources can change after their observation. Proposals are not adopted rules. Repository or document checks are not new Session, API or ordering results.",
+  "observation_started_at": "2026-10-23 16:33:59 UTC",
+  "observation_completed_at": "2026-10-23T16:45:48.530973+00:00"
+}

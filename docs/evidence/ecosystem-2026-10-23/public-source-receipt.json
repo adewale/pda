@@ -1,0 +1,152 @@
+[
+  {
+    "name": "sierra-public-repos",
+    "url": "https://api.github.com/orgs/sierra-inc/repos?type=public&per_page=100",
+    "error": "HTTP Error 403: Forbidden"
+  },
+  {
+    "name": "npm-datalayer",
+    "url": "https://registry.npmjs.org/@datalayer%2fpersonal-agent-protocol/latest",
+    "observed_at": "2026-10-23T16:34:29.827306+00:00",
+    "status": 200,
+    "bytes": 3019,
+    "sha256": "de9e0286eff20c7805d005f1cf9c25ef6454e3028b17af0b29df7ae748613efa",
+    "package": "@datalayer/personal-agent-protocol",
+    "version": "0.26.0"
+  },
+  {
+    "name": "pypi-datalayer",
+    "url": "https://pypi.org/pypi/personal-agent-protocol/json",
+    "observed_at": "2026-10-23T16:34:29.631536+00:00",
+    "status": 200,
+    "bytes": 62987,
+    "sha256": "a4d8f12a90240d6675573928d5ef88b9b09e3d50a5a18dba4a3d33d668f57ac2",
+    "package": "personal-agent-protocol",
+    "version": "0.26.0"
+  },
+  {
+    "name": "npm-poppyseed",
+    "url": "https://registry.npmjs.org/poppyseed/latest",
+    "observed_at": "2026-10-23T16:34:29.923227+00:00",
+    "status": 200,
+    "bytes": 3386,
+    "sha256": "706902c94ad703b1c117cb8976985ab332f47bdb8dcf4ac80889fd3cc10bc23b",
+    "package": "poppyseed",
+    "version": "0.1.1"
+  },
+  {
+    "name": "npm-search",
+    "url": "https://registry.npmjs.org/-/v1/search?text=personal-agent-protocol&size=20",
+    "observed_at": "2026-10-23T16:34:30.363672+00:00",
+    "status": 200,
+    "bytes": 23406,
+    "sha256": "6e7f9ea86a124ce660744646ceaf8ae0e6d72add85563cf681faaa8f153de0aa",
+    "packages": [
+      {
+        "name": "@datalayer/personal-agent-protocol",
+        "version": "0.26.0"
+      },
+      {
+        "name": "@dudousxd/nestjs-agent-poppy",
+        "version": "0.1.1"
+      },
+      {
+        "name": "poppyseed",
+        "version": "0.1.1"
+      },
+      {
+        "name": "@agentclientprotocol/sdk",
+        "version": "2.0.1"
+      },
+      {
+        "name": "proxy-agent",
+        "version": "8.0.2"
+      },
+      {
+        "name": "@larksuite/cli",
+        "version": "1.0.98"
+      },
+      {
+        "name": "@microsoft/agent-host-protocol",
+        "version": "1.0.0"
+      },
+      {
+        "name": "@langchain/protocol",
+        "version": "0.0.20"
+      },
+      {
+        "name": "@deepseek-ai/dsh-acp",
+        "version": "0.0.1-rc.1"
+      },
+      {
+        "name": "@opentelemetry/otlp-exporter-base",
+        "version": "0.300.0"
+      },
+      {
+        "name": "whatshell",
+        "version": "0.1.2"
+      },
+      {
+        "name": "@agentclientprotocol/claude-agent-acp",
+        "version": "0.94.0"
+      },
+      {
+        "name": "@lightdash/cli",
+        "version": "3.49.1"
+      },
+      {
+        "name": "docker-modem",
+        "version": "5.0.7"
+      },
+      {
+        "name": "@deepseek-ai/dsh-sdk-jsonrpc-server",
+        "version": "0.0.1-rc.5"
+      },
+      {
+        "name": "@github/copilot-language-server",
+        "version": "1.560.0"
+      },
+      {
+        "name": "@deepseek-ai/dsh-sdk-protocol",
+        "version": "0.0.1-rc.1"
+      },
+      {
+        "name": "pg-protocol",
+        "version": "1.16.1"
+      },
+      {
+        "name": "chrome-devtools-mcp",
+        "version": "1.12.0"
+      },
+      {
+        "name": "agent-cards",
+        "version": "0.8.2"
+      }
+    ]
+  },
+  {
+    "name": "crates-search",
+    "url": "https://crates.io/api/v1/crates?page=1&per_page=10&q=personal-agent-protocol",
+    "observed_at": "2026-10-23T16:34:30.266270+00:00",
+    "status": 200,
+    "bytes": 66,
+    "sha256": "d7387f5dcd24fdc0d26627015f545d5af97cdb03e877a77bc41ab9e0514ef98c",
+    "packages": []
+  },
+  {
+    "name": "papchecker",
+    "url": "https://papchecker.com/sites",
+    "observed_at": "2026-10-23T16:34:30.455679+00:00",
+    "status": 200,
+    "bytes": 18108,
+    "sha256": "4d986af3c46f050a7a3a9fb877c96295c55386a56b179ca0e342fbc9de0aba3c"
+  },
+  {
+    "name": "poppy-md",
+    "url": "https://poppy.md/implementations",
+    "observed_at": "2026-10-23T16:34:30.835562+00:00",
+    "status": 200,
+    "bytes": 71054,
+    "sha256": "7551017b54db8f7d4623dcc7b96844c7727d57a72f3dc7dfd2a58966a30e499c"
+  }
+]

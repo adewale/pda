@@ -68,7 +68,7 @@ describe("sign-in page", () => {
     await openPage("");
     expect(screen.getByRole("link", { name: "Privacy" }).getAttribute("href")).toBe("/privacy");
     expect(screen.getByRole("link", { name: "About" }).getAttribute("href")).toBe("/about");
-    expect(document.querySelector('a[href="/ecosystem"]')).toBeNull();
+    expect(document.querySelector('a[href="/about/ecosystem"]')).toBeNull();
   });
 
   it("says what the agent is, above the footer", async () => {
@@ -108,13 +108,13 @@ describe("public information pages", () => {
     await screen.findByRole("heading", { level: 1, name: "About Poppy Demo Agent" });
     expect(screen.getByRole("link", { name: /View the GitHub project/ }).getAttribute("href")).toBe(PROJECT_URL);
     expect(screen.getByRole("link", { name: /^Validator/ }).getAttribute("href")).toBe("/validator");
-    expect(screen.getByRole("link", { name: /^Ecosystem map/ }).getAttribute("href")).toBe("/ecosystem");
+    expect(screen.getByRole("link", { name: /^Ecosystem map/ }).getAttribute("href")).toBe("/about/ecosystem");
     expect(document.title).toBe("About · Poppy Demo Agent");
     expect(meRequests).toEqual([]);
   });
 
-  it("renders the source map with working repository links, scrollable tables and closed historical results", async () => {
-    window.history.replaceState(null, "", "/ecosystem");
+  it.each(["/about/ecosystem", "/about/ecosystem/"])("renders %s with working repository links, scrollable tables and closed historical results", async (path) => {
+    window.history.replaceState(null, "", path);
     render(<App />);
     await screen.findByRole("heading", { level: 1, name: "The Poppy ecosystem" });
     expect(screen.getByRole("link", { name: /Read the source on GitHub/ }).getAttribute("href")).toBe(ECOSYSTEM_SOURCE);
@@ -123,12 +123,23 @@ describe("public information pages", () => {
     expect(screen.getByRole("link", { name: "local 0.2 copy" }).getAttribute("href")).toBe(`${PROJECT_URL}/blob/main/spec/draft-0.2-2026-10-19/README.md`);
     expect(screen.getAllByRole("region", { name: "Ecosystem comparison table" }).every(table => table.tabIndex === 0)).toBe(true);
     expect(document.querySelector("details")!.open).toBe(false);
-    expect(document.querySelector('a[href="/ecosystem"]')).toBeNull();
+    expect(document.querySelector('a[href="/about/ecosystem"]')).toBeNull();
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" }).querySelector("a")!.getAttribute("href")).toBe("/about");
+    expect(document.querySelector('[aria-current="page"]')!.textContent).toBe("Ecosystem");
+    expect(document.title).toBe("Ecosystem map · Poppy Demo Agent");
     expect(meRequests).toEqual([]);
   });
 
+  it("treats the retired /ecosystem path as an unknown app path without redirecting", async () => {
+    window.history.replaceState(null, "", "/ecosystem");
+    render(<App />);
+    await screen.findByRole("link", { name: "Sign in with GitHub" });
+    expect(screen.queryByRole("heading", { name: "The Poppy ecosystem" })).toBeNull();
+    expect(window.location.pathname).toBe("/ecosystem");
+  });
+
   it("opens historical results when a section fragment is followed, including a direct deep link", async () => {
-    window.history.replaceState(null, "", "/ecosystem#scorecard");
+    window.history.replaceState(null, "", "/about/ecosystem#scorecard");
     render(<App />);
     await screen.findByRole("heading", { name: "Scorecard" });
     expect(document.querySelector("details")!.open).toBe(true);

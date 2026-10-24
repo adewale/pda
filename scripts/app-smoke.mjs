@@ -37,6 +37,7 @@ try {
   await build({ entryPoints: [path.join(root, "src/session.ts")], outfile: sessionModule, bundle: true, format: "esm", platform: "node", logLevel: "silent" });
   const { createSession } = await import(pathToFileURL(sessionModule).href);
   const config = JSON.parse(readFileSync(path.join(root, "test/wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, ""));
+  const assets = JSON.parse(readFileSync(path.join(root, "wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, "")).assets;
   const keys = await Promise.all(["smoke-current", "smoke-next"].map(async kid => {
     const { privateKey } = await generateKeyPair("ES256", { extractable: true });
     return { ...await exportJWK(privateKey), kid, alg: "ES256", use: "sig" };
@@ -53,7 +54,7 @@ try {
     bindings: { ...config.vars, POPPY_SIGNING_JWKS: JSON.stringify(keys), TOKEN_ENC_KEY: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64"), CF_VERSION_METADATA: { id: "local-browser-smoke" } },
     durableObjects: Object.fromEntries(config.durable_objects.bindings.map(binding => [binding.name, { className: binding.class_name, useSQLite: true }])),
     ratelimits: Object.fromEntries(config.ratelimits.map(binding => [binding.name, { namespace_id: binding.namespace_id, simple: binding.simple }])),
-    assets: { directory: path.join(root, "dist/client"), binding: "ASSETS", routerConfig: { has_user_worker: true }, run_worker_first: ["/", "/activity", "/companies", "/settings", "/about", "/ecosystem", "/api/*", "/ws", "/logout", "/privacy"], assetConfig: { not_found_handling: "single-page-application" } },
+    assets: { directory: path.join(root, "dist/client"), binding: assets.binding, routerConfig: { has_user_worker: true }, run_worker_first: assets.run_worker_first, assetConfig: { not_found_handling: assets.not_found_handling } },
     outboundService: async request => new URL(request.url).hostname === "agent.test" ? runtime.dispatchFetch(request) : new Response("No external network in app smoke", { status: 502 })
   }));
   const address = await runtime.ready;
@@ -78,34 +79,62 @@ try {
   assert.equal(await signedOut.evaluate(async () => (await fetch("/api/me")).status), 401);
   assert.match(await signedOut.title(), /Poppy/i);
   evidence.signedOutPage = true;
-  assert.equal(await signedOut.$('a[href="/ecosystem"]'), null);
+  assert.equal(await signedOut.$('a[href="/about/ecosystem"]'), null);
   const publicRequests = [];
   signedOut.on("request", request => {
     if (/^\/(api\/|ws(?:$|\?))/.test(new URL(request.url()).pathname)) publicRequests.push(request.url());
   });
   await Promise.all([signedOut.waitForNavigation({ waitUntil: "networkidle0" }), signedOut.click('a[href="/about"]')]);
-  await signedOut.waitForSelector('a[href="/ecosystem"]');
+  await signedOut.waitForSelector('a[href="/about/ecosystem"]');
   assert.equal(await signedOut.title(), "About · Poppy Demo Agent");
   assert.ok(await signedOut.$('a[href="/validator"]'));
   assert.ok(await signedOut.$('a[href^="https://github.com/"]'));
   if (output) writeFileSync(`${output}.about.png`, Buffer.from(await signedOut.screenshot({ fullPage: true })));
-  await Promise.all([signedOut.waitForNavigation({ waitUntil: "networkidle0" }), signedOut.click('a[href="/ecosystem"]')]);
+  await Promise.all([signedOut.waitForNavigation({ waitUntil: "networkidle0" }), signedOut.click('a[href="/about/ecosystem"]')]);
   await signedOut.waitForSelector(".ecosystem-table");
+  assert.equal(new URL(signedOut.url()).pathname, "/about/ecosystem");
+  assert.equal(await signedOut.$eval('nav[aria-label="Breadcrumb"] a', element => element.getAttribute("href")), "/about");
   assert.equal(await signedOut.$eval("details", element => element.open), false);
   if (output) writeFileSync(`${output}.ecosystem.png`, Buffer.from(await signedOut.screenshot({ fullPage: true })));
   await signedOut.setViewport({ width: 375, height: 812, deviceScaleFactor: 1 });
   assert.equal(await signedOut.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.equal(await signedOut.$eval(".ecosystem-table", element => element.scrollWidth > element.clientWidth), true);
-  if (output) writeFileSync(`${output}.ecosystem-mobile.png`, Buffer.from(await signedOut.screenshot({ fullPage: true })));
+  if (output) writeFileSync(`${output}.ecosystem-mobile.png`, Buffer.from(await signedOut.screenshot({ fullPage: false })));
+  await signedOut.setViewport({ width: 812, height: 375, deviceScaleFactor: 1 });
+  assert.equal(await signedOut.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  if (output) writeFileSync(`${output}.ecosystem-landscape.png`, Buffer.from(await signedOut.screenshot({ fullPage: false })));
   await signedOut.click('a[href="#scorecard"]');
   await signedOut.waitForSelector("details[open] #scorecard");
   assert.equal(await signedOut.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await signedOut.reload({ waitUntil: "networkidle0" });
   await signedOut.waitForSelector("details[open] #scorecard");
+  const brokenSections = await signedOut.$$eval('a[href^="#"]', links => links
+    .map(link => link.getAttribute("href"))
+    .filter(href => href.length > 1 && !document.getElementById(decodeURIComponent(href.slice(1)))));
+  assert.deepEqual(brokenSections, [], "Every in-page section link must have a target");
+  assert.deepEqual(publicRequests, []);
+  await signedOut.goto("https://agent.test/about/ecosystem/", { waitUntil: "networkidle0" });
+  await signedOut.waitForSelector(".ecosystem-table");
+  assert.deepEqual(publicRequests, []);
+  await signedOut.click('nav[aria-label="Breadcrumb"] a');
+  await signedOut.waitForFunction(() => document.querySelector("h1")?.textContent === "About Poppy Demo Agent");
+  assert.equal(new URL(signedOut.url()).pathname, "/about");
+  const publicLinks = await signedOut.$$eval('a[href^="/"]', links => [...new Set(links.map(link => link.getAttribute("href")))]);
+  for (const link of [...publicLinks, "/validator/messages"]) {
+    assert.equal(await signedOut.evaluate(async href => (await fetch(href)).status, link), 200, `Public link ${link}`);
+  }
   assert.deepEqual(publicRequests, []);
   evidence.publicAboutAndEcosystem = true;
   evidence.publicPagesNeedNoIdentityOrSocket = true;
   evidence.ecosystemMobileTablesAndDeepLinks = true;
+  evidence.ecosystemMobileLandscape = true;
+  evidence.publicLinksAndSectionTargets = true;
+  const retired = activePage = await anonymous.newPage();
+  await retired.goto("https://agent.test/ecosystem", { waitUntil: "networkidle0" });
+  await retired.waitForSelector('a[aria-label="Sign in with GitHub"]');
+  assert.equal(new URL(retired.url()).pathname, "/ecosystem");
+  assert.equal(await retired.$(".ecosystem-table"), null);
+  evidence.oldEcosystemPathHasNoPageOrRedirect = true;
   await anonymous.close();
   const authenticated = await browser.createBrowserContext();
   const identity = { provider: "github", sub: "4141", email: "owner@example.com", domain: null };

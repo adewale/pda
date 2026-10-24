@@ -1,0 +1,65 @@
+{
+  "captured_at": "2026-10-23",
+  "base_data_commit": "fc5f7f9bcf664cd71bfdd281ce7e532f869720bc",
+  "head_data_commit": "82fe311519a18aefc9930a888a5f8b3930067ce2",
+  "renderer_source_commit": "fc5f7f9bcf664cd71bfdd281ce7e532f869720bc",
+  "input": "docs/ecosystem.md imported by src/public/ecosystem.tsx",
+  "base_input_blob": "2ca04e4736c4781e5e95de71adf8df7a096afa53",
+  "head_input_blob": "e731c501bd9f94e91ed7051354be4e84bdc29e71",
+  "renderer": "Production Vite build, local workerd, Chromium 154 on Debian 13",
+  "desktop_viewport": {
+    "width": 1280,
+    "height": 900,
+    "deviceScaleFactor": 1
+  },
+  "mobile_viewports": [
+    {
+      "width": 375,
+      "height": 812,
+      "deviceScaleFactor": 1
+    },
+    {
+      "width": 812,
+      "height": 375,
+      "deviceScaleFactor": 1
+    }
+  ],
+  "capture": "Element screenshot of the Live Companies row in the current summary, same viewport and renderer at both data revisions; viewport screenshots at the top of the head page for mobile. No image editing.",
+  "artifacts": [
+    {
+      "path": "docs/evidence/ecosystem-2026-10-23/live-companies-before.png",
+      "bytes": 53081,
+      "width": 1030,
+      "height": 185,
+      "sha256": "43e831089d760450aad8b0cee0b4f2e5fd8ade8d0218727750fca50ebc8782f0"
+    },
+    {
+      "path": "docs/evidence/ecosystem-2026-10-23/live-companies-after.png",
+      "bytes": 38551,
+      "width": 1030,
+      "height": 125,
+      "sha256": "6b944074fa34a0d49575a73a37feb4cdd40e75db07beb3514174d3f5eeb64f7d"
+    },
+    {
+      "path": "docs/evidence/ecosystem-2026-10-23/mobile-portrait.png",
+      "bytes": 62952,
+      "width": 375,
+      "height": 812,
+      "sha256": "eb2d9ff8f02657255325c60a1da1b180f24ef562e3fe657ea7629953138d859d"
+    },
+    {
+      "path": "docs/evidence/ecosystem-2026-10-23/mobile-landscape.png",
+      "bytes": 31787,
+      "width": 812,
+      "height": 375,
+      "sha256": "24e0ed3b3a79099aa936966557135635ebfd8f7fce86a7bfb18f336c74df765d"
+    }
+  ],
+  "checks": {
+    "historical_catalogue_and_scorecard_unchanged": true,
+    "outcomes_match_28_host_report": true,
+    "browser_checks": "browser-checks.json",
+    "full_suite": "1764 passed, 1 skipped across five suites"
+  },
+  "limitation": "These captures show changed documentation and mobile layout. They do not prove Session, sign-in, API or ordering interoperability."
+}
