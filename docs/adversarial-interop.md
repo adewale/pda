@@ -139,7 +139,7 @@ The honest grid assumes both sides are trying. To test refusals, the harness add
 
 #### Malicious Personal Agent scenarios
 
-Most of these are already rows in `TAMPERS` (`test/mock-company.test.ts`) against our mock. `evil-personal-agent` turns them into wire attacks against every Company:
+Most of these are already rows in `TAMPERS` (`test/mock-company.test.ts`) against our mock. `evil-personal-agent` turns them into wire attacks against every Company. Until 24 October it signed both assertions for the token endpoint, so at a 0.2 Company, which wants the issuer, every attack ended `error` before it was sent; it now uses the issuer from 0.2 on, as our client does. The [flawed-Company lane](../interop/vectors/official/README.md#the-flawed-company-lane-npm-run-interopflaws) checks that each attack fails against a Company with the matching protection turned off, beside the official validator:
 
 | Id | Attack | Spec | Mock check it mirrors | Honest Company passes when | Status |
 | --- | --- | --- | --- | --- | --- |

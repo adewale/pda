@@ -18,6 +18,40 @@ export type MockAccount = {
   readonly otp: boolean;
 };
 
+/**
+ * Company flaws: each turns off one of the Company's own protections, as the
+ * official validator's test Company does (`Flaws` in
+ * spec/draft-0.2-2026-10-19/kit/company/validate/test/fake-company.ts), so a
+ * checker can be checked for noticing it. Interop-only: set by the pda-mock
+ * adapter's `INTEROP_MOCK_FLAWS` for the flawed-Company lane
+ * (interop/vectors/official/flaws.mjs), and by the test that proves each one
+ * takes effect. The mock still records what the agent did wrong; it just
+ * stops refusing.
+ */
+export const COMPANY_FLAWS = [
+  /** A reused client or Session assertion `jti` is accepted (4.2). */
+  "accept-replayed-assertion",
+  /** A reused DPoP proof `jti` is accepted, at the token endpoint and resources (4.3). */
+  "accept-replayed-proof",
+  /** A DPoP proof whose `htu` names another URL is accepted (4.3). */
+  "accept-wrong-htu",
+  /** A Session Token with a proof from a key it isn't bound to is accepted (4.3). */
+  "accept-other-key",
+  /** A DPoP Session Token sent with the Bearer scheme, and no proof, is accepted outside MCP (4.3, 6). */
+  "accept-bearer-scheme",
+  /** A Session Token in the URL query, with no Authorization header or proof, is accepted (4.3). */
+  "accept-query-token",
+  /** A client assertion naming the token endpoint is accepted as well as one naming the issuer (0.2: 4.1). */
+  "accept-token-endpoint-aud",
+  /** Token responses carry no `Cache-Control: no-store` (Guides: secrets; RFC 6749 5.1). */
+  "token-cacheable",
+  /** A retried first message (the same message id) starts a second conversation (7.3). */
+  "retry-new-conversation",
+  /** An Account Token the Company rotated still renews (4.8; permitted by N5). */
+  "accept-rotated-account-token"
+] as const;
+export type CompanyFlaw = (typeof COMPANY_FLAWS)[number];
+
 export type MockConfig = {
   readonly protocolVersion: string;
   /** Overrides `organization.domain` in poppy.json (to test the agent's check). */
@@ -261,6 +295,8 @@ export type MockConfig = {
    * is checked as usual first. 0: accept every one.
    */
   readonly refuseRevocations: number;
+  /** Company flaws (`COMPANY_FLAWS`); none by default. */
+  readonly flaws: readonly CompanyFlaw[];
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -358,7 +394,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   alterInPlace: false,
   reorderMembers: false,
   errorDescription: null,
-  refuseRevocations: 0
+  refuseRevocations: 0,
+  flaws: []
 };
 
 /** One request the mock received, with secrets redacted. */

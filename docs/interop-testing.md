@@ -256,6 +256,25 @@ The 32 documents where ours and poppy-validator differed on the first run, by ca
 | A byte order mark | 1 | warning | error (neither Python parser reads it) | RFC 8259 §8.1: senders MUST NOT add one; parsers MAY ignore it | The Company breaks a MUST NOT; an error is defensible. | Agree: an error (RFC). |
 | `auth.issuer` of `https://.` | 1 | accepted | error | An HTTPS URL that names a host | **Theirs: a gap in ours.** `httpsUrl` in `src/validator/primitives.ts` checks the scheme, not the host. | Agree: fixed, an error. |
 
+### Draft 0.2: ours against the official validator
+
+On 24 October the script gained the official Company validator (the pinned snapshot's CLI, `check --file`, in Docker with no network) and 99 documents that declare 0.2: the stored 0.2 specification's example, two of the original documents, and a 0.2 twin of every 0.1 document. File mode has no serving domain, so ours runs without one here. The 0.1 comparison above reran with the same counts.
+
+Ours and the official validator give the same verdict on 75 of 99. The 24 differences, by rule, checked against [the stored 0.2 draft](../spec/draft-0.2-2026-10-19/pages/spec.md):
+
+| Rule | Docs | Ours | Official | The 0.2 draft | Who's right |
+| --- | --- | --- | --- | --- | --- |
+| An issuer with a query or fragment | 3 | error | accepted | RFC 8414 §2 defines the issuer without either | Ours: an RFC MUST the official file mode doesn't check. |
+| An unparseable URL (`agent.protocols[].endpoint`, `auth.issuer` of `https://.`, `resource`) | 4 | error | accepted | "an HTTPS URL" (3.1); RFC 8707's absolute URI | Ours. |
+| `poppy:` scopes other than read and write | 2 | error | accepted | "Names starting with `poppy:` are reserved" (4.4), no keyword | A Rule, as at 0.1; the official validator doesn't check it. |
+| An extension name without a domain prefix | 2 | error | accepted | "Anyone else MUST start an extension's name with a domain they control" (3.3) | Ours, by the MUST. |
+| `operations` without its `endpoint` | 1 | error | accepted | Ops 2 | Ours; the official validator doesn't check extensions' members. |
+| A mediated field listed twice | 1 | error | accepted | Silent | Ours, but on no text, as at 0.1. |
+| An API type other than `openapi` or `mcp` | 3 | info (`api-type-newer`) | error | "Each API's `type` MUST be one of these" (6); agents SHOULD skip unknown ones | **Official.** Our own policy is an error at a minor version we know ([conformance-levels.md](conformance-levels.md)), but the 0.2 profile passes `allowUnknownTypes` for every 0.2 document (`src/validator/profiles/draft-0.ts`), and a test asserts it. **Open: the owner's decision.** |
+| Empty `scopes`, `agent.protocols` or `mediated.fields` | 5 | warning | error | Silent on emptiness | The official JSON Schema's `minItems`, stricter than the text; ours warns. |
+| An extension `version` written as a number | 2 | warning | error | "the extension's major version" (3.3), no type; the examples are strings ([N22](spec-issues.md#n22)) | The schema says string, the text doesn't; N22 stands. |
+| A blank `organization.name` | 1 | accepted | error | `organization`: "Display name and domain", required | **Official: a gap in ours.** We report a missing name, not an empty one. |
+
 The changes this suggests to our validator are in [implementations.md](implementations.md#what-we-can-learn-from-the-12-october-participants). Things only ours checks: the issuer's metadata beyond endpoints (auth methods, algorithms, PKCE, the `iss` parameter), client metadata and JWKS, size, content type, UTF-8, non-public hosts, and a secret-looking mediated field marked `secret: false`. Things only poppy-validator reports: an issuer's metadata found only at the appended location (`OA09`, a diagnostic for S3), an empty `apis` list, an uppercase domain, and `web` without a browser session endpoint.
 
 ## Risks
