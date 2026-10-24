@@ -2,10 +2,10 @@
 
 [spenciefy/print-with-poppy](https://github.com/spenciefy/print-with-poppy), an agent-first photo-printing store: an Express server with SQLite (better-sqlite3) and image processing (sharp). It runs in its own demo mode in the container, with the [interop spec](../../../docs/interop-spec.md) 5.3 adapter in front.
 
-- **Pinned commit:** `246727d546be752916ecc667a902a87e94df6674` (13 October 2026, upstream's head that morning), cloned and checked out in the image build. The pin moved from `260dbb4` (12 October) on 13 October, and from `7ef69be` (11 October) to `260dbb4` on 12 October; what changed upstream is below ([since `260dbb4`](#upstream-since-260dbb4), [since `7ef69be`](#upstream-since-7ef69be)).
+- **Pinned commit:** `3360d8bbbadbfe5c0553b9fbf68849fc78ad0eb9` (24 October 2026, upstream's head), draft 0.2 only, cloned and checked out in the image build. The pin moved from `246727d` (13 October, draft 0.1) on 24 October, once upstream added `ALLOW_INTEROP_TEST_HOSTS` for this grid ([below](#the-pin-moves-to-3360d8b-02-24-october)); before that from `260dbb4` (12 October) and `7ef69be` (11 October) ([since `260dbb4`](#upstream-since-260dbb4), [since `7ef69be`](#upstream-since-7ef69be)).
 - **Licence:** MIT, since `c147418` (`LICENSE`, Spencer Yen); its fonts keep their own licences. We fetch and run it unchanged and copy none of its code.
 - **Ports:** the store on 8080 (behind the proxy as `print-with-poppy.company.interop.test`), the adapter on 8081.
-- **Image:** two stages on `node:22-bookworm-slim` (upstream's `engines` says Node 22). The build stage has git and a compiler, as upstream's own image does, in case a native module has no prebuilt binary; the run stage has only `server/`, `src/offer.ts` and the production `node_modules`. The browser frontend isn't built: no Poppy endpoint serves it, so `/` answers upstream's 503 "run npm run build" page. The sign-in pages are server-rendered, so they work without it (the logo they link to is missing, which no hook reads).
+- **Image:** two stages on `node:22-bookworm-slim` (upstream's `engines` says Node 22). The build stage has git and a compiler, as upstream's own image does, in case a native module has no prebuilt binary; the run stage has only `server/`, `src/offer.ts`, `src/ordering-method.ts` and the production `node_modules`. The browser frontend isn't built: no Poppy endpoint serves it, so `/` answers upstream's 503 "run npm run build" page. The sign-in pages are server-rendered, so they work without it (the logo they link to is missing, which no hook reads).
 
 ## Run
 
@@ -32,7 +32,7 @@ The store admits a Session only for a `client_id` its operator listed, so the ad
 | --- | --- |
 | pda | `https://pda.agent.interop.test/poppy/client.json` |
 | lenient-personal-agent, strict-personal-agent, sloppy-personal-agent (our fakes) | `https://<name>.agent.interop.test/poppy/client.json` |
-| datalayer-ts, datalayer-py, pi-poppy, poppy-demo, adonis-agora | `https://<name>.agent.interop.test/agent.json` |
+| datalayer-ts, datalayer-py, datalayer-ts-v02, datalayer-py-v02, pi-poppy, poppy-demo, adonis-agora | `https://<name>.agent.interop.test/agent.json` |
 | everruns | `https://everruns.agent.interop.test/api/v1/poppy/agent.json` |
 
 This is the store's ordinary configuration, not a relaxation. The adversarial `evil-personal-agent` isn't listed: it never runs against a third-party Company (spec section 13). An agent added to the registry later needs adding here, or `--set print-with-poppy:AGENT_CLIENT_IDS=…`.
@@ -43,11 +43,13 @@ Besides native Poppy, the store offers a non-Poppy "HTTP compatibility" path: `P
 
 Demo mode keeps the store's own browser demo: `/api/demo/agent.json` (a built-in agent identity, accepted without the allowlist), `/api/demo/session` and the `Demo` authorization scheme its web page uses, and `/api/demo/pay` and `/api/demo/ship`. None is in its discovery document or OpenAPI description, and no grid agent uses them; they are in the manifest's `relaxations` with demo mode.
 
-## Moving the pin to `e4aef11` (0.2), 23 October: blocked
+## The pin moves to `3360d8b` (0.2), 24 October
 
-Upstream's head `e4aef115b5c240082149bcb354bae19ef5ef148e` (22 October) speaks only draft 0.2. Moving the pin needs four changes to this adapter: the commit in the `Dockerfile`, the adapter and the registry; `src/ordering-method.ts` copied beside `src/offer.ts`, since `server/` now imports it; the manifest's `poppy` set to `["0.2"]`; and its readings S1 `issuer` and S2 `lenient-300s` (`server/auth.ts`: the issuer as `aud`, `exp - iat <= 300`). The sign-in pages, the `records` table, the code email and `/api/health` are unchanged, so the hooks carry over.
+On 23 October the move to upstream's 0.2 head (`e4aef11`) was blocked: the store refused to connect to any private address when it fetched an agent's client metadata, so on the grid's internal network every agent was refused at its first Session ("Invalid agent identity."). We asked its maintainer for a test setting rather than patch the store, and on 24 October upstream added one (`3360d8b`, #22): `ALLOW_INTEROP_TEST_HOSTS=true`. It is off by default; it lets a private address through only for a host name ending in `.interop.test`, and only into the RFC 1918 ranges and IPv6 unique-local addresses (never loopback or link-local); and the store refuses to start with it outside demo mode, on an origin that isn't HTTPS under `.interop.test`, on Cloudflare, or with provider credentials. The adapter sets it, and lists it among the manifest's relaxations. Nothing of upstream's is patched.
 
-What blocks it: the store now refuses to connect to any private address when it fetches an agent's client metadata (`publicAddress` in `server/protocol-url.ts`, checked at connection time), and has no setting to relax that. The grid's internal network has private addresses, so with the new pin every agent, `pda` included, is refused at its first Session with `invalid_client` ("Invalid agent identity."), 40 cells in a run on 23 October. A build-time patch letting through only the run's own subnet would work, but it changes upstream's SSRF guard, which the project hasn't done before ("Unpatched" in the registry), so it waits for the owner. The other way is a test mode upstream, limited to the run's network or a reserved suffix such as `.interop.test`, as [N42](../../../docs/spec-issues.md#n42) suggests; asking for one goes to its maintainer, with the owner's approval.
+What else the move changed in the adapter: `src/ordering-method.ts` is copied beside `src/offer.ts`, since `server/` imports it; the manifest's `poppy` is `["0.2"]`, since the store refuses 0.1 assertions; and its readings are S1 `issuer` and S2 `lenient-300s` (`server/auth.ts`: the issuer as `aud`, `exp - iat <= 300`). The sign-in pages, the `records` table, the code email and `/api/health` are unchanged, so the hooks carried over. Datalayer's two 0.2 agents were added to the allowlist.
+
+Run offline on 24 October, with `lenient-company-v02` as the 0.2 reference: `pda`, the lenient and strict fake agents, and Datalayer's TypeScript and Python 0.2 agents pass every scenario they run (D, S0, CM, SD, SX, SMC, SO, AO, AS, OU), and R is unsupported for each (the store doesn't rotate Account Tokens). OU now passes: the S22 known failure of the old pin is gone. The sloppy agent is refused at its first Session, as 0.2 requires of its token-endpoint `aud` (a known failure, blamed on the agent). Agents that speak only 0.1 share no version with the store, so their cells are unsupported, and the old pin's 0.1 known failures for this store are removed.
 
 ## Source refresh, 17 October (pin unchanged)
 
