@@ -242,6 +242,7 @@
     {
       "name": "ilmer-live",
       "role": "company",
+      "liveScenarios": ["D", "S0", "C"],
       "source": "https://github.com/rbirkby/Ilmer.org",
       "commit": "de0d1ec50f09906fedf26a83b7b88042ebfebd56",
       "url": "https://poppy.ilmer.org",
@@ -404,6 +405,7 @@
     {
       "name": "print-with-poppy-sandbox-live",
       "role": "company",
+      "liveScenarios": ["D", "S0"],
       "source": "https://github.com/spenciefy/print-with-poppy",
       "commit": "unknown",
       "url": "https://sandbox.printwithpoppy.com",

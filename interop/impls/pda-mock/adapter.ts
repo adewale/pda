@@ -161,4 +161,4 @@ async function control(request: Request): Promise<Response> {
 
 serve(8080, (request) => mock.fetch(request));
 serve(8081, control);
-console.log(`lenient-company (${PROFILE}): ${NAME}.${COMPANY_SUFFIX} on 8080, control on 8081`);
+console.log(`pda-mock (${PROFILE}): ${NAME}.${COMPANY_SUFFIX} on 8080, control on 8081`);

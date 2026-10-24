@@ -35,7 +35,8 @@ import { dockerFreeGb, labelArgs, lowDisk, removeRun } from "./cleanup.ts";
 import { docker, dockerAsync, mapConcurrent, proxyAliases } from "./docker.ts";
 import { documentChecks } from "./documents.ts";
 import { exchanges, PROBE_HEADER, type Har } from "./har.ts";
-import { liveIdentityEnv, liveIdentityNotice, readLiveIdentity } from "./live-identity.ts";
+import { checkLiveIdentity, manifestMismatch } from "./expectations.ts";
+import { LIVE_CLIENT_ID_VAR, liveIdentityEnv, liveIdentityNotice, readLiveIdentity } from "./live-identity.ts";
 import {
   CONTROL_PORT,
   controlNetworkArgs,
@@ -653,6 +654,8 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
     for (const impl of implementations) impl.broken = buildFailures.get(impl.target) ?? null;
 
     let control: Control;
+    // Live lane: the client_id each agent given the live identity must report signing as (expectations.ts).
+    const liveClientIds = new Map<string, string>();
     let proxy: Proxy | null = null;
     if (options.lane === "local") {
       // The local lane: an --internal network with no way out (spec §3, Isolation; network.ts).
@@ -731,9 +734,16 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
       // The live identity (live-identity.ts): a client_id a public Company can fetch, and its key, for our own agent only.
       const identity = readLiveIdentity();
       log(liveIdentityNotice(identity));
+      // The identity as a public Company will fetch it, before any agent starts (expectations.ts).
+      if (identity) {
+        const { problems, warnings } = await checkLiveIdentity(identity);
+        for (const warning of warnings) log(`! ${warning}`);
+        if (problems.length) throw new Error(`The live identity won't work, so nothing was sent:\n  ${problems.join("\n  ")}`);
+      }
       for (const impl of implementations.filter((item) => item.entry.role === "agent" && !item.broken)) {
         const name = `${names.network}-${impl.target}`;
         const live = liveIdentityEnv(options.lane, impl.entry, identity);
+        if (live.public[LIVE_CLIENT_ID_VAR]) liveClientIds.set(impl.target, live.public[LIVE_CLIENT_ID_VAR]);
         const env = liveAgentEnv(impl.entry, secret, commitOf(impl.entry), options.set.get(impl.entry.name), live.public);
         // The key goes through the docker CLI's environment (`-e NAME`), never its arguments, so `ps` doesn't show it.
         const passed = Object.keys(live.secret).flatMap((key) => ["-e", key]);
@@ -772,6 +782,12 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
       const body = manifest.body as Manifest | null;
       if (manifest.status !== 200 || !body || body.interop !== 1 || !Array.isArray(body.scenarios)) {
         impl.broken = `${impl.entry.name} served no version 1 manifest`;
+        continue;
+      }
+      // The implementation is what the registry says it is: its profile, its version, and the identity it signs as.
+      const mismatch = manifestMismatch(impl.entry, body, liveClientIds.get(impl.target) ?? null);
+      if (mismatch) {
+        impl.broken = mismatch;
         continue;
       }
       impl.manifest = body;
