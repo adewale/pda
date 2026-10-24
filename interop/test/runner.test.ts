@@ -8,12 +8,13 @@ import { upstreamFor } from "../proxy/routing.mjs";
 import { VIOLATION_IDS } from "../../test/mock-company/violations.ts";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
 import { TRACE_CHECKS } from "../runner/checks.ts";
-import { gridCoverage, liveCompanyManifest, imageOf, loadKnownFailures, loadRegistry, loadScenarios, negotiateVersion, parseOptions, runExitCode, runOne, selected } from "../runner/cli.ts";
+import { gridCoverage, liveCompanyManifest, liveFixture, LIVE_GREETING, imageOf, loadKnownFailures, loadRegistry, loadScenarios, negotiateVersion, parseOptions, runExitCode, runOne, selected } from "../runner/cli.ts";
 import { PROTOCOL_VERSIONS } from "../../src/poppy/protocol-version.ts";
 import { dockerAsync, mapConcurrent, proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
 import { cellId, renderReport } from "../runner/report.ts";
-import type { Cell } from "../runner/types.ts";
+import { missingFixture } from "../runner/scenario.ts";
+import type { Cell, Scenario } from "../runner/types.ts";
 import { recording } from "./helpers.ts";
 
 describe("options", () => {
@@ -347,4 +348,17 @@ it("stops a live version mismatch before a Session request can send credentials"
     expect(cell.reason).toContain("declares 0.1");
     expect(calls).toEqual(["discover"]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+it("builds live fixtures consistently without depending on retired registry peers", () => {
+  const entry = liveEntry("retail", { fixture: { openapi_public: { api: "openapi", operation: "get", args: {} } } });
+  const fixture = liveFixture(entry, "retail.example");
+  const publicRead: Scenario = { id: "PUBLIC", title: "public read", steps: [
+    { agent: "api", params: { api: "${fixture.openapi_public.api}", operation: "${fixture.openapi_public.operation}", args: "${fixture.openapi_public.args}" } }
+  ] };
+  expect(missingFixture(publicRead, fixture)).toBeNull();
+  expect(missingFixture(publicRead, liveFixture(liveEntry("no-api"), "no-api.example"))).toBe("fixture.openapi_public.api");
+  expect(fixture).toMatchObject({ prompts: { hello: LIVE_GREETING }, web_page: "https://retail.example/" });
+  const C = loadScenarios().find((scenario) => scenario.id === "C")!;
+  expect(missingFixture(C, liveFixture(liveEntry("conversation"), "conversation.example"))).toBeNull();
 });

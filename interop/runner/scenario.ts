@@ -241,6 +241,24 @@ export function actorOf(step: Step): { actor: "agent" | "company" | "runner" | "
   throw new ScenarioError("A step names no actor");
 }
 
+/**
+ * The first `fixture.` value a scenario's steps can't run without that the
+ * fixture doesn't name, or null. Steps that may go without one are left
+ * out: a `when` step, an optional one, and the runner's `first`, which
+ * resolves leniently. For a live Company, whose fixture is its registry
+ * entry's and so known before the run (spec §10).
+ */
+export function missingFixture(scenario: Scenario, fixture: unknown): string | null {
+  for (const step of scenario.steps) {
+    if (step.when !== undefined || step.optional || step.runner === "first" || step.expect) continue;
+    for (const match of JSON.stringify(step.params ?? null).matchAll(PART)) {
+      const path = match[1]!.trim();
+      if (path.startsWith("fixture.") && lookup(path, { fixture }) === undefined) return path;
+    }
+  }
+  return null;
+}
+
 /** Problems with a scenario file, empty when it is well formed. */
 export function lintScenario(value: unknown, file: string): string[] {
   const problems: string[] = [];
@@ -269,6 +287,7 @@ export function lintScenario(value: unknown, file: string): string[] {
   scenario.steps.forEach((step, index) => {
     const actors = ["agent", "company", "runner", "expect"].filter((key) => key in (step as object));
     if (actors.length !== 1) problems.push(`${file}: step ${index} must name exactly one of agent, company, runner or expect`);
+    if (step.offers !== undefined && (step.offers !== true || !step.expect)) problems.push(`${file}: step ${index} offers must be true, on an expect step`);
     if (step.when !== undefined && (typeof step.when !== "string" || !/^\$\{[^}]+\}$/.test(step.when))) {
       problems.push(`${file}: step ${index} when must be one \${...} reference`);
     }

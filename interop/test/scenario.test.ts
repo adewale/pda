@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runCell, toReply, withScopes, type Driver, type Reply } from "../runner/cell.ts";
 import { loadScenarios } from "../runner/cli.ts";
-import { compare, evaluate, expectedRefusals, firstOf, inlineFiles, interpolate, lintScenario, lookup, resolveParams } from "../runner/scenario.ts";
+import { compare, evaluate, expectedRefusals, firstOf, inlineFiles, interpolate, lintScenario, lookup, missingFixture, resolveParams } from "../runner/scenario.ts";
 import type { Scenario } from "../runner/types.ts";
 
 describe("interpolation", () => {
@@ -154,6 +154,38 @@ describe("a cell", () => {
     expect(inapplicable.outcome).toBe("unsupported");
   });
 
+  it("is unsupported when a live Company doesn't offer what the scenario tests, and fails when an adapter claimed it", async () => {
+    const C = loadScenarios().find((scenario) => scenario.id === "C")!;
+    const noConversations = () => driver({ discover: { kind: "ok", result: { conversations: false } } });
+    const live = await runCell(C, {}, noConversations(), { live: true });
+    expect(live.outcome).toBe("unsupported");
+    expect(live.reason).toContain("doesn't offer what C tests");
+    expect((await runCell(C, {}, noConversations())).outcome).toBe("fail");
+    // An expectation not marked `offers` still fails against a live Company.
+    const S: Scenario = { id: "S0", title: "s", steps: [{ agent: "session", save: "s" }, { expect: { "${s.session_id}": { $exists: true } } }] };
+    expect((await runCell(S, {}, driver({ session: { kind: "ok", result: {} } }), { live: true })).outcome).toBe("fail");
+  });
+
+  it("finds the fixture value a scenario's steps can't run without, skipping steps that may go without", () => {
+    const publicRead: Scenario = { id: "PUBLIC", title: "public read", steps: [
+      { agent: "api", params: { api: "${fixture.openapi_public.api}", operation: "${fixture.openapi_public.operation}", args: "${fixture.openapi_public.args}" } }
+    ] };
+    expect(missingFixture(publicRead, { prompts: { hello: "Hello" } })).toBe("fixture.openapi_public.api");
+    expect(missingFixture(publicRead, { openapi_public: { api: "openapi", operation: "get", args: {} } })).toBeNull();
+    const lenient: Scenario = {
+      id: "W",
+      title: "w",
+      steps: [
+        { agent: "api", params: { x: "${fixture.optional}" }, when: "${fixture.optional}" },
+        { company: "require_nonce", params: { x: "${fixture.hook}" }, optional: true },
+        { runner: "first", params: { of: ["${fixture.a}", "${fixture.b}"] } },
+        { agent: "send", params: { text: "say ${fixture.prompts.hello}" } }
+      ]
+    };
+    expect(missingFixture(lenient, { prompts: { hello: "Hello" } })).toBeNull();
+    expect(missingFixture(lenient, {})).toBe("fixture.prompts.hello");
+  });
+
   it("signs in with the Company's own scopes from its fixture, and none when it names none", async () => {
     expect(withScopes({ accounts: ["a"] }).scopes).toEqual({ read: [], write: [] });
     expect(withScopes({ scopes: { read: ["orders:read"], write: ["orders:read", "orders:write"] } }).scopes).toEqual({ read: ["orders:read"], write: ["orders:read", "orders:write"] });
@@ -267,4 +299,11 @@ describe("a cell", () => {
     expect(toReply(0, null, true).kind).toBe("broken");
     expect(toReply(200, { result: 1 }, true).kind).toBe("broken");
   });
+});
+
+it("allows offers only as true, on an expect step", () => {
+  const base = { id: "ZZ", title: "z" };
+  expect(lintScenario({ ...base, steps: [{ expect: { "${fixture.x}": true }, offers: true }] }, "ZZ.json")).toEqual([]);
+  expect(lintScenario({ ...base, steps: [{ agent: "discover", offers: true }] }, "ZZ.json").some((p) => /offers must be true, on an expect step/.test(p))).toBe(true);
+  expect(lintScenario({ ...base, steps: [{ expect: { "${fixture.x}": true }, offers: "yes" }] }, "ZZ.json").some((p) => /offers must be true/.test(p))).toBe(true);
 });
