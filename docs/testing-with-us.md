@@ -1,6 +1,6 @@
 # Testing your Poppy implementation with ours
 
-For the maintainers of a Poppy Company or Personal Agent that the [Poppy Demo Agent](../README.md) (PDA) tests against. It says what we run against your code, what we need from you, and what we never do. The full contract for the harness is [interop-spec.md](interop-spec.md); this page is the part you need.
+For the maintainers of a Poppy Company or Personal Agent that the [Poppy Demo Agent](../README.md) (PDA) tests against. It says what we run against your code, what we need from you, and what we never do. The full contract for the harness is [interop-spec.md](interop-spec.md); this page is the part you need. How we test against Companies in general, our mock included, is [company-testing.md](company-testing.md).
 
 ## Two ways we test
 
