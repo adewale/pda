@@ -1,6 +1,8 @@
-# Personal Agent Protocol, Draft 0.3: snapshot of 2026-10-25
+# Personal Agent Protocol, Draft 0.3: snapshot of 2026-10-25, 01:47 UTC
 
 A copy of [personalagentprotocol.org](https://personalagentprotocol.org) as published on 2026-10-25, so that what we say about the specification can be checked against the text it was written against. Made by `scripts/spec-snapshot.mjs --save`; `node scripts/spec-snapshot.mjs` compares the live site with the newest snapshot.
+
+The draft changed four hours later: five more changelog entries, a new section 8, and `sign_in_required` replaced by `insufficient_scope`, in the spec and in Operations v1. That text is in [../draft-0.3-retrieved-2026-10-25T0613Z](../draft-0.3-retrieved-2026-10-25T0613Z/README.md).
 
 ## Attribution and license
 

@@ -1,6 +1,6 @@
 # Problems in Personal Agent Protocol draft 0.3
 
-A review of [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) **draft 0.3** for bugs, contradictions and inconsistencies, read on 25 October 2026 from the site's own Markdown, stored in [`spec/draft-0.3-retrieved-2026-10-25/`](../spec/draft-0.3-retrieved-2026-10-25/README.md). Line numbers below are in that snapshot's `pages/0.3-spec.md`, `pages/0.3-guides.md` and `pages/changelog.md`. Draft 0.3 is "in progress" and its changelog "grows until 0.3 is published", so a finding here can be fixed upstream at any time; check the live text before citing one.
+A review of [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) **draft 0.3** for bugs, contradictions and inconsistencies, read on 25 October 2026 from the site's own Markdown. The draft changed while we read it, so there are two snapshots: [01:47 UTC](../spec/draft-0.3-retrieved-2026-10-25/README.md) and [06:13 UTC](../spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md). Line numbers for T1 to T33 are in the 01:47 snapshot's `pages/`; T34 onward, and every "06:13" status note, are in the 06:13 snapshot's. Draft 0.3 is "in progress" and its changelog "grows until 0.3 is published": between the two snapshots it gained five entries, a new section 8 and a renamed error, and fixed T4. Check the live text before citing a finding.
 
 The 0.1 catalogue is [spec-issues.md](spec-issues.md), with S- and N-numbered IDs. 0.3 findings take **T-numbers**, so the three catalogues never collide. Kinds and severities are the 0.1 catalogue's: Interop, Security, Clarity, Editorial; Critical, High, Medium, Low. What has to change in our code is in [poppy-0.3-upgrade.md](poppy-0.3-upgrade.md), not here.
 
@@ -14,8 +14,9 @@ None of this has been sent to the draft's authors. The project now has a public 
 - A search of every 0.3 page, including the home page's walkthroughs, for the constructs 0.3 removes: `session_id`, `signed_in`, `invalid_session`, `poppy_domains`, `custom_scopes`, `auth.direct`, `auth.device`, `poppy:read`, `poppy:write`, the browser assertion and `return_to`. None remains anywhere. Operations v1 is unchanged from 0.2 apart from its links and still agrees with the 0.3 spec.
 - The frozen 0.2, published 24 October, is identical in text to our 19 October pin apart from relative links, so nothing here is a change we missed in 0.2.
 - A second, independent read of the same four pages by a reviewer given no other context, whose findings were checked against the text before being merged. Where both reads found the same thing it is listed once.
+- A second sweep at 06:13: a diff of every page against the 01:47 snapshot (120 changed lines in the spec, 22 in the guides, 4 in Operations, 6 in the walkthroughs), each earlier finding checked against the new text, and RFC 10027 §2, §4.1.1 and §6.2.1.5, which the new 4.6 cites, checked against the RFC. Operations v1 is no longer unchanged: its 3.2 and 5.2 now say `insufficient_scope` where they said `sign_in_required` ([T36](#t36)).
 
-By severity: 0 Critical, 1 High, 8 Medium, 23 Low. Nothing in 0.3 is Critical: the five Critical findings of the 0.1 catalogue are all addressed (N2 by `dpop_jkt`, N9 by HTTPS everywhere, N10 and N17 by `resource` and Token Exchange, N11 by one issuer per Company).
+37 findings. One, T4, is fixed in the 06:13 text. The 36 open ones by severity: 0 Critical, 1 High, 10 Medium, 25 Low. Of the five Critical findings in the 0.1 catalogue, 0.3 resolves four (N2 by `dpop_jkt`, N9 by HTTPS everywhere, N11 by one issuer per Company, N17 by Token Exchange); N10, which hosts may receive a Session Token, is still open. How every 0.1 finding fares in 0.2 and 0.3 is [the last section](#the-01-catalogue-in-02-and-03).
 
 ## The most important
 
@@ -24,7 +25,9 @@ By severity: 0 Critical, 1 High, 8 Medium, 23 Low. Nothing in 0.3 is Critical: t
 | [T2](#t2) | A code exchange or device poll with a Session Key the Company doesn't know has no defined outcome, and a Session it started would have no User ID | Interop | High |
 | [T1](#t1) | 4.2 forbids ever using a key again after `invalid_grant`; 4.8 tells the Personal Agent to use it again to tell an ended Session from a revoked Account Token | Interop | Medium |
 | [T3](#t3) | Renewing a signed-in Session with the assertion returns a signed-out token, though tokens "reflect the Session as it was when the token was issued" | Interop | Medium |
-| [T4](#t4) | `"scope": ""` is required in every signed-out token response, but RFC 6749's `scope` grammar has no empty value | Interop | Medium |
+| [T34](#t34) | With `sign_in_required` folded into `insufficient_scope`, a disconnection made at the Company looks like a request for more scopes | Interop | Medium |
+| [T36](#t36) | Operations changed an error code under the same version 1, which 3.3 says needs a new version | Interop | Medium |
+| [T38](#t38) | An alternative's `web` reference can point at any host, the hole 4.6 closes for device sign-in links | Security | Medium |
 | [T11](#t11) | Revoking the old Account Token after a step-up still signs out every other Session, and 0.3 now also invalidates their Session Tokens at once | Interop | Medium |
 | [T15](#t15) | The browser-session code is a secret the guides list and section 5 keeps from the model, but 9.2 leaves it at SHOULD | Security | Medium |
 | [T27](#t27) | "The Session's scopes", which the website applies, are nowhere defined: the Session record holds no scopes and a narrowed token has fewer | Clarity | Medium |
@@ -36,11 +39,12 @@ By severity: 0 Critical, 1 High, 8 Medium, 23 Low. Nothing in 0.3 is Critical: t
 | Area | Issues |
 | --- | --- |
 | Discovery and metadata (3) | [T12](#t12), [T13](#t13), [T16](#t16), [T20](#t20), [T33](#t33) |
-| Sessions and tokens (4.2, 4.3, 4.8) | [T1](#t1), [T3](#t3), [T4](#t4), [T14](#t14), [T22](#t22), [T23](#t23), [T26](#t26), [T27](#t27), [T28](#t28), [T32](#t32) |
-| Sign-in (4.4 to 4.7) | [T2](#t2), [T5](#t5), [T8](#t8), [T9](#t9), [T11](#t11), [T21](#t21) |
+| Sessions and tokens (4.2, 4.3, 4.8) | [T1](#t1), [T3](#t3), [T4](#t4) (fixed), [T14](#t14), [T22](#t22), [T23](#t23), [T26](#t26), [T27](#t27), [T28](#t28), [T32](#t32), [T37](#t37) |
+| Sign-in and sign-out (4.4 to 4.9) | [T2](#t2), [T5](#t5), [T8](#t8), [T9](#t9), [T11](#t11), [T21](#t21), [T34](#t34), [T35](#t35) |
+| Tasks a Company doesn't offer (8) | [T38](#t38) |
 | Web browsing (5, 9.6) | [T6](#t6), [T15](#t15), [T29](#t29) |
 | APIs and conversations (6, 7) | [T25](#t25), [T30](#t30), [T31](#t31) |
-| Operations extension | [T24](#t24) |
+| Operations extension | [T24](#t24), [T36](#t36) |
 | Security considerations and references (9, 10) | [T7](#t7), [T10](#t10) |
 | Guides | [T17](#t17), [T18](#t18) |
 
@@ -72,6 +76,8 @@ Nothing says a Session Key used in a code exchange or a device poll must already
 
 *Our reading.* Renew a signed-in Session only with the Account Token (4.8), never with the assertion, so we never depend on the answer.
 
+*06:13: partly answered.* 4.2 (line 328) now says "this grant always returns signed-out tokens", so the token is signed out. Whether the Session stays signed in, and so what its browser cookie shows, is still open, and the sentence still sits beside 4.4's "Each Session Token reflects the Session as it was when the token was issued" (line 528).
+
 <a id="t4"></a>**T4. `"scope": ""`.** Interop, Medium.
 
 4.2 (lines 319 and 325): `scope` "is always present. A signed-out token has none", shown as `"scope": ""`. RFC 6749 §3.3 defines `scope = scope-token *( SP scope-token )`, at least one token; an empty string isn't a value of the parameter. RFC 6749 §5.1 lets a server omit `scope` when it equals what was requested, which it does for a signed-out start that requests none. An authorization server built on a standard library will omit the field or refuse to emit an empty one, and a Personal Agent that follows 4.2 literally then treats the response as malformed, or as signed in.
@@ -79,6 +85,8 @@ Nothing says a Session Key used in a code exchange or a device poll must already
 *Fix.* Either let `scope` be absent or empty for a signed-out token, with "present and non-empty" the signed-in signal, or state that the protocol departs from RFC 6749 here and why.
 
 *Our reading.* Treat absent and empty `scope` alike as signed out; log nothing about which form arrived.
+
+*06:13: fixed.* The signed-out response now has no `scope` (line 328: "There's no `scope`, because a Session started with the assertion is signed out"), and a sign-in leaves it out "only when the Company granted exactly the scopes requested", citing RFC 6749 §5.1 (line 504). The changelog gives our reason: "an empty `scope` isn't valid OAuth". [T37](#t37) is what the new rule leaves.
 
 <a id="t5"></a>**T5. The decline redirect drops `state`.** Interop, Low.
 
@@ -204,7 +212,7 @@ Line 908: "Because every token is issued to a known `client_id` and User, the Co
 
 <a id="t24"></a>**T24. Operations and 4.9 disagree about a confirmed operation after sign-out.** Interop, Medium.
 
-Operations 6 (line 263): "Once confirmed, the operation continues even if the Session Token expires or the User signs out. To stop it, the Personal Agent cancels it." Spec 4.9 (line 777): "When the account's access is revoked, by sign-out or by the User disconnecting the Personal Agent, the Company MAY stop work in progress that uses the account, or let it finish." The guides (line 241) go further for consequential actions: "tie it to the account token, so revoking access stops it right away." A Personal Agent that shows the User "your return is confirmed and will go ahead" after they sign out is right under Operations and may be wrong under the spec. Operations v1 wasn't revised for 0.2's 4.9 or for 0.3.
+Operations 5.2 (line 263): "Once confirmed, the operation continues even if the Session Token expires or the User signs out. To stop it, the Personal Agent cancels it." Spec 4.9 (line 777): "When the account's access is revoked, by sign-out or by the User disconnecting the Personal Agent, the Company MAY stop work in progress that uses the account, or let it finish." The guides (line 241) go further for consequential actions: "tie it to the account token, so revoking access stops it right away." A Personal Agent that shows the User "your return is confirmed and will go ahead" after they sign out is right under Operations and may be wrong under the spec. Operations v1 wasn't revised for 0.2's 4.9 or for 0.3.
 
 *Fix.* Make Operations say what 4.9 says, and have the Company record the stop as a final status the Personal Agent can read.
 
@@ -230,12 +238,127 @@ Line 1396: Mediated Sign-In "limits it to `auth.mediated.scopes` (4.7)". The lim
 
 <a id="t17"></a>**T17. "Prefer direct, then device, then mediated (SHOULD, 4.4)".** Editorial, Low.
 
-Guides line 149 cite 4.4 for an order of three. 4.4 (line 487) only says "SHOULD use Direct or Device Sign-In rather than Mediated Sign-In"; it ranks neither of the first two over the other. The guides' own rule says a repeated requirement "says MUST and links to the section that requires it"; this cites a SHOULD the spec doesn't make.
+Guides line 149 cite 4.4 for an order of three. 4.4 (line 487) only says "SHOULD use Direct or Device Sign-In rather than Mediated Sign-In"; it ranks neither of the first two over the other. The guides' own rule says a repeated requirement "says MUST and links to the section that requires it"; this cites a SHOULD the spec doesn't make. *06:13: partly answered.* 4.6 (line 580) now ranks Direct over Device through RFC 10027's protocol selection guidance, so the order has a basis; the guide still cites 4.4 for it, and the basis is a MUST, not a SHOULD.
 
 <a id="t18"></a>**T18. "Token lifetimes and sign-out" misses 4.9's new SHOULD.** Editorial, Low.
 
 Guides line 239: "Check on each request whether the session is still signed in, so sign-out takes effect right away. If you can't, keep session tokens to a few minutes (4.9)." 4.9 (line 775) now puts invalidating the Session Tokens first, and the changelog calls the per-request check and the short lifetime "the fallbacks". The guide still presents the fallback as the rule.
 
+## Found in the 06:13 text
+
+Line numbers in this section are in the [06:13 snapshot](../spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md).
+
+<a id="t34"></a>**T34. A disconnection made at the Company now looks like a request for more scopes.** Interop, Medium.
+
+0.3 replaced `sign_in_required` with `insufficient_scope` everywhere. Section 6 (line 909): "A signed-out token has no scopes, so this is also the answer to a request that needs the User's account. The Personal Agent uses an Account Token that covers them (4.8), or signs in (4.4), and retries, unless the User signed out or disconnected it (4.9)." 4.9 (line 786): when the User disconnects the Personal Agent in the Company's account settings, "The Personal Agent finds out when a request fails with `invalid_token` or `insufficient_scope`". And (line 792) it "SHOULD NOT sign in to that account again unless the User asks, even when a request gets `insufficient_scope`".
+
+A Personal Agent knows when its own User signed out. It doesn't know when the User disconnected it at the Company, and that is exactly when it gets `insufficient_scope` on a token it believes is signed in, the same answer it gets when a task needs a scope it never asked for. Following section 6 it asks the User to sign in again; following 4.9 it must not. Under 0.2 the two were different codes, so the agent could tell.
+
+*Fix.* Either keep a distinct signal for "this token's Session is no longer signed in", or state the test an agent can apply: if the scopes the error names are all in the scope it was granted, the Session was signed out at the Company, so it renews with the Account Token (4.8), and an `invalid_grant` there means the access was revoked.
+
+*Our reading.* That test: an `insufficient_scope` that names only scopes we hold means signed out at the Company; renew with the Account Token, and on `invalid_grant` tell the User their access was removed and don't start a sign-in.
+
+<a id="t35"></a>**T35. "MUST follow the best practices in RFC 10027 §2" can't be checked, and mostly binds the Company.** Clarity, Low.
+
+4.6 (line 580): "Companies that offer Device Sign-In and Personal Agents that use it MUST follow the best practices in RFC 10027 (BCP 247) §2." RFC 10027 §2 is five process rules for "implementers": "MUST perform a risk assessment", "SHOULD avoid cross-device flows if risks cannot be sufficiently mitigated", "SHOULD follow the guidance provided in Section 6.2", "MUST select appropriate mitigations from Section 6.1", "SHOULD include proximity". None can be observed on the wire, and the MUST in 4.6 leaves unclear whether §2's own SHOULDs become MUSTs. The one concrete rule for a Personal Agent, which 4.6 draws from §6.2.1.5, is to use Direct Sign-In when it can; §6.2.1.5 also says "Do not use for same-device scenarios", which applies to a Personal Agent whose User is on the device it runs on, and 4.6 doesn't say so.
+
+*Fix.* State the Personal Agent's rules directly in 4.6 (use Direct Sign-In when the User can receive its redirect, never Device Sign-In on the User's own device), and make the Company's adoption of RFC 10027 a SHOULD with the guides' list of mitigations.
+
+<a id="t36"></a>**T36. Operations changed incompatibly without a new version.** Interop, Medium.
+
+Operations is still "version 1" (Operations line 20), but its 3.2 (line 109) now answers a signed-out Session with `insufficient_scope` where the 0.2 text said `sign_in_required`, and 5.2 (line 230) dropped `sign_in_required` from the confirm check. Spec 3.3 (line 199): "Changes that implementations can safely ignore keep the version, and incompatible changes get a new one." An agent written to Operations v1 as published with 0.2 looks for an error that no longer comes. The changelog tags the change Breaking and lists Operations 3.2 among its sections, so the authors know it breaks.
+
+*Fix.* Either version Operations with the protocol before 1.0 (state that an extension's version is read together with `protocol_version`), or call this version 2.
+
+*Our reading.* Operations behaviour follows the document's `protocol_version`, not the extension's `version` alone. Our 0.2 profile keeps `sign_in_required`; a 0.3 profile expects `insufficient_scope`.
+
+<a id="t37"></a>**T37. "The grant says whether a token is signed in" doesn't cover Token Exchange.** Clarity, Low.
+
+4.2 (line 328): "The grant says whether a token is signed in: this grant always returns signed-out tokens, and a sign-in (4.4) or an Account Token (4.8) always returns signed-in ones." Token Exchange (4.3, line 453) returns a Bearer token "with the subject token's scopes, or fewer", for a signed-in or a signed-out Session, and its response may leave `scope` out under the RFC 6749 §5.1 rule (line 504). A Personal Agent can work it out from the subject token, but the rule as stated has a gap, and a signed-out exchange's response is never shown.
+
+*Fix.* Add Token Exchange to the sentence: its token is signed in exactly when the subject token is.
+
+<a id="t38"></a>**T38. An alternative's `web` reference can point at any host.** Security, Medium.
+
+8.2 (line 1410): a `web` reference is "A page the User can open, on the Company's website or in its app", and the guides (line 205) tell the agent to "give the user the link". Only `openapi` and `mcp` references are checked: they "MUST name an API listed in the Company's `poppy.json`. Personal Agents MUST ignore one that doesn't, so an alternative can't aim them at another Company's servers" (line 1412). Nothing checks a `web` URL's host, so a Company's excluded-tasks document, fetched without a token from any host (8.1, 9.3), can hand the User a link to another Company's look-alike page under the first Company's name. That is the attack 4.6 (line 609) closes for device sign-in links with a host check: "Otherwise a Company could pass off another Company's sign-in page as its own."
+
+*Fix.* Apply 4.6's check: a `web` reference's host is `organization.domain`, the host of `auth.issuer` or of a URL in `protected_resources`, or a subdomain of one of them; Personal Agents ignore any other, and show the Company's `organization.name` and domain with the link. An app link on another host is a universal link the app claims, so it can be required to be on one of those hosts too.
+
+*Our reading.* That check.
+
 ## Checked and found consistent
 
-Things we looked at because they could have been wrong and weren't: the changelog's eighteen 0.3 entries each match the spec text they point to; the discovery example, the metadata example and the sign-in example use the same scopes; `__Host-poppy_join` has `Path=/` and no `Domain`, as the prefix requires; the join cookie's `Max-Age=60` matches the code's 60-second limit; 9.6's two attacks are both stopped by section 5's checks as written (the code can't be read cross-origin under `frame-ancestors 'none'` and COOP, the cookie can't be planted under `__Host-` and `SameSite=Strict`, and the code can't be signed from a message under the step-2 MUST); the Token Exchange response is a valid RFC 8693 response; 4.8's "RFC 9449 §5 binds refresh tokens only for public clients" is what §5 says; Operations v1 relies on nothing 0.3 removed.
+Things we looked at because they could have been wrong and weren't: the changelog's eighteen 0.3 entries each match the spec text they point to; the discovery example, the metadata example and the sign-in example use the same scopes; `__Host-poppy_join` has `Path=/` and no `Domain`, as the prefix requires; the join cookie's `Max-Age=60` matches the code's 60-second limit; 9.6's two attacks are both stopped by section 5's checks as written (the code can't be read cross-origin under `frame-ancestors 'none'` and COOP, the cookie can't be planted under `__Host-` and `SameSite=Strict`, and the code can't be signed from a message under the step-2 MUST); the Token Exchange response is a valid RFC 8693 response; 4.8's "RFC 9449 §5 binds refresh tokens only for public clients" is what §5 says; Operations v1 relies on nothing 0.3 removed. In the 06:13 text: the new discovery rule, that a redirect may end only at `/.well-known/poppy.json` with no query (section 3, line 49), closes the upload hole it names and agrees with 9.3; an alternative's `instructions` are called Company content under 9.1 and "not instructions the Personal Agent has to follow" (8.2), and 9.1's list now includes excluded tasks, so section 8 adds no prompt-injection gap; RFC 10027 §4.1.1 and §6.2.1.5 are cited for what they say.
+
+## The 0.1 catalogue in 0.2 and 0.3
+
+There was never a separate list of problems in 0.2. The 0.2 upgrade marked the 64 findings of [spec-issues.md](spec-issues.md) "not blanket-closed by this upgrade" and asked for each to be checked against the text before it was cited again ([poppy-0.2-upgrade.md](poppy-0.2-upgrade.md#old-readings)); this is that check, for 0.2 at our 19 October pin (the frozen 0.2 has the same text) and for 0.3 at 06:13. Withdrawn findings (S6, S15, S21, N36, N37, N38) aren't listed. **Resolved** means the text now answers the finding, even where it chose differently from our suggested fix; **Partly** means part of it is answered; **Worse** means the new text makes it sharper.
+
+In 0.2: 16 resolved, 14 partly, 34 open. In 0.3: 21 resolved, 14 partly, 28 open, 1 worse.
+
+| ID | Finding | Severity | 0.2 | 0.3 | What the text says now |
+| --- | --- | --- | --- | --- | --- |
+| [N2](spec-issues.md#n2) | Sign-in isn't bound to the Session until the code is exchanged | Critical | Open | Resolved | `dpop_jkt` binds the code to the Session Key before consent; a device code binds to the first poll's key. [T2](#t2) is what's left. |
+| [N9](spec-issues.md#n9) | Most URLs needn't be HTTPS | Critical | Resolved | Resolved | Every protocol URL MUST be HTTPS. Putting the Mediated Sign-In endpoint on the issuer's host was declined: 9.3 says endpoints "can be on any host". |
+| [N10](spec-issues.md#n10) | Which hosts may receive Session Tokens | Critical | Open | Open | One DPoP Session Token still "works at all of a Company's services" (4.3), and nothing limits an OpenAPI description's `servers`. Our host rule stays our own. |
+| [N11](spec-issues.md#n11) | A shared issuer merges unrelated Companies | Critical | Resolved | Resolved | An issuer MUST represent exactly one Company (3.2). |
+| [N17](spec-issues.md#n17) | Nothing ties Bearer issuance to a listed MCP server | Critical | Resolved | Resolved | 0.2 chose the token type by the listed `resource`; 0.3 issues Bearer tokens only by Token Exchange. |
+| [N45](spec-issues.md#n45) | A lost code-exchange answer orphans an Account Token | High | Open | Open | Session Keys don't help: the code is single-use and revocation still needs the token the agent never got. |
+| [N43](spec-issues.md#n43) | Website actions outside Operations have no approval step | High | Open | Open |  |
+| [N25](spec-issues.md#n25) | Client and Session assertions can be confused | High | Open | Open | Both name the issuer since 0.2; neither has its own `typ`, and nothing requires the client assertion's `sub` to be the `client_id`. |
+| [N5](spec-issues.md#n5) | Account Token rotation has no recovery | High | Open | Open |  |
+| [N8](spec-issues.md#n8) | Mediated Sign-In has no consent step | High | Partly | Partly | The agent MUST show the Company's name and domain when it asks for credentials (0.2). Nothing requires the User to agree to the scopes. |
+| [N14](spec-issues.md#n14) | Consent pages show the agent's self-declared name | High | Partly | Partly | Agents MUST show the Company's name and domain at Device and Mediated Sign-In (0.2). Showing the `client_id` domain on the consent page is still only in the guides. |
+| [N13](spec-issues.md#n13) | The browser cookie is a bearer credential | High | Open | Partly | 0.2 required `SameSite=Lax` or `None`. 0.3 requires `Secure` and `HttpOnly`, recommends `__Host-`, allows `Strict`, and requires nothing about `SameSite`. |
+| [N15](spec-issues.md#n15) | No prompt-injection considerations | High | Resolved | Resolved | Section 9.1. |
+| [S1](spec-issues.md#s1) | The client assertion's `aud` is never stated | High | Resolved | Resolved | The issuer, compared exactly. |
+| [S2](spec-issues.md#s2) | Assertion `typ`, `kid` and lifetime | High | Partly | Partly | At most five minutes (0.2). `typ` and `kid` are still unstated. |
+| [S22](spec-issues.md#s22) | Which writes propose operations | High | Open | Open | Operations 4.1 still defines no marker. |
+| [S8](spec-issues.md#s8) | Retries after sign-out return the original response | High | Partly | Partly | 4.9's "After sign-out" (0.2) has the Company answer a signed-out token on anything that used the account with an error; 7.3 still says a retry returns "the original response", and neither says which wins. |
+| [S20](spec-issues.md#s20) | Standing permissions have no checkable action | High | Open | Open | Operations unchanged on this. |
+| [N46](spec-issues.md#n46) | Nothing bounds how long a Company may keep an agent checking | Medium | Open | Open |  |
+| [N47](spec-issues.md#n47) | A refused revocation leaves a grant live | Medium | Partly | Partly | S1's fix removes the commonest refusal. What an agent does when revocation fails, and revocation without the token, are still undefined. |
+| [N44](spec-issues.md#n44) | When to fetch discovery documents again | Medium | Open | Open | The cache bounds are still only in the guides. |
+| [N39](spec-issues.md#n39) | The error for an ended Session at a resource | Medium | Partly | Partly | The token endpoint says `invalid_grant` (0.3; `invalid_session` in 0.2). A resource's answer is still unstated. |
+| [N40](spec-issues.md#n40) | `wait` is a hint, but examples read like a promise | Medium | Partly | Partly | A capped `wait` is held for the cap (0.2). Still not said that the agent reads events when a send returns no reply. |
+| [N41](spec-issues.md#n41) | `null` for an optional member | Medium | Open | Open |  |
+| [N42](spec-issues.md#n42) | No bounded test mode | Medium | Open | Open | "Unless they were configured to on purpose" became normative in 0.2 section 3, still unbounded. |
+| [N34](spec-issues.md#n34) | Which new proposals Operations 6 forbids | Medium | Open | Open |  |
+| [N23](spec-issues.md#n23) | The client metadata example has no `grant_types` | Medium | Open | Open |  |
+| [N6](spec-issues.md#n6) | Required token response fields aren't listed | Medium | Open | Resolved | `session_id` and `signed_in` are gone, and `scope` follows RFC 6749 (06:13). |
+| [N4](spec-issues.md#n4) | Step-up revocation signs out parallel Sessions | Medium | Open | Worse | 0.3 also invalidates their Session Tokens at once ([T11](#t11)). |
+| [N1](spec-issues.md#n1) | DPoP at the device and revocation endpoints | Medium | Resolved | Resolved | Requests that carry neither a token nor a token request need no proof. |
+| [N3](spec-issues.md#n3) | A different account at sign-in | Medium | Resolved | Resolved | `account_mismatch`, no tokens, sign in again in a new Session. Still no account hint. |
+| [N7](spec-issues.md#n7) | Mediated Sign-In's wire contract is incomplete | Medium | Resolved | Resolved | Statuses with HTTP 200, `invalid_scope`, `account_mismatch`, `sign_in_not_found`. The error for a missing field is still unnamed. |
+| [N16](spec-issues.md#n16) | Three sections disagree on conversations at sign-out | Medium | Resolved | Resolved | 4.9 gathers the rule. The guides still let a Company close them. |
+| [N30](spec-issues.md#n30) | Server-sent events | Medium | Partly | Partly | `Last-Event-ID` wins over `cursor` (0.2). The starting status, `wait` on a stream and `retry:` are still undefined. |
+| [N21](spec-issues.md#n21) | No generic conversation error | Medium | Partly | Partly | `invalid_request` (0.2). A parent that is itself a Direct Conversation still has no error ([T31](#t31)). |
+| [N19](spec-issues.md#n19) | An operation proposed signed-out can deadlock | Medium | Open | Open | Operations 3.2 still limits it to its Session, and Sessions still end. |
+| [N20](spec-issues.md#n20) | Operations statuses and errors | Medium | Open | Open | Confirm, cancel and read still have no stated HTTP status. |
+| [N22](spec-issues.md#n22) | No way to offer two versions at once | Medium | Open | Open | Sharper now: 0.3 breaks 0.2, and a document has one `protocol_version`, so a Company can't serve 0.2 and 0.3 agents from one `poppy.json`. |
+| [N12](spec-issues.md#n12) | Signed-out tracking can't be reset | Medium | Partly | Partly | Anonymous browsing IDs (0.2). The regular User ID still can't be reset. |
+| [S3](spec-issues.md#s3) | Where metadata lives for an issuer with a path | Medium | Resolved | Resolved | RFC 8414 insertion, with an example. |
+| [S7](spec-issues.md#s7) | Trailing slashes in issuers | Medium | Resolved | Resolved | Exact comparison, character for character; 0.3 also forbids the slash in `protected_resources` entries. |
+| [S19](spec-issues.md#s19) | Is ES256 required? | Medium | Partly | Partly | Companies MUST accept ES256 DPoP proofs (0.2). Assertion algorithms are only in the guides. |
+| [S4](spec-issues.md#s4) | Signed-out `scope` | Medium | Partly | Resolved | `poppy:read` is gone and a signed-out token has no `scope`. |
+| [S5](spec-issues.md#s5) | Renewing a signed-in Session with an assertion | Medium | Open | Partly | The token is signed out (06:13); the Session's state is still open ([T3](#t3)). |
+| [S14](spec-issues.md#s14) | DPoP error status at resources | Medium | Resolved | Resolved | 401 with `WWW-Authenticate: DPoP`. |
+| [S23](spec-issues.md#s23) | DPoP nonces per origin or per Company | Medium | Open | Open |  |
+| [S13](spec-issues.md#s13) | API errors for an ended Session | Medium | Open | Open | As N39. |
+| [S9](spec-issues.md#s9) | Message-id idempotency | Medium | Open | Open | In-flight retries, retries to `{id}/messages`, and "the same content" are still undefined. |
+| [S12](spec-issues.md#s12) | Direct Conversations: who sends, which error | Medium | Open | Open |  |
+| [N24](spec-issues.md#n24) | The metadata example breaks RFC 8414 | Low | Open | Open | Still no `response_types_supported`. |
+| [N26](spec-issues.md#n26) | `auth` isn't required for extension endpoints | Low | Open | Open | 3.1's condition still leaves extensions out. |
+| [N27](spec-issues.md#n27) | Discovering a subdomain | Low | Resolved | Resolved | A document speaks for the host that served it after redirects (0.2); 0.3 requires the redirect to end at the well-known path. |
+| [N35](spec-issues.md#n35) | One DPoP key per User? | Low | Resolved | Resolved | MUST per User ID in 0.2; superseded by a key per Session in 0.3. |
+| [N28](spec-issues.md#n28) | Account Token idle expiry is invisible | Low | Open | Open | See [T28](#t28). |
+| [N32](spec-issues.md#n32) | `iss` on redirects: guides overstate 4.5 | Low | Resolved | Resolved | The guide no longer says MUST. |
+| [N18](spec-issues.md#n18) | Sessions from plain MCP clients | Low | Resolved | Resolved | No User ID, can't continue signed out, ends with its sign-in. |
+| [N29](spec-issues.md#n29) | `context` can't clear a field | Low | Open | Open |  |
+| [N31](spec-issues.md#n31) | Declining `user_requested` is free text only | Low | Open | Open |  |
+| [N33](spec-issues.md#n33) | Inconsistent examples | Low | Partly | Partly | The Operations event ID is its own (0.2). Order `#1042` against `ord_7Hk2`, and `invalid_token` for a missing token, remain. |
+| [S18](spec-issues.md#s18) | `web` has no URL | Low | Open | Open |  |
+| [S16](spec-issues.md#s16) | Approving zero scopes | Low | Partly | Resolved | "If the User approves none, it ends as a decline." |
+| [S10](spec-issues.md#s10) | The cursor on an empty first read | Low | Open | Open | With no events and no request cursor, `cursor` is still undefined. |
+| [S11](spec-issues.md#s11) | `sign_in_required` has no `scope` | Low | Open | Resolved | `insufficient_scope` names the scopes (06:13). |
+| [S17](spec-issues.md#s17) | Can another User ID continue an account's conversation? | Low | Open | Open | See [T30](#t30). |

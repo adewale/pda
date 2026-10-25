@@ -15,7 +15,7 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Added
 
-- A snapshot of Personal Agent Protocol draft 0.3 as the site served it on 25 October ([spec/draft-0.3-retrieved-2026-10-25](spec/draft-0.3-retrieved-2026-10-25/README.md)), a plan for what it changes here ([docs/poppy-0.3-upgrade.md](docs/poppy-0.3-upgrade.md)) and a review of its text ([docs/spec-issues-0.3.md](docs/spec-issues-0.3.md)). Nothing of 0.3 is implemented; the protocol baseline stays 0.2. 0.2 was published and frozen on 24 October with the same text as the pinned revision.
+- Two snapshots of Personal Agent Protocol draft 0.3 as the site served it on 25 October, at [01:47](spec/draft-0.3-retrieved-2026-10-25/README.md) and [06:13 UTC](spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md), since it changed in between, a plan for what it changes here ([docs/poppy-0.3-upgrade.md](docs/poppy-0.3-upgrade.md)) and a review of its text ([docs/spec-issues-0.3.md](docs/spec-issues-0.3.md)). Nothing of 0.3 is implemented; the protocol baseline stays 0.2. 0.2 was published and frozen on 24 October with the same text as the pinned revision.
 - Public About and ecosystem pages. About links to the GitHub project, the Validator and the ecosystem map; the map uses the repository's Markdown, keeps historical results in a disclosure and is linked only from About.
 - A signed-out MCP tool-listing scenario and four live 0.2 targets. [Live evidence](docs/live-0.2-testing.md) separates completed checks from those requiring sign-in.
 

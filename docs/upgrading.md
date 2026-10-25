@@ -6,7 +6,7 @@ PDA release numbers, Poppy wire versions, the interop control protocol, validato
 
 [spec/upstream.json](../spec/upstream.json) pins Poppy 0.2 and Operations v1 to an upstream commit and a hash-verified local copy. [The official changelog](../spec/draft-0.2-2026-10-19/pages/changelog.md) is the starting point for each upgrade, alongside the actual specification diff. Operations v1 can change between draft revisions without changing its extension version.
 
-Draft 0.3 is on the site (25 October 2026) but not in upstream's repository yet, so there is no commit to import and `spec:drift` doesn't see it. [spec/draft-0.3-retrieved-2026-10-25](../spec/draft-0.3-retrieved-2026-10-25/README.md) is a site snapshot for reading, not a pin; [poppy-0.3-upgrade.md](poppy-0.3-upgrade.md) is the plan. 0.2 was published and frozen on 24 October with the text of the pinned revision.
+Draft 0.3 is on the site (25 October 2026) but not in upstream's repository yet, so there is no commit to import and `spec:drift` doesn't see it. [spec/draft-0.3-retrieved-2026-10-25T0613Z](../spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md), the newer of two that day, is a site snapshot for reading, not a pin; [poppy-0.3-upgrade.md](poppy-0.3-upgrade.md) is the plan. 0.2 was published and frozen on 24 October with the text of the pinned revision.
 
 ## Upgrade procedure
 
