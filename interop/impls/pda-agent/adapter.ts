@@ -91,6 +91,8 @@ const MANIFEST = {
   relaxations: [] as string[],
   ...(ADVERSARY ? { attacks: [...ATTACKS], adversarial: true } : {}),
   ...(PROFILE ? { profile: PROFILE } : {}),
+  // The client_id it signs as, which the runner checks against the live identity it passed.
+  client_id: LIVE?.clientId ?? `${ORIGIN}/poppy/client.json`,
   ...(FAULT ? { faults: [FAULT] } : {}),
   notes: ADVERSARY
     ? "Adversarial Personal Agent: raw attacks over the wire (interop/impls/pda-agent/attacks.ts); never src/poppy."

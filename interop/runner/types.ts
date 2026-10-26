@@ -61,6 +61,11 @@ export type Manifest = {
   readonly relaxations?: readonly string[];
   /** Attack ids this adversarial adapter can `arm` (spec §4). An unknown attack answers 501, so the cell is `unsupported`. */
   readonly attacks?: readonly string[];
+  /** Our adapters: the profile the implementation runs (a fake agent's, or the mock's), which the runner checks against the registry. */
+  readonly profile?: string;
+  readonly adversarial?: boolean;
+  /** Our agent adapter: the `client_id` it signs as, which the live lane checks against the live identity. */
+  readonly client_id?: string;
 };
 
 export type Actor = "agent" | "company" | "runner";
