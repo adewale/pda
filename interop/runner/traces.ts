@@ -337,6 +337,14 @@ function freshJwt(a: string | null | undefined, b: string | null | undefined, ig
   return canonical(old.header) === canonical(next.header) && canonical(stable(old.payload)) === canonical(stable(next.payload));
 }
 
+function sameOrigin(value: string, url: URL): boolean {
+  try {
+    return new URL(value).origin === url.origin;
+  } catch {
+    return false;
+  }
+}
+
 /** Accepted setup, then a foreign audience with matching stable wire fields and current credentials. */
 function audiencePair(all: readonly Exchange[]): readonly [Exchange, Exchange] | undefined {
   const requests = agentRequests(all).filter((x) => x.method === "POST" && form(x)?.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer" && currentAttackCredentials(x));
@@ -348,7 +356,8 @@ function audiencePair(all: readonly Exchange[]): readonly [Exchange, Exchange] |
     const originalAud = oldClient ? decodeJwt(oldClient)?.payload.aud : undefined;
     const oldProof = baseline.requestHeaders.get("dpop");
     const nonce = baseline.responseHeaders.get("dpop-nonce") ?? (oldProof ? decodeJwt(oldProof)?.payload.nonce : undefined);
-    if (originalAud !== baseline.url.href) continue;
+    // The accepted baseline names this Company: the token endpoint (0.1) or the issuer (0.2, same origin).
+    if (typeof originalAud !== "string" || !sameOrigin(originalAud, baseline.url)) continue;
     for (const attack of requests) {
       if (attack.index <= baseline.index || attack.url.href !== baseline.url.href) continue;
       const fields = form(attack)!;

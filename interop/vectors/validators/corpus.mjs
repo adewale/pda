@@ -7,8 +7,17 @@
  * - `sidecar`: habib-analyst/poppy-sidecar's generated examples.
  *
  * The last two are read as data from the pinned sources; nothing of theirs
- * runs here. `buildCorpus` writes `docs/NNN-name.json` and `manifest.json`
- * (file, name, source, the domain it is checked as) into `out`.
+ * runs here.
+ *
+ * Draft 0.2: the stored 0.2 specification's own example (`spec-0.2`), and a
+ * 0.2 twin of every document above that declares 0.1 (`<source>@0.2`, the
+ * same document with `protocol_version` "0.2"), so each rule's probe is also
+ * read under 0.2. Only ours and the official validator judge these; the two
+ * Python validators check 0.1.
+ *
+ * `buildCorpus` writes `docs/NNN-name.json` and `manifest.json` (file, name,
+ * source, the domain it is checked as, the draft it declares, and whether it
+ * is one of the original 0.1 corpus) into `out`.
  */
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -40,7 +49,16 @@ const SPEC_POPPY = {
 const DEMO =
   '{"protocol_version":"0.1","organization":{"name":"Northstar Outfitters","domain":"poppy-receiver.roundtrip.workers.dev"},"auth":{"issuer":"https://poppy-receiver.roundtrip.workers.dev","direct":{"scopes":["poppy:read","poppy:write"]}},"agent":{"protocols":[{"type":"poppy","endpoint":"https://poppy-receiver.roundtrip.workers.dev/poppy/conversations"}]},"apis":[{"type":"openapi","url":"https://poppy-receiver.roundtrip.workers.dev/openapi.json","description":"Orders and jacket exchanges"}],"web":{}}';
 
-export function buildCorpus({ theirsFixtures, sidecarExamples, out }) {
+/** The stored 0.2 specification's example poppy.json (its first code block declaring 0.2). */
+function specExample(page) {
+  const block = /```[a-z]*\n(\{\n\s*"protocol_version": "0\.2"[\s\S]*?\n\})\n```/.exec(readFileSync(page, "utf8"));
+  if (!block) throw new Error(`No 0.2 poppy.json example in ${page}`);
+  return JSON.parse(block[1]);
+}
+
+const DECLARES_01 = /("protocol_version"\s*:\s*)"0\.1"/g;
+
+export function buildCorpus({ theirsFixtures, sidecarExamples, specPage, out }) {
   mkdirSync(path.join(out, "docs"), { recursive: true });
   const w = (f) => {
     const d = structuredClone(SPEC_POPPY);
@@ -127,10 +145,23 @@ export function buildCorpus({ theirsFixtures, sidecarExamples, out }) {
     }
   }
 
+  // Draft 0.2: the specification's example, then a twin of each document that declares 0.1.
+  const v01 = [...entries];
+  if (specPage) add("spec-0.2-example", "spec-0.2", specExample(specPage));
+  for (const e of v01) {
+    const text = typeof e.doc === "string" ? e.doc : JSON.stringify(e.doc, null, 2);
+    if (!DECLARES_01.test(text)) continue;
+    DECLARES_01.lastIndex = 0;
+    add(`${e.name}@0.2`, `${e.source}@0.2`, text.replace(DECLARES_01, '$1"0.2"'), e.domain);
+  }
+
   const manifest = entries.map((e, i) => {
     const file = `${String(i).padStart(3, "0")}-${e.name}.json`;
-    writeFileSync(path.join(out, "docs", file), typeof e.doc === "string" ? e.doc : JSON.stringify(e.doc, null, 2));
-    return { file, name: e.name, source: e.source, domain: e.domain };
+    const text = typeof e.doc === "string" ? e.doc : JSON.stringify(e.doc, null, 2);
+    writeFileSync(path.join(out, "docs", file), text);
+    // What it declares (0.2 or, for anything else, 0.1's rules), and whether it was in the 0.1 corpus.
+    const version = /"protocol_version"\s*:\s*"0\.2"/.test(text) ? "0.2" : "0.1";
+    return { file, name: e.name, source: e.source, domain: e.domain, version, original: v01.includes(e) };
   });
   writeFileSync(path.join(out, "manifest.json"), JSON.stringify(manifest, null, 2));
   return manifest;

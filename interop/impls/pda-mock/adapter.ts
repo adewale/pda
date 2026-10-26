@@ -14,7 +14,7 @@ import { memoryState } from "../shared/cloudflare-workers.ts";
 import { COMPANY_SUFFIX, HookError, MOCK_BASE, mockHooks, placeInteropCompanies, str, violationsBody, type Hook, type Params } from "../shared/mock-hooks.ts";
 import { authorized, body, failure, json, serve, setting } from "../shared/serve.ts";
 import { MockCompany } from "../../../test/mock-company/index.ts";
-import type { MockConfig } from "../../../test/mock-company/types.ts";
+import { COMPANY_FLAWS, type CompanyFlaw, type MockConfig } from "../../../test/mock-company/types.ts";
 
 const NAME = process.env.INTEROP_NAME ?? "lenient-company";
 const SECRET = setting("INTEROP_SECRET");
@@ -78,7 +78,29 @@ if (process.env.INTEROP_MOCK_PROFILE && process.env.INTEROP_MOCK_PROFILE !== PRO
 }
 const WIRE_VERSION = process.env.INTEROP_POPPY_VERSION ?? "0.1";
 if (!["0.1", "0.2"].includes(WIRE_VERSION)) throw new Error("Unsupported mock wire version");
-const BASE: Partial<MockConfig> = { ...MOCK_BASE, protocolVersion: WIRE_VERSION, mcpDpop: WIRE_VERSION === "0.2", strictAssertions: WIRE_VERSION === "0.1" && PROFILE === "strict" };
+/**
+ * Interop-only: Company flaws (test/mock-company/types.ts `COMPANY_FLAWS`), a
+ * comma-separated list the flawed-Company lane sets with `--set`
+ * (interop/vectors/official/flaws.mjs). They last across resets: the
+ * container is a flawed Company for its whole run. No registry entry sets it.
+ */
+const FLAWS = (process.env.INTEROP_MOCK_FLAWS ?? "").split(",").filter(Boolean);
+for (const flaw of FLAWS) if (!(COMPANY_FLAWS as readonly string[]).includes(flaw)) throw new Error(`Unknown INTEROP_MOCK_FLAWS entry ${flaw}`);
+/**
+ * Interop-only: honest settings the flawed-Company lane varies to reach the
+ * official validator's conditional checks (a required DPoP nonce, MCP with
+ * Bearer at 0.2). `requireNonce` and `bearerMcp`, comma-separated.
+ */
+const VARIANTS = (process.env.INTEROP_MOCK_VARIANT ?? "").split(",").filter(Boolean);
+for (const variant of VARIANTS) if (!["requireNonce", "bearerMcp"].includes(variant)) throw new Error(`Unknown INTEROP_MOCK_VARIANT entry ${variant}`);
+const BASE: Partial<MockConfig> = {
+  ...MOCK_BASE,
+  protocolVersion: WIRE_VERSION,
+  mcpDpop: WIRE_VERSION === "0.2" && !VARIANTS.includes("bearerMcp"),
+  strictAssertions: WIRE_VERSION === "0.1" && PROFILE === "strict",
+  ...(VARIANTS.includes("requireNonce") ? { requireNonce: true } : {}),
+  flaws: FLAWS as CompanyFlaw[]
+};
 
 // `PUBLIC_ORIGIN` is where the mock would reach our Worker directly in tests;
 // here no host matches it, so every client document is fetched over the network.
@@ -102,7 +124,7 @@ const MANIFEST = {
   scenarios: ADVERSARY
     ? ATTACK_IDS
     : [
-        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
+        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
         "H", "DC", "W", "O2", "CM", "ML",
         // Honest Company against the fault-injection proxy and the adversarial agent.
         "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM"
@@ -112,7 +134,11 @@ const MANIFEST = {
   relaxations: [] as string[],
   ...(ADVERSARY ? { attacks: ATTACK_IDS, adversarial: true } : {}),
   profile: PROFILE,
-  notes: ADVERSARY
+  ...(FLAWS.length ? { flaws: FLAWS } : {}),
+  ...(VARIANTS.length ? { variants: VARIANTS } : {}),
+  notes: FLAWS.length
+    ? `Flawed Company: the ${PROFILE} mock with ${FLAWS.join(", ")} (INTEROP_MOCK_FLAWS); interop-only, never src/.`
+    : ADVERSARY
     ? `Adversarial Company: the ${PROFILE} mock, reconfigured per attack (arm hook); interop-only, never src/.`
     : `test/mock-company, ${PROFILE} profile: checks recorded as named violations (GET /violations).`
 };

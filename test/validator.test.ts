@@ -311,6 +311,13 @@ const POPPY_JSON: readonly Fixture[] = [
     ids: ["organization-name-missing"]
   },
   {
+    name: "checks organization: a blank name is no display name",
+    run: () => text("poppy", withPoppy((d) => (d.organization.name = "  "))),
+    ids: ["organization-name-missing"],
+    outcome: "invalid",
+    also: (report) => expect(report.refused).toBe(false)
+  },
+  {
     name: "checks organization: a URL as the domain",
     run: () => text("poppy", withPoppy((d) => (d.organization.domain = "https://example.com/"))),
     ids: { contains: ["domain-invalid"] }
@@ -370,14 +377,15 @@ const POPPY_JSON: readonly Fixture[] = [
     outcome: "invalid"
   },
   {
-    name: "skips an unknown API type in the explicitly supported 0.2 profile",
+    name: "makes an unknown API type an error in a 0.2 document too (6's MUST), which our client still uses",
     run: () =>
       text("poppy", withPoppy((d) => {
         d.protocol_version = "0.2";
         d.apis = [{ type: "graphql", url: "https://api.example.com/graphql", description: "Everything" }];
       })),
-    ids: ["api-type-newer"],
-    outcome: "valid"
+    ids: ["api-type-unknown"],
+    outcome: "invalid",
+    also: (report) => expect(report.refused).toBe(false)
   },
   {
     name: "warns of an extension version written as a number, whose type the draft doesn't give (N22)",
@@ -1035,7 +1043,9 @@ describe("the message catalog", () => {
 
   it("has a fixture that produces every message", () => {
     const declared = new Set(fixtures.flatMap(declaredIds));
-    const missing = (Object.keys(MESSAGES) as MessageId[]).filter((id) => !declared.has(id) && id !== "version-newer-minor");
+    // Retired diagnostics, kept for saved reports and never emitted.
+    const retired = new Set<MessageId>(["version-newer-minor", "api-type-newer"]);
+    const missing = (Object.keys(MESSAGES) as MessageId[]).filter((id) => !declared.has(id) && !retired.has(id));
     expect(missing).toEqual([]);
   });
 

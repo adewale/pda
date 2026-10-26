@@ -66,8 +66,8 @@ describe("the registry's other promises", () => {
     expect(limits).toMatchObject({
       "print-with-poppy-live": ["D"],
       "print-with-poppy-sandbox-live": ["D", "S0"],
-      "alpine-retail-live": ["D", "S0", "N", "C"],
-      "ilmer-live": ["D", "S0", "C"]
+      "alpine-retail-live": ["D", "S0", "N", "CL"],
+      "ilmer-live": ["D", "S0", "CL"]
     });
   });
 });

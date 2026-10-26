@@ -242,11 +242,11 @@
     {
       "name": "ilmer-live",
       "role": "company",
-      "liveScenarios": ["D", "S0", "C"],
+      "liveScenarios": ["D", "S0", "CL"],
       "source": "https://github.com/rbirkby/Ilmer.org",
       "commit": "de0d1ec50f09906fedf26a83b7b88042ebfebd56",
       "url": "https://poppy.ilmer.org",
-      "notes": "Live lane only: signed-out D, S0 and one or two C messages (a real model with a shared daily budget). Deployed commit not confirmed."
+      "notes": "Live lane only: signed-out D, S0 and one CL conversation, two labelled test messages, then closed (a real model with a shared daily budget). Deployed commit not confirmed."
     },
     {
       "name": "poppyseed-live",
@@ -259,7 +259,7 @@
     {
       "name": "alpine-retail-live",
       "role": "company",
-      "liveScenarios": ["D", "S0", "N", "C"],
+      "liveScenarios": ["D", "S0", "N", "CL"],
       "source": "https://www.alpine-retail.com",
       "commit": "unknown",
       "url": "https://www.alpine-retail.com",

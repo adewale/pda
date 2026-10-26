@@ -68,8 +68,15 @@ function harnessFile(name: string): Uint8Array | null {
 }
 
 /** The order scenarios run and are shown in; others follow by id. */
+/**
+ * What our agent says to a live Company's agent (scenario CL): plainly a
+ * test, asking for nothing, so whoever reads it at the Company can ignore
+ * it. CL closes the conversation afterwards.
+ */
+export const LIVE_GREETING = "Interoperability test from the Poppy Demo Agent. No reply or action is needed; this conversation will be closed.";
+
 export const SCENARIO_ORDER = [
-  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "O2", "OX", "OU", "RL", "DP", "CM", "ML",
+  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "O2", "OX", "OU", "RL", "DP", "CM", "ML",
   // Adversarial (docs/adversarial-interop.md): network faults, then malicious agent and Company.
   "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE", "XR", "XT"
 ];
@@ -395,8 +402,8 @@ export async function runOne(
     const answer = await control(company.target, "POST", "/hooks/fixture", {});
     if (answer.status === 200) fixture = answer.body;
   }
-  // A live Company has no fixture hook; the live scenarios need only a greeting (spec §10).
-  if (!company.entry.build) fixture = { prompts: { hello: "Hello" }, ...(company.entry.fixture ?? {}), ...(fixture as Record<string, unknown>) };
+  // A live Company has no fixture hook; the live scenarios need only a greeting, which says it is a test (spec §10).
+  if (!company.entry.build) fixture = { prompts: { hello: LIVE_GREETING }, ...(company.entry.fixture ?? {}), ...(fixture as Record<string, unknown>) };
   fixture = withWebPage(fixture, company.domain);
 
   const callbacks: string[] = [];

@@ -64,6 +64,7 @@ export const TRACE_CHECKS = {
   "company.retry-after": { side: "company", basis: "Rule", mock: false, what: "429 without Retry-After" },
   "company.oauth-error-body": { side: "company", basis: "RFC", mock: false, what: "OAuth endpoint error that isn't JSON with a string error (RFC 6749 5.2)" },
   "company.token-response": { side: "company", basis: "Rule", mock: false, what: "Token response without access_token, token_type, expires_in or session_id (4.2)" },
+  "company.token-no-store": { side: "company", basis: "RFC", mock: false, what: "Token response without Cache-Control: no-store (RFC 6749 5.1; Guides)" },
   "company.iss-missing": { side: "company", basis: "RFC", mock: false, what: "Authorization response without iss (RFC 9207, spec 4.5)" },
   "company.events-shape": {
     side: "company",
@@ -423,6 +424,10 @@ export function companyChecks(all: readonly Exchange[], protocolVersion = "0.1")
       const body = jsonBody(x.responseBody) as Record<string, unknown> | undefined;
       const missing = ["access_token", "token_type", "expires_in", "session_id"].filter((field) => body?.[field] === undefined);
       if (missing.length) found.push(check("company.token-response", x, `missing ${missing.join(", ")}`));
+      // RFC 6749 5.1: a response with tokens MUST carry Cache-Control: no-store, or a cache may keep them.
+      if (body?.access_token !== undefined && !/(^|,)\s*no-store\s*(,|$)/i.test(x.responseHeaders.get("cache-control") ?? "")) {
+        found.push(check("company.token-no-store", x, `token response from ${withoutQuery(x.url)} without Cache-Control: no-store`));
+      }
     }
     if (x.method === "GET" && /\/events$/.test(x.url.pathname) && x.status === 200) {
       const type = x.responseHeaders.get("content-type") ?? "";

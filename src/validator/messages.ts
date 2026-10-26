@@ -326,7 +326,7 @@ export const MESSAGES = define({
     refuses: false,
     title: "No display name",
     explain:
-      "organization is required and is the Company's \"Display name and domain\" (3.1): a normative statement without a key word, so this is an error. Our client tolerates it and shows the domain to the User instead (spec-issues S18).",
+      "organization is required and is the Company's \"Display name and domain\" (3.1): a normative statement without a key word, so a missing or blank name is an error. Our client tolerates it and shows the domain to the User instead (spec-issues S18).",
     fix: "Add organization.name, such as \"Example Company\".",
     ref: spec("3.1", "fields")
   },
@@ -469,16 +469,16 @@ export const MESSAGES = define({
     refuses: false,
     title: "API type not defined in this version",
     explain:
-      "Draft 0.1 says each API's type MUST be openapi or mcp, so in a document that declares a version this validator knows, another type is an error. The draft also says agents SHOULD skip types they don't recognise, and ours does: it skips the API and still uses the Company.",
+      "Drafts 0.1 and 0.2 both say each API's type MUST be openapi or mcp (section 6), so another type is an error in any document this validator checks: it refuses documents from versions it doesn't know. The draft also says agents SHOULD skip types they don't recognise, and ours does: it skips the API and still uses the Company.",
     fix: "Use openapi or mcp, or leave the API out until a version of the protocol defines its type.",
     ref: spec("6", "apis")
   },
   "api-type-newer": {
     basis: "MUST",
     note: true,
-    title: "Unknown API type skipped",
+    title: "Historical unknown-API-type diagnostic",
     explain:
-      "This supported profile skips an unrecognized API type. It does not infer support for an unknown protocol version. The diagnostic ID is retained for saved reports.",
+      "Retained for older saved reports. It was information for a document from a version newer than this validator knew; the 0.2 profile kept it for 0.2 documents until 26 October 2026. Every version this validator checks makes another API type an error, api-type-unknown, so this diagnostic is no longer emitted.",
     fix: "Nothing to do, unless agents should use this API.",
     ref: spec("6", "apis")
   },

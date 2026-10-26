@@ -382,7 +382,8 @@ export class Conversations {
     const body = this.#body(inbound);
     const message = this.#validate(body.message as IncomingMessage | undefined);
     const parentId = typeof body.parent_conversation_id === "string" ? body.parent_conversation_id : null;
-    const existing = this.#idempotent(context, message, parentId);
+    // A flawed Company (retry-new-conversation) forgets first messages, so a retry starts another conversation.
+    const existing = this.company.flawed("retry-new-conversation") ? null : this.#idempotent(context, message, parentId);
     // A retry gets the original response only if it may still read the
     // conversation: once it used the account, 7.11 wins (S8), as in message().
     if (existing) return this.#answer(inbound, this.#owned(context, existing.id), 201);
