@@ -17,7 +17,7 @@ None of this has been sent to the draft's authors. The project now has a public 
 - A third sweep on 26 October: every earlier finding checked against the new text by its quoted phrase, and the 31 upstream commits since our 0.2 pin read by title. Fixed since 06:13: [T9](#t9), [T10](#t10) and [T17](#t17); [T28](#t28) is partly answered in the guides. One correction to our own reading: the line above says RFC 9449 §7.1 is cited correctly, but 4.3's rule on a DPoP token sent with the `Bearer` scheme is §7.2, and upstream fixed the citation (line 453).
 - A second sweep at 06:13: a diff of every page against the 01:47 snapshot (120 changed lines in the spec, 22 in the guides, 4 in Operations, 6 in the walkthroughs), each earlier finding checked against the new text, and RFC 10027 §2, §4.1.1 and §6.2.1.5, which the new 4.6 cites, checked against the RFC. Operations v1 is no longer unchanged: its 3.2 and 5.2 now say `insufficient_scope` where they said `sign_in_required` ([T36](#t36)).
 
-38 findings. Four are fixed upstream: T4 at 06:13 on 25 October, and T9, T10 and T17 by 26 October. The 34 open ones by severity: 0 Critical, 1 High, 10 Medium, 23 Low. Of the five Critical findings in the 0.1 catalogue, 0.3 resolves four (N2 by `dpop_jkt`, N9 by HTTPS everywhere, N11 by one issuer per Company, N17 by Token Exchange); N10, which hosts may receive a Session Token, is still open. How every 0.1 finding fares in 0.2 and 0.3 is [the last section](#the-01-catalogue-in-02-and-03).
+44 findings, numbered T1 to T45; there is no T19. Four are fixed upstream: T4 at 06:13 on 25 October, and T9, T10 and T17 by 26 October. The 40 open ones by severity: 0 Critical, 1 High, 12 Medium, 27 Low. T40 to T45 come from a later contradiction sweep of the same 26 October text, unchanged on the site, which also compared it with upstream's official schemas and Company validator and with the home page's walkthroughs. Of the five Critical findings in the 0.1 catalogue, 0.3 resolves four (N2 by `dpop_jkt`, N9 by HTTPS everywhere, N11 by one issuer per Company, N17 by Token Exchange); N10, which hosts may receive a Session Token, is still open. How every 0.1 finding fares in 0.2 and 0.3 is [the last section](#the-01-catalogue-in-02-and-03).
 
 ## The most important
 
@@ -29,6 +29,8 @@ None of this has been sent to the draft's authors. The project now has a public 
 | [T34](#t34) | With `sign_in_required` folded into `insufficient_scope`, a disconnection made at the Company looks like a request for more scopes | Interop | Medium |
 | [T36](#t36) | Operations changed an error code under the same version 1, which 3.3 says needs a new version | Interop | Medium |
 | [T38](#t38) | An alternative's `web` reference can point at any host, the hole 4.6 closes for device sign-in links | Security | Medium |
+| [T43](#t43) | After sign-out, Operations says to cancel a running operation and also refuses the signed-out Session that would cancel it | Interop | Medium |
+| [T45](#t45) | The official Company kit rejects loopback redirect URIs, misses the ES256 rule for MCP, and ignores case in all of `protected_resources` | Interop | Medium |
 
 All three still stand on 26 October, and T36 has a second instance: Operations 4.3 now uses `author` where it used `sender`, still as version 1.
 | [T11](#t11) | Revoking the old Account Token after a step-up still signs out every other Session, and 0.3 now also invalidates their Session Tokens at once | Interop | Medium |
@@ -48,7 +50,7 @@ All three still stand on 26 October, and T36 has a second instance: Operations 4
 | Web browsing (5, 9.6) | [T6](#t6), [T15](#t15), [T29](#t29) |
 | APIs and conversations (6, 7) | [T25](#t25), [T30](#t30), [T31](#t31) |
 | Operations extension | [T24](#t24), [T36](#t36) |
-| Found in the 26 October text | [T39](#t39), [T40](#t40), [T41](#t41), [T42](#t42), [T43](#t43) |
+| Found in the 26 October text | [T39](#t39), [T40](#t40), [T41](#t41), [T42](#t42), [T43](#t43), [T44](#t44), [T45](#t45) |
 | Security considerations and references (9, 10) | [T7](#t7), [T10](#t10) |
 | Guides | [T17](#t17), [T18](#t18) |
 
@@ -333,6 +335,32 @@ Operations 5.2 (line 263): "Once confirmed, the operation continues even if the 
 *Fix.* Let a signed-out Session of the same Personal Agent and User cancel (but not confirm or read) an operation it can no longer use, or say that signing out cancels operations that are still `proposed`.
 
 *Our reading.* Before revoking at sign-out, offer the User a list of operations still `proposed` or `in_progress`, and cancel the ones they choose while still signed in.
+
+<a id="t44"></a>**T44. The home page's walkthroughs break two of the rules they illustrate.** Editorial, Low.
+
+Line numbers here are in the 26 October snapshot's `pages/walkthroughs.md`, which matches upstream's `content/walkthroughs.ts` at `a95b757`.
+
+- **The browser join's 303 leaves the join cookie set.** Spec 5 (line 904): "If every check passes, the Company sets its cookie for that Session in the response, clears the cookie from step 1, and responds with `303 See Other`". Both walkthroughs that join a browser answer with one `Set-Cookie`, for the Session, and nothing that expires `__Host-lf_join` (lines 587–589) or `__Host-ch_join` (lines 1067–1069).
+- **A token response without `Cache-Control: no-store`.** The Mediated Sign-In `complete` response at lines 532–541 carries an Account Token and a Session Token with only `Content-Type`. The guides (line 25): "Send `Cache-Control: no-store` on every response that carries a token or code." Every token endpoint response in the walkthroughs has it.
+
+*Fix.* Add `Set-Cookie: __Host-lf_join=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Strict` (and the Chaparral equivalent) to both 303s, and `Cache-Control: no-store` to the Mediated Sign-In response.
+
+<a id="t45"></a>**T45. The official Company kit disagrees with the 0.3 text it checks.** Interop, Medium.
+
+Upstream's kit at `a95b757` (`kit/company/schemas/` and `kit/company/validate/`) is what Companies will use to show they conform, so where it and the spec differ, a conforming Company can fail it or a broken one pass. It has no 0.2 leftovers (no `session_id`, `signed_in`, `sign_in_required`, `poppy_domains` or `sender`), and it takes sign-in types from `grant_types_supported`. These differ from the spec (paths are the kit's; spec lines are the 26 October snapshot's):
+
+- **Loopback redirect URIs fail.** `client-metadata.schema.json` lines 19–21 and 34 hold every `redirect_uris` entry to `^https://`, and its description (line 5) says they "must be on the same domain as client_id". Spec 4.1 (line 274) now allows "a loopback redirect URI for an app on the User's computer".
+- **An MCP server's DPoP support is judged by the field alone.** `validate/checks/mcp.ts` line 191 treats any array in `dpop_signing_alg_values_supported` as DPoP support, and the protected-resource schema doesn't mention the field. Spec 4.3 (line 455): such a server "MUST list `ES256`". A server listing only `RS256`, or `[]`, passes.
+- **`protected_resources` ignores case in the whole URL.** `validate/checks/discovery.ts` line 522 compares `u.toLowerCase() === resource.toLowerCase()`. Spec 3.2 (line 158): "comparing the strings exactly except that the host is compared ignoring case".
+- **The reserved `poppy:` prefix is never checked**, in `scopes_supported`, `auth.scopes` or `auth.mediated.scopes`. Spec 4.4 (line 516) reserves it.
+- **A follow-up message's 202 needn't carry `conversation_id`.** `conversation-response.schema.json` line 7 requires only `status` and `responder`, which is right for handoff and close but not for 7.3 (line 1039): later messages return "HTTP 202 with the same fields" as the start, which include `conversation_id`.
+- **The author `id` gets a format the spec doesn't give it.** `message.schema.json` line 18 holds it to the 1–256 URL-safe characters of 7.2, which line 1000 applies only to "Conversation IDs, message IDs, and event IDs"; 7.4 (line 1135) says only "a stable ID for the author, chosen by the Company".
+- **A feedback alternative isn't checked like an excluded task's.** `validate/checks/feedback.ts` line 26 checks the 200 body against the schema only, so an `openapi` or `mcp` reference naming an unlisted API passes, against 8.2 (line 1472).
+- **Smaller:** `cursor` may be `null` on any read (`events-response.schema.json` line 11) though 7.5 makes it the last event or the request's cursor; the Mediated Sign-In `scope` isn't held to OAuth scope syntax (`mediated-sign-in-request.schema.json` line 9) as 4.4 (line 533) requires; and section 5's browser join, with its MUSTs on code length, cookie attributes and headers (lines 878–880), has no check while the validator's list of unchecked areas (`validate/run.ts` lines 27–32) names only sign-in and extensions.
+
+*Fix.* Each is a small change to the kit; the loopback, ES256 and case rules first, since they decide pass or fail on documents Companies are publishing now.
+
+*Our reading.* Our validator and mock follow the spec text where the two differ, and the interop lane that runs the official validator records these as the kit's, not the mock's.
 
 ## Checked and found consistent
 

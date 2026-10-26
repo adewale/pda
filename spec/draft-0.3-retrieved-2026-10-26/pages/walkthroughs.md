@@ -345,7 +345,7 @@ Atlas passes on the user's choice. Manzanita arranges the exchange and sends a r
 Chat:
 
 - **user:** Let's do the exchange.
-- **agent:** Done. The Stormline Insulated ships tomorrow, and Manzanita emailed you a prepaid return label for the old jacket. ([object Object])
+- **agent:** Done. The Stormline Insulated ships tomorrow, and Manzanita emailed you a prepaid return label for the old jacket. (👍 Liked by you)
 
 What Manzanita Supply (manzanitasupply.example) sees:
 
@@ -1095,7 +1095,7 @@ The user says yes. Atlas fills in Chaparral's booking form and sums up what all 
 Chat:
 
 - **user:** Yes, book it. And I'll need a 5:30 AM checkout.
-- **agent:** All set. Tonight you're in room 912 at the Chaparral, with a 5:30 AM checkout. You fly at 7:30, your Boston ride is at 10:05, and the Madrone has your room ready at 11. ([object Object])
+- **agent:** All set. Tonight you're in room 912 at the Chaparral, with a 5:30 AM checkout. You fly at 7:30, your Boston ride is at 10:05, and the Madrone has your room ready at 11. (👍 Liked by you)
 
 What Chaparral Hotel (chaparralhotel.example) sees:
 

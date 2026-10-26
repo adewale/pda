@@ -73,7 +73,7 @@ Signing in for the first time, with a run-through that checks each part works: [
 ## For the draft's authors: what we found
 
 - **[Spec issues](docs/spec-issues.md):** 64 problems in Draft 0.1, found by comparing implementations, crawling the site and running the grid. Each has a severity (5 Critical, 13 High, 31 Medium, 15 Low), a suggested fix, and what we do meanwhile.
-- **[Spec issues in draft 0.3](docs/spec-issues-0.3.md):** 38 problems in draft 0.3, four already fixed upstream (34 open: 1 High, 10 Medium, 23 Low), from reading the new text against itself, its changelog, its guides and the RFCs it cites, and how each of the 64 Draft 0.1 findings fares in 0.2 and 0.3. [What 0.3 changes for us](docs/poppy-0.3-upgrade.md) is separate.
+- **[Spec issues in draft 0.3](docs/spec-issues-0.3.md):** 44 problems in draft 0.3 and its official kit, four already fixed upstream (40 open: 1 High, 12 Medium, 27 Low), from reading the new text against itself, its changelog, its guides and the RFCs it cites, and how each of the 64 Draft 0.1 findings fares in 0.2 and 0.3. [What 0.3 changes for us](docs/poppy-0.3-upgrade.md) is separate.
 - **[Readings](docs/readings.md):** where the draft is ambiguous, the reading we chose and why: strict where security depends on it, lenient where it doesn't.
 - **[Grounding](spec/grounding.md):** every claim we make about the draft, quoted against a stored copy of its text.
 - **[Conformance levels](docs/conformance-levels.md):** how our mock, validator and grid grade a broken MUST, a departed SHOULD and one of our readings.
