@@ -1,6 +1,6 @@
 # Problems in Personal Agent Protocol draft 0.3
 
-A review of [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) **draft 0.3** for bugs, contradictions and inconsistencies, read on 25 October 2026 from the site's own Markdown. The draft changed while we read it, so there are two snapshots: [01:47 UTC](../spec/draft-0.3-retrieved-2026-10-25/README.md) and [06:13 UTC](../spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md). Line numbers for T1 to T33 are in the 01:47 snapshot's `pages/`; T34 onward, and every "06:13" status note, are in the 06:13 snapshot's. Draft 0.3 is "in progress" and its changelog "grows until 0.3 is published": between the two snapshots it gained five entries, a new section 8 and a renamed error, and fixed T4. Check the live text before citing a finding.
+A review of [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) **draft 0.3** for bugs, contradictions and inconsistencies, read on 25 October 2026 from the site's own Markdown. The draft changed while we read it, so there are three snapshots: [01:47 UTC](../spec/draft-0.3-retrieved-2026-10-25/README.md) and [06:13 UTC](../spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md) on 25 October, and [18:34 UTC on 26 October](../spec/draft-0.3-retrieved-2026-10-26/README.md), when upstream's repository also had the 0.3 text, at commit `a95b757`. Line numbers for T1 to T33 are in the 01:47 snapshot's `pages/`; T34 to T38 and every "06:13" note in the 06:13 snapshot's; T39 and every "26 October" note in the 26 October snapshot's. Draft 0.3 is "in progress" and its changelog "grows until 0.3 is published": between the two snapshots it gained five entries, a new section 8 and a renamed error, and fixed T4. Check the live text before citing a finding.
 
 The 0.1 catalogue is [spec-issues.md](spec-issues.md), with S- and N-numbered IDs. 0.3 findings take **T-numbers**, so the three catalogues never collide. Kinds and severities are the 0.1 catalogue's: Interop, Security, Clarity, Editorial; Critical, High, Medium, Low. What has to change in our code is in [poppy-0.3-upgrade.md](poppy-0.3-upgrade.md), not here.
 
@@ -14,9 +14,10 @@ None of this has been sent to the draft's authors. The project now has a public 
 - A search of every 0.3 page, including the home page's walkthroughs, for the constructs 0.3 removes: `session_id`, `signed_in`, `invalid_session`, `poppy_domains`, `custom_scopes`, `auth.direct`, `auth.device`, `poppy:read`, `poppy:write`, the browser assertion and `return_to`. None remains anywhere. Operations v1 is unchanged from 0.2 apart from its links and still agrees with the 0.3 spec.
 - The frozen 0.2, published 24 October, is identical in text to our 19 October pin apart from relative links, so nothing here is a change we missed in 0.2.
 - A second, independent read of the same four pages by a reviewer given no other context, whose findings were checked against the text before being merged. Where both reads found the same thing it is listed once.
+- A third sweep on 26 October: every earlier finding checked against the new text by its quoted phrase, and the 31 upstream commits since our 0.2 pin read by title. Fixed since 06:13: [T9](#t9), [T10](#t10) and [T17](#t17); [T28](#t28) is partly answered in the guides. One correction to our own reading: the line above says RFC 9449 §7.1 is cited correctly, but 4.3's rule on a DPoP token sent with the `Bearer` scheme is §7.2, and upstream fixed the citation (line 453).
 - A second sweep at 06:13: a diff of every page against the 01:47 snapshot (120 changed lines in the spec, 22 in the guides, 4 in Operations, 6 in the walkthroughs), each earlier finding checked against the new text, and RFC 10027 §2, §4.1.1 and §6.2.1.5, which the new 4.6 cites, checked against the RFC. Operations v1 is no longer unchanged: its 3.2 and 5.2 now say `insufficient_scope` where they said `sign_in_required` ([T36](#t36)).
 
-37 findings. One, T4, is fixed in the 06:13 text. The 36 open ones by severity: 0 Critical, 1 High, 10 Medium, 25 Low. Of the five Critical findings in the 0.1 catalogue, 0.3 resolves four (N2 by `dpop_jkt`, N9 by HTTPS everywhere, N11 by one issuer per Company, N17 by Token Exchange); N10, which hosts may receive a Session Token, is still open. How every 0.1 finding fares in 0.2 and 0.3 is [the last section](#the-01-catalogue-in-02-and-03).
+38 findings. Four are fixed upstream: T4 at 06:13 on 25 October, and T9, T10 and T17 by 26 October. The 34 open ones by severity: 0 Critical, 1 High, 10 Medium, 23 Low. Of the five Critical findings in the 0.1 catalogue, 0.3 resolves four (N2 by `dpop_jkt`, N9 by HTTPS everywhere, N11 by one issuer per Company, N17 by Token Exchange); N10, which hosts may receive a Session Token, is still open. How every 0.1 finding fares in 0.2 and 0.3 is [the last section](#the-01-catalogue-in-02-and-03).
 
 ## The most important
 
@@ -28,6 +29,8 @@ None of this has been sent to the draft's authors. The project now has a public 
 | [T34](#t34) | With `sign_in_required` folded into `insufficient_scope`, a disconnection made at the Company looks like a request for more scopes | Interop | Medium |
 | [T36](#t36) | Operations changed an error code under the same version 1, which 3.3 says needs a new version | Interop | Medium |
 | [T38](#t38) | An alternative's `web` reference can point at any host, the hole 4.6 closes for device sign-in links | Security | Medium |
+
+All three still stand on 26 October, and T36 has a second instance: Operations 4.3 now uses `author` where it used `sender`, still as version 1.
 | [T11](#t11) | Revoking the old Account Token after a step-up still signs out every other Session, and 0.3 now also invalidates their Session Tokens at once | Interop | Medium |
 | [T15](#t15) | The browser-session code is a secret the guides list and section 5 keeps from the model, but 9.2 leaves it at SHOULD | Security | Medium |
 | [T27](#t27) | "The Session's scopes", which the website applies, are nowhere defined: the Session record holds no scopes and a narrowed token has fewer | Clarity | Medium |
@@ -45,6 +48,7 @@ None of this has been sent to the draft's authors. The project now has a public 
 | Web browsing (5, 9.6) | [T6](#t6), [T15](#t15), [T29](#t29) |
 | APIs and conversations (6, 7) | [T25](#t25), [T30](#t30), [T31](#t31) |
 | Operations extension | [T24](#t24), [T36](#t36) |
+| Conversations, 26 October (7.4) | [T39](#t39) |
 | Security considerations and references (9, 10) | [T7](#t7), [T10](#t10) |
 | Guides | [T17](#t17), [T18](#t18) |
 
@@ -67,6 +71,8 @@ Nothing says a Session Key used in a code exchange or a device poll must already
 *Fix.* State in 4.5 and 4.6 that the Session Key MUST name a Session the Personal Agent has started with the JWT bearer grant (4.2), so the Company knows its User ID, and that a key it doesn't know gets `invalid_grant`. 4.8 is the one grant that may start a Session with a new key, because the Account Token's record carries the User ID.
 
 *Our reading.* Start the Session (4.2) before any sign-in, as we already do; never exchange a code with a key the Company hasn't seen.
+
+*26 October: sharper.* The new 4.10 (line 835) generalises again: "A proof from a new key starts a Session, and a proof from a known key renews it or signs it in (4.3)." 4.5 and 4.6 still presuppose the Session exists.
 
 <a id="t3"></a>**T3. Renewing a signed-in Session with the assertion.** Interop, Medium.
 
@@ -132,6 +138,8 @@ Section 5 (lines 862 and 866): the cookie "MUST follow the Session's current sta
 
 *Our reading.* Ask the User before signing in again after any `invalid_grant` on an Account Token, which is what the 4.9 SHOULD requires in the case the Personal Agent can't rule out.
 
+*26 October: partly answered.* The guides now ask Companies to "Send `refresh_token_expires_in` when an account token has a lifetime... the lifetime lets the personal agent tell the user which happened". That works for a token that reached its stated lifetime, not for one the Company expired early for being unused, which the same guides recommend, and it is a guide, not the spec.
+
 <a id="t32"></a>**T32. Token endpoint codes the table doesn't list.** Editorial, Low.
 
 The 4.2 table is introduced "with these codes" (lines 351–359) and lists seven. 4.6 (line 624) returns `authorization_pending`, `slow_down`, `access_denied` and `expired_token` from the same endpoint; 4.4 (line 497) rejects unavailable scopes with `invalid_scope`, which a sign-in request to the token endpoint (4.6 step 1 is the device authorization endpoint, but 4.8's `scope` is at the token endpoint) can hit; and 4.8 (line 750) says a request for more scope than the Account Token has "can't ask for more" without naming the error.
@@ -172,7 +180,7 @@ The 4.3 Token Exchange example (line 444) exchanges for `resource=https://mcp.ex
 
 4.5 (line 531): "The Personal Agent MUST include `dpop_jkt` in the URL"; line 547: it "MAY instead push the request with a proof signed with the Session Key, and leave out `dpop_jkt`". 4.3's bullet states the real rule, binding the code to the Session Key by either means. 4.5 should say the same: "MUST bind the code to the Session Key, with `dpop_jkt` in the URL or a proof on a pushed authorization request".
 
-<a id="t9"></a>**T9. The sign-in types table keeps identifiers 0.3 removed.** Editorial, Low.
+<a id="t9"></a>**T9. The sign-in types table keeps identifiers 0.3 removed.** Editorial, Low. *Fixed by 26 October: the table names Direct, Device and Mediated in plain text, and 4.4 says "Direct or Device Sign-In".*
 
 4.4's table lists the types as `direct`, `device` and `mediated` in code font, as if they were wire values. In 0.2 they were the keys of `auth.direct`, `auth.device` and `auth.mediated`; in 0.3 only `mediated` remains a key, and Direct and Device Sign-In are inferred from `grant_types_supported`. Line 485 also writes "direct or Device Sign-In".
 
@@ -226,7 +234,7 @@ Terms (line 34) and the section 4 table (line 215) say an Account Token is used 
 
 RFC 7638 (JWK thumbprint, 4.3 line 381) and RFC 9126 (pushed authorization requests, 3.2 line 172 and 4.5 line 547) are new in 0.3 and missing from the table; RFC 3339, RFC 4648 and RFC 5646 (section 7) were missing in 0.2 too. The table lists RFC 9111 and RFC 7519, which no section cites, and RFC 9728 in two rows.
 
-<a id="t10"></a>**T10. 9.5 cites 4.7 for a rule in 4.4.** Editorial, Low.
+<a id="t10"></a>**T10. 9.5 cites 4.7 for a rule in 4.4.** Editorial, Low. *The 9.5 citation is fixed by 26 October; the 4.2 one about anonymous IDs and the RFC 9449 §8 one in section 5 are not.*
 
 Line 1396: Mediated Sign-In "limits it to `auth.mediated.scopes` (4.7)". The limit is stated in 4.4 (line 496); 4.7 never mentions `auth.mediated.scopes`. Likewise 4.2 (line 267) says an anonymous User ID "MUST NOT sign in with a Session that uses it (4.4)", and 4.4 says nothing about anonymous IDs. Section 5 (line 827) cites RFC 9449 §8, the authorization server's nonce, for a nonce issued by the website host; §9, the resource server's nonce, is the closer fit.
 
@@ -236,7 +244,7 @@ Line 1396: Mediated Sign-In "limits it to `auth.mediated.scopes` (4.7)". The lim
 
 ## Guides
 
-<a id="t17"></a>**T17. "Prefer direct, then device, then mediated (SHOULD, 4.4)".** Editorial, Low.
+<a id="t17"></a>**T17. "Prefer direct, then device, then mediated (SHOULD, 4.4)".** Editorial, Low. *Fixed by 26 October: the guide now says "Prefer direct or device sign-in to mediated sign-in (SHOULD, 4.4), and direct to device sign-in (4.6)".*
 
 Guides line 149 cite 4.4 for an order of three. 4.4 (line 487) only says "SHOULD use Direct or Device Sign-In rather than Mediated Sign-In"; it ranks neither of the first two over the other. The guides' own rule says a repeated requirement "says MUST and links to the section that requires it"; this cites a SHOULD the spec doesn't make. *06:13: partly answered.* 4.6 (line 580) now ranks Direct over Device through RFC 10027's protocol selection guidance, so the order has a basis; the guide still cites 4.4 for it, and the basis is a MUST, not a SHOULD.
 
@@ -268,6 +276,8 @@ A Personal Agent knows when its own User signed out. It doesn't know when the Us
 
 Operations is still "version 1" (Operations line 20), but its 3.2 (line 109) now answers a signed-out Session with `insufficient_scope` where the 0.2 text said `sign_in_required`, and 5.2 (line 230) dropped `sign_in_required` from the confirm check. Spec 3.3 (line 199): "Changes that implementations can safely ignore keep the version, and incompatible changes get a new one." An agent written to Operations v1 as published with 0.2 looks for an error that no longer comes. The changelog tags the change Breaking and lists Operations 3.2 among its sections, so the authors know it breaks.
 
+*26 October: a second instance.* Operations 4.3 (26 October snapshot, line 183) now shows `"author": { "type": "agent" }` where it showed `"sender"`, and the page is still "version 1" (line 20).
+
 *Fix.* Either version Operations with the protocol before 1.0 (state that an extension's version is read together with `protocol_version`), or call this version 2.
 
 *Our reading.* Operations behaviour follows the document's `protocol_version`, not the extension's `version` alone. Our 0.2 profile keeps `sign_in_required`; a 0.3 profile expects `insufficient_scope`.
@@ -286,13 +296,25 @@ Operations is still "version 1" (Operations line 20), but its 3.2 (line 109) now
 
 *Our reading.* That check.
 
+## Found in the 26 October text
+
+Line numbers in this section are in the [26 October snapshot](../spec/draft-0.3-retrieved-2026-10-26/README.md).
+
+<a id="t39"></a>**T39. A Company message's author picture can be on any host.** Security, Low.
+
+7.4 now lets a Company message name its writer, and line 1137 says "`image` is the URL of the author's picture, for the Personal Agent to show next to the name." Line 1139 treats the name and picture as "content from the Company (9.1)", which covers prompt injection, but nothing limits the image's host. A Personal Agent that shows it in the User's browser tells whoever serves it the User's address and when they read the message, for every message, including in a Direct Conversation, where the Company already knows who the User is but a third party shouldn't. Section 3's rule against private addresses covers the Personal Agent's own fetches, not the User's browser.
+
+*Fix.* Either require the image's host to be `organization.domain` or a subdomain, as 4.6 does for sign-in links, or say the Personal Agent fetches and serves the image itself, without the User's cookies or address, and SHOULD NOT load it in the User's browser directly.
+
+*Our reading.* Show the name, never the picture, until one of those holds.
+
 ## Checked and found consistent
 
 Things we looked at because they could have been wrong and weren't: the changelog's eighteen 0.3 entries each match the spec text they point to; the discovery example, the metadata example and the sign-in example use the same scopes; `__Host-poppy_join` has `Path=/` and no `Domain`, as the prefix requires; the join cookie's `Max-Age=60` matches the code's 60-second limit; 9.6's two attacks are both stopped by section 5's checks as written (the code can't be read cross-origin under `frame-ancestors 'none'` and COOP, the cookie can't be planted under `__Host-` and `SameSite=Strict`, and the code can't be signed from a message under the step-2 MUST); the Token Exchange response is a valid RFC 8693 response; 4.8's "RFC 9449 §5 binds refresh tokens only for public clients" is what §5 says; Operations v1 relies on nothing 0.3 removed. In the 06:13 text: the new discovery rule, that a redirect may end only at `/.well-known/poppy.json` with no query (section 3, line 49), closes the upload hole it names and agrees with 9.3; an alternative's `instructions` are called Company content under 9.1 and "not instructions the Personal Agent has to follow" (8.2), and 9.1's list now includes excluded tasks, so section 8 adds no prompt-injection gap; RFC 10027 §4.1.1 and §6.2.1.5 are cited for what they say.
 
 ## The 0.1 catalogue in 0.2 and 0.3
 
-There was never a separate list of problems in 0.2. The 0.2 upgrade marked the 64 findings of [spec-issues.md](spec-issues.md) "not blanket-closed by this upgrade" and asked for each to be checked against the text before it was cited again ([poppy-0.2-upgrade.md](poppy-0.2-upgrade.md#old-readings)); this is that check, for 0.2 at our 19 October pin (the frozen 0.2 has the same text) and for 0.3 at 06:13. Withdrawn findings (S6, S15, S21, N36, N37, N38) aren't listed. **Resolved** means the text now answers the finding, even where it chose differently from our suggested fix; **Partly** means part of it is answered; **Worse** means the new text makes it sharper.
+There was never a separate list of problems in 0.2. The 0.2 upgrade marked the 64 findings of [spec-issues.md](spec-issues.md) "not blanket-closed by this upgrade" and asked for each to be checked against the text before it was cited again ([poppy-0.2-upgrade.md](poppy-0.2-upgrade.md#old-readings)); this is that check, for 0.2 at our 19 October pin (the frozen 0.2 has the same text) and for 0.3 at 06:13 on 25 October. Checked again against the 26 October text: no grade changes. The new `refresh_token_expires_in` guide touches N28, but an unused token's early expiry is still invisible. Withdrawn findings (S6, S15, S21, N36, N37, N38) aren't listed. **Resolved** means the text now answers the finding, even where it chose differently from our suggested fix; **Partly** means part of it is answered; **Worse** means the new text makes it sharper.
 
 In 0.2: 16 resolved, 14 partly, 34 open. In 0.3: 21 resolved, 14 partly, 28 open, 1 worse.
 

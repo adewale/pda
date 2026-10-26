@@ -2,6 +2,8 @@
 
 A copy of [personalagentprotocol.org](https://personalagentprotocol.org) as published on 2026-10-25 at 06:13 UTC, so that what we say about the specification can be checked against the text it was written against. Made by `scripts/spec-snapshot.mjs --save`; `node scripts/spec-snapshot.mjs` compares the live site with the newest snapshot.
 
+The draft changed again by 26 October, when upstream's repository also gained the 0.3 text: [../draft-0.3-retrieved-2026-10-26](../draft-0.3-retrieved-2026-10-26/README.md).
+
 ## Attribution and license
 
 The Personal Agent Protocol specification and documentation, including their examples, are © their authors and licensed under the [Apache License 2.0](https://personalagentprotocol.org/license); a copy of the license is in [LICENSE](LICENSE). This is a copy of that work, changed only in form:

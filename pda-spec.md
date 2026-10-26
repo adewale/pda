@@ -10,7 +10,7 @@ The body and Appendix A retain the 0.1 baseline and its test references. This br
 
 The 0.2 changes are unreleased. Deployment statements below refer to the recorded 0.1 deployment; they do not establish a deployed 0.2 journey. See [the changelog](CHANGELOG.md) and [upgrade procedure](docs/upgrading.md) before promotion or rollback.
 
-Draft 0.3 is live on the protocol's site since 24 or 25 October 2026 and is not implemented here. 0.2 was published and frozen on 24 October with the text of the pinned revision. What 0.3 changes, where each change lands in this code and the order to do it in is [docs/poppy-0.3-upgrade.md](docs/poppy-0.3-upgrade.md); the problems we found in its text are [docs/spec-issues-0.3.md](docs/spec-issues-0.3.md); the text itself is in two snapshots from that day, [`spec/draft-0.3-retrieved-2026-10-25/`](spec/draft-0.3-retrieved-2026-10-25/README.md) and the later [`spec/draft-0.3-retrieved-2026-10-25T0613Z/`](spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md).
+Draft 0.3 is live on the protocol's site since 24 or 25 October 2026 and is not implemented here. 0.2 was published and frozen on 24 October with the text of the pinned revision. What 0.3 changes, where each change lands in this code and the order to do it in is [docs/poppy-0.3-upgrade.md](docs/poppy-0.3-upgrade.md); the problems we found in its text are [docs/spec-issues-0.3.md](docs/spec-issues-0.3.md); the text itself is in three snapshots, the newest [`spec/draft-0.3-retrieved-2026-10-26/`](spec/draft-0.3-retrieved-2026-10-26/README.md); upstream's commit `a95b757` has it too, not yet pinned.
 
 ## Summary
 
