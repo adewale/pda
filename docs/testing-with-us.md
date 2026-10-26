@@ -56,7 +56,7 @@ The live lane runs signed out unless you agree to more. For signed-in tests, we'
 - **A dedicated test account**, not anyone's real one, with every scope you offer and some data to read.
 - **A way to reset it** between runs, if an agent can change anything in it.
 - **A sign-in code we can get without a person**: a fixed code for a test phone number or email, or a test-only endpoint that returns it (Print with Poppy's sandbox has one).
-- **Which scenarios you agree to.** We record them in our registry (`liveScenarios`), and the runner refuses any other before sending a request.
+- **Which scenarios you agree to.** We record them in our registry (`liveScenarios`), and the runner refuses any other before sending a request. For conversations, the live lane runs `CL`: one message that says it is an automated test needing no reply or action, a read, a "Thanks", then a close. It leaves nothing open.
 
 Send passwords and fixed codes to the person who asked, directly, never in a shared thread. They live in an untracked local file, like our test identity's private key; nothing goes in the repository.
 

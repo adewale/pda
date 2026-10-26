@@ -1,6 +1,6 @@
 {
   "id": "CL",
-  "title": "Conversation at a live Company: a labelled test message, read, then close",
+  "title": "Conversation at a live Company: a labelled test message, read, a follow-up, then close",
   "requirements": ["7.2", "7.3", "7.5", "7.12"],
   "live": true,
   "needs": { "agent": ["discover", "send", "read", "close"] },
@@ -11,7 +11,9 @@
     { "expect": { "${m.conversation}": { "$exists": true }, "${m.message_id}": { "$exists": true } } },
     { "agent": "read", "params": { "conversation": "${m.conversation}", "wait": 2 }, "save": "r" },
     { "expect": { "${r.messages}": { "$some": { "role": "company" } }, "${r.cursor}": { "$exists": true } } },
-    { "agent": "close", "params": { "conversation": "${m.conversation}" }, "save": "c", "note": "Nothing is left open at a real Company (7.12)." },
+    { "agent": "send", "params": { "conversation": "${m.conversation}", "text": "Thanks" }, "save": "m2" },
+    { "expect": { "${m2.conversation}": "${m.conversation}" } },
+    { "agent": "close", "params": { "conversation": "${m.conversation}" }, "save": "c", "note": "Nothing is left open at a real Company (7.12). What happens to a conversation left open is CC, in the local grid." },
     { "expect": { "${c.status}": "closed" } }
   ]
 }
