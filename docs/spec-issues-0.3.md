@@ -8,10 +8,10 @@ None of this has been sent to the draft's authors. The project now has a public 
 
 ## How we read it
 
-- The whole of `0.3-spec.md` (1,423 lines, 182 RFC 2119 keyword sentences), the 0.3 section of the changelog, the 0.3 guides, Operations v1 and the Extensions page.
+- The whole of `0.3-spec.md` as it stood at 01:47 (1,423 lines, 182 RFC 2119 keyword sentences; 1,561 lines and 203 by 26 October), the 0.3 section of the changelog, the 0.3 guides, Operations v1 and the Extensions page.
 - A line-by-line diff of the 0.2 spec, guides and Operations against 0.3, to see what moved and what the changelog leaves out.
 - Every RFC number and section the new text cites, checked against the RFC Editor's text: RFC 10027 exists (Best Current Practice for Security of Cross-Device Flows, cited correctly for consent phishing); RFC 9700 §4.7 is Cross-Site Request Forgery and §2.3 is Access Token Privilege Restriction, both cited correctly; RFC 9728 §2, §3.3, §4 and §5.1 are what 3.2, 4.3 and 6 say they are; RFC 8414 §2 is quoted exactly; RFC 9449 §4.3, §5, §5.1, §7.1, §8, §10, §10.1 and §11.1 are the right sections; RFC 7009 §2.1 and RFC 8628 §3.5 are right; draft-ietf-wimse-aims exists (revision 00), its §8 and §10.4.2 not checked.
-- A search of every 0.3 page, including the home page's walkthroughs, for the constructs 0.3 removes: `session_id`, `signed_in`, `invalid_session`, `poppy_domains`, `custom_scopes`, `auth.direct`, `auth.device`, `poppy:read`, `poppy:write`, the browser assertion and `return_to`. None remains anywhere. Operations v1 is unchanged from 0.2 apart from its links and still agrees with the 0.3 spec.
+- A search of every 0.3 page, including the home page's walkthroughs, for the constructs 0.3 removes: `session_id`, `signed_in`, `invalid_session`, `poppy_domains`, `custom_scopes`, `auth.direct`, `auth.device`, `poppy:read`, `poppy:write`, the browser assertion and `return_to`. None remains anywhere. At 01:47, Operations v1 was unchanged from 0.2 apart from its links; it has changed twice since, under the same version ([T36](#t36)).
 - The frozen 0.2, published 24 October, is identical in text to our 19 October pin apart from relative links, so nothing here is a change we missed in 0.2.
 - A second, independent read of the same four pages by a reviewer given no other context, whose findings were checked against the text before being merged. Where both reads found the same thing it is listed once.
 - A third sweep on 26 October: every earlier finding checked against the new text by its quoted phrase, and the 31 upstream commits since our 0.2 pin read by title. Fixed since 06:13: [T9](#t9), [T10](#t10) and [T17](#t17); [T28](#t28) is partly answered in the guides. One correction to our own reading: the line above says RFC 9449 §7.1 is cited correctly, but 4.3's rule on a DPoP token sent with the `Bearer` scheme is §7.2, and upstream fixed the citation (line 453).
@@ -48,7 +48,7 @@ All three still stand on 26 October, and T36 has a second instance: Operations 4
 | Web browsing (5, 9.6) | [T6](#t6), [T15](#t15), [T29](#t29) |
 | APIs and conversations (6, 7) | [T25](#t25), [T30](#t30), [T31](#t31) |
 | Operations extension | [T24](#t24), [T36](#t36) |
-| Conversations, 26 October (7.4) | [T39](#t39) |
+| Found in the 26 October text | [T39](#t39), [T40](#t40), [T41](#t41), [T42](#t42), [T43](#t43) |
 | Security considerations and references (9, 10) | [T7](#t7), [T10](#t10) |
 | Guides | [T17](#t17), [T18](#t18) |
 
@@ -307,6 +307,32 @@ Line numbers in this section are in the [26 October snapshot](../spec/draft-0.3-
 *Fix.* Either require the image's host to be `organization.domain` or a subdomain, as 4.6 does for sign-in links, or say the Personal Agent fetches and serves the image itself, without the User's cookies or address, and SHOULD NOT load it in the User's browser directly.
 
 *Our reading.* Show the name, never the picture, until one of those holds.
+
+<a id="t40"></a>**T40. Without hints, can a Personal Agent tell what a scope allows?** Clarity, Low.
+
+4.4 (line 520): "The Company MUST describe each scope in `scopes_supported`, so the Personal Agent can choose the ones a task needs". Line 527, on the new `auth.scope_hints`: "A scope with no entry has no hints, and a Personal Agent can't tell what it allows." The two can't both hold: either the required description tells the agent what a scope allows, or it doesn't and the MUST is for nothing. The 25 October text said the first, "the Personal Agent relies on the descriptions to tell what each scope allows", and that sentence was removed when hints arrived. The guides then go a step further than either: "Treat a scope without hints as `irreversible` with personal data" (guides line 151), so a Company that describes a read-only scope well but gives no hints is treated as if it could cancel orders.
+
+*Fix.* "A scope with no entry has no hints; the Personal Agent judges it from its description." If the authors want agents to assume the worst without hints, say so in the spec, not only in the guides.
+
+<a id="t41"></a>**T41. 4.10's list of what Poppy adds to OAuth leaves out rules a stock server won't follow.** Editorial, Low.
+
+4.10 (line 833) offers "What a Company's authorization server needs beyond the specifications listed at the start of this section", and implementers will read it as a checklist. It leaves out at least: a Session assertion `aud` that is only the issuer, narrower than draft-ietf-oauth-rfc7523bis, which 4.2 (line 328) points out itself; `exp` at most five minutes after `iat` and per-`client_id` `jti` replay rejection (lines 329–330); mandatory `dpop_jkt` support (line 404) and mandatory replay rejection at the token endpoint (line 401), both optional in RFC 9449; mandatory ES256 (line 196); the `{"error": "rate_limited"}` body at the token endpoint (line 498), which isn't an OAuth error code; remembering ended Session Keys (line 370); and Token Exchange restricted to Bearer tokens for MCP servers (line 451), where 4.10 lists only the issuing side. An authorization server built to 4.10 alone fails several of 4.2's and 4.3's MUSTs.
+
+*Fix.* Add them, or say the list is a summary and 4.2 to 4.9 govern.
+
+<a id="t42"></a>**T42. A renewal that sends a different Agent ID has no defined answer.** Clarity, Low.
+
+4.2 (line 290): "A Session keeps the Agent ID it started with: when the Personal Agent renews the Session, it MUST send the same Agent ID, or none if it started without one." Nothing says what the Company does with a renewal that sends another one, or one where the Session had none: refuse with `invalid_grant`, ignore the new value, or start treating the Session as the other agent's. The Session record in 4.4 (line 559) doesn't list the Agent ID either, so a Company following 4.4 has nothing to compare against.
+
+*Fix.* Add the Agent ID to the Session record in 4.4, and have the Company return `invalid_grant` for a renewal whose Agent ID differs.
+
+<a id="t43"></a>**T43. After sign-out, Operations says to cancel, and also forbids it.** Interop, Medium.
+
+Operations 5.2 (line 263): "Once confirmed, the operation continues even if the Session Token expires or the User signs out. To stop it, the Personal Agent cancels it (section 7)." Operations 3.2 (line 109): an operation proposed signed in can be used by a Session "while that Session is signed in to the same account", and "A signed-out Session of the same Personal Agent and User gets `insufficient_scope`". Spec 4.9 (line 792): the Personal Agent "SHOULD NOT sign in to that account again unless the User asks". So once the User has signed out, the one way Operations gives to stop an operation in progress needs a sign-in the spec tells the agent not to make. A User who signs out because they changed their mind about a purchase can't stop it through the agent. This is separate from [T24](#t24), which is about whether the Company may stop the work itself.
+
+*Fix.* Let a signed-out Session of the same Personal Agent and User cancel (but not confirm or read) an operation it can no longer use, or say that signing out cancels operations that are still `proposed`.
+
+*Our reading.* Before revoking at sign-out, offer the User a list of operations still `proposed` or `in_progress`, and cancel the ones they choose while still signed in.
 
 ## Checked and found consistent
 
