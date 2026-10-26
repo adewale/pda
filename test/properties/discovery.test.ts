@@ -38,6 +38,19 @@ describe("discovery accepts every valid Company, as its documents say (3)", () =
   );
 
   it(
+    "discovers it with a blank display name too, which the validator reports and our client tolerates (S18)",
+    propertyAsync(async (tc) => {
+      const company = tc.draw(companies);
+      const name = tc.draw(gs.text({ alphabet: " \t", maxSize: 5 }));
+      const unnamed = { ...company, poppy: { ...company.poppy, organization: { ...company.poppy.organization, name } } };
+      expect((await discovered(unnamed)).issuer).toBe(company.poppy.auth.issuer);
+      const report = validateText("poppy", JSON.stringify(unnamed.poppy), { domain: company.requested });
+      expect(report.messages.filter((message) => message.severity === "error").map((message) => message.id)).toEqual(["organization-name-missing"]);
+      expect(report.refused).toBe(false);
+    })
+  );
+
+  it(
     "discovers it, keyed by its issuer, with the endpoints, sign-in types, APIs and extensions it lists",
     propertyAsync(async (tc) => {
       const company = tc.draw(companies);

@@ -73,7 +73,8 @@ export const companies = gs.composite<GeneratedCompany>((tc) => {
   const minor = 1;
   const poppy: Record<string, any> = {
     protocol_version: `0.${minor}`,
-    organization: { name: tc.draw(gs.text({ maxSize: 40 })), domain },
+    // A display name (3.1): anything with something to show. A blank one is organization-name-missing, an error, since 26 October 2026.
+    organization: { name: tc.draw(gs.text({ minSize: 1, maxSize: 40 }).filter((name) => name.trim() !== "")), domain },
     auth
   };
   const unknownProtocol = { type: "example.com/chat-v9", endpoint: `${api}/chat` };

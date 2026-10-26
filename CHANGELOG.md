@@ -18,6 +18,7 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 - Public About and ecosystem pages. About links to the GitHub project, the Validator and the ecosystem map; the map uses the repository's Markdown, keeps historical results in a disclosure and is linked only from About.
 - A signed-out MCP tool-listing scenario and four live 0.2 targets. [Live evidence](docs/live-0.2-testing.md) separates completed checks from those requiring sign-in.
 - The official Company validator now runs against Datalayer's two 0.2 SDK Companies as well as our mock, and in file mode in the validator cross-check, over 99 documents that declare 0.2. A flawed-Company lane (`npm run interop:flaws`) gives our mock one of ten known flaws at a time and records which checkers notice: the official validator, and our adversarial and strict agents. [`spec/official-checks-0.2.json`](spec/official-checks-0.2.json) maps each of the validator's 74 checks to ours. [The lanes](interop/vectors/official/README.md).
+- The interop runner checks that every token response carries `Cache-Control: no-store` (`company.token-no-store`, RFC 6749 5.1), a failure in any cell where it doesn't.
 - The live lane's conversation scenario is now `CL`: its greeting says it is a test needing no action, and it closes the conversation it opens. `C`, which leaves the conversation open, runs only in the local grid, and a new local scenario, `CC`, has the Company close a conversation the agent left open: the agent must see the close, get `conversation_closed` for a later message, and start a new conversation.
 
 - Explicit 0.1 and 0.2 profiles over the existing validator and client, with version and revision in validation reports and interop cells.
@@ -36,6 +37,8 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Fixed
 
+- The validator reports an API type other than `openapi` or `mcp` as an error in a 0.2 document too (section 6's MUST); our client still skips the API and uses the Company. The 0.2 profile had kept the information level meant for a document newer than the validator knew. `api-type-newer` is retired.
+- The validator reports a blank or whitespace-only `organization.name` as missing, as it does a missing one.
 - The adversarial agent (`evil-personal-agent`) signed its assertions for the token endpoint, so against a 0.2 Company, which wants the issuer, every attack failed before it was sent. It now uses the issuer from 0.2 on.
 - Live interop cells use the configured wire version and stop if discovery declares another version. Legacy live entries retain their 0.1 default.
 

@@ -258,9 +258,9 @@ The 32 documents where ours and poppy-validator differed on the first run, by ca
 
 ### Draft 0.2: ours against the official validator
 
-On 24 October the script gained the official Company validator (the pinned snapshot's CLI, `check --file`, in Docker with no network) and 99 documents that declare 0.2: the stored 0.2 specification's example, two of the original documents, and a 0.2 twin of every 0.1 document. File mode has no serving domain, so ours runs without one here. The 0.1 comparison above reran with the same counts.
+On 24 October the script gained the official Company validator (the pinned snapshot's CLI, `check --file`, in Docker with no network) and 99 documents that declare 0.2: the stored 0.2 specification's example, two of the original documents, and a 0.2 twin of every 0.1 document. File mode has no serving domain, so ours runs without one here. The 0.1 comparison above reran with the same counts on 24 October. After the 26 October fixes, ours agrees with poppy-validator on 89 of 107 and with poppy-sidecar on 76, all three on 68: three documents moved, a blank name (twice) and an unknown API type in a document declaring 0.2, which poppy-validator, written for 0.1, reads as a newer minor version.
 
-Ours and the official validator give the same verdict on 75 of 99. The 24 differences, by rule, checked against [the stored 0.2 draft](../spec/draft-0.2-2026-10-19/pages/spec.md):
+Ours and the official validator gave the same verdict on 75 of 99 on 24 October. Two of the differences were gaps in ours, fixed on 26 October; rerun, they agree on 78, and the 21 left are ours being stricter on 14 and the official schema on 7. All the differences found, by rule, checked against [the stored 0.2 draft](../spec/draft-0.2-2026-10-19/pages/spec.md):
 
 | Rule | Docs | Ours | Official | The 0.2 draft | Who's right |
 | --- | --- | --- | --- | --- | --- |
@@ -270,10 +270,10 @@ Ours and the official validator give the same verdict on 75 of 99. The 24 differ
 | An extension name without a domain prefix | 2 | error | accepted | "Anyone else MUST start an extension's name with a domain they control" (3.3) | Ours, by the MUST. |
 | `operations` without its `endpoint` | 1 | error | accepted | Ops 2 | Ours; the official validator doesn't check extensions' members. |
 | A mediated field listed twice | 1 | error | accepted | Silent | Ours, but on no text, as at 0.1. |
-| An API type other than `openapi` or `mcp` | 3 | info (`api-type-newer`) | error | "Each API's `type` MUST be one of these" (6); agents SHOULD skip unknown ones | **Official.** Our own policy is an error at a minor version we know ([conformance-levels.md](conformance-levels.md)), but the 0.2 profile passes `allowUnknownTypes` for every 0.2 document (`src/validator/profiles/draft-0.ts`), and a test asserts it. **Open: the owner's decision.** |
+| An API type other than `openapi` or `mcp` | 3 | was info (`api-type-newer`) | error | "Each API's `type` MUST be one of these" (6); agents SHOULD skip unknown ones | **Official, and fixed on 26 October.** The 0.2 profile had kept the info level meant for a document newer than the validator knew; it is now `api-type-unknown`, an error at every version we check, which our client still doesn't refuse. These three now agree. |
 | Empty `scopes`, `agent.protocols` or `mediated.fields` | 5 | warning | error | Silent on emptiness | The official JSON Schema's `minItems`, stricter than the text; ours warns. |
 | An extension `version` written as a number | 2 | warning | error | "the extension's major version" (3.3), no type; the examples are strings ([N22](spec-issues.md#n22)) | The schema says string, the text doesn't; N22 stands. |
-| A blank `organization.name` | 1 | accepted | error | `organization`: "Display name and domain", required | **Official: a gap in ours.** We report a missing name, not an empty one. |
+| A blank `organization.name` | 2 | `""`: was accepted; `"   "`: error | `""`: error; `"   "`: accepted | `organization`: "Display name and domain", required | **Fixed on 26 October:** ours now reports a blank or whitespace-only name as missing, so `""` agrees. The official schema's `minLength` still accepts spaces, so ours is stricter there. |
 
 The changes this suggests to our validator are in [implementations.md](implementations.md#what-we-can-learn-from-the-12-october-participants). Things only ours checks: the issuer's metadata beyond endpoints (auth methods, algorithms, PKCE, the `iss` parameter), client metadata and JWKS, size, content type, UTF-8, non-public hosts, and a secret-looking mediated field marked `secret: false`. Things only poppy-validator reports: an issuer's metadata found only at the appended location (`OA09`, a diagnostic for S3), an empty `apis` list, an uppercase domain, and `web` without a browser session endpoint.
 

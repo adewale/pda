@@ -29,14 +29,16 @@ For each flaw, one harness run checks the flawed mock with the official validato
 | `accept-bearer-scheme` | caught (`dpop.bearer-scheme`) | caught (`YS`) |
 | `accept-query-token` | caught (`dpop.token-in-url`) | nothing targets it |
 | `accept-token-endpoint-aud` | caught (`session.client-assertion-aud`) | **missed**: `YA` sends another Company's `aud`, not this one's token endpoint |
-| `token-cacheable` | caught, a warning (`session.no-store`, SHOULD) | **missed**: no Company-side check looks at `Cache-Control` |
+| `token-cacheable` | caught, a warning (`session.no-store`, SHOULD) | missed on 24 October; **caught since 26 October** (`S0`, the runner's `company.token-no-store`, a failure on RFC 6749 5.1's MUST) |
 | `retry-new-conversation` | caught (`conversations.retry-same-id`; also `message-id-conflict`) | caught (`CIDUP`) |
 | `accept-rotated-account-token` | nothing targets it (sign-in isn't automated) | caught (`YK`) |
+
+**26 October:** the runner's Company-side checks now include `company.token-no-store`, so every grid cell checks the token endpoint's `Cache-Control`; our own mocks pass it in all 111 cells of CI's grid. The other three flaws ours misses (a token-endpoint audience at 0.2, a proof for another URL, a token in the query) need an attack an agent of ours would have to send; we haven't added those, so for them the official validator, which CI runs against our mock, is our only check.
 
 Before this lane, the adversarial agent couldn't open a Session at a 0.2 Company at all: it signed both assertions for the token endpoint, and 0.2 wants the issuer, so every attack ended `error` before it was sent. It now uses the issuer from 0.2 on, as our client does (`interop/impls/pda-agent/attacks.ts`), and the runner's `YA` evidence accepts a baseline `aud` on the token endpoint's origin.
 
 ## What each official check maps to
 
-[`spec/official-checks-0.2.json`](../../../spec/official-checks-0.2.json) maps each of the 74 checks in the pinned catalog to what of ours would notice a Company breaking the same requirement: a validator message, a runner check, a scenario or an attack. 49 have something of ours behind them and 25 have nothing, mostly negative conversation checks (an empty message, an unknown cursor, a second close) and DPoP refusals no agent of ours provokes. `interop/test/official-coverage.test.ts` holds it to the catalog and checks that every reference exists. It doesn't judge whether either side's check is right; the flawed-Company lane does that for the security checks.
+[`spec/official-checks-0.2.json`](../../../spec/official-checks-0.2.json) maps each of the 74 checks in the pinned catalog to what of ours would notice a Company breaking the same requirement: a validator message, a runner check, a scenario or an attack. 50 have something of ours behind them and 24 have nothing, mostly negative conversation checks (an empty message, an unknown cursor, a second close) and DPoP refusals no agent of ours provokes. `interop/test/official-coverage.test.ts` holds it to the catalog and checks that every reference exists. It doesn't judge whether either side's check is right; the flawed-Company lane does that for the security checks.
 
 The other way round, the validator doesn't automate sign-in or Operations in this revision, which our grid covers with its hooks. Agreement is not certification: these lanes supplement the independent Python client, Datalayer's cases and the interop grid.

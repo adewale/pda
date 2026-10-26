@@ -136,10 +136,21 @@ describe("trace checks", () => {
         { url: `${API}/orders`, headers: { authorization: "DPoP t" }, status: 401, response: { error: "invalid_token" } },
         { url: `${API}/orders`, status: 429 },
         { url: TOKEN, form: { grant_type: "refresh_token" }, status: 400, response: "Bad Request" },
-        { url: TOKEN, form: { grant_type: "refresh_token" }, response: { access_token: "a", token_type: "DPoP" } }
+        { url: TOKEN, form: { grant_type: "refresh_token" }, response: { access_token: "a", token_type: "DPoP" }, responseHeaders: { "cache-control": "no-store" } }
       )
     );
     expect(ids(checks)).toEqual(["company.www-authenticate:error", "company.retry-after:error", "company.oauth-error-body:error", "company.token-response:error"]);
+  });
+
+  it("calls a token response a cache may keep an RFC 6749 failure (5.1: Cache-Control: no-store)", () => {
+    const tokens = { access_token: "a", token_type: "DPoP", expires_in: 3600, session_id: "s" };
+    const at = (responseHeaders: Record<string, string>) => ids(companyChecks(recording({ url: TOKEN, form: { grant_type: "refresh_token" }, response: tokens, responseHeaders })));
+    expect(at({})).toEqual(["company.token-no-store:error"]);
+    expect(at({ "cache-control": "max-age=60" })).toEqual(["company.token-no-store:error"]);
+    expect(at({ "cache-control": "no-store" })).toEqual([]);
+    expect(at({ "cache-control": "private, No-Store" })).toEqual([]);
+    // An error carries no token: nothing to keep.
+    expect(ids(companyChecks(recording({ url: TOKEN, form: { grant_type: "refresh_token" }, status: 400, response: { error: "invalid_grant" } })))).toEqual([]);
   });
 
   it("checks the shapes of events: JSON pages and streamed ids", () => {

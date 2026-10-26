@@ -127,7 +127,7 @@ The grid's mock (`MOCK_BASE`) no longer lists an API of type `graphql`. The conf
   - `jwks-kid-duplicate`.
 - Four became errors, and our client tolerates every one:
   - `json-bom` (RFC 8259 §8.1, MUST NOT);
-  - `api-type-unknown` (6's MUST; now an error only in a document whose minor version the validator knows, and info as `api-type-newer` in a newer one, per 3.1);
+  - `api-type-unknown` (6's MUST; now an error only in a document whose minor version the validator knows, and info as `api-type-newer` in a newer one, per 3.1. Since 26 October 2026 the validator checks only versions it knows, so it is an error in every document it checks, 0.2 included, and `api-type-newer` is retired);
   - `api-description-missing` (a Rule);
   - `organization-name-missing` (the "Req. Yes" `organization` is "Display name and domain": a Rule).
 - Four are new:
