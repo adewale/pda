@@ -639,7 +639,7 @@ No behaviour in `src/poppy` contradicts an unambiguous MUST; no behaviour was ch
 **Resolved** on 12 October 2026 by [docs/conformance-levels.md](../docs/conformance-levels.md). Every message names its basis, and its severity follows from it, so "invalid" means "breaks Draft 0.1 or an RFC it builds on". A separate `refuses` flag, and the report's `refused`, say what our client refuses. Our client therefore refuses the same documents as before, apart from the two changes listed in the policy.
 
 - **The Guides and reading errors** became warnings that our client still refuses. For the N9 members, `not-https-url-unstated` is now a separate message.
-- **`api-type-unknown`** is an error in a document whose minor version the validator knows; our client tolerates it and skips the API. In a newer minor version it is information, `api-type-newer`.
+- **`api-type-unknown`** is an error in a document whose minor version the validator knows; our client tolerates it and skips the API. In a newer minor version it is information, `api-type-newer`. (26 October 2026: the validator refuses versions it doesn't know, so there is no newer minor version left to check; `api-type-unknown` is an error at 0.2 too, and `api-type-newer` is retired.)
 - **Runner severities.** `token.unlisted-host` and `redirect.credentials-followed` are warnings.
 - **The runner checks on readings** are warnings, and a failure they cause is the spec's: `client-assertion.lifetime`, `.alg`, `.aud-array` and `.jti-missing`.
 - **YK** is `permitted_by: N5`.

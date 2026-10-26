@@ -24,6 +24,7 @@ import {
   type MockConfig,
   type ViolationId
 } from "./mock-company";
+import { COMPANY_FLAWS, type CompanyFlaw } from "./mock-company/types";
 import apisSource from "./mock-company/apis.ts?raw";
 import authSource from "./mock-company/auth.ts?raw";
 import conversationsSource from "./mock-company/conversations.ts?raw";
@@ -2379,5 +2380,105 @@ describe("the mock Company's other surfaces", () => {
       expect(after.headers.get("WWW-Authenticate")).toContain("sign_in_required");
       expect(state.recorded).toEqual([]);
     }
+  });
+});
+
+/**
+ * Company flaws (test/mock-company/types.ts `COMPANY_FLAWS`), for the
+ * flawed-Company lane (interop/vectors/official/flaws.mjs): each row asks
+ * whether the Company protected itself. The honest mock must; with the flaw,
+ * it must not. Otherwise a checker's "caught it" or "missed it" in that lane
+ * says nothing.
+ */
+const FLAW_CASES: Record<CompanyFlaw, { readonly config?: Partial<MockConfig>; readonly protects: (c: C) => Promise<boolean> }> = {
+  "accept-replayed-assertion": {
+    protects: async (c) => {
+      const assertion = await sessionAssertion(c);
+      expect((await startSession(c, await dpopKey(), { assertion })).status).toBe(200);
+      return (await startSession(c, await dpopKey(), { assertion })).status !== 200;
+    }
+  },
+  "accept-replayed-proof": {
+    protects: async (c) => {
+      const key = await dpopKey();
+      const dpop = await proof(key, "POST", c.hosts.tokenEndpoint);
+      expect((await startSession(c, key, { dpop })).status).toBe(200);
+      return (await startSession(c, key, { dpop })).status !== 200;
+    }
+  },
+  "accept-wrong-htu": {
+    protects: async (c) => {
+      const s = await signedOut(c);
+      return (await call(c, s, "GET", `${c.hosts.api}/products`, { proof: { claims: { htu: `${c.hosts.api}/orders` } } })).status !== 200;
+    }
+  },
+  "accept-other-key": {
+    protects: async (c) => {
+      const s = await signedOut(c);
+      const url = `${c.hosts.api}/products`;
+      return (await call(c, s, "GET", url, { proof: await proof(await dpopKey(), "GET", url, s.token) })).status !== 200;
+    }
+  },
+  "accept-bearer-scheme": {
+    protects: async (c) => {
+      const s = await signedOut(c);
+      return (await call(c, s, "GET", `${c.hosts.api}/products`, { auth: `Bearer ${s.token}`, proof: null })).status !== 200;
+    }
+  },
+  "accept-query-token": {
+    protects: async (c) => {
+      const s = await signedOut(c);
+      return (await c.call(`${c.hosts.api}/products?access_token=${encodeURIComponent(s.token)}`)).status !== 200;
+    }
+  },
+  "accept-token-endpoint-aud": {
+    config: { protocolVersion: "0.2" },
+    protects: async (c) => {
+      const assertion = await sessionAssertion(c, { claims: { aud: c.hosts.issuer } });
+      expect((await startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { aud: c.hosts.issuer } }), client: await clientAssertion(c.hosts.issuer) })).status).toBe(200);
+      return (await startSession(c, await dpopKey(), { assertion, client: await clientAssertion(c.hosts.tokenEndpoint) })).status !== 200;
+    }
+  },
+  "token-cacheable": {
+    protects: async (c) => (await startSession(c, await dpopKey())).headers.get("Cache-Control") === "no-store"
+  },
+  "retry-new-conversation": {
+    protects: async (c) => {
+      const s = await signedOut(c);
+      const first = message();
+      const ids = [];
+      for (let attempt = 0; attempt < 2; attempt++) ids.push(((await (await converse(c, s, first)).json()) as { conversation_id: string }).conversation_id);
+      return ids[0] === ids[1];
+    }
+  },
+  "accept-rotated-account-token": {
+    config: { rotateRefreshTokens: true },
+    protects: async (c) => {
+      const s = await signedIn(c);
+      const refresh = () => form(c, c.hosts.tokenEndpoint, { grant_type: "refresh_token", refresh_token: s.refreshToken, session_id: s.sessionId }, s.key);
+      expect((await refresh()).status).toBe(200);
+      return (await refresh()).status !== 200;
+    }
+  }
+};
+
+describe("Company flaws", () => {
+  it.each(COMPANY_FLAWS.map((flaw) => [flaw] as const))("%s: the honest mock protects itself, the flawed one doesn't", async (flaw) => {
+    const { config, protects } = FLAW_CASES[flaw];
+    const honest = company();
+    if (config) await honest.stub.configure(config);
+    expect(await protects(honest)).toBe(true);
+    const flawed = company();
+    await flawed.stub.configure({ ...config, flaws: [flaw] });
+    expect(await protects(flawed)).toBe(false);
+  });
+
+  it("still records what the agent did wrong when a flaw lets it through", async () => {
+    const c = company();
+    await c.stub.configure({ flaws: ["accept-replayed-assertion"] });
+    const assertion = await sessionAssertion(c);
+    await startSession(c, await dpopKey(), { assertion });
+    await startSession(c, await dpopKey(), { assertion });
+    expect((await c.stub.state()).recorded.map(violationId)).toEqual(["session-assertion.jti-reused"]);
   });
 });

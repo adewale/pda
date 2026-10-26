@@ -285,7 +285,11 @@ it("limits a live Company to the scenarios its entry allows: the real Print with
   const store = registry.implementations.find((entry) => entry.name === "print-with-poppy-live")!;
   expect(liveCompanyManifest(store, scenarios).scenarios).toEqual(["D"]);
   const alpine = registry.implementations.find((entry) => entry.name === "alpine-retail-live")!;
-  expect([...liveCompanyManifest(alpine, scenarios).scenarios].sort()).toEqual(["C", "D", "N", "S0"]);
+  expect([...liveCompanyManifest(alpine, scenarios).scenarios].sort()).toEqual(["CL", "D", "N", "S0"]);
+  // A real Company's conversation is closed when the test ends: CL runs live, ending with a close; C, which leaves it open, never does.
+  const live = scenarios.filter((scenario) => scenario.live);
+  expect(live.map((scenario) => scenario.id)).toContain("CL");
+  expect(live.filter((scenario) => scenario.steps.some((step) => "agent" in step && step.agent === "send") && !scenario.steps.some((step) => "agent" in step && step.agent === "close")).map((scenario) => scenario.id)).toEqual([]);
   const stacktree = registry.implementations.find((entry) => entry.name === "stacktree-live")!;
   expect(liveCompanyManifest(stacktree, scenarios).scenarios).toHaveLength(scenarios.length);
 });

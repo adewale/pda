@@ -15,7 +15,7 @@ const company: Company = {
   signIn: {}, customScopes: {}, apis: [], extensions: {}
 };
 
-async function execute(id: string, statuses: readonly number[], errors: readonly string[], nonces: readonly (string | undefined)[] = []) {
+async function execute(id: string, statuses: readonly number[], errors: readonly string[], nonces: readonly (string | undefined)[] = [], at: Company = company) {
   const { privateKey } = await generateKeyPair("ES256", { extractable: true });
   const key = { ...await exportJWK(privateKey), kid: "attack-key" };
   const records: Spec[] = [];
@@ -35,7 +35,7 @@ async function execute(id: string, statuses: readonly number[], errors: readonly
     agent: async (op) => {
       if (op === "arm") return { kind: "ok", result: { armed: id } };
       try {
-        const result = await runAttack(ctx, company, id, {});
+        const result = await runAttack(ctx, at, id, {});
         return toReply(200, result.poppy_error ? { ok: false, poppy_error: result.poppy_error, status: result.status } : { ok: true, result }, true);
       } catch (error) {
         if (error instanceof AttackSetupError) return toReply(500, { error: "attack_setup_failed", detail: error.message }, true);
@@ -139,6 +139,16 @@ describe("YA audience mutation", () => {
     expect(new Set(clients.map((claims) => claims.jti)).size).toBe(3);
     expect(decodeJwt(records[2]!.headers!.dpop!).nonce).toBe("n1");
     expect(forms[2]!.get("assertion")).not.toBe(forms[1]!.get("assertion"));
+  });
+
+  it("names the issuer in both assertions at a 0.2 Company, and its audience evidence still counts", async () => {
+    const v02: Company = { ...company, protocolVersion: "0.2" };
+    const { result, records } = await execute("YA", [200, 401], ["", "invalid_client"], [], v02);
+    expect(result.outcome).toBe("pass");
+    const forms = records.map((record) => new URLSearchParams(record.body));
+    expect(decodeJwt(forms[0]!.get("client_assertion")!).aud).toBe(company.issuer);
+    expect(decodeJwt(forms[0]!.get("assertion")!).aud).toBe(company.issuer);
+    expect(decodeJwt(forms[1]!.get("client_assertion")!).aud).toBe("https://auth.other.company.interop.test/oauth/token");
   });
 
   it("reports repeated nonce challenges during setup as an error rather than audience protection", async () => {

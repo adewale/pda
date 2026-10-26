@@ -41,9 +41,11 @@ const LOOKS_SECRET = /pass(word|code|phrase)?|\bpin\b|otp|one.?time|secret|secur
 export function checkOrganization(c: Checker, doc: Obj, requestedDomain: string | undefined): string | undefined {
   const organization = member<Obj>(c, doc, "", "organization", "object", true);
   if (!organization) return undefined;
-  member<string>(c, organization, "/organization", "name", "string", false);
+  const name = member<string>(c, organization, "/organization", "name", "string", false);
   if (!("name" in organization)) {
     c.report("organization-name-missing", "/organization/name", "organization.name, the Company's display name, is missing.");
+  } else if (name !== undefined && name.trim() === "") {
+    c.report("organization-name-missing", "/organization/name", "organization.name is blank, so there is no display name to show.");
   }
   const domain = member<string>(c, organization, "/organization", "domain", "string", true);
   unknownMembers(c, organization, "/organization", ["name", "domain"]);
@@ -171,7 +173,7 @@ export function checkAgent(c: Checker, agent: Obj): void {
   if (!poppy) c.report("no-poppy-protocol", "/agent/protocols", "agent.protocols has no entry of type poppy.");
 }
 
-export function checkApis(c: Checker, apis: unknown[], allowUnknownTypes = false): void {
+export function checkApis(c: Checker, apis: unknown[]): void {
   apis.forEach((entry, index) => {
     const at = `/apis/${index}`;
     if (!isObject(entry)) {
@@ -180,8 +182,7 @@ export function checkApis(c: Checker, apis: unknown[], allowUnknownTypes = false
     }
     const type = member<string>(c, entry, at, "type", "string", true, spec("6", "apis"));
     if (type !== undefined && !API_TYPES.includes(type)) {
-      if (allowUnknownTypes) c.report("api-type-newer", `${at}/type`, `Agents that don't know APIs of type ${JSON.stringify(type)} skip them.`);
-      else c.report("api-type-unknown", `${at}/type`, `${JSON.stringify(type)} isn't an API type of this version (openapi or mcp); agents skip it.`);
+      c.report("api-type-unknown", `${at}/type`, `${JSON.stringify(type)} isn't an API type of this version (openapi or mcp); agents skip it.`);
     }
     const url = httpsMember(c, entry, at, "url", true, spec("6", "apis"), OURS);
     const description = member<string>(c, entry, at, "description", "string", false, spec("6", "apis"));
@@ -247,7 +248,7 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
   const apis = member<unknown[]>(c, doc, "", "apis", "array", false);
   const web = member<Obj>(c, doc, "", "web", "object", false);
   if (agent) checkAgent(c, agent);
-  if (apis) checkApis(c, apis, c.protocolVersion === "0.2");
+  if (apis) checkApis(c, apis);
   const browserSession = web ? checkWeb(c, web) : false;
   if (!("agent" in doc) && !("apis" in doc) && !("web" in doc)) {
     c.report("nothing-offered", "", "poppy.json has none of agent, apis or web.");

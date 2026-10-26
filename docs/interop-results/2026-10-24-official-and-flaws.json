@@ -1,0 +1,623 @@
+{
+  "date": "2026-10-24",
+  "sourceBaseCommit": "38524e294a2ae81d6e3d3af5b800d73466a3f823",
+  "sourceState": "Working tree on claude/youthful-ramanujan-o0twci before commit; local Docker runs, no deployment, no live Company",
+  "protocolPin": {
+    "snapshot": "spec/draft-0.2-2026-10-19",
+    "protocolVersion": "0.2",
+    "revision": "2026-10-19",
+    "commit": "39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d",
+    "operationsVersion": "1",
+    "upstream": "https://github.com/personal-agent-protocol/personal-agent-protocol"
+  },
+  "lanes": {
+    "official": {
+      "command": "npm run interop:official",
+      "artifact": "interop/results/<run>/official-validator.json",
+      "companies": {
+        "lenient-company-v02": {
+          "total": {
+            "pass": 69,
+            "fail": 0,
+            "warn": 0,
+            "skip": 5
+          },
+          "failed": [],
+          "warned": []
+        },
+        "datalayer-ts-v02": {
+          "total": {
+            "pass": 69,
+            "fail": 0,
+            "warn": 0,
+            "skip": 5
+          },
+          "failed": [],
+          "warned": []
+        },
+        "datalayer-py-v02": {
+          "total": {
+            "pass": 69,
+            "fail": 0,
+            "warn": 0,
+            "skip": 5
+          },
+          "failed": [],
+          "warned": []
+        }
+      },
+      "skipped": [
+        "dpop.nonce",
+        "mcp.bearer-token",
+        "mcp.bearer-accepted",
+        "mcp.other-resource-rejected",
+        "mcp.bearer-elsewhere-rejected"
+      ]
+    },
+    "flaws": {
+      "command": "npm run interop:flaws",
+      "artifact": "interop/results/flaws-<time>/flaws.json",
+      "company": "lenient-company-v02",
+      "honest": [
+        {
+          "variant": "honest",
+          "official": {
+            "pass": 69,
+            "fail": 0,
+            "warn": 0,
+            "skip": 5
+          },
+          "officialFindings": [],
+          "ours": [
+            {
+              "agent": "strict-personal-agent",
+              "scenario": "S0",
+              "outcome": "pass"
+            },
+            {
+              "agent": "strict-personal-agent",
+              "scenario": "CIDUP",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YR",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YD",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YA",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YT",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YS",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YK",
+              "outcome": "pass"
+            }
+          ]
+        },
+        {
+          "variant": "requireNonce",
+          "official": {
+            "pass": 70,
+            "fail": 0,
+            "warn": 0,
+            "skip": 4
+          },
+          "officialFindings": [],
+          "ours": [
+            {
+              "agent": "strict-personal-agent",
+              "scenario": "S0",
+              "outcome": "pass"
+            },
+            {
+              "agent": "strict-personal-agent",
+              "scenario": "CIDUP",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YR",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YD",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YA",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YT",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YS",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YK",
+              "outcome": "pass"
+            }
+          ]
+        },
+        {
+          "variant": "bearerMcp",
+          "official": {
+            "pass": 70,
+            "fail": 0,
+            "warn": 0,
+            "skip": 4
+          },
+          "officialFindings": [],
+          "ours": [
+            {
+              "agent": "strict-personal-agent",
+              "scenario": "S0",
+              "outcome": "pass"
+            },
+            {
+              "agent": "strict-personal-agent",
+              "scenario": "CIDUP",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YR",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YD",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YA",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YT",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YS",
+              "outcome": "pass"
+            },
+            {
+              "agent": "evil-personal-agent",
+              "scenario": "YK",
+              "outcome": "pass"
+            }
+          ]
+        }
+      ],
+      "flaws": [
+        {
+          "flaw": "accept-replayed-assertion",
+          "official": {
+            "caught": true,
+            "expected": [
+              {
+                "id": "session.assertion-replay",
+                "status": "fail"
+              }
+            ],
+            "other": []
+          },
+          "ours": {
+            "caught": true,
+            "cells": [
+              {
+                "agent": "evil-personal-agent",
+                "scenario": "YR",
+                "outcome": "fail"
+              }
+            ]
+          }
+        },
+        {
+          "flaw": "accept-replayed-proof",
+          "official": {
+            "caught": true,
+            "expected": [
+              {
+                "id": "dpop.token-replay",
+                "status": "fail"
+              }
+            ],
+            "other": []
+          },
+          "ours": {
+            "caught": true,
+            "cells": [
+              {
+                "agent": "evil-personal-agent",
+                "scenario": "YD",
+                "outcome": "fail"
+              }
+            ]
+          }
+        },
+        {
+          "flaw": "accept-wrong-htu",
+          "official": {
+            "caught": true,
+            "expected": [
+              {
+                "id": "dpop.token-htu",
+                "status": "fail"
+              },
+              {
+                "id": "dpop.resource-htu",
+                "status": "fail"
+              }
+            ],
+            "other": []
+          },
+          "ours": {
+            "caught": false,
+            "cells": []
+          }
+        },
+        {
+          "flaw": "accept-other-key",
+          "official": {
+            "caught": true,
+            "expected": [
+              {
+                "id": "dpop.wrong-key",
+                "status": "fail"
+              }
+            ],
+            "other": []
+          },
+          "ours": {
+            "caught": true,
+            "cells": [
+              {
+                "agent": "evil-personal-agent",
+                "scenario": "YT",
+                "outcome": "fail"
+              }
+            ]
+          }
+        },
+        {
+          "flaw": "accept-bearer-scheme",
+          "official": {
+            "caught": true,
+            "expected": [
+              {
+                "id": "dpop.bearer-scheme",
+                "status": "fail"
+              }
+            ],
+            "other": []
+          },
+          "ours": {
+            "caught": true,
+            "cells": [
+              {
+                "agent": "evil-personal-agent",
+                "scenario": "YS",
+                "outcome": "fail"
+              }
+            ]
+          }
+        },
+        {
+          "flaw": "accept-query-token",
+          "official": {
+            "caught": true,
+            "expected": [
+              {
+                "id": "dpop.token-in-url",
+                "status": "fail"
+              }
+            ],
+            "other": []
+          },
+          "ours": {
+            "caught": false,
+            "cells": []
+          }
+        },
+        {
+          "flaw": "accept-token-endpoint-aud",
+          "official": {
+            "caught": true,
+            "expected": [
+              {
+                "id": "session.client-assertion-aud",
+                "status": "fail"
+              }
+            ],
+            "other": []
+          },
+          "ours": {
+            "caught": false,
+            "cells": [
+              {
+                "agent": "evil-personal-agent",
+                "scenario": "YA",
+                "outcome": "pass"
+              }
+            ]
+          }
+        },
+        {
+          "flaw": "token-cacheable",
+          "official": {
+            "caught": true,
+            "expected": [
+              {
+                "id": "session.no-store",
+                "status": "warn"
+              }
+            ],
+            "other": []
+          },
+          "ours": {
+            "caught": false,
+            "cells": [
+              {
+                "agent": "strict-personal-agent",
+                "scenario": "S0",
+                "outcome": "pass"
+              }
+            ]
+          }
+        },
+        {
+          "flaw": "retry-new-conversation",
+          "official": {
+            "caught": true,
+            "expected": [
+              {
+                "id": "conversations.retry-same-id",
+                "status": "fail"
+              },
+              {
+                "id": "conversations.retry-not-duplicated",
+                "status": "pass"
+              }
+            ],
+            "other": [
+              "fail:conversations.message-id-conflict"
+            ]
+          },
+          "ours": {
+            "caught": true,
+            "cells": [
+              {
+                "agent": "strict-personal-agent",
+                "scenario": "CIDUP",
+                "outcome": "fail"
+              }
+            ]
+          }
+        },
+        {
+          "flaw": "accept-rotated-account-token",
+          "official": {
+            "caught": false,
+            "expected": [],
+            "other": []
+          },
+          "ours": {
+            "caught": true,
+            "cells": [
+              {
+                "agent": "evil-personal-agent",
+                "scenario": "YK",
+                "outcome": "fail"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "validators": {
+      "command": "node interop/vectors/validators/run.mjs",
+      "pins": {
+        "poppy-validator": {
+          "repo": "tusharck/poppy-validator",
+          "commit": "d2220bfefb519f603bc2de6a4c5a63db04c660d3"
+        },
+        "poppy-sidecar": {
+          "repo": "habib-analyst/poppy-sidecar",
+          "commit": "858db66bcaa0cd26b3dbfec16ea5a8fb2055b8ef"
+        },
+        "official": {
+          "repo": "personal-agent-protocol/personal-agent-protocol",
+          "commit": "39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d",
+          "snapshot": "spec/draft-0.2-2026-10-19"
+        }
+      },
+      "draft01": {
+        "documents": 107,
+        "agree": {
+          "ours = poppy-validator": 92,
+          "ours = poppy-sidecar": 77,
+          "poppy-validator = poppy-sidecar": 78
+        },
+        "allThree": 70
+      },
+      "draft02": {
+        "documents": 99,
+        "agree": 75,
+        "differ": [
+          {
+            "name": "probe-api-type-unknown-0.2",
+            "source": "probe",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "issuer-query@0.2",
+            "source": "ours@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "issuer-fragment@0.2",
+            "source": "ours@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "mediated-fields-empty@0.2",
+            "source": "ours@0.2",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "operations-no-endpoint@0.2",
+            "source": "ours@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "probe-api-type-unknown-0.1@0.2",
+            "source": "probe@0.2",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "probe-scope-reserved@0.2",
+            "source": "probe@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "probe-scopes-empty@0.2",
+            "source": "probe@0.2",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "probe-protocols-empty@0.2",
+            "source": "probe@0.2",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "probe-extension-bad-prefix@0.2",
+            "source": "probe@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "probe-extension-version-integer@0.2",
+            "source": "probe@0.2",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "probe-name-blank@0.2",
+            "source": "probe@0.2",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "theirs-valid-with-extensions@0.2",
+            "source": "theirs/valid@0.2",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "theirs-invalid-agent-empty-protocols@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "theirs-invalid-agent-endpoint-unparseable@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "theirs-invalid-api-unknown-type@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "theirs-invalid-auth-issuer-invalid-host@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "theirs-invalid-auth-issuer-query@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "theirs-invalid-auth-issuer-unparseable@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "theirs-invalid-empty-scopes@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "valid",
+            "official": "invalid"
+          },
+          {
+            "name": "theirs-invalid-extension-bad-domain-prefix@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "theirs-invalid-mediated-duplicate-field@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "theirs-invalid-reserved-poppy-scope@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          },
+          {
+            "name": "theirs-invalid-resource-unparseable@0.2",
+            "source": "theirs/invalid@0.2",
+            "ours": "invalid",
+            "official": "valid"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -14,6 +14,7 @@ import worker from "../../src/index";
 import {
   DEFAULT_CONFIG,
   hostsFor,
+  type CompanyFlaw,
   type Hosts,
   type MockConfig,
   type MockRequest
@@ -243,6 +244,11 @@ export class Company {
     return this.#config;
   }
 
+  /** The Company has this flaw (`COMPANY_FLAWS`): one of its protections is off. */
+  flawed(flaw: CompanyFlaw): boolean {
+    return this.#config.flaws.includes(flaw);
+  }
+
   set config(config: MockConfig) {
     this.#config = config;
     this.hosts = hostsFor(this.id, { issuerTrailingSlash: config.issuerTrailingSlash, issuerPath: config.issuerPath });
@@ -331,7 +337,7 @@ export class Company {
     }
     if (seen.has(jti)) {
       this.violation(`${kind}.jti-reused`, `${kind}: reused jti ${jti}`);
-      return false;
+      return kind === "dpop" ? this.flawed("accept-replayed-proof") : (kind === "client-assertion" || kind === "session-assertion") && this.flawed("accept-replayed-assertion");
     }
     seen.add(jti);
     return true;
@@ -471,7 +477,7 @@ export class Company {
         this.accountTokens.has(value)
       ) {
         this.violation("secret.token-in-url", `token sent in URL ${inbound.url.href}`);
-        throw resourceError("DPoP", 401, "invalid_token");
+        if (!this.flawed("accept-query-token")) throw resourceError("DPoP", 401, "invalid_token");
       }
     }
   }
@@ -660,7 +666,12 @@ export class Company {
     if (this.config.clientAssertionAud === "token-endpoint" && typeof payload.aud === "string" && ours.includes(payload.aud) && payload.aud !== this.hosts.tokenEndpoint) {
       throw oauthError(401, "invalid_client", "client assertion aud must be the token endpoint");
     }
-    const audiences = this.config.protocolVersion === "0.2" ? [this.hosts.issuer] : exact ? [endpoint] : ours;
+    const audiences =
+      this.config.protocolVersion === "0.2"
+        ? [this.hosts.issuer, ...(this.flawed("accept-token-endpoint-aud") ? [this.hosts.tokenEndpoint] : [])]
+        : exact
+          ? [endpoint]
+          : ours;
     if (typeof payload.aud !== "string" || !audiences.includes(payload.aud)) {
       this.violation(
         "client-assertion.aud",
@@ -811,7 +822,8 @@ export class Company {
       throw fail("invalid_dpop_proof", `htm ${String(claims.htm)} != ${inbound.request.method}`, "dpop.htm");
     }
     if (claims.htu !== htu) {
-      throw fail("invalid_dpop_proof", `htu ${String(claims.htu)} != ${htu}`, "dpop.htu");
+      const error = fail("invalid_dpop_proof", `htu ${String(claims.htu)} != ${htu}`, "dpop.htu");
+      if (!this.flawed("accept-wrong-htu")) throw error;
     }
     // Proofs carry the agent's real time; the fake clock moves only request timing.
     const now = Math.floor(Date.now() / 1000);
@@ -949,7 +961,7 @@ export class Company {
         body.refresh_token_expires_in = Math.round((refresh.expiresAt - Date.now()) / 1000);
       }
     }
-    return json(body, 200, { "Cache-Control": "no-store", Pragma: "no-cache" });
+    return json(body, 200, this.flawed("token-cacheable") ? {} : { "Cache-Control": "no-store", Pragma: "no-cache" });
   }
 
   /**
@@ -981,6 +993,8 @@ export class Company {
     const dpopMcp = mcp && this.config.protocolVersion === "0.2" && this.config.mcpDpop;
     const scheme = mcp && !dpopMcp ? "Bearer" : "DPoP";
     const header = inbound.request.headers.get("Authorization");
+    const queried = inbound.url.searchParams.get("access_token");
+    if (!header && queried && this.flawed("accept-query-token")) return this.#context(this.accessTokens.get(queried), scheme, mcp, null);
     if (!header) {
       this.violation("resource.no-token", `request without a Session Token: ${inbound.request.method} ${inbound.url.href}`);
       throw resourceError(scheme, 401, "invalid_token");
@@ -1000,6 +1014,7 @@ export class Company {
     } else {
       if (given !== "DPoP") {
         this.violation("resource.bearer-scheme", `${given} token on ${inbound.url.pathname}; Bearer is only for MCP`);
+        if (given === "Bearer" && this.flawed("accept-bearer-scheme")) return this.#context(token, scheme, mcp, null);
         throw resourceError("DPoP", 401, "invalid_token");
       }
       if (token && token.kind !== "dpop") {
@@ -1007,6 +1022,20 @@ export class Company {
         throw resourceError("DPoP", 401, "invalid_token");
       }
     }
+    return this.#context(token, scheme, mcp, !mcp || dpopMcp ? { inbound, value } : null);
+  }
+
+  /**
+   * A presented Session Token's context: it must be live, for this resource,
+   * in a live Session, and (`proof`) sent with a proof from its own key. A
+   * flawed Company skips the proof.
+   */
+  async #context(
+    token: AccessToken | undefined,
+    scheme: "DPoP" | "Bearer",
+    mcp: boolean,
+    proof: { readonly inbound: Inbound; readonly value: string } | null
+  ): Promise<ResourceContext> {
     if (!token || (mcp && token.resource !== this.hosts.mcpUrl)) throw resourceError(scheme, 401, "invalid_token");
     if (token.expiresAt <= Date.now()) throw resourceError(scheme, 401, "invalid_token");
     const session = this.sessions.get(token.sessionId);
@@ -1016,11 +1045,11 @@ export class Company {
       }
       throw resourceError(scheme, 401, "invalid_token");
     }
-    if (!mcp || dpopMcp) {
-      const jkt = await this.verifyDpop(inbound, value);
+    if (proof) {
+      const jkt = await this.verifyDpop(proof.inbound, proof.value);
       if (jkt !== token.jkt) {
         this.violation("dpop.key-mismatch", "DPoP proof key isn't the key the token is bound to");
-        throw resourceError("DPoP", 401, "invalid_dpop_proof");
+        if (!this.flawed("accept-other-key")) throw resourceError("DPoP", 401, "invalid_dpop_proof");
       }
     }
     const latest = this.latestToken.get(`${session.id}|${token.kind}|${token.resource ?? ""}`);
