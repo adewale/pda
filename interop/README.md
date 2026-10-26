@@ -77,6 +77,8 @@ A public Company fetches the agent's `client_id`. The local lane's, on `pda.agen
 
 Then `npm run interop -- --lane live` prints `live identity: <origin>/poppy/interop/client.json` before it starts, and gives the `client_id` and key to our own agent's container only (the key through the docker CLI's environment, never its arguments). Without the file it prints why `S0`, `N` and `C` will fail, and runs as before. To turn the interop client off, set `INTEROP_LIVE_JWKS` back to `""` and deploy; both routes then answer 404. A Company that requires registration needs the interop client registered on its own: approving the real client doesn't cover it.
 
+Before any live run, the runner fetches the identity as a Company would and stops if the `client_id` document doesn't answer 200 as JSON naming itself, or its key set doesn't hold your key; nothing is sent to a Company then ([interop spec §10](../docs/interop-spec.md#10-lanes)). After a domain move, run `scripts/interop-live-identity.mjs` again so the file names the new origin.
+
 Static hosting can add a path prefix before `/poppy/interop/client.json`. The matching `jwks.json` must be beside that document. Set the full public `client_id` in the local identity file and metadata. Serve both as `application/json`; raw GitHub responses are `text/plain` and some Companies refuse them. See [the live 0.2 results](../docs/live-0.2-testing.md) for the tested setup.
 
 ### Docker hygiene
