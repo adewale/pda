@@ -43,7 +43,7 @@ function About() {
           <dd className="mt-2 leading-7 text-kumo-subtle">Check a Company’s discovery documents or a Personal Agent’s metadata and keys against the draft. No sign-in needed.</dd>
         </div>
         <div className="rounded-lg border border-kumo-line bg-kumo-base p-5">
-          <dt><a className="public-link inline-flex min-h-11 items-center text-lg font-semibold" href="/ecosystem">Ecosystem map <span aria-hidden className="ml-2">→</span></a></dt>
+          <dt><a className="public-link inline-flex min-h-11 items-center text-lg font-semibold" href="/about/ecosystem">Ecosystem map <span aria-hidden className="ml-2">→</span></a></dt>
           <dd className="mt-2 leading-7 text-kumo-subtle">Explore the agents, Companies, SDKs and tools around Poppy, with sources, observation dates and interoperability results.</dd>
         </div>
       </dl>
@@ -57,5 +57,14 @@ export default function PublicPage({ page }: { page: "about" | "ecosystem" }) {
   useEffect(() => {
     document.title = `${page === "about" ? "About" : "Ecosystem map"} · Poppy Demo Agent`;
   }, [page]);
-  return <Layout>{page === "about" ? <About /> : <Suspense fallback={<p role="status">Loading the ecosystem map…</p>}><Ecosystem /></Suspense>}</Layout>;
+  return <Layout>{page === "about" ? <About /> : <>
+    <nav aria-label="Breadcrumb" className="mb-6 text-sm text-kumo-subtle">
+      <ol className="flex flex-wrap items-center gap-2">
+        <li><a className="public-link" href="/about">About</a></li>
+        <li aria-hidden="true">/</li>
+        <li aria-current="page">Ecosystem</li>
+      </ol>
+    </nav>
+    <Suspense fallback={<p role="status">Loading the ecosystem map…</p>}><Ecosystem /></Suspense>
+  </>}</Layout>;
 }

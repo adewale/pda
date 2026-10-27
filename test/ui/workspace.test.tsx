@@ -110,7 +110,7 @@ describe("rail", () => {
   it("has the four places, marks the current one, and moves between them without reloading", () => {
     open("/");
     expect(screen.getByRole("link", { name: "About" }).getAttribute("href")).toBe("/about");
-    expect(document.querySelector('a[href="/ecosystem"]')).toBeNull();
+    expect(document.querySelector('a[href="/about/ecosystem"]')).toBeNull();
     const rail = screen.getByRole("navigation", { name: "Places" });
     const links = within(rail).getAllByRole("link");
     expect(links.map((link) => link.textContent)).toEqual(["Chat", "Activity", "Companies", "Settings"]);

@@ -94,7 +94,7 @@ The Worker turns a verified app session into the person's Durable Object and for
 
 | Product | Used for | Binding / config |
 | --- | --- | --- |
-| Workers + Static Assets | Worker and the Vite-built chat page | `assets` (binding `ASSETS`), `run_worker_first` for the page's own paths (`/`, `/activity`, `/companies`, `/settings`, handed to `ASSETS`), `/ws`, `/api/*`, `/auth/*`, `/logout`, `/poppy/*`, `/validator`, `/validator/*`. When `PUBLIC_ORIGIN` is a domain of its own, a request to the `workers.dev` host gets a 308 to the same path there, except `/poppy/*` (`canonicalRedirect`) |
+| Workers + Static Assets | Worker and the Vite-built pages | `assets` (binding `ASSETS`), `run_worker_first` for the page's own paths (`/`, `/activity`, `/companies`, `/settings`, `/about`, `/about/ecosystem`, handed to `ASSETS`), `/ws`, `/api/*`, `/auth/*`, `/logout`, `/poppy/*`, `/privacy`, `/validator`, `/validator/*`. When `PUBLIC_ORIGIN` is a domain of its own, a request to the `workers.dev` host gets a 308 to the same path there, except `/poppy/*` (`canonicalRedirect`) |
 | Durable Objects (SQLite) | `PersonalAgent` per person; `CompanyLimiter` per Company issuer; `DomainBudget` per demo budget domain | migrations `v1`, `v2` and `v3` |
 | Agents SDK | `PiHarness`, `Lifecycle` (capabilities and durable jobs on the object's alarm: Poppy's, pi's, reminders' and tasks'), `WebSockets`, Pi AI provider, `useAgent` | `agents` |
 | AI binding → AI Gateway | The demo lane: Claude Sonnet 5.5 on Unified Billing | `ai` binding `AI`; `DEMO_GATEWAY_ID` |
@@ -103,7 +103,7 @@ The Worker turns a verified app session into the person's Durable Object and for
 | Workers Logs | One wide event per request, turn, job and working page frame (Observability) | `observability`: logs on, `head_sampling_rate` 1, invocation logs and traces off |
 | Version metadata | The version id and tag on every wide event | `version_metadata` binding `CF_VERSION_METADATA` |
 
-**Settings.** No setting has a default. A missing one stops the request with a 500 that names it. Every route except the validator checks the deployment settings first (`src/deployment.ts`), so a copy nobody has configured fails closed.
+**Settings.** No setting has a default. A missing one stops the request with a 500 that names it. Page assets and the public validator are served before the deployment check; other Worker routes check the deployment settings first (`src/deployment.ts`), so an unconfigured copy cannot open an agent or sign someone in.
 
 | Name | Kind | Purpose |
 | --- | --- | --- |
@@ -333,7 +333,7 @@ The page lives in `src/ui/` (shell and routing, chat, transcript, the tool-line 
 
 The browser bootstrap (`src/main.tsx`) mounts the page component. The signed-out page (`src/client.tsx`) is a drawing and the sign-in buttons. A lake circle in an ink outline (your Personal Agent) is joined by one ink line through the Poppy flower to a Sierra green mountain (a Company Agent); the flower grows on a stem from the footer's rule, and the buttons sit either side of the stem, one for each provider the deployment offers. Below 640px wide the labels go and the shapes shrink. Beside the stem's root, above the footer, one sentence says what the agent is. The footer links About, the Personal Agent Protocol, the validator and the privacy policy.
 
-**Public information pages.** `/about` links to the GitHub source project, the Validator and `/ecosystem`. About is also linked from the signed-in sidebar footer. The ecosystem page is linked only from About, and renders `docs/ecosystem.md` from the build: the current summary first, then an expandable historical catalogue and results, with section links and horizontally scrollable tables. Repository-relative links resolve to GitHub; the Mermaid diagram links to its rendered source there. These pages load without an identity request or an agent socket; their code and the ecosystem Markdown load only when visited. Worker-first routing preserves the canonical-host redirect for both pages. This is built behavior, not a claim that it has been deployed.
+**Public information pages.** `/about` links to the GitHub source project, the Validator and `/about/ecosystem`. About is also linked from the signed-in sidebar footer. The ecosystem page is linked only from About, has an About breadcrumb, and renders `docs/ecosystem.md` from the build: the current summary first, then an expandable historical catalogue and results, with section links and horizontally scrollable tables. Repository-relative links resolve to GitHub; the Mermaid diagram links to its rendered source there. These pages load without an identity request or an agent socket; their code and the ecosystem Markdown load only when visited. Worker-first routing preserves the canonical-host redirect for both pages. The former `/ecosystem` path has no page or redirect and follows the app's unknown-path fallback. This is built behavior, not a claim that it has been deployed.
 
 - **Four places** in a rail that becomes a top bar and sheet on phones. Each has its own path (`/`, `/activity`, `/companies`, `/settings`), and the back button works.
 - **Chat.**

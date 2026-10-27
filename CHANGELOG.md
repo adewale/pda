@@ -15,7 +15,9 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Added
 
-- Public About and ecosystem pages. About links to the GitHub project, the Validator and the ecosystem map; the map uses the repository's Markdown, keeps historical results in a disclosure and is linked only from About.
+- A 23 October ecosystem refresh: 17 checked source heads, 28 dated public discovery/metadata results, Archon's new entry and current 0.2 declarations. Older Session results and grid scores retain their original dates.
+
+- Public About and ecosystem pages at `/about` and `/about/ecosystem`. About links to the GitHub project, the Validator and the ecosystem map; the map uses the repository's Markdown, keeps historical results in a disclosure and has an About breadcrumb. The map is linked only from About; `/ecosystem` has no page or redirect.
 - A signed-out MCP tool-listing scenario and four live 0.2 targets. [Live evidence](docs/live-0.2-testing.md) separates completed checks from those requiring sign-in.
 - The official Company validator now runs against Datalayer's two 0.2 SDK Companies as well as our mock, and in file mode in the validator cross-check, over 99 documents that declare 0.2. A flawed-Company lane (`npm run interop:flaws`) gives our mock one of ten known flaws at a time and records which checkers notice: the official validator, and our adversarial and strict agents. [`spec/official-checks-0.2.json`](spec/official-checks-0.2.json) maps each of the validator's 74 checks to ours. [The lanes](interop/vectors/official/README.md).
 - The interop runner checks that every token response carries `Cache-Control: no-store` (`company.token-no-store`, RFC 6749 5.1), a failure in any cell where it doesn't.

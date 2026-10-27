@@ -229,7 +229,7 @@ function AgentApp() {
 
 export function App() {
   const path = window.location.pathname.replace(/\/+$/, "");
-  if (path === "/about" || path === "/ecosystem") {
+  if (path === "/about" || path === "/about/ecosystem") {
     return <Suspense fallback={<p role="status" className="p-6">Loading…</p>}><PublicPage page={path === "/about" ? "about" : "ecosystem"} /></Suspense>;
   }
   return <AgentApp />;

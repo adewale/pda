@@ -19,7 +19,7 @@
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/", "/activity", "/companies", "/settings", "/about", "/ecosystem", "/ws", "/api/*", "/auth/*", "/logout", "/poppy/*", "/privacy", "/validator", "/validator/*"]
+    "run_worker_first": ["/", "/activity", "/companies", "/settings", "/about", "/about/ecosystem", "/ws", "/api/*", "/auth/*", "/logout", "/poppy/*", "/privacy", "/validator", "/validator/*"]
   },
   "durable_objects": {
     "bindings": [
