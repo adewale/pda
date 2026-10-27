@@ -27,9 +27,14 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 - Focused regression coverage for exact-version refusal, discovery redirects, issuer audiences, MCP DPoP/Bearer selection, approvals and cross-company prompt injection.
 - A 48-entry ledger accounts for every change in the pinned official changelog. CI verifies the snapshot and ledger; the importer refuses to overwrite snapshots.
 - An updated [ecosystem map](docs/ecosystem.md) and a [repeatable upgrade procedure](docs/upgrading.md).
+- Fake Personal Agents for the interop grid: `lenient-personal-agent` (the reference agent), `strict-personal-agent` (refuses any departure it finds, a SHOULD included, and reports it) and `sloppy-personal-agent` (the mistakes real agents make), our agent with a profile in the adapter's network seam ([interop-spec §2.1](docs/interop-spec.md#21-the-fake-implementations)). The lenient and strict ones run in the live lane; a live Company's `liveScenarios` limits what it is sent.
+- [Testing your Poppy implementation with ours](docs/testing-with-us.md), the page to send another project's maintainer.
+- Proof that an interop run tests what it says: before a live run the runner fetches the live identity as a Company would and stops if it doesn't answer or doesn't hold the runner's key, and before any cell each implementation's manifest must match its registry entry (profile, version, adversarial, and the identity it signs as) ([interop-spec §8.1](docs/interop-spec.md#81-what-the-run-is)).
 
 ### Changed
 
+- The interop harness's own implementations are renamed so the sets pair up: `pda-mock` is `lenient-company`, `pda-mock-strict` is `strict-company`, `pda-mock-v02` is `lenient-company-v02` and `evil-agent` is `evil-personal-agent`. Commands, known failures and CI use the new names; dated results keep the old.
+- Print with Poppy's grid pin moves to `3360d8b`, draft 0.2, with its `ALLOW_INTEROP_TEST_HOSTS` setting; its ordering scenario OU now passes.
 - Under 0.2, discovery checks the final serving host, preserving `www.`; domains sharing an issuer must agree on `auth`. Issuers remain exact strings and continue to key User IDs and Account Tokens.
 - Under 0.2, client and Session assertions name the issuer. The endpoint-audience fallback remains limited to 0.1. Assertions still live for one minute, within both versions' bounds.
 - MCP authentication follows the server's protected-resource metadata. DPoP-capable 0.2 servers receive proof-bound tokens; other MCP servers receive Bearer tokens bound to their exact resource URL.
