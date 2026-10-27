@@ -13,7 +13,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 ARG UPSTREAM=https://github.com/spenciefy/print-with-poppy.git
-ARG COMMIT=246727d546be752916ecc667a902a87e94df6674
+ARG COMMIT=3360d8bbbadbfe5c0553b9fbf68849fc78ad0eb9
 WORKDIR /opt/pwp
 RUN git clone --quiet "$UPSTREAM" . && git checkout --quiet --detach "$COMMIT"
 
@@ -28,7 +28,7 @@ WORKDIR /opt/pwp
 COPY --from=build /opt/pwp/package.json /opt/pwp/package-lock.json ./
 COPY --from=build /opt/pwp/node_modules ./node_modules
 COPY --from=build /opt/pwp/server ./server
-COPY --from=build /opt/pwp/src/offer.ts ./src/offer.ts
+COPY --from=build /opt/pwp/src/offer.ts /opt/pwp/src/ordering-method.ts ./src/
 RUN install -d -m 0755 /interop-adapter /data && chown node:node /data
 COPY --chmod=0644 adapter.mjs /interop-adapter/adapter.mjs
 
@@ -37,7 +37,7 @@ COPY --chmod=0644 adapter.mjs /interop-adapter/adapter.mjs
 # the run's CA through NODE_EXTRA_CA_CERTS, which the runner sets; the adapter passes it on.
 ENV PORT=8080 \
     ADAPTER_PORT=8081 \
-    INTEROP_COMMIT=246727d546be752916ecc667a902a87e94df6674
+    INTEROP_COMMIT=3360d8bbbadbfe5c0553b9fbf68849fc78ad0eb9
 USER node
 EXPOSE 8080 8081
 CMD ["node", "/interop-adapter/adapter.mjs"]

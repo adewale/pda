@@ -1,7 +1,7 @@
 /**
  * The adversarial Personal Agent's attacks (docs/adversarial-interop.md, Part B).
  * Interop-only: this file is bundled into the pda-agent image but runs only
- * when the adapter is armed (the `evil-agent` registry entry sets
+ * when the adapter is armed (the `evil-personal-agent` registry entry sets
  * `INTEROP_ADVERSARY=agent`). None of it is in `src/poppy`; it crafts raw
  * OAuth and resource requests with jose, over the recording proxy, to turn
  * the mock Company's `TAMPERS` checks (test/mock-company.test.ts) into wire
@@ -15,6 +15,7 @@
 import { base64url, calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT, type JWK } from "jose";
 import type { Company } from "../../../src/poppy/discovery.ts";
 import type { Fetcher } from "../../../src/poppy/fetch.ts";
+import { isDraft2 } from "../../../src/poppy/protocol-version.ts";
 
 const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
@@ -53,6 +54,9 @@ async function dpopKey() {
 }
 type DpopKey = Awaited<ReturnType<typeof dpopKey>>;
 
+/** Both assertions' `aud`: the issuer from 0.2 on, the token endpoint before it (as `src/poppy/client.ts`). */
+const audienceOf = (company: Company): string => (isDraft2(company) ? company.issuer : company.endpoints.token);
+
 async function clientAssertion(ctx: AttackContext, s: Signer, aud: string, id = jti()): Promise<string> {
   const issuedAt = now();
   return new SignJWT({ iss: ctx.clientId, sub: ctx.clientId, aud, iat: issuedAt, exp: issuedAt + 60, jti: id })
@@ -60,9 +64,9 @@ async function clientAssertion(ctx: AttackContext, s: Signer, aud: string, id = 
     .sign(s.key);
 }
 
-async function sessionAssertion(ctx: AttackContext, s: Signer, tokenEndpoint: string, sub = "usr_Q7c1vKx9TzLw3NdR5mHa2B", id = jti()): Promise<string> {
+async function sessionAssertion(ctx: AttackContext, s: Signer, aud: string, sub = "usr_Q7c1vKx9TzLw3NdR5mHa2B", id = jti()): Promise<string> {
   const issuedAt = now();
-  return new SignJWT({ iss: ctx.clientId, sub, aud: tokenEndpoint, iat: issuedAt, exp: issuedAt + 60, jti: id })
+  return new SignJWT({ iss: ctx.clientId, sub, aud, iat: issuedAt, exp: issuedAt + 60, jti: id })
     .setProtectedHeader({ alg: "ES256", typ: "JWT", kid: s.kid })
     .sign(s.key);
 }
@@ -99,12 +103,13 @@ function errorOf(status: number, body: unknown): Pick<AttackResult, "poppy_error
  */
 async function startSession(ctx: AttackContext, company: Company, key: DpopKey, sub = "usr_Q7c1vKx9TzLw3NdR5mHa2B") {
   const endpoint = company.endpoints.token;
+  const aud = audienceOf(company);
   const s = await signer(ctx.signingJwks);
   for (let attempt = 0; attempt < 3; attempt++) {
-    const assertion = await sessionAssertion(ctx, s, endpoint, sub);
+    const assertion = await sessionAssertion(ctx, s, aud, sub);
     const dpop = await proof(key, "POST", endpoint);
     const response = await post(ctx, endpoint,
-      { grant_type: JWT_BEARER, assertion, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) },
+      { grant_type: JWT_BEARER, assertion, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, aud) },
       { DPoP: dpop });
     const parsed = await bodyOf(response);
     const body = (parsed !== null && typeof parsed === "object" ? parsed : {}) as { error?: string; access_token?: string; session_id?: string };
@@ -130,26 +135,27 @@ async function finish(response: Response): Promise<AttackResult> {
  */
 export async function runAttack(ctx: AttackContext, company: Company, attack: string, params: Record<string, unknown>): Promise<AttackResult> {
   const endpoint = company.endpoints.token;
+  const aud = audienceOf(company);
   const s = await signer(ctx.signingJwks);
   switch (attack) {
     case "YR": {
       // Replay only the accepted Session assertion; the client assertion and proof are fresh.
       const session = await startSession(ctx, company, await dpopKey());
-      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: session.assertion, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: await proof(session.key, "POST", endpoint) }));
+      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: session.assertion, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, aud) }, { DPoP: await proof(session.key, "POST", endpoint) }));
     }
     case "YD": {
       // Replay the exact accepted proof; both other assertions are fresh. Never retry the attack.
       const session = await startSession(ctx, company, await dpopKey());
-      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, endpoint), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: session.dpop }));
+      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, aud), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, aud) }, { DPoP: session.dpop }));
     }
     case "YA": {
       // aud confusion: a client assertion minted for another Company presented here (4.1; client-assertion.aud).
       const foreign = typeof params.aud === "string" ? params.aud : "https://auth.other.company.interop.test/oauth/token";
-      if (foreign === endpoint) throw new AttackSetupError("Audience attack needs an audience different from the called endpoint");
+      if (foreign === aud) throw new AttackSetupError("Audience attack needs an audience other than this Company's own");
       const session = await startSession(ctx, company, await dpopKey());
       // The accepted baseline supplies the current nonce and proves the other
       // claims/key work. Fresh one-shot credentials isolate the wrong audience.
-      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, endpoint), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, foreign) }, { DPoP: await proof(session.key, "POST", endpoint) }));
+      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, aud), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, foreign) }, { DPoP: await proof(session.key, "POST", endpoint) }));
     }
     case "YT": {
       // Stolen token, another key: a Session Token with a proof from a different key (4.3; dpop.key-mismatch).
@@ -175,7 +181,7 @@ export async function runAttack(ctx: AttackContext, company: Company, attack: st
       )) as { refresh_token?: string };
       if (!signedIn.refresh_token) throw new AttackSetupError("Sign-in setup issued no Account Token");
       const refresh = async () =>
-        post(ctx, endpoint, { grant_type: "refresh_token", refresh_token: signedIn.refresh_token!, session_id: session.sessionId, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: await proof(session.key, "POST", endpoint) });
+        post(ctx, endpoint, { grant_type: "refresh_token", refresh_token: signedIn.refresh_token!, session_id: session.sessionId, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, aud) }, { DPoP: await proof(session.key, "POST", endpoint) });
       const first = await refresh();
       if (first.status !== 200) throw new AttackSetupError(`Refresh setup failed: HTTP ${first.status}`);
       return finish(await refresh());
@@ -212,7 +218,7 @@ export async function runAttack(ctx: AttackContext, company: Company, attack: st
       if (!signedIn.refresh_token) throw new AttackSetupError("Sign-in setup issued no Account Token");
       // A write Session Token from the Account Token.
       const refreshed = (await bodyOf(
-        await post(ctx, endpoint, { grant_type: "refresh_token", refresh_token: signedIn.refresh_token, session_id: session.sessionId, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, endpoint) }, { DPoP: await proof(session.key, "POST", endpoint) })
+        await post(ctx, endpoint, { grant_type: "refresh_token", refresh_token: signedIn.refresh_token, session_id: session.sessionId, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, aud) }, { DPoP: await proof(session.key, "POST", endpoint) })
       )) as { access_token?: string };
       if (!refreshed.access_token) throw new AttackSetupError("Refresh setup issued no write Session Token");
       const writeToken = refreshed.access_token;

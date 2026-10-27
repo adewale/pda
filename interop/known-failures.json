@@ -42,14 +42,14 @@
     },
     {
       "agent": "pi-poppy",
-      "company": "pda-mock-strict",
+      "company": "strict-company",
       "scenario": "*",
       "blame": "spec",
       "errors": [
         "invalid_grant"
       ],
       "issue": "https://github.com/richardanaya/pi-poppy/blob/11ea10630180740f16ccd507b8f90f69870c7e32/src/dpop.ts",
-      "reason": "Reading S2, blamed on the spec: pi-poppy's Session assertion (signSessionAssertion) has no typ \"JWT\", and it declares S2 any; pda-mock-strict declares jwt-60s and refuses the assertion with invalid_grant at the first Session. The lenient reference pda-mock accepts it."
+      "reason": "Reading S2, blamed on the spec: pi-poppy's Session assertion (signSessionAssertion) has no typ \"JWT\", and it declares S2 any; strict-company declares jwt-60s and refuses the assertion with invalid_grant at the first Session. The lenient reference lenient-company accepts it."
     },
     {
       "agent": "pi-poppy",
@@ -111,7 +111,7 @@
     },
     {
       "agent": "poppy-demo",
-      "company": "pda-mock",
+      "company": "lenient-company",
       "scenario": "*",
       "blame": [
         null,
@@ -121,11 +121,11 @@
         "discovery_failed"
       ],
       "issue": "https://github.com/adewale/pda/blob/main/interop/impls/poppy-demo-agent/README.md",
-      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; pda-mock's issuer is https://auth.pda-mock.company.interop.test (draft 3.2 allows both)."
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; lenient-company's issuer is https://auth.lenient-company.company.interop.test (draft 3.2 allows both)."
     },
     {
       "agent": "poppy-demo",
-      "company": "pda-mock-strict",
+      "company": "strict-company",
       "scenario": "*",
       "blame": [
         null,
@@ -135,7 +135,7 @@
         "discovery_failed"
       ],
       "issue": "https://github.com/adewale/pda/blob/main/interop/impls/poppy-demo-agent/README.md",
-      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; pda-mock-strict's issuer is https://auth.pda-mock-strict.company.interop.test (draft 3.2 allows both)."
+      "reason": "poppy-demo's caller requires auth.issuer to equal the Company origin and every endpoint on that origin; strict-company's issuer is https://auth.strict-company.company.interop.test (draft 3.2 allows both)."
     },
     {
       "agent": "poppy-demo",
@@ -164,35 +164,6 @@
     },
     {
       "agent": "poppy-demo",
-      "company": "print-with-poppy",
-      "scenario": "*",
-      "blame": [
-        null,
-        "agent"
-      ],
-      "errors": [
-        "discovery_failed"
-      ],
-      "issue": "https://github.com/irvinebroque/poppy-demo/blob/02a9b304e92fdfee465c57f2822742eecac8bdc8/workers/caller/src/session.ts#L178",
-      "reason": "print-with-poppy has no conversations, so its poppy.json has no agent member (optional; the validator passes it). poppy-demo's discovery reads d.agent.protocols for every Company and throws (action_failed) before any request after the OAuth metadata. Since upstream 260dbb4 the store has accounts and an authorization_endpoint, which poppy-demo also needed, so agent is the one member missing. Blame agent where the grid rule decides it (every other agent passes here)."
-    },
-    {
-      "agent": "adonis-agora",
-      "company": "print-with-poppy",
-      "scenario": "SO",
-      "blame": [
-        null,
-        "agent",
-        "spec"
-      ],
-      "errors": [
-        "internal_error"
-      ],
-      "issue": "https://github.com/spenciefy/print-with-poppy/blob/246727d546be752916ecc667a902a87e94df6674/server/index.ts#L241-L264",
-      "reason": "Reading S1, as at the other Companies reading S1 endpoint: adonis-agora's revocation request carries a client assertion whose aud is the token endpoint, and the store wants /oauth/revoke. The store answers 500 internal_error, not 401 invalid_client: its revoke route calls verifyAssertion (jose's jwtVerify) without the try/catch its token route has, so the refused assertion reaches the generic error handler. The grid rule blames the agent when every other agent passes; since Tipping Co's agent joined (13 Oct), which fails SO there too (no client_id), the cell is unattributed."
-    },
-    {
-      "agent": "poppy-demo",
       "company": "poppyseed",
       "scenario": "SO",
       "blame": null,
@@ -204,14 +175,14 @@
     },
     {
       "agent": "adonis-agora",
-      "company": "pda-mock-strict",
+      "company": "strict-company",
       "scenario": "*",
       "blame": "spec",
       "errors": [
         "invalid_client"
       ],
       "issue": "https://github.com/adewale/pda/blob/main/interop/impls/adonis-agora-agent/README.md",
-      "reason": "Reading S2, blamed on the spec: adonis-agora's poppy-client signs client and Session assertions without typ \"JWT\" and declares S2 any; pda-mock-strict declares jwt-60s and refuses them (mock violation client-assertion.typ). The lenient reference pda-mock accepts them."
+      "reason": "Reading S2, blamed on the spec: adonis-agora's poppy-client signs client and Session assertions without typ \"JWT\" and declares S2 any; strict-company declares jwt-60s and refuses them (mock violation client-assertion.typ). The lenient reference lenient-company accepts them."
     },
     {
       "agent": "adonis-agora",
@@ -290,7 +261,7 @@
         "invalid_session"
       ],
       "issue": "https://github.com/datalayer/personal-agent-protocol/blob/00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65/src/company/service.ts#L1009-L1016",
-      "reason": "After invalid_session, adonis-agora recovers by renewing with its Account Token and no session_id, which Poppy 4.8 says starts a new signed-in Session; Datalayer's TypeScript CompanyService requires a session_id on every refresh_token grant and answers invalid_session again. (pda-mock, pi-poppy, poppyseed and adonis-agora's Company accept it.)"
+      "reason": "After invalid_session, adonis-agora recovers by renewing with its Account Token and no session_id, which Poppy 4.8 says starts a new signed-in Session; Datalayer's TypeScript CompanyService requires a session_id on every refresh_token grant and answers invalid_session again. (lenient-company, pi-poppy, poppyseed and adonis-agora's Company accept it.)"
     },
     {
       "agent": "adonis-agora",
@@ -338,7 +309,7 @@
     },
     {
       "agent": "datalayer-ts",
-      "company": "pda-mock",
+      "company": "lenient-company",
       "scenario": "*",
       "blame": [
         null,
@@ -352,7 +323,7 @@
     },
     {
       "agent": "datalayer-ts",
-      "company": "pda-mock-strict",
+      "company": "strict-company",
       "scenario": "*",
       "blame": [
         null,
@@ -366,7 +337,7 @@
     },
     {
       "agent": "datalayer-py",
-      "company": "pda-mock",
+      "company": "lenient-company",
       "scenario": "*",
       "blame": [
         null,
@@ -380,7 +351,7 @@
     },
     {
       "agent": "datalayer-py",
-      "company": "pda-mock-strict",
+      "company": "strict-company",
       "scenario": "*",
       "blame": [
         null,
@@ -394,14 +365,14 @@
     },
     {
       "agent": "everruns",
-      "company": "pda-mock-strict",
+      "company": "strict-company",
       "scenario": "*",
       "blame": "spec",
       "errors": [
         "invalid_grant"
       ],
       "issue": "https://github.com/everruns/everruns/blob/aceb2e2fcfdf9c91022e390ee5efe5a773043bb2/crates/capabilities/src/capabilities/poppy_client/protocol.rs#L416-L422",
-      "reason": "Reading S2, blamed on the spec: everruns signs its Session assertion with no typ (start_session passes typ None; its client assertion has typ JWT), and declares S2 any; pda-mock-strict declares jwt-60s and refuses the assertion with invalid_grant at the first Session (S0, and the send that starts a Session in C and CI). The lenient reference pda-mock accepts it."
+      "reason": "Reading S2, blamed on the spec: everruns signs its Session assertion with no typ (start_session passes typ None; its client assertion has typ JWT), and declares S2 any; strict-company declares jwt-60s and refuses the assertion with invalid_grant at the first Session (S0, and the send that starts a Session in C and CI). The lenient reference lenient-company accepts it."
     },
     {
       "agent": "everruns",
@@ -412,7 +383,7 @@
         "invalid_grant"
       ],
       "issue": "https://github.com/everruns/everruns/blob/aceb2e2fcfdf9c91022e390ee5efe5a773043bb2/crates/capabilities/src/capabilities/poppy_client/protocol.rs#L416-L422",
-      "reason": "Reading S2, blamed on the spec: everruns signs its Session assertion with no typ (start_session passes typ None; its client assertion has typ JWT), and declares S2 any; poppy-demo declares jwt-60s and refuses the assertion with invalid_grant at the first Session (S0, and the send that starts a Session in C and CI). The lenient reference pda-mock accepts it."
+      "reason": "Reading S2, blamed on the spec: everruns signs its Session assertion with no typ (start_session passes typ None; its client assertion has typ JWT), and declares S2 any; poppy-demo declares jwt-60s and refuses the assertion with invalid_grant at the first Session (S0, and the send that starts a Session in C and CI). The lenient reference lenient-company accepts it."
     },
     {
       "agent": "everruns",
@@ -423,7 +394,7 @@
         "invalid_grant"
       ],
       "issue": "https://github.com/everruns/everruns/blob/aceb2e2fcfdf9c91022e390ee5efe5a773043bb2/crates/capabilities/src/capabilities/poppy_client/protocol.rs#L416-L422",
-      "reason": "Reading S2, blamed on the spec: everruns signs its Session assertion with no typ (start_session passes typ None; its client assertion has typ JWT), and declares S2 any; ilmer declares jwt-60s and refuses the assertion with invalid_grant at the first Session (S0, and the send that starts a Session in C and CI). The lenient reference pda-mock accepts it."
+      "reason": "Reading S2, blamed on the spec: everruns signs its Session assertion with no typ (start_session passes typ None; its client assertion has typ JWT), and declares S2 any; ilmer declares jwt-60s and refuses the assertion with invalid_grant at the first Session (S0, and the send that starts a Session in C and CI). The lenient reference lenient-company accepts it."
     },
     {
       "agent": "everruns",
@@ -467,7 +438,7 @@
         "invalid_client"
       ],
       "issue": "https://github.com/timothyohare/personal-agent-protocol/blob/fb7b4e64ad343d9406055a995f4beb06269c1ce6/packages/agent/src/company.ts#L124-L128",
-      "reason": "Tipping Co's agent sends no client_id at the token endpoint, only client_assertion_type and client_assertion (company.ts tokenRequest). RFC 7521 4.2 makes client_id optional beside a client assertion, since the assertion's iss and sub name the client; the draft never requires it, but every token request in its examples carries one. Every third-party Company in the grid but its own requires it (poppyseed: 'client_id is required'; pi-poppy fetches an undefined client_id; adonis-agora: 'private_key_jwt client authentication is required'), so the first Session fails with invalid_client. Our mocks accept it since 13 October, so pda-mock passes; at pda-mock-strict and poppy-demo the missing typ is blamed first, a reading (S2). Unattributed or blamed on the agent by the grid rule elsewhere, and on the Company for R at print-with-poppy and adonis-agora, where no other agent can judge rotation. Not an adapter choice: the adapter drives CompanyClient as it is."
+      "reason": "Tipping Co's agent sends no client_id at the token endpoint, only client_assertion_type and client_assertion (company.ts tokenRequest). RFC 7521 4.2 makes client_id optional beside a client assertion, since the assertion's iss and sub name the client; the draft never requires it, but every token request in its examples carries one. Every third-party Company in the grid but its own requires it (poppyseed: 'client_id is required'; pi-poppy fetches an undefined client_id; adonis-agora: 'private_key_jwt client authentication is required'), so the first Session fails with invalid_client. Our mocks accept it since 13 October, so lenient-company passes; at strict-company and poppy-demo the missing typ is blamed first, a reading (S2). Unattributed or blamed on the agent by the grid rule elsewhere, and on the Company for R at print-with-poppy and adonis-agora, where no other agent can judge rotation. Not an adapter choice: the adapter drives CompanyClient as it is."
     },
     {
       "agent": "tipping-co",
@@ -513,16 +484,6 @@
       "reason": "Reading S1, blamed on the spec: Tipping Co checks every client assertion's aud against its token endpoint, at /oauth/revoke too (token.ts authenticateClient, revoke.ts), and answers 401 invalid_client to an assertion whose aud is the revocation endpoint. Both Datalayer agents and pi-poppy send the endpoint called (S1 endpoint); pda did too, and since 13 October tries the token endpoint after that invalid_client and passes; adonis-agora and Tipping Co's own agent send the token endpoint and pass. The first signed-in Company in the grid with this reading."
     },
     {
-      "agent": "pda",
-      "company": "print-with-poppy",
-      "scenario": "OU",
-      "blame": "company",
-      "checks": [],
-      "errors": ["expect ${p.status}"],
-      "issue": "https://github.com/adewale/pda/blob/main/docs/spec-issues.md#s22",
-      "reason": "Since 13 October our agent sends a write straight to a Company with Operations only when every success response its description declares is a proposal that requires `operation` (S22, after an audit found an optional `operation` let a write skip the User's approval). print-with-poppy's proposeOrder declares one 202 whose schema has an `operation` property but no `required`, so our agent asks the User on its own card first and the step returns `held`, not the 202 OU expects. A one-line fix in its description (`required: [\"operation\"]`) restores the direct proposal."
-    },
-    {
       "agent": "pi-poppy",
       "company": "tipping-co",
       "scenario": "N",
@@ -546,6 +507,49 @@
       ],
       "issue": "https://github.com/irvinebroque/poppy-demo/blob/02a9b304e92fdfee465c57f2822742eecac8bdc8/workers/caller/src/session.ts#L178",
       "reason": "As at print-with-poppy: Tipping Co has no conversations, so its poppy.json has no agent member (optional), and poppy-demo's discovery reads d.agent.protocols for every Company and throws (action_failed) after the OAuth metadata."
+    },
+    {
+      "agent": "sloppy-personal-agent",
+      "company": "strict-company",
+      "scenario": "*",
+      "blame": "spec",
+      "errors": [
+        "invalid_client"
+      ],
+      "issue": "https://github.com/adewale/pda/blob/main/docs/interop-spec.md#21-the-fake-implementations",
+      "reason": "By design, reading S2: the sloppy fake agent sends assertions without typ that live 300 s and declares S2 lenient-300s; strict-company declares jwt-60s and refuses them with invalid_client at the first Session. The lenient reference lenient-company accepts them."
+    },
+    {
+      "agent": "sloppy-personal-agent",
+      "company": "lenient-company-v02",
+      "scenario": "*",
+      "protocolVersion": "0.2",
+      "blame": "agent",
+      "checks": [
+        "client-assertion.aud",
+        "session-assertion.aud"
+      ],
+      "errors": [
+        "invalid_client"
+      ],
+      "issue": "https://github.com/adewale/pda/blob/main/docs/interop-spec.md#21-the-fake-implementations",
+      "reason": "By design: the sloppy fake agent names the token endpoint as both assertions' aud, a 0.1 habit; draft 0.2 requires the issuer, and lenient-company-v02 refuses the token request with invalid_client."
+    },
+    {
+      "agent": "sloppy-personal-agent",
+      "company": "print-with-poppy",
+      "scenario": "*",
+      "protocolVersion": "0.2",
+      "blame": "agent",
+      "checks": [
+        "client-assertion.aud",
+        "session-assertion.aud"
+      ],
+      "errors": [
+        "invalid_client"
+      ],
+      "issue": "https://github.com/adewale/pda/blob/main/docs/interop-spec.md#21-the-fake-implementations",
+      "reason": "By design: the sloppy fake agent names the token endpoint as both assertions' aud, a 0.1 habit; draft 0.2 requires the issuer, and print-with-poppy (0.2 since its pin moved to 3360d8b) refuses the token request with invalid_client."
     }
   ]
 }

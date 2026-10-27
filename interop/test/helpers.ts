@@ -102,6 +102,7 @@ export function sessionStart(at = 0, overrides: { client?: string; assertion?: s
       client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       client_assertion: overrides.client ?? clientAssertion()
     },
-    response: { access_token: "at_session_token_1", token_type: "DPoP", expires_in: 3600, session_id: "ses_1", signed_in: false }
+    response: { access_token: "at_session_token_1", token_type: "DPoP", expires_in: 3600, session_id: "ses_1", signed_in: false },
+    responseHeaders: { "cache-control": "no-store" }
   };
 }

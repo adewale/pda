@@ -35,10 +35,11 @@ Back to the [README](../README.md) · Why it's built this way: [decisions.md](de
   - [x] The OAuth apps: Google's client lists `https://poppydemoagent.dev/auth/google/callback`, and the GitHub OAuth App's one callback URL is `https://poppydemoagent.dev/auth/github/callback` (`callbackUrl` in `src/oauth.ts` builds it from the request's origin). Sign-in on the new domain works (the owner, 15 October). Still to check on Google's consent screen: the app domain, privacy link and authorized domains name the new domain.
   - [ ] Tell print-with-poppy and Todd (Alpine) the switch has happened: print-with-poppy to allowlist `https://poppydemoagent.dev/poppy/client.json`, Alpine to accept it and the interop identity at `https://poppydemoagent.dev/poppy/interop/client.json`.
   - [ ] Everyone signs in again (the session cookie belonged to the old host), signs in again at each Company (its tokens were issued to the old `client_id`), turns notifications on again (a push subscription belongs to the origin's service worker), and on an iPhone adds the app to the Home Screen again.
-  - [ ] The live lane against Alpine again, with the interop identity on the new domain, once Alpine accepts it.
+  - [x] The live lane against Alpine again, with the interop identity on the new domain: D, S0, N and C pass for `pda` and the lenient and strict fakes (24 October; [live-0.2-testing.md](live-0.2-testing.md#live-tests--24-october-2026-the-identity-on-poppydemoagentdev)). Print with Poppy's sandbox opens a signed-out Session for it too.
+  - [ ] Tell Todd (Alpine) that the live lane's conversation scenario is now `CL` in place of `C`: the same message, now labelled as a test, and a "Thanks", then the conversation is closed ([live-0.2-testing.md](live-0.2-testing.md)).
   - [ ] Once nothing links to the `workers.dev` host any more, turn it off for the Worker in the dashboard; `canonicalRedirect` can then go.
 
-- [x] **Owner. `npm run deploy`.** It builds, checks the build names an owner and an origin, then deploys. Last run 13 October, version `1be0ec91` (commit `affcefd`).
+- [x] **Owner. `npm run deploy`.** It builds, checks the build names an owner and an origin, then deploys. Last run 23 October, version `de63f442` (commit `afe8f1e`).
 
 ## 2. Live checks
 

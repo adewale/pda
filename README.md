@@ -68,6 +68,7 @@ Signing in for the first time, with a run-through that checks each part works: [
 - **Adversarial testing.** A malicious agent and a malicious Company attack our own implementations: oversized documents, nonce loops, terms swapped at confirm, forged messages and more ([docs/adversarial-interop.md](docs/adversarial-interop.md)). The malicious Company may also attack other projects' agents in our own containers; what it finds goes to their maintainers privately first ([SECURITY.md](SECURITY.md)).
 - **Cross-checks.** Our validator runs against two other open validators on the same 107 documents ([the tool](interop/vectors/validators/README.md), [results](docs/interop-testing.md#validator-cross-check)), and our client against Datalayer's language-neutral conformance cases ([results](interop/vectors/datalayer/README.md)). A second client, written in Python from the draft's text, drives stateful property tests of our mock Company ([test/hypothesis](test/hypothesis/README.md)).
 - **Findings in your code** go to you privately first, as [SECURITY.md](SECURITY.md) describes. Nothing is posted to another project without the owner's approval.
+- **What we need from you, and what we never do:** [docs/testing-with-us.md](docs/testing-with-us.md), the page to send a maintainer whose Company or agent we test: the identities to register, what the offline grid needs from your code, test accounts for signed-in tests.
 
 ## For the draft's authors: what we found
 
@@ -117,7 +118,7 @@ npm test                         # five suites + documentation references; no ex
 npm run typecheck
 npm run check:docs               # standalone reference check; already included in npm test
 npm run validate -- example.com  # the validator CLI
-npm run interop -- --agents pda --companies pda-mock   # the grid, in Docker
+npm run interop -- --agents pda --companies lenient-company   # the grid, in Docker
 ```
 
 To deploy your own copy, follow [docs/setup.md](docs/setup.md) in the order [docs/deployment-tasks.md](docs/deployment-tasks.md) gives.

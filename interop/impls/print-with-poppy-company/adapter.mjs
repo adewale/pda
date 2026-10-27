@@ -1,5 +1,5 @@
 // Interop adapter (docs/interop-spec.md 5.1, 5.3) for print-with-poppy, an agent-first
-// photo-print store (spenciefy/print-with-poppy), pinned at 246727d (13 Oct).
+// photo-print store (spenciefy/print-with-poppy), pinned at 3360d8b (24 Oct), draft 0.2.
 //
 // Starts the store (server/index.ts under tsx) on PORT (8080) in its demo mode and serves
 // the control API on ADAPTER_PORT (8081). The store offers signed-out Sessions and, since
@@ -22,7 +22,7 @@ const ADAPTER_PORT = Number(process.env.ADAPTER_PORT ?? 8081);
 // The runner sets INTEROP_ORIGIN (spec section 3); the default is for running by hand.
 const ORIGIN = (process.env.INTEROP_ORIGIN ?? 'https://print-with-poppy.company.interop.test').replace(/\/+$/, '');
 const SECRET = process.env.INTEROP_SECRET ?? '';
-const COMMIT = process.env.INTEROP_COMMIT ?? '246727d546be752916ecc667a902a87e94df6674';
+const COMMIT = process.env.INTEROP_COMMIT ?? '3360d8bbbadbfe5c0553b9fbf68849fc78ad0eb9';
 const APP_DIR = '/opt/pwp';
 const DATA = '/data/pwp';
 const INNER = `http://127.0.0.1:${PORT}`;
@@ -32,12 +32,18 @@ const INNER = `http://127.0.0.1:${PORT}`;
 // <name>.agent.interop.test. AGENT_CLIENT_IDS (comma-separated) replaces the list.
 const GRID_AGENTS = [
   'https://pda.agent.interop.test/poppy/client.json',
+  'https://lenient-personal-agent.agent.interop.test/poppy/client.json',
+  'https://strict-personal-agent.agent.interop.test/poppy/client.json',
+  'https://sloppy-personal-agent.agent.interop.test/poppy/client.json',
   'https://datalayer-ts.agent.interop.test/agent.json',
   'https://datalayer-py.agent.interop.test/agent.json',
+  'https://datalayer-ts-v02.agent.interop.test/agent.json',
+  'https://datalayer-py-v02.agent.interop.test/agent.json',
   'https://pi-poppy.agent.interop.test/agent.json',
   'https://poppy-demo.agent.interop.test/agent.json',
   'https://adonis-agora.agent.interop.test/agent.json',
-  'https://everruns.agent.interop.test/api/v1/poppy/agent.json'
+  'https://everruns.agent.interop.test/api/v1/poppy/agent.json',
+  'https://tipping-co.agent.interop.test/agent.json'
 ];
 const AGENT_CLIENT_IDS = process.env.AGENT_CLIENT_IDS || GRID_AGENTS.join(',');
 
@@ -46,7 +52,8 @@ const MANIFEST = {
   name: 'print-with-poppy',
   role: 'company',
   commit: COMMIT,
-  poppy: ['0.1'],
+  // Since its 0.2 migration the store speaks only 0.2: a 0.1 assertion addressed to an endpoint is refused.
+  poppy: ['0.2'],
   extensions: ['operations'],
   // OU is the store's own path: a multipart photo upload, then POST /api/orders proposes an
   // operation in the signed-out Session, which the agent confirms once its User approves.
@@ -55,12 +62,10 @@ const MANIFEST = {
   // proposes. No conversations (C, CI, CS, SE), Device Sign-In (SV, SXV) or nonces (N).
   scenarios: ['D', 'S0', 'OU', 'CM', 'SD', 'SX', 'SMC', 'SO', 'AO', 'AS', 'R'],
   readings: {
-    // A client assertion's aud must be exactly the endpoint it is sent to: the token
-    // endpoint at /oauth/token, the revocation endpoint at /oauth/revoke (a string, not an array).
-    S1: 'endpoint',
-    // Any typ (only poppy-browser+jwt is refused), at most 120 s (exp - iat <= 120, iat no
-    // older than 120 s).
-    S2: 'lenient-120s',
+    // A client or Session assertion's aud must be exactly the issuer, its origin (0.2).
+    S1: 'issuer',
+    // Any typ (only poppy-browser+jwt is refused), at most 300 s (exp - iat <= 300), 0.2's maximum.
+    S2: 'lenient-300s',
     // The issuer is the bare origin, so both metadata locations are the same URL.
     S3: 'either',
     // A signed-out Session request carrying a scope is refused, 400 invalid_scope ("Account
@@ -69,6 +74,7 @@ const MANIFEST = {
   },
   relaxations: [
     'APP_MODE=demo, upstream\'s local mode: payments, print orders and email are simulated in process, prices are illustrative, and no Stripe, Prodigi or Resend client is configured. Demo mode also serves the store\'s own browser demo (/api/demo/*, the Demo authorization scheme, its built-in demo agent), which no grid agent uses.',
+    'ALLOW_INTEROP_TEST_HOSTS=true, upstream\'s own setting for this grid (since 3360d8b): its private-address check lets an agent\'s client metadata and keys be fetched from a private address only when the host name ends in .interop.test. Off by default, and the store refuses to start with it outside demo mode, on a non-.interop.test origin, on Cloudflare or with provider credentials.',
     'Sign-in codes: demo mode stores each code email in the store\'s SQLite (kind demo-signin-email) instead of sending it, and the adapter reads the code from there for the person signing in (approve_authorization, deny_authorization, last_one_time_code). expire_tokens rewrites the expiry of the store\'s Session Token records.'
   ]
 };
@@ -93,8 +99,10 @@ function startApp() {
       PUBLIC_URL: ORIGIN,
       DATA_DIR: DATA,
       AGENT_CLIENT_IDS,
-      // Patch 0001: off, so only native Poppy Sessions reach the API (no Bearer guest tokens).
-      ALLOW_COMPAT_AGENT_SESSIONS: 'false'
+      // Off, so only native Poppy Sessions reach the API (no Bearer guest tokens).
+      ALLOW_COMPAT_AGENT_SESSIONS: 'false',
+      // Upstream's grid setting: agents' metadata on *.interop.test names may be at private addresses.
+      ALLOW_INTEROP_TEST_HOSTS: 'true'
     }
   });
   child.on('error', e => console.error(`[adapter] could not start the store: ${e.message}`));

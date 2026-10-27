@@ -13,6 +13,8 @@
  * its public-host check, and Node trusts the run's CA via NODE_EXTRA_CA_CERTS.
  * `INTEROP_FAULT` breaks the agent on purpose, to prove attribution; it lives
  * only here, in the adapter's network seam, never in src/poppy.
+ * `INTEROP_AGENT_PROFILE` makes it one of the fake Personal Agents
+ * (`lenient`, `strict` or `sloppy`; profiles.ts), in the same seam.
  * In the live lane, `INTEROP_LIVE_CLIENT_ID` and `INTEROP_LIVE_KEY` give it
  * the interop test client our deployed Worker publishes (live-identity.ts).
  */
@@ -48,16 +50,21 @@ import { rows } from "../../../src/rows.ts";
 import type { Card } from "../../../src/poppy/wire.ts";
 import { ATTACKS, AttackSetupError, runAttack, type AttackContext } from "./attacks.ts";
 import { LiveIdentityClient, liveIdentityFrom } from "./live-identity.ts";
+import { changedClaims, Endpoints, lenientFetch, PROFILE_READINGS, profileFrom, sloppyRequest, StrictObserver, StrictRefusal, type Resign } from "./profiles.ts";
 
 const NAME = process.env.INTEROP_NAME ?? "pda";
-/** Interop-only: the adversarial Personal Agent (`evil-agent`). Off unless the registry sets it. */
+/** Interop-only: the adversarial Personal Agent (`evil-personal-agent`). Off unless the registry sets it. */
 const ADVERSARY = process.env.INTEROP_ADVERSARY === "agent";
+/** Interop-only: a fake Personal Agent's profile (profiles.ts). Off unless the registry sets it. */
+const PROFILE = profileFrom(process.env.INTEROP_AGENT_PROFILE);
+if (PROFILE && ADVERSARY) throw new Error("A fake Personal Agent's profile and the adversary don't mix");
 const SECRET = setting("INTEROP_SECRET");
 /** Live lane only: the interop test client's public client_id and its key, from the runner (live-identity.ts). */
 const LIVE = liveIdentityFrom({ INTEROP_LIVE_CLIENT_ID: process.env.INTEROP_LIVE_CLIENT_ID ?? "", INTEROP_LIVE_KEY: process.env.INTEROP_LIVE_KEY ?? "" });
 // Read once; nothing else in this process needs the key in its environment.
 delete process.env.INTEROP_LIVE_KEY;
 if (LIVE && ADVERSARY) throw new Error("The adversarial agent never takes the live identity");
+if (LIVE && PROFILE === "sloppy") throw new Error("The sloppy fake agent never takes the live identity");
 const ORIGIN = LIVE?.origin ?? process.env.INTEROP_ORIGIN ?? `https://${NAME}.agent.interop.test`;
 const COMMIT = process.env.INTEROP_COMMIT ?? "unknown";
 /** Interop-only: break the agent on purpose. `assertion-typ` drops `typ` from client and Session assertions. */
@@ -73,20 +80,25 @@ const MANIFEST = {
   scenarios: ADVERSARY
     ? [...ATTACKS]
     : [
-        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
+        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
         "H", "DC", "W", "O2", "CM", "ML",
         // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
         "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE", "XR", "XT"
       ],
   // S1 "endpoint": a client assertion's aud is the endpoint it is sent to, then, after an invalid_client at the
   // device or revocation endpoint, the token endpoint (src/poppy/client.ts oauthRequest; docs/readings.md S1).
-  readings: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
+  readings: PROFILE ? PROFILE_READINGS[PROFILE] : { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
   relaxations: [] as string[],
   ...(ADVERSARY ? { attacks: [...ATTACKS], adversarial: true } : {}),
+  ...(PROFILE ? { profile: PROFILE } : {}),
+  // The client_id it signs as, which the runner checks against the live identity it passed.
+  client_id: LIVE?.clientId ?? `${ORIGIN}/poppy/client.json`,
   ...(FAULT ? { faults: [FAULT] } : {}),
   notes: ADVERSARY
     ? "Adversarial Personal Agent: raw attacks over the wire (interop/impls/pda-agent/attacks.ts); never src/poppy."
-    : "Drives src/poppy directly (PoppyClient, signin, conversations, apis, operations); no model."
+    : PROFILE
+      ? `Fake Personal Agent, ${PROFILE} profile: src/poppy with the adapter's network seam changed (interop/impls/pda-agent/profiles.ts).`
+      : "Drives src/poppy directly (PoppyClient, signin, conversations, apis, operations); no model."
 };
 
 /** The armed attack, for the adversarial agent's `arm` then `attack` ops. */
@@ -106,6 +118,8 @@ type Agent = {
   generation: string;
   /** The agent's own browser for the website (spec 5): src/poppy/fetch-browser.ts. */
   browser: FetchBrowser;
+  /** The strict profile's record of what it saw (profiles.ts); null otherwise. */
+  strict: StrictObserver | null;
 };
 
 /**
@@ -155,10 +169,35 @@ function pace(host: string): Promise<void> {
   return previous;
 }
 
-/** Every outbound request: the network, through the proxy, with an optional fault. */
-function fetcherFor(env: Env): Fetcher {
+/** Re-sign an assertion with the agent's current key (the sloppy and lenient profiles). */
+function resignerFor(env: Env): Resign {
+  return async (jwt, change) => {
+    const key = await currentKey(env);
+    const { header, payload } = changedClaims(jwt, change);
+    return new SignJWT(payload).setProtectedHeader({ ...header, alg: String(header.alg) }).sign(key.privateKey);
+  };
+}
+
+/** Every outbound request: the network, through the proxy, with an optional fault or a fake agent's profile. */
+function fetcherFor(env: Env, strict: StrictObserver | null): Fetcher {
+  const endpoints = new Endpoints();
+  const resign = resignerFor(env);
+  const send = async (request: Request): Promise<Response> => {
+    const started = Date.now();
+    const sent = strict ? { method: request.method, url: request.url, headers: new Headers(request.headers), body: request.body ? await request.clone().text() : "" } : null;
+    const response = await fetch(request);
+    await endpoints.observe(request.url, response);
+    if (strict && sent) {
+      const found = await strict.observe(sent, response, started);
+      if (found.length) throw strict.refusal ?? new StrictRefusal(found);
+    }
+    return response;
+  };
   return async (request) => {
     await pace(new URL(request.url).host);
+    if (PROFILE === "sloppy") return send(await sloppyRequest(request, endpoints, resign));
+    if (PROFILE === "lenient") return lenientFetch(request, send, endpoints, resign);
+    if (PROFILE === "strict") return send(request);
     if (FAULT === "assertion-typ" && request.method === "POST" && (request.headers.get("content-type") ?? "").startsWith("application/x-www-form-urlencoded")) {
       const form = new URLSearchParams(await request.clone().text());
       let changed = false;
@@ -194,6 +233,7 @@ async function newAgent(): Promise<Agent> {
       }
     }
   } as unknown as Env;
+  const strict = PROFILE === "strict" ? new StrictObserver(new URL(ORIGIN).hostname) : null;
   const sql = memorySql();
   migrate(sql);
   migrateAttachments(sql);
@@ -203,7 +243,7 @@ async function newAgent(): Promise<Agent> {
   const host: PoppyHost = {
     env,
     sql,
-    fetcher: fetcherFor(env),
+    fetcher: fetcherFor(env, strict),
     showCard: async (card) => {
       cards.set(card.id, card);
     },
@@ -221,7 +261,7 @@ async function newAgent(): Promise<Agent> {
   };
   // The fetch-based browser of src/poppy (spec 5), on the adapter's network seam.
   const client = LIVE ? new LiveIdentityClient(host, LIVE) : new PoppyClient(host);
-  return { client, env, jobs, cards, notes, generation: randomId("", 4), browser: new FetchBrowser(host.fetcher) };
+  return { client, env, jobs, cards, notes, generation: randomId("", 4), browser: new FetchBrowser(host.fetcher), strict };
 }
 
 let agent = await newAgent();
@@ -812,9 +852,16 @@ async function step(request: Request): Promise<Response> {
   if (!run) return failure(501, "unsupported", `No op ${op}`);
   const domain = typeof input.company === "string" ? input.company : "";
   const params = typeof input.params === "object" && input.params !== null ? (input.params as Params) : {};
+  if (agent.strict) agent.strict.refusal = null;
   try {
-    return json({ ok: true, result: await run(domain, params) });
-  } catch (error) {
+    const result = await run(domain, params);
+    const refused = agent.strict?.refusal;
+    if (refused) throw refused;
+    return json({ ok: true, result });
+  } catch (caught) {
+    // The strict agent's refusal stands, whatever src/poppy made of the error it threw.
+    const error = agent.strict?.refusal ?? caught;
+    if (error instanceof StrictRefusal) return json({ ok: false, poppy_error: error.document ? "discovery_failed" : "company_departure", status: 0, detail: error.message });
     if (error instanceof AttackSetupError) return failure(500, "attack_setup_failed", error.message);
     if (error instanceof StepError) return failure(error.status, error.code, error.message);
     if (error instanceof PoppyStepError) return json({ ok: false, poppy_error: error.code, status: error.status, detail: error.message });
@@ -840,13 +887,22 @@ async function control(request: Request): Promise<Response> {
   }
   if (request.method === "POST" && url.pathname === "/step") return step(request);
   if (request.method === "GET" && url.pathname === "/log") return json({ notes: agent.notes });
+  // The strict agent's findings about the Company, in the mock's shape (spec §5.3, `GET /violations`).
+  if (request.method === "GET" && url.pathname === "/violations" && agent.strict) return json({ violations: agent.strict.recorded });
   return failure(404, "not_found", `${request.method} ${url.pathname}`);
 }
 
 /** Our identity documents, and Direct Sign-In's callback for a Company that redirects a browser to it. */
 async function site(request: Request): Promise<Response> {
+  const started = Date.now();
   const identity = await handleIdentityRoute(request, agent.env);
-  if (identity) return identity;
+  if (identity) {
+    // The strict agent judges how the Company fetched its documents too (metadata fetched with credentials).
+    const url = new URL(request.url);
+    url.protocol = "https:";
+    await agent.strict?.observe({ method: request.method, url: url.href, headers: request.headers, body: "" }, identity, started);
+    return identity;
+  }
   const url = new URL(request.url);
   if (url.pathname === "/poppy/callback" && request.method === "GET") {
     const outcome = await completeDirectSignIn(agent.client, url);
@@ -857,4 +913,4 @@ async function site(request: Request): Promise<Response> {
 
 serve(8080, site);
 serve(8081, control);
-console.log(`pda-agent: ${LIVE ? `live identity ${LIVE.clientId}` : ORIGIN} on 8080, control on 8081${FAULT ? `, fault ${FAULT}` : ""}`);
+console.log(`pda-agent: ${LIVE ? `live identity ${LIVE.clientId}` : ORIGIN} on 8080, control on 8081${PROFILE ? `, profile ${PROFILE}` : ""}${FAULT ? `, fault ${FAULT}` : ""}`);

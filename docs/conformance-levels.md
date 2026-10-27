@@ -62,7 +62,7 @@ We take the majority reading: OIDF, MCP, Autobahn and Khronos. A broken SHOULD i
 
 - **Conformance tests.** The `afterEach` in `test/agent-helpers.ts` fails a test if the mock recorded any violation or any warning, so our client is held to SHOULDs, the Guides and our readings too. A test that breaks the protocol on purpose declares `expectViolations`, which matches either kind.
 - **The validator.** `poppy-validate --strict` exits 1 on warnings.
-- **The strict mock** (`pda-mock-strict`). What makes it stricter is behaviour, not verdict: it takes the strictest reading of S2 (`typ: "JWT"`, 60 seconds) and refuses what that reading excludes. It records those checks as tentative, so in the grid a failure they cause goes to rule 3 (the spec) or to the side that broke its own declared reading. It is never a violation.
+- **The strict mock** (`strict-company`). What makes it stricter is behaviour, not verdict: it takes the strictest reading of S2 (`typ: "JWT"`, 60 seconds) and refuses what that reading excludes. It records those checks as tentative, so in the grid a failure they cause goes to rule 3 (the spec) or to the side that broke its own declared reading. It is never a violation.
 
 Profiles no longer filter what a Company reports. Both mocks report every recorded check with its basis and level (`GET /violations`), and the runner turns failures into errors and everything else into warnings. The old hand-kept `STRICT_ONLY` list has gone. Its seven SHOULD and Guides checks are warnings because of their basis, along with the ten other Guides checks and the ten readings.
 
@@ -127,7 +127,7 @@ The grid's mock (`MOCK_BASE`) no longer lists an API of type `graphql`. The conf
   - `jwks-kid-duplicate`.
 - Four became errors, and our client tolerates every one:
   - `json-bom` (RFC 8259 §8.1, MUST NOT);
-  - `api-type-unknown` (6's MUST; now an error only in a document whose minor version the validator knows, and info as `api-type-newer` in a newer one, per 3.1);
+  - `api-type-unknown` (6's MUST; now an error only in a document whose minor version the validator knows, and info as `api-type-newer` in a newer one, per 3.1. Since 26 October 2026 the validator checks only versions it knows, so it is an error in every document it checks, 0.2 included, and `api-type-newer` is retired);
   - `api-description-missing` (a Rule);
   - `organization-name-missing` (the "Req. Yes" `organization` is "Display name and domain": a Rule).
 - Four are new:

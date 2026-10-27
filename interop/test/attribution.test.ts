@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { attribute, attributeAll, checkLevel, companyRecorded, failureCode, knownFailure, knownMatches, levelCounts, staleKnown, unexpected } from "../runner/attribution.ts";
+import { agentRecorded, attribute, attributeAll, checkLevel, companyRecorded, failureCode, knownFailure, knownMatches, levelCounts, staleKnown, unexpected } from "../runner/attribution.ts";
 import { compatible, QUESTIONS, readingChecks, refusedReadingChecks } from "../runner/readings.ts";
 import { jwt, NOW, recording } from "./helpers.ts";
 import type { Cell, Check, Outcome, Scenario, StepRecord } from "../runner/types.ts";
@@ -28,19 +28,44 @@ describe("attribution", () => {
 
   it("rule 2: an agent that passes against the reference, at a Company every agent fails, blames the Company", () => {
     const target = cell("a", "c", "fail");
-    const grid = [target, cell("a", "pda-mock", "pass"), cell("b", "c", "fail"), cell("b", "pda-mock", "pass")];
+    const grid = [target, cell("a", "lenient-company", "pass"), cell("b", "c", "fail"), cell("b", "lenient-company", "pass")];
     expect(attribute(target, grid, none)).toMatchObject({ blame: "company", rule: "grid" });
     // Another agent passes at c, and a passes elsewhere: the grid decides nothing.
-    const mixed = [target, cell("a", "pda-mock", "pass"), cell("b", "c", "pass")];
+    const mixed = [target, cell("a", "lenient-company", "pass"), cell("b", "c", "pass")];
     expect(attribute(target, mixed, none)).toEqual({ blame: null, rule: "unattributed" });
   });
 
   it("rule 2: an agent that fails everywhere, at a Company another agent passes, blames the agent", () => {
-    const target = cell("a", "pda-mock", "fail");
-    const grid = [target, cell("a", "c", "fail"), cell("b", "pda-mock", "pass")];
+    const target = cell("a", "lenient-company", "fail");
+    const grid = [target, cell("a", "c", "fail"), cell("b", "lenient-company", "pass")];
     expect(attribute(target, grid, none)).toMatchObject({ blame: "agent", rule: "grid" });
     // Unsupported cells don't count either way.
-    expect(attribute(target, [target, cell("b", "pda-mock", "unsupported")], none).rule).toBe("unattributed");
+    expect(attribute(target, [target, cell("b", "lenient-company", "unsupported")], none).rule).toBe("unattributed");
+  });
+
+  it("rule 2: a Company the reference agent passes, with an agent that fails at every Company, blames the agent", () => {
+    const target = cell("a", "c", "fail");
+    const grid = [target, cell("a", "d", "fail"), cell("lenient-personal-agent", "c", "pass")];
+    expect(attribute(target, grid, none)).toEqual({
+      blame: "agent",
+      rule: "grid",
+      detail: "c passes SD with lenient-personal-agent; a fails it at every Company"
+    });
+    // An agent that passes somewhere isn't blamed for one Company.
+    expect(attribute(target, [target, cell("a", "d", "pass"), cell("lenient-personal-agent", "c", "pass")], none).rule).toBe("unattributed");
+  });
+
+  it("files what the strict agent records against the Company, by its basis, as a Company's record is filed against the agent", () => {
+    const at = (basis: unknown, security = false) => agentRecorded({ id: "company.www-authenticate", basis, detail: "" }, "strict-personal-agent", security);
+    expect(at("RFC")).toMatchObject({ side: "company", severity: "error", source: "agent:strict-personal-agent" });
+    expect(["SHOULD", "Guides", "Reading"].map((basis) => at(basis).severity)).toEqual(["warning", "warning", "warning"]);
+    expect(at("RFC", true).severity).toBe("warning");
+  });
+
+  it("rule warning: what the strict agent refused at the Guides' level blames the Company as a warning", () => {
+    const credentials = agentRecorded({ id: "company.metadata-fetch-credentials", basis: "Guides", detail: "cookie" }, "strict-personal-agent", false);
+    const target = cell("strict-personal-agent", "c", "fail", [credentials], "S0");
+    expect(attribute(target, [target], none)).toEqual({ blame: "company", rule: "warning", detail: "company.metadata-fetch-credentials: a SHOULD or the Guides, not a requirement" });
   });
 
   it("rule 3: incompatible readings of a question the scenario depends on blame the spec, when the trace shows it mattered", () => {
@@ -54,21 +79,21 @@ describe("attribution", () => {
   });
 
   it("rule 3 without evidence falls through: poppy-demo's issuer-origin failure isn't S3", () => {
-    // poppy-demo reads S3 append, pda-mock insertion; D fails on poppy-demo's issuer check, with no S3 in the trace.
+    // poppy-demo reads S3 append, lenient-company insertion; D fails on poppy-demo's issuer check, with no S3 in the trace.
     const d = new Map<string, Scenario>([["D", { id: "D", title: "Discovery", readings: ["S3"], steps: [] }]]);
-    const readings = { agent: { "poppy-demo": { S3: "append" }, pda: { S3: "insertion" } }, company: { "pda-mock": { S3: "insertion" }, poppyseed: { S3: "either" } } };
-    const target = cell("poppy-demo", "pda-mock", "fail", [], "D");
+    const readings = { agent: { "poppy-demo": { S3: "append" }, pda: { S3: "insertion" } }, company: { "lenient-company": { S3: "insertion" }, poppyseed: { S3: "either" } } };
+    const target = cell("poppy-demo", "lenient-company", "fail", [], "D");
     expect(attribute(target, [target], { readings, scenarios: d })).toEqual({ blame: null, rule: "unattributed" });
-    // So the grid gets its say: poppy-demo fails D everywhere, and pda passes it at pda-mock.
-    const grid = [target, cell("poppy-demo", "poppyseed", "fail", [], "D"), cell("pda", "pda-mock", "pass", [], "D")];
+    // So the grid gets its say: poppy-demo fails D everywhere, and pda passes it at lenient-company.
+    const grid = [target, cell("poppy-demo", "poppyseed", "fail", [], "D"), cell("pda", "lenient-company", "pass", [], "D")];
     expect(attribute(target, grid, { readings, scenarios: d })).toMatchObject({ blame: "agent", rule: "grid" });
   });
 
   it("rule 3 after rule 2: a Company-recorded error of the question is evidence, beside errors on both sides", () => {
-    const typ: Check = { id: "session-assertion.typ", side: "agent", severity: "error", exchange: null, detail: "typ", source: "company:pda-mock-strict" };
-    const readings = { agent: { a: { S2: "any" } }, company: { "pda-mock-strict": { S2: "jwt-60s" } } };
-    const target = cell("a", "pda-mock-strict", "fail", [typ, error("agent"), error("company")], "C");
-    expect(attribute(target, [target], { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S2: a reads any, pda-mock-strict reads jwt-60s" });
+    const typ: Check = { id: "session-assertion.typ", side: "agent", severity: "error", exchange: null, detail: "typ", source: "company:strict-company" };
+    const readings = { agent: { a: { S2: "any" } }, company: { "strict-company": { S2: "jwt-60s" } } };
+    const target = cell("a", "strict-company", "fail", [typ, error("agent"), error("company")], "C");
+    expect(attribute(target, [target], { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S2: a reads any, strict-company reads jwt-60s" });
   });
 
   it("reads each side's readings under its own role, where one name has both", () => {
@@ -84,27 +109,27 @@ describe("attribution", () => {
 
   it("rule 3: a Company-recorded reading of ours that is exactly a declared reading difference", () => {
     // A strict Company refuses a typ-less Session assertion (Reading S2: a tentative warning); the agent declared S2 any.
-    const typ = companyRecorded({ id: "session-assertion.typ", basis: "Reading", level: "tentative", detail: "typ" }, "pda-mock-strict", false);
+    const typ = companyRecorded({ id: "session-assertion.typ", basis: "Reading", level: "tentative", detail: "typ" }, "strict-company", false);
     expect(typ).toMatchObject({ severity: "warning", basis: "Reading" });
-    const readings = { agent: { "pi-poppy": { S2: "any" } }, company: { "pda-mock-strict": { S2: "jwt-60s" }, "pda-mock": { S2: "any" } } };
-    const strict = cell("pi-poppy", "pda-mock-strict", "fail", [typ], "C");
-    expect(attribute(strict, [strict], { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S2: pi-poppy reads any, pda-mock-strict reads jwt-60s" });
+    const readings = { agent: { "pi-poppy": { S2: "any" } }, company: { "strict-company": { S2: "jwt-60s" }, "lenient-company": { S2: "any" } } };
+    const strict = cell("pi-poppy", "strict-company", "fail", [typ], "C");
+    expect(attribute(strict, [strict], { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S2: pi-poppy reads any, strict-company reads jwt-60s" });
     // An agent that declared jwt-60s and sent no typ broke its own word: its departure, at warning level.
     expect(attribute(strict, [strict], { readings: { ...readings, agent: { "pi-poppy": { S2: "jwt-60s" } } }, scenarios })).toMatchObject({ blame: "agent", rule: "warning" });
     // An error beside it is a violation, by the side that made it: a failure outranks a reading.
-    const both = cell("pi-poppy", "pda-mock-strict", "fail", [typ, error("agent")], "C");
+    const both = cell("pi-poppy", "strict-company", "fail", [typ, error("agent")], "C");
     expect(attribute(both, [both], { readings, scenarios })).toEqual({ blame: "agent", rule: "violation" });
     // The runner's own trace check of the same id isn't a Company's refusal, so it decides nothing.
-    const traced = cell("pi-poppy", "pda-mock-strict", "fail", [{ ...typ, source: "trace" }], "C");
+    const traced = cell("pi-poppy", "strict-company", "fail", [{ ...typ, source: "trace" }], "C");
     expect(attribute(traced, [traced], { readings, scenarios })).toEqual({ blame: null, rule: "unattributed" });
     // A Company that still sends an error for it (no basis) is read as before: the declared difference explains it.
     const legacy: Check = { ...typ, severity: "error", basis: null };
-    const old = cell("pi-poppy", "pda-mock-strict", "fail", [legacy], "C");
+    const old = cell("pi-poppy", "strict-company", "fail", [legacy], "C");
     expect(attribute(old, [old], { readings, scenarios })).toMatchObject({ blame: "spec", rule: "reading" });
   });
 
   it("files what a Company records by its basis: a failure is an error, the rest warnings that never fail a cell", () => {
-    const at = (basis: unknown, security = false) => companyRecorded({ id: "x.y", basis, detail: "" }, "pda-mock", security);
+    const at = (basis: unknown, security = false) => companyRecorded({ id: "x.y", basis, detail: "" }, "lenient-company", security);
     expect(["MUST", "RFC", "Rule"].map((basis) => at(basis).severity)).toEqual(["error", "error", "error"]);
     expect(["SHOULD", "Guides", "Reading"].map((basis) => at(basis).severity)).toEqual(["warning", "warning", "warning"]);
     // No basis, or one we don't know: a failure, as every record was before bases.
@@ -121,12 +146,12 @@ describe("attribution", () => {
   });
 
   it("rule warning: a SHOULD or Guides refusal on one side blames that side as a warning, not a violation", () => {
-    // pda-mock refuses an ES384 Session assertion (Guides: support ES256 and RS256).
-    const alg = companyRecorded({ id: "session-assertion.alg", basis: "Guides", detail: "alg ES384" }, "pda-mock", false);
-    const target = cell("a", "pda-mock", "fail", [alg], "C");
+    // lenient-company refuses an ES384 Session assertion (Guides: support ES256 and RS256).
+    const alg = companyRecorded({ id: "session-assertion.alg", basis: "Guides", detail: "alg ES384" }, "lenient-company", false);
+    const target = cell("a", "lenient-company", "fail", [alg], "C");
     expect(attribute(target, [target], none)).toEqual({ blame: "agent", rule: "warning", detail: "session-assertion.alg: a SHOULD or the Guides, not a requirement" });
     // Any failure-level error decides first.
-    const withError = cell("a", "pda-mock", "fail", [alg, error("company")], "C");
+    const withError = cell("a", "lenient-company", "fail", [alg, error("company")], "C");
     expect(attribute(withError, [withError], none)).toEqual({ blame: "company", rule: "violation" });
     // Passive warnings (the runner's trace, the validator) aren't a Company's refusal and decide nothing.
     const passive = cell("a", "c", "fail", [{ ...alg, source: "validator" }], "C");
@@ -135,8 +160,8 @@ describe("attribution", () => {
 
   it("blames the spec for a failure our own reading of an open question explains, when no declared question covers it", () => {
     // The mock refuses an array aud on a client assertion (Reading S1: 4.2 asks a single string only of the Session assertion).
-    const array = companyRecorded({ id: "client-assertion.aud-array", basis: "Reading", detail: "aud is an array" }, "pda-mock", false);
-    const target = cell("a", "pda-mock", "fail", [array], "C");
+    const array = companyRecorded({ id: "client-assertion.aud-array", basis: "Reading", detail: "aud is an array" }, "lenient-company", false);
+    const target = cell("a", "lenient-company", "fail", [array], "C");
     expect(attribute(target, [target], none)).toEqual({ blame: "spec", rule: "reading", detail: "client-assertion.aud-array: our reading, not a requirement of the draft" });
   });
 
@@ -188,10 +213,10 @@ describe("known failures", () => {
 
   it("prefer the most specific entry, then the first", () => {
     const broad = { agent: "pi-poppy", company: "*", scenario: "*", blame: null, issue, reason: "broad" };
-    const exact = { agent: "pi-poppy", company: "pda-mock-strict", scenario: "SE", blame: null, issue, reason: "exact" };
+    const exact = { agent: "pi-poppy", company: "strict-company", scenario: "SE", blame: null, issue, reason: "exact" };
     const later = { agent: "pi-poppy", company: "*", scenario: "SE", blame: null, issue, reason: "later" };
     const known = [broad, later, exact];
-    expect(knownFailure(failed("pi-poppy", "pda-mock-strict", "SE"), known)).toBe(exact);
+    expect(knownFailure(failed("pi-poppy", "strict-company", "SE"), known)).toBe(exact);
     expect(knownFailure(failed("pi-poppy", "pi-poppy", "SE"), known)).toBe(later);
     expect(knownFailure(failed("pi-poppy", "pi-poppy", "O"), known)).toBe(broad);
     const first = { ...later, reason: "first" };
@@ -211,7 +236,7 @@ describe("known failures", () => {
 
   it("count a failed cell as known only when its blame, every error check and its step error are the entry's", () => {
     const entry = { agent: "pi-poppy", company: "*", scenario: "N", blame: "agent" as const, checks: ["session-assertion.jti-reused"], errors: ["invalid_grant"], issue };
-    const at = (blame: Cell["blame"], checks: Check[], steps: StepRecord[] = []): Cell => ({ ...cell("pi-poppy", "pda-mock", "fail", checks, "N"), blame, steps });
+    const at = (blame: Cell["blame"], checks: Check[], steps: StepRecord[] = []): Cell => ({ ...cell("pi-poppy", "lenient-company", "fail", checks, "N"), blame, steps });
     // The failure it describes, with or without the refused step, and with warnings beside it.
     expect(knownMatches(entry, at("agent", [check("session-assertion.jti-reused")]))).toBe(true);
     expect(knownMatches(entry, at("agent", [check("session-assertion.jti-reused"), check("client-assertion.typ", "warning")], [step("poppy_error invalid_grant: x")]))).toBe(true);
@@ -265,8 +290,8 @@ describe("known failures", () => {
     expect(staleKnown([{ ...cell("a", "c", "error"), blame: "harness" }], [exact])).toEqual([exact]);
     // A cell now unsupported didn't fail either.
     expect(staleKnown([cell("a", "c", "unsupported")], [exact])).toEqual([exact]);
-    // A pair the run didn't run is never judged (--agents pda --companies pda-mock).
-    expect(staleKnown([cell("pda", "pda-mock", "pass")], [exact])).toEqual([]);
+    // A pair the run didn't run is never judged (--agents pda --companies lenient-company).
+    expect(staleKnown([cell("pda", "lenient-company", "pass")], [exact])).toEqual([]);
   });
 
   it("judge a wildcard entry over every failed cell it covers, even where a more specific entry is attached", () => {
@@ -282,9 +307,9 @@ describe("known failures", () => {
   });
 
   it("don't judge a wildcard over a dimension the run didn't cover whole", () => {
-    // adonis-agora × * × SV fails at Companies reading S1 endpoint; a run against pda-mock alone passes it.
+    // adonis-agora × * × SV fails at Companies reading S1 endpoint; a run against lenient-company alone passes it.
     const sv = { agent: "adonis-agora", company: "*", scenario: "SV", blame: null, issue, reason: "S1" };
-    const cells = [cell("adonis-agora", "pda-mock", "pass", [], "SV")];
+    const cells = [cell("adonis-agora", "lenient-company", "pass", [], "SV")];
     expect(staleKnown(cells, [sv], { agent: false, company: false, scenario: true })).toEqual([]);
     expect(staleKnown(cells, [sv], { agent: false, company: true, scenario: true })).toEqual([sv]);
     const pair = { agent: "poppy-demo", company: "datalayer-ts", scenario: "*", blame: null, issue, reason: "scopes" };
@@ -380,11 +405,11 @@ describe("reading compatibility", () => {
     // adonis-agora's Company, under the same name, reads S1 either: it mustn't stand in for the agent.
     const readings = {
       agent: { "adonis-agora": { S1: "token-endpoint" }, pda: { S1: "endpoint" } },
-      company: { "adonis-agora": { S1: "either" }, poppyseed: { S1: "endpoint" }, "pda-mock": { S1: "either" } }
+      company: { "adonis-agora": { S1: "either" }, poppyseed: { S1: "endpoint" }, "lenient-company": { S1: "either" } }
     };
     const target = cell("adonis-agora", "poppyseed", "fail", [s1], "SV");
     // The grid would blame the agent: it fails SV everywhere, and poppyseed passes it with pda.
-    const grid = [target, cell("adonis-agora", "pda-mock", "fail", [], "SV"), cell("pda", "poppyseed", "pass", [], "SV")];
+    const grid = [target, cell("adonis-agora", "lenient-company", "fail", [], "SV"), cell("pda", "poppyseed", "pass", [], "SV")];
     expect(attribute(target, grid, { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S1: adonis-agora reads token-endpoint, poppyseed reads endpoint" });
     // Compatible readings (the agent broke its own word): the refusal decides nothing.
     expect(attribute(target, grid, { readings: { ...readings, agent: { ...readings.agent, "adonis-agora": { S1: "endpoint" } } }, scenarios })).toMatchObject({ blame: "agent", rule: "grid" });
@@ -400,7 +425,7 @@ describe("reading compatibility", () => {
     expect(compatible("S23", "per-company", "per-origin")).toBe(false);
   });
 
-  it("S2 lenient-300s (the reference pda-mock): accepts jwt-60s and itself, not an agent that promises nothing", () => {
+  it("S2 lenient-300s (the reference lenient-company): accepts jwt-60s and itself, not an agent that promises nothing", () => {
     expect(QUESTIONS.S2.values).toContain("lenient-300s");
     expect(compatible("S2", "jwt-60s", "lenient-300s")).toBe(true);
     expect(compatible("S2", "lenient-300s", "lenient-300s")).toBe(true);
@@ -429,9 +454,9 @@ describe("reading compatibility", () => {
     expect(sentBeyond("jwt-60s")).toEqual([1, 2]);
 
     // The lenient mock recording a 301 s assertion (our reading, so a warning) is the open question with an `any` agent, the agent's own departure from its declared jwt-60s otherwise.
-    const lifetime = companyRecorded({ id: "client-assertion.lifetime", basis: "Reading", detail: "" }, "pda-mock", false);
-    const target = cell("a", "pda-mock", "fail", [lifetime], "SD");
-    const declared = (agent: string) => ({ agent: { a: { S2: agent } }, company: { "pda-mock": { S2: "lenient-300s" } } });
+    const lifetime = companyRecorded({ id: "client-assertion.lifetime", basis: "Reading", detail: "" }, "lenient-company", false);
+    const target = cell("a", "lenient-company", "fail", [lifetime], "SD");
+    const declared = (agent: string) => ({ agent: { a: { S2: agent } }, company: { "lenient-company": { S2: "lenient-300s" } } });
     expect(attribute(target, [target], { readings: declared("any"), scenarios })).toMatchObject({ blame: "spec", rule: "reading" });
     expect(lifetime.severity).toBe("warning");
     expect(attribute(target, [target], { readings: declared("jwt-60s"), scenarios })).toMatchObject({ blame: "agent", rule: "warning" });
@@ -468,7 +493,7 @@ describe("reading compatibility", () => {
     expect(sentBeyond("lenient-120s")).toEqual([2, 3]);
   });
 
-  it("pda-mock declares the S2 reading the mock enforces: lenient-300s, at the mock's 300 s, or jwt-60s when strict", () => {
+  it("lenient-company declares the S2 reading the mock enforces: lenient-300s, at the mock's 300 s, or jwt-60s when strict", () => {
     const root = path.join(import.meta.dirname, "../..");
     const adapter = readFileSync(path.join(root, "interop/impls/pda-mock/adapter.ts"), "utf8");
     const core = readFileSync(path.join(root, "test/mock-company/core.ts"), "utf8");

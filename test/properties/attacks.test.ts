@@ -16,7 +16,7 @@ import { gs, propertyAsync } from "./hegel";
 const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
 const signingJwks = JSON.stringify([{ ...await exportJWK(privateKey), kid: "attack-key", alg: "ES256", use: "sig" }]);
 const jwks = { keys: [{ ...await exportJWK(publicKey), kid: "attack-key", alg: "ES256", use: "sig" }] };
-const origin = "https://evil-agent.agent.interop.test";
+const origin = "https://evil-personal-agent.agent.interop.test";
 const env = { PUBLIC_ORIGIN: origin, POPPY_CLIENT_NAME: "Replay test agent", POPPY_LOGO_URI: `${origin}/logo.svg`, POPPY_SIGNING_JWKS: signingJwks } as unknown as Env;
 
 for (const [id, replay, error, violation] of [

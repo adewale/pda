@@ -10,8 +10,12 @@ export type RegistryEntry = {
   readonly commit: string;
   /** `"self"` marks an implementation this project owns. Adversarial cells run only against self-owned honest sides. */
   readonly owner?: "self";
-  /** An implementation that misbehaves on purpose (evil-agent, evil-company). The live lane refuses it (spec §10). */
+  /** An implementation that misbehaves on purpose (evil-personal-agent, evil-company). The live lane refuses it (spec §10). */
   readonly adversarial?: boolean;
+  /** A fake implementation, built to test the other side: the fake Personal Agents (spec §2.1). */
+  readonly fake?: boolean;
+  /** `false`: never runs in the live lane, and never gets its identity (the sloppy fake agent; spec §10). */
+  readonly live?: false;
   /** A directory holding a Dockerfile (local lane). */
   readonly build?: string;
   /** Public source pins passed into a shared build; never credentials. */
@@ -20,6 +24,12 @@ export type RegistryEntry = {
   readonly context?: string;
   /** A running deployment's domain or URL (live lane). */
   readonly url?: string;
+  /**
+   * The only scenarios the live lane may run against this Company: what its owner agreed to,
+   * or what its notes allow (the real store gets discovery only). Others are unsupported, before
+   * anything is sent. Absent: every live scenario.
+   */
+  readonly liveScenarios?: readonly string[];
   /** Expected declared version of a live Company; old entries default to 0.1. */
   readonly protocolVersion?: string;
   /**
@@ -51,6 +61,11 @@ export type Manifest = {
   readonly relaxations?: readonly string[];
   /** Attack ids this adversarial adapter can `arm` (spec §4). An unknown attack answers 501, so the cell is `unsupported`. */
   readonly attacks?: readonly string[];
+  /** Our adapters: the profile the implementation runs (a fake agent's, or the mock's), which the runner checks against the registry. */
+  readonly profile?: string;
+  readonly adversarial?: boolean;
+  /** Our agent adapter: the `client_id` it signs as, which the live lane checks against the live identity. */
+  readonly client_id?: string;
 };
 
 export type Actor = "agent" | "company" | "runner";

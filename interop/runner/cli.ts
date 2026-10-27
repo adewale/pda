@@ -27,7 +27,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { attributeAll, companyRecorded, levelCounts, staleKnown, unexpected, type RecordedViolation } from "./attribution.ts";
+import { agentRecorded, attributeAll, companyRecorded, levelCounts, staleKnown, unexpected, type RecordedViolation } from "./attribution.ts";
 import { runCell, toReply, withWebPage, type Driver, type Reply, type RunnerReply } from "./cell.ts";
 import { makeCertificates } from "./certs.ts";
 import { traceChecks } from "./checks.ts";
@@ -35,7 +35,8 @@ import { dockerFreeGb, labelArgs, lowDisk, removeRun } from "./cleanup.ts";
 import { docker, dockerAsync, mapConcurrent, proxyAliases } from "./docker.ts";
 import { documentChecks } from "./documents.ts";
 import { exchanges, PROBE_HEADER, type Har } from "./har.ts";
-import { liveIdentityEnv, liveIdentityNotice, readLiveIdentity } from "./live-identity.ts";
+import { checkLiveIdentity, manifestMismatch } from "./expectations.ts";
+import { LIVE_CLIENT_ID_VAR, liveIdentityEnv, liveIdentityNotice, readLiveIdentity } from "./live-identity.ts";
 import {
   CONTROL_PORT,
   controlNetworkArgs,
@@ -67,8 +68,15 @@ function harnessFile(name: string): Uint8Array | null {
 }
 
 /** The order scenarios run and are shown in; others follow by id. */
+/**
+ * What our agent says to a live Company's agent (scenario CL): plainly a
+ * test, asking for nothing, so whoever reads it at the Company can ignore
+ * it. CL closes the conversation afterwards.
+ */
+export const LIVE_GREETING = "Interoperability test from the Poppy Demo Agent. No reply or action is needed; this conversation will be closed.";
+
 export const SCENARIO_ORDER = [
-  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "O2", "OX", "OU", "RL", "DP", "CM", "ML",
+  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "O2", "OX", "OU", "RL", "DP", "CM", "ML",
   // Adversarial (docs/adversarial-interop.md): network faults, then malicious agent and Company.
   "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE", "XR", "XT"
 ];
@@ -162,7 +170,8 @@ export function loadRegistry(file = path.join(INTEROP, "registry.json")): Regist
 
 /** Live peers have no adapter manifest. Their declared version must be explicit. */
 export function liveCompanyManifest(entry: RegistryEntry, scenarios: readonly Scenario[]): Manifest {
-  return { interop: 1, name: entry.name, role: "company", commit: entry.commit, poppy: [entry.protocolVersion ?? "0.1"], scenarios: scenarios.map((s) => s.id) };
+  const ids = scenarios.map((s) => s.id);
+  return { interop: 1, name: entry.name, role: "company", commit: entry.commit, poppy: [entry.protocolVersion ?? "0.1"], scenarios: entry.liveScenarios ? ids.filter((id) => entry.liveScenarios!.includes(id)) : ids };
 }
 
 export function loadScenarios(dir = path.join(INTEROP, "scenarios")): Scenario[] {
@@ -393,8 +402,8 @@ export async function runOne(
     const answer = await control(company.target, "POST", "/hooks/fixture", {});
     if (answer.status === 200) fixture = answer.body;
   }
-  // A live Company has no fixture hook; the live scenarios need only a greeting (spec §10).
-  if (!company.entry.build) fixture = { prompts: { hello: "Hello" }, ...(company.entry.fixture ?? {}), ...(fixture as Record<string, unknown>) };
+  // A live Company has no fixture hook; the live scenarios need only a greeting, which says it is a test (spec §10).
+  if (!company.entry.build) fixture = { prompts: { hello: LIVE_GREETING }, ...(company.entry.fixture ?? {}), ...(fixture as Record<string, unknown>) };
   fixture = withWebPage(fixture, company.domain);
 
   const callbacks: string[] = [];
@@ -462,11 +471,16 @@ export async function runOne(
       checks.push(...refusedReadingChecks(recorded, company.manifest?.readings ?? {}));
     }
   }
-  const violations = await control(company.target, "GET", "/violations").catch(() => ({ status: 0, body: null }));
-  const recordedViolations = (violations.body as { violations?: RecordedViolation[] } | null)?.violations;
-  if (violations.status === 200 && Array.isArray(recordedViolations)) {
-    const isSecurity = !!scenario.adversary || !!scenario.faults?.length || !!agent.entry.adversarial || !!company.entry.adversarial;
-    for (const violation of recordedViolations) checks.push(companyRecorded(violation, company.entry.name, isSecurity));
+  // What each side recorded of the other: the mock Company of the agent, the strict fake agent of the Company (spec §5.3).
+  const isSecurity = !!scenario.adversary || !!scenario.faults?.length || !!agent.entry.adversarial || !!company.entry.adversarial;
+  for (const [side, recorder] of [["company", company], ["agent", agent]] as const) {
+    if (side === "company" && !company.entry.build) continue;
+    const violations = await control(recorder.target, "GET", "/violations").catch(() => ({ status: 0, body: null }));
+    const recordedViolations = (violations.body as { violations?: RecordedViolation[] } | null)?.violations;
+    if (violations.status !== 200 || !Array.isArray(recordedViolations)) continue;
+    for (const violation of recordedViolations) {
+      checks.push(side === "company" ? companyRecorded(violation, company.entry.name, isSecurity) : agentRecorded(violation, agent.entry.name, isSecurity));
+    }
   }
   cell.checks = checks;
   // In an adversarial cell the attacking side's own violations are expected (rule 0): don't fail
@@ -506,12 +520,13 @@ export function gridCoverage(
 
 /**
  * The implementations a lane can run, by role. The live lane runs only our
- * own agent (`owner: "self"`, built here) against Companies with a `url`
- * (spec §10): no third-party image, and its identity's key goes to nothing else.
+ * own agents (`owner: "self"`, built here: `pda` and the lenient and strict fakes,
+ * not one marked `"live": false`) against Companies with a `url` (spec §10): no
+ * third-party image, and its identity's key goes to nothing else.
  */
 export function selected(registry: Registry, role: Role, names: readonly string[] | null, lane: "local" | "live"): RegistryEntry[] {
   const runs = (entry: RegistryEntry) =>
-    lane === "live" ? (role === "agent" ? !!entry.build && entry.owner === "self" : !!entry.url) : !!entry.build;
+    lane === "live" ? (role === "agent" ? !!entry.build && entry.owner === "self" && entry.live !== false : !!entry.url) : !!entry.build;
   const all = registry.implementations.filter((entry) => entry.role === role && runs(entry));
   if (!names) return all.filter((entry) => !entry.vectorsOnly);
   for (const name of names) {
@@ -521,8 +536,22 @@ export function selected(registry: Registry, role: Role, names: readonly string[
 }
 
 /**
+ * A live-lane agent container's environment: the runner's own variables, the registry's `env`
+ * (a fake agent's `INTEROP_AGENT_PROFILE`), then `--set`, then the live identity's public half.
+ */
+export function liveAgentEnv(
+  entry: RegistryEntry,
+  secret: string,
+  commit: string,
+  set: Readonly<Record<string, string>> | undefined,
+  identity: Readonly<Record<string, string>>
+): Record<string, string> {
+  return { INTEROP_SECRET: secret, INTEROP_NAME: entry.name, INTEROP_COMMIT: commit, INTEROP_PACE_MS: "1000", ...(entry.env ?? {}), ...(set ?? {}), ...identity };
+}
+
+/**
  * An implementation's image. Entries of one role that build the same
- * directory in the same context (`pda-mock` and `pda-mock-strict`, told
+ * directory in the same context (`lenient-company` and `strict-company`, told
  * apart by `env`) share one image, named after the first in the registry.
  */
 export function imageOf(entry: RegistryEntry, registry: Registry, tag = "latest"): string {
@@ -632,6 +661,8 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
     for (const impl of implementations) impl.broken = buildFailures.get(impl.target) ?? null;
 
     let control: Control;
+    // Live lane: the client_id each agent given the live identity must report signing as (expectations.ts).
+    const liveClientIds = new Map<string, string>();
     let proxy: Proxy | null = null;
     if (options.lane === "local") {
       // The local lane: an --internal network with no way out (spec §3, Isolation; network.ts).
@@ -710,10 +741,17 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
       // The live identity (live-identity.ts): a client_id a public Company can fetch, and its key, for our own agent only.
       const identity = readLiveIdentity();
       log(liveIdentityNotice(identity));
+      // The identity as a public Company will fetch it, before any agent starts (expectations.ts).
+      if (identity) {
+        const { problems, warnings } = await checkLiveIdentity(identity);
+        for (const warning of warnings) log(`! ${warning}`);
+        if (problems.length) throw new Error(`The live identity won't work, so nothing was sent:\n  ${problems.join("\n  ")}`);
+      }
       for (const impl of implementations.filter((item) => item.entry.role === "agent" && !item.broken)) {
         const name = `${names.network}-${impl.target}`;
         const live = liveIdentityEnv(options.lane, impl.entry, identity);
-        const env = { INTEROP_SECRET: secret, INTEROP_NAME: impl.entry.name, INTEROP_COMMIT: commitOf(impl.entry), INTEROP_PACE_MS: "1000", ...(options.set.get(impl.entry.name) ?? {}), ...live.public };
+        if (live.public[LIVE_CLIENT_ID_VAR]) liveClientIds.set(impl.target, live.public[LIVE_CLIENT_ID_VAR]);
+        const env = liveAgentEnv(impl.entry, secret, commitOf(impl.entry), options.set.get(impl.entry.name), live.public);
         // The key goes through the docker CLI's environment (`-e NAME`), never its arguments, so `ps` doesn't show it.
         const passed = Object.keys(live.secret).flatMap((key) => ["-e", key]);
         docker(
@@ -751,6 +789,12 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
       const body = manifest.body as Manifest | null;
       if (manifest.status !== 200 || !body || body.interop !== 1 || !Array.isArray(body.scenarios)) {
         impl.broken = `${impl.entry.name} served no version 1 manifest`;
+        continue;
+      }
+      // The implementation is what the registry says it is: its profile, its version, and the identity it signs as.
+      const mismatch = manifestMismatch(impl.entry, body, liveClientIds.get(impl.target) ?? null);
+      if (mismatch) {
+        impl.broken = mismatch;
         continue;
       }
       impl.manifest = body;

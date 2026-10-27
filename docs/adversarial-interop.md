@@ -95,14 +95,14 @@ Our harness tests 1 and 4. In scenario `BX` (refused agent) the Company admits n
 The honest grid assumes both sides are trying. To test refusals, the harness adds implementations that aren't:
 
 - **`evil-company`** (role `company`): our mock Company with an attack switch, so the attack is the only deviation from a strict, correct Company.
-- **`evil-agent`** (role `agent`): our client with an attack switch, reusing the mock's `TAMPERS` rows as the attack catalogue.
+- **`evil-personal-agent`** (role `agent`): our client with an attack switch, reusing the mock's `TAMPERS` rows as the attack catalogue.
 - **A fault-injection mode in the recording proxy**: a network attacker inside TLS. The proxy already terminates TLS, so it sits where RFC 9700's A2 would, in a test network.
 
 #### Contract changes
 
 | Part of [interop-spec](interop-spec.md) | Change |
 | --- | --- |
-| Registry (§2) | `"adversarial": true` on `evil-company` and `evil-agent`. The live lane (§10) refuses adversarial entries: never attack a deployment whose owner hasn't agreed. |
+| Registry (§2) | `"adversarial": true` on `evil-company` and `evil-personal-agent`. The live lane (§10) refuses adversarial entries: never attack a deployment whose owner hasn't agreed. |
 | Manifest (§4) | `attacks`: the attack ids the adapter supports. |
 | Hooks and ops (§5) | Company: `POST /hooks/arm {attack, params}`. Agent: `{"op": "arm", "params": {attack, ...}}`. An unknown attack answers 501, so the cell is `unsupported`. |
 | Scenarios (§6) | `"adversary": "company" \| "agent" \| "network"`; an `arm` step; `"faults"` for the proxy (`{match, action}` with action `drop_response`, `replay`, `duplicate`, `delay`, `truncate`, `status`); `"permitted_by": "N10"` when the draft allows the attack. Refusals use the existing `poppy_error` expectations. |
@@ -114,7 +114,7 @@ The honest grid assumes both sides are trying. To test refusals, the harness add
 1. **Rule 0, adversarial (applied first).** In a cell with an adversarial side, that side's violations are expected and don't count against it.
    - The cell **passes when the honest side refuses**: the expected `poppy_error`, or status 0 for the agent's own refusal, and no harm oracle fires.
    - A failure is blamed on the honest side, with rule `adversarial`. If the scenario names `permitted_by` and the draft has no MUST against the attack, blame `spec` (N10 and N14 today).
-2. **Rule 2, grid,** ignores adversarial implementations, which are never reference cells. `pda-mock` stays the honest reference.
+2. **Rule 2, grid,** ignores adversarial implementations, which are never reference cells. `lenient-company` stays the honest reference.
 3. **Reporting.** Adversarial cells get their own page, the security grid, and never count toward interop pass rates.
 4. **Disclosure.** A failure there may be a vulnerability in someone's project. Tell its maintainers privately before the results are committed. A known failure can then link a private advisory or our spec issue. The full process, including the 90-day window, is in [`SECURITY.md`](../SECURITY.md#disclosing-what-interop-testing-finds-in-other-projects).
 
@@ -139,7 +139,7 @@ The honest grid assumes both sides are trying. To test refusals, the harness add
 
 #### Malicious Personal Agent scenarios
 
-Most of these are already rows in `TAMPERS` (`test/mock-company.test.ts`) against our mock. `evil-agent` turns them into wire attacks against every Company:
+Most of these are already rows in `TAMPERS` (`test/mock-company.test.ts`) against our mock. `evil-personal-agent` turns them into wire attacks against every Company. Until 24 October it signed both assertions for the token endpoint, so at a 0.2 Company, which wants the issuer, every attack ended `error` before it was sent; it now uses the issuer from 0.2 on, as our client does. The [flawed-Company lane](../interop/vectors/official/README.md#the-flawed-company-lane-npm-run-interopflaws) checks that each attack fails against a Company with the matching protection turned off, beside the official validator:
 
 | Id | Attack | Spec | Mock check it mirrors | Honest Company passes when | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -153,7 +153,7 @@ Most of these are already rows in `TAMPERS` (`test/mock-company.test.ts`) agains
 | `YU` | **Cross-User conversation.** User B of the same agent reads or continues User A's conversation id | 7.13, **S17** | `conversation.cross-user` (added) | `conversation_not_found` | Scenario `YU`; TAMPERS `"…another User of the same agent reading a conversation"` |
 | `YK` | **Rotation abuse.** A rotated Account Token reused; another client's Account Token; key rotation that keeps the `kid` | 4.8, N5, Guides | `account-token.rotated-reused`, `account-token.other-client` | Refused; under rotation with reuse detection, the family revoked. `permitted_by: N5`: 4.8 binds only the agent, so a Company that accepts the old token breaks no requirement of the draft ([conformance-levels.md](conformance-levels.md#security-behaviour-and-verdict-are-separate)) | Scenario `YK` (rotated-reuse; other-client and `kid` reuse not yet) |
 | `YC` | **Consent phishing.** Client metadata `client_name` and logo copy another agent's | 4.5, **N14** | none | Consent page shows the `client_id` host. Checked by the consent hook or Playwright reading the page | Not yet. Our mock's consent is a hook that returns a redirect, with no HTML page to read `client_name` or the logo from, so judging what a User would see needs a consent-page reader (a Playwright script per §5.3). The agent-side mirror is `XP`, which is built |
-| `YM` | **Mediated credential stuffing**; operations confirmed twice or without approval | 4.7, Ops | `exchange.performed-twice`, `confirm.approved-by` | 429 with `Retry-After`; performed once | Scenario `YM`: `evil-agent` signs in (write), proposes the exchange, then confirms with `approved_by` omitted; the Company refuses (`invalid_request`, mock check `confirm.approved-by`) and performs nothing. The repeated-confirm (`exchange.performed-twice`) and credential-stuffing (`rate_limit`) flavours still need their own attacks |
+| `YM` | **Mediated credential stuffing**; operations confirmed twice or without approval | 4.7, Ops | `exchange.performed-twice`, `confirm.approved-by` | 429 with `Retry-After`; performed once | Scenario `YM`: `evil-personal-agent` signs in (write), proposes the exchange, then confirms with `approved_by` omitted; the Company refuses (`invalid_request`, mock check `confirm.approved-by`) and performs nothing. The repeated-confirm (`exchange.performed-twice`) and credential-stuffing (`rate_limit`) flavours still need their own attacks |
 
 #### The fault-injection proxy
 
@@ -168,11 +168,11 @@ Injected exchanges are marked in the HAR (`_interop.injected`), and checks skip 
 
 ## Prioritised plan
 
-Restricted to our own project: the adversarial sides (`evil-agent`, `evil-company`) and the fault proxy run only against our `owner: "self"` implementations, on the local lane, never live. One exception since 13 October, with the owner's approval: `evil-company` may attack other projects' agents. No flag lifts the rest; see [`SECURITY.md`](../SECURITY.md) and [`interop-spec.md`](interop-spec.md) §13.
+Restricted to our own project: the adversarial sides (`evil-personal-agent`, `evil-company`) and the fault proxy run only against our `owner: "self"` implementations, on the local lane, never live. One exception since 13 October, with the owner's approval: `evil-company` may attack other projects' agents. No flag lifts the rest; see [`SECURITY.md`](../SECURITY.md) and [`interop-spec.md`](interop-spec.md) §13.
 
 1. **Proxy `replay` and `duplicate`** against the existing grid (scenarios `N`, `C`, `CI`, `O`). No new adapter. **Done:** scenarios `NREP` (replay), `CDUP`/`CIDUP`/`ODUP` (duplicate), `adversary: "network"`, injected exchanges marked and skipped.
 2. **The contract and attribution changes:** the `adversarial` registry flag, `arm`, `faults`, `permitted_by`, harm oracles, the attack-observed precondition, rule 0, the security grid page, and live-lane exclusion. **Done:** registry `owner`/`adversarial`, manifest `attacks`, `arm`/`attack` ops and the `arm` hook, harm-oracle `assert_trace` predicates, rule 0, the security grid, the own-project refusal and `--image-tag`; unit-tested in `interop/test/adversarial.test.ts`.
-3. **`evil-agent` from `TAMPERS`:** YR, YD, YA, YT, YS and YK first; then YO (S8), YU (S17) and YF (N2). **Done:** `YR`, `YD`, `YA`, `YT`, `YS`, `YK`, `YU` (with a new `conversation.cross-user` mock check and TAMPERS row); YO handled by fixing the mock's `start()` ownership gate (Workers test); `YM` (confirm without approval). **Not yet:** YF (two-User Direct Sign-In: a real code only returns through the consent hook, which the `attack` op doesn't mediate).
+3. **`evil-personal-agent` from `TAMPERS`:** YR, YD, YA, YT, YS and YK first; then YO (S8), YU (S17) and YF (N2). **Done:** `YR`, `YD`, `YA`, `YT`, `YS`, `YK`, `YU` (with a new `conversation.cross-user` mock check and TAMPERS row); YO handled by fixing the mock's `start()` ownership gate (Workers test); `YM` (confirm without approval). **Not yet:** YF (two-User Direct Sign-In: a real code only returns through the consent hook, which the `attack` op doesn't mediate).
 4. **`evil-company` core:** XM, XI, XH (N10), XB and XN. **Done:** `XH` (N10), `XI`, `XB` (mock `padBytes`) and `XN` (mock `nonceLoop`, harm oracle `bounded_requests`). **Dropped:** `XK`, which our client never observes because it caches the validated documents (N44). Later, from the Cloudflare cost audit (N46): `XR` (mock `endlessEvents`) and `XT` (mock `stuckInProgress`). **Not yet:** XM (a two-Company cell is a runner change, not an adapter one); XS needs the N42 "private" suffix, since every `*.interop.test` name is already a reachable test host.
 5. **Operations and consent:** XO, XP and YC (N14), adding a `display` op for agents and a consent-page reader for Companies. **Done:** `XO` (mock `opSwap`) and `XP` (mock `organizationName`, agent `display` op). **Not yet:** `YC`, which needs a consent-page reader (our mock's consent is a redirect hook with no HTML page).
 6. **Injected text:** XJ, then a model lane for N15. **Done in the Workers suite:** `test/prompt-injection.test.ts` injects instructions through a Company message, an operation summary and an MCP tool description, and a faux model obeys them; nothing is confirmed or sent as the User. **Not yet in the interop harness**, which has no model lane (the `no_secret_in` harm oracle is built).
@@ -183,9 +183,9 @@ Restricted to our own project: the adversarial sides (`evil-agent`, `evil-compan
 
 What adversarial testing restricted to our own project covers, and what it misses by design:
 
-- **Can test, over the wire:** our client's refusals of a malicious Company (`evil-company`: XH/N10, XI, XB oversized, XN nonce-loop, XO op-swap, XP consent spoofing, XE forged-sender, XR endless reading, XT an operation in progress for ever), and since 13 October other projects' agents against the same attacks, our mock's refusals of a malicious agent (`evil-agent`: YR, YD, YA, YT, YS, YK, YU, YM), both sides' resilience to a network adversary (the fault proxy: replay, duplicate, and the timing faults), and fairness (BX). The harm oracles (`token_not_sent_to`, `no_request_to`, `no_2xx_after`, `no_secret_in`, `performed_at_most_once`, `bounded_requests`) judge the trace, not either side's opinion.
+- **Can test, over the wire:** our client's refusals of a malicious Company (`evil-company`: XH/N10, XI, XB oversized, XN nonce-loop, XO op-swap, XP consent spoofing, XE forged-sender, XR endless reading, XT an operation in progress for ever), and since 13 October other projects' agents against the same attacks, our mock's refusals of a malicious agent (`evil-personal-agent`: YR, YD, YA, YT, YS, YK, YU, YM), both sides' resilience to a network adversary (the fault proxy: replay, duplicate, and the timing faults), and fairness (BX). The harm oracles (`token_not_sent_to`, `no_request_to`, `no_2xx_after`, `no_secret_in`, `performed_at_most_once`, `bounded_requests`) judge the trace, not either side's opinion.
 - **Can't test here:**
-  - **Other projects' Companies.** `evil-agent` and the fault proxy still run only against our own Companies (the own-project rule). Since 13 October, with the owner's approval, `evil-company` may attack other projects' agents, built at their pinned commits in our containers on the local lane. What those cells find is a possible vulnerability in their code, so it stays in the gitignored results until their maintainers have heard privately (`SECURITY.md`); this file and the committed summaries say only which scenarios ran.
+  - **Other projects' Companies.** `evil-personal-agent` and the fault proxy still run only against our own Companies (the own-project rule). Since 13 October, with the owner's approval, `evil-company` may attack other projects' agents, built at their pinned commits in our containers on the local lane. What those cells find is a possible vulnerability in their code, so it stays in the gitignored results until their maintainers have heard privately (`SECURITY.md`); this file and the committed summaries say only which scenarios ran.
   - **Prompt injection over the wire.** The interop harness drives protocol code with no model, so it has no model lane. Prompt injection is tested in the Workers suite instead (`test/prompt-injection.test.ts`): a faux model that obeys any instruction it reads can't confirm an operation, speak as the User or send a credential, because no tool can. A real model's susceptibility (the lethal trifecta, AgentDojo) isn't measured.
   - **Live deployments.** The live lane never runs adversarial cells. We never attack a public deployment, so these results come only from containers on the private network.
 
