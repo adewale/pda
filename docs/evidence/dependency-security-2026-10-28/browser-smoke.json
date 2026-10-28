@@ -1,0 +1,23 @@
+{
+  "signedOutPage": true,
+  "publicAboutAndEcosystem": true,
+  "publicPagesNeedNoIdentityOrSocket": true,
+  "ecosystemMobileTablesAndDeepLinks": true,
+  "ecosystemMobileLandscape": true,
+  "publicLinksAndSectionTargets": true,
+  "oldEcosystemPathHasNoPageOrRedirect": true,
+  "authenticatedWorkspaceAndWebSocket": true,
+  "chatReply": true,
+  "chatSurvivesReload": true,
+  "deepRoutes": true,
+  "mobileLayout": true,
+  "revokedSessionShowsRecoveryAndRetainsDraft": true,
+  "logoutAndReloadSignsOut": true,
+  "uncaughtBrowserErrors": 0,
+  "runtime": "local workerd",
+  "assets": "production Vite build",
+  "builtThisRun": false,
+  "model": "synthetic test provider",
+  "authentication": "production signed-cookie verifier with synthetic test identity",
+  "liveOAuthOrModelVerified": false
+}

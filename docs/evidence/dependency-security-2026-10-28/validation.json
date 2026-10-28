@@ -1,0 +1,17 @@
+{
+  "base": "19b5e42c23a2f60de5651a2f54c7235d79729956",
+  "date": "2026-10-28",
+  "cleanInstall": "npm ci --legacy-peer-deps --no-fund --no-audit: passed",
+  "typecheck": "passed",
+  "specCheck": "passed",
+  "build": "passed",
+  "dependencyCheck": "passed; zero known vulnerabilities in production and all dependencies",
+  "existingTests": {
+    "passed": 1839,
+    "failed": 1,
+    "skipped": 1,
+    "failure": "test/budget.test.ts:135 expected 0.6, received 0.5; also fails at unchanged main. Fixed in the separate correctness PR."
+  },
+  "browserSmoke": "passed with zero uncaught errors; synthetic providers, no live OAuth/model or deployment",
+  "screenshot": "audit.png renders metadata.vulnerabilities from actual before/after npm audit JSON; browser-mobile.png is Chromium against the production build and local workerd."
+}
