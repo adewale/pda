@@ -2,7 +2,36 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
-## Unreleased — Poppy 0.1 and draft 0.2
+## Unreleased — Poppy 0.3 alone
+
+Protocol baseline: **0.3, the text upstream published on its site on 28 October 2026**, which has no upstream commit yet ([snapshot](spec/draft-0.3-retrieved-2026-10-28/README.md); `spec/upstream.json` pins its hashes). Operations **v2**, Mediated Sign-In **v1**. 0.1 and 0.2 are no longer spoken ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)).
+
+### Breaking
+
+- A Company whose `poppy.json` declares 0.1 or 0.2 is refused before its issuer is used. Print with Poppy and the other Companies still on 0.2 can't be used until they move to 0.3; an agent's accounts there go unused, and aren't revoked.
+- The client metadata document is `/poppy/client.json` again, listing Operations 2; `/poppy/0.3/client.json` is gone. A Company that allowlisted it sees a new `client_id`, and the User signs in again.
+- Operations 1 is gone: proposals, confirm and cancel, tracking, standing permissions, the `poppy_operation` tool and its card. A migration drops `poppy_operations`, `poppy_proposals` and `poppy_permissions`. A Company's terms are an approval card, after our own card for the write.
+- Sign-in asks for the Company's own scopes; `poppy:read` and `poppy:write` are gone.
+
+### Added
+
+- `poppy_feedback`: tells a Company about a task the User couldn't do there, once per task, never one it lists as excluded, and passes on another way to do it when the Company answers with one (9.3). `poppy_discover` now lists the tasks a Company leaves out of the protocol (9.1) and describes its scopes from its OpenAPI descriptions and `scope_hints`.
+- Approval cards check the Company's terms against the request and the summary, and say what differs (Ops 5).
+- A requirement ledger for 0.3: `spec/requirements-0.3.json` gives each of the changelog's 42 entries a disposition, and `npm run check:spec` holds it to the changelog.
+- A mock check that no Session header reaches an OAuth endpoint (`session-jwt.oauth-endpoint`, 5.2).
+- Four issues found while implementing, in [poppy-0.3-issues.md](docs/poppy-0.3-issues.md#found-while-implementing).
+
+### Fixed
+
+- The protocol log called token-endpoint requests "Session header"; they carry our client assertion.
+- Signing out withdraws its Sessions' pending approvals at once, not at the next token refresh.
+- `extension_required` names the extension the Company asks for.
+
+### Removed
+
+- Every interop peer, vector and lane that spoke 0.1 or 0.2, with `lenient-company-v02`, the official validator's lanes (`npm run interop:official`, `npm run interop:flaws`) and the adversarial agent, which waits for a 0.3 port. [interop-spec §14](docs/interop-spec.md#14-retired-with-01-and-02) lists each with its last pin.
+
+## Earlier — Poppy 0.1 and draft 0.2
 
 Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d), Operations **v1**. [Local specification and official changelog](spec/draft-0.2-2026-10-19/README.md). [Upstream changelog](https://personalagentprotocol.org/docs/changelog#v0-2). Draft 0.2 is still in progress; this entry targets that exact revision.
 

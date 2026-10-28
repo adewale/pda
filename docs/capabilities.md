@@ -1,6 +1,6 @@
 # What the agent can do, and where each part comes from
 
-The [README](../README.md#what-you-can-do-with-it) says what a person can ask for. This page maps each capability to its source: a Poppy feature, with the section of [Draft 0.1](../spec/draft-0.1-2026-10-12/README.md) or the Operations extension (Ops, version 1) it implements, or a feature of this project. Each model tool is listed once, beside the feature it serves, with what needs the User's approval and the file that defines it. How each part works is in the [spec](../pda-spec.md); why it was built that way is in [decisions.md](decisions.md).
+The [README](../README.md#what-you-can-do-with-it) says what a person can ask for. This page maps each capability to its source: a Poppy feature, with the section of [Draft 0.3](../spec/draft-0.3-retrieved-2026-10-28/README.md) (28 October text), the Operations extension (Ops, version 2) or the Mediated Sign-In extension (MSI) it implements, or a feature of this project. Each model tool is listed once, beside the feature it serves, with what needs the User's approval and the file that defines it. How each part works is in the [spec](../pda-spec.md); why it was built that way is in [decisions.md](decisions.md).
 
 Back to the [README](../README.md)
 
@@ -23,28 +23,28 @@ Two kinds of approval card exist, and they come from different places:
 - **Our own cards are this project's.** Every write a Company doesn't propose waits on a local approval card before anything is sent: an OpenAPI write whose description doesn't declare an operation, an MCP tool without `readOnlyHint: true`, and a website form submit. Every upload of the User's photo waits on one too, even to an endpoint that proposes. The draft doesn't ask for these; we add them so that nothing changes the User's account, and none of their files leaves, on the model's word alone ([decision 6](decisions.md#6-prompt-injection-defences-that-are-structural), [decision 26](decisions.md#26-photos-in-the-chat-uploaded-only-with-the-users-approval)). Once approved, the card's receipt says what the Company answered: done for a 2xx; sent as approved but answered with that status and error code, so nothing changed unless the Company says otherwise; or, with no answer, that it may or may not have reached the Company.
 - **Some writes get no card at all.** A write the Company's description leaves outside its Poppy Session (its own sign-in, session, token or compatibility endpoint) is refused before any card: the agent's only access is its Poppy Session ([readings.md](readings.md#poppy-session-only)).
 
-No tool approves, confirms or cancels anything. A scheduled task's run is a background turn like a Company message's, so the same holds for it: it can ask for approval, never give it. Confirming, declining, cancelling, standing permissions, entering credentials, signing out and speaking in a Direct Conversation are actions on the page.
+No tool approves anything. A scheduled task's run is a background turn like a Company message's, so the same holds for it: it can ask for approval, never give it. Approving, declining, entering credentials, signing out and speaking in a Direct Conversation are actions on the page.
 
 ## Poppy features
 
 | Capability | Draft | Tool | Needs the User | Defined in |
 | --- | --- | --- | --- | --- |
-| Find out whether a Company supports Poppy and what it offers; the validator checks its documents first | §3, §3.1–3.3 | `poppy_discover` | No | `src/poppy/tools.ts`, `src/poppy/discovery.ts`, `src/validator/` |
-| The agent's public identity at Companies | §4.1 | None: the Worker serves `/poppy/client.json` and `/poppy/jwks.json` | No | `src/poppy/routes.ts` |
-| Start a Session, signed out, and use it with DPoP | §4.2–4.3 | None: every Company tool starts one when it needs one | No | `src/poppy/client.ts`, `src/poppy/jwt.ts` |
-| Sign in at the Company when a task needs the User's account: Direct, Device or Mediated Sign-In, reusing an Account Token that covers the scopes | §4.4–4.8 | `poppy_sign_in` | Yes: the User signs in on the Company's page or on the card; the tool never takes a password | `src/poppy/signin.ts` |
-| Sign out of a Company | §4.9 | None: the Companies page | It is the User's action | `src/poppy/signin.ts` |
-| Browse the Company's website in the Session, with no JavaScript | §5 | `poppy_browse` | A form submit waits for our own card | `src/poppy/browser.ts`, `src/poppy/fetch-browser.ts` |
-| Look things up and make changes through the Company's OpenAPI API, including uploading the User's photo | §6 | `poppy_api_describe`, `poppy_api_call` (a JSON body as `body`, an object, or `bodyValue`, anything else) | Reads: no. A write whose every declared success is a 202 that requires `operation`: the Company's proposal (Ops §4.1). Any other write, and every upload: our own card. A write outside the Poppy Session: never made | `src/poppy/apis.ts` |
-| Use the Company's MCP tools | §6 | `poppy_mcp_list`, `poppy_mcp_call` (`args` checked against the tool's `inputSchema` first) | A tool without `readOnlyHint: true`: the Company's proposal when its output schema requires `operation` (Ops §4.2), otherwise our own card | `src/poppy/apis.ts` |
-| Talk to the Company's agent, with replies read in the background or streamed | §7.1–7.7 | `poppy_message`, `poppy_read` | No: a message never authorizes an account action (§7.11) | `src/poppy/conversations.ts` |
-| Ask for a person at the Company | §7.9 | `poppy_handoff` | No | `src/poppy/conversations.ts` |
-| Let the User talk to the Company directly | §7.10 | `poppy_invite_user` | Yes: the User decides whether to start it, and writes their own messages | `src/poppy/conversations.ts`, `src/poppy-ui.tsx` |
-| Sign in during a conversation when the Company asks | §7.11 | None: the client reacts to the event, through `poppy_sign_in`'s card | As for signing in | `src/poppy/conversations.ts` |
-| Close a conversation | §7.12 | `poppy_close` | No | `src/poppy/conversations.ts` |
-| Read a Company's proposal, its terms, state and result | Ops §3, §6 | `poppy_operation` | No: reading only | `src/poppy/operations.ts` |
-| Approve, decline or cancel a proposal; remove paused standing permissions | Ops §5.1, §5.2, §7 | None: cards and the Companies page | It is the User's action | `src/poppy/operations.ts`, `src/poppy-ui.tsx` |
-| See what is still open at every Company: operations, approvals, sign-ins, conversations | Spans §4, §7 and Ops §3 | `poppy_status` | No | `src/poppy/tools.ts`, `src/poppy/activity.ts` |
+| Find out whether a Company supports Poppy 0.3 and what it offers, the tasks it leaves out and where it takes feedback; the validator checks its documents first | §3, §3.1–3.3, §9.1 | `poppy_discover` | No | `src/poppy/tools.ts`, `src/poppy/discovery.ts`, `src/poppy/coverage.ts`, `src/validator/` |
+| The agent's public identity at Companies | §4.1 | None: the Worker serves `/poppy/client.json` (listing Operations 2) and `/poppy/jwks.json` | No | `src/poppy/routes.ts` |
+| A Session for each task, named in a Session header signed with a delegated key on every request | §5.1–5.3, §5.6 | None: every Company tool starts one when it needs one | No | `src/poppy/client.ts`, `src/poppy/jwt.ts` |
+| Sign in at the Company when a task needs the User's account: Direct, Device or Mediated Sign-In, reusing a refresh token that covers the scopes, the Company's scopes described with their hints | §4.2–4.4, §4.7, §5.4, MSI | `poppy_sign_in` | Yes: the User signs in on the Company's page or on the card; the tool never takes a password | `src/poppy/signin.ts` |
+| Sign out of a Company | §4.6, §5.5 | None: the Companies page | It is the User's action | `src/poppy/signout.ts` |
+| Browse the Company's website in the Session, with no JavaScript, after joining the browser to it | §6 | `poppy_browse` | A form submit waits for our own card | `src/poppy/browser.ts`, `src/poppy/fetch-browser.ts` |
+| Look things up and make changes through the Company's OpenAPI API, including uploading the User's photo | §7 | `poppy_api_describe`, `poppy_api_call` (a JSON body as `body`, an object, or `bodyValue`, anything else) | Reads: no. Every write and every upload: our own card first, then, when the Company answers `approval_required`, its terms on a card of their own (Ops §4–6). A write outside the Poppy Session: never made | `src/poppy/apis.ts`, `src/poppy/operations-v2.ts` |
+| Use the Company's MCP tools | §7 | `poppy_mcp_list`, `poppy_mcp_call` (`args` checked against the tool's `inputSchema` first) | A tool without `readOnlyHint: true`: our own card, then the Company's terms when its result asks for approval (Ops §4) | `src/poppy/apis.ts` |
+| Talk to the Company's agent, with replies read in the background or streamed | §8.1–8.8 | `poppy_message`, `poppy_read` | No: a message never authorizes an account action. A Company Agent's operation waits on a terms card | `src/poppy/conversations.ts` |
+| Ask for a person at the Company | §8.9 | `poppy_handoff` | No | `src/poppy/conversations.ts` |
+| Let the User talk to the Company directly | §8.10 | `poppy_invite_user` | Yes: the User decides whether to start it, and writes their own messages | `src/poppy/conversations.ts`, `src/poppy-ui.tsx` |
+| Sign in during a conversation when the Company asks | §8.11 | None: the client reacts to the challenge, through `poppy_sign_in`'s card | As for signing in | `src/poppy/conversations.ts` |
+| Close a conversation | §8.12 | `poppy_close` | No | `src/poppy/conversations.ts` |
+| Tell a Company about a task the User couldn't do there, once per task, never one it lists as excluded; pass on the other way it answers with | §9.2–9.3 | `poppy_feedback` | No | `src/poppy/coverage.ts` |
+| Approve or decline a write, ours or the Company's terms | Ops §5–7 | None: cards on the page | It is the User's action | `src/poppy/operations.ts`, `src/poppy-ui.tsx` |
+| See what is still open at every Company: approvals, sign-ins, conversations | Spans §4, §8 and Ops §5 | `poppy_status` | No | `src/poppy/tools.ts`, `src/poppy/activity.ts` |
 
 ## This project's own features
 

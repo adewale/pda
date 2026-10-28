@@ -1,6 +1,6 @@
 # Issues in Personal Agent Protocol draft 0.3
 
-From the [Poppy Demo Agent](https://github.com/adewale/pda) project, which implements a Personal Agent and a strict mock Company for Poppy 0.1 and 0.2.
+From the [Poppy Demo Agent](https://github.com/adewale/pda) project, which implements a Personal Agent and a strict mock Company for Poppy 0.3, and only 0.3 since 28 October.
 
 **What we read.** Draft 0.3 as published on 28 October 2026, retrieved at 17:48 UTC:
 - the [specification](https://personalagentprotocol.org/docs/0.3/spec);
@@ -19,6 +19,7 @@ Quotations are verbatim from those pages' Markdown, and section numbers are the 
 | High | 1 to 3 |
 | Medium | 4 to 18 |
 | Low | 19 to 39 |
+| Found while implementing | 40 to 43, and notes on 11, 12 and 14 |
 
 ## High
 
@@ -437,3 +438,54 @@ Make the Company side a SHOULD.
 - Operations' examples reuse the specification's `evt_c4` and `msg_r2Kq` for different content, though they say they continue its example.
 
 **Suggestion.** Fix each in place; none changes behaviour.
+
+## Found while implementing
+
+We implemented the 28 October text in our client and mock Company after the issues above were written. These four are new; each was checked against the text as the others were.
+
+### 40. Nothing says which writes need approval, so a careful agent asks the User twice
+
+*Interop, safety. Operations (introduction, 4).*
+
+**What the text says.** "Operations add no endpoints. A Company chooses which actions need approval." A Company that doesn't ask performs the write at once.
+
+**Why it matters.** An agent can't tell, before it sends a write, whether the Company will ask the User. If it sends every write straight away, a write the Company doesn't ask about is done on the model's word alone. So an agent that never acts without the User asks first on its own card, and then the Company asks again with `approval_required`: two approvals for one action, the second with the terms the User needed for the first. Operations version 1 let a description say a write proposes an operation; version 2 has no equivalent.
+
+**Suggestion.** A marker the agent can read before it sends: an OpenAPI extension on the operation and an MCP tool annotation saying the Company always answers with `approval_required`. An agent could then skip its own card for those writes, knowing nothing is done until the User approves the Company's terms.
+
+### 41. An OpenAPI description can't say which security scheme takes the Company's access tokens
+
+*Interop. §7, §4.5, §4.7.*
+
+**What the text says.** §7: "Every listed API MUST accept the Session header (5.2) and the Company's access tokens (4.5)". §4.7 describes scopes "in the scopes of an OAuth 2.0 security scheme in an OpenAPI description it lists". Nothing says how a description marks the scheme the Poppy access token goes in.
+
+**Why it matters.** Companies that add Poppy to an existing API keep their own schemes beside it. Print with Poppy's store describes a Bearer `guest` scheme for its own guest tokens next to the DPoP one. Both are HTTP `bearer`-style schemes, so an agent can't tell which operations take its access token and which want a credential from the Company's own sign-in. Our client reads any OAuth 2.0 or HTTP `Bearer`/`DPoP` scheme as one that takes it, which counts `guest` too.
+
+**Suggestion.** Name the scheme: for example, an OAuth 2.0 scheme whose flows point at the issuer's endpoints, or an extension field on the scheme such as `x-poppy: true`.
+
+### 42. "Each code works once", but the browser-join code is used twice
+
+*Editorial. §6.*
+
+**What the text says.** Step 1's requirements: "The Company MUST make the code unguessable and short-lived, and each code works once." The code is then sent by the Personal Agent in step 2 ("hasn't been authorized before") and by the browser in step 3 ("hasn't been submitted before").
+
+**Why it matters.** Read alone, step 1's sentence lets a Company spend the code at step 2, so step 3 always fails. Steps 2 and 3 say what is meant.
+
+**Suggestion.** "each code can be authorized once and submitted once".
+
+### 43. The issuer isn't asked to say it sends `iss`
+
+*Editorial. §4.2, RFC 9207.*
+
+**What the text says.** §4.2: "The redirect back carries the Company's issuer in `iss` (RFC 9207)… The Personal Agent MUST check that `iss` exactly matches the issuer". The metadata members the text lists don't include `authorization_response_iss_parameter_supported`.
+
+**Why it matters.** RFC 9207 §3 has an authorization server that sends `iss` advertise it with that member. Without it, a validator can't tell a Company that forgot `iss` from one that sends it, before a sign-in fails.
+
+**Suggestion.** Require `authorization_response_iss_parameter_supported: true` in the issuer's metadata.
+
+### What implementing confirmed
+
+- **11.** A Company that refuses our `client_id` answers `invalid_session` at a resource (§4.1), and §7's one recovery has us start a new Session, which is refused the same way. One wasted request on each try, and nothing tells the agent that a new Session won't help.
+- **12.** The same gap shows up after a Company ends a signed-out Session: an approval of its operation can't be sent on the new Session, so the User's approval is lost and they have to ask again. Our client tells them so instead of sending it unapproved.
+- **14.** Our approved retry carries a new `Idempotency-Key`, as Operations says. An agent that follows the guides' advice to reuse the key gets the first `approval_required` back.
+
