@@ -13,17 +13,15 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 
 ## Current ecosystem — 28 October 2026
 
-<!-- ecosystem-survey:start -->
-### Latest automated observations — 28 October 2026
+### Source and discovery observations — 28 October 2026
 
-23 of 23 watched repository heads were read; 9 moved since the preceding observation. The survey has incomplete observations, listed in its report.
+23 repository heads were read; 9 moved since the preceding observation. The survey has incomplete observations, listed in its report.
 
 - **Specification source:** [a95b757](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/a95b757872533a6ef1e1a9bcf29802857d2e5ff4). PDA's adopted wire profile and validator pin are unchanged.
 - **Package releases:** @datalayer/personal-agent-protocol 0.27.0; personal-agent-protocol 0.27.0; poppyseed 0.3.1.
 - **Public discovery:** 23 valid, 3 invalid, 6 unsupported by PDA and 1 indeterminate. A newer unsupported declaration is not a failed check against its own rules.
 
-[Read the current survey](ecosystem-status.md) and [machine-readable receipt](ecosystem-status.json). These observations cover source and public metadata only. They do not refresh Sessions, sign-in, ordering or the historical grid.
-<!-- ecosystem-survey:end -->
+[Read the current survey](evidence/ecosystem-2026-10-28/survey.md) and [machine-readable receipt](evidence/ecosystem-2026-10-28/survey.json). These observations cover source and public metadata only. They do not refresh Sessions, sign-in, ordering or the historical grid.
 
 ### Reviewed landscape — 28 October 2026
 
@@ -52,25 +50,21 @@ The [refresh report](ecosystem-refresh-2026-10-28.md) interprets the dated obser
 | ample.computer; tilopay.shop; tilopay.tilopay.shop | 0.1 | Invalid | Domain-binding diagnostics remain in the receipt |
 | intercom.io | Not established | Indeterminate | Redirected discovery returns 404 |
 
-The [complete 33-host receipt](ecosystem-status.json) includes all hosts, exact request URLs, declared profiles, diagnostics and canonical parsed-document hashes. Five additions came from PAP Checker's directory and were checked sequentially. All other hosts retain their recorded source history.
+The [complete 33-host receipt](evidence/ecosystem-2026-10-28/survey.json) includes all hosts, exact request URLs, declared profiles, diagnostics and canonical parsed-document hashes. Five additions came from PAP Checker's directory and were checked sequentially. All other hosts retain their recorded source history.
 
 ### Targeted interoperability — 28 October 2026
 
 The Datalayer 0.2 peers move from SDK 0.25.0 to **0.26.0**, at `0ff43c55cc303c3165cb2d5841eca026e1c7c699`. The 0.1 peers remain at their old pins; latest SDK 0.27.0 targets 0.3 and is not substituted.
 
-A rebuilt 3×3 discovery/signed-out Session smoke run passes **18 cells**. The full thirty-scenario 0.2 3×3 run records **211 pass, 7 fail, 52 unsupported, 0 error**. PDA passes **74 exercised cells**, with 16 unsupported. The seven SDK streaming/control-response compatibility failures match the previously published 0.25 baseline; they remain unexempted and the runner exits 1. A narrow publication allowlist permits their aggregate counts without hiding the failures or publishing new unexpected traces. [Refresh evidence and limits](ecosystem-refresh-2026-10-28.md#targeted-interoperability).
+A rebuilt 3×3 discovery/signed-out Session smoke run passes **18 cells**. The full thirty-scenario 0.2 3×3 run records **211 pass, 7 fail, 52 unsupported, 0 error**. PDA passes **74 exercised cells**, with 16 unsupported. The seven SDK streaming/control-response compatibility failures match the previously published 0.25 baseline; they remain unexempted and the runner exits 1. [Refresh evidence and limits](ecosystem-refresh-2026-10-28.md#targeted-interoperability).
 
 This is not a rerun of the historical full ecosystem grid or a live sign-in/order. The historical scorecard retains its dates and revisions. The 24–26 October official-validator and live follow-ups remain in their [dated reports](interop-testing.md).
 
 ### Upstream heads versus retained grid pins
 
-The [machine-readable survey](ecosystem-status.json) records 23 observed heads: nine changed since the 23 October survey, eight were unchanged, and six are newly inspected source candidates. The repository comparisons are incremental source evidence; Everruns reached GitHub's 300-file cap and needs a broader comparison before claiming its Poppy code is unchanged.
+The [machine-readable survey](evidence/ecosystem-2026-10-28/survey.json) records 23 observed heads: nine changed since the 23 October survey, eight were unchanged, and six are newly inspected source candidates. The repository comparisons are incremental source evidence; Everruns reached GitHub's 300-file cap and needs a broader comparison before claiming its Poppy code is unchanged.
 
 The pin values in that receipt were read at survey start, before the reviewed 0.26.0 follow-up. [The registry](../interop/registry.json) holds the current reviewed pins. Print with Poppy's head `4dcb1e8` differs from retained `3360d8b` only in four UI/sandbox-configuration paths, so its runtime pin is unchanged. No other peer pin moved.
-
-### Keeping these observations current
-
-The [monitoring procedure](ecosystem-monitoring.md) defines a Monday source/discovery survey, targeted checks for reviewed pin or adapter changes, and a bounded monthly cross-project grid. Each completed refresh opens a dated evidence PR with immutable receipts; weekly map updates include before/after browser captures. Protocol adoption and interpreted conformance claims remain reviewed changes.
 
 ## Dated implementation catalogue — 12–18 October
 

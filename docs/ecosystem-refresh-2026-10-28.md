@@ -20,7 +20,7 @@ The new sources are detailed in [implementations.md](implementations.md#source-a
 - **PoppyKit client and server**: TypeScript SDKs for 0.2, MIT. Their READMEs require Node 24.21 or later and describe unreleased repairs with publication pending. No adapter was added and neither was run here.
 - **kidkuddy/poppy-cli**: a Go command-line Personal Agent and testing skill for 0.2 Companies, MIT. Its README was inspected; the code was not executed.
 
-The first four came from bounded GitHub searches since 23 October; the PoppyKit repositories came from Awesome Poppy. The watchlist now retains all six for later source comparisons. Search noise and forks remain leads rather than implementation counts.
+The first four came from bounded GitHub searches since 23 October; the PoppyKit repositories came from Awesome Poppy. The dated receipt retains all six checked revisions. Search noise and forks remain leads rather than implementation counts.
 
 ## Public discovery
 
@@ -35,13 +35,13 @@ The 28 prior addresses were rechecked, then five named addresses from PAP Checke
 
 The 0.3 declarations are at Northlight Flowers, the food and stays sandboxes, Poppyseed, Not Just a Bank and its bank subdomain. PDA's version refusal is a compatibility boundary, not evidence that these documents violate 0.3. No fallback to 0.2 was attempted.
 
-This managed run uses Node 24 fetch through the environment's HTTP proxy with TLS verification and public DNS checks. The proxy connection itself is not DNS-pinned; the receipt states this. The normal scheduled/local transport uses the existing DNS-pinned Node HTTPS fetcher. Only public discovery and issuer metadata were fetched: no Session, sign-in, Company API, conversation, payment or order. Raw metadata documents are not committed.
+This managed run uses Node 24 fetch through the environment's HTTP proxy with TLS verification and public DNS checks. The proxy connection itself is not DNS-pinned; the receipt states this. The existing validator CLI uses its DNS-pinned Node HTTPS fetcher. Only public discovery and issuer metadata were fetched: no Session, sign-in, Company API, conversation, payment or order. Raw metadata documents are not committed.
 
 ## Targeted interoperability
 
 The four Datalayer `-v02` entries advance from SDK 0.25.0 (`97c1386`) to SDK **0.26.0** at [`0ff43c5`](https://github.com/datalayer/personal-agent-protocol/tree/0ff43c55cc303c3165cb2d5841eca026e1c7c699). That revision adds API-write idempotency while retaining 0.2. The 0.1 peers and their source links remain pinned as before. Latest 0.27.0 was not substituted because its wire profile is 0.3.
 
-All seven needed images were rebuilt. The three agents, PDA and the TypeScript/Python SDKs, were paired with our 0.2 mock and the two SDK Companies. The isolated network passed the runner's no-egress probe before implementation startup. The own-code manifests report `c3eabd0-dirty` because monitoring and documentation edits were present during the run. Their executable build inputs (`src`, `test/mock-company`, `interop/runner` and `interop/impls`, excluding README files) are unchanged from base `c3eabd00e398f2934a462d44c38640c2cfd8cfff`; the measured manifest values are retained in the receipts.
+All seven needed images were rebuilt. The three agents, PDA and the TypeScript/Python SDKs, were paired with our 0.2 mock and the two SDK Companies. The isolated network passed the runner's no-egress probe before implementation startup. The own-code manifests report `c3eabd0-dirty` because documentation and tooling edits were present during the run. Their executable build inputs (`src`, `test/mock-company`, `interop/runner` and `interop/impls`, excluding README files) are unchanged from base `c3eabd00e398f2934a462d44c38640c2cfd8cfff`; the measured manifest values are retained in the receipts.
 
 ```sh
 npm run interop -- --agents pda,datalayer-ts-v02,datalayer-py-v02 \
@@ -61,19 +61,9 @@ npm run interop -- --no-build --agents pda,datalayer-ts-v02,datalayer-py-v02 \
 
 **211 pass, 7 fail, 52 unsupported, 0 error; no flaky cells. PDA: 74 pass, 0 fail, 16 unsupported.** [Aggregate receipt](evidence/ecosystem-2026-10-28/grid-receipt.json). The seven failures match the previously [published 0.25 compatibility findings](poppy-0.2-upgrade.md#validation): three TypeScript streaming cells and four SDK handoff/close response-shape cells. They remain unexempted and the command exits **1**. No new known-failure exemption was added.
 
-The [publication allowlist](../interop/published-findings.json) permits only aggregate counts for those already public findings at the exact reviewed pins and error categories. It does not alter attribution, pass rates or exit status. Different failures or source commits require review before automatic publication. Raw traces stay in the gitignored local results directory.
+Only aggregate counts for previously public compatibility findings are committed. Raw traces stay in the gitignored local results directory.
 
 Print with Poppy's new source head `4dcb1e8` has only four changed paths relative to retained `3360d8b`: frontend files, sandbox configuration and its guide. Its runtime pin remains unchanged, and this refresh makes no new live ordering claim.
-
-## Repeatable monitoring
-
-The [procedure](ecosystem-monitoring.md) and two workflows add:
-
-- A Monday 07:00 UTC source/discovery survey, dated receipts, a review PR and before/after browser evidence for the map's generated observation block.
-- Discovery/signed-out Session smoke checks for reviewed peer pin or executable adapter changes in a PR.
-- A first-of-month 08:00 UTC cross-project grid, split into 21 bounded peer jobs with at most two concurrent. Complete publishable runs open a dated aggregate report PR; unexempted public failures remain failures.
-
-The monthly selection covers PDA versus local Company adapters and registered Personal Agents versus our matching-profile mocks. It is broader than own-code CI, but not the full foreign-to-foreign matrix. Schedules activate after merge to the default branch. Publishing requires the repository to allow Actions-created PRs; this session's GitHub integration could not inspect that administrative setting (HTTP 403). The workflow explicitly dispatches CI because PRs created with `GITHUB_TOKEN` do not trigger `pull_request` workflows automatically.
 
 ## Limits
 

@@ -15,7 +15,7 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Added
 
-- Dated ecosystem source/discovery receipts, a Monday survey PR with browser evidence, targeted smoke checks for reviewed peer changes, and a bounded monthly cross-project grid. Unsupported protocol declarations remain distinct from invalid supported-profile documents; historical grid and live-journey dates are preserved.
+- A 28 October ecosystem refresh: 23 checked repository heads, six new source candidates and 33 dated public discovery results. Six unsupported 0.3 declarations are distinguished from invalid supported-profile documents; historical grid and live-journey dates are preserved.
 
 - A 23 October ecosystem refresh: 17 checked source heads, 28 dated public discovery/metadata results, Archon's new entry and current 0.2 declarations. Older Session results and grid scores retain their original dates.
 

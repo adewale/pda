@@ -24,8 +24,6 @@
     "validate": "node scripts/poppy-validate.ts",
     "check:docs": "node scripts/check-docs.mjs",
     "deps:check": "node scripts/deps-check.mjs",
-    "ecosystem:survey": "node --use-env-proxy scripts/ecosystem-survey.mjs",
-    "ecosystem:grid-plan": "node scripts/ecosystem-grid.mjs",
     "interop": "node interop/runner/cli.ts",
     "check:spec": "node scripts/check-spec.mjs",
     "spec:drift": "node --use-env-proxy scripts/check-spec.mjs --drift",

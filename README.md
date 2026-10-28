@@ -77,7 +77,6 @@ Signing in for the first time, with a run-through that checks each part works: [
 - **[Grounding](spec/grounding.md):** every claim we make about the draft, quoted against a stored copy of its text.
 - **[Conformance levels](docs/conformance-levels.md):** how our mock, validator and grid grade a broken MUST, a departed SHOULD and one of our readings.
 - **[Ecosystem map](docs/ecosystem.md):** every Poppy implementation we know of, what it does, and how it scores in our grid. The detailed survey behind it, with licences, maturity and what we learned from each project, is [implementations.md](docs/implementations.md).
-- **[Ecosystem monitoring](docs/ecosystem-monitoring.md):** weekly dated source/discovery PRs, targeted checks of reviewed peer changes, and a bounded monthly cross-project grid. Source observations, unsupported profiles and exercised behavior keep separate evidence.
 - **[Interop results](docs/interop-results/README.md):** the state of M×N interop: the public grid snapshot of every agent against every Company, with pass, fail and unsupported counts for each pair, and attribution where the evidence establishes a side.
 - **[Issues in other implementations](docs/poppy-issues.md):** what the grid and code reading found in other projects, reported to their maintainers privately first.
 

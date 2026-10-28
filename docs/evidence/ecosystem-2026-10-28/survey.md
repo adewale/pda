@@ -155,4 +155,4 @@ Up to 40 updated items since 2026-10-23; proposals and merged specification text
 
 ## Follow-up
 
-Review relevant upstream changes before moving any adapter pin. Use the targeted cross-project workflow for reviewed pin changes; keep older grid and live-journey results dated. Source movement and valid metadata do not establish successful protocol behavior.
+Review relevant upstream changes before moving any adapter pin. Run targeted interoperability checks after reviewing any pin change; keep older grid and live-journey results dated. Source movement and valid metadata do not establish successful protocol behavior.
