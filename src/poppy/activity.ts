@@ -1,3 +1,4 @@
+import { writtenBy } from "./message-author";
 import type { PoppyClient } from "./client";
 import { lostOutcome } from "./operations";
 import { object } from "../decode";
@@ -516,7 +517,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
      ORDER BY m.created_at DESC LIMIT ?`,
     ACTIVITY_LOG_LIMIT
   )) {
-    let body: { parent_conversation_id?: string; message?: { sender?: string; text?: unknown; data?: unknown } };
+    let body: { parent_conversation_id?: string; message?: { sender?: string; author?: unknown; text?: unknown; data?: unknown } };
     try {
       body = JSON.parse(row.body);
     } catch {
@@ -525,7 +526,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
     const message = body.message;
     if (!message || (typeof message.text !== "string" && message.data === undefined)) continue;
     const company = name(row.issuer);
-    const human = message.sender === "human";
+    const human = writtenBy(message) === "human";
     const isDirect = human || !!body.parent_conversation_id || row.in_direct === 1;
     log.push({
       id: `message-${row.id}`,

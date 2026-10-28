@@ -232,7 +232,7 @@ describe("sealed Account Token ownership controls", () => {
       target.sql.exec("UPDATE poppy_accounts SET token = ? WHERE issuer = ? AND account = ?", original, target.company.issuer, label);
     }
     // Restoration succeeds, ruling out an always-refusing client.
-    expect((await target.client.token(target.company, { label })).value).toBeTruthy();
+    expect((await target.client.sessionToken(target.company, { label })).value).toBeTruthy();
     expect((await w.mock.state()).recorded).toEqual([]);
   });
 });
@@ -357,22 +357,22 @@ for (const action of ["confirm", "read", "cancel"] as const) {
 it("replaces cached scope and resource variants when a Session gets a new token", async () => {
   const w = await world({});
   await signInto(w, w.mock, "main", "acct_ada");
-  const other = await w.client.token(w.company, { label: "other" });
-  const broad = await w.client.token(w.company);
+  const other = await w.client.sessionToken(w.company, { label: "other" });
+  const broad = await w.client.sessionToken(w.company);
   const session = w.client.session(w.company.issuer, "main")!;
-  const narrow = await w.client.token(w.company, { scope: "poppy:read" });
+  const narrow = await w.client.sessionToken(w.company, { scope: "poppy:read" });
   expect(narrow.scope).toBe("poppy:read");
   expect(narrow.value).not.toBe(broad.value);
-  const renewed = await w.client.token(w.company);
+  const renewed = await w.client.sessionToken(w.company);
   expect(renewed.value).not.toBe(broad.value);
   expect(renewed.value).not.toBe(narrow.value);
   expect(new Set(renewed.scope.split(" "))).toEqual(new Set(["poppy:read", "poppy:write"]));
-  expect((await w.client.token(w.company)).value).toBe(renewed.value);
-  expect((await w.client.token(w.company, { label: "other" })).value).toBe(other.value);
+  expect((await w.client.sessionToken(w.company)).value).toBe(renewed.value);
+  expect((await w.client.sessionToken(w.company, { label: "other" })).value).toBe(other.value);
 
-  const mcp = await w.client.token(w.company, { bearer: true, resource: w.hosts.mcpUrl });
+  const mcp = await w.client.sessionToken(w.company, { bearer: true, resource: w.hosts.mcpUrl });
   expect(mcp.type).toBe("Bearer");
-  const afterMcp = await w.client.token(w.company);
+  const afterMcp = await w.client.sessionToken(w.company);
   expect(afterMcp.type).toBe("DPoP");
   expect(afterMcp.value).not.toBe(renewed.value);
   expect(w.client.session(w.company.issuer, "main")!.session_id).toBe(session.session_id);
@@ -413,7 +413,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
       const tokenOwners = new Map<string, string>();
       for (const [who, { client, company }] of clients.entries()) {
         for (const label of [0, 1]) {
-          const token = await client.token(company, { label: labels[label]! });
+          const token = await client.sessionToken(company, { label: labels[label]! });
           // Every active Session has its own token. Neither a cache nor a
           // refresh may hand one client's/label's token to another.
           expect(tokenOwners.has(token.value)).toBe(false);

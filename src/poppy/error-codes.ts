@@ -44,13 +44,14 @@ export const AGENT_ERROR_CODES = [
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[number];
 
 /**
- * Codes the draft, the Operations extension and the OAuth RFCs it builds on
- * define for a Company to answer (spec 4.2, 4.3, 6, 7.13; Ops 9; RFC 6749,
- * 8628, 9449).
+ * Codes the drafts, the Operations extension and the OAuth RFCs they build
+ * on define for a Company to answer (spec 4.2, 4.3, 6, 7.13; Ops 9; 0.3's 7
+ * and 8.13, Ops 2 4, Mediated Sign-In 5; RFC 6749, 8628, 8707, 9449).
  */
 export const PROTOCOL_ERROR_CODES = [
   "access_denied",
   "account_mismatch",
+  "approval_required",
   "authorization_pending",
   "code_required",
   "conversation_closed",
@@ -67,6 +68,7 @@ export const PROTOCOL_ERROR_CODES = [
   "invalid_request",
   "invalid_scope",
   "invalid_session",
+  "invalid_target",
   "invalid_token",
   "message_id_conflict",
   "operation_not_found",

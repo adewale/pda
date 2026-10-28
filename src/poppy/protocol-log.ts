@@ -1,3 +1,4 @@
+import { writtenBy } from "./message-author";
 import { code, literal, recordPoppyExchange, reportError } from "../log";
 import type { CompanyReport } from "../validator/index.ts";
 import type { Company } from "./discovery";
@@ -520,7 +521,7 @@ function messageFields(body: unknown): string | null {
   const message = body.message;
   const fields = ["text", "data", "context"].filter((field) => message[field] !== undefined);
   const id = label(message.id);
-  const sender = message.sender === "human" || message.sender === "agent" ? message.sender : null;
+  const sender = writtenBy(message);
   return [id ? `message ${id}` : "message", sender ? `sender ${sender}` : null, fields.length ? `with ${fields.join(", ")}` : null].filter(Boolean).join(" ");
 }
 

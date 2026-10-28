@@ -1,10 +1,12 @@
+import { authorName, writtenBy } from "./message-author";
 import { sinceVersion } from "./protocol-version";
 import { literal, reportError } from "../log";
 import { hasCode, PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
-import { handleProposal } from "./operations";
+import { handleProposal, proposeLocal, registerExecutor } from "./operations";
+import { approvable, approvalCardId, approvalJson, approvalSummary, parseOperationV2 } from "./operations-v2";
 import { backoff } from "./pace";
 import { EndpointRequest } from "./outgoing";
 import { found, one, rows, type RowOf } from "../rows";
@@ -17,13 +19,21 @@ export type ConversationRow = RowOf<typeof conversationRow>;
 
 type Message = {
   id: string;
-  sender: "agent" | "human";
+  /** Who wrote it: `sender` before 0.3, `author.type` from 0.3 (8.4). */
+  sender?: "agent" | "human";
+  author?: { type: "agent" | "human" };
   text?: string;
   data?: Json;
   context?: Json;
+  /** 0.3: the User's approval of an operation the Company Agent returned (Ops 6). */
+  approval?: { operation_id: string; revision: string };
 };
 
 const ID = /^[A-Za-z0-9_-]{1,256}$/;
+
+/** 0.3 (8.7): a status we don't know is `working`, a responder we don't know `human`, so later versions can add values. */
+const STATUSES = new Set(["working", "idle", "queued", "closed"]);
+const RESPONDERS = new Set(["agent", "human"]);
 
 export function conversation(client: PoppyClient, id: string): ConversationRow | undefined {
   return one(client.sql, conversationRow, "SELECT * FROM poppy_conversations WHERE id = ? AND quarantined = 0", id);
@@ -56,7 +66,9 @@ function endpointOf(company: Company): string {
 function tokenOptions(company: Company, label: string) {
   return {
     label,
-    ...(company.conversations?.resource ? { resource: company.conversations.resource } : {})
+    ...(company.conversations?.resource ? { resource: company.conversations.resource } : {}),
+    // 0.3: the endpoint's own protected resource metadata says whether it takes only its own tokens (4.5).
+    ...(company.conversations && sinceVersion(company, "0.3") ? { service: company.conversations.endpoint } : {})
   };
 }
 
@@ -117,6 +129,8 @@ export async function sendMessage(
     data?: Json;
     contextOnly?: boolean;
     wait?: number;
+    /** 0.3: an approval the User gave on our card, never one the model chose (Ops 5, 6). */
+    approval?: { operation_id: string; revision: string };
   }
 ): Promise<SendResult> {
   if (request.text !== undefined && looksLikeJson(request.text)) {
@@ -146,12 +160,13 @@ export async function sendMessage(
   }
   const body = JSON.parse(
     intent(client.sql, `message|${request.callKey}`, () => {
-      const message: Message = { id: randomId("msg_"), sender: request.sender };
+      const message: Message = sinceVersion(company, "0.3") ? { id: randomId("msg_"), author: { type: request.sender } } : { id: randomId("msg_"), sender: request.sender };
       if (request.text !== undefined && !request.contextOnly) message.text = request.text;
       if (request.data !== undefined && !request.contextOnly) message.data = request.data;
       const context = contextDelta(client, existing);
       if (context) message.context = context;
-      if (message.text === undefined && message.data === undefined && message.context === undefined) {
+      if (request.approval) message.approval = request.approval;
+      if (message.text === undefined && message.data === undefined && message.context === undefined && message.approval === undefined) {
         throw new PoppyError("invalid_request", "A message needs text, data or context", 0);
       }
       return JSON.stringify({
@@ -263,8 +278,8 @@ export async function sendMessage(
 function updateState(client: PoppyClient, id: string, response: { [key: string]: Json }, active = false): void {
   const row = conversation(client, id);
   if (!row) return;
-  const status = typeof response.status === "string" ? response.status : row.status;
-  const responder = typeof response.responder === "string" ? response.responder : row.responder;
+  const status = typeof response.status === "string" ? (STATUSES.has(response.status) ? response.status : "working") : row.status;
+  const responder = typeof response.responder === "string" ? (RESPONDERS.has(response.responder) ? response.responder : "human") : row.responder;
   const changed = status !== row.status || responder !== row.responder;
   if (!changed && !active) return;
   client.sql.exec("UPDATE poppy_conversations SET status = ?, responder = ?, last_event_at = ? WHERE id = ?", status, responder, Date.now(), id);
@@ -339,16 +354,57 @@ async function sendRefused(
   }
 }
 
+/**
+ * 0.3: the User's card for an operation a Company Agent returned in a
+ * conversation (Ops 4, 5). Approved, it goes back in a message of that
+ * conversation, with `approval`; nothing else, and no text, approves it.
+ */
+async function proposeMessageApproval(client: PoppyClient, company: Company, row: ConversationRow, value: Json): Promise<void> {
+  const operation = parseOperationV2(value);
+  if ("problem" in operation) {
+    await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${company.name} asked for your approval in a conversation, but its terms couldn't be used (${operation.problem}), so nothing was done.` });
+    return;
+  }
+  await proposeLocal(
+    client,
+    company,
+    row.label,
+    approvalSummary(company, operation),
+    { kind: "message-approval", conversationId: row.id, approval: { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at } },
+    await approvalCardId(company, operation)
+  );
+}
+
+/** An approved operation from a conversation: one message with the approval, in that conversation (Ops 6). */
+registerExecutor("message-approval", async (client, company, approval, label, execution) => {
+  if (!approvable(approval.approval, Date.now())) {
+    throw new PoppyError("approval_changed", `Not sent: ${company.name}'s terms expired before they were approved. Ask ${company.name} again for current terms.`, 0);
+  }
+  const row = conversation(client, approval.conversationId);
+  if (!row || row.issuer !== company.issuer || row.label !== label) throw new PoppyError("conversation_not_found", "The conversation this approval is for is gone", 0);
+  execution.beforeDispatch();
+  await sendMessage(client, company, {
+    label,
+    callKey: `approval|${approval.approval.operation_id}|${approval.approval.revision}`,
+    conversationId: row.id,
+    sender: "agent",
+    text: "The User approved this.",
+    approval: approvalJson(approval.approval)
+  });
+  return `Sent the User's approval to ${company.name} in conversation ${row.id}; its agent says how it went in a later message.`;
+});
+
 /** When to read a conversation next: soon while the Company is busy, rarely when idle. */
 export async function scheduleRead(client: PoppyClient, id: string, delayMs: number): Promise<void> {
   await client.host.schedule("poppy-read", Date.now() + delayMs, { id }, `read-${id}`);
 }
 
 function describe(company: Company, row: ConversationRow, message: { [key: string]: Json }): string {
+  const name = authorName(message);
   const lines = [
     `[company message] ${company.name}, conversation ${row.id}, written by ${
-      message.sender === "human" ? "a person at the company" : "the company's agent"
-    }:`
+      writtenBy(message) === "human" ? "a person at the company" : "the company's agent"
+    }${name ? ` (who signs as ${JSON.stringify(name)})` : ""}:`
   ];
   if (typeof message.text === "string") lines.push(message.text);
   if (message.data !== undefined) lines.push(`data: ${JSON.stringify(message.data)}`);
@@ -448,12 +504,14 @@ async function handleEvent(
       }
       if (message.role !== "company") return;
       replies.push({
-        sender: String(message.sender ?? "agent"),
+        sender: writtenBy(message) ?? "agent",
         ...(typeof message.text === "string" ? { text: message.text } : {}),
         ...(message.data !== undefined ? { data: message.data } : {})
       });
       if (isObject(message.operation)) {
-        await handleProposal(client, company, row.label, message.operation);
+        // 0.3: an operation to approve, which goes back in a message's `approval` (Ops 4, 6).
+        if (company.extensions.operationsV2) await proposeMessageApproval(client, company, row, message.operation);
+        else await handleProposal(client, company, row.label, message.operation);
       }
       if (!options.quietModel) await client.host.notifyModel(describe(company, row, message), operationId);
       return;
@@ -739,7 +797,8 @@ export function pushDirect(
       {
         id: message.id,
         role: message.role === "user" ? "user" : "company",
-        sender: message.sender === "human" ? "human" : "agent",
+        sender: writtenBy(message) === "human" ? "human" : "agent",
+        ...(authorName(message) ? { authorName: authorName(message)! } : {}),
         ...(typeof message.text === "string" ? { text: message.text } : {}),
         ...(message.data !== undefined ? { data: message.data } : {})
       } satisfies DirectMessage
@@ -918,10 +977,12 @@ export function recentMessages(client: PoppyClient, id: string, limit = 20): Jso
     limit
   ).map(({ event }) => {
     const parsed = JSON.parse(event) as { message: { [key: string]: Json } };
-    const { role, sender, text, data, operation } = parsed.message;
+    const { role, text, data, operation } = parsed.message;
+    const name = authorName(parsed.message);
     return {
       role: role ?? null,
-      sender: sender ?? null,
+      sender: writtenBy(parsed.message),
+      ...(name ? { author_name: name } : {}),
       ...(text !== undefined ? { text } : {}),
       ...(data !== undefined ? { data } : {}),
       ...(isObject(operation) ? { operation: { operation_id: operation.operation_id ?? null, revision: operation.revision ?? null, state: operation.state ?? null } } : {})

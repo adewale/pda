@@ -8,10 +8,17 @@ export type SigningKey = {
   readonly publicJwk: JWK;
 };
 
-/** Where our identity lives. `client_id` is the metadata document's URL, forever. */
+/**
+ * Where our identity lives. `client_id` is the metadata document's URL,
+ * forever. 0.3 Companies get one of their own, `clientId03`: a client
+ * metadata document lists one version of each extension (0.3 3.3), and 0.2
+ * Companies need Operations 1 while 0.3 ones need Operations 2
+ * (docs/decisions.md, 36).
+ */
 export type AgentIdentity = {
   readonly origin: string;
   readonly clientId: string;
+  readonly clientId03: string;
   readonly jwksUri: string;
   readonly redirectUri: string;
   readonly clientName: string;
@@ -51,6 +58,7 @@ export function readIdentity(env: IdentityEnv): AgentIdentity {
   return {
     origin,
     clientId: `${origin}/poppy/client.json`,
+    clientId03: `${origin}/poppy/0.3/client.json`,
     jwksUri: `${origin}/poppy/jwks.json`,
     redirectUri: `${origin}/poppy/callback`,
     clientName: required(env, "POPPY_CLIENT_NAME"),

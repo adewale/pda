@@ -115,6 +115,7 @@ const EXACT_ROUTES = [
   "/logout",
   "/poppy/callback",
   "/poppy/client.json",
+  "/poppy/0.3/client.json",
   "/poppy/jwks.json",
   "/poppy/interop/client.json",
   "/poppy/interop/jwks.json",

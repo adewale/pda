@@ -1,7 +1,7 @@
 import { literal, reportError } from "../log";
 import { covers, grantedScope, PoppyClient, PoppyError, registerSignInRecovery, scopeSet, tokenResponse } from "./client";
 import { tryDecode } from "../decode";
-import type { Company, SignInType } from "./discovery";
+import { MEDIATED_GRANT, type Company, type SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
 import { EndpointRequest } from "./outgoing";
@@ -31,8 +31,13 @@ export type SignInStart =
 export function describeScopes(company: Company, scopes: readonly string[]): ScopeInfo[] {
   return scopes.map((scope) => ({
     scope,
-    description: BUILTIN_SCOPES[scope] ?? company.customScopes[scope] ?? scope
+    description: (sinceVersion(company, "0.3") ? undefined : BUILTIN_SCOPES[scope]) ?? company.customScopes[scope] ?? scope
   }));
+}
+
+/** 0.3: a scope some sign-in type can request, from `scopes_supported` (4.7), described or not. */
+function offeredBySignIn(company: Company, scope: string): boolean {
+  return Object.values(company.signIn).some((type) => type?.scopes.includes(scope));
 }
 
 /**
@@ -91,7 +96,9 @@ export async function startSignIn(
   const scopes = [...new Set(request.scopes)];
   if (scopes.length === 0) throw new PoppyError("invalid_scope", "Name at least one scope to request", 0);
   for (const scope of scopes) {
-    if (!BUILTIN_SCOPES[scope] && !company.customScopes[scope]) {
+    // 0.3 defines no scopes (4.7): a scope is one the issuer supports and the Company describes.
+    const known = sinceVersion(company, "0.3") ? company.customScopes[scope] !== undefined || offeredBySignIn(company, scope) : BUILTIN_SCOPES[scope] || company.customScopes[scope];
+    if (!known) {
       throw new PoppyError("invalid_scope", `${company.name} doesn't define the scope ${scope}`, 0);
     }
   }
@@ -144,7 +151,7 @@ export async function startSignIn(
     await scheduleExpiry(client, id, client.host.now() + SIGN_IN_TTL_MS);
     const url = new URL(company.endpoints.authorization!);
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("client_id", client.identity.clientId);
+    url.searchParams.set("client_id", client.clientIdFor(company));
     url.searchParams.set("redirect_uri", client.identity.redirectUri);
     url.searchParams.set("scope", scopeText);
     url.searchParams.set("state", state);
@@ -474,7 +481,8 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
           code,
           redirect_uri: client.identity.redirectUri,
           code_verifier: secret.verifier,
-          ...(session ? { session_id: session.session_id } : {})
+          // Before 0.3 the code signs a Session in; from 0.3 sign-in is plain OAuth (5.4).
+          ...(session && !sinceVersion(company, "0.3") ? { session_id: session.session_id } : {})
         };
       });
     } catch (error) {
@@ -529,7 +537,7 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
       return {
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",
         device_code: secret.device_code,
-        ...(session ? { session_id: session.session_id } : {})
+        ...(session && !sinceVersion(company, "0.3") ? { session_id: session.session_id } : {})
       };
     });
     await finish(client, row, { ok: true, response });
@@ -550,7 +558,45 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
   }
 }
 
-/** The Mediated Sign-In endpoint's reply (spec 4.7). */
+/** Parameters Mediated Sign-In's grant uses itself, which no credential field may name (0.3 Mediated Sign-In 2). */
+const RESERVED_MEDIATED_FIELDS = new Set(["grant_type", "scope", "resource", "client_id", "client_assertion", "client_assertion_type", "sign_in_id", "one_time_code"]);
+
+/**
+ * 0.3: Mediated Sign-In as a grant at the token endpoint (Mediated Sign-In
+ * 3, 4): the token response signs the User in; `code_required` asks for a
+ * one-time code, sent to the User; any other error ends the sign-in.
+ */
+async function mediatedGrant(
+  client: PoppyClient,
+  company: Company,
+  row: SignInRow,
+  params: Readonly<Record<string, string>>
+): Promise<"done" | "code" | "failed"> {
+  try {
+    const response = await client.tokenRequest(company, async () => ({ ...params, grant_type: MEDIATED_GRANT }));
+    await finish(client, row, { ok: true, response });
+    return "done";
+  } catch (error) {
+    if (!(error instanceof PoppyError)) throw error;
+    const body = error.detail.body;
+    if (error.is("code_required") && isObject(body)) {
+      return mediatedResponse(client, row, {
+        status: "code_required",
+        sign_in_id: body.sign_in_id ?? null,
+        ...(typeof body.sent_to === "string" ? { code: { sent_to: body.sent_to } } : {}),
+        ...(typeof body.expires_in === "number" && body.expires_in > 0 ? { expires_at: new Date(client.host.now() + body.expires_in * 1000).toISOString() } : {})
+      });
+    }
+    if (error.is("expired_token")) {
+      await finish(client, row, { ok: false, message: "the sign-in took too long", expired: true });
+      return "failed";
+    }
+    await refused(client, row, error.code, error.code);
+    return "failed";
+  }
+}
+
+/** The Mediated Sign-In endpoint's reply (spec 4.7), or, from 0.3, its grant's `code_required` in that form. */
 async function mediatedResponse(
   client: PoppyClient,
   row: SignInRow,
@@ -625,9 +671,12 @@ export async function submitCredentials(
   for (const field of mediated.fields) {
     const value = values[field.name];
     if (typeof value !== "string" || value === "") return "failed";
+    // 0.3: a field is a token request parameter, so it can't be one the grant uses (Mediated Sign-In 2).
+    if (mediated.grant && RESERVED_MEDIATED_FIELDS.has(field.name)) return "failed";
     credentials[field.name] = value;
   }
   setStatus(client, id, "sent");
+  if (mediated.grant) return mediatedGrant(client, company, row, { ...credentials, scope: row.scopes });
   try {
     const { body } = await client.resourceJson(
       company,
@@ -654,6 +703,8 @@ export async function submitSignInCode(
   const { sign_in_id } = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as {
     sign_in_id: string;
   };
+  // 0.3: the same grant again, with the code and not the credentials or scope (Mediated Sign-In 4).
+  if (company.signIn.mediated?.grant) return mediatedGrant(client, company, row, { sign_in_id, one_time_code: code });
   try {
     const { body } = await client.resourceJson(
       company,

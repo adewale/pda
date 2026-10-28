@@ -128,6 +128,8 @@ export type DirectMessage = {
   readonly id: string;
   readonly role: "user" | "company";
   readonly sender: "agent" | "human";
+  /** The name a Company message's author gives (0.3 8.4), shown as text. */
+  readonly authorName?: string;
   readonly text?: string;
   readonly data?: unknown;
 };

@@ -197,7 +197,7 @@ describe("operation authorization and withdrawal", () => {
       const notified = vi.spyOn(client.host, "notifyModel").mockResolvedValue(undefined);
       const shown = vi.spyOn(client.host, "showCard").mockResolvedValue(undefined);
       await handleProposal(client, C, "main", { ...op });
-      const heldToken = await client.token(C, { label: "main" });
+      const heldToken = await client.sessionToken(C, { label: "main" });
       let releaseToken!: () => void;
       let tokenStarted!: () => void;
       const started = new Promise<void>(resolve => { tokenStarted = resolve; });

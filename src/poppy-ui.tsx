@@ -1010,7 +1010,9 @@ export function NeedsYouPanel({ view, send, extra, extraIds = [] }: { view: Popp
 
 // ---------------------------------------------------------------- Direct Conversations
 
-function speaker(update: DirectUpdate, sender: "agent" | "human"): string {
+/** Who is speaking for the Company: a person or its agent, by the name it gives when it gives one (0.3 8.4). */
+function speaker(update: DirectUpdate, sender: "agent" | "human", name?: string): string {
+  if (name) return sender === "human" ? `${name}, a person at ${update.company}` : `${name}, ${update.company}'s agent`;
   return sender === "human" ? `A person at ${update.company}` : `${update.company}'s agent`;
 }
 
@@ -1039,7 +1041,7 @@ function DirectPanel({ update, send: sendFrame, onHide }: { update: DirectUpdate
               ) : (
                 <>
                   <UserIcon size={16} aria-hidden />
-                  <span>{speaker(update, message.sender)}</span>
+                  <span>{speaker(update, message.sender, message.authorName)}</span>
                 </>
               )}
             </p>

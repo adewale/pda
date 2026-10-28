@@ -227,8 +227,13 @@ async function attempt(client: PoppyClient, id: string): Promise<{ outcome: Sign
  */
 function leaveSessions(client: PoppyClient, row: Pick<SignOutRow, "issuer" | "account" | "reason">): void {
   if (row.reason === "step_up") return;
+  // 0.3: a Session isn't signed in by the Company, only by the access tokens we send (5.4), so it
+  // keeps its sid and continues signed out (5.5); earlier, it is left for a new one.
+  const v3 = client.sessionVersion(row.issuer) === "0.3";
   for (const session of client.sessions(row.issuer)) {
-    if (session.signed_in && session.account === row.account) client.abandonSession(row.issuer, session.label);
+    if (!session.signed_in || session.account !== row.account) continue;
+    if (v3) client.signOutSession(row.issuer, session.label);
+    else client.abandonSession(row.issuer, session.label);
   }
 }
 

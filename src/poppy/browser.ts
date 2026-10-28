@@ -6,6 +6,8 @@ import { browserAssertion } from "./jwt";
 import { currentKey } from "./keys";
 import { randomId } from "./jwt";
 import { proposeLocal, registerExecutor } from "./operations";
+import { EndpointRequest } from "./outgoing";
+import { sinceVersion } from "./protocol-version";
 
 /** What the model gets from a page: text, links and forms, never cookies (Guides, "Web browsing"). */
 export type PageSnapshot = {
@@ -40,6 +42,12 @@ export interface BrowserContextHandle {
   /** A top-level form POST, as a page that submits itself would make (spec 5). */
   postForm(action: string, fields: Readonly<Record<string, string>>): Promise<{ url: string; status: number; retryAfter?: string }>;
   goto(url: string): Promise<PageSnapshot>;
+  /**
+   * 0.3: load the browser-session page (6, step 1) and read its one-time
+   * code, in software the model never sees: the hidden `code` of the form
+   * that posts back to it. Nothing when the page isn't that.
+   */
+  joinCode(endpoint: string): Promise<{ readonly status: number; readonly code?: string; readonly action?: string }>;
   /** Follows a link; never sends a form. */
   click(selector: string): Promise<PageSnapshot>;
   fill(selector: string, value: string): Promise<PageSnapshot>;
@@ -188,6 +196,14 @@ async function sessionContext(
       entry = open();
     }
     const context = await entry.context;
+    if (sinceVersion(company, "0.3")) {
+      await joinV3(client, company, label, context, endpoint);
+      const after = client.session(company.issuer, label)!;
+      entry.sessionId = after.session_id;
+      entry.account = after.account;
+      entry.joined = true;
+      return entry.context;
+    }
     const assertion = await browserAssertion(await currentKey(client.host.env), {
       clientId: client.identity.clientId,
       userId: client.userId(company.issuer),
@@ -211,6 +227,33 @@ async function sessionContext(
     if (joined && (result.status === 429 || result.status === 503)) await client.pageLimited(company, result.status, result.retryAfter);
   }
   return entry.context;
+}
+
+/**
+ * 0.3's browser join (6): the browser loads the page and gets a one-time
+ * code and a cookie; we authorize the code in a request of our own, with
+ * the Session header and, signed in, the access token, which so never
+ * reaches the browser; then the browser submits the form, with the code
+ * only, and the Company sets the Session's cookie. The code is taken from
+ * our own browser's page and nowhere else (10.6).
+ */
+async function joinV3(client: PoppyClient, company: Company, label: string, context: BrowserContextHandle, endpoint: string): Promise<void> {
+  await client.beforeRequest(company);
+  const page = await context.joinCode(endpoint);
+  if (page.status === 429 || page.status === 503) {
+    await client.pageLimited(company, page.status, undefined);
+    throw new PoppyError("browser_join_failed", `${company.name} asked us to wait before joining the browser to the Session`, page.status);
+  }
+  if (!page.code || !page.action) throw new PoppyError("browser_join_failed", `${company.name}'s browser-session page didn't give a code to join with`, page.status);
+  const authorize = `${endpoint.replace(/\/+$/, "")}/authorize`;
+  await client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: authorize, body: { code: page.code } }), { label });
+  await client.beforeRequest(company);
+  const result = await context.postForm(page.action, { code: page.code });
+  // A refused submit is answered with an error page, and no redirect (6, step 3).
+  if (result.url === page.action && result.status >= 400) {
+    throw new PoppyError("browser_join_failed", `${company.name} didn't accept the browser into the Session`, result.status);
+  }
+  if (result.status === 429 || result.status === 503) await client.pageLimited(company, result.status, result.retryAfter);
 }
 
 export type BrowseAction =

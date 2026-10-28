@@ -652,6 +652,22 @@ class FetchContext implements BrowserContextHandle {
     return this.#load(await this.#navigate(new URL(url), { method: "GET" }));
   }
 
+  async joinCode(endpoint: string): Promise<{ status: number; code?: string; action?: string }> {
+    // A top-level GET of the browser-session page, keeping the cookie it sets (0.3 6, step 1).
+    const fetched = await this.#navigate(new URL(endpoint), { method: "GET" });
+    await this.#load(fetched);
+    const page = this.#current();
+    // Its own page, and nowhere a redirect took us.
+    if (page.url.href !== new URL(endpoint).href || fetched.status !== 200) return { status: fetched.status };
+    for (const form of page.parsed.forms) {
+      const action = this.#resolve(page, form.action) ?? page.url;
+      if (form.method !== "post" || `${action.origin}${action.pathname}` !== `${page.url.origin}${page.url.pathname}`) continue;
+      const code = form.controls.find((control) => control.name === "code" && control.type === "hidden" && !control.disabled);
+      if (code && code.value !== "") return { status: fetched.status, code: code.value, action: action.href };
+    }
+    return { status: fetched.status };
+  }
+
   /** Follows a link. Never a form: clicking a button would send it without the User's approval. */
   async click(raw: string): Promise<PageSnapshot> {
     const page = this.#current();

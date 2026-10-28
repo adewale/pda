@@ -9,8 +9,10 @@ import { actedWithoutProposal, handleProposal, proposeLocal, refuseWhileConfirmi
 import type { Operation } from "./operation-value";
 import type { Issuer } from "./issuer";
 import { randomId } from "./jwt";
+import { approvable, approvalCardId, approvalForModel, approvalHeader, approvalJson, approvalSummary, parseOperationV2, type ApprovalV2, type OperationV2 } from "./operations-v2";
 import { EndpointRequest, type RequestInit } from "./outgoing";
 import { firstTime, intent, type Sql } from "./store";
+import type { NewApproval } from "./approvals";
 import { companyErrorCode } from "./error-codes";
 
 type Api = Company["apis"][number];
@@ -198,11 +200,12 @@ type OpenApiDocument = { readonly base: string; readonly operations: readonly Op
  * Header parameters the client sets itself, never the model. OpenAPI 3.x
  * says an `Accept`, `Content-Type` or `Authorization` header parameter
  * "SHALL be ignored"; `DPoP` is the Session's proof (RFC 9449), made fresh
- * for each request. A description that lists one, even as required (as
+ * for each request, as 0.3's `Poppy-Session` is, and `Poppy-Approval` is
+ * the User's approval, which only our approval card adds. A description that lists one, even as required (as
  * print-with-poppy's did from c147418 to cecb32f), describes the transport,
  * not an argument: kept, a required one would refuse every call.
  */
-const TRANSPORT_HEADERS = /^(accept|content-type|authorization|dpop)$/i;
+const TRANSPORT_HEADERS = /^(accept|content-type|authorization|dpop|poppy-session|poppy-approval)$/i;
 
 /**
  * Header parameters the agent never sends for the model, whatever a
@@ -537,6 +540,8 @@ export async function describeOpenApi(client: PoppyClient, company: Company, api
 /** An OpenAPI call as the model asked for it, and as an approval stores it. */
 export type OpenApiCall = {
   readonly apiUrl: string;
+  /** 0.3: the operation revision the User approved, sent as `Poppy-Approval` (Ops 6). */
+  readonly approval?: ApprovalV2;
   /** The operation's `operationId`, or `METHOD /path` when it has none. */
   readonly operation: string;
   readonly params: Readonly<Record<string, string | number | boolean>>;
@@ -742,7 +747,11 @@ export class CheckedApiRequest {
    * file field the stored attachment it names, with its name and type.
    */
   init(): RequestInit {
-    const given = { ...this.headers, ...(this.call.idempotencyKey ? { "Idempotency-Key": this.call.idempotencyKey } : {}) };
+    const given = {
+      ...this.headers,
+      ...(this.call.idempotencyKey ? { "Idempotency-Key": this.call.idempotencyKey } : {}),
+      ...(this.call.approval ? { "Poppy-Approval": approvalHeader(this.call.approval) } : {})
+    };
     const headers = Object.keys(given).length ? { headers: given } : {};
     if (!this.multipart) return { method: this.method, url: this.url, ...(this.call.body !== undefined ? { body: this.call.body } : {}), ...headers };
     const form = new FormData();
@@ -773,6 +782,7 @@ export class CheckedApiRequest {
       readonly body?: Json;
       readonly files?: OpenApiCall["files"];
       readonly idempotencyKey?: string | (() => string);
+      readonly approval?: ApprovalV2;
     }
   ): Promise<CheckedApiRequest> {
     const api = findApi(company, "openapi", request.apiUrl);
@@ -797,7 +807,8 @@ export class CheckedApiRequest {
       params,
       ...(request.body !== undefined ? { body: request.body } : {}),
       ...(files ? { files } : {}),
-      ...(key !== undefined ? { idempotencyKey: typeof key === "string" ? key : key() } : {})
+      ...(key !== undefined ? { idempotencyKey: typeof key === "string" ? key : key() } : {}),
+      ...(request.approval ? { approval: request.approval } : {})
     };
     const checked = new CheckedApiRequest(client.sql, () => client.host.now(), company, api, op, call, url.href, files ? uploadedFiles(client, company, op, files) : []);
     // A JSON body (not a form's fields) is checked against the operation's schema.
@@ -809,6 +820,8 @@ export class CheckedApiRequest {
 /** What a sent API call got back. */
 type ApiAnswer =
   | { readonly kind: "answered"; readonly status: number; readonly body: Json }
+  /** 0.3: refused until the User approves the operation; a card waits for them (Ops 4). */
+  | { readonly kind: "approval"; readonly operation: OperationV2 }
   /** A 202 with an operation we stored: nothing has happened yet (Ops 4.1). */
   | { readonly kind: "proposed"; readonly operation: Operation }
   /** A 202 with an operation we can't use: nothing was done, and the User has been told. */
@@ -820,8 +833,10 @@ const UNUSABLE = "The Company proposed an operation the agent can't use, so noth
 const UNPROPOSED =
   "The Company's description says this write answers with a proposal for the User to approve, but it answered without one, so it may have been done without the User's approval. The User has been told; don't say it was done or not done until the Company says which.";
 
-function answerForModel(answer: ApiAnswer, issuer: Issuer): Json {
+function answerForModel(answer: ApiAnswer, company: Company): Json {
+  const issuer = company.issuer;
   if (answer.kind === "answered") return { status: answer.status, body: answer.body };
+  if (answer.kind === "approval") return approvalForModel(company, answer.operation, 403);
   if (answer.kind === "unusable") return { status: 202, unusable: true, note: UNUSABLE, body: answer.body };
   if (answer.kind === "unproposed") return { status: answer.status, unproposed: true, note: UNPROPOSED, body: answer.body };
   const { operation_id, revision, summary } = answer.operation;
@@ -841,6 +856,8 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
   const response = await client.resource(company, checked, {
     label,
     ...(api.resource ? { resource: api.resource } : {}),
+    // 0.3: the server's own protected resource metadata says whether it takes only its own tokens (4.5).
+    ...(sinceVersion(company, "0.3") ? { service: (await openApi(client, api)).base } : {}),
     ...(readOnly ? { scope: readOnly } : {}), ...(beforeDispatch ? { beforeDispatch } : {})
   });
   const text = await client.readBody(response).catch(error => { throw withUnreadableAnswer(error, response.status); });
@@ -849,6 +866,22 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
     body = text ? parseStrictJson(text) : null;
   } catch {
     body = text.slice(0, 4_000);
+  }
+  // 0.3: the Company wants the User's approval of exact terms first (Ops 4); nothing was done.
+  if (response.status === 403 && isObject(body) && body.error === "approval_required" && company.extensions.operationsV2) {
+    const operation = parseOperationV2(body.operation);
+    if ("problem" in operation) {
+      await unusableApproval(client, company, operation.problem);
+      return { kind: "unusable", body };
+    }
+    await proposeApproval(client, company, label, operation, {
+      kind: "openapi",
+      call: { ...checked.call, approval: { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at }, ...(checked.op.acceptsIdempotencyKey ? { idempotencyKey: randomId() } : {}) },
+      method: checked.method,
+      url: checked.url,
+      binding: await approvalBinding(client, company, label)
+    });
+    return { kind: "approval", operation };
   }
   if (response.status === 403 && isObject(body) && body.error === "extension_required") {
     const extension = typeof body.extension === "string" ? body.extension : undefined;
@@ -919,7 +952,7 @@ export async function callOpenApi(
     // the Operations extension covers what a Company does, not what we send it.
     return { proposed: await ask(), note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
   }
-  if (checked.method === "GET") return answerForModel(await sendApi(client, label, checked), company.issuer);
+  if (checked.method === "GET") return answerForModel(await sendApi(client, label, checked), company);
   if (company.extensions.operations && checked.op.proposes) {
     if (!checked.call.idempotencyKey && !firstTime(client.sql, `sent|${request.callKey}`)) {
       throw new PoppyError(
@@ -928,7 +961,7 @@ export async function callOpenApi(
         0
       );
     }
-    return answerForModel(await sendApi(client, label, checked, true), company.issuer);
+    return answerForModel(await sendApi(client, label, checked, true), company);
   }
   return { proposed: await ask(), note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
@@ -942,6 +975,7 @@ export async function callOpenApi(
  * proposal we can't use.
  */
 registerExecutor("openapi", async (client, company, approval, label, execution) => {
+  if (approval.call.approval && !approvable(approval.call.approval, Date.now())) throw expired(company);
   const checked = await CheckedApiRequest.check(client, company, approval.call);
   if (checked.method !== approval.method || checked.url !== approval.url) {
     throw new PoppyError(
@@ -954,6 +988,10 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
   if (answer.kind === "unusable") {
     throw withAnswer(new PoppyError("unusable_proposal", `${company.name} proposed an operation the agent can't use, so nothing was done`, 202), 202);
   }
+  // The Company wants an approval of other terms (Ops 6, check 3): nothing was done, and a new card waits.
+  if (answer.kind === "approval") {
+    throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first, on a new card; nothing was done`, 403), 403);
+  }
   if (answer.kind === "answered" && (answer.status < 200 || answer.status >= 300)) {
     const { status, body } = answer;
     const code = companyErrorCode(isObject(body) ? body.error : undefined, status);
@@ -962,8 +1000,33 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
       status
     );
   }
-  return JSON.stringify(answerForModel(answer, company.issuer)).slice(0, 2_000);
+  return JSON.stringify(answerForModel(answer, company)).slice(0, 2_000);
 });
+
+/** An approval whose revision expired before the User decided is never sent (Ops 3, "Expiry"). */
+function expired(company: Company): PoppyError {
+  return new PoppyError("approval_changed", `Not sent: ${company.name}'s terms expired before they were approved. Ask ${company.name} again for current terms.`, 0);
+}
+
+/**
+ * 0.3: the User's card for an operation (Ops 5): the Company's name and its
+ * summary. One card per revision; the approved request is stored with it.
+ */
+async function proposeApproval(client: PoppyClient, company: Company, label: string, operation: OperationV2, approval: NewApproval): Promise<string> {
+  return proposeLocal(client, company, label, approvalSummary(company, operation), approval, await approvalCardId(company, operation));
+}
+
+/** An operation we can't show the User: nothing is approved, and they are told (Ops 5: never treat it as done). */
+async function unusableApproval(client: PoppyClient, company: Company, problem: string): Promise<void> {
+  await client.host.showCard({
+    id: `approval-unusable-${company.issuer}-${randomId()}`,
+    kind: "notice",
+    company: company.name,
+    domain: company.domain,
+    open: true,
+    text: `${company.name} asked for your approval, but its terms couldn't be used (${problem}), so nothing was done.`
+  });
+}
 
 // ---------------------------------------------------------------- MCP
 
@@ -1152,15 +1215,33 @@ async function performMcp(
   client: PoppyClient,
   company: Company,
   label: string,
-  call: { apiUrl: string; tool: string; args: Json },
+  call: { apiUrl: string; tool: string; args: Json; approval?: ApprovalV2 },
   expectsProposal = false,
   beforeDispatch?: () => void
 ): Promise<Json> {
   const api = findApi(company, "mcp", call.apiUrl);
   const write = `MCP ${api.url} ${call.tool} ${JSON.stringify(call.args)}`;
   refuseWhileConfirming(client, company.issuer, write);
+  if (call.approval && !approvable(call.approval, Date.now())) throw expired(company);
   const key = await mcpSession(client, company, label, api).catch(error => { throw withoutAnswer(error); });
-  const { result } = await mcpRequest(client, company, label, api, "tools/call", { name: call.tool, arguments: call.args }, key, beforeDispatch);
+  // 0.3: the same tool and arguments again, the approval in `_meta` (Ops 6).
+  const params = { name: call.tool, arguments: call.args, ...(call.approval ? { _meta: { "personalagentprotocol.org/approval": approvalJson(call.approval) } } : {}) };
+  const { result } = await mcpRequest(client, company, label, api, "tools/call", params, key, beforeDispatch);
+  // 0.3: an error result carrying an operation is a request for the User's approval (Ops 4).
+  if (company.extensions.operationsV2 && isObject(result) && result.isError === true && isObject(result.structuredContent) && result.structuredContent.operation !== undefined) {
+    const operation = parseOperationV2(result.structuredContent.operation);
+    if ("problem" in operation) {
+      await unusableApproval(client, company, operation.problem);
+      return { unusable: true, note: UNUSABLE };
+    }
+    await proposeApproval(client, company, label, operation, {
+      kind: "mcp",
+      call: { apiUrl: api.url, tool: call.tool, args: call.args, approval: { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at } },
+      binding: await approvalBinding(client, company, label, api.url)
+    });
+    if (call.approval) throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first, on a new card; nothing was done`, 200), 200);
+    return approvalForModel(company, operation, 200);
+  }
   if (isObject(result) && result.isError === true) throw withAnswer(new PoppyError("mcp_error", `The MCP tool reported an error: ${JSON.stringify(result).slice(0, 1_000)}`, 200), 200);
   if (isObject(result) && isObject(result.structuredContent) && isObject(result.structuredContent.operation)) {
     const operation = await handleProposal(client, company, label, result.structuredContent.operation);

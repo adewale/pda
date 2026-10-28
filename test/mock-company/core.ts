@@ -90,7 +90,6 @@ export type AccessToken = {
   readonly issuedAt: number;
   /** 0.3: who it was issued to, and the sign-in it descends from, so revoking its refresh token ends it (RFC 7009 2.1). */
   readonly clientId?: string;
-  readonly userId?: string;
   readonly grant?: string;
 };
 
@@ -1214,9 +1213,9 @@ export class Company {
     }
     const { client, session } = await this.verifySessionHeader(inbound, value);
     if (token && value) {
-      if (token.clientId !== client.clientId || token.userId !== session.userId) {
-        // 5.3, step 3: the token was issued to the same client_id as iss.
-        this.violation("session-jwt.token-other-client", "the access token was issued to another client or User");
+      if (token.clientId !== client.clientId) {
+        // 5.3, step 3: the token was issued to the same client_id as iss. Sign-in names no User ID, so the token can't.
+        this.violation("session-jwt.token-other-client", "the access token was issued to another client");
         throw this.invalidSession("the access token isn't this client's");
       }
       if (token.kind === "dpop") {
