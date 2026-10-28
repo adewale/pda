@@ -1200,6 +1200,13 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
   const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!row || row.status !== "pending") return null;
   const company = await client.resumeCompany(row.issuer, "approval", id);
+  // Discovery may have yielded to another decision. Only one handler may
+  // claim this exact pending request, including a decline racing an approval.
+  const claimed = client.sql.exec(
+    "UPDATE poppy_approvals SET status = ? WHERE id = ? AND status = 'pending' AND issuer = ? AND label = ? AND request = ? AND summary = ? RETURNING id",
+    decision === "decline" ? "declined" : "executing", id, row.issuer, row.label, row.request, row.summary
+  ).toArray();
+  if (claimed.length === 0) return null;
   const card = (status: "approved" | "declined" | "done" | "refused" | "failed" | "unknown", result?: string, answer?: { status: number; error?: string }) =>
     client.host.showCard({
       id: `approval-${id}`,
@@ -1216,7 +1223,6 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
       ...batchKeyOf(row.issuer, row.request)
     });
   if (decision === "decline") {
-    client.sql.exec("UPDATE poppy_approvals SET status = 'declined' WHERE id = ?", id);
     await card("declined");
     return `[system] The User declined: ${row.summary}`;
   }
@@ -1228,8 +1234,6 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
     await card("failed", result);
     return `[system] The User approved, but the stored request couldn't be sent (${read.problem}), so nothing was sent: ${row.summary}. Ask again if the User still wants it.`;
   }
-  // Marked before the call: if the object dies mid-call it is never retried (Safety).
-  client.sql.exec("UPDATE poppy_approvals SET status = 'executing' WHERE id = ?", id);
   // The card says it is being sent, so a page shows each one's progress (a batch's tiles, the step that asked).
   await card("approved");
   try {

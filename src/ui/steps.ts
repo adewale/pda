@@ -1,7 +1,7 @@
 /**
  * What the chat shows of each request the agent put on a card: the outcome on
  * the step that asked for it, not in a pile under the conversation. Pure, so
- * it is tested on its own (test/ui/steps.test.ts).
+ * it is tested on its own (test/ui/operation-status.test.tsx).
  */
 import type { TranscriptMessage } from "../protocol";
 import type { ActivityEntry, ActivityResult, Card } from "../poppy/wire";
@@ -66,17 +66,17 @@ export function operationResult(card: OperationCard): ToolDecision["result"] {
 
 /**
  * Every decided or waiting request the page knows of, by approval id and by
- * operation id: from the cards (the last hour, with photos and what the
- * Company answered), then Activity's log, which outlives them.
+ * issuer and operation id: from the cards (the last hour, with photos and
+ * what the Company answered), then Activity's log, which outlives them.
  */
 export function stepDecisions(
   cards: readonly Card[],
   log: readonly ActivityEntry[] = []
-): { approvals: ReadonlyMap<string, ApprovalStep>; operation: (operationId: string) => ToolDecision | undefined } {
+): { approvals: ReadonlyMap<string, ApprovalStep>; operation: (operationId: string, issuer: string | undefined, domain: string | null) => ToolDecision | undefined } {
   const approvals = new Map<string, ApprovalStep>();
   const operations = new Map<string, ToolDecision>();
-  // Activity names an operation `op-<issuer>-<operation id>`; both may hold dashes, so it's matched by its end.
-  const logged: { id: string; decision: ToolDecision }[] = [];
+  const issuersByDomain = new Map<string, Set<string>>();
+  const key = (issuer: string, operationId: string) => JSON.stringify([issuer, operationId]);
   for (const card of cards) {
     if (card.kind === "approval") {
       const { status: httpStatus, facts } = card.status === "done" ? resultFacts(card.result) : { status: card.answer?.status ?? null, facts: [] };
@@ -90,7 +90,13 @@ export function stepDecisions(
         company: card.company
       });
     } else if (card.kind === "operation") {
-      operations.set(card.operationId, { result: operationResult(card) });
+      operations.set(key(card.issuer, card.operationId), { result: operationResult(card) });
+      if (card.domain) {
+        const domain = card.domain.toLowerCase();
+        const issuers = issuersByDomain.get(domain) ?? new Set<string>();
+        issuers.add(card.issuer);
+        issuersByDomain.set(domain, issuers);
+      }
     }
   }
   for (const entry of log) {
@@ -98,12 +104,23 @@ export function stepDecisions(
       const id = entry.id.slice("approval-".length);
       if (!approvals.has(id)) approvals.set(id, { result: fromActivity(entry.result), httpStatus: null, code: null, facts: [], attachments: [], company: entry.company });
     } else if (entry.kind === "operation") {
-      logged.push({ id: entry.id, decision: { result: fromActivity(entry.result) } });
+      // Use the exact issuer prefix; suffix matching confuses IDs such as 42 and order-42.
+      const prefix = `op-${entry.issuer}-`;
+      if (entry.issuer && entry.id.startsWith(prefix)) {
+        const id = key(entry.issuer, entry.id.slice(prefix.length));
+        if (!operations.has(id)) operations.set(id, { result: fromActivity(entry.result) });
+      }
     }
   }
   return {
     approvals,
-    operation: (operationId) => operations.get(operationId) ?? logged.find((entry) => entry.id.endsWith(`-${operationId}`))?.decision
+    operation: (operationId, issuer, domain) => {
+      // Old transcripts can use a card's verified domain, but never guess a
+      // Company from an operation ID or an ambiguous domain.
+      const candidates = domain ? issuersByDomain.get(domain.toLowerCase()) : undefined;
+      const scopedIssuer = issuer ?? (candidates?.size === 1 ? [...candidates][0] : undefined);
+      return scopedIssuer ? operations.get(key(scopedIssuer, operationId)) : undefined;
+    }
   };
 }
 
