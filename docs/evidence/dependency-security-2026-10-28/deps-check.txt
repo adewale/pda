@@ -1,0 +1,49 @@
+
+> pda@0.0.0 deps:check
+> node scripts/deps-check.mjs
+
+## Outdated packages
+
+20 direct dependencies are behind. "update in range": `npm update` would take it to Wanted; "outside range" and "new major": reaching Latest means changing `package.json`. Information only; nothing here fails the check.
+
+| Package | Type | Current | Wanted | Latest | Note |
+| --- | --- | --- | --- | --- | --- |
+| @cloudflare/kumo | prod | 2.14.0 | 2.16.0 | 2.16.0 | update in range |
+| @cloudflare/vite-plugin | dev | 1.63.1 | 1.65.0 | 1.65.0 | update in range |
+| @cloudflare/workers-types | dev | 5.20261009.1 | 5.20261028.1 | 5.20261028.1 | update in range |
+| @earendil-works/chord | prod | 1.3.0 | 1.4.0 | 1.4.0 | update in range |
+| @earendil-works/pi-ai | prod | 1.3.0 | 1.4.0 | 1.4.0 | update in range |
+| @earendil-works/pi-durable | prod | 1.3.0 | 1.4.0 | 1.4.0 | update in range |
+| @earendil-works/pi-telemetry | prod | 1.3.0 | 1.4.0 | 1.4.0 | update in range |
+| @hegeldev/hegel | dev | 0.4.7 | 0.4.7 | 0.4.11 | outside range |
+| @streamdown/code | prod | 1.1.1 | 1.1.1 | 2.0.0 | new major |
+| agents | prod | 0.28.1 | 0.28.1 | 0.31.0 | outside range |
+| jose | prod | 6.2.12 | 6.2.13 | 6.2.13 | update in range |
+| qrcode-generator | prod | 1.4.4 | 1.5.2 | 2.0.4 | update in range, new major |
+| react | prod | 19.3.0 | 19.3.1 | 19.3.1 | update in range |
+| react-dom | prod | 19.3.0 | 19.3.1 | 19.3.1 | update in range |
+| streamdown | prod | 2.7.0 | 2.7.1 | 2.7.1 | update in range |
+| typebox | prod | 1.3.27 | 1.3.27 | 1.4.3 | outside range |
+| typescript | dev | 6.0.3 | 6.0.3 | 7.0.2 | new major |
+| vite | dev | 8.3.4 | 8.3.5 | 8.3.5 | update in range |
+| vitest | dev | 4.1.12 | 4.1.12 | 5.0.5 | new major |
+| zod | prod | 4.6.6 | 4.6.7 | 4.6.7 | update in range |
+
+## Audit
+
+### Production dependencies
+
+critical 0 · high 0 · moderate 0 · low 0 · info 0
+
+No known vulnerabilities.
+
+### All dependencies (production and dev)
+
+critical 0 · high 0 · moderate 0 · low 0 · info 0
+
+No known vulnerabilities.
+
+## Result
+
+**Passed:** no high or critical findings. Outdated packages and lower findings are for information.
+
