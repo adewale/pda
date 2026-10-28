@@ -4,7 +4,7 @@ import { migrateProtocolLog } from "./protocol-log";
 import { flag, literal } from "../decode";
 import { integer, integerOf, nullable, one, table, text, textOf } from "../rows";
 import { issuerDecoder } from "./issuer";
-import { storedOperation } from "./operation-value";
+import { approvalTermsDecoder } from "./operations-v2";
 
 /**
  * Poppy state in the person's SQLite, beside Pi's `pi_*` tables. Session
@@ -121,42 +121,6 @@ CREATE TABLE IF NOT EXISTS poppy_messages (
   body TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS poppy_operations (
-  issuer TEXT NOT NULL,
-  operation_id TEXT NOT NULL,
-  label TEXT NOT NULL,
-  account TEXT,
-  operation TEXT NOT NULL,
-  previous_summary TEXT,
-  approved_revision INTEGER,
-  approved_by TEXT,
-  permission_id TEXT,
-  confirmed INTEGER NOT NULL DEFAULT 0,
-  approval_generation INTEGER NOT NULL DEFAULT 0,
-  cancel_requested INTEGER NOT NULL DEFAULT 0,
-  updated_at INTEGER NOT NULL,
-  altered_summary TEXT,
-  PRIMARY KEY (issuer, operation_id)
-);
-CREATE TABLE IF NOT EXISTS poppy_proposals (
-  issuer TEXT NOT NULL,
-  request TEXT NOT NULL,
-  operation_id TEXT NOT NULL,
-  PRIMARY KEY (issuer, request)
-);
-CREATE TABLE IF NOT EXISTS poppy_permissions (
-  id TEXT PRIMARY KEY,
-  issuer TEXT NOT NULL,
-  account TEXT NOT NULL,
-  action TEXT NOT NULL,
-  max_amount TEXT,
-  currency TEXT,
-  max_uses INTEGER,
-  uses INTEGER NOT NULL DEFAULT 0,
-  reserved INTEGER NOT NULL DEFAULT 0,
-  expires_at INTEGER,
-  created_at INTEGER NOT NULL
-);
 CREATE TABLE IF NOT EXISTS poppy_approvals (
   id TEXT PRIMARY KEY,
   issuer TEXT NOT NULL,
@@ -165,7 +129,8 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   request TEXT NOT NULL,
   status TEXT NOT NULL,
   result TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  terms TEXT
 );
 -- Approvals decided together on one card (operations.ts decideLocalBatch): the model is told once, when every one is done.
 -- A row with told = 0 after a restart is told then, from what its approvals' rows say.
@@ -187,8 +152,6 @@ CREATE TABLE IF NOT EXISTS poppy_cards (
   updated_at INTEGER NOT NULL
 );
 -- Activity (src/poppy/activity.ts) reads each table's newest rows by time and its open work by state, never a whole table.
-CREATE INDEX IF NOT EXISTS poppy_operations_updated ON poppy_operations (updated_at);
-CREATE INDEX IF NOT EXISTS poppy_operations_state ON poppy_operations (json_extract(operation, '$.state'));
 CREATE INDEX IF NOT EXISTS poppy_approvals_created ON poppy_approvals (created_at);
 CREATE INDEX IF NOT EXISTS poppy_approvals_status ON poppy_approvals (status);
 CREATE INDEX IF NOT EXISTS poppy_signins_created ON poppy_signins (created_at);
@@ -207,10 +170,8 @@ export function migrate(sql: Sql): void {
   for (const statement of SCHEMA.split(";")) {
     if (statement.trim()) sql.exec(statement);
   }
-  // Agents created before 13 October 2026: add the column in place.
-  if (!sql.exec("PRAGMA table_info(poppy_operations)").toArray().some((column) => column.name === "altered_summary")) {
-    sql.exec("ALTER TABLE poppy_operations ADD COLUMN altered_summary TEXT");
-  }
+  // Operations 1 (0.1, 0.2), which 0.3 replaced (decision 37): its tables go, and their protocol-log triggers with them.
+  for (const name of ["poppy_operations", "poppy_proposals", "poppy_permissions"]) sql.exec(`DROP TABLE IF EXISTS ${name}`);
   // Agents created before 14 October 2026: every revocation till then was a sign-out.
   if (!sql.exec("PRAGMA table_info(poppy_signouts)").toArray().some((column) => column.name === "reason")) {
     sql.exec("ALTER TABLE poppy_signouts ADD COLUMN reason TEXT NOT NULL DEFAULT 'sign_out'");
@@ -219,10 +180,9 @@ export function migrate(sql: Sql): void {
   if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "used_account")) {
     sql.exec("ALTER TABLE poppy_sessions ADD COLUMN used_account TEXT");
   }
-  for (const column of ["approval_generation", "cancel_requested"]) {
-    if (!sql.exec("PRAGMA table_info(poppy_operations)").toArray().some((entry) => entry.name === column)) {
-      sql.exec(`ALTER TABLE poppy_operations ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
-    }
+  // Agents created before 28 October 2026: what an approval card shows of a Company's terms (Ops 5).
+  if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some((column) => column.name === "terms")) {
+    sql.exec("ALTER TABLE poppy_approvals ADD COLUMN terms TEXT");
   }
   migrateConversationIdentity(sql);
   // After the tables its triggers watch.
@@ -349,37 +309,6 @@ export const conversationMigrationTable = table("poppy_conversation_migration", 
 export const eventsTable = table("poppy_events", { conversation_id: text, event_id: text });
 export const inboxTable = table("poppy_inbox", { seq: integer, conversation_id: text, event: text, created_at: integer });
 export const messagesTable = table("poppy_messages", { id: text, issuer: issuerColumn, conversation_id: nullable(text), body: text, created_at: integer });
-export const operationsTable = table("poppy_operations", {
-  issuer: issuerColumn,
-  operation_id: text,
-  label: text,
-  account: nullable(text),
-  operation: textOf(storedOperation),
-  previous_summary: nullable(text),
-  approved_revision: nullable(integer),
-  approved_by: nullable(textOf(literal("user", "standing_permission"))),
-  permission_id: nullable(text),
-  confirmed: integer,
-  approval_generation: integer,
-  cancel_requested: integerOf(flag),
-  updated_at: integer,
-  /** Set when the Company changed a revision's terms in place (Ops 3.1 forbids it): what it then said. */
-  altered_summary: nullable(text)
-});
-export const proposalsTable = table("poppy_proposals", { issuer: issuerColumn, request: text, operation_id: text });
-export const permissionsTable = table("poppy_permissions", {
-  id: text,
-  issuer: issuerColumn,
-  account: text,
-  action: text,
-  max_amount: nullable(text),
-  currency: nullable(text),
-  max_uses: nullable(integer),
-  uses: integer,
-  reserved: integer,
-  expires_at: nullable(integer),
-  created_at: integer
-});
 export const approvalsTable = table("poppy_approvals", {
   id: text,
   issuer: issuerColumn,
@@ -388,7 +317,8 @@ export const approvalsTable = table("poppy_approvals", {
   request: text,
   status: text,
   result: nullable(text),
-  created_at: integer
+  created_at: integer,
+  terms: nullable(textOf(approvalTermsDecoder))
 });
 export const approvalBatchesTable = table("poppy_approval_batches", { id: text, ids: text, told: integer, created_at: integer });
 export const intentsTable = table("poppy_intents", { call_key: text, value: text, created_at: integer });

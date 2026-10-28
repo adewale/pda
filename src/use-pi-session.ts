@@ -20,7 +20,6 @@ import type {
   ConnectedAccount,
   DirectUpdate,
   PendingSignOut,
-  Permission,
   PoppyClientFrame,
   PoppyServerFrame,
   ProtocolCompany
@@ -52,7 +51,6 @@ export type ProtocolView = {
 export type PoppyView = {
   readonly cards: readonly Card[];
   readonly accounts: readonly ConnectedAccount[];
-  readonly permissions: readonly Permission[];
   /** Sign-outs the Company hasn't accepted yet: its access is still live there. */
   readonly signOuts: readonly PendingSignOut[];
   readonly direct: Readonly<Record<string, DirectUpdate>>;
@@ -132,7 +130,7 @@ const INITIAL_STATE: State = {
   ...EMPTY_VIEW,
   status: "connecting",
   catalog: [],
-  poppy: { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
+  poppy: { cards: [], accounts: [], signOuts: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
   earlier: [],
   summaries: [],
   outbox: []
@@ -147,7 +145,7 @@ export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView
       return { ...view, cards: replaced ? frame.cards : [...view.cards.filter((card) => !ids.has(card.id)), ...frame.cards] };
     }
     case "poppy.settings":
-      return { ...view, accounts: frame.accounts, permissions: frame.permissions, signOuts: frame.signOuts };
+      return { ...view, accounts: frame.accounts, signOuts: frame.signOuts };
     case "poppy.direct":
       return { ...view, direct: { ...view.direct, [frame.update.conversationId]: frame.update } };
     case "poppy.activity":

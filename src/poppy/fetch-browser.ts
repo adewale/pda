@@ -3,7 +3,7 @@ import { PoppyError, unreadableAnswerOf, withAnswer, withUnreadableAnswer } from
 import { assertPublicHost, PoppyFetchError, readLimitedBytes, type Fetcher } from "./fetch";
 
 /**
- * Poppy web browsing without a real browser (spec 5): plain HTTPS requests
+ * Poppy web browsing without a real browser (6): plain HTTPS requests
  * with a cookie jar per context, pages read with `HTMLRewriter`. No
  * JavaScript runs, so a page that builds itself with scripts shows nothing,
  * and only links can be clicked: a form goes only through `submit`, after
@@ -642,7 +642,7 @@ class FetchContext implements BrowserContextHandle {
   }
 
   async postForm(action: string, fields: Readonly<Record<string, string>>) {
-    // The browser assertion, in the body of a top-level POST, never in a URL (spec 5).
+    // The join's code, in the body of a top-level POST, never in a URL (6, step 3).
     // Where it lands is loaded again by `goto`, so its body isn't read here.
     const fetched = await this.#navigate(new URL(action), { method: "POST", body: new URLSearchParams(fields), discardBody: true });
     return { url: fetched.url.href, status: fetched.status, ...(fetched.retryAfter ? { retryAfter: fetched.retryAfter } : {}) };

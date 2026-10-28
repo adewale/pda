@@ -8,8 +8,20 @@
  * request is stored exactly, checked again before it is sent, and sent once.
  */
 import type { Company } from "./discovery";
+import { array, object, optional, string } from "../decode";
 import { isObject, type Json } from "./json";
 import { sha256 } from "./jwt";
+import type { ApprovalTerms } from "./wire";
+
+/** An approval's terms as `poppy_approvals.terms` stores them (operations.ts `approvalTerms`). */
+export const approvalTermsDecoder = object({
+  summary: string,
+  expiresAt: string,
+  highlights: array(string),
+  total: optional(object({ amount: string, currency: string })),
+  previews: optional(array(object({ label: string, url: string }))),
+  differences: optional(array(string))
+}) satisfies (value: unknown, at: string) => ApprovalTerms;
 
 /** An operation as the Company returns it (Ops 3), after the checks below. */
 export type OperationV2 = {
@@ -81,9 +93,11 @@ export async function approvalCardId(company: Company, operation: OperationV2): 
 }
 
 /** What the model is told: nothing has happened; the User decides (Ops 5). */
-export function approvalForModel(company: Company, operation: OperationV2, status: number): Json {
+export function approvalForModel(company: Company, operation: OperationV2, status: number, approvalId: string): Json {
   return {
     status,
+    // The card's approval id, so the chat shows the User's decision on the step that asked.
+    proposed: approvalId,
     approval_required: { issuer: company.issuer, operation_id: operation.operation_id, revision: operation.revision, summary: operation.summary, expires_at: operation.expires_at },
     note: "Nothing has happened yet. The User decides on the approval card; don't treat the action as done, and don't approve it for them."
   };

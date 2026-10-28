@@ -7,8 +7,7 @@ import {
   type Inbound,
   type ResourceContext
 } from "./core";
-import { parseApprovalHeader, type Operations, type OperationsV2 } from "./operations";
-import type { MockConfig } from "./types";
+import { parseApprovalHeader, type Operations } from "./operations";
 
 const PRODUCTS = [
   { sku: "stormline-m", name: "Stormline Jacket (M)", price: { amount: "180.00", currency: "USD" } },
@@ -85,44 +84,11 @@ function parseMultipart(body: Uint8Array, boundary: string): Part[] | null {
   }
 }
 
-/**
- * A write's 202 answer in the description: a proposal (Ops 4.1), with the
- * operation in `operation`, as print-with-poppy describes `POST /api/orders`.
- * Ops 4.1: "The Company SHOULD say in its OpenAPI description which
- * endpoints return operations"; the agent sends such a write without its
- * own card first (`documentsProposals`) only when every success response is
- * a 202 that requires `operation`. `proposalDescription` says less on purpose.
- */
-function proposalResponses(how: MockConfig["proposalDescription"]): Record<string, unknown> {
-  const operation = { $ref: "#/components/schemas/Operation" };
-  const proposed = (schema: unknown) => ({
-    description: "Operation proposed; confirm it at the operations endpoint",
-    content: { "application/json": { schema } }
-  });
-  const required = { type: "object", required: ["operation"], properties: { operation } };
-  if (how === "optional") return { "202": proposed({ type: "object", properties: { operation } }) };
-  if (how === "mixed") return { "201": { description: "Done at once" }, "202": proposed(required) };
-  if (how === "oneOf") return { "202": proposed({ oneOf: [required, { type: "object", required: ["exchange"], properties: { exchange: { type: "object" } } }] }) };
-  return { "202": proposed(required) };
-}
-
-/** The MCP exchange tool's `outputSchema`, as `proposalDescription` says. */
-function proposalOutputSchema(how: MockConfig["proposalDescription"]): Record<string, unknown> {
-  const operation = { type: "object", description: "The proposed operation, to confirm at the operations endpoint" };
-  const exchange = { type: "object", description: "The exchange, placed at once" };
-  if (how === "required") return { type: "object", required: ["operation"], properties: { operation } };
-  if (how === "oneOf") return { oneOf: [{ type: "object", required: ["operation"], properties: { operation } }, { type: "object", required: ["exchange"], properties: { exchange } }] };
-  return { type: "object", properties: { operation, exchange } };
-}
-
-/** The Company's OpenAPI API and MCP server (spec section 6). */
-
+/** The Company's OpenAPI API and MCP server (spec section 7). */
 export class Apis {
   readonly #idempotency = new Map<string, { hash: string; status: number; body: unknown }>();
-  /** 0.3: Idempotency-Keys sent on writes without an approval, which an approved request must not reuse (Ops 6). */
+  /** Idempotency-Keys sent on writes without an approval, which an approved request must not reuse (Ops 6). */
   readonly #unapprovedKeys = new Set<string>();
-  /** The Operations extension, version 2 (0.3). */
-  operationsV2: OperationsV2 | undefined;
   /** The print shop's photos, each belonging to the Session that uploaded it. */
   readonly #photos = new Map<string, { sessionId: string; name: string; type: string; size: number }>();
   readonly #mcpSessions = new Set<string>();
@@ -143,14 +109,25 @@ export class Apis {
         title: `Mock Shop ${this.company.id} API`,
         version: "1.0.0",
         description:
-          "Orders and exchanges. POST /orders/{order_id}/exchanges returns an operation (Operations extension) to Personal Agents that support it."
+          "Orders and exchanges. POST /orders/{order_id}/exchanges asks for the User's approval of its terms (Operations extension) from Personal Agents that support it."
       },
       servers: [{ url: this.company.config.openapiServerOverride ?? api }],
       components: {
         ...(this.company.config.describesSecurity
           ? {
               securitySchemes: {
-                session: { type: "http", scheme: "DPoP", description: "Personal Agent Protocol Session Token" },
+                // The Company's access tokens (spec 7), with its scopes described (4.7).
+                session: {
+                  type: "oauth2",
+                  description: "Personal Agent Protocol access token, with the Session header",
+                  flows: {
+                    authorizationCode: {
+                      authorizationUrl: `${this.company.hosts.issuer.replace(/\/$/, "")}/authorize`,
+                      tokenUrl: this.company.hosts.tokenEndpoint,
+                      scopes: { [read]: "Read your orders", [write]: "Exchange items on your orders", addresses: "Read your saved addresses" }
+                    }
+                  }
+                },
                 // print-with-poppy's non-Poppy way in, which an agent never uses (docs/readings.md).
                 ...(this.company.config.printShop
                   ? { guest: { type: "http", scheme: "bearer", description: "Non-Poppy compatibility token from POST /agent-sessions; no verified agent identity." } }
@@ -186,17 +163,6 @@ export class Apis {
               city: { type: "string" },
               postal_code: { type: "string" },
               country: { type: "string" }
-            }
-          },
-          Operation: {
-            type: "object",
-            required: ["operation_id", "revision", "state", "summary", "confirmation", "result"],
-            properties: {
-              operation_id: { type: "string" },
-              revision: { type: "integer" },
-              state: { enum: ["proposed", "in_progress", "succeeded", "failed", "cancelled", "expired"] },
-              summary: { type: "string" },
-              terms: { type: "object" }
             }
           }
         }
@@ -255,7 +221,7 @@ export class Apis {
           post: {
             operationId: "exchangeItem",
             summary:
-              `Exchange an item. Needs ${write}. Returns 202 with an operation to confirm (Operations extension), or 201 with the exchange. Accepts Idempotency-Key.`,
+              `Exchange an item. Needs ${write}. Returns 403 approval_required with the terms to approve (Operations extension), or 201 with the exchange. Accepts Idempotency-Key.`,
             ...secured(write),
             parameters: [
               { name: "order_id", in: "path", required: true, schema: { type: "string" } },
@@ -275,9 +241,7 @@ export class Apis {
                 }
               }
             },
-            responses: this.company.config.documentsProposals
-              ? proposalResponses(this.company.config.proposalDescription)
-              : { "201": { description: "Exchange placed" } }
+            responses: { "201": { description: "Exchange placed" }, "403": { description: "approval_required: the User approves the operation's terms first" } }
           }
         },
         ...(this.company.config.openapiListsPoppyEndpoints ? this.#poppyPaths() : {}),
@@ -291,15 +255,15 @@ export class Apis {
    * `7ef69be` (since `c147418` its compatibility path has a description of its own): a
    * public catalog (a GET with no security), a non-Poppy compatibility
    * session endpoint (a POST with no security), and a photo upload and an
-   * order that proposes an operation, both signed out, each protected by the
-   * Poppy Session or the compatibility token.
+   * order that needs the User's approval, both signed out, each protected by
+   * the Poppy Session or the compatibility token.
    */
   #printPaths() {
     const secured = this.company.config.describesSecurity ? { security: [{ session: [] }, { guest: [] }] } : {};
     // The transport's headers listed as arguments (printShopListsTransportHeaders).
     const transport = this.company.config.printShopListsTransportHeaders
       ? [
-          { name: "DPoP", in: "header", required: true, schema: { type: "string" }, description: "RFC 9449 proof with htm, htu, iat, jti and ath." },
+          { name: "Poppy-Session", in: "header", required: true, schema: { type: "string" }, description: "The Session JWT: htm, htu, iat, jti, sid and ath." },
           { name: "Authorization", in: "header", required: true, schema: { type: "string" } }
         ]
       : [];
@@ -341,7 +305,7 @@ export class Apis {
           operationId: "orderPrints",
           ...secured,
           summary:
-            "Propose an order of 4×6 in (6×4) prints of uploaded photos, shipped to an address. Works signed out. Returns 202 with an operation to confirm (Operations extension); nothing is ordered or charged until the User approves it. Needs an Idempotency-Key.",
+            "Order 4×6 in (6×4) prints of uploaded photos, shipped to an address. Works signed out. Returns 403 approval_required with the order's terms (Operations extension); nothing is ordered or charged until the User approves them. Needs an Idempotency-Key.",
           parameters: [...transport, { name: "Idempotency-Key", in: "header", required: true, schema: { type: "string", minLength: 16, maxLength: 128 } }],
           requestBody: {
             required: true,
@@ -351,8 +315,8 @@ export class Apis {
             }
           },
           responses: {
-            ...(this.company.config.documentsProposals ? proposalResponses(this.company.config.proposalDescription) : {}),
-            "403": { description: "extension_required: the Operations extension" }
+            "201": { description: "The order, to pay at its checkout link" },
+            "403": { description: "approval_required with the terms, or extension_required: the Operations extension" }
           }
         }
       }
@@ -396,21 +360,21 @@ export class Apis {
   }
 
   /**
-   * `POST /prints`: propose an order of the Session's photos as an operation
-   * (Ops 4.1). The description makes `Idempotency-Key` required, so a write
-   * without one is refused, and recorded (Guides: send one on writes that
-   * take one).
+   * `POST /prints`: an order of the Session's photos, which needs the User's
+   * approval of its terms (Ops 4). The description makes `Idempotency-Key`
+   * required, so a write without one is refused, and recorded (Guides: send
+   * one on writes that take one).
    */
   #orderPrints(inbound: Inbound, context: ResourceContext): Response {
     const co = this.company;
-    if (!co.config.operations || !context.client.listsOperations) {
-      return json({ error: "extension_required", extension: "operations", message: "Ordering needs the Operations extension." }, 403);
-    }
+    if (!co.config.operations || !context.client.listsOperations) throw this.#extensionRequired("operations");
     const key = inbound.request.headers.get("Idempotency-Key");
     if (!key) {
       co.violation("idempotency.key-missing", `POST /prints without the Idempotency-Key its description requires`);
       return json({ error: "idempotency_key_required", message: "Send an Idempotency-Key of 16 to 128 characters." }, 400);
     }
+    const header = inbound.request.headers.get("Poppy-Approval");
+    const approval = header === null ? null : parseApprovalHeader(header);
     const scoped = `${context.session.id}|${key}`;
     const seen = this.#idempotency.get(scoped);
     if (seen) {
@@ -420,6 +384,8 @@ export class Apis {
       }
       return json(seen.body, seen.status);
     }
+    if (header === null) this.#unapprovedKeys.add(scoped);
+    else if (this.#unapprovedKeys.has(scoped)) co.violation("approval.idempotency-key-reused", `the approved request reused the first request's Idempotency-Key ${key}`);
     let order: PrintOrder;
     try {
       order = JSON.parse(inbound.bodyText || "null") as PrintOrder;
@@ -458,9 +424,12 @@ export class Apis {
       total: { amount: total, currency: "USD" },
       cancellable: true
     };
-    const result = { status: 202, body: { operation: this.operations.proposePrints(context, terms, summary) } };
-    this.#idempotency.set(scoped, { hash: inbound.bodyText, ...result });
-    return json(result.body, result.status);
+    const request = `${inbound.request.method} ${inbound.url.origin}${inbound.url.pathname} ${inbound.bodyText}`;
+    const result = this.operations.prints(context, request, { summary, terms }, approval);
+    if ("operation" in result) return json({ error: "approval_required", operation: result.operation }, 403);
+    // Only a performed order is kept: an approval_required answer is decided afresh each time.
+    this.#idempotency.set(scoped, { hash: inbound.bodyText, ...result.performed });
+    return json(result.performed.body, result.performed.status);
   }
 
   /** The Poppy endpoints, described as ordinary API paths (`openapiListsPoppyEndpoints`). */
@@ -468,23 +437,6 @@ export class Apis {
     const id = (name: string) => ({ name, in: "path", required: true, schema: { type: "string" } });
     const object = { required: true, content: { "application/json": { schema: { type: "object" } } } };
     return {
-      "/poppy/operations/{operation_id}/confirm": {
-        post: {
-          operationId: "confirmOperation",
-          summary: "Confirm an operation with the revision the User approved.",
-          parameters: [id("operation_id")],
-          requestBody: object,
-          responses: { "200": { description: "The operation" } }
-        }
-      },
-      "/poppy/operations/{operation_id}/cancel": {
-        post: {
-          operationId: "cancelOperation",
-          summary: "Cancel an operation.",
-          parameters: [id("operation_id")],
-          responses: { "200": { description: "The operation" } }
-        }
-      },
       "/poppy/conversations/{conversation_id}/messages": {
         post: {
           operationId: "sendMessage",
@@ -497,39 +449,20 @@ export class Apis {
     };
   }
 
-  /** The exchange, as an operation or done at once. */
-  #exchange(context: ResourceContext): { status: number; body: unknown } {
-    const co = this.company;
-    if (co.config.requiredExtension) {
-      throw new HttpError(json({ error: "extension_required", extension: co.config.requiredExtension }, 403));
-    }
-    if (co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing) {
-      return { status: 202, body: { operation: this.operations.proposeExchange(context) } };
-    }
-    if (co.config.requireOperationsExtension) {
-      throw new HttpError(json({ error: "extension_required", extension: "operations" }, 403));
-    }
-    co.performExchange(context.account, "direct API call");
-    return {
-      status: 201,
-      body: { exchange: { exchange_id: randomId("exc_", 6), order_id: "ord_7Hk2", state: "placed" } }
-    };
-  }
-
-  /** 0.3: `extension_required` at an API, in `WWW-Authenticate` (3.3). */
+  /** `extension_required` at an API, in `WWW-Authenticate` (3.3). */
   #extensionRequired(extension: string): HttpError {
     return new HttpError(json({}, 403, { "WWW-Authenticate": `Bearer error="extension_required", extension="${extension}"` }));
   }
 
   /**
-   * 0.3: the exchange. To an agent that lists Operations 2 it needs
-   * approval: refused with the operation, then performed once on the same
-   * request with `Poppy-Approval` (Ops 4, 6, 7).
+   * The exchange. To an agent that lists Operations 2 it needs approval:
+   * refused with the operation, then performed once on the same request
+   * with `Poppy-Approval` (Ops 4, 6, 7).
    */
-  #exchangeV3(inbound: Inbound, context: ResourceContext): Response {
+  #exchange(inbound: Inbound, context: ResourceContext): Response {
     const co = this.company;
     if (co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension);
-    const usesOperations = co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing && this.operationsV2;
+    const usesOperations = co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing;
     if (!usesOperations) {
       if (co.config.requireOperationsExtension) throw this.#extensionRequired("operations");
       co.performExchange(context.account, "direct API call");
@@ -555,7 +488,7 @@ export class Apis {
       return json({ error: "invalid_request" }, 400);
     }
     const request = `${inbound.request.method} ${inbound.url.origin}${inbound.url.pathname} ${inbound.bodyText}`;
-    const result = this.operationsV2!.exchange(context, request, asked, approval);
+    const result = this.operations.exchange(context, request, asked, approval);
     const answer = "operation" in result
       ? { status: 403, body: { error: "approval_required", operation: result.operation } }
       : result.performed;
@@ -609,24 +542,7 @@ export class Apis {
     const exchange = /^\/orders\/([^/]+)\/exchanges$/.exec(pathname);
     if (method === "POST" && exchange) {
       co.requireScopes(context, [write]);
-      if (co.v3) return this.#exchangeV3(inbound, context);
-      const key = inbound.request.headers.get("Idempotency-Key");
-      if (key) {
-        const scoped = `${context.session.id}|${key}`;
-        const seen = this.#idempotency.get(scoped);
-        if (seen) {
-          if (seen.hash !== inbound.bodyText) {
-            co.violation("idempotency.key-reused", `Idempotency-Key ${key} reused with a different body`);
-            return json({ error: "idempotency_key_conflict" }, 409);
-          }
-          return json(seen.body, seen.status);
-        }
-        const result = this.#exchange(context);
-        this.#idempotency.set(scoped, { hash: inbound.bodyText, ...result });
-        return json(result.body, result.status);
-      }
-      const result = this.#exchange(context);
-      return json(result.body, result.status);
+      return this.#exchange(inbound, context);
     }
     return json({ error: "not_found" }, 404);
   }
@@ -637,7 +553,6 @@ export class Apis {
     const co = this.company;
     return {
       resource: co.hosts.mcpUrl,
-      ...(co.config.protocolVersion === "0.2" && co.config.mcpDpop ? { dpop_signing_alg_values_supported: ["ES256"] } : {}),
       authorization_servers: co.config.mcpPrmOmitIssuer ? [] : [co.hosts.issuer],
       bearer_methods_supported: ["header"],
       scopes_supported: [co.orderScopes.read, co.orderScopes.write]
@@ -651,26 +566,7 @@ export class Apis {
     if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
       co.violation("mcp.accept", `MCP request must Accept application/json and text/event-stream, got ${JSON.stringify(accept)}`);
     }
-    let context: ResourceContext;
-    try {
-      context = await co.authorizeResource(inbound, true);
-    } catch (error) {
-      if (error instanceof HttpError && error.response.status === 401 && !co.v3) {
-        if (co.config.protocolVersion === "0.2") {
-          const headers = new Headers(error.response.headers);
-          const metadata = `https://mcp.${co.hosts.domain}/.well-known/oauth-protected-resource/mcp`;
-          const challenge = headers.get("WWW-Authenticate") ?? 'DPoP error="invalid_token"';
-          headers.set("WWW-Authenticate", `${challenge}, resource_metadata="${metadata}", Bearer resource_metadata="${metadata}"`);
-          throw new HttpError(new Response(error.response.body, { status: 401, headers }));
-        }
-        throw resourceError("Bearer", 401, "invalid_token", {
-          headers: {
-            "WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="https://mcp.${co.hosts.domain}/.well-known/oauth-protected-resource/mcp"`
-          }
-        });
-      }
-      throw error;
-    }
+    const context = await co.authorizeResource(inbound, true);
     const rpc = JSON.parse(inbound.bodyText || "{}") as {
       jsonrpc?: string;
       id?: string | number;
@@ -705,7 +601,7 @@ export class Apis {
           },
           {
             name: "exchange_item",
-            description: `Exchange an item on an order. Proposes an operation when supported.${co.config.injection ? ` ${co.config.injection}` : ""}`,
+            description: `Exchange an item on an order. Asks for the User's approval of its terms when supported.${co.config.injection ? ` ${co.config.injection}` : ""}`,
             inputSchema: {
               type: "object",
               required: ["order_id", "item_id", "replacement_sku"],
@@ -715,8 +611,6 @@ export class Apis {
                 replacement_sku: { type: "string" }
               }
             },
-            // The tool answers with a proposal (Ops 4.2), as its output schema says.
-            ...(co.config.documentsProposals ? { outputSchema: proposalOutputSchema(co.config.proposalDescription) } : {}),
             annotations: { readOnlyHint: false, destructiveHint: false }
           }
         ]
@@ -733,7 +627,7 @@ export class Apis {
           structuredContent: { products }
         });
       }
-      if (name === "exchange_item" && co.v3 && co.config.operations && context.client.listsOperations && this.operationsV2) {
+      if (name === "exchange_item" && co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing) {
         co.requireScopes(context, [co.orderScopes.write], true);
         const meta = (rpc.params?._meta ?? {}) as Record<string, unknown>;
         const given = meta["personalagentprotocol.org/approval"];
@@ -741,7 +635,7 @@ export class Apis {
         if (given !== undefined && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
           co.violation("approval.mcp-meta", "the approval in _meta isn't an object with operation_id and revision strings");
         }
-        const result = this.operationsV2.exchange(context, `tools/call exchange_item ${JSON.stringify(args)}`, args, approval);
+        const result = this.operations.exchange(context, `tools/call exchange_item ${JSON.stringify(args)}`, args, approval);
         if ("operation" in result) {
           return reply({
             isError: true,
@@ -753,15 +647,12 @@ export class Apis {
       }
       if (name === "exchange_item") {
         co.requireScopes(context, [co.orderScopes.write], true);
-        const result = this.#exchange(context);
-        const body = result.body as { operation?: { summary: string } };
-        if (body.operation) {
-          return reply({
-            content: [{ type: "text", text: `Proposed: ${body.operation.summary} Not done until confirmed.` }],
-            structuredContent: body
-          });
+        if (co.config.requireOperationsExtension) {
+          // An MCP server refuses one tool with an ordinary tool error, never extension_required (Ops 2).
+          return reply({ isError: true, content: [{ type: "text", text: "Exchanging needs the Operations extension." }] });
         }
-        return reply({ content: [{ type: "text", text: "Exchange placed." }], structuredContent: body });
+        co.performExchange(context.account, "MCP tool call");
+        return reply({ content: [{ type: "text", text: "Exchange placed." }], structuredContent: { exchange: { exchange_id: randomId("exc_", 6), order_id: "ord_7Hk2", state: "placed" } } });
       }
       return rpcError(-32602, `unknown tool ${String(name)}`);
     }

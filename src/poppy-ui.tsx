@@ -15,11 +15,11 @@ import {
 import qrcode from "qrcode-generator";
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { humanSize } from "./attachments";
-import type { ActivityResult, Card, DirectUpdate, ScopeInfo } from "./poppy/wire";
+import type { ActivityResult, ApprovalTerms, Card, DirectUpdate, ScopeInfo } from "./poppy/wire";
 import { AttachmentThumb } from "./ui/attachments";
 import { useSend, type Send } from "./ui/connection";
 import { Action, ActionLink, IconAction, useNow } from "./ui/controls";
-import { ACCESS, accessOfScope, countdown, fullDate, RESULT } from "./ui/format";
+import { countdown, fullDate, RESULT } from "./ui/format";
 import { redactQueries, resultFacts } from "./ui/result-facts";
 import { Status, STATUS_STYLE } from "./ui/status";
 import { APPROVAL_RESULT, approvalBatches } from "./ui/steps";
@@ -57,13 +57,12 @@ function QrCode({ value }: { value: string }) {
   );
 }
 
-/** What a sign-in asks for: access in plain words, then each scope as the Company describes it. */
+/** What a sign-in asks for: each scope, as the Company describes it (spec 4.7: every scope has a description). */
 function Access({ scopes }: { scopes: readonly ScopeInfo[] }) {
-  const level = accessOfScope(scopes.map((scope) => scope.scope).join(" "));
   return (
     <div className="text-[13px] text-kumo-subtle">
       <p>
-        <span className="font-medium text-kumo-default">{level ? ACCESS[level] : "Access the Company defines"}</span>
+        <span className="font-medium text-kumo-default">Access {scopes.length === 1 ? "it asks for" : "they ask for"}</span>
         {" · "}
         {scopes.map((scope, index) => (
           <span key={scope.scope}>
@@ -314,56 +313,38 @@ function termRow(line: string): [string, string] | [string] {
 }
 
 /**
- * A proposed operation: the only card that can cost money, so it looks it.
- * The total from its terms in large figures and on the button, the Company's
- * own summary quoted as theirs (verbatim, Operations 5.1), then every cost,
- * date and condition the terms name, lined up, and links to any previews.
+ * What an approval card shows of an operation a Company returned (Ops 5):
+ * the total from its terms in large figures, the Company's own summary
+ * quoted as theirs and shown as text (Ops 3: never a link, image or HTML),
+ * where the terms disagree with the summary or the request, then every
+ * cost, date and condition the terms name, lined up, and links to any
+ * previews on the Company's own hosts.
  */
-function OperationCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "operation" }>; send: Send }) {
-  const { send, disabled, note } = useSend(sendFrame);
-  const decide = (decision: "approve" | "decline" | "cancel") =>
-    send({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision });
-  const total = card.total ? money(card.total) : null;
+function OperationTerms({ terms, company }: { terms: ApprovalTerms; company: string }) {
+  const total = terms.total ? money(terms.total) : null;
   return (
-    <CardFrame
-      domain={card.domain}
-      icon={<HandIcon size={16} />}
-      title={`Approve this at ${card.company}?`}
-      note={note}
-      meta={
-        <>
-          {card.account ? <>Account {card.account} · </> : null}View and change
-          {card.userApprovalRequired ? " · The Company requires your explicit approval" : null}
-        </>
-      }
-      actions={
-        <>
-          <Action variant="secondary" disabled={disabled} onClick={() => decide("decline")}>
-            Decline
-          </Action>
-          <Action variant="primary" disabled={disabled} onClick={() => decide("approve")}>
-            {total ? `Approve ${total}` : "Approve"}
-          </Action>
-        </>
-      }
-    >
+    <>
       {total ? (
         <p className="flex items-baseline gap-2" data-total>
           <span className="text-[13px] text-kumo-subtle">Total</span>
           <span className="text-2xl font-semibold text-kumo-strong tabular-nums">{total}</span>
         </p>
       ) : null}
-      {/* The Company's own words, verbatim (Operations extension 5.1). */}
-      <CompanySays company={card.company} className="border-l-2 border-kumo-line pl-3">
-        {card.summary}
+      <CompanySays company={company} className="border-l-2 border-kumo-line pl-3">
+        {terms.summary}
       </CompanySays>
-      {card.previousSummary ? (
-        <p className="text-[13px] text-kumo-subtle">
-          Changed from: <del>{card.previousSummary}</del>
-        </p>
+      {terms.differences?.length ? (
+        <div className="rounded-lg bg-kumo-warning-tint p-3 text-[13px] text-kumo-default" data-terms-differences>
+          <p className="font-medium">Check before you approve: {company}'s terms and summary don't agree</p>
+          <ul className="mt-1 list-disc pl-5">
+            {terms.differences.map((difference) => (
+              <li key={difference}>{difference}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-0.5 text-[13px] text-kumo-subtle tabular-nums">
-        {[...card.highlights, ...(card.expiresAt ? [`Approve before: ${new Date(card.expiresAt).toLocaleString()}`] : [])].map((line) => {
+        {[...terms.highlights, `Approve before: ${new Date(terms.expiresAt).toLocaleString()}`].map((line) => {
           const [label, value] = termRow(line);
           return value === undefined ? (
             <dd key={line} className="col-span-2">
@@ -377,11 +358,11 @@ function OperationCard({ card, send: sendFrame }: { card: Extract<Card, { kind: 
           );
         })}
       </dl>
-      {card.previews?.length ? (
+      {terms.previews?.length ? (
         <div className="text-[13px]">
-          <p className="text-kumo-subtle">Previews at {card.company}, each in a new tab:</p>
+          <p className="text-kumo-subtle">Previews at {company}, each in a new tab:</p>
           <ul className="flex flex-wrap gap-x-3">
-            {card.previews.flatMap((preview) => {
+            {terms.previews.flatMap((preview) => {
               const href = httpsHref(preview.url);
               return href
                 ? [
@@ -397,7 +378,7 @@ function OperationCard({ card, send: sendFrame }: { card: Extract<Card, { kind: 
           </ul>
         </div>
       ) : null}
-    </CardFrame>
+    </>
   );
 }
 
@@ -493,7 +474,7 @@ function ApprovalCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "
             Decline
           </Action>
           <Action variant="primary" disabled={disabled} onClick={() => send({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" })}>
-            Approve
+            {card.terms?.total ? `Approve ${money(card.terms.total)}` : "Approve"}
           </Action>
         </>
       }
@@ -505,7 +486,7 @@ function ApprovalCard({ card, send: sendFrame }: { card: Extract<Card, { kind: "
           ))}
         </div>
       ) : null}
-      <p className="text-base text-pretty break-words">{card.summary}</p>
+      {card.terms ? <OperationTerms terms={card.terms} company={card.company} /> : <p className="text-base text-pretty break-words">{card.summary}</p>}
     </CardFrame>
   );
 }
@@ -622,7 +603,7 @@ function Receipt({ result, detail, company, children, action, note }: { result: 
   );
 }
 
-/** A request's outcome when no step in the chat shows it, or an operation's, which comes later than the step that proposed it. */
+/** A request's outcome when no step in the chat shows it. */
 function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; onAsk?: ((text: string) => void) | undefined }) {
   // A receipt's buttons are disabled while the page isn't connected; the banner at the top says why, so each line doesn't.
   const { send, disabled, note } = useSend(sendFrame, { quiet: true });
@@ -664,7 +645,13 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
       const facts = card.status === "done" ? resultFacts(card.result).facts : [];
       return (
         <Receipt result={result} detail={detail} company={card.company} action={dismiss} note={note}>
-          <p className="text-kumo-subtle">{card.summary}</p>
+          {card.terms ? (
+            <CompanySays company={card.company} className="mt-1 border-l-2 border-kumo-line pl-3 [&_blockquote]:text-[13px]">
+              {card.terms.total ? `${money(card.terms.total)} · ${card.terms.summary}` : card.terms.summary}
+            </CompanySays>
+          ) : (
+            <p className="text-kumo-subtle">{card.summary}</p>
+          )}
           {facts.length ? <p className="text-kumo-subtle tabular-nums">{facts.join(" · ")}</p> : null}
           {card.status === "refused" ? (
             <p>
@@ -675,127 +662,10 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
         </Receipt>
       );
     }
-    case "operation": {
-      const decided = card.approvedBy === "standing_permission" ? "approved by standing permission" : card.approvedBy === "user" ? "approved by you" : null;
-      if (card.lost) {
-        return (
-          <Receipt result={card.lost === "unknown" ? "unknown" : "failed"} company={card.company} action={dismiss} note={note}>
-            <p>{card.company} no longer has this, so nothing more can be done with it: “{card.summary}”</p>
-            <p className="text-kumo-subtle">
-              {card.lost === "unknown"
-                ? `It may have happened: check with ${card.company} before asking again.`
-                : decided
-                  ? "It wasn't done. Ask your agent again if you still want it."
-                  : "Nothing was confirmed."}
-            </p>
-          </Receipt>
-        );
-      }
-      if (card.alteredSummary !== undefined) {
-        // The Company changed this revision's terms after they were shown (Operations 3.1 forbids it).
-        return (
-          <Receipt result="failed" company={card.company} action={dismiss} note={note}>
-            <p>
-              {card.state === "proposed"
-                ? `${card.company} changed these terms after you saw them, without a new revision, so your agent won't confirm them: “${card.summary}”`
-                : `${card.company} now reports different terms from the ones ${decided ? "you approved" : "you saw"}: “${card.summary}”`}
-            </p>
-            <p className="text-kumo-subtle">
-              {card.state === "proposed"
-                ? `It now says: “${card.alteredSummary}”. Ask your agent for a new proposal if you still want it.`
-                : `It says: “${card.alteredSummary}”. Check with ${card.company} what was done.`}
-            </p>
-          </Receipt>
-        );
-      }
-      if (card.state === "in_progress") {
-        return (
-          <Receipt
-            result="in_progress"
-            company={card.company}
-            note={note}
-            action={
-              <Action
-                variant="secondary"
-                className="-my-1"
-                disabled={disabled}
-                onClick={() => send({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision: "cancel" })}
-              >
-                Ask {card.company} to stop
-              </Action>
-            }
-          >
-            <p className="text-kumo-subtle">
-              {decided ? `${decided[0]!.toUpperCase()}${decided.slice(1)}: ` : ""}“{card.summary}”
-            </p>
-          </Receipt>
-        );
-      }
-      return <OperationReceipt card={card} decided={decided} onAsk={onAsk} />;
-    }
     default:
       // Sign-in and invitation cards become notices when they close.
       return null;
   }
-}
-
-const OPERATION_RESULT: Record<string, ActivityResult> = {
-  proposed: "in_progress",
-  in_progress: "in_progress",
-  succeeded: "done",
-  failed: "failed",
-  cancelled: "cancelled",
-  expired: "expired"
-};
-
-/**
- * An operation that finished: its state, the total, what the Company says
- * came of it, and the pages it named on its own hosts (a checkout opens in a
- * new tab, so the conversation stays where it is). Poppy says nothing of a
- * payment made at a checkout afterwards, so the User can ask their agent to
- * look at the order.
- */
-function OperationReceipt({ card, decided, onAsk }: { card: Extract<Card, { kind: "operation" }>; decided: string | null; onAsk?: ((text: string) => void) | undefined }) {
-  const result = OPERATION_RESULT[card.state] ?? "unknown";
-  const links = (card.links ?? []).flatMap((link) => {
-    const href = httpsHref(link.url);
-    return href ? [{ label: link.label, href }] : [];
-  });
-  return (
-    <section aria-label={`${card.company}: ${RESULT[result]}`} className="enter rounded-xl p-4 ring ring-kumo-hairline" data-operation-receipt={card.state}>
-      <Receipt result={result} detail={decided} company={card.company}>
-        {card.total ? (
-          <p className="mt-1 text-xl font-semibold text-kumo-strong tabular-nums" data-total>
-            {money(card.total)}
-          </p>
-        ) : null}
-        {card.result ? (
-          <CompanySays company={card.company} className="mt-2 border-l-2 border-kumo-line pl-3 [&_blockquote]:text-[13px]">
-            {card.result}
-          </CompanySays>
-        ) : null}
-        {links.length || (onAsk && result === "done") ? (
-          <div className="mt-2 flex flex-wrap items-center gap-x-4">
-            {links.map((link) => (
-              <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center gap-1 font-medium text-kumo-link underline">
-                Open {link.label} at {card.company}
-                <ArrowSquareOutIcon size={14} aria-hidden />
-              </a>
-            ))}
-            {onAsk && result === "done" ? (
-              <button
-                type="button"
-                onClick={() => onAsk(`Check the status of this at ${card.company}: ${card.summary.slice(0, 200)}`)}
-                className="inline-flex min-h-10 items-center font-medium text-kumo-link underline underline-offset-4"
-              >
-                Ask your agent to check on it
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </Receipt>
-    </section>
-  );
 }
 
 /** One card: a request while it waits for the User, a one-line receipt once resolved. `onAsk` lets a receipt ask the agent something for the User. */
@@ -810,8 +680,6 @@ export function PoppyCard({ card, send, onAsk }: { card: Card; send: Send; onAsk
       return <CredentialsCard card={card} send={send} />;
     case "signin_code":
       return <CodeCard card={card} send={send} />;
-    case "operation":
-      return <OperationCard card={card} send={send} />;
     case "approval":
       return <ApprovalCard card={card} send={send} />;
     case "direct_invite":
@@ -870,8 +738,6 @@ function requestLabel(card: Card | undefined): string {
     case "signin_credentials":
     case "signin_code":
       return "Sign-in request";
-    case "operation":
-      return "Review this action";
     case "approval":
       return card.status === "unknown" ? "Check the outcome" : "Approval request";
     case "direct_invite":
@@ -899,12 +765,12 @@ export function NeedsYouPanel({ view, send, extra, extraIds = [] }: { view: Popp
   ];
   const items = entries.map((entry) => (entry.kind === "card" ? entry.card : entry.cards[0]!));
   const count = entries.length + extraIds.length;
-  // Ignore refreshed frames and removals. A new card, sign-in step, operation
-  // revision or photo joining a batch must draw attention again, even when the total count stays the same.
+  // Ignore refreshed frames and removals. A new card (a new revision of an
+  // operation is a new card), sign-in step or photo joining a batch must draw attention again, even when the total count stays the same.
   const keys = [
     ...entries.map((entry) =>
       entry.kind === "card"
-        ? JSON.stringify([entry.card.id, entry.card.kind, entry.card.kind === "operation" ? entry.card.revision : null])
+        ? JSON.stringify([entry.card.id, entry.card.kind])
         : JSON.stringify(["batch", entry.key, entry.cards.map((card) => card.id)])
     ),
     ...extraIds.map((id) => JSON.stringify(["direct", id]))

@@ -4,22 +4,15 @@ import { tryDecode } from "../decode";
 import { MEDIATED_GRANT, type Company, type SignInType } from "./discovery";
 import { isObject, type Json } from "./json";
 import { randomId, sha256 } from "./jwt";
-import { EndpointRequest } from "./outgoing";
 import { one, rows, type RowOf } from "../rows";
 import { signInsTable } from "./store";
 import type { ScopeInfo } from "./wire";
 import type { Issuer } from "./issuer";
 import { companyErrorCode } from "./error-codes";
 import { keepReplaced, revokeReplaced } from "./signout";
-import { sinceVersion } from "./protocol-version";
 
 /** Pending sign-ins expire after this long (the Guides suggest Companies give a device code about 10 minutes). */
 const SIGN_IN_TTL_MS = 10 * 60 * 1000;
-
-export const BUILTIN_SCOPES: Readonly<Record<string, string>> = {
-  "poppy:read": "View account information, such as orders and bookings",
-  "poppy:write": "Make changes, such as exchanging an item or updating a booking"
-};
 
 const signInRow = signInsTable.pick("id", "type", "issuer", "label", "account", "scopes", "secret", "interval_seconds", "expires_at", "status");
 type SignInRow = RowOf<typeof signInRow>;
@@ -31,33 +24,28 @@ export type SignInStart =
 export function describeScopes(company: Company, scopes: readonly string[]): ScopeInfo[] {
   return scopes.map((scope) => ({
     scope,
-    description: (sinceVersion(company, "0.3") ? undefined : BUILTIN_SCOPES[scope]) ?? company.customScopes[scope] ?? scope
+    description: company.customScopes[scope] ?? scope
   }));
 }
 
-/** 0.3: a scope some sign-in type can request, from `scopes_supported` (4.7), described or not. */
+/** A scope some sign-in type can request, from `scopes_supported` (4.7), described or not. */
 function offeredBySignIn(company: Company, scope: string): boolean {
   return Object.values(company.signIn).some((type) => type?.scopes.includes(scope));
 }
 
 /**
  * A device sign-in link the page may show as a link and a QR code: HTTPS, on
- * the Company's domain or the host of its issuer or device endpoint (spec
- * 4.6). Anything else, such as `javascript:`, `http:` or another site, is null.
+ * the host of the Company's issuer or of a URL in its `protected_resources`,
+ * or a subdomain of either (4.3). Anything else, such as `javascript:`,
+ * `http:` or another site, is null.
  */
 export function deviceLink(company: Company, value: unknown): string | null {
   if (typeof value !== "string" || !URL.canParse(value)) return null;
   const url = new URL(value);
   if (url.protocol !== "https:" || url.username || url.password) return null;
   const host = url.hostname.toLowerCase();
-  if (sinceVersion(company, "0.2")) {
-    const allowed = [new URL(company.issuer).hostname, ...(company.poppyDomains ?? [])].map((domain) => domain.toLowerCase());
-    return allowed.some((domain) => host === domain || host.endsWith(`.${domain}`)) ? url.href : null;
-  }
-  const hosts = [company.issuer, company.endpoints.deviceAuthorization]
-    .filter((endpoint): endpoint is string => !!endpoint)
-    .map((endpoint) => new URL(endpoint).hostname.toLowerCase());
-  return host === company.domain || host.endsWith(`.${company.domain}`) || hosts.includes(host) ? url.href : null;
+  const allowed = [new URL(company.issuer).hostname, ...(company.poppyDomains ?? [])].map((domain) => domain.toLowerCase());
+  return allowed.some((domain) => host === domain || host.endsWith(`.${domain}`)) ? url.href : null;
 }
 
 /** Which sign-in type to use: Direct, then Device, then Mediated (Guides, "Choosing how to sign in"). */
@@ -83,8 +71,8 @@ function setStatus(client: PoppyClient, id: string, status: string): void {
 }
 
 /**
- * Start signing the User in at a Company for `scopes` (spec 4.4). An Account
- * Token that already covers them is used without asking. Otherwise the User
+ * Start signing the User in at a Company for `scopes` (4, 5.4). A refresh
+ * token that already covers them is used without asking. Otherwise the User
  * gets a card for the preferred type the Company offers; this returns while
  * they act, and the model is told when it finishes.
  */
@@ -96,8 +84,8 @@ export async function startSignIn(
   const scopes = [...new Set(request.scopes)];
   if (scopes.length === 0) throw new PoppyError("invalid_scope", "Name at least one scope to request", 0);
   for (const scope of scopes) {
-    // 0.3 defines no scopes (4.7): a scope is one the issuer supports and the Company describes.
-    const known = sinceVersion(company, "0.3") ? company.customScopes[scope] !== undefined || offeredBySignIn(company, scope) : BUILTIN_SCOPES[scope] || company.customScopes[scope];
+    // The protocol defines no scopes (4.7): a scope is one the Company describes or a sign-in type can request.
+    const known = company.customScopes[scope] !== undefined || offeredBySignIn(company, scope);
     if (!known) {
       throw new PoppyError("invalid_scope", `${company.name} doesn't define the scope ${scope}`, 0);
     }
@@ -114,7 +102,7 @@ export async function startSignIn(
       0
     );
   }
-  // Direct and device exchanges sign in the current Session, so it must exist.
+  // The Session the sign-in will serve, started now so the card names it.
   await client.token(company, { label: request.label });
 
   const id = randomId("sgn_");
@@ -151,7 +139,7 @@ export async function startSignIn(
     await scheduleExpiry(client, id, client.host.now() + SIGN_IN_TTL_MS);
     const url = new URL(company.endpoints.authorization!);
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("client_id", client.clientIdFor(company));
+    url.searchParams.set("client_id", client.identity.clientId);
     url.searchParams.set("redirect_uri", client.identity.redirectUri);
     url.searchParams.set("scope", scopeText);
     url.searchParams.set("state", state);
@@ -193,7 +181,7 @@ export async function startSignIn(
     const interval = typeof body.interval === "number" && body.interval > 0 ? body.interval : 5;
     const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 600;
     const expiresAt = client.host.now() + expiresIn * 1000;
-    // `device_code` stays private: sealed at rest, never shown (spec 4.6).
+    // `device_code` stays private: sealed at rest, never shown (4.3).
     insert(
       await client.sealer.seal(JSON.stringify({ device_code: body.device_code }), sealContext(base)),
       null,
@@ -286,7 +274,7 @@ async function finish(
     const raw = outcome.response;
     // An omitted `scope` grants what was asked for (RFC 6749 §5.1, N6).
     const response = { ...raw, scope: grantedScope(raw, row.scopes) };
-    // A step-up's replaced Account Token is kept to revoke before anything else is awaited (4.4, signout.ts).
+    // A step-up's replaced refresh token is kept to revoke before anything else is awaited (4.7, signout.ts).
     await revokeReplaced(client, keepReplaced(client, await client.completeSignIn(company, row.label, row.account, response)));
     text = signedInText(company, row, response.scope, "the User");
     cardText = signedInText(company, row, response.scope, "you");
@@ -296,33 +284,14 @@ async function finish(
   await report(client, row, text, cardText);
 }
 
-/** Refusals that mean the Session can't be signed in, and why, in the User's words. */
-const NEW_SESSION: Readonly<Record<string, string>> = {
-  // One account per Session (4.4): it is bound to another account.
-  account_mismatch: "the Session belongs to another account",
-  // It ended meanwhile (4.2).
-  invalid_session: "the Session has ended"
-};
-
 /**
- * The Company refused the step that signs the Session in: a code exchange,
- * a device poll, or Mediated Sign-In. `account_mismatch` and
- * `invalid_session` mean that Session can never be signed in, so it is left
- * for a new one (spec 4.4) and the User's next sign-in starts there. Anything
- * else leaves the Session as it was. Nothing is retried: a code is single
- * use, and credentials are gone.
+ * The Company refused the step that finishes a sign-in: a code exchange, a
+ * device poll, or Mediated Sign-In. Sign-in names no Session (5.4), so
+ * nothing about the User's Sessions changes. Nothing is retried: a code is
+ * single use, and credentials are gone.
  */
-async function refused(client: PoppyClient, row: SignInRow, code: string, message: string): Promise<void> {
-  const reason = NEW_SESSION[code];
-  if (!reason) {
-    await finish(client, row, { ok: false, message });
-    return;
-  }
-  client.abandonSession(row.issuer, row.label);
-  await finish(client, row, {
-    ok: false,
-    message: `${reason} (${code}), so the agent continues in a new Session. Ask the User to sign in again.`
-  });
+async function refused(client: PoppyClient, row: SignInRow, _code: string, message: string): Promise<void> {
+  await finish(client, row, { ok: false, message });
 }
 
 // ---------------------------------------------------------------- Direct Sign-In's code exchange
@@ -334,21 +303,19 @@ async function refused(client: PoppyClient, row: SignInRow, code: string, messag
 //                │
 //                └─▶ failed (refused, or interrupted with no answer)
 //
-// `exchanging` with no answer kept means the Company may have signed the
-// Session in, and we hold no Account Token to renew it with. 4.2 renews a
-// signed-in Session with the Account Token, and what the assertion gets
-// there is undefined (spec-issues S5), so that Session is abandoned for a
-// new one and the User starts the sign-in again. `exchanged` keeps the
-// answer (sealed, without its Session Token), so the tokens are stored from
-// it. `stored` only has the card and the notice left.
+// `exchanging` with no answer kept means the Company may have issued tokens
+// we never received; the code is spent, so the User starts the sign-in
+// again. Sign-in names no Session (5.4), so no Session changes. `exchanged`
+// keeps the answer (sealed, without its access token), so the refresh token
+// is stored from it. `stored` only has the card and the notice left.
 
 const EXCHANGE = (id: string) => `signin|${id}`;
 
-/** The answer to a code exchange, kept until its tokens are stored: never the Session Token. */
+/** The answer to a code exchange, kept until its refresh token is stored: never the access token. */
 type KeptAnswer = Omit<TokenResponse, "access_token">;
 
 function keepable(response: TokenResponse): KeptAnswer {
-  const { access_token: _sessionToken, ...kept } = response;
+  const { access_token: _accessToken, ...kept } = response;
   return kept;
 }
 
@@ -364,37 +331,34 @@ async function finishExchange(client: PoppyClient, row: SignInRow, answer?: Kept
     const response: TokenResponse = { ...kept, access_token: "", scope: grantedScope(kept, row.scopes) };
     const replaced = keepReplaced(client, await client.completeSignIn(company, row.label, row.account, response));
     scope = response.scope ?? "";
-    // The Account Token is in poppy_accounts now; this row keeps only the scope.
+    // The refresh token is in poppy_accounts now; this row keeps only the scope.
     client.sql.exec(
       "UPDATE poppy_signins SET status = 'stored', secret = ? WHERE id = ?",
       await client.sealer.seal(JSON.stringify({ scope }), sealContext(row)),
       row.id
     );
-    // A step-up's replaced Account Token: revoked now, or retried (4.4, signout.ts).
+    // A step-up's replaced refresh token: revoked now, or retried (4.7, signout.ts).
     await revokeReplaced(client, replaced);
   }
   await report(client, row, signedInText(company, row, scope, "the User"), signedInText(company, row, scope, "you"));
   setStatus(client, row.id, "done");
 }
 
-/** No answer we can trust: start a new Session, and ask the User to sign in again. */
+/** No answer we can trust: the code is spent, so ask the User to sign in again. */
 async function abandonExchange(client: PoppyClient, row: SignInRow): Promise<void> {
   const company = await client.resumeCompany(row.issuer, "signin", row.id);
-  const session = client.session(row.issuer, row.label);
-  // A Session we already hold signed in renews with its Account Token, never the assertion.
-  if (session && !session.signed_in) client.abandonSession(row.issuer, row.label);
   setStatus(client, row.id, "failed");
   await report(
     client,
     row,
-    `Sign-in to ${company.name} was interrupted before it finished, so the agent continues in a new Session. Ask the User to sign in again if the task needs it.`
+    `Sign-in to ${company.name} was interrupted before it finished. Ask the User to sign in again if the task needs it.`
   );
 }
 
 /**
  * Direct Sign-Ins left between sending the code and finishing (an
  * exception, or the object restarted): finish storing the tokens when their
- * answer was kept, otherwise start a new Session. Runs before any token for
+ * answer was kept, otherwise ask the User again. Runs before any token for
  * the Company, on start, and on the next callback.
  */
 export async function recoverSignIns(client: PoppyClient, issuer?: Issuer): Promise<void> {
@@ -422,9 +386,9 @@ export async function recoverSignIns(client: PoppyClient, issuer?: Issuer): Prom
 registerSignInRecovery(recoverSignIns);
 
 /**
- * `GET /poppy/callback` for Direct Sign-In (spec 4.5): check `state` (single
+ * `GET /poppy/callback` for Direct Sign-In (4.2): check `state` (single
  * use, this Company, not expired) and `iss`, then exchange the code at that
- * Company's token endpoint with the verifier and `session_id`.
+ * Company's token endpoint with the verifier.
  */
 export async function completeDirectSignIn(client: PoppyClient, url: URL): Promise<{ ok: boolean; message: string }> {
   const state = url.searchParams.get("state");
@@ -451,7 +415,7 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
     await finish(client, row, { ok: false, message: "the sign-in link expired", expired: true });
     return { ok: false, message: "This sign-in has expired. Start it again from the chat." };
   }
-  // The response must come from the Company we sent the User to (RFC 9207, spec 4.5).
+  // The response must come from the Company we sent the User to (RFC 9207, 4.2).
   if (url.searchParams.get("iss") !== company.issuer) {
     await finish(client, row, { ok: false, message: "the response came from a different sign-in server" });
     return { ok: false, message: "This sign-in response didn't come from the expected company." };
@@ -474,27 +438,22 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
   try {
     let response: TokenResponse;
     try {
-      response = await client.tokenRequest(company, async () => {
-        const session = client.session(company.issuer, row.label);
-        return {
-          grant_type: "authorization_code",
-          code,
-          redirect_uri: client.identity.redirectUri,
-          code_verifier: secret.verifier,
-          // Before 0.3 the code signs a Session in; from 0.3 sign-in is plain OAuth (5.4).
-          ...(session && !sinceVersion(company, "0.3") ? { session_id: session.session_id } : {})
-        };
-      });
+      response = await client.tokenRequest(company, async () => ({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: client.identity.redirectUri,
+        code_verifier: secret.verifier
+      }));
     } catch (error) {
       if (error instanceof PoppyError && error.status >= 400 && error.status < 500) {
-        // The Company refused the code: it didn't sign the Session in.
+        // The Company refused the code: it issued no tokens.
         await refused(client, row, error.code, error.code);
         return {
           ok: false,
-          message: `Sign-in to ${company.name} failed (${error.code}).${NEW_SESSION[error.code] ? " Go back to the chat and sign in again." : ""}`
+          message: `Sign-in to ${company.name} failed (${error.code}).`
         };
       }
-      // No answer, or one we can't read: the Company may have signed the Session in.
+      // No answer, or one we can't read: the Company may have issued tokens we never got.
       await abandonExchange(client, row);
       return { ok: false, message: `Sign-in to ${company.name} was interrupted. Go back to the chat and start it again.` };
     }
@@ -518,7 +477,7 @@ export async function completeDirectSignIn(client: PoppyClient, url: URL): Promi
 }
 
 /**
- * One Device Sign-In poll (spec 4.6), run as a durable job: every `interval`
+ * One Device Sign-In poll (4.3), run as a durable job: every `interval`
  * seconds, 5 more after `slow_down`, until the User approves, declines or the
  * code expires. Returns when to poll next, or null when done.
  */
@@ -532,14 +491,10 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
   const company = await client.resumeCompany(row.issuer, "signin", row.id);
   const secret = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as { device_code: string };
   try {
-    const response = await client.tokenRequest(company, async () => {
-      const session = client.session(company.issuer, row.label);
-      return {
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        device_code: secret.device_code,
-        ...(session && !sinceVersion(company, "0.3") ? { session_id: session.session_id } : {})
-      };
-    });
+    const response = await client.tokenRequest(company, async () => ({
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      device_code: secret.device_code
+    }));
     await finish(client, row, { ok: true, response });
     return null;
   } catch (error) {
@@ -558,11 +513,11 @@ export async function pollDeviceSignIn(client: PoppyClient, id: string): Promise
   }
 }
 
-/** Parameters Mediated Sign-In's grant uses itself, which no credential field may name (0.3 Mediated Sign-In 2). */
+/** Parameters Mediated Sign-In's grant uses itself, which no credential field may name (Mediated Sign-In 2). */
 const RESERVED_MEDIATED_FIELDS = new Set(["grant_type", "scope", "resource", "client_id", "client_assertion", "client_assertion_type", "sign_in_id", "one_time_code"]);
 
 /**
- * 0.3: Mediated Sign-In as a grant at the token endpoint (Mediated Sign-In
+ * Mediated Sign-In, a grant at the token endpoint (Mediated Sign-In
  * 3, 4): the token response signs the User in; `code_required` asks for a
  * one-time code, sent to the User; any other error ends the sign-in.
  */
@@ -579,14 +534,7 @@ async function mediatedGrant(
   } catch (error) {
     if (!(error instanceof PoppyError)) throw error;
     const body = error.detail.body;
-    if (error.is("code_required") && isObject(body)) {
-      return mediatedResponse(client, row, {
-        status: "code_required",
-        sign_in_id: body.sign_in_id ?? null,
-        ...(typeof body.sent_to === "string" ? { code: { sent_to: body.sent_to } } : {}),
-        ...(typeof body.expires_in === "number" && body.expires_in > 0 ? { expires_at: new Date(client.host.now() + body.expires_in * 1000).toISOString() } : {})
-      });
-    }
+    if (error.is("code_required") && isObject(body)) return codeRequired(client, company, row, body);
     if (error.is("expired_token")) {
       await finish(client, row, { ok: false, message: "the sign-in took too long", expired: true });
       return "failed";
@@ -596,66 +544,36 @@ async function mediatedGrant(
   }
 }
 
-/** The Mediated Sign-In endpoint's reply (spec 4.7), or, from 0.3, its grant's `code_required` in that form. */
-async function mediatedResponse(
-  client: PoppyClient,
-  row: SignInRow,
-  body: Json
-): Promise<"done" | "code" | "failed"> {
-  if (!isObject(body)) {
-    await finish(client, row, { ok: false, message: "the company's reply was unreadable" });
+/** `code_required` (Mediated Sign-In 4): the User gets a card for the code the Company sent them. */
+async function codeRequired(client: PoppyClient, company: Company, row: SignInRow, body: { readonly [key: string]: Json }): Promise<"code" | "failed"> {
+  const signInId = typeof body.sign_in_id === "string" ? body.sign_in_id : null;
+  if (!signInId || !/^[A-Za-z0-9_-]{1,256}$/.test(signInId)) {
+    await finish(client, row, { ok: false, message: "the company's code request was malformed" });
     return "failed";
   }
-  const company = await client.resumeCompany(row.issuer, "signin", row.id);
-  switch (body.status) {
-    case "complete": {
-      // Its tokens, decoded as any token response is: a malformed one signs nobody in.
-      const tokens = tryDecode(tokenResponse, body, "Mediated Sign-In reply");
-      if (!tokens.ok || !(tokens.value.expires_in > 0)) {
-        await finish(client, row, { ok: false, message: "the company's reply was malformed" });
-        return "failed";
-      }
-      await finish(client, row, { ok: true, response: tokens.value });
-      return "done";
-    }
-    case "code_required": {
-      const signInId = typeof body.sign_in_id === "string" ? body.sign_in_id : null;
-      if (!signInId || !/^[A-Za-z0-9_-]{1,256}$/.test(signInId)) {
-        await finish(client, row, { ok: false, message: "the company's code request was malformed" });
-        return "failed";
-      }
-      client.sql.exec(
-        "UPDATE poppy_signins SET secret = ?, status = 'code' WHERE id = ?",
-        await client.sealer.seal(JSON.stringify({ sign_in_id: signInId }), sealContext(row)),
-        row.id
-      );
-      const sentTo = isObject(body.code) && typeof body.code.sent_to === "string" ? body.code.sent_to : "you";
-      await client.host.showCard({
-        id: `signin-${row.id}`,
-        kind: "signin_code",
-        company: company.name,
-        domain: company.domain,
-        open: true,
-        signInId: row.id,
-        sentTo,
-        ...(typeof body.expires_at === "string" ? { expiresAt: body.expires_at } : {})
-      });
-      return "code";
-    }
-    case "expired":
-      await finish(client, row, { ok: false, message: "the sign-in took too long", expired: true });
-      return "failed";
-    default:
-      await finish(client, row, { ok: false, message: "the company didn't accept the sign-in" });
-      return "failed";
-  }
+  client.sql.exec(
+    "UPDATE poppy_signins SET secret = ?, status = 'code' WHERE id = ?",
+    await client.sealer.seal(JSON.stringify({ sign_in_id: signInId }), sealContext(row)),
+    row.id
+  );
+  await client.host.showCard({
+    id: `signin-${row.id}`,
+    kind: "signin_code",
+    company: company.name,
+    domain: company.domain,
+    open: true,
+    signInId: row.id,
+    sentTo: typeof body.sent_to === "string" ? body.sent_to : "you",
+    ...(typeof body.expires_in === "number" && body.expires_in > 0 ? { expiresAt: new Date(client.host.now() + body.expires_in * 1000).toISOString() } : {})
+  });
+  return "code";
 }
 
 /**
- * Mediated Sign-In (spec 4.7). `values` come straight from the credentials
- * card, never through the model, and go only to `auth.mediated.endpoint`
- * from the verified `poppy.json`. They are not stored or logged, and are
- * dropped when this returns.
+ * Mediated Sign-In (Mediated Sign-In 3). `values` come straight from the
+ * credentials card, never through the model, and go only to the token
+ * endpoint of the Company's issuer (Mediated Sign-In 6). They are not stored
+ * or logged, and are dropped when this returns.
  */
 export async function submitCredentials(
   client: PoppyClient,
@@ -671,27 +589,15 @@ export async function submitCredentials(
   for (const field of mediated.fields) {
     const value = values[field.name];
     if (typeof value !== "string" || value === "") return "failed";
-    // 0.3: a field is a token request parameter, so it can't be one the grant uses (Mediated Sign-In 2).
-    if (mediated.grant && RESERVED_MEDIATED_FIELDS.has(field.name)) return "failed";
+    // A field is a token request parameter, so it can't be one the grant uses (Mediated Sign-In 2).
+    if (RESERVED_MEDIATED_FIELDS.has(field.name)) return "failed";
     credentials[field.name] = value;
   }
   setStatus(client, id, "sent");
-  if (mediated.grant) return mediatedGrant(client, company, row, { ...credentials, scope: row.scopes });
-  try {
-    const { body } = await client.resourceJson(
-      company,
-      EndpointRequest.to(company, { method: "POST", url: mediated.endpoint, body: { scope: row.scopes, credentials } }),
-      { label: row.label }
-    );
-    return mediatedResponse(client, row, body);
-  } catch (error) {
-    if (!(error instanceof PoppyError)) throw error;
-    await refused(client, row, error.code, error.code);
-    return "failed";
-  }
+  return mediatedGrant(client, company, row, { ...credentials, scope: row.scopes });
 }
 
-/** The one-time code for a Mediated Sign-In: only the code, from the same Session (spec 4.7). */
+/** The one-time code for a Mediated Sign-In: the same grant again, with the code and not the credentials or scope (Mediated Sign-In 4). */
 export async function submitSignInCode(
   client: PoppyClient,
   id: string,
@@ -703,24 +609,7 @@ export async function submitSignInCode(
   const { sign_in_id } = JSON.parse(await client.sealer.open(row.secret, sealContext(row))) as {
     sign_in_id: string;
   };
-  // 0.3: the same grant again, with the code and not the credentials or scope (Mediated Sign-In 4).
-  if (company.signIn.mediated?.grant) return mediatedGrant(client, company, row, { sign_in_id, one_time_code: code });
-  try {
-    const { body } = await client.resourceJson(
-      company,
-      EndpointRequest.to(company, {
-        method: "POST",
-        url: `${company.signIn.mediated!.endpoint}/${encodeURIComponent(sign_in_id)}`,
-        body: { code }
-      }),
-      { label: row.label }
-    );
-    return mediatedResponse(client, row, body);
-  } catch (error) {
-    if (!(error instanceof PoppyError)) throw error;
-    await refused(client, row, error.code, error.code);
-    return "failed";
-  }
+  return mediatedGrant(client, company, row, { sign_in_id, one_time_code: code });
 }
 
 export async function cancelSignIn(client: PoppyClient, id: string): Promise<void> {
@@ -729,5 +618,5 @@ export async function cancelSignIn(client: PoppyClient, id: string): Promise<voi
   await finish(client, row, { ok: false, message: "the User cancelled it" });
 }
 
-/** Signing out (spec 4.9) lives in signout.ts. */
+/** Signing out (5.5) lives in signout.ts. */
 export { signOut } from "./signout";

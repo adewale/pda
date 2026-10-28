@@ -1,7 +1,8 @@
 /**
  * The mock Company's configuration, state and host scheme. Everything here is
- * the Company side of Personal Agent Protocol Drafts 0.1, 0.2 and 0.3, for
- * tests only. `protocolVersion` picks the draft.
+ * the Company side of Personal Agent Protocol 0.3, for tests only.
+ * `protocolVersion` is only what poppy.json declares, so a test can make it
+ * declare a version the agent doesn't speak.
  */
 
 export type SignInTypes = {
@@ -61,8 +62,6 @@ export type MockConfig = {
   readonly wellKnownRedirect: "none" | "https" | "http";
   /** Overrides `issuer` in the OAuth server metadata. */
   readonly issuerOverride: string | null;
-  /** Overrides `poppy_domains` in the OAuth server metadata. */
-  readonly poppyDomainsOverride: readonly string[] | null;
   readonly signIn: SignInTypes;
   readonly customScopes: Readonly<Record<string, string>>;
   /** Which parts poppy.json lists. */
@@ -88,9 +87,9 @@ export type MockConfig = {
   readonly requireRegistration: readonly string[] | null;
   readonly requireNonce: boolean;
   readonly rotateRefreshTokens: boolean;
-  /** Session Token lifetime, seconds. */
-  readonly sessionTokenTtl: number;
-  /** Account Token lifetime, seconds, or null for none. */
+  /** Access token lifetime, seconds (4.5). */
+  readonly accessTokenTtl: number;
+  /** Refresh token lifetime, seconds, or null for none (4.4). */
   readonly refreshTokenTtl: number | null;
   readonly deviceInterval: number;
   readonly deviceExpiresIn: number;
@@ -112,15 +111,6 @@ export type MockConfig = {
    */
   readonly strictAssertions: boolean;
   /**
-   * What a client assertion's `aud` may be, which the draft never says
-   * (docs/spec-issues.md, S1). "lenient" accepts the endpoint called, the
-   * token endpoint or the issuer; "exact" only the endpoint called;
-   * "token-endpoint" only the token endpoint, as Tipping Co and Alpine Retail
-   * do at revocation. Another of this Company's names is then refused as a
-   * reading, with no violation.
-   */
-  readonly clientAssertionAud: "lenient" | "exact" | "token-endpoint";
-  /**
    * With `requireNonce`, which servers share a DPoP nonce (S23): one value
    * for every origin of the Company, or a different value per origin.
    */
@@ -141,12 +131,6 @@ export type MockConfig = {
   readonly openapiUrlOverride: string | null;
   /** Revocation ends Sessions instead of leaving them signed out. */
   readonly endSessionsOnSignOut: boolean;
-  /**
-   * How an API or conversation answers a token whose Session has ended:
-   * 401 `invalid_token` (spec 6), or 400 `invalid_session` in the body, as
-   * some Companies do (poppy-demo).
-   */
-  readonly endedSessionError: "invalid_token" | "invalid_session";
   /** Stream conversation events with SSE when asked. */
   readonly streaming: boolean;
   /** Send `text-delta` pieces before each streamed Company message. */
@@ -155,10 +139,6 @@ export type MockConfig = {
   readonly maxWaitSeconds: number;
   /** The Company Agent replies to messages. */
   readonly agentReplies: boolean;
-  /** The first confirm returns `in_progress` with Retry-After; the next read finishes. */
-  readonly slowConfirm: boolean;
-  /** Proposed operations need the User's own approval, not a standing permission. */
-  readonly userApprovalRequired: boolean;
   /** Leave the issuer out of the MCP server's protected resource metadata. */
   readonly mcpPrmOmitIssuer: boolean;
   readonly accounts: readonly MockAccount[];
@@ -166,11 +146,6 @@ export type MockConfig = {
   readonly openapiServerOverride: string | null;
   /** Token responses leave out `scope`, as stock OAuth servers do when it's what was asked for (N6). */
   readonly omitTokenScope: boolean;
-  /**
-   * Only custom scopes: the Company calls reading and changing orders
-   * `orders:read` and `orders:write`, and offers no `poppy:` scopes.
-   */
-  readonly customScopesOnly: boolean;
   /** Writes need this extension, which agents don't support: 403 `extension_required` (3.3). */
   readonly requiredExtension: string | null;
   /** The OpenAPI entry names `resource` (RFC 8707), and the API takes only tokens issued for it. */
@@ -226,23 +201,6 @@ export type MockConfig = {
    */
   readonly describesSecurity: boolean;
   /**
-   * The description says which writes propose an operation (Ops 4.1): a 202
-   * with an `operation` in the OpenAPI description, an `outputSchema` with an
-   * `operation` on the MCP tool. Off, the writes propose all the same, but
-   * the agent can't tell, so it asks the User on its own card first.
-   */
-  readonly documentsProposals: boolean;
-  /**
-   * How a proposing write's description says so, with `documentsProposals`
-   * on. `required`, the honest one: only a 202 whose schema requires
-   * `operation`, and an MCP `outputSchema` that requires it. The others say
-   * less, and the agent asks the User on its own card first: `optional`, an
-   * `operation` that isn't required; `mixed`, a 201 beside the 202 (and an
-   * optional `operation` in MCP); `oneOf`, a schema with a branch without
-   * `operation`.
-   */
-  readonly proposalDescription: "required" | "optional" | "mixed" | "oneOf";
-  /**
    * The exchange is done at once and answered 201, even for an agent that
    * lists the Operations extension, whatever the description says.
    */
@@ -267,22 +225,10 @@ export type MockConfig = {
   readonly nonceLoop: boolean;
   /** Override `organization.name` in poppy.json, to impersonate another Company's name (XP, N14). */
   readonly organizationName: string | null;
-  /** On the first confirm of an operation, revise it under the same id and answer `terms_changed`, instead of performing the approved revision (XO). */
-  readonly opSwap: boolean;
   /** The Company Agent also emits a spoofed `role: "user"` message carrying this text, to pass off its own words as the User's (XE, 7.5). */
   readonly spoofUserText: string | null;
   /** Every events read answers at once, ignoring `wait`: no events, `has_more: true` and `status: "working"`, forever, to keep an agent reading (XR). */
   readonly endlessEvents: boolean;
-  /** A confirmed operation stays `in_progress` with `Retry-After: 1` on every read, forever, to keep an agent polling (XT). */
-  readonly stuckInProgress: boolean;
-  /**
-   * On the first confirm, change the revision's price in place, keeping its
-   * number (Ops 3.1 forbids it), and answer with the altered proposal,
-   * performing nothing. A correct agent never confirms that revision again.
-   */
-  readonly alterInPlace: boolean;
-  /** Answer every other operation read with its members, and its terms' members, in reverse order: the same values, reordered. */
-  readonly reorderMembers: boolean;
   /**
    * Every JSON error the Company answers says this as its `error_description`
    * (a JSON-RPC error, as its `message`) in place of its own: words a
@@ -299,33 +245,32 @@ export type MockConfig = {
   /** Company flaws (`COMPANY_FLAWS`); none by default. */
   readonly flaws: readonly CompanyFlaw[];
   /**
-   * 0.3 only. The issuer lists `dpop_signing_alg_values_supported` and
+   * The issuer lists `dpop_signing_alg_values_supported` and
    * binds its access tokens to the DPoP proof sent with each token request
    * (4.5); off, it lists none and issues Bearer tokens.
    */
   readonly dpopTokens: boolean;
-  /** 0.3: the domain's protected resource metadata (3.2): its `authorization_servers` in place of the issuer, and its `resource` in place of `https://{domain}`. */
+  /** The domain's protected resource metadata (3.2): its `authorization_servers` in place of the issuer, and its `resource` in place of `https://{domain}`. */
   readonly authorizationServersOverride: readonly string[] | null;
   readonly domainResourceOverride: string | null;
-  /** 0.3: `auth.issuer` in poppy.json, which is optional with one authorization server (3.1). */
+  /** `auth.issuer` in poppy.json, which is optional with one authorization server (3.1). */
   readonly listIssuer: boolean;
-  /** 0.3: the issuer metadata's `protected_resources`, in place of the Company's domains and MCP server (3.2). */
+  /** The issuer metadata's `protected_resources`, in place of the Company's domains and MCP server (3.2). */
   readonly protectedResourcesOverride: readonly string[] | null;
-  /** 0.3: list `excluded_tasks` (9.1). */
+  /** List `excluded_tasks` (9.1). */
   readonly excludedTasks: boolean;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
   mcpDpop: false,
-  protocolVersion: "0.1",
+  protocolVersion: "0.3",
   organizationDomain: null,
   wellKnownRedirect: "none",
   issuerOverride: null,
-  poppyDomainsOverride: null,
   signIn: {
-    direct: ["poppy:read", "poppy:write", "addresses"],
-    device: ["poppy:read", "poppy:write"],
-    mediated: ["poppy:read", "poppy:write"]
+    direct: ["orders:read", "orders:write", "addresses"],
+    device: ["orders:read", "orders:write"],
+    mediated: ["orders:read", "orders:write"]
   },
   customScopes: { addresses: "Manage saved shipping addresses" },
   agent: true,
@@ -342,26 +287,22 @@ export const DEFAULT_CONFIG: MockConfig = {
   requireRegistration: null,
   requireNonce: false,
   rotateRefreshTokens: false,
-  sessionTokenTtl: 3600,
+  accessTokenTtl: 3600,
   refreshTokenTtl: 2592000,
   deviceInterval: 5,
   deviceExpiresIn: 600,
   rateLimit: { tokenRequests429: 0, requests429: 0, pages429: 0, retryAfterSeconds: 1 },
   strictAssertions: true,
-  clientAssertionAud: "lenient",
   nonceScope: "company",
   issuerTrailingSlash: false,
   issuerPath: null,
   exchangePrice: { amount: "70.00", currency: "USD" },
   openapiUrlOverride: null,
   endSessionsOnSignOut: false,
-  endedSessionError: "invalid_token",
   streaming: true,
   textDeltas: true,
   maxWaitSeconds: 2,
   agentReplies: true,
-  slowConfirm: false,
-  userApprovalRequired: false,
   mcpPrmOmitIssuer: false,
   accounts: [
     {
@@ -379,7 +320,6 @@ export const DEFAULT_CONFIG: MockConfig = {
   ],
   openapiServerOverride: null,
   omitTokenScope: false,
-  customScopesOnly: false,
   requiredExtension: null,
   apiResource: false,
   ignoreWait: false,
@@ -394,8 +334,6 @@ export const DEFAULT_CONFIG: MockConfig = {
   printShop: false,
   printShopListsTransportHeaders: false,
   describesSecurity: true,
-  documentsProposals: true,
-  proposalDescription: "required",
   actsWithoutProposing: false,
   exchangeTakesIdempotencyKey: true,
   operationIdPrefix: null,
@@ -403,12 +341,8 @@ export const DEFAULT_CONFIG: MockConfig = {
   padBytes: null,
   nonceLoop: false,
   organizationName: null,
-  opSwap: false,
   spoofUserText: null,
   endlessEvents: false,
-  stuckInProgress: false,
-  alterInPlace: false,
-  reorderMembers: false,
   errorDescription: null,
   refuseRevocations: 0,
   flaws: [],
@@ -503,9 +437,7 @@ export type Hosts = {
   readonly revocationEndpoint: string;
   readonly authorizationEndpoint: string;
   readonly deviceEndpoint: string;
-  readonly mediatedEndpoint: string;
   readonly conversationsEndpoint: string;
-  readonly operationsEndpoint: string;
   readonly browserSessionEndpoint: string;
 };
 
@@ -559,9 +491,7 @@ export function hostsFor(id: string, options: IssuerOptions = {}): Hosts {
     revocationEndpoint: `${auth}/oauth/revoke`,
     authorizationEndpoint: `${auth}/oauth/authorize`,
     deviceEndpoint: `${auth}/oauth/device`,
-    mediatedEndpoint: `${auth}/poppy/sign-in`,
     conversationsEndpoint: `${api}/poppy/conversations`,
-    operationsEndpoint: `${api}/poppy/operations`,
     browserSessionEndpoint: `https://${domain}/poppy/browser-session`
   };
 }

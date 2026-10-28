@@ -3,7 +3,7 @@ import { Apis } from "./apis";
 import { AuthServer } from "./auth";
 import { Conversations } from "./conversations";
 import { Company, HttpError, json, type Inbound } from "./core";
-import { Operations, OperationsV2 } from "./operations";
+import { Operations } from "./operations";
 import {
   DEFAULT_CONFIG,
   companyIdFromHost,
@@ -23,7 +23,6 @@ type Parts = {
   readonly auth: AuthServer;
   readonly conversations: Conversations;
   readonly operations: Operations;
-  readonly operationsV2: OperationsV2;
   readonly apis: Apis;
   readonly web: Web;
 };
@@ -93,14 +92,10 @@ export class MockCompany extends DurableObject<Env> {
     const auth = new AuthServer(company);
     const conversations = new Conversations(company);
     const operations = new Operations(company);
-    const operationsV2 = new OperationsV2(company);
     conversations.operations = operations;
-    conversations.operationsV2 = operationsV2;
     const apis = new Apis(company, operations);
-    apis.operationsV2 = operationsV2;
     const web = new Web(company);
-    web.operations = operations;
-    this.#parts = { company, auth, conversations, operations, operationsV2, apis, web };
+    this.#parts = { company, auth, conversations, operations, apis, web };
     return this.#parts;
   }
 
@@ -141,7 +136,7 @@ export class MockCompany extends DurableObject<Env> {
   }
 
   async #route(parts: Parts, inbound: Inbound): Promise<Response> {
-    const { company, auth, conversations, operations, apis, web } = parts;
+    const { company, auth, conversations, apis, web } = parts;
     const { url } = inbound;
     const host = url.hostname;
     const path = url.pathname;
@@ -150,12 +145,10 @@ export class MockCompany extends DurableObject<Env> {
     const site = sub !== "auth" && sub !== "api" && sub !== "mcp" && sub !== "cdn";
 
     // Where secrets may legitimately appear.
-    let allowed: "credentials" | "code" | "account-token" | "token-endpoint" | null = null;
-    if (sub === "auth" && (path === "/oauth/token" || path === "/oauth/revoke")) allowed = "account-token";
-    // 0.3: Mediated Sign-In is a grant at the token endpoint (Mediated Sign-In 3, 4).
-    if (company.v3 && sub === "auth" && path === "/oauth/token") allowed = "token-endpoint";
-    if (sub === "auth" && path === "/poppy/sign-in") allowed = "credentials";
-    if (sub === "auth" && path.startsWith("/poppy/sign-in/")) allowed = "code";
+    let allowed: "account-token" | "token-endpoint" | null = null;
+    if (sub === "auth" && path === "/oauth/revoke") allowed = "account-token";
+    // Mediated Sign-In is a grant at the token endpoint, so its credentials and codes go there too (Mediated Sign-In 3, 4).
+    if (sub === "auth" && path === "/oauth/token") allowed = "token-endpoint";
     company.scanSecrets(inbound, allowed);
 
     if (site || sub === "cdn") {
@@ -185,9 +178,6 @@ export class MockCompany extends DurableObject<Env> {
       if (path === "/oauth/authorize" && method === "GET") return auth.authorize(inbound);
       if (path === "/oauth/device" && method === "POST") return auth.device(inbound);
       if (path === "/device" && method === "GET") return auth.devicePage(inbound);
-      if (path === "/poppy/sign-in" && method === "POST") return auth.mediated(inbound);
-      const code = /^\/poppy\/sign-in\/([A-Za-z0-9_-]+)$/.exec(path);
-      if (code && method === "POST") return auth.mediatedCode(inbound, code[1]!);
       return json({ error: "not_found" }, 404);
     }
 
@@ -202,13 +192,13 @@ export class MockCompany extends DurableObject<Env> {
       return json({ error: "not_found" }, 404);
     }
 
-    // The API host: OpenAPI, conversations, operations.
+    // The API host: OpenAPI and conversations.
     if (path === "/openapi.json" && method === "GET") {
       return json(apis.openapiDocument(), 200, { "Cache-Control": "max-age=300" });
     }
-    // 0.3: the API takes only its own tokens when its protected resource metadata names it (4.5).
+    // The API takes only its own tokens when its protected resource metadata names it (4.5).
     if (path.startsWith("/.well-known/oauth-protected-resource") && method === "GET") {
-      return company.v3 && company.config.apiResource && path === "/.well-known/oauth-protected-resource"
+      return company.config.apiResource && path === "/.well-known/oauth-protected-resource"
         ? json({ resource: company.hosts.api, authorization_servers: [company.hosts.issuer] })
         : json({ error: "not_found" }, 404);
     }
@@ -222,25 +212,6 @@ export class MockCompany extends DurableObject<Env> {
       if (id && action === "events" && method === "GET") return conversations.events(inbound, context, id);
       if (id && action === "handoff" && method === "POST") return conversations.handoff(inbound, context, id);
       if (id && action === "close" && method === "POST") return conversations.close(inbound, context, id);
-      return json({ error: "not_found" }, 404);
-    }
-    // An operation id is the Company's own text, percent-encoded in the path (Ops 3).
-    const operation = /^\/poppy\/operations\/([^/]+)(?:\/(confirm|cancel))?$/.exec(path);
-    if (operation) {
-      const [, encoded, action] = operation;
-      let id: string;
-      try {
-        id = decodeURIComponent(encoded!);
-      } catch {
-        return json({ error: "operation_not_found" }, 404);
-      }
-      // Operations 2 (0.3) adds no endpoints.
-      if (!company.config.operations || !context.client.listsOperations || company.v3) {
-        return json({ error: "operation_not_found" }, 404);
-      }
-      if (!action && method === "GET") return operations.read(context, id!);
-      if (action === "confirm" && method === "POST") return operations.confirm(inbound, context, id!);
-      if (action === "cancel" && method === "POST") return operations.cancel(context, id!);
       return json({ error: "not_found" }, 404);
     }
     return apis.rest(inbound, context);
@@ -260,7 +231,7 @@ export class MockCompany extends DurableObject<Env> {
   }
 
   async state(): Promise<MockState> {
-    const { company, conversations, operations, operationsV2 } = this.#named();
+    const { company, conversations, operations } = this.#named();
     return {
       recorded: [...company.recorded],
       violations: company.violations,
@@ -282,7 +253,7 @@ export class MockCompany extends DurableObject<Env> {
       ).length,
       performs: company.performs,
       conversations: conversations.summary(),
-      operations: [...operations.summary(), ...operationsV2.summary()],
+      operations: operations.summary(),
       browserJoins: company.browserJoins,
       formPosts: company.formPosts.map((post) => ({ account: post.account, fields: post.fields.map(([name, value]) => [name, value]) }))
     };
@@ -299,7 +270,7 @@ export class MockCompany extends DurableObject<Env> {
     });
   }
 
-  /** The Account Tokens the Company has issued, valid or not (to check they're stored sealed). */
+  /** The refresh tokens the Company has issued, valid or not (to check they're stored sealed). */
   async accountTokenValues(): Promise<string[]> {
     return [...this.#named().company.accountTokens.keys()];
   }
@@ -337,7 +308,7 @@ export class MockCompany extends DurableObject<Env> {
     this.#named().conversations.humanJoin(conversationId, text);
   }
 
-  /** No person is available for a queued handoff; the Company Agent says why (7.9). */
+  /** No person is available for a queued handoff; the Company Agent says why (8.9). */
   async staffUnavailable(conversationId: string, text: string): Promise<void> {
     this.#named().conversations.staffUnavailable(conversationId, text);
   }
@@ -362,21 +333,7 @@ export class MockCompany extends DurableObject<Env> {
     this.#named().conversations.forget(conversationId);
   }
 
-  /** The Company issues a new revision of an operation; returns the new revision. */
-  async reviseOperation(
-    operationId: string,
-    newSummary: string,
-    newTerms: Record<string, unknown>
-  ): Promise<number> {
-    return this.#named().operations.revise(operationId, newSummary, newTerms);
-  }
-
-  /** The User confirms an operation on the Company's website, in its Session (Ops 4.4). */
-  async confirmOnWebsite(operationId: string): Promise<void> {
-    this.#named().operations.confirmOnWebsite(operationId);
-  }
-
-  /** The Company ends every Session, as when they expire (4.2). */
+  /** The Company ends every Session, as when they expire (5.5). */
   async endAllSessions(): Promise<number> {
     const { company } = this.#named();
     for (const session of company.sessions.values()) session.ended = true;
@@ -397,8 +354,8 @@ export class MockCompany extends DurableObject<Env> {
     };
   }
 
-  /** Every Session Token issued so far expires now, so the next use gets `invalid_token` (the interop `expire_tokens` hook). */
-  async expireSessionTokens(): Promise<number> {
+  /** Every access token issued so far expires now, so the next use gets `invalid_token` (the interop `expire_tokens` hook). */
+  async expireAccessTokens(): Promise<number> {
     const { company } = this.#named();
     for (const [value, token] of company.accessTokens) {
       company.accessTokens.set(value, { ...token, expiresAt: Date.now() - 1 });
@@ -406,7 +363,7 @@ export class MockCompany extends DurableObject<Env> {
     return company.accessTokens.size;
   }
 
-  /** The User disconnects the Personal Agent in their account settings (4.9). */
+  /** The User disconnects the Personal Agent in their account settings (4.6, 5.5). */
   async revokeAllForAccount(account: string): Promise<number> {
     const { company, auth } = this.#named();
     let count = 0;

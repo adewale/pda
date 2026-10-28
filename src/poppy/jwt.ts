@@ -21,9 +21,8 @@ function now(): number {
 }
 
 /**
- * Assertions are short-lived (spec 4.2, whose example uses one minute; spec 5
- * caps a browser assertion at 60 seconds; the Guides ask Companies to reject
- * long lifetimes without giving a number, spec-issues S2). One minute for all.
+ * Client assertions are short-lived (spec 4.1: "MUST make them short-lived",
+ * with no number). One minute.
  */
 const ASSERTION_SECONDS = 60;
 
@@ -36,50 +35,6 @@ export function clientAssertion(key: SigningKey, clientId: string, audience: str
     .setSubject(clientId)
     .setAudience(audience)
     .setIssuedAt(issuedAt)
-    .setExpirationTime(issuedAt + ASSERTION_SECONDS)
-    .setJti(randomId())
-    .sign(key.privateKey);
-}
-
-/** The JWT bearer grant's assertion that starts or renews a Session (spec 4.2). */
-export function sessionAssertion(
-  key: SigningKey,
-  clientId: string,
-  userId: string,
-  tokenEndpoint: string
-) {
-  const issuedAt = now();
-  return new SignJWT({})
-    .setProtectedHeader({ alg: "ES256", kid: key.kid, typ: "JWT" })
-    .setIssuer(clientId)
-    .setSubject(userId)
-    // A single string, so the assertion can't be used at another Company.
-    .setAudience(tokenEndpoint)
-    .setIssuedAt(issuedAt)
-    .setExpirationTime(issuedAt + ASSERTION_SECONDS)
-    .setJti(randomId())
-    .sign(key.privateKey);
-}
-
-/** The browser assertion that joins our browser to a Session (spec 5). */
-export function browserAssertion(
-  key: SigningKey,
-  claims: {
-    clientId: string;
-    userId: string;
-    endpoint: string;
-    sessionId: string;
-    returnTo: string;
-  }
-) {
-  const issuedAt = now();
-  return new SignJWT({ session_id: claims.sessionId, return_to: claims.returnTo })
-    .setProtectedHeader({ alg: "ES256", kid: key.kid, typ: "poppy-browser+jwt" })
-    .setIssuer(claims.clientId)
-    .setSubject(claims.userId)
-    .setAudience(claims.endpoint)
-    .setIssuedAt(issuedAt)
-    // No more than 60 seconds after `iat`.
     .setExpirationTime(issuedAt + ASSERTION_SECONDS)
     .setJti(randomId())
     .sign(key.privateKey);

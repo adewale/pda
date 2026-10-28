@@ -18,13 +18,6 @@ export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
   "poppy.credentials": object({ type: literal("poppy.credentials"), signInId: string, values: record(string) }),
   "poppy.code": object({ type: literal("poppy.code"), signInId: string, code: string }),
   "poppy.signin.cancel": object({ type: literal("poppy.signin.cancel"), signInId: string }),
-  "poppy.operation": object({
-    type: literal("poppy.operation"),
-    issuer: issuerDecoder,
-    operationId: string,
-    revision: integer,
-    decision: literal("approve", "decline", "cancel")
-  }),
   "poppy.approval": object({ type: literal("poppy.approval"), approvalId: string, decision }),
   "poppy.approvals": object({ type: literal("poppy.approvals"), decisions: array(object({ approvalId: string, decision })) }),
   "poppy.direct.start": object({ type: literal("poppy.direct.start"), conversationId: string, text: string }),
@@ -33,17 +26,6 @@ export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
   "poppy.direct.close": object({ type: literal("poppy.direct.close"), conversationId: string }),
   "poppy.signout": object({ type: literal("poppy.signout"), issuer: issuerDecoder, account: string }),
   "poppy.revoke.retry": object({ type: literal("poppy.revoke.retry"), id: string }),
-  "poppy.permission.add": object({
-    type: literal("poppy.permission.add"),
-    issuer: issuerDecoder,
-    account: string,
-    action: string,
-    maxAmount: optional(string),
-    currency: optional(string),
-    maxUses: optional(integer),
-    expiresAt: optional(number)
-  }),
-  "poppy.permission.remove": object({ type: literal("poppy.permission.remove"), id: string }),
   "poppy.card.dismiss": object({ type: literal("poppy.card.dismiss"), id: string }),
   "poppy.protocol": object({ type: literal("poppy.protocol"), key: string }),
   "poppy.diagnostics": object({ type: literal("poppy.diagnostics") })
@@ -70,7 +52,6 @@ export const serverFrame: Decoder<PoppyServerFrame> = tagged("type", {
   "poppy.settings": object({
     type: literal("poppy.settings"),
     accounts: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["accounts"][number]>()),
-    permissions: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["permissions"][number]>()),
     signOuts: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["signOuts"][number]>())
   }),
   "poppy.activity": object({

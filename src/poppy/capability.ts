@@ -15,20 +15,7 @@ import {
 } from "./conversations";
 import type { Fetcher, PoppyTimeouts } from "./fetch";
 import type { Json } from "./json";
-import {
-  addPermission,
-  approveAndConfirm,
-  cancelOperation,
-  decideLocal,
-  decideLocalBatch,
-  permissions,
-  recoverApprovalBatches,
-  recoverInterruptedApprovals,
-  recoverOperations,
-  removePermission,
-  retryApproved,
-  trackOperation
-} from "./operations";
+import { decideLocal, decideLocalBatch, recoverApprovalBatches, recoverInterruptedApprovals } from "./operations";
 import {
   expireSignIn,
   cancelSignIn,
@@ -215,7 +202,6 @@ export class PoppyCapability extends LifecycleCapability {
     await this.#units.job({ job: literal("poppy.recover") }, async () => {
       await recoverInterruptedApprovals(this.client);
       await recoverApprovalBatches(this.client);
-      await recoverOperations(this.client);
       // A Direct Sign-In the restart interrupted: finish it, or start a new Session (4.5).
       await recoverSignIns(this.client).catch((error: unknown) => reportError(error, { source: literal("poppy.signin_recovery") }));
       // A revocation still pending whose job is missing: schedule it again.
@@ -253,7 +239,7 @@ export class PoppyCapability extends LifecycleCapability {
     );
     recordCard(card as { kind: string; open?: boolean });
     this.#sendCards();
-    if (card.kind === "notice" || card.kind === "signin_link" || card.kind === "operation") this.#sendSettings();
+    if (card.kind === "notice" || card.kind === "signin_link") this.#sendSettings();
     this.#sendActivity();
   }
 
@@ -362,18 +348,6 @@ export class PoppyCapability extends LifecycleCapability {
         scope: row.scope,
         expiresAt: row.expires_at
       })),
-      permissions: permissions(client).map((row) => ({
-        id: row.id,
-        issuer: row.issuer,
-        company: name(row.issuer),
-        account: row.account,
-        action: row.action,
-        maxAmount: row.max_amount,
-        currency: row.currency,
-        maxUses: row.max_uses,
-        uses: row.uses,
-        expiresAt: row.expires_at
-      })),
       // Never the token: what the page shows about each sign-out the Company hasn't accepted.
       signOuts: pendingSignOuts(client).map((row) => ({
         id: row.id,
@@ -468,13 +442,6 @@ export class PoppyCapability extends LifecycleCapability {
       case "poppy.signin.cancel":
         await cancelSignIn(client, frame.signInId);
         return;
-      case "poppy.operation":
-        if (frame.decision === "approve") {
-          await approveAndConfirm(client, frame.issuer, frame.operationId, frame.revision, "user");
-        } else {
-          await cancelOperation(client, frame.issuer, frame.operationId);
-        }
-        return;
       case "poppy.approval":
         await decideLocal(client, frame.approvalId, frame.decision);
         return;
@@ -503,34 +470,14 @@ export class PoppyCapability extends LifecycleCapability {
         await retryRevocation(client, frame.id);
         this.#sendSettings();
         return;
-      case "poppy.permission.add":
-        addPermission(client, {
-          issuer: frame.issuer,
-          account: frame.account,
-          action: frame.action,
-          ...(frame.maxAmount ? { maxAmount: frame.maxAmount } : {}),
-          ...(frame.currency ? { currency: frame.currency } : {}),
-          ...(frame.maxUses ? { maxUses: frame.maxUses } : {}),
-          ...(frame.expiresAt ? { expiresAt: frame.expiresAt } : {})
-        });
-        this.#sendSettings();
-        return;
-      case "poppy.permission.remove":
-        await removePermission(client, frame.id);
-        this.#sendSettings();
-        return;
       case "poppy.card.dismiss":
         this.retireCard(frame.id);
         return;
     }
   }
 
-  /** After any sign-in: confirm operations that were waiting on it, refresh settings. */
+  /** After any sign-in: the Companies page shows the new account. */
   async #afterSignIn(): Promise<void> {
-    const client = this.client;
-    for (const issuer of new Set(client.accounts().map((row) => row.issuer))) {
-      await retryApproved(client, issuer);
-    }
     this.#sendSettings();
   }
 
@@ -568,7 +515,6 @@ export class PoppyCapability extends LifecycleCapability {
     const fields: Fields = {
       job: literal(fn),
       ...(fn === "poppy-read" ? { conversation_id: id(payload.id) } : {}),
-      ...(fn === "poppy-operation" ? { operation_id: id(payload.id), issuer: origin(payload.issuer) } : {}),
       ...(fn === "poppy-revoke" ? { issuer: origin(payload.issuer) } : {})
     };
     return this.#units.job(fields, async (event) => {
@@ -579,8 +525,6 @@ export class PoppyCapability extends LifecycleCapability {
         } else if (fn === "poppy-device" && payload.id) {
           next = await pollDeviceSignIn(client, payload.id);
           if (next === null) await this.#afterSignIn();
-        } else if (fn === "poppy-operation" && payload.id && payload.issuer) {
-          next = await trackOperation(client, payload.issuer, payload.id);
         } else if (fn === "poppy-signin-expiry" && payload.id) {
           await expireSignIn(client, payload.id);
         } else if (fn === "poppy-revoke" && payload.id) {
@@ -603,10 +547,8 @@ function frameFields(frame: PoppyClientFrame): Fields {
   return {
     ...("decision" in frame ? { decision: code(frame.decision) } : {}),
     ...("issuer" in frame ? { issuer: origin(frame.issuer) } : {}),
-    ...(frame.type === "poppy.operation" ? { operation_id: id(frame.operationId) } : {}),
     ...(frame.type === "poppy.approval" ? { approval_id: id(frame.approvalId) } : {}),
-    ...(frame.type === "poppy.approvals" ? { approvals: frame.decisions.length, approved: frame.decisions.filter((item) => item.decision === "approve").length } : {}),
-    ...(frame.type === "poppy.permission.add" ? { action: code(frame.action) } : {})
+    ...(frame.type === "poppy.approvals" ? { approvals: frame.decisions.length, approved: frame.decisions.filter((item) => item.decision === "approve").length } : {})
   };
 }
 

@@ -1,11 +1,10 @@
 import { authorName, writtenBy } from "./message-author";
-import { sinceVersion } from "./protocol-version";
 import { literal, reportError } from "../log";
 import { hasCode, PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
-import { handleProposal, proposeLocal, registerExecutor } from "./operations";
+import { approvalTerms, proposeLocal, registerExecutor } from "./operations";
 import { approvable, approvalCardId, approvalJson, approvalSummary, parseOperationV2 } from "./operations-v2";
 import { backoff } from "./pace";
 import { EndpointRequest } from "./outgoing";
@@ -19,19 +18,18 @@ export type ConversationRow = RowOf<typeof conversationRow>;
 
 type Message = {
   id: string;
-  /** Who wrote it: `sender` before 0.3, `author.type` from 0.3 (8.4). */
-  sender?: "agent" | "human";
-  author?: { type: "agent" | "human" };
+  /** Who wrote it (8.4, 8.8). */
+  author: { type: "agent" | "human" };
   text?: string;
   data?: Json;
   context?: Json;
-  /** 0.3: the User's approval of an operation the Company Agent returned (Ops 6). */
+  /** The User's approval of an operation the Company Agent returned (Ops 6). */
   approval?: { operation_id: string; revision: string };
 };
 
 const ID = /^[A-Za-z0-9_-]{1,256}$/;
 
-/** 0.3 (8.7): a status we don't know is `working`, a responder we don't know `human`, so later versions can add values. */
+/** 8.7: a status we don't know is `working`, a responder we don't know `human`, so later versions can add values. */
 const STATUSES = new Set(["working", "idle", "queued", "closed"]);
 const RESPONDERS = new Set(["agent", "human"]);
 
@@ -66,13 +64,12 @@ function endpointOf(company: Company): string {
 function tokenOptions(company: Company, label: string) {
   return {
     label,
-    ...(company.conversations?.resource ? { resource: company.conversations.resource } : {}),
-    // 0.3: the endpoint's own protected resource metadata says whether it takes only its own tokens (4.5).
-    ...(company.conversations && sinceVersion(company, "0.3") ? { service: company.conversations.endpoint } : {})
+    // The endpoint's own protected resource metadata says whether it takes only its own tokens (4.5).
+    ...(company.conversations ? { service: company.conversations.endpoint } : {})
   };
 }
 
-/** Text that is really JSON belongs in `data` (spec 7.4: SHOULD NOT put JSON in `text`). */
+/** Text that is really JSON belongs in `data` (8.4: SHOULD NOT put JSON in `text`). */
 function looksLikeJson(text: string): boolean {
   const trimmed = text.trim();
   if (!/^[[{]/.test(trimmed)) return false;
@@ -84,7 +81,7 @@ function looksLikeJson(text: string): boolean {
   }
 }
 
-/** The facts this conversation hasn't been told yet; fields left out keep their values (7.4). */
+/** The facts this conversation hasn't been told yet; fields left out keep their values (8.4). */
 function contextDelta(client: PoppyClient, row: ConversationRow | undefined): Record<string, Json> | null {
   const now = client.host.userContext();
   const sent = row?.context ? (JSON.parse(row.context) as Record<string, Json>) : {};
@@ -112,7 +109,7 @@ export type SendResult = {
 
 /**
  * Send a message: start a conversation, continue one, or start a Direct
- * Conversation (spec 7.3, 7.10). The message id is fixed per tool call and
+ * Conversation (8.3, 8.10). The message id is fixed per tool call and
  * stored before sending, so a replay after a crash resends the same id and
  * content, and the Company returns the original response.
  */
@@ -129,7 +126,7 @@ export async function sendMessage(
     data?: Json;
     contextOnly?: boolean;
     wait?: number;
-    /** 0.3: an approval the User gave on our card, never one the model chose (Ops 5, 6). */
+    /** An approval the User gave on our card, never one the model chose (Ops 5, 6). */
     approval?: { operation_id: string; revision: string };
   }
 ): Promise<SendResult> {
@@ -150,7 +147,7 @@ export async function sendMessage(
   const contextId = existing?.id ?? parent?.id;
   if (contextId) company = await client.resumeCompany(company.issuer, "conversation", contextId);
   const endpoint = endpointOf(company);
-  // A Direct Conversation carries the User's own words, as written (7.10); ours stay out of it.
+  // A Direct Conversation carries the User's own words, as written (8.10); ours stay out of it.
   if (existing?.direct && request.sender === "agent" && !request.contextOnly && (request.text !== undefined || request.data !== undefined)) {
     throw new PoppyError(
       "invalid_request",
@@ -160,7 +157,7 @@ export async function sendMessage(
   }
   const body = JSON.parse(
     intent(client.sql, `message|${request.callKey}`, () => {
-      const message: Message = sinceVersion(company, "0.3") ? { id: randomId("msg_"), author: { type: request.sender } } : { id: randomId("msg_"), sender: request.sender };
+      const message: Message = { id: randomId("msg_"), author: { type: request.sender } };
       if (request.text !== undefined && !request.contextOnly) message.text = request.text;
       if (request.data !== undefined && !request.contextOnly) message.data = request.data;
       const context = contextDelta(client, existing);
@@ -184,7 +181,7 @@ export async function sendMessage(
     Date.now()
   );
 
-  /** The POST, with the saved cursor when it waits for a reply (7.3): a read of the events after it. */
+  /** The POST, with the saved cursor when it waits for a reply (8.3): a read of the events after it. */
   const post = () => {
     const url = new URL(existing ? `${endpoint}/${encodeURIComponent(existing.remote_id)}/messages` : endpoint);
     const cursor = existing ? conversation(client, existing.id)?.cursor : null;
@@ -201,10 +198,10 @@ export async function sendMessage(
     } catch (error) {
       if (!existing || !hasCode(error, "cursor_expired", "invalid_cursor")) throw error;
       const code = error.is("cursor_expired") ? "cursor_expired" : "invalid_cursor";
-      // The read that answers the send can't start at our cursor (7.5). Read from
+      // The read that answers the send can't start at our cursor (8.5). Read from
       // the start instead, sending the same message again with the same id and
       // content: if the Company took it the first time, it answers as it did
-      // then, and doesn't take it twice (7.3).
+      // then, and doesn't take it twice (8.3).
       await restartFromBeginning(client, company, existing!.id, code);
       ({ body: response } = await post());
     }
@@ -258,7 +255,7 @@ export async function sendMessage(
   await scheduleRead(client, id, 0);
   let replies: SendResult["replies"] = [];
   if (Array.isArray(response.events)) {
-    // With `wait`, the reply is a read of the events (7.3): handle them like any read.
+    // With `wait`, the reply is a read of the events (8.3): handle them like any read.
     replies = await handleEvents(client, company, conversation(client, id)!, response.events, {
       quietModel: true
     });
@@ -290,7 +287,7 @@ function saveCursor(client: PoppyClient, id: string, cursor: string): void {
 }
 
 /**
- * `cursor_expired` or `invalid_cursor` (7.5, 7.13): forget the cursor, so the
+ * `cursor_expired` or `invalid_cursor` (8.5, 8.13): forget the cursor, so the
  * next read starts at the beginning, where events already handled are
  * skipped. An expired one means the Company dropped events we may not have
  * seen, so the User is told part of the conversation may be missing.
@@ -309,7 +306,7 @@ async function restartFromBeginning(client: PoppyClient, company: Company, id: s
 }
 
 /**
- * A message the Company refused (7.13), as the error the model is given: what
+ * A message the Company refused (8.13), as the error the model is given: what
  * happened and what to do next. None is retried. A conversation the Company
  * has closed or doesn't have is closed here too, so it isn't read any more;
  * the model starts a new one if the task needs it.
@@ -342,7 +339,7 @@ async function sendRefused(
         error.status
       );
     case "message_id_conflict":
-      // Our ids are fixed per call with their content (7.3), so this is our bug: never "fixed" with a new id.
+      // Our ids are fixed per call with their content (8.3), so this is our bug: never "fixed" with a new id.
       reportError(new PoppyError(error.code, "message_id_conflict: our own message id was refused", error.status), { source: literal("poppy.conversation_send"), code: literal("message_id_conflict") });
       return new PoppyError(
         error.code,
@@ -355,7 +352,7 @@ async function sendRefused(
 }
 
 /**
- * 0.3: the User's card for an operation a Company Agent returned in a
+ * The User's card for an operation a Company Agent returned in a
  * conversation (Ops 4, 5). Approved, it goes back in a message of that
  * conversation, with `approval`; nothing else, and no text, approves it.
  */
@@ -371,7 +368,9 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
     row.label,
     approvalSummary(company, operation),
     { kind: "message-approval", conversationId: row.id, approval: { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at } },
-    await approvalCardId(company, operation)
+    await approvalCardId(company, operation),
+    // What the agent asked for was words, so the terms are checked against the summary only.
+    approvalTerms(company, operation, undefined)
   );
 }
 
@@ -424,7 +423,7 @@ function oneReader<T>(client: PoppyClient, id: string, work: () => Promise<T>): 
 }
 
 /**
- * Handle events in order (spec 7.5): skip ids already handled and types we
+ * Handle events in order (8.5): skip ids already handled and types we
  * don't know, then let the caller save the cursor. Each event is recorded as
  * handled only after it is handled, so a failure in between means it is seen
  * again, and `handleEvent` is safe to repeat. A failure stops the batch, so
@@ -509,9 +508,9 @@ async function handleEvent(
         ...(message.data !== undefined ? { data: message.data } : {})
       });
       if (isObject(message.operation)) {
-        // 0.3: an operation to approve, which goes back in a message's `approval` (Ops 4, 6).
-        if (company.extensions.operationsV2) await proposeMessageApproval(client, company, row, message.operation);
-        else await handleProposal(client, company, row.label, message.operation);
+        // An operation to approve, which goes back in a message's `approval` (Ops 4, 6). A Company
+        // that doesn't list Operations 2 can't be approved through it, so its operation is only content.
+        if (company.extensions.operations) await proposeMessageApproval(client, company, row, message.operation);
       }
       if (!options.quietModel) await client.host.notifyModel(describe(company, row, message), operationId);
       return;
@@ -534,10 +533,11 @@ async function handleEvent(
       return;
     }
     case "authorization": {
-      const error = String(event.error ?? "sign_in_required");
+      // 8.11: `insufficient_scope` whether or not the request had a token, with the scopes needed.
+      const error = String(event.error ?? "insufficient_scope");
       const scope = typeof event.scope === "string" ? event.scope : undefined;
       const needed = scope ? scope.split(" ").filter(Boolean) : [];
-      // An Account Token that already covers it signs the Session in without asking (4.8).
+      // A refresh token that already covers it signs the Session in without asking (4.4).
       if (await client.signInWithAccount(company, row.label, needed)) {
         await client.host.notifyModel(
           `[system] ${company.name} asked for ${error}${scope ? ` (${scope})` : ""} in conversation ${row.id}; the Session is now signed in with access the User granted earlier. Continue the conversation.`,
@@ -583,13 +583,13 @@ async function handleEvent(
       return;
     }
     default:
-      // Unknown event types are skipped (7.5).
+      // Unknown event types are skipped (8.5).
       return;
   }
 }
 
 /**
- * One read of a conversation's events (spec 7.5, 7.6), run by the durable
+ * One read of a conversation's events (8.5, 8.6), run by the durable
  * read job. Asks for a stream; a Company that doesn't stream answers JSON.
  * Returns when to read next, or null once the conversation is closed.
  */
@@ -625,8 +625,8 @@ export async function readConversation(
       if (hasCode(error, "rate_limited")) {
         return Date.now() + (error.detail.retryAfter ?? 60) * 1000;
       }
-      if (hasCode(error, "sign_in_required", "insufficient_scope")) {
-        // Signed out since the conversation used the account (7.11): wait for a new sign-in.
+      if (hasCode(error, "insufficient_scope")) {
+        // Signed out since the conversation used the account (8.11): a challenge; wait for a new sign-in.
         await client.host.notifyModel(
           `[system] Conversation ${id} with ${company.name} needs the User signed in again (${error.code}).`,
           `poppy-read-auth-${id}-${Math.floor(Date.now() / 60_000)}`
@@ -638,14 +638,14 @@ export async function readConversation(
     if (response.status === 410 || response.status === 400) {
       const body = await client.readJson(response).catch(() => null) as { error?: string } | null;
       if (body?.error === "cursor_expired" || body?.error === "invalid_cursor") {
-        // Read from the beginning; handled ids are skipped. Tell the User (7.5).
+        // Read from the beginning; handled ids are skipped. Tell the User (8.5).
         await restartFromBeginning(client, company, id, body.error);
         continue;
       }
       throw new PoppyError(companyErrorCode(body?.error, response.status), `${company.name} refused the read`, response.status);
     }
     if (response.status === 404) {
-      // `conversation_not_found` (7.13): nothing more will come. The model is
+      // `conversation_not_found` (8.13): nothing more will come. The model is
       // told before the conversation is closed here, so a failed notice is
       // given again on the next read.
       await response.body?.cancel();
@@ -667,7 +667,7 @@ export async function readConversation(
       // A Company's answer, read as the Guides ask (no duplicate members) and refused unless it is an object.
       const body = parseStrictJson(await client.readBody(response));
       if (!isObject(body)) throw new PoppyError("invalid_response", `${company.name}'s events answer isn't a JSON object`, response.status);
-      if (sinceVersion(company, "0.2") && (body.conversation_id !== id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || typeof body.status !== "string" || typeof body.responder !== "string")) throw new PoppyError("invalid_response", "The 0.2 conversation read is missing required fields", response.status);
+      if ((body.conversation_id !== id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || typeof body.status !== "string" || typeof body.responder !== "string")) throw new PoppyError("invalid_response", "The conversation read is missing required fields (8.5)", response.status);
       const events = Array.isArray(body.events) ? body.events : [];
       await handleEvents(client, company, conversation(client, id)!, events);
       if (typeof body.cursor === "string") saveCursor(client, id, body.cursor);
@@ -702,7 +702,7 @@ export function nextRead(row: Pick<ConversationRow, "status" | "responder" | "di
 
 
 /**
- * Server-sent events (spec 7.6): each event's id is a cursor, saved after it
+ * Server-sent events (8.6): each event's id is a cursor, saved after it
  * is handled; `text-delta` pieces go to the page only and are never acted on.
  */
 async function readStream(
@@ -767,7 +767,7 @@ async function readStream(
       }
     }
   } finally {
-    // Pieces of a message we didn't receive in full are dropped (7.6).
+    // Pieces of a message we didn't receive in full are dropped (8.6).
     await reader.cancel().catch(() => undefined);
     const row = conversation(client, id);
     if (row?.direct && partial) pushDirect(client, company, id, null);
@@ -815,7 +815,7 @@ export function pushDirect(
   });
 }
 
-/** Ask for a person at the Company, after a summary for them (spec 7.9). */
+/** Ask for a person at the Company, after a summary for them (8.9). */
 export async function handoff(
   client: PoppyClient,
   company: Company,
@@ -845,7 +845,7 @@ export async function handoff(
   return { status: after.status, responder: after.responder };
 }
 
-/** Close a conversation we're done with (spec 7.12). */
+/** Close a conversation we're done with (8.12). */
 export async function closeConversation(client: PoppyClient, company: Company, id: string): Promise<void> {
   const row = conversation(client, id);
   if (!row) throw new PoppyError("conversation_not_found", `No conversation ${id}`, 404);
@@ -867,7 +867,7 @@ export async function closeConversation(client: PoppyClient, company: Company, i
 
 /**
  * The User agreed to talk with the Company themselves: open a Direct
- * Conversation with their own first words, `sender: "human"` (spec 7.10).
+ * Conversation with their own first words, `author.type` `human` (8.10).
  */
 export async function startDirectConversation(
   client: PoppyClient,
@@ -896,7 +896,7 @@ export async function startDirectConversation(
   return result.conversationId;
 }
 
-/** The User's own words in a Direct Conversation: sent as written, `sender: "human"` (7.8). */
+/** The User's own words in a Direct Conversation: sent as written, `author.type` `human` (8.8). */
 export async function sayInDirect(client: PoppyClient, id: string, text: string): Promise<void> {
   const row = conversation(client, id);
   if (!row || !row.direct) throw new PoppyError("conversation_not_found", `No Direct Conversation ${id}`, 404);
@@ -912,7 +912,7 @@ export async function sayInDirect(client: PoppyClient, id: string, text: string)
 }
 
 /**
- * Offer the User a Direct Conversation (spec 7.10): a card where they can
+ * Offer the User a Direct Conversation (8.10): a card where they can
  * start talking with the Company themselves. Only their agreement opens it.
  */
 export async function inviteUser(client: PoppyClient, id: string, reason: string): Promise<void> {
@@ -930,7 +930,7 @@ export async function inviteUser(client: PoppyClient, id: string, reason: string
   });
 }
 
-/** The User declined the Company's request to talk with them; say so in the conversation (7.10). */
+/** The User declined the Company's request to talk with them; say so in the conversation (8.10). */
 export async function declineDirect(client: PoppyClient, parentId: string): Promise<void> {
   const parent = conversation(client, parentId);
   if (!parent) return;
@@ -952,7 +952,7 @@ export async function declineDirect(client: PoppyClient, parentId: string): Prom
   });
 }
 
-/** Tell open conversations the User's availability changed: a context-only message (7.4). */
+/** Tell open conversations the User's availability changed: a context-only message (8.4). */
 export async function updateAvailability(client: PoppyClient): Promise<void> {
   for (const row of openConversations(client)) {
     if (row.direct || !contextDelta(client, row)) continue;

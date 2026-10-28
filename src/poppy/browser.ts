@@ -2,12 +2,9 @@ import { PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
 import { assertPublicHost, PoppyFetchError } from "./fetch";
 import { toJson, type Json } from "./json";
-import { browserAssertion } from "./jwt";
-import { currentKey } from "./keys";
 import { randomId } from "./jwt";
 import { proposeLocal, registerExecutor } from "./operations";
 import { EndpointRequest } from "./outgoing";
-import { sinceVersion } from "./protocol-version";
 
 /** What the model gets from a page: text, links and forms, never cookies (Guides, "Web browsing"). */
 export type PageSnapshot = {
@@ -39,7 +36,7 @@ export type PageGuard = (url: URL) => void;
 
 /** One isolated browser context: its own cookies, for one Session of one User. */
 export interface BrowserContextHandle {
-  /** A top-level form POST, as a page that submits itself would make (spec 5). */
+  /** A top-level form POST, as a browser submitting a form makes it: the browser join's step 3 (6). */
   postForm(action: string, fields: Readonly<Record<string, string>>): Promise<{ url: string; status: number; retryAfter?: string }>;
   goto(url: string): Promise<PageSnapshot>;
   /**
@@ -154,16 +151,15 @@ function pageGuard(company: Company, endpoint?: string): PageGuard {
 
 /**
  * The Session's browser context, joined to the Session first when the
- * Company has `web.browser_session_endpoint` (spec 5): a browser assertion
- * POSTed in the body as a top-level navigation, from our own browser only.
- * A new Session gets a new context, so no cookie crosses Sessions.
+ * Company has `web.browser_session_endpoint` (6, `join`). A new Session, or
+ * an account signed in or out, gets a new context, so no cookie crosses
+ * Sessions or accounts.
  */
 async function sessionContext(
   client: PoppyClient,
   browser: PoppyBrowser,
   company: Company,
   label: string,
-  returnTo: URL,
   rejoin = false
 ): Promise<BrowserContextHandle> {
   const key = JSON.stringify([company.issuer, label]);
@@ -184,10 +180,6 @@ async function sessionContext(
   }
   entry ??= open();
   if (endpoint && (!entry.joined || rejoin)) {
-    // `return_to` must be HTTPS on the Company's own domain (spec 5).
-    if (returnTo.protocol !== "https:" || !onCompanyDomain(company, returnTo)) {
-      throw new PoppyError("invalid_request", `return_to must be on ${company.domain}`, 0);
-    }
     await client.token(company, { label });
     const session = client.session(company.issuer, label)!;
     // Rejoining may have needed a new Session: then a new context too.
@@ -196,48 +188,24 @@ async function sessionContext(
       entry = open();
     }
     const context = await entry.context;
-    if (sinceVersion(company, "0.3")) {
-      await joinV3(client, company, label, context, endpoint);
-      const after = client.session(company.issuer, label)!;
-      entry.sessionId = after.session_id;
-      entry.account = after.account;
-      entry.joined = true;
-      return entry.context;
-    }
-    const assertion = await browserAssertion(await currentKey(client.host.env), {
-      clientId: client.identity.clientId,
-      userId: client.userId(company.issuer),
-      endpoint,
-      sessionId: session.session_id,
-      returnTo: returnTo.href
-    });
-    // The join's redirect loads `return_to` too, so it waits for the Company's limits (4.3).
-    await client.beforeRequest(company);
-    const result = await context.postForm(endpoint, { assertion });
-    // A refused join is answered at the endpoint itself (spec 5: an error page, HTTP 400). A
-    // redirect away from it is the join accepted, whatever the page it landed on then answered;
-    // `load` loads that page again, after the wait if it was rate-limited.
-    const joined = result.url !== endpoint;
-    if (!joined && result.status >= 400) {
-      throw new PoppyError("browser_join_failed", `${company.name} didn't accept the browser into the Session`, result.status);
-    }
-    entry.sessionId = session.session_id;
-    entry.account = session.account;
+    await join(client, company, label, context, endpoint);
+    const after = client.session(company.issuer, label)!;
+    entry.sessionId = after.session_id;
+    entry.account = after.account;
     entry.joined = true;
-    if (joined && (result.status === 429 || result.status === 503)) await client.pageLimited(company, result.status, result.retryAfter);
   }
   return entry.context;
 }
 
 /**
- * 0.3's browser join (6): the browser loads the page and gets a one-time
+ * The browser join (6): the browser loads the page and gets a one-time
  * code and a cookie; we authorize the code in a request of our own, with
  * the Session header and, signed in, the access token, which so never
  * reaches the browser; then the browser submits the form, with the code
  * only, and the Company sets the Session's cookie. The code is taken from
  * our own browser's page and nowhere else (10.6).
  */
-async function joinV3(client: PoppyClient, company: Company, label: string, context: BrowserContextHandle, endpoint: string): Promise<void> {
+async function join(client: PoppyClient, company: Company, label: string, context: BrowserContextHandle, endpoint: string): Promise<void> {
   await client.beforeRequest(company);
   const page = await context.joinCode(endpoint);
   if (page.status === 429 || page.status === 503) {
@@ -300,7 +268,7 @@ function describeSubmission(company: Company, selector: string, submission: Form
 }
 
 /**
- * Browse a Company's website in the Session (spec 5). Only the Company's own
+ * Browse a Company's website in the Session (6). Only the Company's own
  * domains; never sign-in pages or credential fields. Only links are
  * followed; a form is sent only after the User approves exactly what it sends.
  */
@@ -314,11 +282,11 @@ export async function browse(
   if (action.kind === "open") {
     const url = new URL(action.url, `https://${company.domain}/`);
     pageGuard(company)(url);
-    const context = await sessionContext(client, browser, company, label, url);
+    const context = await sessionContext(client, browser, company, label);
     let snapshot = await load(client, company, context, url);
-    // The website stopped recognising the Session: post a new assertion (Guides).
+    // The website stopped recognising the Session: join again (6: "MAY join again at any time").
     if ((snapshot.status === 401 || snapshot.status === 403) && company.web?.browserSessionEndpoint) {
-      const rejoined = await sessionContext(client, browser, company, label, url, true);
+      const rejoined = await sessionContext(client, browser, company, label, true);
       snapshot = await load(client, company, rejoined, url);
     }
     return snapshotForModel(snapshot);

@@ -44,25 +44,19 @@ import { levelOf, type Basis, type Level } from "../../src/validator/levels.ts";
 export type { Basis, Level };
 
 /** The JWTs the mock checks a `jti` on, each with its own replay set. */
-export type JwtKind = "client-assertion" | "session-assertion" | "dpop" | "browser-assertion" | "session-jwt";
+export type JwtKind = "client-assertion" | "dpop" | "session-jwt";
 
-/** The two JWTs signed with the client's published keys. */
-export type SignedKind = "client-assertion" | "session-assertion";
+/** The JWT signed with the client's published keys at the token and revocation endpoints (4.1); delegations are checked on their own. */
+export type SignedKind = "client-assertion";
 
 export const VIOLATIONS = {
   // ---- jti: 128 random bits, single use (4.2, 4.3, 5; Guides) ----
   "client-assertion.jti-missing": "Guides (Signing and verifying JWTs): Client assertion without a jti (RFC 7523 3 makes jti optional; OIDC Core 9, which defines private_key_jwt, requires it)",
   "client-assertion.jti-weak": "Guides (Signing and verifying JWTs): Client assertion jti is not 128 random bits of base64url",
   "client-assertion.jti-reused": "Rule (4.2: the Company \"rejects a reused jti\"; RFC 7523 3 lets a server refuse replays): Client assertion jti used twice",
-  "session-assertion.jti-missing": "Rule (4.2): Session assertion without a jti",
-  "session-assertion.jti-weak": "Rule (4.2): Session assertion jti is not 128 random bits of base64url",
-  "session-assertion.jti-reused": "Rule (4.2): Session assertion jti used twice",
   "dpop.jti-missing": "RFC (RFC 9449 4.2): DPoP proof without a jti",
   "dpop.jti-weak": "Guides (Signing and verifying JWTs; RFC 9449 4.2 suggests 96 bits or more): DPoP proof jti is not 128 random bits of base64url",
   "dpop.jti-reused": "MUST (4.3): DPoP proof jti used twice",
-  "browser-assertion.jti-missing": "Rule (5, jti as in 4.2): Browser assertion without a jti",
-  "browser-assertion.jti-weak": "Rule (5, jti as in 4.2): Browser assertion jti is not 128 random bits of base64url",
-  "browser-assertion.jti-reused": "MUST (5): Browser assertion jti used twice",
 
   // ---- Client and Session assertions: signed with published keys (4.1, 4.2) ----
   "client-assertion.alg": "Guides (Signing and verifying JWTs; S19): Client assertion alg isn't ES256 or RS256",
@@ -72,13 +66,6 @@ export const VIOLATIONS = {
   "client-assertion.signature": "RFC (RFC 7523 3): Client assertion doesn't verify against the client's JWKS, or has expired",
   "client-assertion.iat-exp-missing": "RFC (RFC 7523 3 for exp; iat is ours): Client assertion without iat or exp",
   "client-assertion.lifetime": "Reading (S2; Guides: reject a long lifetime): Client assertion lifetime is too long (strict 60 s, lenient 300 s)",
-  "session-assertion.alg": "Guides (Signing and verifying JWTs; S19): Session assertion alg isn't ES256 or RS256",
-  "session-assertion.embedded-key": "Guides (Signing and verifying JWTs, addressed to Companies: ignore such keys): Session assertion embeds or points to a key (jku, x5u, jwk)",
-  "session-assertion.typ": "Reading (S2), strict Company only: Session assertion header typ isn't \"JWT\"",
-  "session-assertion.kid": "Reading (S2), strict Company only: Session assertion kid names no published key",
-  "session-assertion.signature": "Rule (4.2; RFC 7523 3): Session assertion doesn't verify against the client's JWKS, or has expired",
-  "session-assertion.iat-exp-missing": "Rule (4.2; RFC 7523 3 for exp): Session assertion without iat or exp",
-  "session-assertion.lifetime": "Reading (S2; 4.2: \"short-lived\"): Session assertion lifetime is too long (strict 60 s, lenient 300 s)",
 
   // ---- Client authentication: private_key_jwt (4.1, RFC 7523) ----
   "client-assertion.missing": "Rule (4.1, 4.2, 4.6, 4.9): Token, device or revocation request without a client assertion",
@@ -89,12 +76,6 @@ export const VIOLATIONS = {
   "client-assertion.iss-sub": "RFC (RFC 7523 3, RFC 7521 5.2): Client assertion iss and sub aren't both the client_id",
 
   // ---- Session assertion: the JWT bearer grant (4.2) ----
-  "session-assertion.missing": "RFC (RFC 7523 2.1): JWT bearer grant without an assertion",
-  "session-assertion.not-jwt": "RFC (RFC 7523 2.1): Session assertion is not a JWT",
-  "session-assertion.browser-typ": "Rule (5): Browser assertion sent to the token endpoint",
-  "session-assertion.aud": "Rule (4.2): Session assertion aud isn't the token endpoint as a single string",
-  "session-assertion.iss": "Rule (4.2): Session assertion iss isn't the client_id",
-  "session-assertion.sub": "Rule (4.2; RFC 7523 3): Session assertion has no sub (User ID)",
   "user-id.personal": "MUST NOT (4.2): User ID contains personal information",
 
   // ---- The client metadata document and JWKS (4.1) ----
@@ -127,14 +108,9 @@ export const VIOLATIONS = {
   "dpop.ath": "MUST (4.3): DPoP proof ath isn't the hash of the token sent",
   "dpop.nonce-ignored": "Guides (DPoP keys and proofs: keep the nonce for that server; 4.3 only says MUST support nonces; S23): DPoP proof without the nonce this key already used at this server",
   "dpop.key-mismatch": "MUST (4.3): DPoP proof key isn't the key the token is bound to",
-  "dpop.key-shared": "Rule (4.3: a key pair for each User at each Company; N35): One DPoP key used for two User IDs",
 
   // ---- Session Tokens on resources (4.3, 6) ----
-  "resource.no-token": "MUST (4.3): API, conversation or operations request without a Session Token",
   "resource.bearer-scheme": "MUST (4.3, 6): Bearer scheme outside MCP",
-  "resource.bearer-token-as-dpop": "MUST (4.3): A Bearer Session Token sent with the DPoP scheme",
-  "resource.stale-token": "MUST (4.3): An older Session Token used after a newer one was issued for the Session",
-  "mcp.not-bearer": "MUST (4.3, 6): MCP request without the Bearer scheme",
   "mcp.wrong-token": "MUST (4.3, 6): MCP request with a token not issued for this MCP server",
   "mcp.accept": "RFC (MCP 2025-06-18 Streamable HTTP, which spec 6 names): MCP request doesn't Accept application/json and text/event-stream",
 
@@ -148,12 +124,8 @@ export const VIOLATIONS = {
 
   // ---- Token endpoint (4.2–4.8) ----
   "form.not-form": "RFC (RFC 6749 4.1.3, RFC 7009 2.1, RFC 8628 3.1): OAuth request body isn't application/x-www-form-urlencoded",
-  "token.no-dpop": "Rule (4.2, 4.3): Token request without a DPoP proof (only MCP Bearer requests may omit it)",
-  "token.mcp-dpop": "Rule (4.3): DPoP-bound token requested for the MCP server",
-  "token.signed-in-renewed-with-assertion": "Rule (4.2; S5): A signed-in Session renewed with the Session assertion, not the Account Token",
   "account-token.other-client": "MUST (4.8): Account Token used by a different client_id",
   "account-token.rotated-reused": "MUST (4.8): Account Token used after the Company rotated it",
-  "session.account-mismatch-reused": "Rule (4.4: \"the Personal Agent starts a new Session\", no keyword): A Session the Company refused with account_mismatch asked again to sign in to another account, instead of a new Session",
 
   // ---- Sign-in (4.4–4.7) ----
   "signin.no-scope": "MUST (4.4): Sign-in request without scope",
@@ -164,35 +136,13 @@ export const VIOLATIONS = {
   "code.reused": "RFC (RFC 6749 4.1.2): Authorization code exchanged twice",
   "code.redirect-uri": "RFC (RFC 6749 4.1.3): redirect_uri at the token endpoint differs from the authorization request",
   "code.pkce": "RFC (RFC 7636 4.5, 4.6): PKCE code_verifier doesn't match the code_challenge",
-  "code.no-session-id": "Rule (4.5): Authorization code exchanged without session_id",
   "device.polled-after-final": "Rule (4.6): Device polling continued after completion or access_denied",
   "device.polled-after-expiry": "Rule (4.6): Device polling continued after expired_token",
   "device.too-fast": "RFC (RFC 8628 3.5): Device polling faster than the interval after slow_down",
-  "device.no-session-id": "Rule (4.6): Device code exchanged without session_id",
   "mediated.missing-field": "Rule (4.7): Mediated Sign-In without a field the Company asked for",
   "mediated.credentials-with-code": "Rule (4.7): Credentials resent with the one-time code",
-  "mediated.code-other-session": "Rule (4.7): One-time code submitted from a Session other than the one that started the sign-in",
 
   // ---- Browser join (5) ----
-  "browser-assertion.in-url": "MUST (5): Browser assertion sent in the URL",
-  "browser-assertion.not-post": "Rule (5): Browser join isn't a POST",
-  "browser-assertion.content-type": "Rule (5): Browser join isn't a form POST",
-  "browser-assertion.missing": "Rule (5): Browser join without an assertion",
-  "browser-assertion.not-jwt": "Rule (5): Browser assertion is not a JWT",
-  "browser-assertion.typ": "MUST (5): Browser assertion typ isn't poppy-browser+jwt",
-  "browser-assertion.alg": "Guides (Signing and verifying JWTs; S19): Browser assertion alg isn't ES256 or RS256",
-  "browser-assertion.embedded-key": "Guides (Signing and verifying JWTs, addressed to Companies: ignore such keys): Browser assertion embeds or points to a key (jku, x5u, x5c, jwk)",
-  "browser-assertion.kid": "Reading (S2), strict Company only: Browser assertion kid names no published key",
-  "browser-assertion.iat-exp-missing": "MUST (5): Browser assertion without iat or exp",
-  "browser-assertion.iat-future": "Guides (Signing and verifying JWTs: a small clock skew): Browser assertion iat is in the future, beyond clock skew",
-  "browser-assertion.no-iss": "MUST (5): Browser assertion without iss",
-  "browser-assertion.unknown-agent": "MUST (5): Browser assertion iss isn't a client_id the Company can load",
-  "browser-assertion.signature": "MUST (5): Browser assertion doesn't verify, or has expired",
-  "browser-assertion.aud": "MUST (5): Browser assertion aud isn't the browser_session_endpoint",
-  "browser-assertion.lifetime": "MUST (5): Browser assertion exp is more than 60 seconds after iat",
-  "browser-assertion.session": "MUST (5): Browser assertion session_id isn't this agent and User's active Session",
-  "browser-assertion.return-to-not-url": "MUST (5): Browser assertion return_to isn't a URL",
-  "browser-assertion.return-to-off-domain": "MUST (5): Browser assertion return_to isn't HTTPS on the Company's domain",
 
   // ---- Writes and retries (Guides; Ops 6) ----
   "idempotency.key-reused": "Guides (Retries): Idempotency-Key reused with a different body",
@@ -204,7 +154,6 @@ export const VIOLATIONS = {
   // ---- Conversations (7) ----
   "message.missing": "Rule (7.3): Conversation request without a message",
   "message.id": "MUST (7.4: required; 7.2: 1 to 256 base64url characters): Message id isn't 1-256 base64url characters",
-  "message.sender": "MUST (7.4, 7.8): Message sender isn't agent or human",
   "message.empty": "MUST (7.4): Message has none of text, data or context",
   "message.text-type": "Rule (7.4): Message text isn't a string",
   "message.json-in-text": "SHOULD NOT (7.4): JSON in a message's text; it belongs in data",
@@ -221,10 +170,6 @@ export const VIOLATIONS = {
   "close.body": "Rule (7.12): Close body isn't {}",
 
   // ---- Operations extension (Ops 3, 5, 6) ----
-  "confirm.approved-by": "Rule (Ops 5.1, 5.2): Confirm without approved_by user or standing_permission",
-  "confirm.revision": "Rule (Ops 5.1, 5.2): Confirm without the revision number the User approved",
-  "proposal.while-open": "MUST NOT (Ops 6; recorded only after a confirm, N34): A new proposal asked for while the confirmed operation for the same action isn't final",
-  "confirm.standing-permission-overrides-user": "Rule (Ops 3, 5.1: \"Not allowed when user_approval_required is true\"): Confirmed under a standing permission when user_approval_required is true",
 
   // ---- 0.3: the Session header and delegations (0.3 5.2, 5.3) ----
   "session-jwt.missing": "MUST (0.3 5.2: \"MUST send a Poppy-Session header on every request\"): A request to a resource without the Session header",
