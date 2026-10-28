@@ -35,6 +35,8 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Changed
 
+- The dependency security refresh moves Zod to 4.6.6, Happy DOM to 21.0.4, Vitest to 4.1.12 and the Workers test plugin to 1.4.9. Wrangler 4.154.0 and Miniflare 5.20261023.1-beta are shared with the Vite plugin through scoped overrides because its published dependencies still pin affected versions. The lockfile is regenerated with the project's `--legacy-peer-deps` install policy.
+
 - The interop harness's own implementations are renamed so the sets pair up: `pda-mock` is `lenient-company`, `pda-mock-strict` is `strict-company`, `pda-mock-v02` is `lenient-company-v02` and `evil-agent` is `evil-personal-agent`. Commands, known failures and CI use the new names; dated results keep the old.
 - Print with Poppy's grid pin moves to `3360d8b`, draft 0.2, with its `ALLOW_INTEROP_TEST_HOSTS` setting; its ordering scenario OU now passes.
 - Under 0.2, discovery checks the final serving host, preserving `www.`; domains sharing an issuer must agree on `auth`. Issuers remain exact strings and continue to key User IDs and Account Tokens.

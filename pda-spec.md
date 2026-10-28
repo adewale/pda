@@ -32,7 +32,7 @@ One Cloudflare Worker serves a chat page. Each signed-in person gets exactly one
 
 ## Status
 
-**Deployed** at `https://poppydemoagent.dev`. `npm test` runs five suites, in the Workers runtime, happy-dom and Node (see Testing and conformance; Vitest 4.1.11, `@cloudflare/vitest-plugin` 1.4.0, `agents@0.28.1`, Pi 1.3.0, Wrangler 4.149).
+**Deployed** at `https://poppydemoagent.dev`. `npm test` runs five suites, in the Workers runtime, happy-dom and Node (see Testing and conformance). The local test toolchain uses Vitest 4.1.12, `@cloudflare/vitest-plugin` 1.4.9, `agents@0.28.1`, Pi 1.3.0 and Wrangler 4.154; these versions do not establish a new deployment.
 
 | Part | State |
 | --- | --- |
