@@ -26,6 +26,7 @@ import {
   type UrlRules
 } from "../primitives.ts";
 import type { ClientFacts, Profile, PoppyFacts } from "./profile.ts";
+import { versionAtLeast } from "../../poppy/protocol-version.ts";
 
 const PROTOCOL_SCOPES = ["poppy:read", "poppy:write"];
 const SIGN_IN_TYPES = ["direct", "device", "mediated"] as const;
@@ -81,8 +82,7 @@ export function checkScopes(c: Checker, value: unknown[], at: string): string[] 
   return scopes;
 }
 
-export function checkMediatedFields(c: Checker, mediated: Obj): void {
-  const at = "/auth/mediated";
+export function checkMediatedFields(c: Checker, mediated: Obj, at = "/auth/mediated"): void {
   const fields = member<unknown[]>(c, mediated, at, "fields", "array", true, spec("4.7", "mediated-sign-in"));
   if (!fields) return;
   if (fields.length === 0) c.report("mediated-fields-empty", `${at}/fields`, "auth.mediated.fields is empty.");
@@ -264,7 +264,7 @@ export function checkPoppy(c: Checker, doc: unknown, context: { requestedDomain?
 
   const extensions = member<Obj>(c, doc, "", "extensions", "object", false);
   if (extensions) checkExtensions(c, extensions);
-  unknownMembers(c, doc, "", ["protocol_version", "organization", "auth", "agent", "apis", "web", "extensions", ...(c.protocolVersion === "0.2" ? ["feedback"] : [])]);
+  unknownMembers(c, doc, "", ["protocol_version", "organization", "auth", "agent", "apis", "web", "extensions", ...(versionAtLeast(c.protocolVersion, "0.2") ? ["feedback"] : [])]);
   return facts;
 }
 

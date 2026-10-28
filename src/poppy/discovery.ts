@@ -3,10 +3,18 @@ import { bareHost } from "../validator/primitives.ts";
 import type { Fetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
-import { protocolRevision } from "./protocol-version";
+import { protocolRevision, versionAtLeast } from "./protocol-version";
 
-/** Extensions this client supports, with the major version it implements. */
+/** Extensions this client supports, with the major version it implements, before 0.3. */
 export const SUPPORTED_EXTENSIONS = { operations: "1" } as const;
+/** From 0.3: Operations is version 2 (0.3 Ops 2), and Mediated Sign-In an extension (0.3 Mediated Sign-In 2). */
+export const SUPPORTED_EXTENSIONS_0_3 = { operations: "2", "mediated-sign-in": "1" } as const;
+/** Mediated Sign-In's grant at the token endpoint (0.3 Mediated Sign-In 1). */
+export const MEDIATED_GRANT = "https://personalagentprotocol.org/grant/mediated-sign-in";
+const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
+
+/** What a scope allows, by the Company's own account (0.3 4.7): hints, never the User's approval. */
+export type ScopeHint = { readonly changes: "none" | "reversible" | "irreversible"; readonly personalData: boolean };
 
 export type SignInType = "direct" | "device" | "mediated";
 
@@ -40,12 +48,23 @@ export type Company = {
     readonly direct?: { readonly scopes: readonly string[] };
     readonly device?: { readonly scopes: readonly string[] };
     readonly mediated?: {
+      /** Where the credentials go: the mediated endpoint before 0.3, the token endpoint from 0.3, as a grant. */
       readonly endpoint: string;
       readonly fields: readonly MediatedField[];
       readonly scopes: readonly string[];
+      /** 0.3: an extension grant at the token endpoint (Mediated Sign-In 3), not an endpoint of its own. */
+      readonly grant?: true;
     };
   };
   readonly customScopes: Readonly<Record<string, string>>;
+  /** 0.3: `auth.scope_hints` (4.7); a `changes` value we don't know is read as irreversible. */
+  readonly scopeHints?: Readonly<Record<string, ScopeHint>>;
+  /** 0.3: the issuer lists `dpop_signing_alg_values_supported`, so token requests carry a DPoP proof (4.5). */
+  readonly dpop?: boolean;
+  /** 0.3: the issuer's `protected_resources` (3.2). */
+  readonly protectedResources?: readonly string[];
+  /** 0.3: where the tasks the Company doesn't offer are listed (9.1). */
+  readonly excludedTasks?: { readonly url: string };
   /** The first `poppy` conversation protocol entry, if any. */
   readonly conversations?: { readonly endpoint: string; readonly resource?: string };
   readonly apis: readonly {
@@ -57,7 +76,10 @@ export type Company = {
   readonly web?: { readonly browserSessionEndpoint?: string };
   /** Supported extensions only; unknown ones are ignored (3.3). */
   readonly extensions: {
+    /** Operations version 1, before 0.3: an endpoint of its own. */
     readonly operations?: { readonly endpoint: string; readonly resource?: string };
+    /** Operations version 2, from 0.3: approvals on the request that returned the operation, no endpoint. */
+    readonly operationsV2?: true;
   };
 };
 
@@ -132,19 +154,24 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
     throw new DiscoveryError(summarize(checked) || "poppy.json couldn't be used", checked);
   }
   const doc = checked.poppy;
+  const version = doc.protocol_version as string;
+  const v3 = versionAtLeast(version, "0.3");
   const organization = doc.organization as Obj;
-  const orgDomain = doc.protocol_version === "0.2" ? (organization.domain as string).toLowerCase() : bareHost(organization.domain as string);
+  const orgDomain = versionAtLeast(version, "0.2") ? (organization.domain as string).toLowerCase() : bareHost(organization.domain as string);
   const name = str(organization.name) ?? orgDomain;
   const cacheSeconds = boundedCacheSeconds(checked.maxAgeSeconds);
 
-  const auth = doc.auth;
-  if (!isObj(auth) || !isObj(checked.metadata)) {
+  // 0.3: the issuer is the one the domain's protected resource metadata names (3.2); auth is optional.
+  const auth = isObj(doc.auth) ? doc.auth : v3 ? {} : undefined;
+  if (!auth || !isObj(checked.metadata) || (v3 && !checked.issuer)) {
     return { result: { websiteOnly: true, name, domain: orgDomain }, cacheSeconds, report: checked };
   }
   const metadata = checked.metadata;
-  const issuer = parseIssuer(auth.issuer);
+  const issuer = parseIssuer(v3 ? checked.issuer : auth.issuer);
   // The validator has refused anything else already; this keeps the type honest.
-  if (!issuer) throw new DiscoveryError("auth.issuer isn't an https URL without a query or fragment", checked);
+  if (!issuer) throw new DiscoveryError("The issuer isn't an https URL without a query or fragment", checked);
+
+  if (v3) return { result: discovered03(doc, auth, metadata, { issuer, name, domain: orgDomain, version }), cacheSeconds, report: checked };
 
   const signIn: { -readonly [K in keyof Company["signIn"]]: Company["signIn"][K] } = {};
   if (isObj(auth.direct)) signIn.direct = { scopes: strings(auth.direct.scopes) };
@@ -175,32 +202,8 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
     }
   }
 
-  // Conversation protocols: use the first we know; skip unfamiliar types (7.1).
-  let conversations: Company["conversations"];
-  if (isObj(doc.agent) && Array.isArray(doc.agent.protocols)) {
-    const entry = doc.agent.protocols.filter(isObj).find((item) => item.type === "poppy");
-    if (entry) conversations = { endpoint: entry.endpoint as string, ...optionalResource(entry) };
-  }
-
-  // APIs: skip types we don't recognise (6).
-  const apis: Company["apis"][number][] = [];
-  if (Array.isArray(doc.apis)) {
-    for (const entry of doc.apis.filter(isObj)) {
-      if (entry.type !== "openapi" && entry.type !== "mcp") continue;
-      apis.push({
-        type: entry.type,
-        url: entry.url as string,
-        description: str(entry.description) ?? "",
-        ...optionalResource(entry)
-      });
-    }
-  }
-
-  let web: Company["web"];
-  if (isObj(doc.web)) {
-    const endpoint = str(doc.web.browser_session_endpoint);
-    web = endpoint ? { browserSessionEndpoint: endpoint } : {};
-  }
+  // Conversation protocols and APIs: the first we know, skipping unfamiliar types (6, 7.1).
+  const { conversations, apis, web } = services(doc, true);
 
   // Extensions: keep only those we support, at the version we implement (3.3).
   const extensions: { -readonly [K in keyof Company["extensions"]]: Company["extensions"][K] } = {};
@@ -231,6 +234,93 @@ export async function discover(fetcher: Fetcher, domain: string): Promise<Discov
     },
     cacheSeconds,
     report: checked
+  };
+}
+
+/** The parts of poppy.json both versions read the same way: the Company Agent, its APIs and its website. */
+function services(doc: Obj, withResources: boolean): Pick<Company, "conversations" | "apis" | "web"> {
+  const resource = (entry: Obj) => (withResources ? optionalResource(entry) : {});
+  let conversations: Company["conversations"];
+  if (isObj(doc.agent) && Array.isArray(doc.agent.protocols)) {
+    const entry = doc.agent.protocols.filter(isObj).find((item) => item.type === "poppy");
+    if (entry) conversations = { endpoint: entry.endpoint as string, ...resource(entry) };
+  }
+  const apis: Company["apis"][number][] = [];
+  if (Array.isArray(doc.apis)) {
+    for (const entry of doc.apis.filter(isObj)) {
+      if (entry.type !== "openapi" && entry.type !== "mcp") continue;
+      apis.push({ type: entry.type, url: entry.url as string, description: str(entry.description) ?? "", ...resource(entry) });
+    }
+  }
+  let web: Company["web"];
+  if (isObj(doc.web)) {
+    const endpoint = str(doc.web.browser_session_endpoint);
+    web = endpoint ? { browserSessionEndpoint: endpoint } : {};
+  }
+  return { ...(conversations ? { conversations } : {}), apis, ...(web ? { web } : {}) };
+}
+
+/**
+ * A 0.3 Company (3, 3.2): sign-in types from the issuer's
+ * `grant_types_supported`, every one able to request any of
+ * `scopes_supported` (4.7); scopes described in `auth.scopes`, with
+ * `auth.scope_hints`; Mediated Sign-In and Operations 2 from `extensions`.
+ * Services name no `resource`: a service's own protected resource metadata
+ * says whether it takes only its own tokens (4.5), which apis.ts reads.
+ */
+function discovered03(doc: Obj, auth: Obj, metadata: Obj, known: { issuer: Issuer; name: string; domain: string; version: string }): Company {
+  const grants = strings(metadata.grant_types_supported);
+  const supported = strings(metadata.scopes_supported);
+  const signIn: { -readonly [K in keyof Company["signIn"]]: Company["signIn"][K] } = {};
+  if (grants.includes("authorization_code")) signIn.direct = { scopes: supported };
+  if (grants.includes(DEVICE_GRANT)) signIn.device = { scopes: supported };
+  const extensions = isObj(doc.extensions) ? doc.extensions : {};
+  const mediated = extensions["mediated-sign-in"];
+  if (isObj(mediated) && mediated.version === SUPPORTED_EXTENSIONS_0_3["mediated-sign-in"] && grants.includes(MEDIATED_GRANT)) {
+    signIn.mediated = {
+      endpoint: metadata.token_endpoint as string,
+      fields: (Array.isArray(mediated.fields) ? mediated.fields.filter(isObj) : []).map((field) => ({ name: field.name as string, label: field.label as string, secret: field.secret === true })),
+      scopes: strings(mediated.scopes).filter((scope) => supported.includes(scope)),
+      grant: true
+    };
+  }
+  const customScopes: Record<string, string> = {};
+  if (isObj(auth.scopes)) for (const [scope, description] of Object.entries(auth.scopes)) if (typeof description === "string") customScopes[scope] = description;
+  const scopeHints: Record<string, ScopeHint> = {};
+  if (isObj(auth.scope_hints)) {
+    for (const [scope, hint] of Object.entries(auth.scope_hints)) {
+      if (!isObj(hint) || typeof hint.personal_data !== "boolean") continue;
+      // 4.7: a changes value it doesn't recognize is irreversible.
+      const changes = hint.changes === "none" || hint.changes === "reversible" ? hint.changes : "irreversible";
+      scopeHints[scope] = { changes, personalData: hint.personal_data };
+    }
+  }
+  const protectedResources = strings(metadata.protected_resources);
+  const operations = extensions.operations;
+  return {
+    issuer: known.issuer,
+    name: known.name,
+    domain: known.domain,
+    // Hosts that may receive Session JWTs and show a device link (4.3): the issuer's protected resources.
+    poppyDomains: protectedResources.flatMap((entry) => (URL.canParse(entry) ? [new URL(entry).hostname.toLowerCase()] : [])),
+    protocolVersion: known.version,
+    specificationRevision: protocolRevision(known.version),
+    authFingerprint: canonicalAuth(doc.auth ?? null),
+    ...(isObj(doc.feedback) && typeof doc.feedback.endpoint === "string" ? { feedback: { endpoint: doc.feedback.endpoint } } : {}),
+    endpoints: {
+      token: metadata.token_endpoint as string,
+      revocation: metadata.revocation_endpoint as string,
+      ...(signIn.direct ? { authorization: metadata.authorization_endpoint as string } : {}),
+      ...(signIn.device ? { deviceAuthorization: metadata.device_authorization_endpoint as string } : {})
+    },
+    signIn,
+    customScopes,
+    scopeHints,
+    dpop: Array.isArray(metadata.dpop_signing_alg_values_supported) && metadata.dpop_signing_alg_values_supported.includes("ES256"),
+    protectedResources,
+    ...(isObj(doc.excluded_tasks) && typeof doc.excluded_tasks.url === "string" ? { excludedTasks: { url: doc.excluded_tasks.url } } : {}),
+    ...services(doc, false),
+    extensions: isObj(operations) && operations.version === SUPPORTED_EXTENSIONS_0_3.operations ? { operationsV2: true } : {}
   };
 }
 

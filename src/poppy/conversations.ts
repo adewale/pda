@@ -1,4 +1,4 @@
-import { isDraft2 } from "./protocol-version";
+import { sinceVersion } from "./protocol-version";
 import { literal, reportError } from "../log";
 import { hasCode, PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
@@ -609,7 +609,7 @@ export async function readConversation(
       // A Company's answer, read as the Guides ask (no duplicate members) and refused unless it is an object.
       const body = parseStrictJson(await client.readBody(response));
       if (!isObject(body)) throw new PoppyError("invalid_response", `${company.name}'s events answer isn't a JSON object`, response.status);
-      if (isDraft2(company) && (body.conversation_id !== id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || typeof body.status !== "string" || typeof body.responder !== "string")) throw new PoppyError("invalid_response", "The 0.2 conversation read is missing required fields", response.status);
+      if (sinceVersion(company, "0.2") && (body.conversation_id !== id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || typeof body.status !== "string" || typeof body.responder !== "string")) throw new PoppyError("invalid_response", "The 0.2 conversation read is missing required fields", response.status);
       const events = Array.isArray(body.events) ? body.events : [];
       await handleEvents(client, company, conversation(client, id)!, events);
       if (typeof body.cursor === "string") saveCursor(client, id, body.cursor);

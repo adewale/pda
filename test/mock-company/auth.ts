@@ -3,6 +3,7 @@ import {
   DEVICE_CODE,
   HttpError,
   JWT_BEARER,
+  MEDIATED_GRANT,
   json,
   oauthError,
   parseScope,
@@ -48,7 +49,9 @@ type DeviceRequest = {
 
 type MediatedSignIn = {
   readonly id: string;
+  /** The Session that started it (0.1, 0.2), or "" under 0.3, where the client that started it finishes it. */
   readonly sessionId: string;
+  readonly clientId?: string;
   readonly account: string;
   readonly scope: readonly string[];
   readonly code: string;
@@ -101,6 +104,7 @@ export class AuthServer {
     co.rateLimit("token", inbound);
     const form = this.#form(inbound);
     const client = await co.authenticateClient(form, co.hosts.tokenEndpoint);
+    if (co.v3) return this.#tokenV3(inbound, form, client);
     const grant = form.get("grant_type");
     const resource = form.get("resource");
     const isMcp = resource === co.hosts.mcpUrl;
@@ -127,6 +131,123 @@ export class AuthServer {
       default:
         throw oauthError(400, "unsupported_grant_type");
     }
+  }
+
+  // ---- 0.3: plain OAuth at the token endpoint (4.4, 4.5, 4.7) ----
+
+  /**
+   * The token endpoint under 0.3: refresh, the code, the device code and
+   * Mediated Sign-In's grant, each returning an access token and, from a
+   * sign-in, a refresh token. Nothing names a Session. A DPoP proof is sent
+   * when the metadata lists `dpop_signing_alg_values_supported` (4.5); with
+   * one, the access token is bound to it, except an MCP server's, which
+   * takes Bearer tokens unless `mcpDpop`.
+   */
+  async #tokenV3(inbound: Inbound, form: URLSearchParams, client: ClientInfo): Promise<Response> {
+    const co = this.company;
+    const grant = form.get("grant_type");
+    const resource = form.get("resource");
+    const isMcp = resource === co.hosts.mcpUrl;
+    if (resource !== null && !isMcp && !(co.config.apiResource && resource === co.hosts.api)) throw oauthError(400, "invalid_target", "unknown resource");
+    const proof = inbound.request.headers.get("DPoP");
+    if (co.config.dpopTokens && !proof) {
+      co.violation("token.dpop-not-sent", `token request (${grant}) without a DPoP proof, though the metadata lists dpop_signing_alg_values_supported`);
+      throw oauthError(400, "invalid_dpop_proof", "a DPoP proof is required");
+    }
+    const jkt = proof ? await co.verifyDpop(inbound, undefined) : null;
+    const binding = { jkt: isMcp && !co.config.mcpDpop ? null : jkt, resource };
+    switch (grant) {
+      case "refresh_token":
+        return this.#refreshV3(client, form, binding);
+      case "authorization_code":
+        return this.#authorizationCode(client, form, binding);
+      case DEVICE_CODE:
+        return this.#deviceCode(client, form, binding);
+      case MEDIATED_GRANT:
+        return this.#mediatedGrant(client, form, binding);
+      default:
+        throw oauthError(400, "unsupported_grant_type");
+    }
+  }
+
+  async #refreshV3(client: ClientInfo, form: URLSearchParams, binding: { jkt: string | null; resource: string | null }): Promise<Response> {
+    const co = this.company;
+    const token = this.#accountToken(client, form.get("refresh_token"));
+    let scope = [...token.scope];
+    const asked = form.get("scope");
+    if (asked !== null) {
+      const narrower = parseScope(asked);
+      if (!narrower.every((entry) => token.scope.includes(entry))) throw oauthError(400, "invalid_scope", "can't ask for more scope than the refresh token has");
+      scope = narrower;
+    }
+    let rotated;
+    if (co.config.rotateRefreshTokens) {
+      token.rotated = true;
+      rotated = co.issueAccountToken(token, token.scope);
+    }
+    return co.tokenResponse(co.issueAccessV3(token, binding, scope), rotated);
+  }
+
+  /** A completed 0.3 sign-in: a refresh token for a new grant, and an access token from it. */
+  #signedInV3(client: ClientInfo, account: string, scope: readonly string[], binding: { jkt: string | null; resource: string | null }): Response {
+    const co = this.company;
+    const refresh = co.issueAccountToken({ clientId: client.clientId, userId: "", account, grant: randomId("grt_", 8) }, scope);
+    return co.tokenResponse(co.issueAccessV3(refresh, binding, scope), refresh);
+  }
+
+  /**
+   * Mediated Sign-In's grant (Mediated Sign-In 3, 4): the credentials and
+   * `scope`, or, after `code_required`, `sign_in_id` and `one_time_code`
+   * alone. Only the client that started a sign-in can finish it.
+   */
+  async #mediatedGrant(client: ClientInfo, form: URLSearchParams, binding: { jkt: string | null; resource: string | null }): Promise<Response> {
+    const co = this.company;
+    if (!co.config.signIn.mediated) throw oauthError(400, "unsupported_grant_type");
+    const signInId = form.get("sign_in_id");
+    if (signInId !== null) {
+      if (form.has("email") || form.has("password")) co.violation("mediated.credentials-with-code", "credentials resent with the one-time code (Mediated Sign-In 4: not the credentials or scope)");
+      if (form.has("scope")) co.violation("mediated.scope-with-code", "scope resent with the one-time code (Mediated Sign-In 4: the sign-in keeps its first scopes)");
+      const signIn = this.#mediated.get(signInId);
+      if (signIn && signIn.clientId !== client.clientId) co.violation("mediated.code-other-client", `one-time code for ${signIn.id} sent by another client`);
+      if (!signIn || signIn.clientId !== client.clientId || signIn.finished) throw oauthError(400, "invalid_grant", "unknown sign_in_id");
+      if (signIn.expiresAt <= co.now()) {
+        signIn.finished = true;
+        throw oauthError(400, "expired_token");
+      }
+      if (form.get("one_time_code") !== signIn.code) {
+        signIn.attempts += 1;
+        if (signIn.attempts >= 3) {
+          signIn.finished = true;
+          throw oauthError(400, "invalid_grant", "too many wrong codes");
+        }
+        return this.#codeRequired(signIn);
+      }
+      signIn.finished = true;
+      return this.#signedInV3(client, signIn.account, signIn.scope, binding);
+    }
+    const scope = this.#checkScopes("mediated", form.get("scope"));
+    for (const field of ["email", "password"]) {
+      if (!form.has(field)) co.violation("mediated.missing-field", `mediated sign-in missing field ${field}`);
+    }
+    if (++this.#mediatedAttempts > 20) throw oauthError(400, "invalid_grant");
+    const account = co.config.accounts.find((entry) => entry.email === form.get("email") && entry.password === form.get("password"));
+    if (!account) throw oauthError(400, "invalid_grant", "sign-in didn't succeed");
+    if (!account.otp) return this.#signedInV3(client, account.account, scope, binding);
+    const code = randomId("", 6).replace(/[^A-Za-z0-9]/g, "X").toUpperCase();
+    co.oneTimeCodes.add(code);
+    co.lastOneTimeCode = code;
+    const signIn: MediatedSignIn = { id: randomId("sgn_", 8), sessionId: "", clientId: client.clientId, account: account.account, scope, code, expiresAt: co.now() + 5 * 60_000, attempts: 0, finished: false };
+    this.#mediated.set(signIn.id, signIn);
+    return this.#codeRequired(signIn);
+  }
+
+  #codeRequired(signIn: MediatedSignIn): Response {
+    const co = this.company;
+    return json(
+      { error: "code_required", sign_in_id: signIn.id, sent_to: "Text to the phone number ending in 71", expires_in: Math.max(1, Math.round((signIn.expiresAt - co.now()) / 1000)) },
+      400,
+      { "Cache-Control": "no-store" }
+    );
   }
 
   #session(client: ClientInfo, sessionId: string | null, userId: string): Session | null {
@@ -245,6 +366,7 @@ export class AuthServer {
       co.violation("code.pkce", "PKCE code_verifier doesn't match the challenge");
       throw oauthError(400, "invalid_grant");
     }
+    if (co.v3) return this.#signedInV3(client, code.account, code.scope, binding);
     const sessionId = form.get("session_id");
     if (!sessionId) {
       co.violation("code.no-session-id", "authorization code exchanged without session_id (4.5)");
@@ -300,6 +422,10 @@ export class AuthServer {
     }
     device.lastPoll = now;
     if (device.status === "pending") throw oauthError(400, "authorization_pending");
+    if (co.v3) {
+      device.status = "done";
+      return this.#signedInV3(client, device.account!, device.granted, binding);
+    }
     const sessionId = form.get("session_id");
     if (!sessionId) {
       co.violation("device.no-session-id", "device code exchanged without session_id");
@@ -346,9 +472,10 @@ export class AuthServer {
     if (!token) return;
     token.revoked = true;
     for (const session of co.sessions.values()) {
+      // 0.3: refresh tokens name no User ID; the Sessions that used its sign-in continue signed out (5.5).
       if (
         session.clientId === token.clientId &&
-        session.userId === token.userId &&
+        (co.v3 || session.userId === token.userId) &&
         session.account === token.account &&
         session.grant === token.grant
       ) {
@@ -604,7 +731,7 @@ export class AuthServer {
         { "Cache-Control": "no-store" }
       );
     }
-    return this.#completeMediated(context.session, context.token.jkt, account.account, scope);
+    return this.#completeMediated(context.session, context.token?.jkt ?? null, account.account, scope);
   }
 
   #completeMediated(
@@ -661,6 +788,6 @@ export class AuthServer {
       });
     }
     signIn.finished = true;
-    return this.#completeMediated(context.session, context.token.jkt, signIn.account, signIn.scope);
+    return this.#completeMediated(context.session, context.token?.jkt ?? null, signIn.account, signIn.scope);
   }
 }

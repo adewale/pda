@@ -3,7 +3,7 @@ import { Apis } from "./apis";
 import { AuthServer } from "./auth";
 import { Conversations } from "./conversations";
 import { Company, HttpError, json, type Inbound } from "./core";
-import { Operations } from "./operations";
+import { Operations, OperationsV2 } from "./operations";
 import {
   DEFAULT_CONFIG,
   companyIdFromHost,
@@ -23,6 +23,7 @@ type Parts = {
   readonly auth: AuthServer;
   readonly conversations: Conversations;
   readonly operations: Operations;
+  readonly operationsV2: OperationsV2;
   readonly apis: Apis;
   readonly web: Web;
 };
@@ -92,11 +93,14 @@ export class MockCompany extends DurableObject<Env> {
     const auth = new AuthServer(company);
     const conversations = new Conversations(company);
     const operations = new Operations(company);
+    const operationsV2 = new OperationsV2(company);
     conversations.operations = operations;
+    conversations.operationsV2 = operationsV2;
     const apis = new Apis(company, operations);
+    apis.operationsV2 = operationsV2;
     const web = new Web(company);
     web.operations = operations;
-    this.#parts = { company, auth, conversations, operations, apis, web };
+    this.#parts = { company, auth, conversations, operations, operationsV2, apis, web };
     return this.#parts;
   }
 
@@ -146,8 +150,10 @@ export class MockCompany extends DurableObject<Env> {
     const site = sub !== "auth" && sub !== "api" && sub !== "mcp" && sub !== "cdn";
 
     // Where secrets may legitimately appear.
-    let allowed: "credentials" | "code" | "account-token" | null = null;
+    let allowed: "credentials" | "code" | "account-token" | "token-endpoint" | null = null;
     if (sub === "auth" && (path === "/oauth/token" || path === "/oauth/revoke")) allowed = "account-token";
+    // 0.3: Mediated Sign-In is a grant at the token endpoint (Mediated Sign-In 3, 4).
+    if (company.v3 && sub === "auth" && path === "/oauth/token") allowed = "token-endpoint";
     if (sub === "auth" && path === "/poppy/sign-in") allowed = "credentials";
     if (sub === "auth" && path.startsWith("/poppy/sign-in/")) allowed = "code";
     company.scanSecrets(inbound, allowed);
@@ -157,6 +163,9 @@ export class MockCompany extends DurableObject<Env> {
         return web.wellKnown(inbound);
       }
       if (path === "/poppy/browser-session") return web.browserSession(inbound);
+      if (path === "/poppy/browser-session/authorize" && method === "POST") return web.authorizeBrowserJoin(inbound);
+      if (path === "/.well-known/oauth-protected-resource" && method === "GET") return web.domainResourceMetadata(inbound);
+      if (path === "/poppy/excluded-tasks.json" && method === "GET") return web.excludedTasks();
       if (path === "/account/address" && method === "POST") {
         company.rateLimit("page", inbound);
         return web.saveAddress(inbound);
@@ -197,6 +206,12 @@ export class MockCompany extends DurableObject<Env> {
     if (path === "/openapi.json" && method === "GET") {
       return json(apis.openapiDocument(), 200, { "Cache-Control": "max-age=300" });
     }
+    // 0.3: the API takes only its own tokens when its protected resource metadata names it (4.5).
+    if (path.startsWith("/.well-known/oauth-protected-resource") && method === "GET") {
+      return company.v3 && company.config.apiResource && path === "/.well-known/oauth-protected-resource"
+        ? json({ resource: company.hosts.api, authorization_servers: [company.hosts.issuer] })
+        : json({ error: "not_found" }, 404);
+    }
     company.rateLimit("other", inbound);
     const context = await company.authorizeResource(inbound);
     const conversation = /^\/poppy\/conversations(?:\/([A-Za-z0-9_-]+)(?:\/(messages|events|handoff|close))?)?$/.exec(path);
@@ -219,7 +234,8 @@ export class MockCompany extends DurableObject<Env> {
       } catch {
         return json({ error: "operation_not_found" }, 404);
       }
-      if (!company.config.operations || !context.client.listsOperations) {
+      // Operations 2 (0.3) adds no endpoints.
+      if (!company.config.operations || !context.client.listsOperations || company.v3) {
         return json({ error: "operation_not_found" }, 404);
       }
       if (!action && method === "GET") return operations.read(context, id!);
@@ -244,7 +260,7 @@ export class MockCompany extends DurableObject<Env> {
   }
 
   async state(): Promise<MockState> {
-    const { company, conversations, operations } = this.#named();
+    const { company, conversations, operations, operationsV2 } = this.#named();
     return {
       recorded: [...company.recorded],
       violations: company.violations,
@@ -266,7 +282,7 @@ export class MockCompany extends DurableObject<Env> {
       ).length,
       performs: company.performs,
       conversations: conversations.summary(),
-      operations: operations.summary(),
+      operations: [...operations.summary(), ...operationsV2.summary()],
       browserJoins: company.browserJoins,
       formPosts: company.formPosts.map((post) => ({ account: post.account, fields: post.fields.map(([name, value]) => [name, value]) }))
     };

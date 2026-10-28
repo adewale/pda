@@ -1038,8 +1038,207 @@ describe("over HTTP", () => {
   });
 });
 
+// ---- Draft 0.3 (spec/draft-0.3-retrieved-2026-10-28) ----
+
+/** The poppy.json example in 0.3's section 3, with Mediated Sign-In and Operations 2 from the extension pages. */
+const SPEC_POPPY_03 = {
+  protocol_version: "0.3",
+  organization: { name: "Example Company", domain: "example.com" },
+  auth: {
+    scopes: {
+      "orders:read": "See your orders, returns, and bookings",
+      "orders:write": "Exchange or return items, and change bookings",
+      addresses: "See and change your saved shipping addresses"
+    },
+    scope_hints: {
+      "orders:read": { changes: "none", personal_data: true },
+      "orders:write": { changes: "irreversible", personal_data: true },
+      addresses: { changes: "reversible", personal_data: true }
+    }
+  },
+  agent: { protocols: [{ type: "poppy", endpoint: "https://api.example.com/poppy/conversations" }] },
+  web: { browser_session_endpoint: "https://example.com/poppy/browser-session" },
+  feedback: { endpoint: "https://api.example.com/poppy/feedback" },
+  excluded_tasks: { url: "https://example.com/poppy/excluded-tasks.json" },
+  apis: [
+    { type: "openapi", url: "https://api.example.com/openapi.json", description: "Orders, returns, and exchanges" },
+    { type: "mcp", url: "https://mcp.example.com/mcp", description: "Product search and sizing" }
+  ],
+  extensions: {
+    operations: { version: "2" },
+    "mediated-sign-in": {
+      version: "1",
+      fields: [
+        { name: "email", label: "Email", secret: false },
+        { name: "password", label: "Password", secret: true }
+      ],
+      scopes: ["orders:read"]
+    }
+  }
+};
+
+/** 0.3 3.2's protected resource metadata for example.com. */
+const SPEC_PRM_03 = { resource: "https://example.com", authorization_servers: ["https://auth.example.com"] };
+
+/** 0.3 3.2's issuer metadata, with the Mediated Sign-In grant and the iss parameter. */
+const SPEC_METADATA_03 = {
+  issuer: "https://auth.example.com",
+  token_endpoint: "https://auth.example.com/oauth/token",
+  revocation_endpoint: "https://auth.example.com/oauth/revoke",
+  authorization_endpoint: "https://auth.example.com/oauth/authorize",
+  device_authorization_endpoint: "https://auth.example.com/oauth/device",
+  grant_types_supported: ["refresh_token", "authorization_code", "urn:ietf:params:oauth:grant-type:device_code", "https://personalagentprotocol.org/grant/mediated-sign-in"],
+  scopes_supported: ["orders:read", "orders:write", "addresses"],
+  protected_resources: ["https://example.com", "https://example.co.uk", "https://mcp.example.com/mcp"],
+  authorization_response_iss_parameter_supported: true
+};
+
+const company03 = (change: { poppy?: (doc: Record<string, any>) => void; prm?: unknown; metadata?: (doc: Record<string, any>) => void; routes?: Record<string, () => Response> } = {}) => {
+  const poppy = structuredClone(SPEC_POPPY_03) as Record<string, any>;
+  change.poppy?.(poppy);
+  const metadata = structuredClone(SPEC_METADATA_03) as Record<string, any>;
+  change.metadata?.(metadata);
+  return validateCompany(
+    network({
+      "https://example.com/.well-known/poppy.json": jsonResponse(poppy),
+      "https://example.com/.well-known/oauth-protected-resource": jsonResponse(change.prm ?? SPEC_PRM_03),
+      "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(metadata),
+      "https://auth.example.org/.well-known/oauth-authorization-server": jsonResponse({ ...metadata, issuer: "https://auth.example.org" }),
+      ...(change.routes ?? {})
+    }),
+    "example.com"
+  );
+};
+
+const V03: readonly Fixture[] = [
+  {
+    name: "0.3: accepts the specification's examples as a Company, with the issuer from the domain's protected resource metadata",
+    run: () => company03(),
+    ids: [],
+    outcome: "valid",
+    also: (report) => {
+      expect(report.checkedAgainst).toBe("Draft 0.3");
+      expect((report as Awaited<ReturnType<typeof validateCompany>>).issuer).toBe("https://auth.example.com");
+      expect(report.documents.map((d) => d.kind)).toEqual(["poppy", "protected-resource", "oauth-metadata"]);
+    }
+  },
+  {
+    name: "0.3: refuses a document a redirect moved off the well-known path",
+    run: () =>
+      validateCompany(
+        network({
+          "https://example.com/.well-known/poppy.json": () => new Response(null, { status: 302, headers: { Location: "https://example.com/uploads/poppy.json" } }),
+          "https://example.com/uploads/poppy.json": jsonResponse(SPEC_POPPY_03),
+          "https://example.com/.well-known/oauth-protected-resource": jsonResponse(SPEC_PRM_03),
+          "https://auth.example.com/.well-known/oauth-authorization-server": jsonResponse(SPEC_METADATA_03)
+        }),
+        "example.com"
+      ),
+    ids: ["poppy-redirect-path"],
+    outcome: "invalid"
+  },
+  {
+    name: "0.3: refuses protected resource metadata for another resource",
+    run: () => company03({ prm: { ...SPEC_PRM_03, resource: "https://example.com/api" } }),
+    ids: ["prm-resource-mismatch"],
+    outcome: "invalid"
+  },
+  {
+    name: "0.3: refuses protected resource metadata with no authorization server",
+    run: () => company03({ prm: { ...SPEC_PRM_03, authorization_servers: [] } }),
+    ids: ["prm-no-issuer"],
+    outcome: "invalid"
+  },
+  {
+    name: "0.3: refuses an auth.issuer the domain doesn't list",
+    run: () => company03({ poppy: (doc) => { doc.auth.issuer = "https://auth.example.org"; } }),
+    ids: ["issuer-not-listed"],
+    outcome: "invalid"
+  },
+  {
+    name: "0.3: refuses several authorization servers without auth.issuer, and uses auth.issuer when it chooses one",
+    run: () => company03({ prm: { ...SPEC_PRM_03, authorization_servers: ["https://auth.example.com", "https://staff.example.com"] } }),
+    ids: ["issuer-ambiguous"],
+    outcome: "invalid",
+    also: async () => {
+      const chosen = await company03({ prm: { ...SPEC_PRM_03, authorization_servers: ["https://staff.example.com", "https://auth.example.com"] }, poppy: (doc) => { doc.auth.issuer = "https://auth.example.com"; } });
+      expect(chosen.messages).toEqual([]);
+      expect(chosen.issuer).toBe("https://auth.example.com");
+    }
+  },
+  {
+    name: "0.3: refuses issuer metadata whose protected_resources leaves out the domain, compared exactly but for the host's case",
+    run: () => company03({ metadata: (doc) => { doc.protected_resources = ["https://example.com/", "https://EXAMPLE.co.uk"]; } }),
+    ids: ["metadata-protected-resources"],
+    outcome: "invalid",
+    also: async () => {
+      expect((await company03({ metadata: (doc) => { doc.protected_resources = ["https://EXAMPLE.com"]; } })).messages).toEqual([]);
+    }
+  },
+  {
+    name: "0.3: requires grant_types_supported, with refresh_token",
+    run: () => company03({ metadata: (doc) => { doc.grant_types_supported = ["authorization_code", "https://personalagentprotocol.org/grant/mediated-sign-in"]; delete doc.device_authorization_endpoint; } }),
+    ids: ["metadata-refresh-grant"],
+    outcome: "invalid"
+  },
+  {
+    name: "0.3: requires each sign-in grant's endpoint and scopes_supported",
+    run: () => company03({ metadata: (doc) => { delete doc.authorization_endpoint; delete doc.scopes_supported; } }),
+    ids: ["missing-member", "missing-member"],
+    outcome: "invalid"
+  },
+  {
+    name: "0.3: refuses a scope hint without both fields, and notes a changes value it doesn't define",
+    run: () =>
+      company03({
+        poppy: (doc) => {
+          doc.auth.scope_hints["orders:read"] = { changes: "none" };
+          doc.auth.scope_hints.addresses = { changes: "sometimes", personal_data: true };
+        }
+      }),
+    ids: ["scope-hint-invalid", "scope-hint-changes-unknown"],
+    outcome: "invalid"
+  },
+  {
+    name: "0.3: refuses a Mediated Sign-In field named like a grant parameter",
+    run: () => company03({ poppy: (doc) => { doc.extensions["mediated-sign-in"].fields[0].name = "scope"; } }),
+    ids: ["mediated-field-reserved"],
+    outcome: "invalid"
+  },
+  {
+    name: "0.3: refuses Mediated Sign-In without its grant, or with scopes the issuer doesn't support",
+    run: () =>
+      company03({
+        poppy: (doc) => { doc.extensions["mediated-sign-in"].scopes = ["orders:read", "gift-cards"]; },
+        metadata: (doc) => { doc.grant_types_supported = doc.grant_types_supported.filter((grant: string) => !grant.endsWith("mediated-sign-in")); }
+      }),
+    ids: ["mediated-grant-missing", "mediated-scope-unsupported"],
+    outcome: "invalid"
+  },
+  {
+    name: "0.3: notes poppy_domains, which 0.3 replaced with protected_resources, and an Operations version it doesn't know",
+    run: () => company03({ poppy: (doc) => { doc.extensions.operations = { version: "1", endpoint: "https://api.example.com/poppy/operations" }; }, metadata: (doc) => { doc.poppy_domains = ["example.com"]; } }),
+    ids: ["extension-version-unknown", "unknown-member"],
+    outcome: "valid"
+  },
+  {
+    name: "0.3: checks pasted protected resource metadata",
+    run: () => text("protected-resource", { resource: "https://example.com", authorization_servers: [] }, { protocolVersion: "0.3" }),
+    ids: ["prm-no-issuer"],
+    outcome: "invalid"
+  },
+  {
+    name: "0.3: checks the mock Company's 0.3 documents with no messages",
+    run: async () => validateCompany(testFetcher(env), await mockCompany({ protocolVersion: "0.3", unknownApi: false, unknownExtension: false, unknownField: false, unknownProtocol: false })),
+    ids: [],
+    outcome: "valid"
+  }
+];
+
+testEach(V03);
+
 describe("the message catalog", () => {
-  const fixtures = [...VALID, ...POPPY_JSON, ...METADATA, ...CLIENT, ...FETCHING];
+  const fixtures = [...VALID, ...POPPY_JSON, ...METADATA, ...CLIENT, ...FETCHING, ...V03];
 
   it("has a fixture that produces every message", () => {
     const declared = new Set(fixtures.flatMap(declaredIds));

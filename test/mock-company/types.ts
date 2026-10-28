@@ -1,6 +1,7 @@
 /**
  * The mock Company's configuration, state and host scheme. Everything here is
- * the Company side of Personal Agent Protocol Draft 0.1, for tests only.
+ * the Company side of Personal Agent Protocol Drafts 0.1, 0.2 and 0.3, for
+ * tests only. `protocolVersion` picks the draft.
  */
 
 export type SignInTypes = {
@@ -297,6 +298,21 @@ export type MockConfig = {
   readonly refuseRevocations: number;
   /** Company flaws (`COMPANY_FLAWS`); none by default. */
   readonly flaws: readonly CompanyFlaw[];
+  /**
+   * 0.3 only. The issuer lists `dpop_signing_alg_values_supported` and
+   * binds its access tokens to the DPoP proof sent with each token request
+   * (4.5); off, it lists none and issues Bearer tokens.
+   */
+  readonly dpopTokens: boolean;
+  /** 0.3: the domain's protected resource metadata (3.2): its `authorization_servers` in place of the issuer, and its `resource` in place of `https://{domain}`. */
+  readonly authorizationServersOverride: readonly string[] | null;
+  readonly domainResourceOverride: string | null;
+  /** 0.3: `auth.issuer` in poppy.json, which is optional with one authorization server (3.1). */
+  readonly listIssuer: boolean;
+  /** 0.3: the issuer metadata's `protected_resources`, in place of the Company's domains and MCP server (3.2). */
+  readonly protectedResourcesOverride: readonly string[] | null;
+  /** 0.3: list `excluded_tasks` (9.1). */
+  readonly excludedTasks: boolean;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -395,7 +411,13 @@ export const DEFAULT_CONFIG: MockConfig = {
   reorderMembers: false,
   errorDescription: null,
   refuseRevocations: 0,
-  flaws: []
+  flaws: [],
+  dpopTokens: true,
+  authorizationServersOverride: null,
+  domainResourceOverride: null,
+  listIssuer: false,
+  protectedResourcesOverride: null,
+  excludedTasks: true
 };
 
 /** One request the mock received, with secrets redacted. */

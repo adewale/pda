@@ -4,9 +4,10 @@
  */
 import { pointer, type Position } from "./json.ts";
 import { MESSAGES, type Basis, type MessageId, type Ref, type Severity } from "./messages.ts";
+import { versionAtLeast } from "../poppy/protocol-version.ts";
 
 /** Which document a message is about. */
-export type DocumentKind = "poppy" | "oauth-metadata" | "client-metadata" | "jwks";
+export type DocumentKind = "poppy" | "oauth-metadata" | "client-metadata" | "jwks" | "protected-resource";
 
 export type Message = {
   readonly id: MessageId;
@@ -49,15 +50,17 @@ export class Checker {
   }
 
   report(id: MessageId, at: string, text: string, ref?: Ref, position: Position | undefined = this.#position(at)): void {
-    if (this.protocolVersion === "0.2" && id === "not-https-url-unstated") id = "not-https-url";
+    // From 0.2, every URL the protocol exchanges is HTTPS and private addresses are refused by MUSTs (0.2 3, 0.3 3).
+    const since02 = versionAtLeast(this.protocolVersion, "0.2");
+    if (since02 && id === "not-https-url-unstated") id = "not-https-url";
     const definition = MESSAGES[id];
     const reference = ref ?? definition.ref;
-    const promoted = this.protocolVersion === "0.2" && ["http-non-public-host", "http-non-public-address", "metadata-dpop-alg"].includes(id);
+    const promoted = since02 && ["http-non-public-host", "http-non-public-address", "metadata-dpop-alg"].includes(id);
     this.messages.push({
       id,
       basis: promoted ? "MUST" : definition.basis,
       severity: promoted ? "error" : definition.severity,
-      refuses: promoted || (this.protocolVersion === "0.2" && id === "organization-name-missing") ? true : definition.refuses,
+      refuses: promoted || (since02 && id === "organization-name-missing") ? true : definition.refuses,
       document: this.document,
       pointer: at,
       ...(position ? { line: position.line, column: position.column } : {}),
@@ -223,7 +226,7 @@ export function bareHost(host: string): string {
 
 /** RFC 8707 resource indicator: an absolute URI without a fragment. */
 export function resourceIndicator(c: Checker, value: unknown, at: string): void {
-  if (c.protocolVersion === "0.2") { httpsUrl(c, value, at); return; }
+  if (versionAtLeast(c.protocolVersion, "0.2")) { httpsUrl(c, value, at); return; }
   if (typeof value !== "string") {
     c.report("wrong-type", at, `${label(at)} must be a string, not ${typeName(value)}.`);
     return;

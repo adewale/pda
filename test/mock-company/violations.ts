@@ -44,7 +44,7 @@ import { levelOf, type Basis, type Level } from "../../src/validator/levels.ts";
 export type { Basis, Level };
 
 /** The JWTs the mock checks a `jti` on, each with its own replay set. */
-export type JwtKind = "client-assertion" | "session-assertion" | "dpop" | "browser-assertion";
+export type JwtKind = "client-assertion" | "session-assertion" | "dpop" | "browser-assertion" | "session-jwt";
 
 /** The two JWTs signed with the client's published keys. */
 export type SignedKind = "client-assertion" | "session-assertion";
@@ -224,7 +224,60 @@ export const VIOLATIONS = {
   "confirm.approved-by": "Rule (Ops 5.1, 5.2): Confirm without approved_by user or standing_permission",
   "confirm.revision": "Rule (Ops 5.1, 5.2): Confirm without the revision number the User approved",
   "proposal.while-open": "MUST NOT (Ops 6; recorded only after a confirm, N34): A new proposal asked for while the confirmed operation for the same action isn't final",
-  "confirm.standing-permission-overrides-user": "Rule (Ops 3, 5.1: \"Not allowed when user_approval_required is true\"): Confirmed under a standing permission when user_approval_required is true"
+  "confirm.standing-permission-overrides-user": "Rule (Ops 3, 5.1: \"Not allowed when user_approval_required is true\"): Confirmed under a standing permission when user_approval_required is true",
+
+  // ---- 0.3: the Session header and delegations (0.3 5.2, 5.3) ----
+  "session-jwt.missing": "MUST (0.3 5.2: \"MUST send a Poppy-Session header on every request\"): A request to a resource without the Session header",
+  "session-jwt.missing-with-token": "MUST (0.3 5.2; 5.3: the Company MUST reject an access token without it): An access token sent without the Session header",
+  "session-jwt.not-jwt": "MUST (0.3 5.2): The Session header isn't a JWT",
+  "session-jwt.typ": "MUST (0.3 5.2: typ MUST be poppy-session+jwt): A Session JWT of another typ",
+  "session-jwt.alg": "MUST (0.3 5.2: alg MUST be ES256): A Session JWT not signed with ES256",
+  "session-jwt.no-delegation": "MUST (0.3 5.2; 5.2 Delegated keys: the Company MUST reject a Session JWT without a delegation): A Session JWT without pap_dlg",
+  "session-jwt.iss": "MUST (0.3 5.2: every claim but agent_id and ath): A Session JWT without iss",
+  "session-jwt.kid": "MUST (0.3 5.2 Delegated keys: kid is the delegated key's RFC 7638 thumbprint, checked in step 3): A Session JWT whose kid isn't its key's thumbprint",
+  "session-jwt.signature": "MUST (0.3 5.2 Delegated keys, step 3): A Session JWT that doesn't verify with the delegated key",
+  "session-jwt.iat": "MUST (0.3 5.2: iat; 5.3: within the Company's window): A Session JWT without iat, or outside the acceptance window",
+  "session-jwt.after-delegation": "MUST NOT (0.3 5.2: \"MUST NOT sign a Session JWT after its delegation's exp\"): A Session JWT signed after its delegation expired",
+  "session-jwt.aud": "MUST (0.3 5.2: aud is the issuer as a single string; 5.3): A Session JWT for another audience",
+  "session-jwt.htm": "MUST (0.3 5.2, 5.3; RFC 9449 4.3): A Session JWT whose htm isn't the request's method",
+  "session-jwt.htu": "MUST (0.3 5.2, 5.3; RFC 9449 4.3): A Session JWT whose htu isn't the request's URL without its query",
+  "session-jwt.sid": "MUST (0.3 5.2: sid, with the characters of Conversation IDs): A Session JWT without a valid sid",
+  "session-jwt.sub": "MUST (0.3 5.2: sub is the User ID; agent_id a string when present): A Session JWT without sub, or with a malformed agent_id",
+  "session-jwt.ath": "MUST (0.3 5.2: ath is the access token's hash; 5.3, step 3): A Session JWT whose ath doesn't match the access token",
+  "session-jwt.ath-without-token": "MUST (0.3 5.3: \"Without an access token, ath MUST be absent\"): A Session JWT with ath and no access token",
+  "session-jwt.sub-changed": "MUST (0.3 5.2: the same sub and agent_id in every Session JWT for a Session; 5.3, step 4): A Session's sid sent with another User ID or Agent ID",
+  "session-jwt.token-other-client": "MUST (0.3 5.3, step 3: the token was issued to the same client_id as iss): An access token sent by another client",
+  "session-jwt.jti-missing": "MUST (0.3 5.2: every claim, and jti unique and unguessable): A Session JWT without a jti",
+  "session-jwt.jti-weak": "MUST (0.3 5.2: jti unguessable): A Session JWT jti that isn't 128 random bits of base64url",
+  "session-jwt.jti-reused": "MUST (0.3 5.2: jti unique): A Session JWT jti used twice",
+  "delegation.not-jwt": "MUST (0.3 5.2 Delegated keys): pap_dlg isn't a JWT",
+  "delegation.typ": "MUST (0.3 5.2: typ MUST be pap-delegation+jwt): A delegation of another typ",
+  "delegation.alg": "MUST (0.3 5.2: alg is ES256 or PS384): A delegation signed with another algorithm",
+  "delegation.kid": "MUST (0.3 5.2 Delegated keys, step 1: kid names the key in jwks_uri): A delegation whose kid names no published key",
+  "delegation.signature": "MUST (0.3 5.2 Delegated keys, step 1): A delegation that doesn't verify with the key its kid names",
+  "delegation.iss": "MUST (0.3 5.2 Delegated keys, step 2: its iss is the token's iss): A delegation from another client",
+  "delegation.lifetime": "MUST (0.3 5.2: exp MUST be at most 24 hours after iat): A delegation without iat and exp, or longer than a day",
+  "delegation.expired": "MUST (0.3 5.2 Delegated keys, step 2): A Session JWT carrying an expired delegation",
+  "delegation.jti": "MUST (0.3 5.2: jti, a unique, unguessable ID): A delegation without a jti of 128 random bits",
+  "delegation.cnf": "MUST (0.3 5.2: cnf.jwk is the delegated public key): A delegation without cnf.jwk",
+  "delegation.private-key": "MUST NOT (0.3 5.2: cnf.jwk MUST NOT contain private key members): A delegation that carries a private key",
+  "delegation.names-user": "MUST NOT (0.3 5.2: \"MUST NOT put a User ID, an Agent ID, a Company's issuer, or anything else about the User\"): A delegation with claims beyond iss, cnf, iat, exp and jti",
+  "delegation.key-shared": "MUST (0.3 5.2: \"MUST use each delegated key, and its delegation, for one User ID only\"): A delegated key that signed for two User IDs",
+  "session.second-account": "SHOULD (0.3 5.4: start a new Session rather than use a second account in one Session): A Session used with a second account",
+  "token.dpop-not-sent": "SHOULD (0.3 4.5: Personal Agents SHOULD support DPoP, and send a proof when the metadata lists dpop_signing_alg_values_supported): A token request without a DPoP proof at an issuer that asks for one",
+  "mediated.scope-with-code": "Rule (0.3 Mediated Sign-In 4: the code goes \"not with the credentials or scope\"): scope resent with the one-time code",
+  "mediated.code-other-client": "Rule (0.3 Mediated Sign-In 4: \"Only the client_id that started a sign-in can finish it\"): A one-time code sent by another client",
+  "browser-join.form": "Rule (0.3 6, step 3: the browser submits the form, with the code): The join form not submitted as a form, or with other fields",
+  "browser-join.code-reused": "MUST (0.3 6: each code works once): A join code authorized or submitted twice",
+  "browser-join.cookie": "MUST (0.3 6, step 3: the request has the cookie from step 1): A join form submitted without the cookie set with its code",
+  "browser-join.not-authorized": "Rule (0.3 6: steps 2 then 3): A join form submitted before the agent authorized its code",
+  "browser-join.authorize-body": "Rule (0.3 6, step 2: a JSON body with the code): An authorize request without the code as JSON",
+  "approval.header": "RFC (0.3 Ops 6: a Dictionary Structured Field, RFC 9651, with operation_id and revision as Strings): A malformed Poppy-Approval",
+  "approval.idempotency-key-reused": "Rule (0.3 Ops 6: \"An Idempotency-Key sent with the first request doesn't carry over\"): The approved request reused the first request's Idempotency-Key",
+  "approval.mcp-meta": "Rule (0.3 Ops 6: the approval as a JSON object in _meta): A malformed MCP approval",
+  "approval.message": "Rule (0.3 Ops 6: the approval as a JSON object in approval): A malformed approval in a message",
+  "message.author": "MUST (0.3 8.4: author is required, type agent or human; only Company messages name id, name or image): A message without a valid author",
+  "message.sender-field": "Reading (0.3 8.4 replaced sender with author): A message that still carries 0.2's sender"
 } as const;
 
 export type ViolationId = keyof typeof VIOLATIONS;

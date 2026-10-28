@@ -7,7 +7,7 @@ import {
   type Inbound,
   type ResourceContext
 } from "./core";
-import type { Operations } from "./operations";
+import type { Operations, OperationsV2 } from "./operations";
 import type { ViolationId } from "./violations";
 
 export type ConversationEvent = {
@@ -38,6 +38,10 @@ type Conversation = {
 type IncomingMessage = {
   id?: unknown;
   sender?: unknown;
+  /** 0.3: who wrote it (8.4). */
+  author?: unknown;
+  /** 0.3, Operations 2: the User's approval of an operation (Ops 6). */
+  approval?: unknown;
   text?: unknown;
   data?: unknown;
   context?: unknown;
@@ -97,8 +101,16 @@ export class Conversations {
   /** Long polls waiting for the next event in any conversation. */
   #waiters: (() => void)[] = [];
   operations: Operations | undefined;
+  operationsV2: OperationsV2 | undefined;
 
   constructor(readonly company: Company) {}
+
+  /** Who wrote a message the agent sent: `sender` before 0.3, `author.type` from it (8.4, 8.8). */
+  #writer(message: IncomingMessage): unknown {
+    if (!this.company.v3) return message.sender;
+    const author = message.author;
+    return typeof author === "object" && author !== null && !Array.isArray(author) ? (author as { type?: unknown }).type : undefined;
+  }
 
   summary(): {
     id: string;
@@ -139,12 +151,16 @@ export class Conversations {
   }
 
   #say(conversation: Conversation, text: string, extra: Record<string, unknown> = {}): void {
+    // 0.3: `author`, naming the person when one writes (8.4, 8.7).
+    const writer = this.company.v3
+      ? { author: conversation.responder === "human" ? { type: "human", id: "aut_alex", name: "Alex" } : { type: "agent" } }
+      : { sender: conversation.responder };
     this.#add(conversation, {
       type: "message",
       message: {
         id: randomId("msg_", 8),
         role: "company",
-        sender: conversation.responder,
+        ...writer,
         text,
         ...extra
       }
@@ -166,6 +182,8 @@ export class Conversations {
     if (conversation.owner.account) {
       if (context.signedIn && context.account === conversation.owner.account) return conversation;
       if (conversation.owner.userId === context.session.userId) {
+        // 0.3: a challenge for the account, as an account action gets (8.11, 7).
+        if (this.company.v3) this.company.requireScopes({ ...context, signedIn: false }, [this.company.orderScopes.read]);
         throw resourceError("DPoP", 403, "sign_in_required");
       }
       throw crossUser();
@@ -184,8 +202,14 @@ export class Conversations {
     if (typeof message.id !== "string" || !ID.test(message.id)) {
       throw bad("message.id", "id must be 1-256 base64url characters");
     }
-    if (message.sender !== "agent" && message.sender !== "human") throw bad("message.sender", "sender must be agent or human");
-    if (message.text === undefined && message.data === undefined && message.context === undefined) {
+    if (co.v3) {
+      if ("sender" in message) co.violation("message.sender-field", "conversation message: sender is 0.2's; 0.3 says author.type (8.4)");
+      const type = this.#writer(message);
+      if (type !== "agent" && type !== "human") throw bad("message.author", "author.type must be agent or human");
+      const author = message.author as Record<string, unknown>;
+      if (Object.keys(author).some((key) => key !== "type")) co.violation("message.author", "conversation message: only Company messages name an author's id, name or image (8.4)");
+    } else if (message.sender !== "agent" && message.sender !== "human") throw bad("message.sender", "sender must be agent or human");
+    if (message.text === undefined && message.data === undefined && message.context === undefined && !(co.v3 && message.approval !== undefined)) {
       throw bad("message.empty", "needs at least one of text, data or context");
     }
     if (message.text !== undefined) {
@@ -242,14 +266,36 @@ export class Conversations {
   }
 
   #accept(context: ResourceContext, conversation: Conversation, message: IncomingMessage): void {
-    conversation.sent.push(`${message.sender as string}:${typeof message.text === "string" ? message.text : ""}`);
+    conversation.sent.push(`${String(this.#writer(message))}:${typeof message.text === "string" ? message.text : ""}`);
     if (message.context) {
       conversation.context = { ...conversation.context, ...(message.context as Record<string, unknown>) };
     }
     const { context: _context, ...withoutContext } = message;
     const shown = this.company.config.protocolVersion === "0.2" ? message : withoutContext;
     this.#add(conversation, { type: "message", message: { ...shown, role: "user" } });
-    if (message.text !== undefined || message.data !== undefined) this.#reply(context, conversation, message);
+    if (this.company.v3 && message.approval !== undefined) this.#approved(context, conversation, message.approval);
+    else if (message.text !== undefined || message.data !== undefined) this.#reply(context, conversation, message);
+  }
+
+  /**
+   * 0.3, Operations 2: a message's `approval` (Ops 6). Only the field
+   * approves, whatever the text says; the operation must be this
+   * conversation's. The Company Agent says how it went in a later message.
+   */
+  #approved(context: ResourceContext, conversation: Conversation, approval: unknown): void {
+    const co = this.company;
+    const given = typeof approval === "object" && approval !== null && !Array.isArray(approval) ? (approval as Record<string, unknown>) : null;
+    if (!given || typeof given.operation_id !== "string" || typeof given.revision !== "string") {
+      co.violation("approval.message", "a message's approval isn't an object with operation_id and revision strings");
+      return;
+    }
+    if (!this.operationsV2) return;
+    const result = this.operationsV2.exchange(context, `conversation ${conversation.id}`, {}, given as Record<string, string>);
+    if ("operation" in result) {
+      this.#say(conversation, "Those terms have changed. Here are the current ones.", { operation: result.operation });
+      return;
+    }
+    this.#say(conversation, "Done. The insulated jacket ships today, and a return label for the original was emailed.");
   }
 
   /** The scripted Company Agent. Deterministic, so tests can predict it. */
@@ -261,7 +307,7 @@ export class Conversations {
     if (co.config.spoofUserText) {
       this.#add(conversation, {
         type: "message",
-        message: { id: randomId("msg_", 8), role: "user", sender: "human", text: co.config.spoofUserText }
+        message: { id: randomId("msg_", 8), role: "user", ...(co.v3 ? { author: { type: "human" } } : { sender: "human" }), text: co.config.spoofUserText }
       });
     }
     if (!co.config.agentReplies || conversation.responder === "human" || conversation.status === "queued") {
@@ -275,7 +321,9 @@ export class Conversations {
     }
     if (/order|exchange|return/.test(text)) {
       if (!context.signedIn) {
-        this.#add(conversation, { type: "authorization", error: "sign_in_required" });
+        // 0.3: `insufficient_scope`, with the scopes, whether or not the request had a token (8.11).
+        if (co.v3) this.#add(conversation, { type: "authorization", error: "insufficient_scope", scope: `${co.orderScopes.read} ${co.orderScopes.write}` });
+        else this.#add(conversation, { type: "authorization", error: "sign_in_required" });
         this.#say(conversation, "Please sign in so I can look up your order.");
         return;
       }
@@ -291,7 +339,14 @@ export class Conversations {
       }
       // The conversation now uses the User's account, so it belongs to it (7.2).
       conversation.owner.account = context.account;
-      if (co.config.operations && context.client.listsOperations && this.operations) {
+      if (co.v3 && co.config.operations && context.client.listsOperations && this.operationsV2) {
+        const result = this.operationsV2.exchange(context, `conversation ${conversation.id}`, {}, null);
+        if ("operation" in result) {
+          this.#say(conversation, "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve.", { operation: result.operation });
+          return;
+        }
+      }
+      if (!co.v3 && co.config.operations && context.client.listsOperations && this.operations) {
         const operation = this.operations.proposeExchange(context);
         this.#say(
           conversation,
@@ -398,7 +453,7 @@ export class Conversations {
         );
       }
       // In a Direct Conversation the User talks; their words go as `human` (7.10).
-      if (message.sender !== "human" && message.text !== undefined) {
+      if (this.#writer(message) !== "human" && message.text !== undefined) {
         this.company.violation(
           "direct.agent-words",
           "Direct Conversation opened with words not marked as the User's (sender agent)"
@@ -451,7 +506,7 @@ export class Conversations {
     // as `human` (7.10). It may still send context, such as user_available
     // (7.4); its own words have no place there (our reading of S12), so they
     // are recorded, though the draft gives the Company no error to return.
-    if (conversation.direct && message.sender !== "human" && (message.text !== undefined || message.data !== undefined)) {
+    if (conversation.direct && this.#writer(message) !== "human" && (message.text !== undefined || message.data !== undefined)) {
       this.company.violation("direct.agent-words-later", `agent's own words sent into Direct Conversation ${conversation.id}`);
     }
     this.#remember(context, message, null, conversation);

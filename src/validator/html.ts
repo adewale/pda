@@ -58,7 +58,8 @@ const DOCUMENT_NAMES = {
   poppy: "poppy.json",
   "oauth-metadata": "OAuth server metadata",
   "client-metadata": "Client metadata",
-  jwks: "Key set (jwks_uri)"
+  jwks: "Key set (jwks_uri)",
+  "protected-resource": "Protected resource metadata"
 } as const;
 
 function forms(values: { url?: string; document?: string; kind?: string; domain?: string; fetchedFrom?: string } = {}): string {

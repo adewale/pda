@@ -23,6 +23,8 @@ import { isViolation, type JwtKind, type SignedKind, type ViolationId } from "./
 
 export const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 export const DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code";
+/** The Mediated Sign-In extension's grant (0.3: Mediated Sign-In 2). */
+export const MEDIATED_GRANT = "https://personalagentprotocol.org/grant/mediated-sign-in";
 export const CLIENT_ASSERTION_TYPE =
   "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
@@ -30,6 +32,11 @@ const SIGNING_ALGS = ["ES256", "RS256"];
 const PRIVATE_JWK_FIELDS = ["d", "p", "q", "dp", "dq", "qi", "k"];
 /** DPoP acceptance window plus clock skew, seconds. */
 const DPOP_WINDOW = 60;
+/** 0.3: the Session JWT's `iat` window (5.3: "such as one minute"), and the longest delegation (5.2). */
+const SESSION_JWT_WINDOW = 60;
+const DELEGATION_LIFETIME = 24 * 60 * 60;
+/** 0.3: delegations may be signed with either (5.2: "Companies MUST accept both"). */
+const DELEGATION_ALGS = ["ES256", "PS384"];
 const SKEW = 30;
 /** Longest assertion lifetime accepted, seconds; strict Companies allow 60. */
 const MAX_ASSERTION_LIFETIME = 300;
@@ -47,6 +54,7 @@ export type ClientInfo = {
   readonly name: string;
   readonly jwks: JSONWebKeySet;
   readonly redirectUris: readonly string[];
+  /** It lists the Operations extension at the version this Company's protocol version defines: "1" to 0.2, "2" from 0.3. */
   readonly listsOperations: boolean;
 };
 
@@ -64,6 +72,8 @@ export type Session = {
   grant: string | null;
   scope: string[];
   ended: boolean;
+  /** 0.3: the Agent ID its Session JWTs carry, if any (5.1); null under 0.1 and 0.2. */
+  readonly agentId?: string | null;
 };
 
 export type AccessToken = {
@@ -71,12 +81,17 @@ export type AccessToken = {
   readonly kind: "dpop" | "bearer";
   readonly jkt: string | null;
   readonly resource: string | null;
+  /** The Session it was issued in; "" under 0.3, where access tokens belong to no Session (5.4). */
   readonly sessionId: string;
   readonly scope: readonly string[];
   readonly signedIn: boolean;
   readonly account: string | null;
   readonly expiresAt: number;
   readonly issuedAt: number;
+  /** 0.3: who it was issued to, and the sign-in it descends from, so revoking its refresh token ends it (RFC 7009 2.1). */
+  readonly clientId?: string;
+  readonly userId?: string;
+  readonly grant?: string;
 };
 
 export type AccountToken = {
@@ -115,7 +130,8 @@ export type ServedDocument = { readonly status: number; readonly body: string };
 
 /** Who is calling a resource, after the Session Token checked out. */
 export type ResourceContext = {
-  readonly token: AccessToken;
+  /** The access token; null for a 0.3 request with only the Session header (5). */
+  readonly token: AccessToken | null;
   readonly session: Session;
   readonly client: ClientInfo;
   /** Signed in now, to the account the token was issued for. */
@@ -242,6 +258,11 @@ export class Company {
 
   get config(): MockConfig {
     return this.#config;
+  }
+
+  /** The Company speaks 0.3: Session headers, plain OAuth, Operations 2 (spec/draft-0.3-retrieved-2026-10-28). */
+  get v3(): boolean {
+    return this.#config.protocolVersion === "0.3";
   }
 
   /** The Company has this flaw (`COMPANY_FLAWS`): one of its protections is off. */
@@ -374,7 +395,8 @@ export class Company {
 
   /** What the Company calls reading and changing orders: `poppy:` scopes, or its own (`customScopesOnly`). */
   get orderScopes(): { readonly read: string; readonly write: string } {
-    return this.config.customScopesOnly
+    // 0.3 defines no scopes (4.7): every Company has its own.
+    return this.config.customScopesOnly || this.v3
       ? { read: "orders:read", write: "orders:write" }
       : { read: "poppy:read", write: "poppy:write" };
   }
@@ -441,7 +463,7 @@ export class Company {
    * only in the code submission, Account Tokens only at the token and
    * revocation endpoints. Anything else is a violation.
    */
-  scanSecrets(inbound: Inbound, allowed: "credentials" | "code" | "account-token" | null): void {
+  scanSecrets(inbound: Inbound, allowed: "credentials" | "code" | "account-token" | "token-endpoint" | null): void {
     const headerText: string[] = [];
     inbound.request.headers.forEach((value, name) => headerText.push(`${name}: ${value}`));
     const places: [string, string][] = [
@@ -462,11 +484,11 @@ export class Company {
       }
     };
     for (const account of this.config.accounts) {
-      check("secret.password", "password", account.password, allowed === "credentials");
+      check("secret.password", "password", account.password, (allowed === "credentials" || allowed === "token-endpoint"));
     }
-    for (const code of this.oneTimeCodes) check("secret.one-time-code", "one-time code", code, allowed === "code");
+    for (const code of this.oneTimeCodes) check("secret.one-time-code", "one-time code", code, (allowed === "code" || allowed === "token-endpoint"));
     for (const token of this.accountTokens.values()) {
-      check("secret.account-token", "Account Token", token.value, allowed === "account-token");
+      check("secret.account-token", "Account Token", token.value, (allowed === "account-token" || allowed === "token-endpoint"));
     }
     // Session Tokens never belong in a URL (4.3).
     for (const [name, value] of inbound.url.searchParams) {
@@ -560,7 +582,7 @@ export class Company {
       name: typeof metadata.client_name === "string" ? metadata.client_name : clientId,
       jwks,
       redirectUris: redirectUris as string[],
-      listsOperations: extensions.operations?.version === "1"
+      listsOperations: extensions.operations?.version === (this.v3 ? "2" : "1")
     };
     this.clients.set(clientId, info);
     return info;
@@ -926,8 +948,33 @@ export class Company {
     return token;
   }
 
-  /** An Account Token for the sign-in the Session is signed in with (`signIn` first). */
-  issueAccountToken(session: Session, scope: readonly string[]): AccountToken {
+  /**
+   * 0.3: an access token from a sign-in or refresh (4.5). It belongs to the
+   * client and the account, not to a Session (5.4); `grant` is the sign-in
+   * its refresh token descends from.
+   */
+  issueAccessV3(holder: { clientId: string; account: string; grant: string }, binding: { jkt: string | null; resource: string | null }, scope: readonly string[]): AccessToken {
+    const now = Date.now();
+    const token: AccessToken = {
+      value: randomId("at_", 24),
+      kind: binding.jkt ? "dpop" : "bearer",
+      jkt: binding.jkt,
+      resource: binding.resource,
+      sessionId: "",
+      scope,
+      signedIn: true,
+      account: holder.account,
+      expiresAt: now + this.config.sessionTokenTtl * 1000,
+      issuedAt: now,
+      clientId: holder.clientId,
+      grant: holder.grant
+    };
+    this.accessTokens.set(token.value, token);
+    return token;
+  }
+
+  /** An Account Token for the sign-in the Session is signed in with (`signIn` first); under 0.3 a refresh token for a sign-in, with no Session or User ID. */
+  issueAccountToken(session: Pick<Session, "clientId" | "userId" | "account" | "grant">, scope: readonly string[]): AccountToken {
     const token: AccountToken = {
       value: randomId("pat_", 24),
       clientId: session.clientId,
@@ -952,8 +999,8 @@ export class Company {
       token_type: access.kind === "dpop" ? "DPoP" : "Bearer",
       expires_in: this.config.sessionTokenTtl,
       ...(this.config.omitTokenScope ? {} : { scope: access.scope.join(" ") }),
-      session_id: access.sessionId,
-      signed_in: access.signedIn
+      // 0.3: plain OAuth token responses (4.7); Sessions are the Session header's.
+      ...(this.v3 ? {} : { session_id: access.sessionId, signed_in: access.signedIn })
     };
     if (refresh) {
       body.refresh_token = refresh.value;
@@ -986,10 +1033,245 @@ export class Company {
     session.scope = [...scope];
   }
 
+  // ---- 0.3: the Session header (5.2, 5.3) ----
+
+  /** Verified delegations by their compact form, until they expire (5.2: a resource "MAY cache a verified delegation"). */
+  readonly #delegations = new Map<string, { readonly clientId: string; readonly jwk: JWK; readonly exp: number }>();
+  /** The User each delegated key signed for, by thumbprint: one User ID per key (5.2). */
+  readonly delegatedKeyUsers = new Map<string, string>();
+  /** 0.3 Sessions by `client_id` and `sid` (5.3, step 4). */
+  readonly sessionsBySid = new Map<string, Session>();
+
+  /** 400 `invalid_session` (5.3). */
+  invalidSession(description?: string): HttpError {
+    return new HttpError(json({ error: "invalid_session", ...(description ? { error_description: description } : {}) }, 400, { "Cache-Control": "no-store" }));
+  }
+
+  /**
+   * A delegation (5.2, steps 1 and 2): signed by a key in the client's
+   * `jwks_uri` that its `kid` names, typed, issued by the client, unexpired
+   * and at most a day long, naming a public key and nothing about a User or
+   * a Company. Returns the delegated public key.
+   */
+  async #verifyDelegation(client: ClientInfo, delegation: string): Promise<JWK> {
+    const cached = this.#delegations.get(delegation);
+    const now = Math.floor(Date.now() / 1000);
+    if (cached && cached.clientId === client.clientId && cached.exp > now) return cached.jwk;
+    const fail = (id: ViolationId, why: string): HttpError => {
+      this.violation(id, `delegation: ${why}`);
+      return this.invalidSession(why);
+    };
+    let header;
+    let claims: JWTPayload;
+    try {
+      header = decodeProtectedHeader(delegation);
+      claims = decodeJwt(delegation);
+    } catch {
+      throw fail("delegation.not-jwt", "pap_dlg is not a JWT");
+    }
+    if (header.typ !== "pap-delegation+jwt") throw fail("delegation.typ", `typ is ${JSON.stringify(header.typ)}, not pap-delegation+jwt`);
+    if (!header.alg || !DELEGATION_ALGS.includes(header.alg)) throw fail("delegation.alg", `alg ${String(header.alg)} is not ES256 or PS384`);
+    const signer = client.jwks.keys.find((key) => key.kid === header.kid);
+    if (!signer) throw fail("delegation.kid", `kid ${JSON.stringify(header.kid)} names no key in jwks_uri`);
+    try {
+      await jwtVerify(delegation, await importJWK(signer, header.alg), { algorithms: DELEGATION_ALGS, typ: "pap-delegation+jwt" });
+    } catch (cause) {
+      throw fail("delegation.signature", `signature: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+    if (claims.iss !== client.clientId) throw fail("delegation.iss", "iss isn't the Session JWT's iss");
+    if (typeof claims.iat !== "number" || typeof claims.exp !== "number") throw fail("delegation.lifetime", "iat and exp are required");
+    if (claims.exp - claims.iat > DELEGATION_LIFETIME) throw fail("delegation.lifetime", `exp is ${claims.exp - claims.iat} s after iat, more than 24 hours`);
+    if (claims.exp <= now - SKEW) throw fail("delegation.expired", "the delegation has expired");
+    if (typeof claims.jti !== "string" || claims.jti.length < 22) throw fail("delegation.jti", "jti is missing or guessable");
+    const cnf = claims.cnf as { jwk?: unknown } | undefined;
+    const jwk = cnf && typeof cnf.jwk === "object" && cnf.jwk !== null ? (cnf.jwk as JWK) : null;
+    if (!jwk) throw fail("delegation.cnf", "cnf.jwk is missing");
+    if (isPrivateJwk(jwk as unknown as Record<string, unknown>)) throw fail("delegation.private-key", "cnf.jwk contains private key members");
+    const extra = Object.keys(claims).filter((name) => !["iss", "cnf", "iat", "exp", "jti", "nbf"].includes(name));
+    if (extra.length > 0) {
+      // 5.2: "MUST NOT put a User ID, an Agent ID, a Company's issuer, or anything else about the User or the Companies they use in a delegation."
+      throw fail("delegation.names-user", `carries ${extra.join(", ")}, which can name the User or a Company`);
+    }
+    this.#delegations.set(delegation, { clientId: client.clientId, jwk, exp: claims.exp });
+    return jwk;
+  }
+
+  /**
+   * 5.3: the Session header on a request to a resource, verified in order:
+   * the client metadata, the delegation, the JWT's signature and claims,
+   * `ath` against the access token, then the Session by `client_id` and
+   * `sid`, started when new. Every failure is 400 `invalid_session`.
+   */
+  async verifySessionHeader(inbound: Inbound, accessToken: string | null): Promise<{ readonly client: ClientInfo; readonly session: Session }> {
+    const where = `${inbound.request.method} ${inbound.url.pathname}`;
+    const fail = (id: ViolationId, why: string): HttpError => {
+      this.violation(id, `Session JWT: ${why} (${where})`);
+      return this.invalidSession(why);
+    };
+    const value = inbound.request.headers.get("Poppy-Session");
+    if (!value) {
+      throw accessToken !== null
+        ? fail("session-jwt.missing-with-token", "an access token without the Session header")
+        : fail("session-jwt.missing", "no Poppy-Session header");
+    }
+    let header;
+    let claims: JWTPayload;
+    try {
+      header = decodeProtectedHeader(value);
+      claims = decodeJwt(value);
+    } catch {
+      throw fail("session-jwt.not-jwt", "Poppy-Session is not a JWT");
+    }
+    if (header.typ !== "poppy-session+jwt") throw fail("session-jwt.typ", `typ is ${JSON.stringify(header.typ)}, not poppy-session+jwt`);
+    if (header.alg !== "ES256") throw fail("session-jwt.alg", `alg ${String(header.alg)} is not ES256`);
+    if (typeof header.pap_dlg !== "string") throw fail("session-jwt.no-delegation", "no pap_dlg delegation in the header");
+    if (typeof claims.iss !== "string") throw fail("session-jwt.iss", "iss is missing");
+    let client: ClientInfo;
+    try {
+      client = await this.client(claims.iss);
+    } catch (error) {
+      if (error instanceof HttpError) throw this.invalidSession("the client metadata couldn't be used");
+      throw error;
+    }
+    const jwk = await this.#verifyDelegation(client, header.pap_dlg);
+    if (header.kid !== (await calculateJwkThumbprint(jwk))) throw fail("session-jwt.kid", "kid isn't the delegated key's JWK thumbprint");
+    try {
+      await jwtVerify(value, await importJWK(jwk, "ES256"), { algorithms: ["ES256"], typ: "poppy-session+jwt" });
+    } catch (cause) {
+      throw fail("session-jwt.signature", `signature: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+    const delegation = this.#delegations.get(header.pap_dlg)!;
+    if (typeof claims.iat !== "number") throw fail("session-jwt.iat", "iat is missing");
+    if (claims.iat > delegation.exp) throw fail("session-jwt.after-delegation", "signed after its delegation expired");
+    if (Array.isArray(claims.aud) || claims.aud !== this.hosts.issuer) throw fail("session-jwt.aud", `aud ${JSON.stringify(claims.aud)} isn't the issuer as a single string`);
+    if (claims.htm !== inbound.request.method) throw fail("session-jwt.htm", `htm ${String(claims.htm)} isn't ${inbound.request.method}`);
+    if (claims.htu !== `${inbound.url.origin}${inbound.url.pathname}`) throw fail("session-jwt.htu", `htu ${String(claims.htu)} isn't this URL without its query`);
+    // Session JWTs carry the agent's real time; the fake clock moves only request timing.
+    if (Math.abs(Math.floor(Date.now() / 1000) - claims.iat) > SESSION_JWT_WINDOW + SKEW) throw fail("session-jwt.iat", "iat is outside the acceptance window");
+    if (!this.freshJti("session-jwt", claims.jti)) throw this.invalidSession("jti missing or reused");
+    if (typeof claims.sid !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(claims.sid)) throw fail("session-jwt.sid", "sid isn't 1 to 256 URL-safe characters");
+    if (typeof claims.sub !== "string" || claims.sub === "") throw fail("session-jwt.sub", "sub (the User ID) is missing");
+    if ("agent_id" in claims && (typeof claims.agent_id !== "string" || claims.agent_id === "")) throw fail("session-jwt.sub", "agent_id isn't a string");
+    if (accessToken !== null) {
+      if (claims.ath !== (await sha256b64(accessToken))) throw fail("session-jwt.ath", "ath doesn't match the access token");
+    } else if ("ath" in claims) {
+      throw fail("session-jwt.ath-without-token", "ath without an access token");
+    }
+    const thumbprint = header.kid;
+    const first = this.delegatedKeyUsers.get(thumbprint);
+    if (first === undefined) this.delegatedKeyUsers.set(thumbprint, `${client.clientId}|${claims.sub}`);
+    else if (first !== `${client.clientId}|${claims.sub}`) {
+      // 5.2: "MUST use each delegated key, and its delegation, for one User ID only."
+      this.violation("delegation.key-shared", `delegated key ${thumbprint} signed for another User ID`);
+    }
+    this.checkUserId(claims.sub);
+    const agentId = typeof claims.agent_id === "string" ? claims.agent_id : null;
+    const key = `${client.clientId}|${claims.sid}`;
+    let session = this.sessionsBySid.get(key);
+    if (!session) {
+      session = { id: randomId("ses_", 8), clientId: client.clientId, userId: claims.sub, agentId, account: null, boundAccount: null, mismatched: false, grant: null, scope: [], ended: false };
+      this.sessions.set(session.id, session);
+      this.sessionsBySid.set(key, session);
+    } else if (session.userId !== claims.sub || (session.agentId ?? null) !== agentId) {
+      throw fail("session-jwt.sub-changed", "a known sid with another User ID or Agent ID");
+    }
+    if (session.ended) throw this.invalidSession("the Session has ended");
+    return { client, session };
+  }
+
+  /**
+   * 0.3: a resource request (5.3, 7). The Session header always; an access
+   * token when signed in, with its DPoP proof when it is DPoP-bound. The
+   * Session is signed in on this request when it carries a token for an
+   * account, which it then keeps: a second account is refused (5.4).
+   */
+  async #authorizeV3(inbound: Inbound, mcp: boolean): Promise<ResourceContext> {
+    const header = inbound.request.headers.get("Authorization");
+    let token: AccessToken | null = null;
+    let value: string | null = null;
+    let scheme: "DPoP" | "Bearer" = this.config.dpopTokens ? "DPoP" : "Bearer";
+    if (header) {
+      const [given, presented] = header.split(" ", 2) as [string, string | undefined];
+      if (!presented || (given !== "Bearer" && given !== "DPoP")) throw resourceError(scheme, 401, "invalid_token");
+      value = presented;
+      token = this.accessTokens.get(presented) ?? null;
+      scheme = token?.kind === "bearer" ? "Bearer" : "DPoP";
+      if (!token || token.expiresAt <= Date.now() || (token.grant && this.#grantRevoked(token.grant))) {
+        // Verify the Session header still, so a bad one is reported first (5.3).
+        await this.verifySessionHeader(inbound, presented);
+        throw resourceError(scheme, 401, "invalid_token");
+      }
+      if ((given === "DPoP") !== (token.kind === "dpop")) {
+        this.violation("resource.bearer-scheme", `${given} scheme for a ${token.kind === "dpop" ? "DPoP-bound" : "Bearer"} token on ${inbound.url.pathname}`);
+        throw resourceError(scheme, 401, "invalid_token");
+      }
+      // 4.5, 7: a token for one service only there, and an MCP server only takes its own.
+      const resource = mcp ? this.hosts.mcpUrl : this.config.apiResource && inbound.url.origin === this.hosts.api ? this.hosts.api : null;
+      if (token.resource !== resource) {
+        if (mcp) this.violation("mcp.wrong-token", "MCP request with a token not issued for this MCP server");
+        throw resourceError(scheme, 401, "invalid_token", { headers: mcp ? { "WWW-Authenticate": `${scheme} error="invalid_token", resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", this.hosts.mcpUrl).href}"` } : {} });
+      }
+    }
+    const { client, session } = await this.verifySessionHeader(inbound, value);
+    if (token && value) {
+      if (token.clientId !== client.clientId || token.userId !== session.userId) {
+        // 5.3, step 3: the token was issued to the same client_id as iss.
+        this.violation("session-jwt.token-other-client", "the access token was issued to another client or User");
+        throw this.invalidSession("the access token isn't this client's");
+      }
+      if (token.kind === "dpop") {
+        const jkt = await this.verifyDpop(inbound, value);
+        if (jkt !== token.jkt) {
+          this.violation("dpop.key-mismatch", "DPoP proof key isn't the key the token is bound to");
+          if (!this.flawed("accept-other-key")) throw resourceError("DPoP", 401, "invalid_dpop_proof");
+        }
+      }
+      if (session.boundAccount && session.boundAccount !== token.account) {
+        // 5.4: "SHOULD start a new Session rather than use a second account in one Session"; the Company MAY refuse.
+        this.violation("session.second-account", `Session ${session.id} used with a second account`);
+        throw this.invalidSession("this Session is for another account");
+      }
+      session.account = token.account;
+      session.boundAccount = token.account;
+      session.grant = token.grant ?? null;
+      session.scope = [...token.scope];
+    } else {
+      session.account = null;
+    }
+    const signedIn = token !== null && token.account !== null;
+    return { token, session, client, signedIn, account: signedIn ? token!.account : null, scope: signedIn ? token!.scope : [] };
+  }
+
+  /** Whether the refresh token family `grant` was revoked: its access tokens are refused (RFC 7009 2.1). */
+  #grantRevoked(grant: string): boolean {
+    let any = false;
+    for (const token of this.accountTokens.values()) {
+      if (token.grant !== grant) continue;
+      any = true;
+      if (!token.revoked && !token.rotated) return false;
+    }
+    return any;
+  }
+
+  /** 0.3: a challenge for the account (7: "No error code", 401, with the scopes needed), or `insufficient_scope`. */
+  requireScopesV3(context: ResourceContext, needed: readonly string[], mcp: boolean): void {
+    const schemes = mcp ? ["Bearer"] : this.config.dpopTokens ? ["DPoP", "Bearer"] : ["Bearer"];
+    const scope = needed.join(" ");
+    const metadata = mcp ? `, resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", this.hosts.mcpUrl).href}"` : "";
+    if (!context.signedIn) {
+      throw new HttpError(json({}, 401, { "WWW-Authenticate": schemes.map((s) => `${s} scope="${scope}"${metadata}${s === "DPoP" ? ', algs="ES256"' : ""}`).join(", ") }));
+    }
+    if (!needed.every((entry) => context.scope.includes(entry))) {
+      const scheme = context.token?.kind === "dpop" ? "DPoP" : "Bearer";
+      throw new HttpError(json({ error: "insufficient_scope" }, 403, { "WWW-Authenticate": `${scheme} error="insufficient_scope", scope="${scope}"${metadata}` }));
+    }
+  }
+
   // ---- Resource requests (4.3, 6) ----
 
   /** The Session Token on an API, conversation, operations or mediated request. */
   async authorizeResource(inbound: Inbound, mcp = false): Promise<ResourceContext> {
+    if (this.v3) return this.#authorizeV3(inbound, mcp);
     const dpopMcp = mcp && this.config.protocolVersion === "0.2" && this.config.mcpDpop;
     const scheme = mcp && !dpopMcp ? "Bearer" : "DPoP";
     const header = inbound.request.headers.get("Authorization");
@@ -1072,6 +1354,7 @@ export class Company {
 
   /** `sign_in_required` or `insufficient_scope` unless the token covers `needed`. */
   requireScopes(context: ResourceContext, needed: readonly string[], mcp = false): void {
+    if (this.v3) return this.requireScopesV3(context, needed, mcp);
     const dpopMcp = mcp && this.config.protocolVersion === "0.2" && this.config.mcpDpop;
     const scheme = mcp && !dpopMcp ? "Bearer" : "DPoP";
     if (!context.signedIn) throw resourceError(scheme, 403, "sign_in_required");

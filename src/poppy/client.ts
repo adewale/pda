@@ -28,7 +28,7 @@ import type { EndpointRequest } from "./outgoing";
 import type { Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
 import { domainFromInput } from "../domain";
-import { isDraft2, protocolRevision, supportsProtocol } from "./protocol-version";
+import { protocolRevision, sinceVersion, supportsProtocol } from "./protocol-version";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
 export type PoppyHost = {
@@ -412,14 +412,14 @@ export class PoppyClient {
       throw error;
     }
     const { result, cacheSeconds } = discovered;
-    if (isCompany(result) && isDraft2(result)) {
+    if (isCompany(result) && sinceVersion(result, "0.2")) {
       const aliases = rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ? AND domain != ? AND expires_at > ?", result.issuer, key, this.host.now());
       if (aliases.some((row) => {
         const alias = JSON.parse(row.company) as Company;
         return alias.authFingerprint && alias.authFingerprint !== result.authFingerprint;
       })) throw new DiscoveryError("Domains sharing an issuer have different auth declarations");
     }
-    if (isCompany(result) && isDraft2(result) && result.domain.toLowerCase() !== key) {
+    if (isCompany(result) && sinceVersion(result, "0.2") && result.domain.toLowerCase() !== key) {
       await this.host.showCard({ id: `company-redirect-${key}`, kind: "notice", company: result.name, domain: result.domain, open: false, text: `You asked for ${key}. Its discovery leads to ${result.name} at ${result.domain}; this is the Company your agent will use.` });
     }
     recordDiscovery(this.sql, key, discovered.report, isCompany(result) ? result : null);
@@ -570,7 +570,7 @@ export class PoppyClient {
     const signing = await currentKey(this.host.env);
     // One retry for a new DPoP nonce, whenever it comes: after a 429 too.
     let nonceRetried = false;
-    let audience = isDraft2(company) ? company.issuer : endpoint;
+    let audience = sinceVersion(company, "0.2") ? company.issuer : endpoint;
     for (let attempt = 0; attempt < 3; attempt++) {
       await this.#respectLimit(company.issuer);
       // Each attempt gets new assertions and a new proof: Companies reject a reused jti.
@@ -620,7 +620,7 @@ export class PoppyClient {
         nonceRetried = true;
         continue;
       }
-      if (!isDraft2(company) && error === "invalid_client" && response.status === 401 && audience !== company.endpoints.token) {
+      if (!sinceVersion(company, "0.2") && error === "invalid_client" && response.status === 401 && audience !== company.endpoints.token) {
         recordOauth(this.sql, company, logged, answer);
         audience = company.endpoints.token;
         continue;
@@ -818,7 +818,7 @@ export class PoppyClient {
    * next token request binds a new token to it.
    */
   async token(company: Company, options: TokenOptions = {}): Promise<HeldToken> {
-    isDraft2(company); // Reject unknown versions even when a caller supplied cached state.
+    sinceVersion(company, "0.2"); // Reject unknown versions even when a caller supplied cached state.
     await this.#recoverSignIns(company.issuer);
     const label = options.label ?? "main";
     const key = `${company.issuer}|${label}|${options.resource ?? ""}|${options.scope ?? ""}|${options.bearer ? "bearer" : "dpop"}|${company.protocolVersion}`;
@@ -849,7 +849,7 @@ export class PoppyClient {
     dpop: DpopKey | null
   ): Promise<HeldToken> {
     const response = await this.#obtainToken(company, label, options);
-    if (isDraft2(company) && !response.token_type) throw new PoppyError("invalid_response", "The token response has no token_type", 0);
+    if (sinceVersion(company, "0.2") && !response.token_type) throw new PoppyError("invalid_response", "The token response has no token_type", 0);
     if ((response.token_type ?? (options.bearer ? "Bearer" : "DPoP")).toLowerCase() !== (options.bearer ? "bearer" : "dpop")) {
       throw new PoppyError("invalid_response", "The token type does not match the resource's authentication requirements", 0);
     }
@@ -928,7 +928,7 @@ export class PoppyClient {
               signing,
               this.identity.clientId,
               userId,
-              isDraft2(company) ? company.issuer : company.endpoints.token
+              sinceVersion(company, "0.2") ? company.issuer : company.endpoints.token
             ),
             ...(current ? { session_id: current.session_id } : {}),
             // A signed-out token has no scopes (4.2), and some Companies reject

@@ -38,6 +38,10 @@ export const operationsExt = (section: string, anchor: string): Ref => ({
   label: `Operations ${section}`,
   url: `${SITE}/extensions/operations#${anchor}`
 });
+export const mediatedExt = (section: string, anchor: string): Ref => ({
+  label: `Mediated Sign-In ${section}`,
+  url: `${SITE}/extensions/mediated-sign-in#${anchor}`
+});
 export const rfc = (number: number, section?: string): Ref => ({
   label: `RFC ${number}${section ? ` §${section}` : ""}`,
   url: `https://www.rfc-editor.org/rfc/rfc${number}${section ? `#section-${section}` : ""}`
@@ -581,6 +585,92 @@ export const MESSAGES = define({
     explain: "Direct Sign-In uses PKCE with S256, and code_challenge_methods_supported doesn't list it.",
     fix: "Add S256.",
     ref: spec("4.5", "direct-sign-in")
+  },
+  // 0.3 (spec/draft-0.3-retrieved-2026-10-28)
+  "poppy-redirect-path": {
+    basis: "MUST",
+    title: "Redirected away from the well-known path",
+    explain: "A redirect may move poppy.json to another host, but agents use it only when the last URL's path is exactly /.well-known/poppy.json, with no query. Otherwise anyone who can serve a file from some path on a domain could have it speak for that domain.",
+    fix: "Redirect to /.well-known/poppy.json on the other host, without a query.",
+    ref: spec("3", "discovery")
+  },
+  "prm-resource-mismatch": {
+    basis: "MUST",
+    title: "Protected resource metadata names another resource",
+    explain: "The domain's protected resource metadata is how agents find the issuer. Its resource must be exactly https:// and the domain.",
+    fix: "Set resource to https://{organization.domain}.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "prm-no-issuer": {
+    basis: "MUST",
+    title: "No authorization server",
+    explain: "authorization_servers in the domain's protected resource metadata names the Company's issuer. Empty, there is none, and agents can only browse the website.",
+    fix: "List the Company's issuer in authorization_servers.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "issuer-not-listed": {
+    basis: "MUST",
+    title: "auth.issuer isn't an authorization server of the domain",
+    explain: "auth.issuer only chooses among the domain's authorization_servers, so it must be one of them.",
+    fix: "Make auth.issuer one of the domain's authorization_servers, or leave it out when there is one.",
+    ref: spec("3.1", "fields")
+  },
+  "issuer-ambiguous": {
+    basis: "MUST",
+    title: "Several authorization servers and no auth.issuer",
+    explain: "User IDs and refresh tokens belong to one issuer, so every agent has to choose the same one. With more than one authorization server, auth.issuer says which.",
+    fix: "Add auth.issuer, naming the server agents use.",
+    ref: spec("3.1", "fields")
+  },
+  "metadata-protected-resources": {
+    basis: "MUST",
+    title: "protected_resources doesn't include the domain",
+    explain: "The issuer confirms the domain from its side by listing https://{domain} in protected_resources. Agents refuse a domain it doesn't list, so a domain can't claim another Company's issuer.",
+    fix: "Add https:// and organization.domain to protected_resources, with no path, port or trailing slash.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "metadata-refresh-grant": {
+    basis: "MUST",
+    title: "No refresh_token grant",
+    explain: "grant_types_supported must include refresh_token: every sign-in returns a refresh token, which agents use to get access tokens later.",
+    fix: "Add refresh_token to grant_types_supported.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "scope-hint-invalid": {
+    basis: "MUST",
+    title: "Scope hint without changes and personal_data",
+    explain: "Each entry in auth.scope_hints must have both fields: changes, a string, and personal_data, a boolean.",
+    fix: "Give the scope's hint both fields, or leave the scope out of scope_hints.",
+    ref: spec("4.7", "scopes")
+  },
+  "scope-hint-changes-unknown": {
+    basis: "MUST",
+    note: true,
+    title: "changes value this version doesn't define",
+    explain: "This version defines none, reversible and irreversible. Agents treat any other value as irreversible, so later versions can add values.",
+    fix: "Use none, reversible or irreversible, unless a later version defines the value.",
+    ref: spec("4.7", "scopes")
+  },
+  "mediated-field-reserved": {
+    basis: "MUST",
+    title: "Mediated Sign-In field with a reserved name",
+    explain: "A field's name is a parameter of the token request, so it can't be grant_type, scope, resource, a client authentication parameter, or one the extension defines.",
+    fix: "Rename the field.",
+    ref: mediatedExt("2", "advertising-support")
+  },
+  "mediated-grant-missing": {
+    basis: "MUST",
+    title: "Mediated Sign-In's grant isn't advertised",
+    explain: "A Company that offers Mediated Sign-In lists its grant type in the issuer's grant_types_supported.",
+    fix: "Add https://personalagentprotocol.org/grant/mediated-sign-in to grant_types_supported.",
+    ref: mediatedExt("2", "advertising-support")
+  },
+  "mediated-scope-unsupported": {
+    basis: "MUST",
+    title: "Mediated Sign-In offers a scope the issuer doesn't support",
+    explain: "Every scope the extension lists must be in the issuer's scopes_supported.",
+    fix: "Add the scope to scopes_supported, or remove it from the extension's scopes.",
+    ref: mediatedExt("2", "advertising-support")
   },
   "metadata-iss-parameter": {
     basis: "Rule",

@@ -11,7 +11,7 @@ import type { ScopeInfo } from "./wire";
 import type { Issuer } from "./issuer";
 import { companyErrorCode } from "./error-codes";
 import { keepReplaced, revokeReplaced } from "./signout";
-import { isDraft2 } from "./protocol-version";
+import { sinceVersion } from "./protocol-version";
 
 /** Pending sign-ins expire after this long (the Guides suggest Companies give a device code about 10 minutes). */
 const SIGN_IN_TTL_MS = 10 * 60 * 1000;
@@ -45,7 +45,7 @@ export function deviceLink(company: Company, value: unknown): string | null {
   const url = new URL(value);
   if (url.protocol !== "https:" || url.username || url.password) return null;
   const host = url.hostname.toLowerCase();
-  if (isDraft2(company)) {
+  if (sinceVersion(company, "0.2")) {
     const allowed = [new URL(company.issuer).hostname, ...(company.poppyDomains ?? [])].map((domain) => domain.toLowerCase());
     return allowed.some((domain) => host === domain || host.endsWith(`.${domain}`)) ? url.href : null;
   }

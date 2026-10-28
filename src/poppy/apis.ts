@@ -1,4 +1,4 @@
-import { isDraft2 } from "./protocol-version";
+import { sinceVersion } from "./protocol-version";
 import { Validator, type OutputUnit } from "@cfworker/json-schema";
 import { attachmentInfo, humanSize, readAttachment, type AttachmentInfo } from "../attachments";
 import { answerOf, PoppyClient, PoppyError, scopeSet, withAnswer, withoutAnswer, withUnreadableAnswer } from "./client";
@@ -995,11 +995,11 @@ async function checkResourceMetadata(client: PoppyClient, company: Company, api:
   ];
   for (const candidate of candidates) {
     try {
-      const { json, maxAgeSeconds } = await fetchJson(client.host.fetcher, candidate, isDraft2(company) ? { maxRedirects: 0 } : {});
+      const { json, maxAgeSeconds } = await fetchJson(client.host.fetcher, candidate, sinceVersion(company, "0.2") ? { maxRedirects: 0 } : {});
       const mode = (bearer: boolean) => ({ bearer, expiresAt: Date.now() + boundedCacheSeconds(maxAgeSeconds) * 1000 });
       if (isObject(json) && Array.isArray(json.authorization_servers)) {
         if (json.authorization_servers.includes(company.issuer)) {
-          if (!isDraft2(company)) return mode(true);
+          if (!sinceVersion(company, "0.2")) return mode(true);
           if (json.resource !== api.url) throw new PoppyError("bad_api", "MCP metadata resource must equal its exact URL", 0);
           const algs = json.dpop_signing_alg_values_supported;
           if (algs === undefined) return mode(true);

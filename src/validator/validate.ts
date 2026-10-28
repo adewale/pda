@@ -1,5 +1,5 @@
 import { domainFromInput } from "../domain.ts";
-import { protocolRevision } from "../poppy/protocol-version.ts";
+import { protocolRevision, versionAtLeast } from "../poppy/protocol-version.ts";
 /**
  * The validator's entry points. The same functions back the library, the
  * CLI, the HTTP endpoint and the form, and our own Poppy client uses
@@ -193,6 +193,10 @@ export function validateText(kind: DocumentKind, text: string, options: TextOpti
       profile.clientMetadata(c, value, { ...(options.fetchedFrom ? { fetchedFrom: options.fetchedFrom } : {}) });
       if (!options.fetchedFrom) skipped.push({ check: "client_id equals the URL fetched", reason: "No URL given." });
       skipped.push({ check: "The key set at jwks_uri", reason: "Validate by URL to fetch it." });
+    } else if (kind === "protected-resource") {
+      if (profile.protectedResource) profile.protectedResource(c, value, { signIn: { direct: false, device: false, mediated: false } });
+      else c.report("version-unsupported", "", `Protocol version ${profile.version} finds the issuer in poppy.json, not in protected resource metadata.`);
+      skipped.push({ check: "resource is https://{organization.domain}; auth.issuer is one of authorization_servers", reason: "Needs the poppy.json; validate by domain." });
     } else {
       profile.jwks(c, value);
     }
@@ -204,6 +208,10 @@ export type CompanyReport = Report & {
   /** The validated documents, for a client that ingests them. */
   readonly poppy?: unknown;
   readonly metadata?: unknown;
+  /** 0.3: the domain's protected resource metadata (3.2). */
+  readonly protectedResource?: unknown;
+  /** The issuer the documents settled on: `auth.issuer` before 0.3, the one the domain's metadata names from 0.3. */
+  readonly issuer?: string;
   /** The shorter of the two documents' cache lifetimes, unbounded; null if neither said. */
   readonly maxAgeSeconds: number | null;
 };
@@ -234,7 +242,28 @@ export async function validateCompany(fetcher: Fetcher, domain: string): Promise
     const chosen = profileFor(poppyChecker, poppy);
     if (chosen) {
       profile = chosen;
-      facts = profile.poppy(poppyChecker, poppy, { requestedDomain: profile.version === "0.2" ? new URL(fetched.finalUrl).hostname : requested });
+      facts = profile.poppy(poppyChecker, poppy, { requestedDomain: versionAtLeast(profile.version, "0.2") ? new URL(fetched.finalUrl).hostname : requested });
+    }
+  }
+  let protectedResource: unknown;
+  if (facts && profile.protectedResource) {
+    // 0.3 (3): a redirect may change the host, never the path.
+    const final = new URL(fetched.finalUrl);
+    if (final.pathname !== "/.well-known/poppy.json" || final.search !== "") {
+      poppyChecker.report("poppy-redirect-path", "", `The document came from ${final.origin}${final.pathname}${final.search ? " with a query" : ""}, not /.well-known/poppy.json.`);
+    }
+    // The issuer is the one the domain's protected resource metadata names (3.2).
+    const named = facts.issuer;
+    facts.issuer = undefined;
+    if (facts.domain && (facts.needsIssuer || named !== undefined)) {
+      const prmChecker = new Checker("protected-resource");
+      prmChecker.protocolVersion = profile.version;
+      checkers.push(prmChecker);
+      const prmFetched = await fetchDocument(fetcher, `https://${facts.domain.toLowerCase()}/.well-known/oauth-protected-resource`, prmChecker);
+      protectedResource = prmFetched.text !== undefined ? parse(prmChecker, prmFetched.text) : undefined;
+      documents.push(documentResult("protected-resource", prmFetched, protectedResource));
+      ages.push(prmFetched.maxAgeSeconds);
+      if (protectedResource !== undefined) facts.issuer = profile.protectedResource(prmChecker, protectedResource, { ...facts, ...(named !== undefined ? { issuer: named } : {}) });
     }
   }
   if (facts?.issuer) {
@@ -252,6 +281,8 @@ export async function validateCompany(fetcher: Fetcher, domain: string): Promise
     ...report(profile, documents, checkers, []),
     ...(poppy !== undefined ? { poppy } : {}),
     ...(metadata !== undefined ? { metadata } : {}),
+    ...(protectedResource !== undefined ? { protectedResource } : {}),
+    ...(facts?.issuer ? { issuer: facts.issuer } : {}),
     maxAgeSeconds: known.length ? Math.min(...known) : null
   };
 }

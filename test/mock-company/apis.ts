@@ -7,7 +7,7 @@ import {
   type Inbound,
   type ResourceContext
 } from "./core";
-import type { Operations } from "./operations";
+import { parseApprovalHeader, type Operations, type OperationsV2 } from "./operations";
 import type { MockConfig } from "./types";
 
 const PRODUCTS = [
@@ -119,6 +119,10 @@ function proposalOutputSchema(how: MockConfig["proposalDescription"]): Record<st
 
 export class Apis {
   readonly #idempotency = new Map<string, { hash: string; status: number; body: unknown }>();
+  /** 0.3: Idempotency-Keys sent on writes without an approval, which an approved request must not reuse (Ops 6). */
+  readonly #unapprovedKeys = new Set<string>();
+  /** The Operations extension, version 2 (0.3). */
+  operationsV2: OperationsV2 | undefined;
   /** The print shop's photos, each belonging to the Session that uploaded it. */
   readonly #photos = new Map<string, { sessionId: string; name: string; type: string; size: number }>();
   readonly #mcpSessions = new Set<string>();
@@ -512,6 +516,54 @@ export class Apis {
     };
   }
 
+  /** 0.3: `extension_required` at an API, in `WWW-Authenticate` (3.3). */
+  #extensionRequired(extension: string): HttpError {
+    return new HttpError(json({}, 403, { "WWW-Authenticate": `Bearer error="extension_required", extension="${extension}"` }));
+  }
+
+  /**
+   * 0.3: the exchange. To an agent that lists Operations 2 it needs
+   * approval: refused with the operation, then performed once on the same
+   * request with `Poppy-Approval` (Ops 4, 6, 7).
+   */
+  #exchangeV3(inbound: Inbound, context: ResourceContext): Response {
+    const co = this.company;
+    if (co.config.requiredExtension) throw this.#extensionRequired(co.config.requiredExtension);
+    const usesOperations = co.config.operations && context.client.listsOperations && !co.config.actsWithoutProposing && this.operationsV2;
+    if (!usesOperations) {
+      if (co.config.requireOperationsExtension) throw this.#extensionRequired("operations");
+      co.performExchange(context.account, "direct API call");
+      return json({ exchange: { exchange_id: randomId("exc_", 6), order_id: "ord_7Hk2", state: "placed" } }, 201);
+    }
+    const header = inbound.request.headers.get("Poppy-Approval");
+    const approval = header === null ? null : parseApprovalHeader(header);
+    if (header !== null && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
+      co.violation("approval.header", `Poppy-Approval isn't an RFC 9651 Dictionary with operation_id and revision Strings: ${JSON.stringify(header)}`);
+    }
+    const key = inbound.request.headers.get("Idempotency-Key");
+    const scoped = key ? `${context.session.id}|${key}|${header ?? ""}` : null;
+    if (key && header === null) this.#unapprovedKeys.add(`${context.session.id}|${key}`);
+    else if (key && this.#unapprovedKeys.has(`${context.session.id}|${key}`)) {
+      co.violation("approval.idempotency-key-reused", `the approved request reused the first request's Idempotency-Key ${key}`);
+    }
+    const seen = scoped ? this.#idempotency.get(scoped) : undefined;
+    if (seen) return json(seen.body, seen.status);
+    let asked: Record<string, unknown> = {};
+    try {
+      asked = JSON.parse(inbound.bodyText || "{}") as Record<string, unknown>;
+    } catch {
+      return json({ error: "invalid_request" }, 400);
+    }
+    const request = `${inbound.request.method} ${inbound.url.origin}${inbound.url.pathname} ${inbound.bodyText}`;
+    const result = this.operationsV2!.exchange(context, request, asked, approval);
+    const answer = "operation" in result
+      ? { status: 403, body: { error: "approval_required", operation: result.operation } }
+      : result.performed;
+    // An approval_required answer isn't kept: the next request decides afresh.
+    if (scoped && !("operation" in result)) this.#idempotency.set(scoped, { hash: inbound.bodyText, ...answer });
+    return json(answer.body, answer.status);
+  }
+
   /** OpenAPI routes on the API host. */
   rest(inbound: Inbound, context: ResourceContext): Response {
     const co = this.company;
@@ -519,7 +571,7 @@ export class Apis {
     const method = inbound.request.method;
     const { read, write } = co.orderScopes;
     // An API that names a `resource` takes only tokens issued for it (RFC 8707).
-    if (co.config.apiResource && context.token.resource !== co.hosts.api) {
+    if (co.config.apiResource && context.token?.resource !== co.hosts.api) {
       throw resourceError("DPoP", 401, "invalid_token");
     }
     if (co.config.printShop && method === "POST" && pathname === "/photos") return this.#uploadPhoto(inbound, context);
@@ -557,6 +609,7 @@ export class Apis {
     const exchange = /^\/orders\/([^/]+)\/exchanges$/.exec(pathname);
     if (method === "POST" && exchange) {
       co.requireScopes(context, [write]);
+      if (co.v3) return this.#exchangeV3(inbound, context);
       const key = inbound.request.headers.get("Idempotency-Key");
       if (key) {
         const scoped = `${context.session.id}|${key}`;
@@ -602,7 +655,7 @@ export class Apis {
     try {
       context = await co.authorizeResource(inbound, true);
     } catch (error) {
-      if (error instanceof HttpError && error.response.status === 401) {
+      if (error instanceof HttpError && error.response.status === 401 && !co.v3) {
         if (co.config.protocolVersion === "0.2") {
           const headers = new Headers(error.response.headers);
           const metadata = `https://mcp.${co.hosts.domain}/.well-known/oauth-protected-resource/mcp`;
@@ -679,6 +732,24 @@ export class Apis {
           content: [{ type: "text", text: products.map((product) => product.name).join(", ") || "No products" }],
           structuredContent: { products }
         });
+      }
+      if (name === "exchange_item" && co.v3 && co.config.operations && context.client.listsOperations && this.operationsV2) {
+        co.requireScopes(context, [co.orderScopes.write], true);
+        const meta = (rpc.params?._meta ?? {}) as Record<string, unknown>;
+        const given = meta["personalagentprotocol.org/approval"];
+        const approval = typeof given === "object" && given !== null && !Array.isArray(given) ? (given as Record<string, string>) : null;
+        if (given !== undefined && (!approval || typeof approval.operation_id !== "string" || typeof approval.revision !== "string")) {
+          co.violation("approval.mcp-meta", "the approval in _meta isn't an object with operation_id and revision strings");
+        }
+        const result = this.operationsV2.exchange(context, `tools/call exchange_item ${JSON.stringify(args)}`, args, approval);
+        if ("operation" in result) {
+          return reply({
+            isError: true,
+            content: [{ type: "text", text: `Not done yet. This needs the user's approval: ${result.operation.summary}` }],
+            structuredContent: { operation: result.operation }
+          });
+        }
+        return reply({ content: [{ type: "text", text: "Exchange placed." }], structuredContent: result.performed.body as Record<string, unknown> });
       }
       if (name === "exchange_item") {
         co.requireScopes(context, [co.orderScopes.write], true);

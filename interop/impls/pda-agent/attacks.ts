@@ -15,7 +15,7 @@
 import { base64url, calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT, type JWK } from "jose";
 import type { Company } from "../../../src/poppy/discovery.ts";
 import type { Fetcher } from "../../../src/poppy/fetch.ts";
-import { isDraft2 } from "../../../src/poppy/protocol-version.ts";
+import { sinceVersion } from "../../../src/poppy/protocol-version.ts";
 
 const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
@@ -55,7 +55,7 @@ async function dpopKey() {
 type DpopKey = Awaited<ReturnType<typeof dpopKey>>;
 
 /** Both assertions' `aud`: the issuer from 0.2 on, the token endpoint before it (as `src/poppy/client.ts`). */
-const audienceOf = (company: Company): string => (isDraft2(company) ? company.issuer : company.endpoints.token);
+const audienceOf = (company: Company): string => (sinceVersion(company, "0.2") ? company.issuer : company.endpoints.token);
 
 async function clientAssertion(ctx: AttackContext, s: Signer, aud: string, id = jti()): Promise<string> {
   const issuedAt = now();

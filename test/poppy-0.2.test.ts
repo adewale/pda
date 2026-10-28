@@ -6,7 +6,7 @@ import { TaskCompanyScope } from "../src/poppy/task-scope";
 const document = (version = "0.2") => ({ protocol_version: version, organization: { name: "Shop", domain: "www.shop.example" }, auth: { issuer: "https://auth.shop.example/tenant" }, apis: [{ type: "mcp", url: "https://mcp.shop.example/mcp", description: "Catalog" }] });
 
 describe("explicit Poppy draft profiles", () => {
-  it.each(["0.0", "0.3", "0.7", "1.0"])("refuses unsupported %s before fetching issuer metadata", async (version) => {
+  it.each(["0.0", "0.4", "0.7", "1.0"])("refuses unsupported %s before fetching issuer metadata", async (version) => {
     const seen: string[] = [];
     const report = await validateCompany(async (request) => { seen.push(request.url); return Response.json(document(version)); }, "www.shop.example");
     expect(report.refused).toBe(true);
@@ -15,7 +15,7 @@ describe("explicit Poppy draft profiles", () => {
 
   it("refuses an unsupported context before fetching standalone OAuth metadata", async () => {
     const seen: string[] = [];
-    const report = await validateTarget(async (request) => { seen.push(request.url); return Response.json({}); }, "https://shop.example/.well-known/oauth-authorization-server", { protocolVersion: "0.3" });
+    const report = await validateTarget(async (request) => { seen.push(request.url); return Response.json({}); }, "https://shop.example/.well-known/oauth-authorization-server", { protocolVersion: "0.4" });
     expect(report.refused).toBe(true);
     expect(seen).toEqual([]);
   });
@@ -34,7 +34,7 @@ describe("explicit Poppy draft profiles", () => {
 
   it("does not normalize www in 0.2 or silently fall back from an invalid validation context", () => {
     expect(validateText("poppy", JSON.stringify(document()), { domain: "shop.example" }).refused).toBe(true);
-    expect(validateText("oauth-metadata", "{}", { protocolVersion: "0.3" }).messages.map((m) => m.id)).toEqual(["version-unsupported"]);
+    expect(validateText("oauth-metadata", "{}", { protocolVersion: "0.4" }).messages.map((m) => m.id)).toEqual(["version-unsupported"]);
   });
 
   it("requires ES256 only when the optional 0.2 DPoP algorithm list is present", () => {

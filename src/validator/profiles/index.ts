@@ -6,12 +6,17 @@
  */
 import { draft0 } from "./draft-0.ts";
 import { draft02 } from "./draft-0.2.ts";
+import { draft03 } from "./draft-0.3.ts";
 import type { Profile } from "./profile.ts";
 
-export const PROFILES: readonly Profile[] = [draft0, draft02];
+export const PROFILES: readonly Profile[] = [draft0, draft02, draft03];
 
-/** The newest profile; versionless input defaults are selected explicitly by validate.ts. */
-export const LATEST: Profile = PROFILES[PROFILES.length - 1]!;
+/**
+ * The newest published version's profile, for a document that names no
+ * usable version. 0.3 is still an in-progress draft, so a document has to
+ * say "0.3" to be checked by it.
+ */
+export const LATEST: Profile = draft02;
 
 export function profileForVersion(version: string): Profile | undefined {
   return PROFILES.find((profile) => profile.version === version);
