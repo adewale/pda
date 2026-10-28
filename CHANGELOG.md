@@ -44,6 +44,10 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Fixed
 
+- Overlapping decisions on a local approval claim the pending request atomically after discovery, so an approved write is dispatched once and a competing decline cannot overwrite it.
+- Transcript outcomes use the Company's exact issuer and operation ID. API proposal results retain the issuer after cards expire; older results use a card's verified domain only when it identifies one issuer, otherwise they keep waiting for a known outcome.
+- The overlapping-model-call budget test seeds legacy spending with its synthetic clock, so the seven-day retention rule does not delete its fixture as calendar time advances.
+
 - The validator reports an API type other than `openapi` or `mcp` as an error in a 0.2 document too (section 6's MUST); our client still skips the API and uses the Company. The 0.2 profile had kept the information level meant for a document newer than the validator knew. `api-type-newer` is retired.
 - The validator reports a blank or whitespace-only `organization.name` as missing, as it does a missing one.
 - The adversarial agent (`evil-personal-agent`) signed its assertions for the token endpoint, so against a 0.2 Company, which wants the issuer, every attack failed before it was sent. It now uses the issuer from 0.2 on.

@@ -1,0 +1,15 @@
+{
+  "base": "19b5e42c23a2f60de5651a2f54c7235d79729956",
+  "date": "2026-10-28",
+  "existingAndRegressionTests": {
+    "passed": 1848,
+    "failed": 0,
+    "skipped": 1,
+    "suites": 5
+  },
+  "typecheck": "passed",
+  "specCheck": "passed",
+  "build": "passed",
+  "browserSmoke": "passed with zero uncaught errors; synthetic providers, no live OAuth/model or deployment",
+  "visualEvidence": "Actual Transcript and stepDecisions components rendered in Chromium with the production CSS. Same synthetic two-company operation-42 fixture on main and the fix branch; before status [done,done], after [waiting,done]. The surrounding title/caption explain the component fixture. No authentication code or live user data."
+}

@@ -1,0 +1,23 @@
+{
+  "before": [
+    {
+      "status": "done",
+      "text": "Made the change you approved at Company A: exchanges · API · view and change access\n\nDone\nDetails"
+    },
+    {
+      "status": "done",
+      "text": "Made the change you approved at Company B: exchanges · API · view and change access\n\nDone\nDetails"
+    }
+  ],
+  "after": [
+    {
+      "status": "waiting",
+      "text": "Asked you to approve a change at Company A · API · view and change access\n\nWaiting for you\nDetails"
+    },
+    {
+      "status": "done",
+      "text": "Made the change you approved at Company B: exchanges · API · view and change access\n\nDone\nDetails"
+    }
+  ],
+  "browserErrors": []
+}

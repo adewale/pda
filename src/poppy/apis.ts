@@ -7,6 +7,7 @@ import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { actedWithoutProposal, handleProposal, proposeLocal, refuseWhileConfirming, registerExecutor, rememberProposal } from "./operations";
 import type { Operation } from "./operation-value";
+import type { Issuer } from "./issuer";
 import { randomId } from "./jwt";
 import { EndpointRequest, type RequestInit } from "./outgoing";
 import { firstTime, intent, type Sql } from "./store";
@@ -819,12 +820,12 @@ const UNUSABLE = "The Company proposed an operation the agent can't use, so noth
 const UNPROPOSED =
   "The Company's description says this write answers with a proposal for the User to approve, but it answered without one, so it may have been done without the User's approval. The User has been told; don't say it was done or not done until the Company says which.";
 
-function answerForModel(answer: ApiAnswer): Json {
+function answerForModel(answer: ApiAnswer, issuer: Issuer): Json {
   if (answer.kind === "answered") return { status: answer.status, body: answer.body };
   if (answer.kind === "unusable") return { status: 202, unusable: true, note: UNUSABLE, body: answer.body };
   if (answer.kind === "unproposed") return { status: answer.status, unproposed: true, note: UNPROPOSED, body: answer.body };
   const { operation_id, revision, summary } = answer.operation;
-  return { status: 202, proposed: { operation_id, revision, summary }, note: "Nothing has happened yet; the User decides on the approval card." };
+  return { status: 202, proposed: { issuer, operation_id, revision, summary }, note: "Nothing has happened yet; the User decides on the approval card." };
 }
 
 /**
@@ -918,7 +919,7 @@ export async function callOpenApi(
     // the Operations extension covers what a Company does, not what we send it.
     return { proposed: await ask(), note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
   }
-  if (checked.method === "GET") return answerForModel(await sendApi(client, label, checked));
+  if (checked.method === "GET") return answerForModel(await sendApi(client, label, checked), company.issuer);
   if (company.extensions.operations && checked.op.proposes) {
     if (!checked.call.idempotencyKey && !firstTime(client.sql, `sent|${request.callKey}`)) {
       throw new PoppyError(
@@ -927,7 +928,7 @@ export async function callOpenApi(
         0
       );
     }
-    return answerForModel(await sendApi(client, label, checked, true));
+    return answerForModel(await sendApi(client, label, checked, true), company.issuer);
   }
   return { proposed: await ask(), note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
@@ -961,7 +962,7 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
       status
     );
   }
-  return JSON.stringify(answerForModel(answer)).slice(0, 2_000);
+  return JSON.stringify(answerForModel(answer, company.issuer)).slice(0, 2_000);
 });
 
 // ---------------------------------------------------------------- MCP
@@ -1165,7 +1166,7 @@ async function performMcp(
     const operation = await handleProposal(client, company, label, result.structuredContent.operation);
     if (operation) {
       rememberProposal(client, company.issuer, write, operation.operation_id);
-      return { proposed: { operation_id: operation.operation_id, revision: operation.revision, summary: operation.summary }, note: "Nothing has happened yet; the User decides on the approval card." };
+      return { proposed: { issuer: company.issuer, operation_id: operation.operation_id, revision: operation.revision, summary: operation.summary }, note: "Nothing has happened yet; the User decides on the approval card." };
     }
     return { unusable: true, note: UNUSABLE, result };
   }

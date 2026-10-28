@@ -125,7 +125,7 @@ describe("durable model admission and accounting", () => {
         demoLane: () => ({ provider: faux.provider, model: faux.getModel() }), ownKeyProviders: () => [],
         onRefused: async () => {}, onKeyRefused: async () => {}, now: () => now
       });
-      ledger.add(DAY, 0.1);
+      ledger.add(DAY, 0.1, now);
       const inner = createAssistantMessageEventStream();
       let started = false;
       const first = access.route(demoCatalogModel(testEnv), () => { started = true; return inner; });

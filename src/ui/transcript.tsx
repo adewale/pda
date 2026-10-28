@@ -140,10 +140,10 @@ function stepOf(call: ToolCall | undefined, result: ToolResult | undefined, runn
   const outcome = outcomeOf(result);
   const proposed = proposedBy(outcome);
   const approval = proposed && "approvalId" in proposed ? context.decisions.approvals.get(proposed.approvalId) : undefined;
-  const decision: ToolDecision | undefined = approval ?? (proposed && "operationId" in proposed ? context.decisions.operation(proposed.operationId) : undefined);
-  const line = describeToolCall(name, call?.arguments ?? {}, outcome ?? (running ? undefined : { error: false }), context.companies, decision);
   const args = call?.arguments;
   const domain = args && typeof args === "object" && "domain" in args && typeof args.domain === "string" ? args.domain : null;
+  const decision: ToolDecision | undefined = approval ?? (proposed && "operationId" in proposed ? context.decisions.operation(proposed.operationId, proposed.issuer, domain) : undefined);
+  const line = describeToolCall(name, call?.arguments ?? {}, outcome ?? (running ? undefined : { error: false }), context.companies, decision);
   return { call, result, line, name, running, domain, approval, status: line ? stepResult(line, decision) : null };
 }
 

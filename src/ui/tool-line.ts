@@ -39,12 +39,15 @@ export type ToolDecision = {
   readonly photos?: readonly string[];
 };
 
-/** The approval a call asked for (`{ proposed: "apr_…" }`), or the operation it proposed (`{ proposed: { operation_id } }`). */
-export function proposedBy(outcome: ToolOutcome | undefined): { approvalId: string } | { operationId: string } | null {
+/** The approval a call asked for, or its Company-scoped operation. Older results may lack the issuer. */
+export function proposedBy(outcome: ToolOutcome | undefined): { approvalId: string } | { operationId: string; issuer?: string } | null {
   if (!outcome || outcome.error || !isRecord(outcome.details)) return null;
   const proposed = outcome.details.proposed;
   if (typeof proposed === "string" && proposed.startsWith("apr_")) return { approvalId: proposed };
-  if (isRecord(proposed) && typeof proposed.operation_id === "string") return { operationId: proposed.operation_id };
+  if (isRecord(proposed) && typeof proposed.operation_id === "string") return {
+    operationId: proposed.operation_id,
+    ...(typeof proposed.issuer === "string" ? { issuer: proposed.issuer } : {})
+  };
   return null;
 }
 

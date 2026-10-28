@@ -1579,6 +1579,7 @@ describe("6 APIs", () => {
       body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
     });
     expect(result.text).toContain("proposed");
+    expect(JSON.parse(result.text)).toMatchObject({ proposed: { issuer: c.hosts.issuer } });
     expect((await c.stub.state()).performs).toBe(0);
   });
 
@@ -2522,7 +2523,9 @@ describe("Operations extension", () => {
     const a = await agent();
     await signInDirect(a, c);
     const call = { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
-    expect((await tool(a, "poppy_mcp_call", call)).isError).toBe(false);
+    const proposed = await tool(a, "poppy_mcp_call", call);
+    expect(proposed.isError).toBe(false);
+    expect(JSON.parse(proposed.text)).toMatchObject({ proposed: { issuer: c.hosts.issuer } });
     const card = (await cards(a)).find((item) => item.kind === "operation")!;
     await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
     expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");

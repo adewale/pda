@@ -1,0 +1,16 @@
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { Transcript } from '../../../src/ui/transcript.tsx';
+import { stepDecisions } from '../../../src/ui/steps.ts';
+const cards = [
+{id:'op-a',kind:'operation',issuer:'https://a.example/auth',company:'Company A',domain:'a.example',operationId:'42',revision:1,state:'proposed',open:true,summary:'Exchange at Company A',account:null,highlights:[],userApprovalRequired:true},
+{id:'op-b',kind:'operation',issuer:'https://b.example/auth',company:'Company B',domain:'b.example',operationId:'42',revision:1,state:'succeeded',open:false,summary:'Exchange at Company B',account:null,highlights:[],userApprovalRequired:true}
+];
+const messages = [
+{id:'u',role:'user',timestamp:1000,parts:[{type:'text',text:'Exchange my jacket at a.example and b.example.'}]},
+{id:'d',role:'tool',timestamp:1050,parts:cards.map((c,i)=>({type:'tool-result',id:'discover'+i,name:'poppy_discover',content:[],details:{domain:c.domain,company:c.company},error:false}))},
+{id:'a',role:'assistant',timestamp:1100,parts:cards.map((c,i)=>({type:'tool-call',id:'call'+i,name:'poppy_api_call',arguments:{domain:c.domain,operation:'POST /exchanges'}}))},
+{id:'r',role:'tool',timestamp:1200,parts:cards.map((c,i)=>({type:'tool-result',id:'call'+i,name:'poppy_api_call',content:[],details:{proposed:{issuer:c.issuer,operation_id:'42'}},error:false}))}
+];
+createRoot(document.getElementById('root')).render(<Transcript messages={messages} live={null} runningTools={[]} decisions={stepDecisions(cards)} />);
+requestAnimationFrame(()=>requestAnimationFrame(()=>{ window.fixtureReady=true; }));
