@@ -75,6 +75,7 @@ function Access({ scopes }: { scopes: readonly ScopeInfo[] }) {
         {scopes.map((scope) => (
           <li key={scope.scope} className="text-pretty">
             {scope.description}
+            {scope.hint ? <span className="text-kumo-subtle"> ({scope.hint})</span> : null}
           </li>
         ))}
       </ul>

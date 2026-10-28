@@ -31,25 +31,25 @@ export type MockAccount = {
  * stops refusing.
  */
 export const COMPANY_FLAWS = [
-  /** A reused client or Session assertion `jti` is accepted (4.2). */
+  /** A reused client assertion `jti` is accepted (4.1). */
   "accept-replayed-assertion",
-  /** A reused DPoP proof `jti` is accepted, at the token endpoint and resources (4.3). */
+  /** A reused DPoP proof `jti` is accepted, at the token endpoint and resources (4.5, RFC 9449 11.1). */
   "accept-replayed-proof",
-  /** A DPoP proof whose `htu` names another URL is accepted (4.3). */
+  /** A DPoP proof whose `htu` names another URL is accepted (RFC 9449 4.3). */
   "accept-wrong-htu",
-  /** A Session Token with a proof from a key it isn't bound to is accepted (4.3). */
+  /** A DPoP-bound access token with a proof from a key it isn't bound to is accepted (RFC 9449 7.1). */
   "accept-other-key",
-  /** A DPoP Session Token sent with the Bearer scheme, and no proof, is accepted outside MCP (4.3, 6). */
+  /** A DPoP-bound access token sent with the Bearer scheme, and no proof, is accepted (4.5, RFC 9449 7.1). */
   "accept-bearer-scheme",
-  /** A Session Token in the URL query, with no Authorization header or proof, is accepted (4.3). */
+  /** An access token in the URL query, with no Authorization header or proof, is accepted (5.6). */
   "accept-query-token",
-  /** A client assertion naming the token endpoint is accepted as well as one naming the issuer (0.2: 4.1). */
+  /** A client assertion naming the token endpoint is accepted as well as one naming the issuer (4.1). */
   "accept-token-endpoint-aud",
   /** Token responses carry no `Cache-Control: no-store` (Guides: secrets; RFC 6749 5.1). */
   "token-cacheable",
-  /** A retried first message (the same message id) starts a second conversation (7.3). */
+  /** A retried first message (the same message id) starts a second conversation (8.3). */
   "retry-new-conversation",
-  /** An Account Token the Company rotated still renews (4.8; permitted by N5). */
+  /** A refresh token the Company rotated still refreshes (4.4; permitted by N5). */
   "accept-rotated-account-token"
 ] as const;
 export type CompanyFlaw = (typeof COMPANY_FLAWS)[number];
@@ -259,6 +259,9 @@ export type MockConfig = {
   readonly protectedResourcesOverride: readonly string[] | null;
   /** List `excluded_tasks` (9.1). */
   readonly excludedTasks: boolean;
+  /** List `feedback.endpoint` (9.3); with `feedbackAlternative`, answer a report with 200 and an alternative (9.2) instead of 202. */
+  readonly feedback: boolean;
+  readonly feedbackAlternative: boolean;
 };
 
 export const DEFAULT_CONFIG: MockConfig = {
@@ -351,7 +354,9 @@ export const DEFAULT_CONFIG: MockConfig = {
   domainResourceOverride: null,
   listIssuer: false,
   protectedResourcesOverride: null,
-  excludedTasks: true
+  excludedTasks: true,
+  feedback: false,
+  feedbackAlternative: false
 };
 
 /** One request the mock received, with secrets redacted. */
@@ -421,6 +426,8 @@ export type MockState = {
   readonly browserJoins: number;
   /** Forms the website received: the signed-in account and every field, in order. */
   readonly formPosts: { readonly account: string | null; readonly fields: [string, string][] }[];
+  /** The feedback reports received (9.3): their task phrase, and whether they came signed in. */
+  readonly feedback: readonly { readonly task: string; readonly signedIn: boolean }[];
 };
 
 export type Hosts = {

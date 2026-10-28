@@ -144,7 +144,44 @@ export function outsidePoppySession(tokens: ReadonlySet<string>, method: string,
   return !security.some((requirement) => isObject(requirement) && Object.keys(requirement).some((name) => tokens.has(name)));
 }
 
-type OpenApiDocument = { readonly base: string; readonly operations: readonly OpenApiOperation[] };
+type OpenApiDocument = {
+  readonly base: string;
+  readonly operations: readonly OpenApiOperation[];
+  /** The description of each scope its OAuth 2.0 security schemes name (4.7: one place a Company describes its scopes). */
+  readonly scopes: Readonly<Record<string, string>>;
+};
+
+/** The scopes an OpenAPI description's OAuth 2.0 schemes describe, from every flow. */
+function oauthScopes(root: Json): Record<string, string> {
+  const schemes = isObject(root) && isObject(root.components) && isObject(root.components.securitySchemes) ? root.components.securitySchemes : {};
+  const found: Record<string, string> = {};
+  for (const value of Object.values(schemes)) {
+    const scheme = resolveRef(root, value);
+    if (!isObject(scheme) || scheme.type !== "oauth2" || !isObject(scheme.flows)) continue;
+    for (const flow of Object.values(scheme.flows)) {
+      if (!isObject(flow) || !isObject(flow.scopes)) continue;
+      for (const [scope, description] of Object.entries(flow.scopes)) {
+        if (typeof description === "string" && !(scope in found)) found[scope] = description.slice(0, 500);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Descriptions of the Company's scopes from the OpenAPI descriptions it
+ * lists (4.7). A description that can't be read describes nothing; sign-in
+ * goes on with `auth.scopes` and the scopes' own names.
+ */
+export async function openApiScopeDescriptions(client: PoppyClient, company: Company): Promise<Record<string, string>> {
+  const found: Record<string, string> = {};
+  for (const api of company.apis) {
+    if (api.type !== "openapi") continue;
+    const document = await openApi(client, api).catch(() => null);
+    for (const [scope, description] of Object.entries(document?.scopes ?? {})) if (!(scope in found)) found[scope] = description;
+  }
+  return found;
+}
 
 /**
  * Header parameters the client sets itself, never the model. OpenAPI 3.x
@@ -420,7 +457,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
       }
     }
   }
-  const document = { base, operations };
+  const document = { base, operations, scopes: oauthScopes(json) };
   documents.set(api.url, { document, expiresAt: Date.now() + boundedCacheSeconds(maxAgeSeconds) * 1000 });
   return document;
 }

@@ -107,7 +107,8 @@ export type ApprovalTerms = {
   readonly differences?: readonly string[];
 };
 
-export type ScopeInfo = { readonly scope: string; readonly description: string };
+/** A scope as a sign-in card shows it: the Company's description, and its hint in plain words when it gives one (3.1). */
+export type ScopeInfo = { readonly scope: string; readonly description: string; readonly hint?: string };
 
 /** One message in a Direct Conversation, for the page. */
 export type DirectMessage = {

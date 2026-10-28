@@ -1,10 +1,63 @@
-# Poppy 0.3: what has to change
+# Poppy 0.3: the ledger
 
-**The plan of record is [poppy-0.3-plan.md](poppy-0.3-plan.md):** support the two newest published versions, drop 0.1 now, and take a new version in about two working days, decided 28 October. This page keeps what each 0.3 change touches; where its order of work, gates or cross-cutting notes differ, the plan replaces them. Every open problem in the 0.3 text, with current line numbers, is in [poppy-0.3-issues.md](poppy-0.3-issues.md).
+We speak 0.3 alone, as upstream rewrote it on 28 October 2026 ([`spec/draft-0.3-retrieved-2026-10-28/`](../spec/draft-0.3-retrieved-2026-10-28/README.md)); 0.1 and 0.2 are gone ([decision 37](decisions.md)). Upstream publishes that text on its site but hasn't committed it, so the pin in [`spec/upstream.json`](../spec/upstream.json) is the dated snapshot and its hashes, with `commit` null, and `npm run check:spec` checks it offline; `npm run spec:drift` compares each pinned page's Markdown source on the site with the snapshot. Every open problem in the 0.3 text is in [poppy-0.3-issues.md](poppy-0.3-issues.md); how the work went is in [poppy-0.3-plan.md](poppy-0.3-plan.md).
 
-Draft 0.3 of the Personal Agent Protocol appeared on [personalagentprotocol.org](https://personalagentprotocol.org/docs/0.3/spec) between 24 and 25 October 2026, alongside the published, frozen 0.2. This page says what it changes for a Personal Agent, which of our files each change lands in, and the order to do it in. It was a plan, against the text before upstream rewrote 0.3 on 28 October; **the 28 October text is now implemented** on branch `poppy-0.3`, and [the plan says what was built and where](poppy-0.3-plan.md#then-03-as-rewritten-on-28-october). The ledger and evidence sections that [poppy-0.2-upgrade.md](poppy-0.2-upgrade.md) has will be written when it is. The text review, bugs and contradictions in 0.3 itself, is [spec-issues-0.3.md](spec-issues-0.3.md).
+## The 28 October changelog, entry by entry
 
-## Where things stand
+The 0.3 section of the changelog has 42 entries: 16 major changes, 23 minor ones and 3 for the Guides. [`spec/requirements-0.3.json`](../spec/requirements-0.3.json) gives each a disposition, the file that implements it and the test that shows it, and `npm run check:spec` fails when an entry has none or the list changes. The table below is generated from that file (`npm run spec:docs`). "Not used" is an option we don't take, with the reason; "Company obligation" is a rule only a Company can keep; "Shared" is a change of text that leaves our behaviour as it was.
+
+<!-- BEGIN GENERATED REQUIREMENT LEDGER -->
+| Upstream change | Disposition | Implementation / evidence | Scope and limits |
+| --- | --- | --- | --- |
+| Company-defined scopes | Done | [code](../src/poppy/signin.ts), [evidence](../test/poppy-0.3.test.ts) | Scopes are the Company's own, requested only from scopes_supported, and described from an OpenAPI description's OAuth scheme or auth.scopes (describeScopes, openApiScopeDescriptions). The validator checks every scope is described when it can see where; it can't read OpenAPI descriptions, so it warns only for Companies that list none. |
+| Sign-in types from the OAuth server metadata | Done | [code](../src/poppy/discovery.ts), [evidence](../test/poppy-0.3.test.ts) | Direct and Device Sign-In come from grant_types_supported; Mediated Sign-In from its extension. Any scope in scopes_supported may be requested by Direct or Device. |
+| Scope hints | Done | [code](../src/poppy/signin.ts), [evidence](../test/poppy-0.3.test.ts) | auth.scope_hints are read (an unknown changes value as irreversible) and shown on the sign-in card and to the model in plain words. They don't yet change which scopes the agent asks the User about before sign-in: every write already waits for the User's approval on a card. |
+| OAuth and Sessions sections | Done | [code](../src/poppy/client.ts), [evidence](../test/poppy-0.3.test.ts) | Section numbers in code, comments, the protocol log and the mock's checks follow 0.3 (4 OAuth, 5 Sessions, 6 web, 7 APIs, 8 conversations, 9 task coverage). |
+| Session header separate from OAuth | Done | [code](../src/poppy/client.ts), [evidence](../test/poppy-0.3.test.ts) | Every resource request carries a Poppy-Session JWT signed for it; plain refresh and access tokens; DPoP only when the issuer lists algorithms; invalid_session starts a new Session once. Session Tokens, the jwt-bearer grant and session_id are gone (decision 37). MCP servers get Bearer tokens for their url. |
+| Agent IDs for several agents | Not used | [code](../src/poppy/jwt.ts), [evidence](../test/poppy-0.3.test.ts) | One agent acts for each User here, so Session JWTs carry no agent_id. sessionJwt can carry one; the mock checks that a Session's Agent ID never changes (session-jwt.sub-changed). |
+| Session JWTs signed with delegated keys | Done | [code](../src/poppy/jwt.ts), [evidence](../test/poppy-0.3.test.ts) | Delegations (pap-delegation+jwt, cnf.jwk, no User or Company) last 4 hours from an iat rounded down to the hour and are renewed 10 minutes early; one delegated key per User ID per Company. |
+| Refused account changes | Done | [code](../src/poppy/client.ts), [evidence](../test/poppy-0.3.test.ts) | A second account at the same Company gets a new Session (sid), even after signing out of the first: the used_account column remembers the account a Session was used with. |
+| Browsers join a Session with an authorized one-time code | Done | [code](../src/poppy/browser.ts), [evidence](../test/poppy-0.3.test.ts) | GET the browser-session page, authorize its code at {endpoint}/authorize with the Session header and token, then the browser posts the form; the code never reaches the model. The browser assertion is gone. |
+| Excluded tasks | Done | [code](../src/poppy/coverage.ts), [evidence](../test/poppy-0.3.test.ts) | poppy_discover reads excluded_tasks with a GET and no token and gives the model the list as the Company's words. openapi and mcp references must name a listed API; web references are kept only on the Company's own hosts (our reading of a gap in 9.2). |
+| Answering feedback with an alternative | Done | [code](../src/poppy/coverage.ts), [evidence](../test/poppy-0.3.test.ts) | poppy_feedback accepts 202 or 200 with an alternative, doesn't report an excluded task, and sends one report per task (remembered once the Company has it). |
+| Secrets out of model context | Done | [code](../src/poppy/tools.ts), [evidence](../test/prompt-injection.test.ts) | Tokens, Session JWTs, keys, codes, verifiers, device codes and one-time codes never reach the model, the transcript or the logs (decision 31; src/log.ts). |
+| Blind signing | Not used | [code](../src/poppy/keys.ts), [evidence](../test/poppy-0.3.test.ts) | Our keys sign client assertions and delegations in our own Worker, which already acts for the User, so blind signing would hide nothing from us; ES256 only. The validator accepts PS384 keys and the mock accepts PS384 client assertions and delegations. |
+| Operations version 2: retry with approval | Done | [code](../src/poppy/operations-v2.ts), [evidence](../test/poppy-0.3.test.ts) | approval_required, Poppy-Approval, MCP _meta and a message's approval; one card per revision; at most once; an expired revision is never sent. Our own card still comes first for any API write, since a description has no marker for which writes need approval (decision 37). The approval card checks terms against the summary and the request (Ops 5 SHOULD). |
+| Mediated Sign-In is an extension grant | Done | [code](../src/poppy/signin.ts), [evidence](../test/poppy-0.3.test.ts) | The grant at the token endpoint, code_required then sign_in_id and one_time_code alone; reserved field names are refused; credentials go only to the issuer's token endpoint. |
+| Mediated Sign-In is transitional | Done | [code](../src/poppy/signin.ts), [evidence](../test/poppy-0.3.test.ts) | chooseSignInType prefers Direct, then Device, then Mediated. |
+| OAuth terms for Poppy names | Done | [code](../src/poppy/wire.ts), [evidence](../test/poppy-0.3.test.ts) | Refresh token and access token in code and on the page; some stable ids (account-token.* checks, poppy_accounts) keep their old names. |
+| Discovery redirects end at the well-known path | Done | [code](../src/validator/validate.ts), [evidence](../test/validator.test.ts) | poppy-redirect-path: a document whose last URL isn't exactly /.well-known/poppy.json with no query is refused. |
+| Restated rules and freedoms removed | Shared | [code](../src/poppy/client.ts), [evidence](../test/poppy-0.3.test.ts) | Nothing to remove on our side: the behaviours stay (caching by headers, refresh tokens only at the token and revocation endpoints). |
+| The issuer from protected resource metadata | Done | [code](../src/poppy/discovery.ts), [evidence](../test/validator.test.ts) | The issuer comes from https://{domain}/.well-known/oauth-protected-resource; auth.issuer only picks among several. |
+| `protected_resources` replaces `poppy_domains` | Done | [code](../src/poppy/discovery.ts), [evidence](../test/validator.test.ts) | The issuer must list https://{organization.domain}; device links are checked against its entries' hosts. |
+| Other API types allowed | Done | [code](../src/validator/messages.ts), [evidence](../test/validator.test.ts) | An unknown API type is skipped by the client and is an informational note in the validator, no longer an error. |
+| Tokens for one service from protected resource metadata | Done | [code](../src/poppy/client.ts), [evidence](../test/poppy-0.3.test.ts) | Before a signed-in call, a service's own protected resource metadata is read, and a token is requested with its resource; an MCP server's resource must equal its url. |
+| Extensions recognized from the request | Done | [code](../src/poppy/routes.ts), [evidence](../test/poppy-0.3.test.ts) | The client metadata lists Operations 2 only; Mediated Sign-In is recognized from its grant. |
+| Loopback redirect URIs | Validator only | [code](../src/validator/profiles/draft-0.3.ts), [evidence](../test/validator.test.ts) | The validator accepts http://127.0.0.1 and http://[::1] redirect URIs; our Worker has no use for one. |
+| Client assertions follow RFC 7523 | Done | [code](../src/poppy/jwt.ts), [evidence](../test/properties/jwt.test.ts) | One-minute client assertions with iat and a 128-bit jti, aud the issuer as a single string. |
+| Advice moved to the guides | Shared | [code](../src/poppy/conversations.ts), [evidence](../test/poppy-0.3.test.ts) | We still follow the moved advice (no markup in text, complete messages only, one-time codes kept out of the model). |
+| Device Sign-In follows RFC 10027 | Done | [code](../src/poppy/signin.ts), [evidence](../test/poppy-0.3.test.ts) | Direct Sign-In is preferred when offered; device links are shown only on the Company's hosts. |
+| Sign-out and access tokens | Done | [code](../src/poppy/signout.ts), [evidence](../test/poppy-0.3.test.ts) | Sign-out revokes every refresh token held for the account; the Session continues signed out with the same sid. |
+| Token responses follow RFC 6749 | Done | [code](../src/poppy/client.ts), [evidence](../test/poppy-0.3.test.ts) | A missing scope means the scopes requested (grantedScope); no signed_in or session_id. |
+| Requesting and describing scopes | Done | [code](../src/poppy/tools.ts), [evidence](../test/poppy-0.3.test.ts) | The model asks for the fewest scopes, chosen from the descriptions poppy_discover gives. |
+| User IDs as pairwise identifiers | Shared | [code](../src/poppy/client.ts), [evidence](../test/poppy-0.3.test.ts) | One random User ID per User per Company, never derived from personal information. |
+| Client metadata fetched without redirects | Done | [code](../src/poppy/routes.ts), [evidence](../test/validator.test.ts) | /poppy/client.json is served at exactly its URL; the validator refuses a redirect there. |
+| `sign_in_required` replaced by OAuth challenges | Done | [code](../src/poppy/client.ts), [evidence](../test/poppy-0.3.test.ts) | A 401 with no error code and a scope is handled as insufficient_scope; conversations' authorization events too. |
+| `rate_limited` removed | Done | [code](../src/poppy/client.ts), [evidence](../test/recovery.test.ts) | 429 with Retry-After is respected everywhere through the shared CompanyLimiter. |
+| Missing scopes on the website | Company obligation | [code](../src/poppy/fetch-browser.ts), [evidence](../test/poppy-0.3.test.ts) | Nothing to send; the model reads the page's error and can ask for the scope. |
+| `author` replaces `sender` | Done | [code](../src/poppy/message-author.ts), [evidence](../test/poppy-0.3.test.ts) | Our messages carry author.type; a Company author's name is shown as text, never trusted. |
+| Unknown status and responder values | Done | [code](../src/poppy/conversations.ts), [evidence](../test/poppy-0.3.test.ts) | An unknown status reads as working, an unknown responder as human. |
+| `kind` removed from feedback | Done | [code](../src/poppy/coverage.ts), [evidence](../test/poppy-0.3.test.ts) | Reports carry task and description only; the mock records a report with kind (feedback.kind). |
+| Verifying the user by sign-in in conversations | Done | [code](../src/poppy/tools.ts), [evidence](../test/poppy-0.3.test.ts) | The model is told to answer an authorization event with sign-in, never codes or personal details in messages. |
+| Authorization servers without client ID metadata documents | Company obligation | [code](../src/poppy/routes.ts), [evidence](../test/mock-company.test.ts) | A Company that registers agents by client_id gets ours at /poppy/client.json; the mock's requireRegistration tests invalid_client. |
+| API descriptions and one feedback channel | Done | [code](../src/poppy/coverage.ts), [evidence](../test/poppy-0.3.test.ts) | Feedback goes only to feedback.endpoint through poppy_feedback, never an API operation. |
+<!-- END GENERATED REQUIREMENT LEDGER -->
+
+## History: the plan against the 25 and 26 October text
+
+What follows is the plan as it was written before the 28 October rewrite, kept as the record of how the work was ordered. Its file references and sizes are against that text and the 0.1/0.2 code, much of which is gone.
+
+### Where things stand
 
 - **0.2 is published and frozen** (24 October). Its text is identical to our 19 October pin ([`spec/draft-0.2-2026-10-19/`](../spec/draft-0.2-2026-10-19/README.md)) apart from the site's links becoming relative; we diffed the spec, guides, Operations and Extensions pages. The 0.2 pin, ledger and `npm run check:spec` stand as they are.
 - **0.3 is "in progress"**: its changelog "grows until 0.3 is published", and every 0.x may break the one before. The site serves it at `/docs/0.3/…`, and `/docs/spec` now points there.
@@ -13,7 +66,7 @@ Draft 0.3 of the Personal Agent Protocol appeared on [personalagentprotocol.org]
 - **Operations is still called v1 but has changed**: its 3.2 and 5.2 now say `insufficient_scope` where 0.2's said `sign_in_required`, and its 4.3 example uses `author` where it used `sender` ([T36](spec-issues-0.3.md#t36)). The Extensions page is unchanged.
 - **No live Company declares 0.3** that we know of. The four live 0.2 targets in [live-0.2-testing.md](live-0.2-testing.md) and every peer in [`interop/impls/`](../interop/impls/) speak 0.1 or 0.2.
 
-## The changes, and where they land
+### The changes, and where they land
 
 Twenty-nine entries in the [0.3 changelog](../spec/draft-0.3-retrieved-2026-10-26/pages/changelog.md), plus its guides entry. Rows 1 to 18 were in the 01:47 text, 19 to 23 are new at 06:13, and 24 to 31 by 26 October; by then upstream had merged row 9 into row 2 and renamed row 2 "Company-defined scopes". "Breaking" is upstream's tag. Size is for a Personal Agent plus our mock, validator and tests: S is a day's work or less, M a few days, L a week or more. Line references are to the 01:47 snapshot's `pages/0.3-spec.md`.
 
@@ -58,7 +111,7 @@ Cross-cutting, outside any one entry:
 - **The schema.** One additive migration to `poppy_sessions` (Session Key and thumbprint, `session_id` nullable); `test/rows.test.ts` checks the declarations. Rows from 0.1 and 0.2 Sessions keep working; a 0.3 Session is never resumed by an older binary, so [upgrading.md](upgrading.md)'s rollback note gains a line: stop 0.3 interactions before rolling back.
 - **Docs.** `pda-spec.md` (the header's version statement and Appendix A, which cites section numbers that moved: section 5 is rewritten, 9.5 and 9.6 are new), `docs/capabilities.md`, `docs/readings.md` (the readings in [spec-issues-0.3.md](spec-issues-0.3.md) under "Our reading"), `spec/grounding.md` (quotes for every 0.3 requirement we claim), `docs/conformance-levels.md` if any basis changes, `docs/interop-spec.md` (a browser-join scenario, a Token Exchange scenario, a key-rotation-is-a-new-Session scenario), and the privacy policy if the Session Key changes what a Company can link (it doesn't: Sessions of one User are already linked by User ID).
 
-## Order of work
+### Order of work
 
 The 0.2 upgrade's rule holds: change only the decisions 0.3 changes, reuse everything else, and never let a newer version fall back to an older profile. In this order, each step shippable behind the 0.3 profile with 0.1 and 0.2 untouched:
 
@@ -72,11 +125,11 @@ The 0.2 upgrade's rule holds: change only the decisions 0.3 changes, reuse every
 
 Don't start step 3 while the draft is moving under it unless the owner accepts rework: of the twenty-nine entries, the Session Key design is the one most likely to shift after review, and it is the one the rest hang on.
 
-## What 0.3 does to the 0.1 catalogue
+### What 0.3 does to the 0.1 catalogue
 
 Each of the 64 findings in [spec-issues.md](spec-issues.md) is graded against 0.2 and 0.3 in [spec-issues-0.3.md](spec-issues-0.3.md#the-01-catalogue-in-02-and-03). In 0.2, 16 are resolved, 14 partly and 34 open; in 0.3, 21 resolved, 14 partly, 28 open and one worse (N4, step-up revocation). Four of the five Critical findings are resolved; N10, which hosts may receive a Session Token, is not. Of the thirteen High findings, two are resolved, five partly and six open: N45, N43, N25, N5, S22 and S20. The readings in [readings.md](readings.md) for the open ones still apply to a 0.3 profile.
 
-## Are we ready to implement 0.3?
+### Are we ready to implement 0.3?
 
 Not properly, not yet, though two gates opened on 26 October. "Properly" here means what [upgrading.md](upgrading.md) asks of every version: a pinned upstream commit, a ledger entry for each change, the official checks, and evidence against someone else's implementation. On 25 October none of those was possible. By 26 October a commit and the official checks exist, but the text is still changing, the sign-in questions are open, nobody else speaks 0.3, and our own 0.2 isn't finished:
 
@@ -101,7 +154,7 @@ What can start now, without rework whatever the draft does next:
 
 Start the 0.3 profile itself (steps 2 to 7 of the order of work) when the owner accepts rework, or when upstream marks 0.3 published or the changelog stops moving for a week or so.
 
-## Open questions for the owner
+### Open questions for the owner
 
 - **When.** 0.3 is a moving draft with no published date and no live Company; since 26 October it has an upstream commit and an official kit. See the gates above. Implementing now buys early interop evidence and early feedback to the authors; waiting avoids rework on the Session Key design. The validator and discovery parts (step 2) are cheap and safe to do first either way.
 - **Whether to keep 0.1.** *Decided 28 October: drop 0.1, and support the two newest published versions; see [poppy-0.3-plan.md](poppy-0.3-plan.md).* The 0.2 upgrade kept 0.1 for the live Companies that still speak it. Three profiles cost more than two in every table and test; dropping 0.1 when 0.3 lands is the natural moment, if the live 0.1 targets have moved by then.

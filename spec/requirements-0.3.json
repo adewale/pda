@@ -1,0 +1,302 @@
+{
+  "protocolVersion": "0.3",
+  "revision": "2026-10-28",
+  "commit": null,
+  "scope": "Disposition of every entry in the 0.3 changelog as retrieved on 28 October 2026; not a complete normative conformance claim.",
+  "changes": [
+    {
+      "change": "Company-defined scopes",
+      "disposition": "Done",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Scopes are the Company's own, requested only from scopes_supported, and described from an OpenAPI description's OAuth scheme or auth.scopes (describeScopes, openApiScopeDescriptions). The validator checks every scope is described when it can see where; it can't read OpenAPI descriptions, so it warns only for Companies that list none."
+    },
+    {
+      "change": "Sign-in types from the OAuth server metadata",
+      "disposition": "Done",
+      "implementation": "src/poppy/discovery.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Direct and Device Sign-In come from grant_types_supported; Mediated Sign-In from its extension. Any scope in scopes_supported may be requested by Direct or Device."
+    },
+    {
+      "change": "Scope hints",
+      "disposition": "Done",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "auth.scope_hints are read (an unknown changes value as irreversible) and shown on the sign-in card and to the model in plain words. They don't yet change which scopes the agent asks the User about before sign-in: every write already waits for the User's approval on a card."
+    },
+    {
+      "change": "OAuth and Sessions sections",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Section numbers in code, comments, the protocol log and the mock's checks follow 0.3 (4 OAuth, 5 Sessions, 6 web, 7 APIs, 8 conversations, 9 task coverage)."
+    },
+    {
+      "change": "Session header separate from OAuth",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Every resource request carries a Poppy-Session JWT signed for it; plain refresh and access tokens; DPoP only when the issuer lists algorithms; invalid_session starts a new Session once. Session Tokens, the jwt-bearer grant and session_id are gone (decision 37). MCP servers get Bearer tokens for their url."
+    },
+    {
+      "change": "Agent IDs for several agents",
+      "disposition": "Not used",
+      "implementation": "src/poppy/jwt.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "One agent acts for each User here, so Session JWTs carry no agent_id. sessionJwt can carry one; the mock checks that a Session's Agent ID never changes (session-jwt.sub-changed)."
+    },
+    {
+      "change": "Session JWTs signed with delegated keys",
+      "disposition": "Done",
+      "implementation": "src/poppy/jwt.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Delegations (pap-delegation+jwt, cnf.jwk, no User or Company) last 4 hours from an iat rounded down to the hour and are renewed 10 minutes early; one delegated key per User ID per Company."
+    },
+    {
+      "change": "Refused account changes",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "A second account at the same Company gets a new Session (sid), even after signing out of the first: the used_account column remembers the account a Session was used with."
+    },
+    {
+      "change": "Browsers join a Session with an authorized one-time code",
+      "disposition": "Done",
+      "implementation": "src/poppy/browser.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "GET the browser-session page, authorize its code at {endpoint}/authorize with the Session header and token, then the browser posts the form; the code never reaches the model. The browser assertion is gone."
+    },
+    {
+      "change": "Excluded tasks",
+      "disposition": "Done",
+      "implementation": "src/poppy/coverage.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "poppy_discover reads excluded_tasks with a GET and no token and gives the model the list as the Company's words. openapi and mcp references must name a listed API; web references are kept only on the Company's own hosts (our reading of a gap in 9.2)."
+    },
+    {
+      "change": "Answering feedback with an alternative",
+      "disposition": "Done",
+      "implementation": "src/poppy/coverage.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "poppy_feedback accepts 202 or 200 with an alternative, doesn't report an excluded task, and sends one report per task (remembered once the Company has it)."
+    },
+    {
+      "change": "Secrets out of model context",
+      "disposition": "Done",
+      "implementation": "src/poppy/tools.ts",
+      "evidence": "test/prompt-injection.test.ts",
+      "notes": "Tokens, Session JWTs, keys, codes, verifiers, device codes and one-time codes never reach the model, the transcript or the logs (decision 31; src/log.ts)."
+    },
+    {
+      "change": "Blind signing",
+      "disposition": "Not used",
+      "implementation": "src/poppy/keys.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Our keys sign client assertions and delegations in our own Worker, which already acts for the User, so blind signing would hide nothing from us; ES256 only. The validator accepts PS384 keys and the mock accepts PS384 client assertions and delegations."
+    },
+    {
+      "change": "Operations version 2: retry with approval",
+      "disposition": "Done",
+      "implementation": "src/poppy/operations-v2.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "approval_required, Poppy-Approval, MCP _meta and a message's approval; one card per revision; at most once; an expired revision is never sent. Our own card still comes first for any API write, since a description has no marker for which writes need approval (decision 37). The approval card checks terms against the summary and the request (Ops 5 SHOULD)."
+    },
+    {
+      "change": "Mediated Sign-In is an extension grant",
+      "disposition": "Done",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "The grant at the token endpoint, code_required then sign_in_id and one_time_code alone; reserved field names are refused; credentials go only to the issuer's token endpoint."
+    },
+    {
+      "change": "Mediated Sign-In is transitional",
+      "disposition": "Done",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "chooseSignInType prefers Direct, then Device, then Mediated."
+    },
+    {
+      "change": "OAuth terms for Poppy names",
+      "disposition": "Done",
+      "implementation": "src/poppy/wire.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Refresh token and access token in code and on the page; some stable ids (account-token.* checks, poppy_accounts) keep their old names."
+    },
+    {
+      "change": "Discovery redirects end at the well-known path",
+      "disposition": "Done",
+      "implementation": "src/validator/validate.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "poppy-redirect-path: a document whose last URL isn't exactly /.well-known/poppy.json with no query is refused."
+    },
+    {
+      "change": "Restated rules and freedoms removed",
+      "disposition": "Shared",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Nothing to remove on our side: the behaviours stay (caching by headers, refresh tokens only at the token and revocation endpoints)."
+    },
+    {
+      "change": "The issuer from protected resource metadata",
+      "disposition": "Done",
+      "implementation": "src/poppy/discovery.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "The issuer comes from https://{domain}/.well-known/oauth-protected-resource; auth.issuer only picks among several."
+    },
+    {
+      "change": "`protected_resources` replaces `poppy_domains`",
+      "disposition": "Done",
+      "implementation": "src/poppy/discovery.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "The issuer must list https://{organization.domain}; device links are checked against its entries' hosts."
+    },
+    {
+      "change": "Other API types allowed",
+      "disposition": "Done",
+      "implementation": "src/validator/messages.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "An unknown API type is skipped by the client and is an informational note in the validator, no longer an error."
+    },
+    {
+      "change": "Tokens for one service from protected resource metadata",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Before a signed-in call, a service's own protected resource metadata is read, and a token is requested with its resource; an MCP server's resource must equal its url."
+    },
+    {
+      "change": "Extensions recognized from the request",
+      "disposition": "Done",
+      "implementation": "src/poppy/routes.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "The client metadata lists Operations 2 only; Mediated Sign-In is recognized from its grant."
+    },
+    {
+      "change": "Loopback redirect URIs",
+      "disposition": "Validator only",
+      "implementation": "src/validator/profiles/draft-0.3.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "The validator accepts http://127.0.0.1 and http://[::1] redirect URIs; our Worker has no use for one."
+    },
+    {
+      "change": "Client assertions follow RFC 7523",
+      "disposition": "Done",
+      "implementation": "src/poppy/jwt.ts",
+      "evidence": "test/properties/jwt.test.ts",
+      "notes": "One-minute client assertions with iat and a 128-bit jti, aud the issuer as a single string."
+    },
+    {
+      "change": "Advice moved to the guides",
+      "disposition": "Shared",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "We still follow the moved advice (no markup in text, complete messages only, one-time codes kept out of the model)."
+    },
+    {
+      "change": "Device Sign-In follows RFC 10027",
+      "disposition": "Done",
+      "implementation": "src/poppy/signin.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Direct Sign-In is preferred when offered; device links are shown only on the Company's hosts."
+    },
+    {
+      "change": "Sign-out and access tokens",
+      "disposition": "Done",
+      "implementation": "src/poppy/signout.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Sign-out revokes every refresh token held for the account; the Session continues signed out with the same sid."
+    },
+    {
+      "change": "Token responses follow RFC 6749",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "A missing scope means the scopes requested (grantedScope); no signed_in or session_id."
+    },
+    {
+      "change": "Requesting and describing scopes",
+      "disposition": "Done",
+      "implementation": "src/poppy/tools.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "The model asks for the fewest scopes, chosen from the descriptions poppy_discover gives."
+    },
+    {
+      "change": "User IDs as pairwise identifiers",
+      "disposition": "Shared",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "One random User ID per User per Company, never derived from personal information."
+    },
+    {
+      "change": "Client metadata fetched without redirects",
+      "disposition": "Done",
+      "implementation": "src/poppy/routes.ts",
+      "evidence": "test/validator.test.ts",
+      "notes": "/poppy/client.json is served at exactly its URL; the validator refuses a redirect there."
+    },
+    {
+      "change": "`sign_in_required` replaced by OAuth challenges",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "A 401 with no error code and a scope is handled as insufficient_scope; conversations' authorization events too."
+    },
+    {
+      "change": "`rate_limited` removed",
+      "disposition": "Done",
+      "implementation": "src/poppy/client.ts",
+      "evidence": "test/recovery.test.ts",
+      "notes": "429 with Retry-After is respected everywhere through the shared CompanyLimiter."
+    },
+    {
+      "change": "Missing scopes on the website",
+      "disposition": "Company obligation",
+      "implementation": "src/poppy/fetch-browser.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Nothing to send; the model reads the page's error and can ask for the scope."
+    },
+    {
+      "change": "`author` replaces `sender`",
+      "disposition": "Done",
+      "implementation": "src/poppy/message-author.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Our messages carry author.type; a Company author's name is shown as text, never trusted."
+    },
+    {
+      "change": "Unknown status and responder values",
+      "disposition": "Done",
+      "implementation": "src/poppy/conversations.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "An unknown status reads as working, an unknown responder as human."
+    },
+    {
+      "change": "`kind` removed from feedback",
+      "disposition": "Done",
+      "implementation": "src/poppy/coverage.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Reports carry task and description only; the mock records a report with kind (feedback.kind)."
+    },
+    {
+      "change": "Verifying the user by sign-in in conversations",
+      "disposition": "Done",
+      "implementation": "src/poppy/tools.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "The model is told to answer an authorization event with sign-in, never codes or personal details in messages."
+    },
+    {
+      "change": "Authorization servers without client ID metadata documents",
+      "disposition": "Company obligation",
+      "implementation": "src/poppy/routes.ts",
+      "evidence": "test/mock-company.test.ts",
+      "notes": "A Company that registers agents by client_id gets ours at /poppy/client.json; the mock's requireRegistration tests invalid_client."
+    },
+    {
+      "change": "API descriptions and one feedback channel",
+      "disposition": "Done",
+      "implementation": "src/poppy/coverage.ts",
+      "evidence": "test/poppy-0.3.test.ts",
+      "notes": "Feedback goes only to feedback.endpoint through poppy_feedback, never an API operation."
+    }
+  ]
+}

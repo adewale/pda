@@ -1,5 +1,11 @@
-import { Company, json, MEDIATED_GRANT, randomId, type Inbound, type Session } from "./core";
+import { Company, json, MEDIATED_GRANT, randomId, type Inbound, type ResourceContext, type Session } from "./core";
 import type { ViolationId } from "./violations";
+
+/** The tasks the mock chose not to offer (9.1); the web reference is filled in per Company. */
+const EXCLUDED: readonly { readonly task: string; readonly alternative?: { readonly instructions: string } }[] = [
+  { task: "Close an account", alternative: { instructions: "Accounts are closed by phone." } },
+  { task: "Send a gift card" }
+];
 
 /** How long discovery documents may be cached unless a test says otherwise. */
 const DEFAULT_CACHING: Readonly<Record<string, string>> = { "Cache-Control": "max-age=300" };
@@ -59,6 +65,7 @@ export class Web {
     }
     if (config.web) document.web = config.browserSession ? { browser_session_endpoint: hosts.browserSessionEndpoint } : {};
     if (config.excludedTasks) document.excluded_tasks = { url: `${hosts.web}/poppy/excluded-tasks.json` };
+    if (config.feedback) document.feedback = { endpoint: `${hosts.api}/poppy/feedback` };
     const apis: Record<string, unknown>[] = [];
     if (config.unknownApi) apis.push({ type: "graphql", url: `${hosts.api}/graphql`, description: "Everything, as GraphQL" });
     if (config.openapi) apis.push({ type: "openapi", url: config.openapiUrlOverride ?? `${hosts.api}/openapi.json`, description: "Orders and exchanges" });
@@ -100,16 +107,42 @@ export class Web {
   /** The tasks this Company chose not to offer (9.1), for every User alike. */
   excludedTasks(): Response {
     if (!this.company.config.excludedTasks) return json({ error: "not_found" }, 404);
-    return json(
-      {
-        tasks: [
-          { task: "Close an account", alternative: { instructions: "Accounts are closed by phone.", references: [{ type: "web", url: `${this.company.hosts.web}/help/close` }] } },
-          { task: "Send a gift card" }
-        ]
-      },
-      200,
-      DEFAULT_CACHING
-    );
+    return json({ tasks: EXCLUDED.map((entry) => entry.task === "Close an account" ? { ...entry, alternative: { ...entry.alternative, references: [{ type: "web", url: `${this.company.hosts.web}/help/close` }] } } : entry) }, 200, DEFAULT_CACHING);
+  }
+
+  /**
+   * `POST {feedback.endpoint}` (9.3): a report with the Session header, signed
+   * in or out, no scope needed. 202 and no body, or 200 and an alternative
+   * when `feedbackAlternative`.
+   */
+  feedbackReport(inbound: Inbound, context: ResourceContext): Response {
+    const co = this.company;
+    if (!co.config.feedback) return json({ error: "not_found" }, 404);
+    let body: unknown;
+    try {
+      body = JSON.parse(inbound.bodyText || "null");
+    } catch {
+      return json({ error: "invalid_request" }, 400);
+    }
+    const report = typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+    const { task, description } = report;
+    if (typeof task !== "string" || typeof description !== "string" || task.length > 200 || description.length > 2_000) {
+      co.violation("feedback.fields", "feedback report: task (at most 200 characters) and description (at most 2,000) are required strings");
+      return json({ error: "invalid_request" }, 400);
+    }
+    if ("kind" in report) co.violation("feedback.kind", "feedback report: kind is 0.2's; 0.3 removed it (9.3)");
+    const phrase = task.toLowerCase().trim();
+    if (co.config.excludedTasks && EXCLUDED.some((entry) => entry.task.toLowerCase() === phrase)) {
+      co.violation("feedback.excluded-task", `feedback report about ${JSON.stringify(task)}, which the Company lists as excluded`);
+    }
+    if (co.feedback.some((entry) => entry.task.toLowerCase().trim() === phrase)) {
+      co.violation("feedback.repeated", `a second feedback report about ${JSON.stringify(task)}`);
+    }
+    co.feedback.push({ task, signedIn: context.signedIn });
+    if (co.config.feedbackAlternative) {
+      return json({ instructions: "Gift cards are applied at checkout on the website.", references: [{ type: "web", url: `${co.hosts.web}/checkout` }] });
+    }
+    return new Response(null, { status: 202 });
   }
 
   /** `GET https://{domain}/.well-known/poppy.json`, maybe by redirect (3). */

@@ -204,6 +204,7 @@ export class MockCompany extends DurableObject<Env> {
     }
     company.rateLimit("other", inbound);
     const context = await company.authorizeResource(inbound);
+    if (path === "/poppy/feedback" && method === "POST") return web.feedbackReport(inbound, context);
     const conversation = /^\/poppy\/conversations(?:\/([A-Za-z0-9_-]+)(?:\/(messages|events|handoff|close))?)?$/.exec(path);
     if (conversation) {
       const [, id, action] = conversation;
@@ -255,6 +256,7 @@ export class MockCompany extends DurableObject<Env> {
       conversations: conversations.summary(),
       operations: operations.summary(),
       browserJoins: company.browserJoins,
+      feedback: company.feedback.map((entry) => ({ ...entry })),
       formPosts: company.formPosts.map((post) => ({ account: post.account, fields: post.fields.map(([name, value]) => [name, value]) }))
     };
   }

@@ -9,6 +9,7 @@ import { signInsTable } from "./store";
 import type { ScopeInfo } from "./wire";
 import type { Issuer } from "./issuer";
 import { companyErrorCode } from "./error-codes";
+import { openApiScopeDescriptions } from "./apis";
 import { keepReplaced, revokeReplaced } from "./signout";
 
 /** Pending sign-ins expire after this long (the Guides suggest Companies give a device code about 10 minutes). */
@@ -21,11 +22,18 @@ export type SignInStart =
   | { readonly status: "signed_in"; readonly scope: string }
   | { readonly status: "waiting"; readonly type: SignInType; readonly signInId: string };
 
-export function describeScopes(company: Company, scopes: readonly string[]): ScopeInfo[] {
-  return scopes.map((scope) => ({
-    scope,
-    description: company.customScopes[scope] ?? scope
-  }));
+export function describeScopes(company: Company, scopes: readonly string[], fromApis: Readonly<Record<string, string>> = {}): ScopeInfo[] {
+  return scopes.map((scope) => {
+    const hint = company.scopeHints?.[scope];
+    // 4.7: described in an OpenAPI description's OAuth scheme, or otherwise in auth.scopes.
+    return { scope, description: fromApis[scope] ?? company.customScopes[scope] ?? scope, ...(hint ? { hint: hintText(hint) } : {}) };
+  });
+}
+
+/** A scope's hint in plain words (3.1 `scope_hints`): what its most consequential action changes, and whether it touches personal data. */
+function hintText(hint: NonNullable<Company["scopeHints"]>[string]): string {
+  const changes = { none: "Changes nothing", reversible: "Can make changes that can be undone", irreversible: "Can make changes that can't be undone" }[hint.changes];
+  return `${changes}${hint.personalData ? " · Uses your personal data" : ""}`;
 }
 
 /** A scope some sign-in type can request, from `scopes_supported` (4.7), described or not. */
@@ -109,7 +117,7 @@ export async function startSignIn(
   client.rememberCompany("signin", id, company);
   const base = { id, issuer: company.issuer };
   const scopeText = scopes.join(" ");
-  const info = describeScopes(company, scopes);
+  const info = describeScopes(company, scopes, await openApiScopeDescriptions(client, company));
   const insert = (secret: string, stateHash: string | null, interval: number | null, expiresAt: number) =>
     client.sql.exec(
       `INSERT INTO poppy_signins (id, type, issuer, label, account, scopes, state_hash, secret, interval_seconds, expires_at, status, created_at)

@@ -262,3 +262,55 @@ describe("0.3: conversations", () => {
     expect(state.conversations[0]!.sent[0]).toBe("agent:Can a person help?");
   });
 });
+
+describe("0.3: task coverage", () => {
+  it("reads the excluded tasks with discovery, keeping only references to the Company's own hosts and APIs", async () => {
+    const c = await company(V3);
+    const a = await agent();
+    const found = JSON.parse((await tool(a, "poppy_discover", { domain: c.domain })).text);
+    expect(found.excludedTasks.tasks.map((entry: { task: string }) => entry.task)).toEqual(["Close an account", "Send a gift card"]);
+    expect(found.excludedTasks.tasks[0].alternative).toEqual({ instructions: "Accounts are closed by phone.", references: [{ type: "web", url: `${c.hosts.web}/help/close` }] });
+    // 9.1: fetched with a GET and no token or Session header.
+    const fetch = (await requests(c)).find((request) => request.url.endsWith("/poppy/excluded-tasks.json"))!;
+    expect(fetch.headers.authorization).toBeUndefined();
+    expect(fetch.headers["poppy-session"]).toBeUndefined();
+  });
+
+  it("sends feedback once per task with the Session header, and accepts an alternative in answer", async () => {
+    const c = await company({ ...V3, feedback: true, feedbackAlternative: true });
+    const a = await agent();
+    const args = { domain: c.domain, task: "Pay with a gift card", description: "The User wanted to pay with a gift card; no API or page takes one." };
+    const first = JSON.parse((await tool(a, "poppy_feedback", args)).text);
+    expect(first.status).toBe("sent");
+    expect(first.companySays.alternative.references).toEqual([{ type: "web", url: `${c.hosts.web}/checkout` }]);
+    const again = JSON.parse((await tool(a, "poppy_feedback", args)).text);
+    expect(again.status).toBe("not sent");
+    const reports = (await requests(c)).filter((request) => request.url.endsWith("/poppy/feedback"));
+    expect(reports).toHaveLength(1);
+    expect(reports[0]!.headers["poppy-session"]).toBeDefined();
+    expect(reports[0]!.bodyKeys.sort()).toEqual(["description", "task"]);
+    expect((await c.stub.state()).feedback).toEqual([{ task: "Pay with a gift card", signedIn: false }]);
+  });
+
+  it("doesn't report a task the Company lists as excluded", async () => {
+    const c = await company({ ...V3, feedback: true });
+    const a = await agent();
+    const answer = JSON.parse((await tool(a, "poppy_feedback", { domain: c.domain, task: "close an account.", description: "The User wanted to close their account." })).text);
+    expect(answer.status).toBe("not sent");
+    expect(answer.excludedTasks.tasks[0].task).toBe("Close an account");
+    expect((await requests(c)).some((request) => request.url.endsWith("/poppy/feedback"))).toBe(false);
+  });
+});
+
+describe("0.3: describing scopes", () => {
+  it("shows each scope as the Company's OpenAPI description describes it, with its hint in plain words", async () => {
+    const c = await company({ ...V3, describesSecurity: true });
+    const a = await agent();
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: SCOPES, reason: "Exchange the jacket" });
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "signin_link" && item.open));
+    expect(card.scopes).toEqual([
+      { scope: "orders:read", description: "Read your orders", hint: "Changes nothing · Uses your personal data" },
+      { scope: "orders:write", description: "Exchange items on your orders", hint: "Can make changes that can't be undone · Uses your personal data" }
+    ]);
+  });
+});

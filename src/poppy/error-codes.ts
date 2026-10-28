@@ -26,6 +26,7 @@ export const AGENT_ERROR_CODES = [
   "no_api",
   "no_attachment",
   "no_company_agent",
+  "no_feedback",
   "no_operation",
   "no_operations",
   "no_tool",

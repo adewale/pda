@@ -30,8 +30,8 @@ export const CLIENT_ASSERTION_TYPE =
 
 /** DPoP proofs (RFC 9449; the metadata lists ES256). */
 const SIGNING_ALGS = ["ES256", "RS256"];
-/** Client assertions: Companies MUST accept ES256 and PS384 (4.1). */
-const CLIENT_ASSERTION_ALGS = ["ES256", "PS384"];
+/** Client assertions: Companies MUST accept ES256 and PS384 (4.1), and the Guides add RS256 ("Signing and verifying JWTs"). */
+const CLIENT_ASSERTION_ALGS = ["ES256", "PS384", "RS256"];
 const PRIVATE_JWK_FIELDS = ["d", "p", "q", "dp", "dq", "qi", "k"];
 /** DPoP acceptance window plus clock skew, seconds. */
 const DPOP_WINDOW = 60;
@@ -188,6 +188,28 @@ export function parseScope(value: string | null | undefined): string[] {
   return (value ?? "").split(" ").filter((part) => part !== "");
 }
 
+/** A loopback redirect URI for an app on the User's computer (RFC 8252 7.3), which 4.1 allows beside HTTPS ones. */
+export function isLoopbackRedirect(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" && (url.hostname === "127.0.0.1" || url.hostname === "[::1]");
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `given` is the registered `redirect_uri` exactly, or it but for a loopback URI's port (4.2, RFC 8252 7.3). */
+export function redirectUriMatches(registered: string, given: string): boolean {
+  if (registered === given) return true;
+  if (!isLoopbackRedirect(registered) || !isLoopbackRedirect(given)) return false;
+  const a = new URL(registered);
+  const b = new URL(given);
+  a.port = "";
+  b.port = "";
+  return a.href === b.href;
+}
+
 function isPrivateJwk(jwk: Record<string, unknown>): boolean {
   return PRIVATE_JWK_FIELDS.some((field) => field in jwk);
 }
@@ -238,6 +260,7 @@ export class Company {
   browserJoins = 0;
   /** Forms the website received: the signed-in account and every field, in order. */
   readonly formPosts: { account: string | null; fields: [string, string][] }[] = [];
+  readonly feedback: { task: string; signedIn: boolean }[] = [];
   tokenRequestCount = 0;
   otherRequestCount = 0;
   pageRequestCount = 0;
@@ -544,7 +567,7 @@ export class Company {
       throw fail("client-metadata.jwks-uri", "jwks_uri must be https on the client_id domain");
     }
     const redirectUris = Array.isArray(metadata.redirect_uris) ? metadata.redirect_uris : [];
-    if (!redirectUris.every(sameDomain)) {
+    if (!redirectUris.every((uri) => sameDomain(uri) || isLoopbackRedirect(uri))) {
       throw fail("client-metadata.redirect-uris", "redirect_uris must be https on the client_id domain");
     }
     if (metadata.token_endpoint_auth_method !== "private_key_jwt") {
@@ -657,7 +680,8 @@ export class Company {
       this.violation("client-assertion.not-jwt", "client assertion: not a JWT");
       throw oauthError(401, "invalid_client", "client assertion is not a JWT");
     }
-    if (header.typ === "poppy-browser+jwt" || header.typ === "dpop+jwt") {
+    // Explicit typing (RFC 8725 3.11, 5.2): a DPoP proof, Session JWT or delegation is never a client assertion.
+    if (header.typ === "dpop+jwt" || header.typ === "poppy-session+jwt" || header.typ === "pap-delegation+jwt") {
       this.violation("client-assertion.wrong-typ", `client assertion has typ ${header.typ}`);
       throw oauthError(401, "invalid_client");
     }
@@ -784,9 +808,8 @@ export class Company {
     if (!this.freshJti("dpop", claims.jti)) {
       throw fail("invalid_dpop_proof", "jti reused", null);
     }
-    if (atTokenEndpoint) {
-      if ("ath" in claims) throw fail("invalid_dpop_proof", "ath on a token request", "dpop.ath-at-token-endpoint");
-    } else if (claims.ath !== (await sha256b64(accessToken))) {
+    // At the token endpoint there's no access token, so ath isn't checked (RFC 9449 4.3).
+    if (!atTokenEndpoint && claims.ath !== (await sha256b64(accessToken))) {
       throw fail("invalid_dpop_proof", "ath doesn't match the token", "dpop.ath");
     }
     const jkt = await calculateJwkThumbprint(jwk);
