@@ -6,22 +6,22 @@ Poppy is a draft standard. PDA retains Draft 0.1 support and adds explicit Draft
 
 ## Components and supported Poppy versions
 
-The application and its testing tools share this repository. The versions below are supported wire profiles, not tool release numbers or certification. The 0.2 profile targets the pinned **19 October 2026** revision in [spec/upstream.json](spec/upstream.json); the project has no 0.3 profile.
+The 0.2 implementation targets the **19 October 2026** revision pinned in [spec/upstream.json](spec/upstream.json). No component implements Poppy 0.3 yet.
 
-| Component | Poppy versions | What it contains |
+| Component | Poppy versions | What it does |
 | --- | --- | --- |
-| [PDA application and client](pda-spec.md) | 0.1, 0.2 | The Personal Agent application, its Poppy tools, sign-in flows, conversations, API calls and Operations v1 approvals |
-| [Document validator](docs/validator.md) | 0.1, 0.2 | One library behind the web form, HTTP API and CLI; checks Company discovery, OAuth metadata, client metadata and keys |
-| [Reference/mock Company](interop/README.md#the-fake-implementations) | 0.1, 0.2 | A shared Company implementation with lenient, strict, deliberately flawed and adversarial configurations |
-| [Fake test Personal Agents](interop/README.md#the-fake-implementations) | 0.1, 0.2 | Lenient, strict, sloppy and adversarial agents built around PDA's client; these are test peers, not separate application clients |
-| [Interop harness](docs/interop-spec.md) | 0.1, 0.2 lanes | Scenarios, container isolation, recording proxy, protocol checks, failure attribution and reports; cells need a common supported version |
-| [Third-party adapters](interop/registry.json) | By pinned implementation | Older peers retain their 0.1 pins; separate Datalayer 0.2 entries and Print with Poppy exercise 0.2. Upstream support does not change a retained pin |
-| [Official Company validator](interop/vectors/official/README.md) | 0.2 | The pinned upstream checker runs behavioral checks against Companies and tests with known Company flaws; its coverage mapping is in [spec/official-checks-0.2.json](spec/official-checks-0.2.json) |
-| [Validator cross-checks](interop/vectors/validators/README.md) | 0.1 and 0.2, by checker | Two community validators check the 0.1 corpus; the official validator checks the separate 0.2 corpus, alongside ours |
-| Independent client/conformance tests | 0.1 | A [Python client and Hypothesis model](test/hypothesis/README.md) test the mock independently; [Datalayer's pinned conformance cases](interop/vectors/datalayer/README.md) test our client and validator |
-| [Specification snapshots and requirement ledgers](spec/grounding.md) | Historical 0.1; active 0.2 | Stored specification text, schemas, upstream code, requirement mappings and implementation evidence |
+| [PDA application and client](pda-spec.md) | 0.1, 0.2 | Signs in to Companies, uses their APIs and conversations, and requests approval for account changes and Operations v1 proposals |
+| [Document validator](docs/validator.md) | 0.1, 0.2 | Checks Company discovery, OAuth metadata, client metadata and keys. One library backs the web form, HTTP API and CLI |
+| [Reference/mock Company](interop/README.md#the-fake-implementations) | 0.1, 0.2 | Serves Company endpoints and records violations. Tests select lenient, strict, deliberately flawed or adversarial behavior |
+| [Fake test Personal Agents](interop/README.md#the-fake-implementations) | 0.1, 0.2 | Exercise Companies with lenient, strict, sloppy or malicious behavior, using PDA's client and test adapter |
+| [Interop harness](docs/interop-spec.md) | 0.1, 0.2 | Runs agent/Company pairs in isolated containers, records exchanges and reports failures by protocol rule |
+| [Third-party adapters](interop/registry.json) | 0.1 or 0.2, by pin | Run foreign implementations at reviewed commits. Separate Datalayer entries retain each profile; Print with Poppy uses 0.2 |
+| [Official Company validator](interop/vectors/official/README.md) | 0.2 | Runs the pinned upstream checker's behavioral tests against Companies. A flawed-Company lane checks which broken protections it detects; [the coverage map](spec/official-checks-0.2.json) relates its checks to ours |
+| [Validator cross-checks](interop/vectors/validators/README.md) | 0.1 and 0.2, by checker | Compare our document verdicts with two community validators over the original corpus, and with the official validator over the separate 0.2 corpus |
+| Independent client/conformance tests | 0.1 | A [Python client and Hypothesis model](test/hypothesis/README.md) test the mock independently. [Datalayer's pinned cases](interop/vectors/datalayer/README.md) test our client and validator |
+| [Specification snapshots and requirement ledgers](spec/grounding.md) | Historical 0.1; active 0.2 | Preserve upstream text, schemas and code, and link requirements to implementation and test evidence |
 
-The validator and fake agents share code with PDA. Supporting a new profile in the tools does not by itself implement that profile in the application. Results retain their observation dates and exact tested revisions; the [ecosystem map](docs/ecosystem.md#current-ecosystem) distinguishes current source observations from historical grids and live journeys.
+PDA uses the document validator during discovery, and the fake agents wrap PDA's client. Each harness pairing needs a common supported version. The [ecosystem map](docs/ecosystem.md#current-ecosystem) records observation dates and tested revisions separately for source reviews, grids and live journeys.
 
 ## See it work: ordering a print from print-with-poppy
 
