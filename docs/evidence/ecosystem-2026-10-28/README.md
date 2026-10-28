@@ -17,6 +17,12 @@ node scripts/app-smoke.mjs --ecosystem-viewport --output /tmp/ecosystem-browser.
 
 For the baseline, use the base Markdown with this branch's capture flag; that flag changes screenshot dimensions only. No application renderer or layout code changed in this PR.
 
+## README evidence
+
+`readme-before.png` shows GitHub's rendered README at the base commit, where the introduction leads straight into the ordering demo. `readme-after.png` shows the new ten-row component/version table at commit `300c719bd21a8508f59a75474fb0b22e96f1a8e3`. These captures use GitHub's own HTML and CSS in Chromium at 1440 × 1000, with scripts disabled and public GET requests through the managed proxy. No asset request failed.
+
+The [README receipt](readme-receipt.json) records both immutable page URLs, Markdown and image hashes, the browser version, capture time and row counts. To reproduce, open those URLs at the recorded viewport and capture the original introduction and the new component section. The images show the documentation; protocol support was checked against the source manifests and pins. GitHub's presentation can change after the capture date.
+
 ## Other receipts
 
 - `survey.json` and `survey.md`: 23 repository heads, release/directory/search observations and 33 public discovery checks. Reviewed follow-up pin changes are separate from the pins read at survey start.
