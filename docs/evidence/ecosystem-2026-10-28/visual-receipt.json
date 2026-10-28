@@ -1,0 +1,25 @@
+{
+  "baseCommit": "c3eabd00e398f2934a462d44c38640c2cfd8cfff",
+  "renderer": "unchanged production About/ecosystem renderer; local workerd and existing app-smoke fixture",
+  "beforeMarkdownSha256": "1edb6bcd2299e8ff17748cc56f8563603216c33724e77d8f72c27b7694ee6336",
+  "afterMarkdownSha256": "d13412abb8dfa4955e89ecf753127eb191b01a388484d95496b93d9cda5f7ca9",
+  "desktopViewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "phoneViewport": {
+    "width": 375,
+    "height": 812
+  },
+  "scope": "Rendered map data and layout. No live OAuth, model, Company session or ordering flow.",
+  "files": {
+    "after.png": "4cca284d2b5e4a9946d549da42d3c35d166e2531e8944e9b88206f98ac280ff9",
+    "before.png": "e1610b3ed47b9c4a7a87cf7ad427b2da678ed84aa8b9569d85bc48723edfd650",
+    "mobile-landscape.png": "03d6cd704fec01d4f3f5badd0abb245096706fa0d594d9612bc625eb4b9c275f",
+    "mobile.png": "4c7d68b97391adc5bed539c12fc4a4caad58943a60b26c1f36b9de2792256b71"
+  },
+  "landscapeViewport": {
+    "width": 812,
+    "height": 375
+  }
+}

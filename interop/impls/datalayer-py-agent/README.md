@@ -70,3 +70,7 @@ All in the adapter, none in upstream code (`patches/` is empty at v0.17.0 too):
 ## Readings
 
 `S1: endpoint` (each client assertion's `aud` is the endpoint it is sent to: token, device authorization or revocation), `S2: jwt-60s` (`typ: JWT`, `kid`, 60-second lifetime), `S3: insertion`, `S4: omit`. The SDK retries a nonce once per request and keeps none, so S23 is not declared.
+
+## Separate draft 0.2 peer — 28 October 2026
+
+The `-v02` registry entry moves from SDK 0.25.0 (`97c1386`) to SDK 0.26.0 at [`0ff43c55cc303c3165cb2d5841eca026e1c7c699`](https://github.com/datalayer/personal-agent-protocol/tree/0ff43c55cc303c3165cb2d5841eca026e1c7c699). The shared Dockerfile takes that revision through its existing build argument; the runner supplies `INTEROP_COMMIT` for the manifest. The 0.1 peer and its source links above retain their original pin. Version 0.26 adds API-write idempotency and Company-side idempotency records; latest 0.27 changes to draft 0.3 and is not used by this 0.2 adapter.

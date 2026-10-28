@@ -304,11 +304,11 @@
       "name": "datalayer-ts-v02",
       "role": "agent",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc",
+      "commit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
       "build": "interop/impls/datalayer-ts-agent",
-      "notes": "TypeScript SDK clients driven directly; no model. BSD-3-Clause. SDK 0.25.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
+      "notes": "TypeScript SDK clients driven directly; no model. BSD-3-Clause. SDK 0.26.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
       "buildArgs": {
-        "COMMIT": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+        "COMMIT": "0ff43c55cc303c3165cb2d5841eca026e1c7c699"
       },
       "env": {
         "INTEROP_POPPY_VERSION": "0.2"
@@ -318,11 +318,11 @@
       "name": "datalayer-ts-v02",
       "role": "company",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc",
+      "commit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
       "build": "interop/impls/datalayer-ts-company",
-      "notes": "Manzanita reference Company on the TypeScript CompanyService. BSD-3-Clause. SDK 0.25.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
+      "notes": "Manzanita reference Company on the TypeScript CompanyService. BSD-3-Clause. SDK 0.26.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
       "buildArgs": {
-        "COMMIT": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+        "COMMIT": "0ff43c55cc303c3165cb2d5841eca026e1c7c699"
       },
       "env": {
         "INTEROP_POPPY_VERSION": "0.2"
@@ -332,11 +332,11 @@
       "name": "datalayer-py-v02",
       "role": "agent",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc",
+      "commit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
       "build": "interop/impls/datalayer-py-agent",
-      "notes": "Python SDK clients driven directly; no model. BSD-3-Clause. SDK 0.25.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
+      "notes": "Python SDK clients driven directly; no model. BSD-3-Clause. SDK 0.26.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
       "buildArgs": {
-        "UPSTREAM_COMMIT": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+        "UPSTREAM_COMMIT": "0ff43c55cc303c3165cb2d5841eca026e1c7c699"
       },
       "env": {
         "INTEROP_POPPY_VERSION": "0.2"
@@ -346,11 +346,11 @@
       "name": "datalayer-py-v02",
       "role": "company",
       "source": "https://github.com/datalayer/personal-agent-protocol",
-      "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc",
+      "commit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
       "build": "interop/impls/datalayer-py-company",
-      "notes": "Manzanita reference Company; hooks call the Python CompanyService in process. BSD-3-Clause. SDK 0.25.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
+      "notes": "Manzanita reference Company; hooks call the Python CompanyService in process. BSD-3-Clause. SDK 0.26.0, separate draft 0.2 pin; shares adapter source and Dockerfile.",
       "buildArgs": {
-        "UPSTREAM_COMMIT": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+        "UPSTREAM_COMMIT": "0ff43c55cc303c3165cb2d5841eca026e1c7c699"
       },
       "env": {
         "INTEROP_POPPY_VERSION": "0.2"

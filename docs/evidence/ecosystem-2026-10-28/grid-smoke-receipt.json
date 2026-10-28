@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "observedAt": "2026-10-28T09:37:16.582Z",
+  "run": "2026-10-28T09:15:00Z",
+  "lane": "local",
+  "scope": "Honest scenarios at retained registry pins; aggregate receipt only",
+  "implementations": [
+    {
+      "name": "pda",
+      "role": "agent",
+      "commit": "c3eabd0-dirty"
+    },
+    {
+      "name": "datalayer-ts-v02",
+      "role": "agent",
+      "commit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699"
+    },
+    {
+      "name": "datalayer-py-v02",
+      "role": "agent",
+      "commit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699"
+    },
+    {
+      "name": "lenient-company-v02",
+      "role": "company",
+      "commit": "c3eabd0-dirty"
+    },
+    {
+      "name": "datalayer-ts-v02",
+      "role": "company",
+      "commit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699"
+    },
+    {
+      "name": "datalayer-py-v02",
+      "role": "company",
+      "commit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699"
+    }
+  ],
+  "counts": {
+    "pass": 18,
+    "fail": 0,
+    "unsupported": 0
+  },
+  "knownFailures": 0,
+  "publishedFailures": 0,
+  "flaky": 0
+}

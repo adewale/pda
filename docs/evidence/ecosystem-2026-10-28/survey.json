@@ -1,0 +1,3114 @@
+{
+  "version": 1,
+  "startedAt": "2026-10-28T09:00:00.195Z",
+  "since": "2026-10-23",
+  "scope": "Public source, release and discovery GETs only; no Sessions, sign-ins, APIs or third-party code execution",
+  "repositories": [
+    {
+      "repository": "personal-agent-protocol/personal-agent-protocol",
+      "attemptedAt": "2026-10-28T09:00:00.196Z",
+      "observedAt": "2026-10-28T09:00:00.632Z",
+      "lastKnown": {
+        "head": "39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "official-validator",
+          "role": "agent",
+          "commit": "39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d"
+        }
+      ],
+      "head": "a95b757872533a6ef1e1a9bcf29802857d2e5ff4",
+      "committedAt": "2026-10-26T18:13:10Z",
+      "subject": "[md] Validator: check Token Exchange, invalid_target, and the feedback endpoint (#108)",
+      "changed": true,
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/tree/a95b757872533a6ef1e1a9bcf29802857d2e5ff4",
+      "comparison": {
+        "commits": 31,
+        "files": 145,
+        "complete": true,
+        "poppyPaths": [
+          "kit/company/patterns/mcp.md",
+          "kit/company/patterns/poppy-json.md",
+          "kit/company/schemas/poppy.schema.json",
+          "kit/company/validate/checks/mcp.ts",
+          "public/demos/poppy-demo-agent.png",
+          "public/demos/poppy-on-cloudflare-workers.png",
+          "public/demos/print-with-poppy.png",
+          "skills/implement-personal-agent-protocol/SKILL.md",
+          "skills/implement-personal-agent-protocol/checklist.md",
+          "skills/implement-personal-agent-protocol/design.md",
+          "skills/implement-personal-agent-protocol/feedback.md",
+          "skills/implement-personal-agent-protocol/milestones/extensions.md",
+          "skills/implement-personal-agent-protocol/milestones/foundation.md",
+          "skills/implement-personal-agent-protocol/milestones/interfaces.md",
+          "skills/implement-personal-agent-protocol/milestones/sign-in.md",
+          "skills/implement-personal-agent-protocol/patterns/conversations.md",
+          "skills/implement-personal-agent-protocol/patterns/dpop.md",
+          "skills/implement-personal-agent-protocol/patterns/mcp.md",
+          "skills/implement-personal-agent-protocol/patterns/openapi.md",
+          "skills/implement-personal-agent-protocol/patterns/poppy-json.md",
+          "skills/implement-personal-agent-protocol/patterns/scopes.md",
+          "skills/implement-personal-agent-protocol/patterns/session-records.md",
+          "skills/implement-personal-agent-protocol/patterns/sign-in.md",
+          "skills/implement-personal-agent-protocol/patterns/token-endpoint.md",
+          "skills/implement-personal-agent-protocol/patterns/web-browsing.md",
+          "skills/implement-personal-agent-protocol/reference/changelog.md",
+          "skills/implement-personal-agent-protocol/reference/extensions.md",
+          "skills/implement-personal-agent-protocol/reference/guides.md",
+          "skills/implement-personal-agent-protocol/reference/introduction.md",
+          "skills/implement-personal-agent-protocol/reference/operations.md",
+          "skills/implement-personal-agent-protocol/reference/path-to-1.md",
+          "skills/implement-personal-agent-protocol/reference/spec.md",
+          "skills/implement-personal-agent-protocol/schemas/alternative.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/authorization-server-metadata.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/browser-assertion.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/dpop-proof.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/event.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/excluded-tasks.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/feedback-report.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/mediated-sign-in-response.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/message.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/poppy.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/session-assertion.schema.json",
+          "skills/implement-personal-agent-protocol/schemas/token-response.schema.json",
+          "skills/implement-personal-agent-protocol/survey.md",
+          "skills/implement-personal-agent-protocol/validate/README.md",
+          "skills/implement-personal-agent-protocol/validate/agent.ts",
+          "skills/implement-personal-agent-protocol/validate/catalog.ts",
+          "skills/implement-personal-agent-protocol/validate/checks/conversations.ts",
+          "skills/implement-personal-agent-protocol/validate/checks/discovery.ts",
+          "skills/implement-personal-agent-protocol/validate/checks/feedback.ts",
+          "skills/implement-personal-agent-protocol/validate/checks/mcp.ts",
+          "skills/implement-personal-agent-protocol/validate/checks/openapi.ts",
+          "skills/implement-personal-agent-protocol/validate/checks/session.ts",
+          "skills/implement-personal-agent-protocol/validate/checks/types.ts",
+          "skills/implement-personal-agent-protocol/validate/design.ts",
+          "skills/implement-personal-agent-protocol/validate/index.ts",
+          "skills/implement-personal-agent-protocol/validate/jose.ts",
+          "skills/implement-personal-agent-protocol/validate/redact.ts",
+          "skills/implement-personal-agent-protocol/validate/run.ts",
+          "skills/implement-personal-agent-protocol/validate/survey.ts"
+        ],
+        "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/compare/39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d...a95b757872533a6ef1e1a9bcf29802857d2e5ff4"
+      }
+    },
+    {
+      "repository": "datalayer/personal-agent-protocol",
+      "attemptedAt": "2026-10-28T09:00:01.663Z",
+      "observedAt": "2026-10-28T09:00:02.007Z",
+      "lastKnown": {
+        "head": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "datalayer-ts",
+          "role": "agent",
+          "commit": "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65"
+        },
+        {
+          "name": "datalayer-ts",
+          "role": "company",
+          "commit": "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65"
+        },
+        {
+          "name": "datalayer-py",
+          "role": "agent",
+          "commit": "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65"
+        },
+        {
+          "name": "datalayer-py",
+          "role": "company",
+          "commit": "00216eb7c1f20e2f9e0f808a06c6fe1a35b7ca65"
+        },
+        {
+          "name": "datalayer-ts-v02",
+          "role": "agent",
+          "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+        },
+        {
+          "name": "datalayer-ts-v02",
+          "role": "company",
+          "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+        },
+        {
+          "name": "datalayer-py-v02",
+          "role": "agent",
+          "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+        },
+        {
+          "name": "datalayer-py-v02",
+          "role": "company",
+          "commit": "97c1386737c0a3e4027c4abed191371f1460e1dc"
+        }
+      ],
+      "head": "a3713e358dd407080d446c8934250e9cdf684dad",
+      "committedAt": "2026-10-27T12:54:54Z",
+      "subject": "Docs: screenshots of the two example flows (a user with a company; two companies), for the community Demos page",
+      "changed": true,
+      "url": "https://github.com/datalayer/personal-agent-protocol/tree/a3713e358dd407080d446c8934250e9cdf684dad",
+      "comparison": {
+        "commits": 9,
+        "files": 285,
+        "complete": true,
+        "poppyPaths": [
+          "docs/docs/concepts/protocol-tour.mdx",
+          "docs/docs/guides/personal-agent.mdx",
+          "docs/docs/protocol/conformance-report.mdx",
+          "docs/docs/protocol/coverage.mdx",
+          "docs/docs/protocol/coverage/apis.mdx",
+          "docs/docs/protocol/coverage/browser.mdx",
+          "docs/docs/protocol/coverage/conversations.mdx",
+          "docs/docs/protocol/coverage/discovery.mdx",
+          "docs/docs/protocol/coverage/feedback.mdx",
+          "docs/docs/protocol/coverage/identity-sessions.mdx",
+          "docs/docs/protocol/coverage/operational-guidance.mdx",
+          "docs/docs/protocol/coverage/operations.mdx",
+          "docs/docs/protocol/coverage/security-considerations.mdx",
+          "docs/docs/protocol/coverage/sign-in.mdx",
+          "docs/docs/protocol/open-topics.mdx",
+          "docs/docs/protocol/status.mdx",
+          "personal_agent_protocol/__init__.py",
+          "personal_agent_protocol/__tests__/test_accounts.py",
+          "personal_agent_protocol/__tests__/test_auth.py",
+          "personal_agent_protocol/__tests__/test_browser.py",
+          "personal_agent_protocol/__tests__/test_canaries.py",
+          "personal_agent_protocol/__tests__/test_cli_protocol.py",
+          "personal_agent_protocol/__tests__/test_company_end_to_end.py",
+          "personal_agent_protocol/__tests__/test_company_refusals.py",
+          "personal_agent_protocol/__tests__/test_company_rules.py",
+          "personal_agent_protocol/__tests__/test_company_store.py",
+          "personal_agent_protocol/__tests__/test_company_take_down.py",
+          "personal_agent_protocol/__tests__/test_conformance.py",
+          "personal_agent_protocol/__tests__/test_conversation_control.py",
+          "personal_agent_protocol/__tests__/test_conversations.py",
+          "personal_agent_protocol/__tests__/test_crypto.py",
+          "personal_agent_protocol/__tests__/test_device.py",
+          "personal_agent_protocol/__tests__/test_direct_and_api.py",
+          "personal_agent_protocol/__tests__/test_discovery.py",
+          "personal_agent_protocol/__tests__/test_docs_examples.py",
+          "personal_agent_protocol/__tests__/test_draft_03.py",
+          "personal_agent_protocol/__tests__/test_feedback.py",
+          "personal_agent_protocol/__tests__/test_fixtures.py",
+          "personal_agent_protocol/__tests__/test_fuzz.py",
+          "personal_agent_protocol/__tests__/test_guidance.py",
+          "personal_agent_protocol/__tests__/test_guide_security.py",
+          "personal_agent_protocol/__tests__/test_hosted_pages.py",
+          "personal_agent_protocol/__tests__/test_idempotency.py",
+          "personal_agent_protocol/__tests__/test_live_session_actions.py",
+          "personal_agent_protocol/__tests__/test_load.py",
+          "personal_agent_protocol/__tests__/test_mcp_and_web.py",
+          "personal_agent_protocol/__tests__/test_mediated.py",
+          "personal_agent_protocol/__tests__/test_models.py",
+          "personal_agent_protocol/__tests__/test_operations.py",
+          "personal_agent_protocol/__tests__/test_pairings.py",
+          "personal_agent_protocol/__tests__/test_profile.py",
+          "personal_agent_protocol/__tests__/test_reactor_points.py",
+          "personal_agent_protocol/__tests__/test_real_sockets.py",
+          "personal_agent_protocol/__tests__/test_requirements.py",
+          "personal_agent_protocol/__tests__/test_security_demonstrations.py",
+          "personal_agent_protocol/__tests__/test_security_review.py",
+          "personal_agent_protocol/__tests__/test_sessions.py",
+          "personal_agent_protocol/__tests__/test_telemetry.py",
+          "personal_agent_protocol/__tests__/test_transport.py",
+          "personal_agent_protocol/__tests__/test_two_companies.py",
+          "personal_agent_protocol/__tests__/test_ui.py",
+          "personal_agent_protocol/__version__.py",
+          "personal_agent_protocol/accounts.py",
+          "personal_agent_protocol/actions.py",
+          "personal_agent_protocol/apis.py",
+          "personal_agent_protocol/auth.py",
+          "personal_agent_protocol/browser.py",
+          "personal_agent_protocol/cli_commands.py",
+          "personal_agent_protocol/cli_host.py",
+          "personal_agent_protocol/company/asgi.py",
+          "personal_agent_protocol/company/points.py",
+          "personal_agent_protocol/company/service.py",
+          "personal_agent_protocol/company/store.py",
+          "personal_agent_protocol/company/testing.py",
+          "personal_agent_protocol/conformance.py",
+          "personal_agent_protocol/conversations.py",
+          "personal_agent_protocol/crypto.py",
+          "personal_agent_protocol/demo/kit.py",
+          "personal_agent_protocol/demo/ledgerly.py",
+          "personal_agent_protocol/demo/manzanita.py",
+          "personal_agent_protocol/demo/northwind.py",
+          "personal_agent_protocol/device.py",
+          "personal_agent_protocol/discovery.py",
+          "personal_agent_protocol/feedback.py",
+          "personal_agent_protocol/mcp.py",
+          "personal_agent_protocol/mediated.py",
+          "personal_agent_protocol/models.py",
+          "personal_agent_protocol/operations.py",
+          "personal_agent_protocol/profile.py",
+          "personal_agent_protocol/reactor.py",
+          "personal_agent_protocol/sessions.py",
+          "personal_agent_protocol/transport.py",
+          "personal_agent_protocol/ui.py",
+          "protocol/UPSTREAM.md",
+          "protocol/fixtures/conformance/conversations.json",
+          "protocol/fixtures/conformance/lifecycle.json",
+          "protocol/fixtures/conformance/operations.json",
+          "protocol/fixtures/conformance/protocol.json",
+          "protocol/fixtures/conformance/security.json",
+          "protocol/fixtures/conversation-events-valid.json",
+          "protocol/fixtures/discovery-valid.json",
+          "protocol/fixtures/oauth-metadata-valid.json",
+          "protocol/fixtures/pap-replies-display.json",
+          "protocol/fixtures/session-token-valid.json",
+          "protocol/reactor-points.json",
+          "protocol/requirements.yaml",
+          "protocol/scenarios/user-with-a-company.json",
+          "src/__tests__/idempotency.test.mjs",
+          "src/__tests__/mcp.test.mjs",
+          "src/mcp.ts"
+        ],
+        "url": "https://github.com/datalayer/personal-agent-protocol/compare/0ff43c55cc303c3165cb2d5841eca026e1c7c699...a3713e358dd407080d446c8934250e9cdf684dad"
+      }
+    },
+    {
+      "repository": "spenciefy/print-with-poppy",
+      "attemptedAt": "2026-10-28T09:00:03.232Z",
+      "observedAt": "2026-10-28T09:00:03.658Z",
+      "lastKnown": {
+        "head": "e4aef115b5c240082149bcb354bae19ef5ef148e",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "print-with-poppy",
+          "role": "company",
+          "commit": "3360d8bbbadbfe5c0553b9fbf68849fc78ad0eb9"
+        },
+        {
+          "name": "print-with-poppy-live",
+          "role": "company",
+          "commit": "unknown"
+        },
+        {
+          "name": "print-with-poppy-sandbox-live",
+          "role": "company",
+          "commit": "unknown"
+        }
+      ],
+      "head": "4dcb1e85d062dae0185008dcfbd5d2b81afedcc7",
+      "committedAt": "2026-10-25T04:12:42Z",
+      "subject": "Update homepage camera roll copy (#25)",
+      "changed": true,
+      "url": "https://github.com/spenciefy/print-with-poppy/tree/4dcb1e85d062dae0185008dcfbd5d2b81afedcc7",
+      "comparison": {
+        "commits": 7,
+        "files": 22,
+        "complete": true,
+        "poppyPaths": [
+          "server/interop-network.ts",
+          "server/protocol-http.ts",
+          "server/protocol-url.ts",
+          "tests/interop-network.test.ts"
+        ],
+        "url": "https://github.com/spenciefy/print-with-poppy/compare/e4aef115b5c240082149bcb354bae19ef5ef148e...4dcb1e85d062dae0185008dcfbd5d2b81afedcc7"
+      }
+    },
+    {
+      "repository": "richardanaya/pi-poppy",
+      "attemptedAt": "2026-10-28T09:00:04.371Z",
+      "observedAt": "2026-10-28T09:00:04.844Z",
+      "lastKnown": {
+        "head": "11ea10630180740f16ccd507b8f90f69870c7e32",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "pi-poppy",
+          "role": "agent",
+          "commit": "11ea10630180740f16ccd507b8f90f69870c7e32"
+        },
+        {
+          "name": "pi-poppy",
+          "role": "company",
+          "commit": "11ea10630180740f16ccd507b8f90f69870c7e32"
+        }
+      ],
+      "head": "11ea10630180740f16ccd507b8f90f69870c7e32",
+      "committedAt": "2026-10-10T03:55:17Z",
+      "subject": "Explain each Poppy tool and group them in the README.",
+      "changed": false,
+      "url": "https://github.com/richardanaya/pi-poppy/tree/11ea10630180740f16ccd507b8f90f69870c7e32"
+    },
+    {
+      "repository": "irvinebroque/poppy-demo",
+      "attemptedAt": "2026-10-28T09:00:04.844Z",
+      "observedAt": "2026-10-28T09:00:05.139Z",
+      "lastKnown": {
+        "head": "02a9b304e92fdfee465c57f2822742eecac8bdc8",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "poppy-demo",
+          "role": "agent",
+          "commit": "02a9b304e92fdfee465c57f2822742eecac8bdc8"
+        },
+        {
+          "name": "poppy-demo",
+          "role": "company",
+          "commit": "02a9b304e92fdfee465c57f2822742eecac8bdc8"
+        }
+      ],
+      "head": "02a9b304e92fdfee465c57f2822742eecac8bdc8",
+      "committedAt": "2026-10-09T21:16:32Z",
+      "subject": "first",
+      "changed": false,
+      "url": "https://github.com/irvinebroque/poppy-demo/tree/02a9b304e92fdfee465c57f2822742eecac8bdc8"
+    },
+    {
+      "repository": "akshay5995/poppyseed",
+      "attemptedAt": "2026-10-28T09:00:05.139Z",
+      "observedAt": "2026-10-28T09:00:05.456Z",
+      "lastKnown": {
+        "head": "69f9233242f46db943b79008a668d7e79aa8b733",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "poppyseed",
+          "role": "company",
+          "commit": "f479fb6bd1754b9639440515f259e01936b0a18a"
+        },
+        {
+          "name": "poppyseed-live",
+          "role": "company",
+          "commit": "f479fb6bd1754b9639440515f259e01936b0a18a"
+        }
+      ],
+      "head": "6393dfb0f3ec93a604a6b1885fcdb89a918c3527",
+      "committedAt": "2026-10-27T15:36:46Z",
+      "subject": "poppyseed 0.3.1: reconcile with the 2026-10-26 draft 0.3 spec (#19)",
+      "changed": true,
+      "url": "https://github.com/akshay5995/poppyseed/tree/6393dfb0f3ec93a604a6b1885fcdb89a918c3527",
+      "comparison": {
+        "commits": 4,
+        "files": 122,
+        "complete": true,
+        "poppyPaths": [
+          "packages/core/src/conformance/checks/mcp.ts",
+          "packages/core/src/mcp.ts",
+          "packages/core/src/oauth.ts",
+          "packages/core/src/poppyseed.ts",
+          "site/poppyseed.config.ts"
+        ],
+        "url": "https://github.com/akshay5995/poppyseed/compare/69f9233242f46db943b79008a668d7e79aa8b733...6393dfb0f3ec93a604a6b1885fcdb89a918c3527"
+      }
+    },
+    {
+      "repository": "everruns/everruns",
+      "attemptedAt": "2026-10-28T09:00:06.728Z",
+      "observedAt": "2026-10-28T09:00:07.148Z",
+      "lastKnown": {
+        "head": "8a7fc2f11c393ddfa379be4ac61373cdb7863f30",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "everruns",
+          "role": "agent",
+          "commit": "aceb2e2fcfdf9c91022e390ee5efe5a773043bb2"
+        },
+        {
+          "name": "everruns",
+          "role": "company",
+          "commit": "aceb2e2fcfdf9c91022e390ee5efe5a773043bb2"
+        }
+      ],
+      "head": "f7510487507668c9091f1a759e7ec3f391361921",
+      "committedAt": "2026-10-28T07:26:57Z",
+      "subject": "feat(i18n): add five locales and regional formatting (#4999)",
+      "changed": true,
+      "url": "https://github.com/everruns/everruns/tree/f7510487507668c9091f1a759e7ec3f391361921",
+      "comparison": {
+        "commits": 108,
+        "files": 300,
+        "complete": false,
+        "poppyPaths": [
+          ".github/workflows/mcp-scale-evals.yml",
+          "apps/ui/e2e/webmcp.spec.ts",
+          "apps/ui/src/__tests__/agent-mcp-panel.test.tsx",
+          "apps/ui/src/__tests__/mcp-card-iframe.test.tsx",
+          "apps/ui/src/__tests__/mcp-catalog-location.test.ts",
+          "apps/ui/src/__tests__/mcp-catalog-page.test.tsx",
+          "apps/ui/src/__tests__/mcp-connect-button.test.tsx",
+          "apps/ui/src/__tests__/user-mcp-servers-panel.test.tsx"
+        ],
+        "url": "https://github.com/everruns/everruns/compare/8a7fc2f11c393ddfa379be4ac61373cdb7863f30...f7510487507668c9091f1a759e7ec3f391361921"
+      }
+    },
+    {
+      "repository": "DavideCarvalho/adonis-agora-agent",
+      "attemptedAt": "2026-10-28T09:00:08.527Z",
+      "observedAt": "2026-10-28T09:00:08.836Z",
+      "lastKnown": {
+        "head": "e5c84f6a0c75f8b568650bd0d3bf3023e64d7756",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "adonis-agora",
+          "role": "agent",
+          "commit": "e139b9599e61db17f85fa186f4073f81ee6bc19b"
+        }
+      ],
+      "head": "bc096918182cdd70456961a901947330fb0b4627",
+      "committedAt": "2026-10-28T04:59:11Z",
+      "subject": "chore: version packages",
+      "changed": true,
+      "url": "https://github.com/DavideCarvalho/adonis-agora-agent/tree/bc096918182cdd70456961a901947330fb0b4627",
+      "comparison": {
+        "commits": 48,
+        "files": 102,
+        "complete": true,
+        "poppyPaths": [
+          "packages/adonis/test/provider-mcp-lazy-load.spec.ts"
+        ],
+        "url": "https://github.com/DavideCarvalho/adonis-agora-agent/compare/e5c84f6a0c75f8b568650bd0d3bf3023e64d7756...bc096918182cdd70456961a901947330fb0b4627"
+      }
+    },
+    {
+      "repository": "DavideCarvalho/adonis-agora-authkit",
+      "attemptedAt": "2026-10-28T09:00:09.963Z",
+      "observedAt": "2026-10-28T09:00:10.254Z",
+      "lastKnown": {
+        "head": "3077535a4ff99ef74c814b686ee27b2cebdff09b",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "adonis-agora",
+          "role": "company",
+          "commit": "fe2a3ff453b469d759a9f9313be331f4324fa2bf"
+        }
+      ],
+      "head": "b2082ecc35feceaae01446fc167bfb525ec5947d",
+      "committedAt": "2026-10-28T04:58:31Z",
+      "subject": "chore: version packages",
+      "changed": true,
+      "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/tree/b2082ecc35feceaae01446fc167bfb525ec5947d",
+      "comparison": {
+        "commits": 55,
+        "files": 70,
+        "complete": true,
+        "poppyPaths": [],
+        "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/compare/3077535a4ff99ef74c814b686ee27b2cebdff09b...b2082ecc35feceaae01446fc167bfb525ec5947d"
+      }
+    },
+    {
+      "repository": "rbirkby/Ilmer.org",
+      "attemptedAt": "2026-10-28T09:00:11.280Z",
+      "observedAt": "2026-10-28T09:00:11.800Z",
+      "lastKnown": {
+        "head": "86713f0d06c86068b41c367c6c2af61f37e27e15",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "ilmer",
+          "role": "company",
+          "commit": "de0d1ec50f09906fedf26a83b7b88042ebfebd56"
+        },
+        {
+          "name": "ilmer-live",
+          "role": "company",
+          "commit": "de0d1ec50f09906fedf26a83b7b88042ebfebd56"
+        }
+      ],
+      "head": "b97f7b76a2b48bd9d810a487ff84ade816fa5ccd",
+      "committedAt": "2026-10-25T20:30:05Z",
+      "subject": "chore(deps): Update dependencies",
+      "changed": true,
+      "url": "https://github.com/rbirkby/Ilmer.org/tree/b97f7b76a2b48bd9d810a487ff84ade816fa5ccd",
+      "comparison": {
+        "commits": 7,
+        "files": 8,
+        "complete": true,
+        "poppyPaths": [
+          "assets/js/poppy-chat.js",
+          "tests/poppy-chat.test.ts"
+        ],
+        "url": "https://github.com/rbirkby/Ilmer.org/compare/86713f0d06c86068b41c367c6c2af61f37e27e15...b97f7b76a2b48bd9d810a487ff84ade816fa5ccd"
+      }
+    },
+    {
+      "repository": "timothyohare/personal-agent-protocol",
+      "attemptedAt": "2026-10-28T09:00:12.480Z",
+      "observedAt": "2026-10-28T09:00:12.966Z",
+      "lastKnown": {
+        "head": "fb7b4e64ad343d9406055a995f4beb06269c1ce6",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [
+        {
+          "name": "tipping-co",
+          "role": "agent",
+          "commit": "fb7b4e64ad343d9406055a995f4beb06269c1ce6"
+        },
+        {
+          "name": "tipping-co",
+          "role": "company",
+          "commit": "fb7b4e64ad343d9406055a995f4beb06269c1ce6"
+        }
+      ],
+      "head": "fb7b4e64ad343d9406055a995f4beb06269c1ce6",
+      "committedAt": "2026-10-12T14:12:11Z",
+      "subject": "docs: record gate-mutation 95.8% for Checkpoint D; pin one address-range mutant",
+      "changed": false,
+      "url": "https://github.com/timothyohare/personal-agent-protocol/tree/fb7b4e64ad343d9406055a995f4beb06269c1ce6"
+    },
+    {
+      "repository": "ketanbj/openavt",
+      "attemptedAt": "2026-10-28T09:00:12.966Z",
+      "observedAt": "2026-10-28T09:00:13.261Z",
+      "lastKnown": {
+        "head": "9e99b622515b20d1b8d5405be229c7199d73dd60",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [],
+      "head": "9e99b622515b20d1b8d5405be229c7199d73dd60",
+      "committedAt": "2026-10-12T21:55:39Z",
+      "subject": "Merge pull request #11 from ketanbj/fix/release-source-capabilities",
+      "changed": false,
+      "url": "https://github.com/ketanbj/openavt/tree/9e99b622515b20d1b8d5405be229c7199d73dd60"
+    },
+    {
+      "repository": "allowfy/allowfy-check",
+      "attemptedAt": "2026-10-28T09:00:13.261Z",
+      "observedAt": "2026-10-28T09:00:13.646Z",
+      "lastKnown": {
+        "head": "11137ada084f3689d73d2ae23f2c00958a7022e2",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [],
+      "head": "11137ada084f3689d73d2ae23f2c00958a7022e2",
+      "committedAt": "2026-10-20T19:11:24Z",
+      "subject": "0.1.3: --help, clear errors for unknown options and URLs, a note when a path is given",
+      "changed": false,
+      "url": "https://github.com/allowfy/allowfy-check/tree/11137ada084f3689d73d2ae23f2c00958a7022e2"
+    },
+    {
+      "repository": "ora/poppy-ax",
+      "attemptedAt": "2026-10-28T09:00:13.646Z",
+      "observedAt": "2026-10-28T09:00:14.104Z",
+      "lastKnown": {
+        "head": "f6b5cc3c0d8d8e680f0d2429eac31ea9a6214cb6",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [],
+      "head": "f6b5cc3c0d8d8e680f0d2429eac31ea9a6214cb6",
+      "committedAt": "2026-10-21T21:01:18Z",
+      "subject": "docs(setup): point builders at the official implementation kit (#15)",
+      "changed": false,
+      "url": "https://github.com/ora/poppy-ax/tree/f6b5cc3c0d8d8e680f0d2429eac31ea9a6214cb6"
+    },
+    {
+      "repository": "akshay5995/poppy-agent-demo",
+      "attemptedAt": "2026-10-28T09:00:14.104Z",
+      "observedAt": "2026-10-28T09:00:14.502Z",
+      "lastKnown": {
+        "head": "a5c0bdc34f423ee924216f4268eb28d704dfa731",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [],
+      "head": "a5c0bdc34f423ee924216f4268eb28d704dfa731",
+      "committedAt": "2026-10-16T14:43:18Z",
+      "subject": "poppy-agent: a personal agent for Pi that speaks the Personal Agent Protocol",
+      "changed": false,
+      "url": "https://github.com/akshay5995/poppy-agent-demo/tree/a5c0bdc34f423ee924216f4268eb28d704dfa731"
+    },
+    {
+      "repository": "JaviChulvi/awesome-poppy",
+      "attemptedAt": "2026-10-28T09:00:14.502Z",
+      "observedAt": "2026-10-28T09:00:15.030Z",
+      "lastKnown": {
+        "head": "68d554bb80468502fa93c630a19be3c9f395a427",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [],
+      "head": "1c015f9cbe561b443c11c5b46aa583d9ae1008b1",
+      "committedAt": "2026-10-26T19:17:58Z",
+      "subject": "docs: add PoppyKit client and server (#16)",
+      "changed": true,
+      "url": "https://github.com/JaviChulvi/awesome-poppy/tree/1c015f9cbe561b443c11c5b46aa583d9ae1008b1",
+      "comparison": {
+        "commits": 2,
+        "files": 1,
+        "complete": true,
+        "poppyPaths": [],
+        "url": "https://github.com/JaviChulvi/awesome-poppy/compare/68d554bb80468502fa93c630a19be3c9f395a427...1c015f9cbe561b443c11c5b46aa583d9ae1008b1"
+      }
+    },
+    {
+      "repository": "Flaxscrip/poppy-test-agent",
+      "attemptedAt": "2026-10-28T09:00:15.698Z",
+      "observedAt": "2026-10-28T09:00:16.123Z",
+      "lastKnown": {
+        "head": "7012e7447b0cb06d90b54785e821e503f32e20cd",
+        "observedAt": "2026-10-23"
+      },
+      "pins": [],
+      "head": "7012e7447b0cb06d90b54785e821e503f32e20cd",
+      "committedAt": "2026-10-23T11:09:08Z",
+      "subject": "Test Personal Agent metadata for the Poppy Company validator",
+      "changed": false,
+      "url": "https://github.com/Flaxscrip/poppy-test-agent/tree/7012e7447b0cb06d90b54785e821e503f32e20cd"
+    },
+    {
+      "repository": "ohartwig/poppy",
+      "attemptedAt": "2026-10-28T09:10:58Z",
+      "observedAt": "2026-10-28T09:10:58Z",
+      "lastKnown": null,
+      "pins": [],
+      "head": "465b4fec644ec24d812574ac9ee981e5d029d1e9",
+      "committedAt": "2026-10-27T07:10:34Z",
+      "subject": "chore(release): 1.1.1",
+      "changed": null,
+      "url": "https://github.com/ohartwig/poppy/tree/465b4fec644ec24d812574ac9ee981e5d029d1e9",
+      "classification": "New source candidate; README inspected, no code executed",
+      "license": "MIT"
+    },
+    {
+      "repository": "ohartwig/typo3-poppy",
+      "attemptedAt": "2026-10-28T09:10:58Z",
+      "observedAt": "2026-10-28T09:10:58Z",
+      "lastKnown": null,
+      "pins": [],
+      "head": "dafdd2b746e438009d3472f669f2515f2a2fa194",
+      "committedAt": "2026-10-27T21:26:16Z",
+      "subject": "chore(release): 1.0.3",
+      "changed": null,
+      "url": "https://github.com/ohartwig/typo3-poppy/tree/dafdd2b746e438009d3472f669f2515f2a2fa194",
+      "classification": "New source candidate; README inspected, no code executed",
+      "license": "MIT"
+    },
+    {
+      "repository": "ohartwig/sylius-poppy",
+      "attemptedAt": "2026-10-28T09:10:58Z",
+      "observedAt": "2026-10-28T09:10:58Z",
+      "lastKnown": null,
+      "pins": [],
+      "head": "39a317b4199f937694e0007bc762e457189ba5a0",
+      "committedAt": "2026-10-27T12:07:35Z",
+      "subject": "chore(release): 1.0.3",
+      "changed": null,
+      "url": "https://github.com/ohartwig/sylius-poppy/tree/39a317b4199f937694e0007bc762e457189ba5a0",
+      "classification": "New source candidate; README inspected, no code executed",
+      "license": "MIT"
+    },
+    {
+      "repository": "kidkuddy/poppy-cli",
+      "attemptedAt": "2026-10-28T09:10:58Z",
+      "observedAt": "2026-10-28T09:10:58Z",
+      "lastKnown": null,
+      "pins": [],
+      "head": "0a6dab5560083824d7ac3908ada84cca6683e1fa",
+      "committedAt": "2026-10-25T15:40:44Z",
+      "subject": "fix: keep discovery on https, match Companies by domain only, check browser session endpoint",
+      "changed": null,
+      "url": "https://github.com/kidkuddy/poppy-cli/tree/0a6dab5560083824d7ac3908ada84cca6683e1fa",
+      "classification": "New source candidate; README inspected, no code executed",
+      "license": "MIT"
+    },
+    {
+      "repository": "LMol-4/poppykit-client",
+      "attemptedAt": "2026-10-28T09:10:58Z",
+      "observedAt": "2026-10-28T09:10:58Z",
+      "lastKnown": null,
+      "pins": [],
+      "head": "39e9fd842e6cdcc803f591ea5e372903b48512fa",
+      "committedAt": "2026-10-25T12:06:11Z",
+      "subject": "Include runtime baseline in isolated harness fixtures",
+      "changed": null,
+      "url": "https://github.com/LMol-4/poppykit-client/tree/39e9fd842e6cdcc803f591ea5e372903b48512fa",
+      "classification": "New source candidate; README inspected, no code executed",
+      "license": "MIT"
+    },
+    {
+      "repository": "LMol-4/poppykit-server",
+      "attemptedAt": "2026-10-28T09:10:58Z",
+      "observedAt": "2026-10-28T09:10:58Z",
+      "lastKnown": null,
+      "pins": [],
+      "head": "b0df53e417fd9ddc85dff9d70dc20a4ec049ab25",
+      "committedAt": "2026-10-25T12:06:11Z",
+      "subject": "Include runtime baseline in isolated harness fixtures",
+      "changed": null,
+      "url": "https://github.com/LMol-4/poppykit-server/tree/b0df53e417fd9ddc85dff9d70dc20a4ec049ab25",
+      "classification": "New source candidate; README inspected, no code executed",
+      "license": "MIT"
+    }
+  ],
+  "packages": [
+    {
+      "registry": "npm",
+      "name": "@datalayer/personal-agent-protocol",
+      "attemptedAt": "2026-10-28T09:00:16.123Z",
+      "observedAt": "2026-10-28T09:00:16.292Z",
+      "version": "0.27.0",
+      "url": "https://registry.npmjs.org/%40datalayer%2Fpersonal-agent-protocol/latest",
+      "sha256": "aa9bd9e9e115f3fb7096a69ef3b19f369c82124a47e9c34ed00f286413c39866"
+    },
+    {
+      "registry": "pypi",
+      "name": "personal-agent-protocol",
+      "attemptedAt": "2026-10-28T09:00:16.292Z",
+      "observedAt": "2026-10-28T09:00:16.380Z",
+      "version": "0.27.0",
+      "url": "https://pypi.org/pypi/personal-agent-protocol/json",
+      "sha256": "910211d824bd12d3630f2cf4d861bf21fbc7f8aafb71771581a4eb18388cecf5"
+    },
+    {
+      "registry": "npm",
+      "name": "poppyseed",
+      "attemptedAt": "2026-10-28T09:00:16.380Z",
+      "observedAt": "2026-10-28T09:00:16.541Z",
+      "version": "0.3.1",
+      "url": "https://registry.npmjs.org/poppyseed/latest",
+      "sha256": "c7552f7c7bcde10d42177f1fee618bce8ba0283aff5ac9d3cc44c540fbc6178b"
+    }
+  ],
+  "publicSources": [
+    {
+      "name": "Official changelog",
+      "url": "https://personalagentprotocol.org/docs/changelog",
+      "attemptedAt": "2026-10-28T09:00:16.541Z",
+      "observedAt": "2026-10-28T09:00:16.870Z",
+      "finalUrl": "https://personalagentprotocol.org/docs/changelog",
+      "sha256": "94011b8264fede309a27ec6fcd3b5cdf74bea6c2ebd9c7eb4c115721ca042102",
+      "bytes": 287780,
+      "githubLinks": [
+        "https://github.com/personal-agent-protocol/personal-agent-protocol"
+      ]
+    },
+    {
+      "name": "PAP Checker directory",
+      "url": "https://papchecker.com/sites",
+      "attemptedAt": "2026-10-28T09:00:16.870Z",
+      "observedAt": "2026-10-28T09:26:02.135436Z",
+      "finalUrl": "https://papchecker.com/sites",
+      "sha256": "5dcc027204b16e43bb0f5c42026d3370e18d2174cfd8122495006b9f6c99449e",
+      "bytes": 20545,
+      "githubLinks": [],
+      "companyLeads": [
+        "ample.computer",
+        "archon.technology",
+        "ax-air.com",
+        "bank.notjustabank.com",
+        "emorahealth.com",
+        "flowers.papsandbox.com",
+        "food.papsandbox.com",
+        "neutral-state-jev-dub-bench.vercel.app",
+        "neutral-state-jev-os-bench.vercel.app",
+        "notjustabank.com",
+        "planmyvisit.to",
+        "poppy-receiver.roundtrip.workers.dev",
+        "poppy.lukemolony.com",
+        "printwithpoppy.com",
+        "rentourbins.com",
+        "saferate.com",
+        "stacktr.ee",
+        "stays.papsandbox.com",
+        "tilopay.shop",
+        "withpoppyseed.dev"
+      ],
+      "newCompanyLeads": [
+        "bank.notjustabank.com",
+        "food.papsandbox.com",
+        "planmyvisit.to",
+        "poppy.lukemolony.com",
+        "stays.papsandbox.com"
+      ]
+    },
+    {
+      "name": "poppy.md implementations",
+      "url": "https://poppy.md/implementations",
+      "attemptedAt": "2026-10-28T09:00:17.506Z",
+      "observedAt": "2026-10-28T09:00:18.116Z",
+      "finalUrl": "https://poppy.md/implementations",
+      "sha256": "55cb4f84623ecc79148986cb568f260c64c77ed72ca413a415e67d928cff2c4d",
+      "bytes": 80141,
+      "githubLinks": [
+        "https://github.com/personal-agent-protocol/personal-agent-protocol",
+        "https://github.com/irvinebroque/poppy-demo",
+        "https://github.com/datalayer/personal-agent-protocol",
+        "https://github.com/richardanaya/pi-poppy",
+        "https://github.com/cobusgreyling/personal-agent-protocol",
+        "https://github.com/cobusgreyling/personal-agent-protocol-demo",
+        "https://github.com/spenciefy/print-with-poppy",
+        "https://github.com/akshay5995/poppyseed",
+        "https://github.com/adewale/pda",
+        "https://github.com/allowfy/allowfy-check",
+        "https://github.com/TryGeoSuite/poppy-json",
+        "https://github.com/kismet-tech/poppy-federated-commerce-example",
+        "https://github.com/auto-agent-protocol/auto-agent-protocol",
+        "https://github.com/LMol-4/poppykit-server",
+        "https://github.com/JaviChulvi/awesome-poppy"
+      ]
+    },
+    {
+      "name": "Awesome Poppy",
+      "url": "https://raw.githubusercontent.com/JaviChulvi/awesome-poppy/main/README.md",
+      "attemptedAt": "2026-10-28T09:00:18.117Z",
+      "observedAt": "2026-10-28T09:00:18.392Z",
+      "finalUrl": "https://raw.githubusercontent.com/JaviChulvi/awesome-poppy/main/README.md",
+      "sha256": "1fab082a8188f5c3bb806c6c627efc8de240a791dc759f9c51c1d95fe25fd9e2",
+      "bytes": 8892,
+      "githubLinks": [
+        "https://github.com/datalayer/personal-agent-protocol",
+        "https://github.com/richardanaya/pi-poppy",
+        "https://github.com/akshay5995/poppyseed",
+        "https://github.com/LMol-4/poppykit-server",
+        "https://github.com/LMol-4/poppykit-client",
+        "https://github.com/irvinebroque/poppy-demo",
+        "https://github.com/spenciefy/print-with-poppy",
+        "https://github.com/tusharck/poppy-validator",
+        "https://github.com/allowfy/allowfy-check",
+        "https://github.com/personal-agent-protocol/personal-agent-protocol",
+        "https://github.com/openpactprotocol/openpactprotocol"
+      ]
+    }
+  ],
+  "discovery": [
+    {
+      "host": "printwithpoppy.com",
+      "attemptedAt": "2026-10-28T09:00:26.498Z",
+      "checked_at": "2026-10-28T09:00:26.498Z",
+      "outcome": "valid",
+      "protocol_version": "0.2",
+      "organization": "Print with Poppy",
+      "auth_issuer": "https://printwithpoppy.com",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 3
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://printwithpoppy.com/.well-known/poppy.json sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://printwithpoppy.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://printwithpoppy.com/.well-known/poppy.json",
+          "finalUrl": "https://printwithpoppy.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "5d4fc2febc80ce09b17bb48c3bc4cd46f4fc2a51c8373dcf1feff5e7ce093e03"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://printwithpoppy.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://printwithpoppy.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "1e0f595b6b017b0c2d9743dd66e55ad731608468fa3bbfa72b5a5c0ccd4dec36"
+        }
+      ],
+      "requests": [
+        "https://printwithpoppy.com/.well-known/poppy.json",
+        "https://printwithpoppy.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "sandbox.printwithpoppy.com",
+      "attemptedAt": "2026-10-28T09:00:32.403Z",
+      "checked_at": "2026-10-28T09:00:32.403Z",
+      "outcome": "valid",
+      "protocol_version": "0.2",
+      "organization": "Print with Poppy \u2014 Agent Sandbox",
+      "auth_issuer": "https://sandbox.printwithpoppy.com",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://sandbox.printwithpoppy.com/.well-known/poppy.json sends no Cache-Control or Expires."
+        },
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+          "finalUrl": "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "97328fa7348980194b4aaf22f5fbcd144e31fb60a876b53634cbc9e14f90093f"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "531b781c619ff09b1f15514899ef814a8dfcee384c7b000796e023bcf9e37350"
+        }
+      ],
+      "requests": [
+        "https://sandbox.printwithpoppy.com/.well-known/poppy.json",
+        "https://sandbox.printwithpoppy.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "archon.technology",
+      "attemptedAt": "2026-10-28T09:00:38.974Z",
+      "checked_at": "2026-10-28T09:00:38.974Z",
+      "outcome": "valid",
+      "protocol_version": "0.2",
+      "organization": "archon.social",
+      "auth_issuer": "https://archon.technology/names/poppy",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://archon.technology/.well-known/poppy.json",
+          "finalUrl": "https://archon.technology/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "4885a736b48688753c31c3f41f530284b5a4756bcb30ce0e08fbc2a770c4abf6"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://archon.technology/.well-known/oauth-authorization-server/names/poppy",
+          "finalUrl": "https://archon.technology/.well-known/oauth-authorization-server/names/poppy",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "c2b9f5abb402f13389c8352019a3ae1e4756645131faf47376eab719ba42f050"
+        }
+      ],
+      "requests": [
+        "https://archon.technology/.well-known/poppy.json",
+        "https://archon.technology/.well-known/oauth-authorization-server/names/poppy"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "flowers.papsandbox.com",
+      "attemptedAt": "2026-10-28T09:00:44.202Z",
+      "checked_at": "2026-10-28T09:00:44.202Z",
+      "outcome": "unsupported",
+      "protocol_version": "0.3",
+      "organization": "Northlight Flowers",
+      "auth_issuer": "https://flowers.papsandbox.com",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.1, 0.2."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://flowers.papsandbox.com/.well-known/poppy.json",
+          "finalUrl": "https://flowers.papsandbox.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "1a7ba564b3c3fb7f4483cb1e6b9bb5adee902fd04c5f0542c12f847569cbde8f"
+        }
+      ],
+      "requests": [
+        "https://flowers.papsandbox.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": null,
+      "protocolVersion": null,
+      "specificationRevision": null,
+      "changed": true,
+      "validatorOutcome": "invalid"
+    },
+    {
+      "host": "crosswalk.to",
+      "attemptedAt": "2026-10-28T09:00:44.949Z",
+      "checked_at": "2026-10-28T09:00:44.949Z",
+      "outcome": "valid",
+      "protocol_version": "0.2",
+      "organization": "crosswalk",
+      "auth_issuer": "https://crosswalk.to/poppy",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://crosswalk.to/.well-known/poppy.json",
+          "finalUrl": "https://crosswalk.to/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "15527c9d1e22416b96e892f320da5690ce934fcb10b573a19877bbd05bb544ed"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://crosswalk.to/.well-known/oauth-authorization-server/poppy",
+          "finalUrl": "https://crosswalk.to/.well-known/oauth-authorization-server/poppy",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "7cdc5cb9259c47f380845ee94b5bcb210c2ae99fcf616b20998ef3c7122d9e2f"
+        }
+      ],
+      "requests": [
+        "https://crosswalk.to/.well-known/poppy.json",
+        "https://crosswalk.to/.well-known/oauth-authorization-server/poppy"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "stacktr.ee",
+      "attemptedAt": "2026-10-28T09:00:45.783Z",
+      "checked_at": "2026-10-28T09:00:45.783Z",
+      "outcome": "valid",
+      "protocol_version": "0.2",
+      "organization": "Stacktree",
+      "auth_issuer": "https://api.stacktr.ee",
+      "counts": {
+        "error": 0,
+        "warning": 3,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-no-cache-headers",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://api.stacktr.ee/.well-known/oauth-authorization-server sends no Cache-Control or Expires."
+        },
+        {
+          "id": "metadata-auth-method",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/token_endpoint_auth_methods_supported",
+          "text": "token_endpoint_auth_methods_supported doesn't include private_key_jwt."
+        },
+        {
+          "id": "metadata-grant-type",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/grant_types_supported",
+          "text": "grant_types_supported doesn't include urn:ietf:params:oauth:grant-type:jwt-bearer."
+        },
+        {
+          "id": "metadata-grant-type",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/grant_types_supported",
+          "text": "grant_types_supported doesn't include urn:ietf:params:oauth:grant-type:device_code."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://stacktr.ee/.well-known/poppy.json",
+          "finalUrl": "https://stacktr.ee/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "d054dc2d1268f0e25179bc768d60e31a7386d1ab9e9341a98ea5927e35820c8c"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://api.stacktr.ee/.well-known/oauth-authorization-server",
+          "finalUrl": "https://api.stacktr.ee/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "d1eb1312334407b23de8c90b594e02da9e023516fcf26dd1a42f2dc6b2cb5cbd"
+        }
+      ],
+      "requests": [
+        "https://stacktr.ee/.well-known/poppy.json",
+        "https://api.stacktr.ee/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "www.planmyvisit.to",
+      "attemptedAt": "2026-10-28T09:00:47.636Z",
+      "checked_at": "2026-10-28T09:00:47.636Z",
+      "outcome": "valid",
+      "protocol_version": "0.2",
+      "organization": "PlanMyVisit by Autoura",
+      "auth_issuer": "https://api.autoura.com/api/auth",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.planmyvisit.to/.well-known/poppy.json",
+          "finalUrl": "https://www.planmyvisit.to/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "322f23600b72eb5e2354b4688facc0c87cb50e116f208b4f31e060b7b828ba2a"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth",
+          "finalUrl": "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "2154a68e9225312a643f9f327b27676ea1d8aac7c5b79d2a90b2c85dabe49545"
+        }
+      ],
+      "requests": [
+        "https://www.planmyvisit.to/.well-known/poppy.json",
+        "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "saferate.com",
+      "attemptedAt": "2026-10-28T09:00:47.929Z",
+      "checked_at": "2026-10-28T09:00:47.929Z",
+      "outcome": "valid",
+      "protocol_version": "0.2",
+      "organization": "Safe Rate",
+      "auth_issuer": "https://saferate.com",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://saferate.com/.well-known/poppy.json",
+          "finalUrl": "https://saferate.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "00e3526f8d7f637053de077103521c648e6c69f6af5ab2ed3d7bf23e60090013"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://saferate.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://saferate.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "c88f961a2d0ee701075e56b9d0aa1268cbf12dfdcc4ca986e946cd419c471420"
+        }
+      ],
+      "requests": [
+        "https://saferate.com/.well-known/poppy.json",
+        "https://saferate.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "ample.computer",
+      "attemptedAt": "2026-10-28T09:00:51.258Z",
+      "checked_at": "2026-10-28T09:00:51.258Z",
+      "outcome": "invalid",
+      "protocol_version": "0.1",
+      "organization": "Ample Computer",
+      "auth_issuer": "https://api.ample.computer/poppy",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "organization-domain-mismatch",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/organization/domain",
+          "text": "organization.domain is \"api.ample.computer\", but the document was requested for ample.computer."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://ample.computer/.well-known/poppy.json",
+          "finalUrl": "https://api.ample.computer/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "bdb3407f3264f0fe5b7982fea5e80884d8bd40a6265191bcb15b8d7e1f41190b"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://api.ample.computer/.well-known/oauth-authorization-server/poppy",
+          "finalUrl": "https://api.ample.computer/.well-known/oauth-authorization-server/poppy",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "85b01b7d5538724b5e6b9b3c1f1b3b3df9e7a56c38627a8818ddb8493a42d5ba"
+        }
+      ],
+      "requests": [
+        "https://ample.computer/.well-known/poppy.json",
+        "https://api.ample.computer/.well-known/poppy.json",
+        "https://api.ample.computer/.well-known/oauth-authorization-server/poppy"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "invalid"
+    },
+    {
+      "host": "withpoppyseed.dev",
+      "attemptedAt": "2026-10-28T09:00:52.922Z",
+      "checked_at": "2026-10-28T09:00:52.922Z",
+      "outcome": "unsupported",
+      "protocol_version": "0.3",
+      "organization": "Poppy Travel",
+      "auth_issuer": "https://www.withpoppyseed.dev",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.1, 0.2."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://withpoppyseed.dev/.well-known/poppy.json",
+          "finalUrl": "https://www.withpoppyseed.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "f4601d3b923d85d98e256bb1aae1600225d346bcb947c382ad89f14571d21739"
+        }
+      ],
+      "requests": [
+        "https://withpoppyseed.dev/.well-known/poppy.json",
+        "https://www.withpoppyseed.dev/.well-known/poppy.json"
+      ],
+      "checkedAgainst": null,
+      "protocolVersion": null,
+      "specificationRevision": null,
+      "changed": true,
+      "validatorOutcome": "invalid"
+    },
+    {
+      "host": "poppy-receiver.roundtrip.workers.dev",
+      "attemptedAt": "2026-10-28T09:00:53.604Z",
+      "checked_at": "2026-10-28T09:00:53.604Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Northstar Outfitters",
+      "auth_issuer": "https://poppy-receiver.roundtrip.workers.dev",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json",
+          "finalUrl": "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "bcc3cf153948a92800862553a4e15e0bd6fae8735ea0f826c1f8cda9f8a5aeb6"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://poppy-receiver.roundtrip.workers.dev/.well-known/oauth-authorization-server",
+          "finalUrl": "https://poppy-receiver.roundtrip.workers.dev/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "9742a06f63c7d17c1c08ff74f5936616c5663768531e103f5cb58d208d48b31b"
+        }
+      ],
+      "requests": [
+        "https://poppy-receiver.roundtrip.workers.dev/.well-known/poppy.json",
+        "https://poppy-receiver.roundtrip.workers.dev/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "tilopay.shop",
+      "attemptedAt": "2026-10-28T09:00:55.827Z",
+      "checked_at": "2026-10-28T09:00:55.827Z",
+      "outcome": "invalid",
+      "protocol_version": "0.1",
+      "organization": "Tilopay",
+      "auth_issuer": "https://mcp.tilopay.com",
+      "counts": {
+        "error": 3,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "organization-domain-mismatch",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/organization/domain",
+          "text": "organization.domain is \"tilo.shop\", but the document was requested for tilopay.shop."
+        },
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        },
+        {
+          "id": "missing-member",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/extensions/tilopay.com~1store-discovery/version",
+          "text": "extensions.tilopay.com/store-discovery.version is required."
+        },
+        {
+          "id": "missing-member",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/extensions/tilopay.com~1public-mcp/version",
+          "text": "extensions.tilopay.com/public-mcp.version is required."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://tilopay.shop/.well-known/poppy.json",
+          "finalUrl": "https://tilo.shop/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "3790b798e2f5692d6548c1a875d2f268e99cec6b41d1f1b9b31cbe2ed7a58942"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://mcp.tilopay.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://mcp.tilopay.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "8e2e7d5d35d45a450f48603ec5fd6a03480017575c99312d9f5323314cb8bfb0"
+        }
+      ],
+      "requests": [
+        "https://tilopay.shop/.well-known/poppy.json",
+        "https://tilo.shop/.well-known/poppy.json",
+        "https://mcp.tilopay.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": true,
+      "validatorOutcome": "invalid"
+    },
+    {
+      "host": "tilopay.tilopay.shop",
+      "attemptedAt": "2026-10-28T09:00:57.149Z",
+      "checked_at": "2026-10-28T09:00:57.149Z",
+      "outcome": "invalid",
+      "protocol_version": "0.1",
+      "organization": "Tilopay",
+      "auth_issuer": "https://mcp.tilopay.com",
+      "counts": {
+        "error": 3,
+        "warning": 0,
+        "info": 2
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "organization-domain-mismatch",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/organization/domain",
+          "text": "organization.domain is \"tilo.shop\", but the document was requested for tilopay.tilopay.shop."
+        },
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        },
+        {
+          "id": "missing-member",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/extensions/tilopay.com~1store-discovery/version",
+          "text": "extensions.tilopay.com/store-discovery.version is required."
+        },
+        {
+          "id": "missing-member",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/extensions/tilopay.com~1public-mcp/version",
+          "text": "extensions.tilopay.com/public-mcp.version is required."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/store_url",
+          "text": "store_url isn't defined in this version; agents ignore it."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://tilopay.tilopay.shop/.well-known/poppy.json",
+          "finalUrl": "https://tilo.shop/tienda/tilopay/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "bebf00e0f14a8919c8c47c52893cb15b5e9d1b5b1f58901e062efa5352fdf16c"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://mcp.tilopay.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://mcp.tilopay.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "8e2e7d5d35d45a450f48603ec5fd6a03480017575c99312d9f5323314cb8bfb0"
+        }
+      ],
+      "requests": [
+        "https://tilopay.tilopay.shop/.well-known/poppy.json",
+        "https://tilo.shop/tienda/tilopay/.well-known/poppy.json",
+        "https://mcp.tilopay.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": true,
+      "validatorOutcome": "invalid"
+    },
+    {
+      "host": "emorahealth.com",
+      "attemptedAt": "2026-10-28T09:00:57.796Z",
+      "checked_at": "2026-10-28T09:00:57.796Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Emora Health",
+      "auth_issuer": "https://www.emorahealth.com/poppy",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://emorahealth.com/.well-known/poppy.json",
+          "finalUrl": "https://www.emorahealth.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "3f6e4a1a65c7c5b77136ffc45394471cede7c654a0f5a6ac1dd614ea7f252dcd"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy",
+          "finalUrl": "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "70a5d470d6298010a826f1e6468d2a9d8b6666e1f82c2a2123e422bf527e0685"
+        }
+      ],
+      "requests": [
+        "https://emorahealth.com/.well-known/poppy.json",
+        "https://www.emorahealth.com/.well-known/poppy.json",
+        "https://www.emorahealth.com/.well-known/oauth-authorization-server/poppy"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "rentourbins.com",
+      "attemptedAt": "2026-10-28T09:00:58.183Z",
+      "checked_at": "2026-10-28T09:00:58.183Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Rent Our Bins",
+      "auth_issuer": null,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://rentourbins.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "website-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "No auth: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://rentourbins.com/.well-known/poppy.json",
+          "finalUrl": "https://rentourbins.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "f21d82b0253fc05eecece557c6319adeecdc56b7700ce926f0f5b55dd876aca1"
+        }
+      ],
+      "requests": [
+        "https://rentourbins.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "neutral-state-jev-dub-bench.vercel.app",
+      "attemptedAt": "2026-10-28T09:01:00.454Z",
+      "checked_at": "2026-10-28T09:01:00.454Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Dub",
+      "auth_issuer": "https://neutral-state-jev-dub-bench.vercel.app",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/poppy.json",
+          "finalUrl": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "aca34464230a22ed4305ef908836c67894aee48a7764aefd53bbfffa6f1c7271"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/oauth-authorization-server",
+          "finalUrl": "https://neutral-state-jev-dub-bench.vercel.app/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "0ff3a59c1245cc41950d4e6c07df6b761dff32f0de30fe8647ca0a6361a84917"
+        }
+      ],
+      "requests": [
+        "https://neutral-state-jev-dub-bench.vercel.app/.well-known/poppy.json",
+        "https://neutral-state-jev-dub-bench.vercel.app/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "neutral-state-jev-os-bench.vercel.app",
+      "attemptedAt": "2026-10-28T09:01:01.218Z",
+      "checked_at": "2026-10-28T09:01:01.218Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "OpenStatus",
+      "auth_issuer": "https://neutral-state-jev-os-bench.vercel.app",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://neutral-state-jev-os-bench.vercel.app/.well-known/poppy.json",
+          "finalUrl": "https://neutral-state-jev-os-bench.vercel.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "8d5aab7dd8e2e9186bf0d0bfc4df88422ce6a8e4b444ba5239e4b66edce807c3"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://neutral-state-jev-os-bench.vercel.app/.well-known/oauth-authorization-server",
+          "finalUrl": "https://neutral-state-jev-os-bench.vercel.app/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "9fba8f72cb8c5d5fd6d28909c07b1f4b385361ade7946793174c63751c91cda0"
+        }
+      ],
+      "requests": [
+        "https://neutral-state-jev-os-bench.vercel.app/.well-known/poppy.json",
+        "https://neutral-state-jev-os-bench.vercel.app/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "ax-air.com",
+      "attemptedAt": "2026-10-28T09:01:01.871Z",
+      "checked_at": "2026-10-28T09:01:01.871Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Ax Air",
+      "auth_issuer": null,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://ax-air.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "website-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "No auth: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://ax-air.com/.well-known/poppy.json",
+          "finalUrl": "https://ax-air.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "242e307aa50841dc9904946ccafdbd70029884dc1031371401643dbe8775e565"
+        }
+      ],
+      "requests": [
+        "https://ax-air.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "notjustabank.com",
+      "attemptedAt": "2026-10-28T09:01:05.158Z",
+      "checked_at": "2026-10-28T09:01:05.158Z",
+      "outcome": "unsupported",
+      "protocol_version": "0.3",
+      "organization": "Not Just a Bank",
+      "auth_issuer": "https://bank.notjustabank.com",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://notjustabank.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.1, 0.2."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://notjustabank.com/.well-known/poppy.json",
+          "finalUrl": "https://notjustabank.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "46a7503fb81d2278ba0bf48a3d57637ae5a8dee1897be33418b11bcaa26ca0bd"
+        }
+      ],
+      "requests": [
+        "https://notjustabank.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": null,
+      "protocolVersion": null,
+      "specificationRevision": null,
+      "changed": true,
+      "validatorOutcome": "invalid"
+    },
+    {
+      "host": "spotmeplease.com",
+      "attemptedAt": "2026-10-28T09:01:05.696Z",
+      "checked_at": "2026-10-28T09:01:05.696Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Spot",
+      "auth_issuer": "https://spotmeplease.com",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://spotmeplease.com/.well-known/poppy.json",
+          "finalUrl": "https://spotmeplease.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "7e3c32ac50523213139b260a4fc7ae42a5e827109962594bdafc23e6e79b7bbb"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://spotmeplease.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://spotmeplease.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "21391fea9e4c09c19e7070594fc07113345476151414697357322996e28ec4ad"
+        }
+      ],
+      "requests": [
+        "https://spotmeplease.com/.well-known/poppy.json",
+        "https://spotmeplease.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "poppy.ilmer.org",
+      "attemptedAt": "2026-10-28T09:01:06.589Z",
+      "checked_at": "2026-10-28T09:01:06.589Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Ilmer Past",
+      "auth_issuer": "https://poppy.ilmer.org",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 4
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/organization/url",
+          "text": "organization.url isn't defined in this version; agents ignore it."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/web/url",
+          "text": "web.url isn't defined in this version; agents ignore it."
+        },
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/description",
+          "text": "description isn't defined in this version; agents ignore it."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://poppy.ilmer.org/.well-known/poppy.json",
+          "finalUrl": "https://poppy.ilmer.org/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "d9090378ee4f74f89e6405bd8ef1c97f798bb525fa32375f46585f76151b239b"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://poppy.ilmer.org/.well-known/oauth-authorization-server",
+          "finalUrl": "https://poppy.ilmer.org/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "f6a7197c6e1f33396f4f3f0c9c4bcd6704aa7b1160c865d82791894773a1154f"
+        }
+      ],
+      "requests": [
+        "https://poppy.ilmer.org/.well-known/poppy.json",
+        "https://poppy.ilmer.org/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "www.ilmer.org",
+      "attemptedAt": "2026-10-28T09:01:07.408Z",
+      "checked_at": "2026-10-28T09:01:07.408Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Ilmer Past",
+      "auth_issuer": "https://poppy.ilmer.org",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 5
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.ilmer.org/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/organization/url",
+          "text": "organization.url isn't defined in this version; agents ignore it."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/web/url",
+          "text": "web.url isn't defined in this version; agents ignore it."
+        },
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        },
+        {
+          "id": "unknown-member",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/description",
+          "text": "description isn't defined in this version; agents ignore it."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.ilmer.org/.well-known/poppy.json",
+          "finalUrl": "https://www.ilmer.org/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "531cf55f0a106a9988c5cad1a85c3de19d0efc178de2223f9025e6028d904c45"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://poppy.ilmer.org/.well-known/oauth-authorization-server",
+          "finalUrl": "https://poppy.ilmer.org/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "f6a7197c6e1f33396f4f3f0c9c4bcd6704aa7b1160c865d82791894773a1154f"
+        }
+      ],
+      "requests": [
+        "https://www.ilmer.org/.well-known/poppy.json",
+        "https://poppy.ilmer.org/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "salespeak.ai",
+      "attemptedAt": "2026-10-28T09:01:08.438Z",
+      "checked_at": "2026-10-28T09:01:08.438Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Salespeak",
+      "auth_issuer": "https://04b145b019ebeb4e.agents.salespeak.ai",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "signed-out-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "/auth",
+          "text": "auth lists no sign-in types, so Sessions can only be signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://salespeak.ai/.well-known/poppy.json",
+          "finalUrl": "https://04b145b019ebeb4e.agents.salespeak.ai/.well-known/poppy.json?domain=salespeak.ai",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "45f07dc286f07d2f67e9f75aa010a334f616a27fde791da1ac4327c7b77beac2"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://04b145b019ebeb4e.agents.salespeak.ai/.well-known/oauth-authorization-server",
+          "finalUrl": "https://04b145b019ebeb4e.agents.salespeak.ai/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "9eb5ff597bd70ea7cdb373a19b94d06910ad82aaa103121ef3e4d488dfaf5af4"
+        }
+      ],
+      "requests": [
+        "https://salespeak.ai/.well-known/poppy.json",
+        "https://04b145b019ebeb4e.agents.salespeak.ai/.well-known/poppy.json?domain=salespeak.ai",
+        "https://04b145b019ebeb4e.agents.salespeak.ai/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "www.alpine-retail.com",
+      "attemptedAt": "2026-10-28T09:01:09.360Z",
+      "checked_at": "2026-10-28T09:01:09.360Z",
+      "outcome": "valid",
+      "protocol_version": "0.2",
+      "organization": "Cliffside Retail",
+      "auth_issuer": "https://www.cliffside-retail.com",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": false,
+      "messages": [],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://www.alpine-retail.com/.well-known/poppy.json",
+          "finalUrl": "https://www.cliffside-retail.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "321cdc09dc273c55fc1b55d20d96756b39dcfd6ec29d9a6ca0806adbec0caa30"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://www.cliffside-retail.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "02ab70b821e6c099e8445151493bf0a25d174a8aeb6b5cca4f30f079a10ff068"
+        }
+      ],
+      "requests": [
+        "https://www.alpine-retail.com/.well-known/poppy.json",
+        "https://www.cliffside-retail.com/.well-known/poppy.json",
+        "https://www.cliffside-retail.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "changed": true,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "windomsports.com",
+      "attemptedAt": "2026-10-28T09:01:10.554Z",
+      "checked_at": "2026-10-28T09:01:10.554Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Windom Sports",
+      "auth_issuer": "https://windomsports.com",
+      "counts": {
+        "error": 0,
+        "warning": 3,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://windomsports.com/.well-known/oauth-authorization-server may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "metadata-auth-method",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/token_endpoint_auth_methods_supported",
+          "text": "token_endpoint_auth_methods_supported doesn't include private_key_jwt."
+        },
+        {
+          "id": "metadata-grant-type",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/grant_types_supported",
+          "text": "grant_types_supported doesn't include urn:ietf:params:oauth:grant-type:jwt-bearer."
+        },
+        {
+          "id": "metadata-grant-type",
+          "severity": "warning",
+          "document": "oauth-metadata",
+          "pointer": "/grant_types_supported",
+          "text": "grant_types_supported doesn't include refresh_token."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://windomsports.com/.well-known/poppy.json",
+          "finalUrl": "https://windomsports.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "9ef9a472c54097ed2479eefc926d982aa93751485010e03ca39b879c46edf32e"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://windomsports.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://windomsports.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "d998a38e657c176e0261a1ca39bf9da7954d02362af6aee12fd45a24cfca21aa"
+        }
+      ],
+      "requests": [
+        "https://windomsports.com/.well-known/poppy.json",
+        "https://windomsports.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": true,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "getvibe.dev",
+      "attemptedAt": "2026-10-28T09:01:11.126Z",
+      "checked_at": "2026-10-28T09:01:11.126Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "The Vibe Suite",
+      "auth_issuer": null,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 2
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://getvibe.dev/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "website-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "No auth: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://getvibe.dev/.well-known/poppy.json",
+          "finalUrl": "https://getvibe.dev/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "5aaf3234a9586cb64a9ad918bfc747ff28cd591ff9bd0cd3ab4c1db3eed02f3c"
+        }
+      ],
+      "requests": [
+        "https://getvibe.dev/.well-known/poppy.json"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "origin-platform-labs.netlify.app",
+      "attemptedAt": "2026-10-28T09:01:11.960Z",
+      "checked_at": "2026-10-28T09:01:11.960Z",
+      "outcome": "valid",
+      "protocol_version": "0.1",
+      "organization": "Origin Platform Labs",
+      "auth_issuer": null,
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "website-only",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "No auth: agents can only browse this Company's website, signed out."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://origin-platform-labs.netlify.app/.well-known/poppy.json",
+          "finalUrl": "https://origin-platform-labs.netlify.app/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "parsed_json_sha256": "deaa814e66fef450cb9a47e0cf9aff7d2d640b98ecab994839cef76fb32b0ca7"
+        }
+      ],
+      "requests": [
+        "https://origin-platform-labs.netlify.app/.well-known/poppy.json"
+      ],
+      "checkedAgainst": "Draft 0.1",
+      "protocolVersion": "0.1",
+      "specificationRevision": "2026-10-12",
+      "changed": false,
+      "validatorOutcome": "valid"
+    },
+    {
+      "host": "intercom.io",
+      "attemptedAt": "2026-10-28T09:01:12.659Z",
+      "checked_at": "2026-10-28T09:01:12.659Z",
+      "outcome": "indeterminate",
+      "protocol_version": null,
+      "organization": null,
+      "auth_issuer": null,
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "http-status",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://www.intercom.com/.well-known/poppy.json answered HTTP 404."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://intercom.io/.well-known/poppy.json",
+          "finalUrl": "https://www.intercom.com/.well-known/poppy.json",
+          "status": 404
+        }
+      ],
+      "requests": [
+        "https://intercom.io/.well-known/poppy.json",
+        "https://www.intercom.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": null,
+      "protocolVersion": null,
+      "specificationRevision": null,
+      "changed": null,
+      "validatorOutcome": "indeterminate"
+    },
+    {
+      "host": "bank.notjustabank.com",
+      "attemptedAt": "2026-10-28T09:29:58.302Z",
+      "checked_at": "2026-10-28T09:29:58.302Z",
+      "outcome": "unsupported",
+      "validatorOutcome": "invalid",
+      "protocol_version": "0.3",
+      "organization": "Not Just a Bank",
+      "auth_issuer": "https://bank.notjustabank.com",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "poppy",
+          "pointer": "",
+          "text": "https://bank.notjustabank.com/.well-known/poppy.json may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        },
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.1, 0.2."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://bank.notjustabank.com/.well-known/poppy.json",
+          "finalUrl": "https://bank.notjustabank.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "46a7503fb81d2278ba0bf48a3d57637ae5a8dee1897be33418b11bcaa26ca0bd"
+        }
+      ],
+      "requests": [
+        "https://bank.notjustabank.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": null,
+      "protocolVersion": null,
+      "specificationRevision": null,
+      "changed": null,
+      "listed_by": "https://papchecker.com/sites"
+    },
+    {
+      "host": "food.papsandbox.com",
+      "attemptedAt": "2026-10-28T09:29:58.562Z",
+      "checked_at": "2026-10-28T09:29:58.562Z",
+      "outcome": "unsupported",
+      "validatorOutcome": "invalid",
+      "protocol_version": "0.3",
+      "organization": "Kettle Street Noodles",
+      "auth_issuer": "https://food.papsandbox.com",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.1, 0.2."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://food.papsandbox.com/.well-known/poppy.json",
+          "finalUrl": "https://food.papsandbox.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "95dad78af9f02df345ceda71c581c740c6bcfdc6d1abf05e8eb5fc7a22594d65"
+        }
+      ],
+      "requests": [
+        "https://food.papsandbox.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": null,
+      "protocolVersion": null,
+      "specificationRevision": null,
+      "changed": null,
+      "listed_by": "https://papchecker.com/sites"
+    },
+    {
+      "host": "poppy.lukemolony.com",
+      "attemptedAt": "2026-10-28T09:29:59.631Z",
+      "checked_at": "2026-10-28T09:29:59.631Z",
+      "outcome": "valid",
+      "validatorOutcome": "valid",
+      "protocol_version": "0.2",
+      "organization": "Lantern & Loch",
+      "auth_issuer": "https://poppy.lukemolony.com",
+      "counts": {
+        "error": 0,
+        "warning": 3,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "document": "poppy",
+          "pointer": "/auth/custom_scopes",
+          "text": "offsite:read is offered but auth.custom_scopes doesn't describe it."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "document": "poppy",
+          "pointer": "/auth/custom_scopes",
+          "text": "brief:write is offered but auth.custom_scopes doesn't describe it."
+        },
+        {
+          "id": "scope-undescribed",
+          "severity": "warning",
+          "document": "poppy",
+          "pointer": "/auth/custom_scopes",
+          "text": "proposals:write is offered but auth.custom_scopes doesn't describe it."
+        },
+        {
+          "id": "metadata-iss-parameter",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "/authorization_response_iss_parameter_supported",
+          "text": "authorization_response_iss_parameter_supported isn't true."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://poppy.lukemolony.com/.well-known/poppy.json",
+          "finalUrl": "https://poppy.lukemolony.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "b1ba4b423791f6960ba2cfcff7be78de2831f162252ffc843dd169e2fe01951e"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://poppy.lukemolony.com/.well-known/oauth-authorization-server",
+          "finalUrl": "https://poppy.lukemolony.com/.well-known/oauth-authorization-server",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "906e88d90690c59aa8a878412556eb8cd45f9bad9c1221fb635b821ea665bed4"
+        }
+      ],
+      "requests": [
+        "https://poppy.lukemolony.com/.well-known/poppy.json",
+        "https://poppy.lukemolony.com/.well-known/oauth-authorization-server"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "changed": null,
+      "listed_by": "https://papchecker.com/sites"
+    },
+    {
+      "host": "stays.papsandbox.com",
+      "attemptedAt": "2026-10-28T09:29:59.840Z",
+      "checked_at": "2026-10-28T09:29:59.840Z",
+      "outcome": "unsupported",
+      "validatorOutcome": "invalid",
+      "protocol_version": "0.3",
+      "organization": "Harbour Row Stays",
+      "auth_issuer": "https://stays.papsandbox.com",
+      "counts": {
+        "error": 1,
+        "warning": 0,
+        "info": 0
+      },
+      "refused_by_pda": true,
+      "messages": [
+        {
+          "id": "version-unsupported",
+          "severity": "error",
+          "document": "poppy",
+          "pointer": "/protocol_version",
+          "text": "poppy.json is protocol version 0.3; this validator supports 0.1, 0.2."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://stays.papsandbox.com/.well-known/poppy.json",
+          "finalUrl": "https://stays.papsandbox.com/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "7b8ab4d83b9fef67dbbe17979397217c042300ec9195b7c2d4b96c99f510e3a4"
+        }
+      ],
+      "requests": [
+        "https://stays.papsandbox.com/.well-known/poppy.json"
+      ],
+      "checkedAgainst": null,
+      "protocolVersion": null,
+      "specificationRevision": null,
+      "changed": null,
+      "listed_by": "https://papchecker.com/sites"
+    },
+    {
+      "host": "planmyvisit.to",
+      "attemptedAt": "2026-10-28T09:30:00.820Z",
+      "checked_at": "2026-10-28T09:30:00.820Z",
+      "outcome": "valid",
+      "validatorOutcome": "valid",
+      "protocol_version": "0.2",
+      "organization": "PlanMyVisit by Autoura",
+      "auth_issuer": "https://api.autoura.com/api/auth",
+      "counts": {
+        "error": 0,
+        "warning": 0,
+        "info": 1
+      },
+      "refused_by_pda": false,
+      "messages": [
+        {
+          "id": "http-cache-bounded",
+          "severity": "info",
+          "document": "oauth-metadata",
+          "pointer": "",
+          "text": "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth may be cached for 0 seconds; agents typically clamp that to between 60 and 86400."
+        }
+      ],
+      "documents": [
+        {
+          "kind": "poppy",
+          "url": "https://planmyvisit.to/.well-known/poppy.json",
+          "finalUrl": "https://www.planmyvisit.to/.well-known/poppy.json",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "322f23600b72eb5e2354b4688facc0c87cb50e116f208b4f31e060b7b828ba2a"
+        },
+        {
+          "kind": "oauth-metadata",
+          "url": "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth",
+          "finalUrl": "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth",
+          "status": 200,
+          "contentType": "application/json",
+          "parsed_json_sha256": "2154a68e9225312a643f9f327b27676ea1d8aac7c5b79d2a90b2c85dabe49545"
+        }
+      ],
+      "requests": [
+        "https://planmyvisit.to/.well-known/poppy.json",
+        "https://www.planmyvisit.to/.well-known/poppy.json",
+        "https://api.autoura.com/.well-known/oauth-authorization-server/api/auth"
+      ],
+      "checkedAgainst": "Draft 0.2",
+      "protocolVersion": "0.2",
+      "specificationRevision": "2026-10-19",
+      "changed": null,
+      "listed_by": "https://papchecker.com/sites"
+    }
+  ],
+  "candidates": [
+    {
+      "query": "\"personal agent protocol\" created:>=2026-10-23",
+      "observedAt": "2026-10-28T09:00:19.059Z",
+      "total": 4,
+      "limit": 20,
+      "repositories": [
+        {
+          "repository": "ohartwig/typo3-poppy",
+          "description": "Personal Agent Protocol (Poppy) for TYPO3 \u2014 read-only mirror",
+          "fork": false,
+          "url": "https://github.com/ohartwig/typo3-poppy"
+        },
+        {
+          "repository": "ohartwig/sylius-poppy",
+          "description": "Personal Agent Protocol (Poppy) for Sylius \u2014 read-only mirror",
+          "fork": false,
+          "url": "https://github.com/ohartwig/sylius-poppy"
+        },
+        {
+          "repository": "ohartwig/poppy",
+          "description": "Framework-agnostic server core for the Personal Agent Protocol (Poppy) \u2014 read-only mirror",
+          "fork": false,
+          "url": "https://github.com/ohartwig/poppy"
+        },
+        {
+          "repository": "kidkuddy/poppy-cli",
+          "description": "A Personal Agent Protocol (Poppy) CLI and Claude Code skill for testing Companies",
+          "fork": false,
+          "url": "https://github.com/kidkuddy/poppy-cli"
+        }
+      ]
+    },
+    {
+      "query": "poppy created:>=2026-10-23",
+      "observedAt": "2026-10-28T09:00:20.267Z",
+      "total": 29,
+      "limit": 20,
+      "repositories": [
+        {
+          "repository": "kutu699/kich-ban-poppy",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/kutu699/kich-ban-poppy"
+        },
+        {
+          "repository": "proctor18/poppys",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/proctor18/poppys"
+        },
+        {
+          "repository": "aaronbsloan-rgb/poppyspointe1",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/aaronbsloan-rgb/poppyspointe1"
+        },
+        {
+          "repository": "aaronbsloan-rgb/poppyspointe",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/aaronbsloan-rgb/poppyspointe"
+        },
+        {
+          "repository": "ethaantp/Floodgate",
+          "description": "Self-hosted period, blood clot, and endometriosis symptom tracker for Poppy",
+          "fork": false,
+          "url": "https://github.com/ethaantp/Floodgate"
+        },
+        {
+          "repository": "ohartwig/typo3-poppy",
+          "description": "Personal Agent Protocol (Poppy) for TYPO3 \u2014 read-only mirror",
+          "fork": false,
+          "url": "https://github.com/ohartwig/typo3-poppy"
+        },
+        {
+          "repository": "quezadamatthew27-bit/poppys-demo-",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/quezadamatthew27-bit/poppys-demo-"
+        },
+        {
+          "repository": "erikrjohansson/omarchy-cumulus-theme",
+          "description": "A summer sky behind towering clouds: painted-sky blue, cloud cream and poppy orange. A dark theme for Omarchy 4.",
+          "fork": false,
+          "url": "https://github.com/erikrjohansson/omarchy-cumulus-theme"
+        },
+        {
+          "repository": "yumayo/Poppy",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/yumayo/Poppy"
+        },
+        {
+          "repository": "nikita-podshivalov/poppy_playtime",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/nikita-podshivalov/poppy_playtime"
+        },
+        {
+          "repository": "ohartwig/sylius-poppy",
+          "description": "Personal Agent Protocol (Poppy) for Sylius \u2014 read-only mirror",
+          "fork": false,
+          "url": "https://github.com/ohartwig/sylius-poppy"
+        },
+        {
+          "repository": "ohartwig/poppy",
+          "description": "Framework-agnostic server core for the Personal Agent Protocol (Poppy) \u2014 read-only mirror",
+          "fork": false,
+          "url": "https://github.com/ohartwig/poppy"
+        },
+        {
+          "repository": "Ukinachii/Poppy6FanMade",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/Ukinachii/Poppy6FanMade"
+        },
+        {
+          "repository": "VolodymyrDem/PoppyDesk",
+          "description": "Your notch, finally useful. A free, modular menu bar app for Mac.",
+          "fork": false,
+          "url": "https://github.com/VolodymyrDem/PoppyDesk"
+        },
+        {
+          "repository": "Kittit007/poppy",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/Kittit007/poppy"
+        },
+        {
+          "repository": "quezadamatthew27-bit/poppy-s-menu",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/quezadamatthew27-bit/poppy-s-menu"
+        },
+        {
+          "repository": "OatsAndObjects/for-poppy",
+          "description": null,
+          "fork": false,
+          "url": "https://github.com/OatsAndObjects/for-poppy"
+        },
+        {
+          "repository": "stevenjw827-collab/soldiers-1",
+          "description": "soldiers on a poppy",
+          "fork": false,
+          "url": "https://github.com/stevenjw827-collab/soldiers-1"
+        },
+        {
+          "repository": "cmatsuoka/poppy-web",
+          "description": "Demo for libpoppy with a web UI.",
+          "fork": false,
+          "url": "https://github.com/cmatsuoka/poppy-web"
+        },
+        {
+          "repository": "justinnickles/bring-poppy-home",
+          "description": "Help bring our lost cat Poppy home (Reno, Caughlin Ranch)",
+          "fork": false,
+          "url": "https://github.com/justinnickles/bring-poppy-home"
+        }
+      ]
+    }
+  ],
+  "discussions": [
+    {
+      "number": 22,
+      "title": "Extensions proposal: Push notifications extension - let a Company tell the Personal Agent something happened",
+      "state": "open",
+      "updatedAt": "2026-10-27T21:17:43Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/22",
+      "pullRequest": false
+    },
+    {
+      "number": 54,
+      "title": "Community demo: Poppy Simulator",
+      "state": "open",
+      "updatedAt": "2026-10-27T21:17:32Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/54",
+      "pullRequest": false
+    },
+    {
+      "number": 53,
+      "title": "Question: should an agent ever join the customer's own everyday browser to its session?",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:34:01Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/53",
+      "pullRequest": false
+    },
+    {
+      "number": 52,
+      "title": "Links in a company's \"alternatives\" should only point to that company's own sites",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:32:06Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/52",
+      "pullRequest": false
+    },
+    {
+      "number": 51,
+      "title": "Use cases and two design rules for push notifications and attachments",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:29:59Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/51",
+      "pullRequest": false
+    },
+    {
+      "number": 50,
+      "title": "Agents should say whether they pass a customer's task to an agent run by another company",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:28:10Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/50",
+      "pullRequest": false
+    },
+    {
+      "number": 49,
+      "title": "Let a company mark actions that only the account holder can approve",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:26:37Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/49",
+      "pullRequest": false
+    },
+    {
+      "number": 48,
+      "title": "Let a company ask agents to use its online channels instead of phoning, and have agents say they are AI on any call",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:25:25Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/48",
+      "pullRequest": false
+    },
+    {
+      "number": 47,
+      "title": "Agents should never type the customer's password or texted code when the company offers its own sign-in page",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:23:46Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/47",
+      "pullRequest": false
+    },
+    {
+      "number": 46,
+      "title": "Let a company ask the customer to approve a big change on the company's own page",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:21:05Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/46",
+      "pullRequest": false
+    },
+    {
+      "number": 45,
+      "title": "Operations: define the company-hosted approval step for high-impact operations",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:14:28Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/45",
+      "pullRequest": false
+    },
+    {
+      "number": 25,
+      "title": "A verified human signal for sessions",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:14:07Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/25",
+      "pullRequest": false
+    },
+    {
+      "number": 44,
+      "title": "A live witness for payment records: design and evidence, published",
+      "state": "open",
+      "updatedAt": "2026-10-27T19:06:06Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/44",
+      "pullRequest": false
+    },
+    {
+      "number": 43,
+      "title": "Community demo: Datalayer PAP SDK (Manzanita; Ledgerly with Northwind)",
+      "state": "open",
+      "updatedAt": "2026-10-27T17:27:32Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/43",
+      "pullRequest": false
+    },
+    {
+      "number": 37,
+      "title": "Evidence for the payments discussion: an agent-paid, witnessed receipt, settled Oct 25, 2026",
+      "state": "closed",
+      "updatedAt": "2026-10-27T16:04:09Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/37",
+      "pullRequest": false
+    },
+    {
+      "number": 42,
+      "title": "Agents that run on the user's own computer: signing without the publisher's server",
+      "state": "open",
+      "updatedAt": "2026-10-27T14:00:56Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/42",
+      "pullRequest": false
+    },
+    {
+      "number": 35,
+      "title": "Align with OAuth and AIMS terminology",
+      "state": "closed",
+      "updatedAt": "2026-10-27T13:19:22Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/35",
+      "pullRequest": false
+    },
+    {
+      "number": 27,
+      "title": "Implementation report: Donna, a personal agent, live on Draft 0.2 since 20 October",
+      "state": "closed",
+      "updatedAt": "2026-10-27T13:12:38Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/27",
+      "pullRequest": false
+    },
+    {
+      "number": 20,
+      "title": "Use-case proposal: agentic charitable giving \u2014 donation authorization, receipts, and impact evidence (FundGen)",
+      "state": "closed",
+      "updatedAt": "2026-10-27T13:08:04Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/20",
+      "pullRequest": false
+    },
+    {
+      "number": 19,
+      "title": "Standard sender name, image and identity on Company messages",
+      "state": "closed",
+      "updatedAt": "2026-10-27T12:40:56Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/19",
+      "pullRequest": false
+    },
+    {
+      "number": 41,
+      "title": "7.10: When should an open Direct Conversation close if the User stops using it?",
+      "state": "open",
+      "updatedAt": "2026-10-27T12:18:39Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/41",
+      "pullRequest": false
+    },
+    {
+      "number": 40,
+      "title": "7.10: Let the Company send the first message when it asked for the User",
+      "state": "open",
+      "updatedAt": "2026-10-27T12:18:38Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/40",
+      "pullRequest": false
+    },
+    {
+      "number": 39,
+      "title": "Operations: `approved_by: \"standing_permission\"` is asserted on trust. Proposal for an optional extension that lets a Company verify it.",
+      "state": "open",
+      "updatedAt": "2026-10-26T04:56:03Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/39",
+      "pullRequest": false
+    },
+    {
+      "number": 38,
+      "title": "Operations: standing permissions across multiple confirmations",
+      "state": "open",
+      "updatedAt": "2026-10-25T18:34:58Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/38",
+      "pullRequest": false
+    },
+    {
+      "number": 32,
+      "title": "5: A conforming agent can't act in the User's own signed-in browser at any participating Company",
+      "state": "open",
+      "updatedAt": "2026-10-25T18:05:19Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/32",
+      "pullRequest": false
+    },
+    {
+      "number": 23,
+      "title": "Use case: creator-priced task marketplaces, evidence-backed completion, and separate settlement",
+      "state": "open",
+      "updatedAt": "2026-10-25T16:38:00Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/23",
+      "pullRequest": false
+    },
+    {
+      "number": 34,
+      "title": "Extension proposal: data-handling declarations in poppy.json (training, retention, regions)",
+      "state": "closed",
+      "updatedAt": "2026-10-25T15:32:46Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/34",
+      "pullRequest": false
+    },
+    {
+      "number": 30,
+      "title": "cite rfc7523bis and state the intentional departure from its lenient grant-assertion aud rule",
+      "state": "closed",
+      "updatedAt": "2026-10-25T15:17:03Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/30",
+      "pullRequest": false
+    },
+    {
+      "number": 36,
+      "title": "4.2: A User can't have more than one agent in the same Personal Agent",
+      "state": "closed",
+      "updatedAt": "2026-10-25T15:13:35Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/36",
+      "pullRequest": false
+    },
+    {
+      "number": 29,
+      "title": "Extension proposal: Upstream intent-to-domain discovery prior to poppy.json handoff",
+      "state": "closed",
+      "updatedAt": "2026-10-25T15:13:24Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/29",
+      "pullRequest": false
+    },
+    {
+      "number": 21,
+      "title": "Extension proposal: Referral, so a Company can credit the advisor that sent a customer (truefinds.ai/referral)",
+      "state": "open",
+      "updatedAt": "2026-10-25T15:13:04Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/21",
+      "pullRequest": false
+    },
+    {
+      "number": 33,
+      "title": "4.1: `redirect_uris` must be HTTPS on the `client_id` domain, which rules out the redirects desktop apps and browser extensions use",
+      "state": "closed",
+      "updatedAt": "2026-10-25T14:48:12Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/33",
+      "pullRequest": false
+    },
+    {
+      "number": 31,
+      "title": "4.1: An agent that runs on the User's own devices can't hold the `private_key_jwt` key without a cloud signer that sees every Company",
+      "state": "open",
+      "updatedAt": "2026-10-25T14:45:29Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/31",
+      "pullRequest": false
+    },
+    {
+      "number": 9,
+      "title": "Proposal: a \"feedback\" extension so agents can tell companies where they got stuck",
+      "state": "closed",
+      "updatedAt": "2026-10-24T18:00:00Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/9",
+      "pullRequest": false
+    },
+    {
+      "number": 28,
+      "title": "Extension proposal: Task grants, so the User approves one operation on the Company's page (RFC 9396)",
+      "state": "open",
+      "updatedAt": "2026-10-23T12:20:33Z",
+      "url": "https://github.com/personal-agent-protocol/personal-agent-protocol/issues/28",
+      "pullRequest": false
+    }
+  ],
+  "discussionSearch": {
+    "observedAt": "2026-10-28T09:00:20.754Z",
+    "since": "2026-10-23",
+    "limit": 40,
+    "atLimit": false
+  },
+  "finishedAt": "2026-10-28T09:30:00.821Z",
+  "incomplete": true,
+  "transport": "Node environment proxy with TLS verification and public-DNS checks; proxy connection is not DNS-pinned",
+  "sourceCommit": "c3eabd00e398f2934a462d44c38640c2cfd8cfff"
+}

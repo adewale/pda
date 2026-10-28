@@ -1,0 +1,40 @@
+
+> pda@0.0.0 spec:drift
+> node --use-env-proxy scripts/check-spec.mjs --drift
+
+Verified 48 changelog dispositions and 56 pinned upstream files (0.2, 39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d).
+CHANGED content/shared/changelog.mdx: review the official changelog before updating the profile.
+CHANGED kit/company/schemas/authorization-server-metadata.schema.json: review the official changelog before updating the profile.
+REMOVED kit/company/schemas/browser-assertion.schema.json: review the official changelog before updating the profile.
+CHANGED kit/company/schemas/dpop-proof.schema.json: review the official changelog before updating the profile.
+CHANGED kit/company/schemas/event.schema.json: review the official changelog before updating the profile.
+CHANGED kit/company/schemas/feedback-report.schema.json: review the official changelog before updating the profile.
+CHANGED kit/company/schemas/mediated-sign-in-response.schema.json: review the official changelog before updating the profile.
+CHANGED kit/company/schemas/message.schema.json: review the official changelog before updating the profile.
+CHANGED kit/company/schemas/poppy.schema.json: review the official changelog before updating the profile.
+CHANGED kit/company/schemas/session-assertion.schema.json: review the official changelog before updating the profile.
+CHANGED kit/company/schemas/token-response.schema.json: review the official changelog before updating the profile.
+CHANGED kit/company/validate/README.md: review the official changelog before updating the profile.
+CHANGED kit/company/validate/agent.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/catalog.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/checks/conversations.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/checks/discovery.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/checks/mcp.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/checks/openapi.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/checks/session.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/checks/types.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/design.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/index.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/jose.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/redact.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/run.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/survey.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/test/checks.test.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/test/fake-company.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/test/output.test.ts: review the official changelog before updating the profile.
+CHANGED kit/company/validate/test/schema.test.ts: review the official changelog before updating the profile.
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

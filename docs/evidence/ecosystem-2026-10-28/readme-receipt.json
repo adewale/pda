@@ -1,0 +1,33 @@
+{
+  "renderer": "GitHub server-rendered README with GitHub CSS; scripts disabled; public GETs through the managed Node proxy",
+  "browser": "Chrome/154.0.8037.57",
+  "viewport": {
+    "width": 1440,
+    "height": 1000,
+    "deviceScaleFactor": 1
+  },
+  "captures": [
+    {
+      "kind": "before",
+      "commit": "c3eabd00e398f2934a462d44c38640c2cfd8cfff",
+      "url": "https://github.com/adewale/pda/blob/c3eabd00e398f2934a462d44c38640c2cfd8cfff/README.md",
+      "file": "readme-before.png",
+      "markdownSha256": "923d7bbde2a24ead9b7dabd03f77f433125e0d7ca3a422283b409cf5cb2cf6fd",
+      "imageSha256": "a9cd8ab392102d14d30a0c241ae07d503a8d4250f208f2ef1f79acf9c04fc32e",
+      "componentRows": 0,
+      "assetFailures": []
+    },
+    {
+      "kind": "after",
+      "commit": "300c719bd21a8508f59a75474fb0b22e96f1a8e3",
+      "url": "https://github.com/adewale/pda/blob/300c719bd21a8508f59a75474fb0b22e96f1a8e3/README.md",
+      "file": "readme-after.png",
+      "markdownSha256": "862a86aab0ad6c661ec59c38e41fcea2d0c7ad883bc644ae2d2c9c3856134fe3",
+      "imageSha256": "d2e9dc665e468d3cbce4da056b513c5c94ded32d6bfb3ac8747529f52886e657",
+      "componentRows": 10,
+      "assetFailures": []
+    }
+  ],
+  "limitation": "Documents the visible README inventory. Does not establish protocol behavior; application screenshots have separate receipts.",
+  "observedAt": "2026-10-28T11:59:26.980Z"
+}
