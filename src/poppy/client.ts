@@ -1186,18 +1186,30 @@ export class PoppyClient {
     return this.session(company.issuer, label)!;
   }
 
-  #writeSessionV3(issuer: Issuer, label: string, sid: string, account: string | null, scope: string): void {
+  /**
+   * A 0.3 Session's row: `account` is the account it is signed in to now,
+   * and `used_account` the one it was used with, kept after it continues
+   * signed out, so signing in to another account later starts a new
+   * Session (5.4) rather than mixing them.
+   */
+  #writeSessionV3(issuer: Issuer, label: string, sid: string, account: string | null, scope: string, used: string | null = account): void {
     this.sql.exec(
-      `INSERT OR REPLACE INTO poppy_sessions (issuer, label, session_id, account, signed_in, scope, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO poppy_sessions (issuer, label, session_id, account, signed_in, scope, updated_at, used_account)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       issuer,
       label,
       sid,
       account,
       account ? 1 : 0,
       scope,
-      Date.now()
+      Date.now(),
+      used
     );
+  }
+
+  /** 0.3: the account a Session was used with, signed in now or not. */
+  #usedAccountV3(issuer: Issuer, label: string): string | null {
+    return one(this.sql, sessionsTable.pick("used_account"), "SELECT used_account FROM poppy_sessions WHERE issuer = ? AND label = ?", issuer, label)?.used_account ?? null;
   }
 
   /**
@@ -1207,7 +1219,7 @@ export class PoppyClient {
    */
   signOutSession(issuer: Issuer, label: string): void {
     const session = this.session(issuer, label);
-    if (session) this.#writeSessionV3(issuer, label, session.session_id, null, "");
+    if (session) this.#writeSessionV3(issuer, label, session.session_id, null, "", this.#usedAccountV3(issuer, label) ?? session.account);
     this.#forgetTokens(issuer, label);
   }
 
@@ -1218,7 +1230,8 @@ export class PoppyClient {
    */
   #bindAccountV3(company: Company, label: string, account: string, scope: string): void {
     const session = this.session(company.issuer, label);
-    const sid = session && (!session.account || session.account === account) ? session.session_id : randomId();
+    const used = session ? this.#usedAccountV3(company.issuer, label) ?? session.account : null;
+    const sid = session && (!used || used === account) ? session.session_id : randomId();
     this.#forgetTokens(company.issuer, label);
     this.#writeSessionV3(company.issuer, label, sid, account, scope);
   }

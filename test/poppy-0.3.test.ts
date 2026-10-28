@@ -167,6 +167,21 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 });
 
+describe("0.3: one account per Session", () => {
+  it("signs in to a second account in a new Session, even after signing out of the first", async () => {
+    const c = await company(V3);
+    const a = await agent();
+    await signInDirect(a, c, SCOPES);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
+    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+    await signInDirect(a, c, SCOPES, { account: "acct_grace" }, { account: "work" });
+    const orders = await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" });
+    expect(orders.text).toContain("acct_grace");
+    const sids = resourceRequests(await requests(c), c).map((request) => decodeJwt(request.headers["poppy-session"]!).sid);
+    expect(new Set(sids).size).toBe(2);
+  });
+});
+
 describe("0.3: Operations 2", () => {
   it("shows the Company's terms, sends the same request with Poppy-Approval, and performs it once", async () => {
     const c = await company(V3);

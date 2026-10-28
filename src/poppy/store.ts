@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS poppy_sessions (
   signed_in INTEGER NOT NULL,
   scope TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
+  used_account TEXT,
   PRIMARY KEY (issuer, label)
 );
 CREATE TABLE IF NOT EXISTS poppy_accounts (
@@ -214,6 +215,10 @@ export function migrate(sql: Sql): void {
   if (!sql.exec("PRAGMA table_info(poppy_signouts)").toArray().some((column) => column.name === "reason")) {
     sql.exec("ALTER TABLE poppy_signouts ADD COLUMN reason TEXT NOT NULL DEFAULT 'sign_out'");
   }
+  // Agents created before 28 October 2026: which account a 0.3 Session was used with, after it continues signed out.
+  if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "used_account")) {
+    sql.exec("ALTER TABLE poppy_sessions ADD COLUMN used_account TEXT");
+  }
   for (const column of ["approval_generation", "cancel_requested"]) {
     if (!sql.exec("PRAGMA table_info(poppy_operations)").toArray().some((entry) => entry.name === column)) {
       sql.exec(`ALTER TABLE poppy_operations ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
@@ -273,7 +278,9 @@ export const sessionsTable = table("poppy_sessions", {
   account: nullable(text),
   signed_in: integerOf(flag),
   scope: text,
-  updated_at: integer
+  updated_at: integer,
+  /** 0.3: the account the Session was used with, kept after it continues signed out (5.4, 5.5); null before 0.3. */
+  used_account: nullable(text)
 });
 export const accountsTable = table("poppy_accounts", {
   issuer: issuerColumn,
