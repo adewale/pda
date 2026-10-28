@@ -1,171 +1,439 @@
-# Contradictions and issues in Poppy draft 0.3
+# Issues in Personal Agent Protocol draft 0.3
 
-Every problem we know of in [Personal Agent Protocol](https://personalagentprotocol.org/) draft 0.3 as rewritten on 28 October 2026, retrieved at 17:48 UTC and stored in [`spec/draft-0.3-retrieved-2026-10-28/`](../spec/draft-0.3-retrieved-2026-10-28/README.md). The draft is "In progress", and upstream's repository (`a95b757`) still has the earlier text. Line numbers are in that snapshot's `pages/` files: **spec** is `0.3-spec.md`, **Ops** is the Operations extension (version 2), **MSI** is the Mediated Sign-In extension, **guides** and **walkthroughs** are those pages. Every quotation was checked to occur exactly once on its line.
+From the [Poppy Demo Agent](https://github.com/adewale/pda) project, which implements a Personal Agent and a strict mock Company for Poppy 0.1 and 0.2.
 
-The rewrite replaced most of the design the earlier list ([spec-issues-0.3.md](spec-issues-0.3.md), T-numbers) was written against. Findings here take **R-numbers**. Where one carries over an earlier finding, it says so. Earlier findings the rewrite resolved are listed at the end.
+**What we read.** Draft 0.3 as published on 28 October 2026, retrieved at 17:48 UTC:
+- the [specification](https://personalagentprotocol.org/docs/0.3/spec);
+- the [Operations extension](https://personalagentprotocol.org/docs/0.3/extensions/operations), version 2;
+- the [Mediated Sign-In extension](https://personalagentprotocol.org/docs/0.3/extensions/mediated-sign-in);
+- the [guides](https://personalagentprotocol.org/docs/0.3/guides);
+- the 0.3 [changelog](https://personalagentprotocol.org/docs/changelog);
+- the walkthroughs on the home page.
 
-Found by three reads of the text: ours, and two by reviewers given only the spec pages. Every finding from them was checked against the text before it went in. Nothing here has been sent to the draft's authors; that needs the owner's approval ([SECURITY.md](../SECURITY.md)).
+Quotations are verbatim from those pages' Markdown, and section numbers are the specification's unless marked otherwise. Three people read the text independently, and each issue below was checked against it before it went in. Where an issue was already in 0.2, the entry says so.
 
-| Severity | IDs |
+**Two causes behind several issues.** A delegation doesn't name the User it may sign for (§5.2, §10.7). And with blind signing, which §10.7 recommends, every User of a Personal Agent can get its signatures. Issues 1, 2, 7, 9 and 16 follow from one or both.
+
+| Severity | Issues |
 | --- | --- |
-| High | R1, R2, R3, R4 |
-| Medium | R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, R15, R16, R17, R18 |
-| Low | R19 to R38 |
+| High | 1 to 3 |
+| Medium | 4 to 18 |
+| Low | 19 to 39 |
 
 ## High
 
-**R1. "A copied access token is useless without the Personal Agent's key" isn't true.** Security, contradiction.
-- *Claim:* "so a copied access token is useless without the Personal Agent's key (5.3)" (spec 455), and the changelog adds "even as a Bearer token".
-- *Against it:*
-  - **MCP servers.** The defence applies only "at every endpoint that accepts the Session header" (spec 540), but "except that an MCP server MAY ignore the Session header" (spec 684), and MCP tokens are usually Bearer.
-  - **Other services.** "By default, one access token works at all of a Company's services" (spec 324), including ones that never see the header.
-  - **Other Users of the same agent.** Under blind signing, "another User can make the Session JWT that has to go with it" (spec 1308). It takes a delegation, not "the Personal Agent's key", and 10.7 suggests delegated keys can "stay on the User's device" (spec 1302).
-- *Fix:* state the guarantee as it is: a copied token needs a valid delegation, at services that check the header.
+### 1. A copied access token works without the Personal Agent's key in three cases
 
-**R2. Any holder of a delegation can act as any User while signed out.** Security.
-- "whoever holds a delegated key can sign Session JWTs for any User ID they know until the delegation expires, and act as that User while signed out" (spec 1298).
-- Signed-out state belongs to the agent and the User ID: a conversation "belongs to the Personal Agent's `client_id` and the User ID that started it" (spec 752).
-- User IDs need only be "stable" and "opaque" (spec 400). They aren't required to be unguessable or kept secret, and they go to every API host on every request (`sub`).
-- With blind signing, which 10.7 recommends, every User of the agent can get delegations. So another User who learns a User ID can read that User's signed-out conversations and use their cart.
-- *Fix:* bind a delegation to the User ID it may sign for, or require User IDs to be unguessable and treated as secrets.
+*Security, contradiction. §4.5, §5.2, §5.3, §7, §10.7, changelog.*
 
-**R3. The delegated key's blast radius contradicts itself.** Security, contradiction.
-- "so a leaked one exposes only that User at one Company (10.7)" (spec 461), against R2's quote from 10.7. Nothing in the verification steps (spec 516) ties a delegation to a `sub`. "One User ID per key" is a rule for the Personal Agent that no Company can check.
+**What the text says.** §5.2: "so a copied access token is useless without the Personal Agent's key (5.3)". The changelog adds "even as a Bearer token".
 
-**R4. Operations can perform an action twice.** Interop and security, Operations.
-- The Company must remember a performed operation only "at least until the approved revision's `expires_at`" (Ops 259). Yet another revision of the same `operation_id` passes if "The `revision` is one the Company returned for this operation, it hasn't expired" (Ops 251).
-- So if revision 1 is approved and performed, and the record is dropped when revision 1 expires, an approval of a later-expiring revision 2 runs the action again.
-- The guides make it worse: "Keep your record of a performed operation until its approved revision expires, and no longer than you need to" (guides 410).
-- *Fix:* remember it until the last `expires_at` of any revision issued for that `operation_id`.
+**Why it doesn't hold.**
+- **MCP servers.** The rule that enforces it applies only "at every endpoint that accepts the Session header" (§5.3), and §7 allows "except that an MCP server MAY ignore the Session header". At such a server, a copied token works on its own.
+- **Unlisted services.** "By default, one access token works at all of a Company's services" (§4.5), including services that never see the header.
+- **Other Users.** §10.7 itself says "another User can make the Session JWT that has to go with it". What the attacker needs is a delegation, not "the Personal Agent's key". Every User has one when "delegated keys stay on the User's device", or when the agent signs blindly.
+
+**Suggestion.** State the guarantee as it is: a copied token needs a valid delegation, and only at services that check the Session header. Either require MCP servers that take a Personal Agent's tokens to check the header, or require those tokens to be DPoP-bound.
+
+### 2. Anyone who holds a delegation can act as any User while signed out
+
+*Security, contradiction. §5.1, §5.2, §8.2, §10.7.*
+
+**What the text says.**
+- §10.7: "whoever holds a delegated key can sign Session JWTs for any User ID they know until the delegation expires, and act as that User while signed out".
+- §5.2 says the opposite: "so a leaked one exposes only that User at one Company (10.7)".
+- The verification steps in §5.2 never compare a delegation with `sub`, so using each key for one User ID is a rule the Personal Agent follows but no Company can check.
+
+**Why it matters.**
+- A signed-out conversation "belongs to the Personal Agent's `client_id` and the User ID that started it" (§8.2).
+- User IDs must be stable and opaque (§5.1), but not unguessable or secret. They also travel in `sub` to every API host the Company lists.
+- With blind signing, every User of a Personal Agent can get delegations. So a User who learns another User's ID at a Company can read and continue that User's signed-out conversations there.
+
+**Suggestion.** Bind each delegation to one User ID, for example with a claim the Company checks against `sub`. Or require User IDs to be unguessable and handled as secrets, and correct the sentence in §5.2.
+
+### 3. Operations can perform an action twice
+
+*Security. Operations 6 and 7, guides.*
+
+**What the text says.**
+- An approval is accepted when "The `revision` is one the Company returned for this operation, it hasn't expired" (Operations).
+- But the Company need only remember a performed operation "at least until the approved revision's `expires_at`" (Operations).
+- The guides go further: "Keep your record of a performed operation until its approved revision expires, and no longer than you need to".
+
+**Why it matters.** Suppose a Company returns revision 1 and then revision 2, with a later expiry, under one `operation_id`. Revision 1 is approved and performed, and the Company forgets the operation when revision 1 expires. An approval of revision 2 then passes every check, and the action runs again.
+
+**Suggestion.** Remember a performed operation until the latest `expires_at` of any revision issued for its `operation_id`, and say so in the guides too.
 
 ## Medium
 
-**R5. A replayed Session JWT at `/authorize` joins someone else's browser.** Security.
-- The JWT covers method and URL, not the body ("`htm` and `htu` are the request's method and URL", spec 449); replay rejection is optional ("A Company MAY reject a reused `jti`, as RFC 9449 §11.1 allows for DPoP proofs", spec 542); and the acceptance window is the Company's choice.
-- So whoever copies one request's headers within the window can authorize their own browser's code and get a signed-in cookie that lasts as long as the Session. That contradicts "only the Personal Agent can authorize it, so no one else can make a browser join the Session" (spec 582).
-- *Fix:* require `jti` replay rejection at `{browser_session_endpoint}/authorize`, or put the code in the signed JWT.
+### 4. A copied browser-join request can join another browser
 
-**R6. Removing a key doesn't revoke cached delegations.** Security, contradiction.
-- "Removing a key from `jwks_uri` revokes every delegation it signed, once Companies' caches of the key set expire" (spec 1300), but a resource "MAY cache a verified delegation until it expires" (spec 523), up to 24 hours, whatever the key set's cache says.
+*Security. §5.3, §6, §10.6.*
 
-**R7. DPoP keys can link a User across Companies again.** Security.
-- The rule that DPoP keys are per User ID was removed (changelog: "use a separate DPoP key for each User ID" is among the "DPoP rules Poppy added to RFC 9449 [that] are removed"). The spec now says a request carries the Session JWT and "a DPoP proof, each signed with its own key" (spec 455). The spec itself warns that a shared key lets "Companies could match a User across Companies by the key's thumbprint" (spec 527).
-- *Fix:* restore the rule for DPoP keys.
+**What the text says.**
+- The Session JWT covers the method and URL ("`htm` and `htu` are the request's method and URL"), not the body.
+- Replay rejection is optional: "A Company MAY reject a reused `jti`, as RFC 9449 §11.1 allows for DPoP proofs". The acceptance window is the Company's choice.
+- §6 says "only the Personal Agent can authorize it, so no one else can make a browser join the Session".
 
-**R8. Blind-signed client assertions have no enforced lifetime.** Security.
-- "The Personal Agent MUST make them short-lived" and "The Company MAY reject a reused `jti`, as RFC 7523 §3 allows" (spec 259). Under blind signing the agent "MUST NOT rely on a signature by a key in its `jwks_uri` to mean its own systems approved what it signed" (spec 1306). So a device can mint a client assertion with any `exp` and reuse it at the token endpoint. Delegations are capped at 24 hours; client assertions aren't.
+**Why it matters.** Someone who sees one request to `{browser_session_endpoint}/authorize`, for example in a proxy's or the Company's own logs, can resend its headers within the window with a code from their own browser. That browser then gets a cookie for the User's Session, signed in if the original request was. The cookie lasts as long as the Session.
 
-**R9. The blind-signing privacy claim is overstated.** Privacy.
-- "Blind signing, below, closes both gaps" (spec 1302). But the agent's own server still learns the Company:
-  - `redirect_uris` are on the agent's own domain ("Each entry MUST be an HTTPS URL on the same domain as `client_id`", spec 255), so its server receives the Direct Sign-In redirect, with `iss`;
-  - each Company fetches the agent's client metadata and key set from its server, timed with the User's signing requests;
-  - the agent can give different Users different blind keys, and nothing requires a device to check that its key is the published one.
+**Suggestion.** Require `jti` replay rejection at `/authorize`, or carry the code in a signed claim of the Session JWT.
 
-**R10. One User can get the whole agent revoked.** Security.
-- Under blind signing any User can break the agent's MUSTs, and a Company "MAY revoke a `client_id` that doesn't follow it" (spec 552), cutting off every User. 10.7 offers only "limits how many signatures each User can get" (spec 1308).
+### 5. Removing a key doesn't revoke the delegations Companies have cached
 
-**R11. Device Sign-In's host check fails on shared provider hosts.** Security. Carries over from 0.2.
-- Providers may host Companies as "such as `https://auth.provider.example/shop-a`, even when they share servers" (spec 162), but the check is only that "the link's host is the host of the Company's issuer" (spec 308). A link to the provider's page for another Company passes, which is what the check is meant to stop.
+*Security, contradiction. §5.2, §10.7.*
 
-**R12. A Personal Agent can't tell why it got `invalid_session`.** Interop.
-- One error covers "The Session header is missing or fails a check (5.3), the Company refuses the `client_id` (4.1) or an account change (5.4), or the Session has ended (5.5)" (spec 714), with one recovery: "The Personal Agent starts a new Session once" (spec 714). That's wrong for an expired delegation or clock skew, and it discards the Session's cart and cookie. The guides say the opposite: "For any other `invalid_session`, fix the JWT rather than starting over" (guides 119).
-- *Fix:* distinct codes, or a defined `error_description`.
+**What the text says.** §10.7: "Removing a key from `jwks_uri` revokes every delegation it signed, once Companies' caches of the key set expire". But §5.2 lets a resource "MAY cache a verified delegation until it expires", which can be up to 24 hours, whatever the key set's cache says.
 
-**R13. Operations: an approval in a conversation can't move with the conversation.** Interop, Operations.
-- "An operation returned in a signed-out Session can be approved only in that Session" (Ops 89), but a conversation can "or continue it in a new Session, as long as the request matches the conversation's owner" (spec 1127). An approval sent from the conversation's new Session is silently treated as none.
+**Suggestion.** Limit a cached delegation to the cache lifetime of the key that signed it, or change §10.7 to say revocation takes up to 24 hours.
 
-**R14. Operations: nothing keeps the model from writing an approval.** Security, Operations.
-- The rule is only that the agent "MUST take the User's answer through its own interface" (Ops 176). The approval travels in fields the model can write: a message's `approval` next to ""text": "The user approved the exchange."," (Ops 236), a header, or MCP `_meta`. The comparable browser-session code must be sent "in software its model can't read (10.2)" (spec 635). Only the guides say "Don't have the model write the request again" (guides 210).
-- *Fix:* a MUST that the approval and the approved request are attached by code outside the model.
+### 6. DPoP keys can link a User across Companies
 
-**R15. The guides' `Idempotency-Key` advice loops on Operations.** Interop, guides.
-- Guides: "reuse the same key when you retry the same request" (guides 60), and Companies "return the original response for a repeated key" (guides 65). Operations: "An `Idempotency-Key` sent with the first request doesn't carry over" (Ops 203). An agent that follows the guides gets the original `approval_required` back.
+*Privacy. §4.5, §5.2, changelog.*
 
-**R16. The guides' stateless revision recipe ignores who may approve.** Security, guides.
-- The guides compute the revision "To avoid storing operations nobody has approved, compute them from the request" (guides 411) from the request, summary, terms and expiry, without the Session or account, while Operations requires "The Session can approve the operation (3)" (Ops 249).
+**What the text says.** The changelog removes the rule to "use a separate DPoP key for each User ID". Yet §5.2 warns of exactly this for delegated keys: "Companies could match a User across Companies by the key's thumbprint".
 
-**R17. Mediated Sign-In: one sign-in can be finished by another User.** Security, MSI.
-- "Only the `client_id` that started a sign-in can finish it" (MSI 90), but under blind signing every User of the agent can authenticate as that `client_id` (R10). Nothing requires `sign_in_id` to be unguessable. So another User who learns it, after the victim gets the one-time code, can finish the sign-in and receive the account's tokens.
+**Why it matters.** A Personal Agent that reuses one DPoP key across Companies lets them match its Users, which the delegated-key design was built to prevent.
 
-**R18. Mediated Sign-In: settings are per domain, the grant is per issuer.** Interop, MSI.
-- Documents of one Company "MUST have the same `auth`. Other fields MAY differ by domain" (spec 160), and the extension's `fields` and `scopes` are in `extensions` (MSI 13), not `auth`. So two domains can list different scopes for one token endpoint, which can't know which document the agent read, while the Company "MUST NOT grant scopes beyond those requested and listed here" (MSI 34).
+**Suggestion.** Restore the rule for DPoP keys: one per User ID.
+
+### 7. Blind-signed client assertions have no enforced lifetime
+
+*Security. §4.1, §10.7.*
+
+**What the text says.** §4.1: "The Personal Agent MUST make them short-lived" and "The Company MAY reject a reused `jti`, as RFC 7523 §3 allows". Under blind signing, §10.7 says the Personal Agent "MUST NOT rely on a signature by a key in its `jwks_uri` to mean its own systems approved what it signed".
+
+**Why it matters.** A device can mint a client assertion with any `exp` and reuse it at the token endpoint. Delegations are capped at 24 hours; client assertions aren't.
+
+**Suggestion.** Give client assertions a maximum lifetime that Companies check, as delegations have, and require `jti` replay rejection.
+
+### 8. The blind-signing privacy claim is stronger than the design
+
+*Privacy. §4.1, §4.2, §5.3, §10.7.*
+
+**What the text says.** §10.7: "Blind signing, below, closes both gaps".
+
+**Why it doesn't hold.** The Personal Agent's own servers can still learn which Companies a User works with:
+- `redirect_uris` must be on the agent's own domain ("Each entry MUST be an HTTPS URL on the same domain as `client_id`"), so its server receives each Direct Sign-In redirect, with `iss`;
+- every Company fetches the agent's client metadata and key set from its server, which can be matched in time with the User's signing requests;
+- the agent can give each User a different blind key, and nothing asks a device to check that its key is the published one.
+
+**Suggestion.** Narrow the claim to what blind signing hides, and list these channels.
+
+### 9. One User can get every User's agent revoked
+
+*Security. §5.4, §10.7.*
+
+**What the text says.** Under blind signing, any User of a Personal Agent can produce assertions and delegations that break its MUSTs. A Company "MAY revoke a `client_id` that doesn't follow it" (§5.4), which cuts off every User. §10.7 offers only that the agent "limits how many signatures each User can get".
+
+**Suggestion.** Say what a Company should do instead of revoking the `client_id` when the misbehaviour can come from one User, for example refusing that User ID.
+
+### 10. The device sign-in host check fails on shared provider hosts
+
+*Security. §3.2, §4.3. Also in 0.2.*
+
+**What the text says.**
+- §3.2 endorses providers that give each Company its own issuer, "such as `https://auth.provider.example/shop-a`, even when they share servers".
+- §4.3 checks only that "the link's host is the host of the Company's issuer". A link to the same provider's page for another Company passes. §4.3 names exactly that as the risk: "Otherwise a Company could pass off another Company's sign-in page as its own".
+- §4.3 also shows two links, `verification_uri` and `verification_uri_complete`, but says "MUST check that the link's host", in the singular.
+
+**Suggestion.** Check the full URL against the issuer's own prefix when the issuer has a path, and require the check on both links.
+
+### 11. `invalid_session` covers failures that need different recoveries
+
+*Interop. §5.3, §7, guides.*
+
+**What the text says.**
+- §7 says `invalid_session` covers "The Session header is missing or fails a check (5.3), the Company refuses the `client_id` (4.1) or an account change (5.4), or the Session has ended (5.5)".
+- It gives one recovery: "The Personal Agent starts a new Session once".
+- The guides say otherwise: "For any other `invalid_session`, fix the JWT rather than starting over".
+
+**Why it matters.** A new Session doesn't fix an expired delegation or clock skew, and it throws away the Session's cart and browser cookie. The agent can't tell the cases apart, because `error_description` is free text.
+
+**Suggestion.** Separate codes, or a defined set of `error_description` values, each with its recovery.
+
+### 12. A signed-out approval can't follow its conversation into a new Session
+
+*Interop. Operations 3, §8.2, §8.11.*
+
+**What the text says.** Operations: "An operation returned in a signed-out Session can be approved only in that Session". But §8.11 lets the agent "continue it in a new Session, as long as the request matches the conversation's owner".
+
+**Why it matters.** An `approval` message sent from the conversation's new Session is quietly treated as having no approval.
+
+**Suggestion.** Tie a signed-out operation in a conversation to the conversation's owner, not to the Session.
+
+### 13. Nothing stops the model from writing an approval
+
+*Security. Operations 5 and 6, §6, §10.2.*
+
+**What the text says.**
+- Operations requires only that the Personal Agent "MUST take the User's answer through its own interface".
+- The approval travels in places a model can write: a conversation message's `approval` field, the `Poppy-Approval` header, or MCP `_meta`.
+- Only the guides say "Don't have the model write the request again".
+- The browser-session code, a less consequential value, must be sent "in software its model can't read (10.2)".
+
+**Suggestion.** Make it a MUST that code outside the model attaches the approval and resends the approved request.
+
+### 14. The guides' `Idempotency-Key` advice loops on Operations
+
+*Interop, contradiction. Guides, Operations 6.*
+
+**What the text says.** The guides tell agents to "reuse the same key when you retry the same request", and Companies to "return the original response for a repeated key". Operations says "An `Idempotency-Key` sent with the first request doesn't carry over".
+
+**Why it matters.** An agent that follows the guides sends the approved retry with the original key, and gets the original `approval_required` back.
+
+**Suggestion.** Say in the guides that a retry with an approval is a new request with a new key.
+
+### 15. The guides' stateless revision leaves out who may approve
+
+*Security. Guides, Operations 3 and 6.*
+
+**What the text says.** The guides compute the revision as "an HMAC-SHA256 over the `operation_id`, the method, URL, and canonical body or the tool's arguments, the `summary`, the `terms`, and the expiry". Operations requires "The Session can approve the operation (3)".
+
+**Why it matters.** For a signed-out request that looks the same in every Session, such as a checkout, the HMAC verifies in any Session. A Company that follows the guides can't enforce Operations 3.
+
+**Suggestion.** Include the Session ID, or the account when signed in, in the HMAC.
+
+### 16. Another User can finish someone's Mediated Sign-In
+
+*Security. Mediated Sign-In 4, §10.7.*
+
+**What the text says.** "Only the `client_id` that started a sign-in can finish it". Nothing requires `sign_in_id` to be unguessable; the example is `sgn_3Hq8`.
+
+**Why it matters.** Under blind signing, every User of the agent can authenticate as that `client_id`. Another User who learns the `sign_in_id`, after the victim has received the one-time code, can finish the sign-in and receive the account's tokens.
+
+**Suggestion.** Require `sign_in_id` to be unguessable, and bind the sign-in to the User ID or the client assertion's `jti` that started it.
+
+### 17. Mediated Sign-In's settings are per domain, but its grant is per issuer
+
+*Interop. §3.2, Mediated Sign-In 2.*
+
+**What the text says.**
+- Documents of one Company "MUST have the same `auth`. Other fields MAY differ by domain" (§3.2).
+- The extension's `fields` and `scopes` live in `extensions`, not `auth`.
+- The Company "MUST NOT grant scopes beyond those requested and listed here".
+
+**Why it matters.** Two domains of one Company can list different scopes for the same token endpoint, and the endpoint can't know which document the agent read.
+
+**Suggestion.** Require the extension's entry to be the same on every domain that names the issuer, as for `auth`.
+
+### 18. An alternative's `web` link can point at any host
+
+*Security. §9.2, §4.3.*
+
+**What the text says.** §9.2 requires an `openapi` or `mcp` reference to name a listed API ("Personal Agents MUST ignore one that doesn't"). But a `web` reference is just "A page the User can open, on the Company's website or in its app", with no host check.
+
+**Why it matters.** A Company can send its Users to another Company's look-alike page under its own name. §4.3 closes the same hole for sign-in links: "Otherwise a Company could pass off another Company's sign-in page as its own".
+
+**Suggestion.** Apply §4.3's host check to `web` references, and have the agent show the Company's name and domain with the link.
 
 ## Low
 
-**R19. The walkthroughs show the previous design.** Editorial.
-- No request carries `Poppy-Session`; the session token is "// Atlas signs this JWT with its published agent key." (walkthroughs 122), which spec 5.2 now forbids.
-- Mediated Sign-In posts JSON credentials to `POST https://auth.laurelfiber.example/poppy/sign-in` (walkthroughs 508 and 531), against "Personal Agents MUST NOT send credentials anywhere other than the `token_endpoint` of the Company's issuer" (MSI 108).
-- The browser-join form has a token field (`<input type="text" name="token">`, walkthroughs 581 and 1063), against "The access token never passes through the browser" (spec 582).
-- The jacket walkthrough says Operations version 2 is in use, but its exchange is done after a plain message, with no `approval_required`.
+### 19. The walkthroughs show the previous design
 
-**R20. Passwords get less protection from the model than device codes.** MSI.
-- A `secret` field is protected from being "never shown back to the User, written to logs, or sent anywhere else" (MSI 33), not from model context; the MUST against model context applies only "After a sign-in ends" (MSI 110). Spec 10.2 makes it a SHOULD for "every other secret" (spec 1272).
+*Editorial. Home page.*
 
-**R21. The browser-session code is only a SHOULD to keep from the model.** Carries over T15.
-- The code is sent in software the model can't read (spec 6, above), but 10.2 lists it under the SHOULD for "every other secret" (R20's quote).
+**What the walkthroughs show.**
+- **No Session header.** No request carries `Poppy-Session`, and the session token is a JWT about which the walkthrough says "Atlas signs this JWT with its published agent key." §5.2 now forbids that ("including one signed directly with a key from `jwks_uri`").
+- **Mediated Sign-In.** Credentials are posted as JSON to `https://auth.laurelfiber.example/poppy/sign-in`. The extension says "Personal Agents MUST NOT send credentials anywhere other than the `token_endpoint` of the Company's issuer".
+- **The browser join.** The form has `token` and `proof` fields. §6 says "The access token never passes through the browser".
+- **Operations.** The jacket walkthrough says both sides list Operations version 2, but the exchange happens after a plain message, with no `approval_required`.
 
-**R22. Who owns an account's conversation.** Carries over T30.
-- "Once it uses the User's account, it belongs to that account instead" (spec 752), yet the same paragraph rejects "any other `client_id`, User, or account", and `conversation_not_found` covers one that "belongs to a different Personal Agent, User, or account (8.2)" (spec 1145). The answer to a token for another account is undefined; a challenge is given only "for the same User without an access token for that account" (spec 1131).
+**Suggestion.** Regenerate the walkthroughs from the 0.3 text.
 
-**R23. Is the excluded-tasks fetch exempt from the Session header?** Clarity.
-- The header goes on "every request to a Company's APIs, conversations, and other endpoints this protocol or an extension defines" (spec 410); the excluded-tasks document is fetched "with a GET and no token" (spec 1191).
+### 20. §10.2's MUST list is shorter than the rest of the text
 
-**R24. Automatic SSE reconnects resend a stale Session JWT.** Interop.
-- "A Session JWT is fresh for each request" (spec 455), but the reconnect rule relies on "SSE clients add it to the URL the stream was first opened with" (spec 963), that is, on a client repeating the original request, with its old `iat` and `jti`.
+*Security. §6, §10.2, Mediated Sign-In 2 and 6.*
 
-**R25. Signed-out requests without the header.** Clarity.
-- `invalid_session` covers a missing header (R12's quote), but rejection is required only for "a request that carries an access token it issued to a Personal Agent but no Session header" (spec 540). A header-less signed-out request can be refused or served as an anonymous visitor.
+**What the text says.**
+- §10.2 requires keeping these out of model context: "access tokens (4.5), refresh tokens (4.4), Session JWTs (5.2), private keys", authorization codes, PKCE verifiers and device codes. For "every other secret" it is a SHOULD.
+- §6 expects the browser-session code to be handled "in software its model can't read (10.2)", but the code falls under the SHOULD.
+- Mediated Sign-In protects a `secret` field only from being "never shown back to the User, written to logs, or sent anywhere else". Its MUST against model context applies only "After a sign-in ends", so a password can sit in model context during the sign-in.
+- Client assertions and DPoP proofs aren't on the list either, though they can be replayed within their lifetimes (issue 7).
 
-**R26. Clock skew and the thumbprint's hash are unspecified.** Clarity.
-- The delegation check is only that it "hasn't expired, and its `exp` is at most 24 hours after its `iat`" (spec 519): no skew and no future `iat`. The Session JWT's `iat` window is the Company's choice. And "`kid` is the delegated key's JWK thumbprint" (spec 513) names no hash; RFC 7638 leaves it open, and the example uses SHA-256.
+**Suggestion.** Add browser-session codes, credentials in Mediated Sign-In, client assertions and DPoP proofs to the MUST.
 
-**R27. A forgotten Session restarts silently.** Clarity.
-- "A Company can forget an ended Session, so a request with its `sid` can start a new Session instead" (spec 560). The agent keeps believing it's the old Session, and has no signal of a Session's lifetime.
+### 21. Who owns a conversation once it uses an account
 
-**R28. MCP servers that ignore the header give no signal.** Clarity.
-- A server that ignores it "can't take signed-out calls from Personal Agents" (spec 690), but nothing tells the agent which kind of server it's calling, or what error it gets.
+*Clarity. §8.2, §8.11, §8.13.*
 
-**R29. Section 7 overclaims.** Editorial. Carries over T25.
-- "the Company always knows a request comes from a Personal Agent, which one, and for which User" (spec 717), against MCP servers that ignore the header (R1). Operations 8.1 says the same of approvals: "with a valid Session JWT for a specific Session" (Ops 269).
+**What the text says.**
+- §8.2: "Once it uses the User's account, it belongs to that account instead". The same paragraph still rejects requests from "any other `client_id`, User, or account".
+- §8.13 returns `conversation_not_found` for one that "belongs to a different Personal Agent, User, or account (8.2)".
+- §8.11 gives a challenge only "for the same User without an access token for that account".
 
-**R30. A Company with no sign-in still needs an authorization server.** Clarity. Carries over T12.
-- A Company with APIs, conversations or feedback "or an extension that uses the issuer MUST have one" (spec 142), and its metadata needs a token endpoint, a revocation endpoint and `refresh_token` (spec 194), though "A Company that offers no sign-in type offers only signed-out Sessions" (spec 546) and signed-out requests need nothing from it.
+**Why it matters.** A request from the same User with a token for a different account fits both the challenge and `conversation_not_found`. It's also unclear whether another User ID signed in to the same account may continue the conversation. The latter question was open in 0.2 too.
 
-**R31. The website cookie outlives the access token.** Clarity.
-- The cookie "MUST act for the account and scopes authorized in step 2" (spec 668) until sign-out and "MUST NOT outlive the Session" (spec 669), but nothing ties it to the access token's lifetime. A minutes-long token becomes a cookie that lasts as long as the Session.
+**Suggestion.** Say who owns the conversation after it uses an account, and which error each mismatch gets.
 
-**R32. Secrets the MUST list leaves out.** Clarity.
-- 10.2's MUST covers "access tokens (4.5), refresh tokens (4.4), Session JWTs (5.2), private keys" (spec 1272), but not client assertions or DPoP proofs, which are replayable within their lifetimes (R8).
+### 22. Does fetching excluded tasks need the Session header?
 
-**R33. The guides contradict the spec on conversations at sign-out.** Guides.
-- "or close them if your policy is to clear everything at sign-out" (guides 385), against "A conversation stays open, so the User can sign in again and continue it" (spec 569).
+*Clarity. §5.2, §9.1.*
 
-**R34. The guides' example operation ID isn't a valid ID.** Guides.
-- "such as `exchange:ord_7Hk2:itm_4Qa`" (guides 411) has colons; Operations says it "has the same characters as the IDs in" spec 8.2 (Ops 71), which allows only "letters, digits, `-`, and `_`".
+**What the text says.** The header goes on "every request to a Company's APIs, conversations, and other endpoints this protocol or an extension defines" (§5.2). The excluded-tasks document is fetched "with a GET and no token" (§9.1).
 
-**R35. Refresh responses.** Editorial.
-- "Sign-in and refresh (4.4) return the same token fields: an access token (4.5) and a refresh token" (spec 361), but "A Company MAY return a new refresh token" (spec 316) on refresh.
+**Suggestion.** Say whether that fetch is exempt.
 
-**R36. Citations.** Editorial.
-- The 401 row cites "as RFC 6750 §3.1 describes" (spec 711) for the `scope` attribute, which RFC 6750 defines in §3; §3.1 is its error codes.
-- Section 11 leaves out RFC 3339, RFC 4648, RFC 5646, the SSE standard, draft-ietf-wimse-aims and the JOSE RFCs behind `ES256` and `PS384`, all cited in the body. RFC 9111 and RFC 6265bis are listed but never cited.
+### 23. Automatic SSE reconnects resend a stale Session JWT
 
-**R37. Editorial slips.**
-- "An unknown `sid` starts a signed-out Session" (spec 536) even when the request carries an access token and is signed in.
-- A refused `client_id` points to "or `invalid_session` at a resource (5.3)" (spec 262), but 5.3 doesn't mention refusal; only the section 7 table does.
-- The paragraph on second accounts (spec 1282) sits under 10.4, "Token and assertion audiences".
-- Section 7's table follows "Other errors have a JSON body" but lists `extension_required` "In the `WWW-Authenticate` header. The request needs an extension" (spec 715).
-- Operations' examples reuse the spec's `evt_c4` and `msg_r2Kq` for different content (Ops 150).
+*Interop. §5.2, §8.6.*
 
-**R38. Still open from the earlier list.** These quotes are unchanged in the rewrite:
-- **T38.** An alternative's `web` link can point at any host.
-- **T39.** A Company message's author picture can be on any host.
-- **T40.** Scope descriptions contradict scope hints: "A scope with no entry has no hints, and a Personal Agent can't tell what it allows" (spec 349).
-- **T20.** Two places describe a scope, with no precedence.
-- **T21.** 4.3 checks "the link's host" but shows two links.
-- **T31.** No error for a parent that is itself a Direct Conversation.
-- **T35.** The RFC 10027 MUST can't be checked.
+**What the text says.** "A Session JWT is fresh for each request" (§5.2). The reconnect rule relies on "SSE clients add it to the URL the stream was first opened with" (§8.6), that is, on a client repeating the original request with its original headers.
 
-## Resolved by the rewrite
+**Why it matters.** The reconnect carries the first request's `iat` and `jti`, which a Company may reject.
 
-The earlier list's findings about Session Keys and the JWT bearer grant (T1, T2, T3, T14, T22, T23, T37, T42), Operations version 1 (T24, T36, T43), the overloaded `insufficient_scope` after a disconnection (T34), stateless join codes (T6), `dpop_jkt` (T8) and the `rate_limited` body are gone with the text they were about. Mediated Sign-In's scopes must now be in `scopes_supported` (T13). The rewrite didn't necessarily fix the underlying concern in each case; R1 to R18 are where the new design has its own.
+**Suggestion.** Say that the Personal Agent reconnects with a new Session JWT, and so can't rely on a client's automatic reconnection.
+
+### 24. A request with no Session header
+
+*Clarity. §5.3, §7.*
+
+**What the text says.** §7 lists a missing header under `invalid_session`. §5.3 requires rejection only for "a request that carries an access token it issued to a Personal Agent but no Session header".
+
+**Suggestion.** Say whether a signed-out request without the header gets `invalid_session`, or is served as an anonymous visitor.
+
+### 25. Clock skew, and the thumbprint's hash
+
+*Clarity. §5.2, §5.3.*
+
+**What the text says.**
+- A delegation is checked only to have not expired, with "its `exp` is at most 24 hours after its `iat`": no allowance for skew, and no check that `iat` isn't in the future.
+- The Session JWT's acceptance window is the Company's choice, and the agent can't learn it.
+- "`kid` is the delegated key's JWK thumbprint" names no hash function. RFC 7638 leaves the hash to the application; the example uses SHA-256.
+
+**Suggestion.** State a skew allowance and SHA-256.
+
+### 26. A forgotten Session restarts silently
+
+*Clarity. §5.5.*
+
+**What the text says.** "A Company can forget an ended Session, so a request with its `sid` can start a new Session instead".
+
+**Why it matters.** The agent keeps treating it as the old Session, cart and all. It has no signal that a new Session started, and no way to learn how long Sessions last.
+
+**Suggestion.** Signal a newly started Session, for example in a response header.
+
+### 27. MCP servers that ignore the Session header
+
+*Clarity. §7, Operations 8.1.*
+
+**What the text says.** Such a server "can't take signed-out calls from Personal Agents" (§7), but nothing tells the agent which kind of server it is calling, or which error it gets. Two statements also assume every request carries a Session:
+- §7: "the Company always knows a request comes from a Personal Agent, which one, and for which User";
+- Operations 8.1: "with a valid Session JWT for a specific Session".
+
+**Suggestion.** Have such servers say so in their protected resource metadata, and qualify both statements.
+
+### 28. A Company with no sign-in still needs an authorization server
+
+*Clarity. §3.2, §5.4. Also in 0.2.*
+
+**What the text says.**
+- A Company with APIs, conversations or feedback "or an extension that uses the issuer MUST have one" (§3.2).
+- Its metadata must include a token endpoint and a revocation endpoint, and `grant_types_supported` "MUST include `refresh_token` (4.4)".
+- Yet "A Company that offers no sign-in type offers only signed-out Sessions" (§5.4), and §4 says "Signed-out requests need nothing from it".
+
+**Suggestion.** Require those fields only when the Company offers a sign-in type.
+
+### 29. The website cookie can outlive the access token
+
+*Clarity. §6.*
+
+**What the text says.** The cookie "MUST act for the account and scopes authorized in step 2" until sign-out, and "MUST NOT outlive the Session". Nothing ties it to the lifetime of the access token that authorized it.
+
+**Why it matters.** An access token that lasts minutes becomes a website cookie that lasts as long as the Session, with the same scopes.
+
+**Suggestion.** Bound the cookie's account access by the token's lifetime, or say the difference is intended.
+
+### 30. Scope descriptions and scope hints disagree
+
+*Clarity, contradiction. §4.7, guides.*
+
+**What the text says.** The Company must describe each scope "so the Personal Agent can choose the ones a task needs", but "A scope with no entry has no hints, and a Personal Agent can't tell what it allows". The guides then tell agents to "Treat a scope without hints as `irreversible` with personal data".
+
+**Why it matters.** A well-described read-only scope without hints ends up treated as if it could cancel orders.
+
+**Suggestion.** Change the sentence to: A scope with no entry has no hints; the Personal Agent judges it from its description.
+
+### 31. Two places to describe a scope, with no precedence
+
+*Clarity. §3.1, §3.2, §4.7.*
+
+**What the text says.** `auth.scopes` is for scopes no OpenAPI description describes ("For scopes no OpenAPI description describes"), but both can describe one scope. §3.2 also requires `auth` to be the same across domains, while OpenAPI descriptions may differ by domain.
+
+**Suggestion.** Name which description wins, or require them to agree.
+
+### 32. A Company message's author picture can be on any host
+
+*Privacy. §8.4.*
+
+**What the text says.** "`image` is the URL of the author's picture", with no limit on its host.
+
+**Why it matters.** An agent that shows the picture tells whoever serves it when the User read the message, and from where.
+
+**Suggestion.** Keep the image on `organization.domain`, or have the agent fetch and serve it itself.
+
+### 33. No error for a parent that is itself a Direct Conversation
+
+*Clarity. §8.10.*
+
+**What the text says.** The parent must be open, belong to the same owner, "and not be a Direct Conversation itself". The errors listed don't cover the last condition. Also open in 0.2.
+
+**Suggestion.** Name the error, probably `invalid_request`.
+
+### 34. The RFC 10027 MUST can't be checked
+
+*Clarity. §4.3.*
+
+**What the text says.** "MUST follow the best practices in RFC 10027 (BCP 247) §2". RFC 10027 §2 asks implementers for a risk assessment and a choice of mitigations, which no one can observe on the wire.
+
+**Suggestion.** State the Personal Agent's rules directly in §4.3:
+- use Direct Sign-In when the User can receive its redirect;
+- never use Device Sign-In on the User's own device, as RFC 10027 §6.2.1.5 says.
+
+Make the Company side a SHOULD.
+
+### 35. The guides allow closing conversations at sign-out
+
+*Contradiction. Guides, §5.5.*
+
+**What the text says.** The guides say "or close them if your policy is to clear everything at sign-out". §5.5 says "A conversation stays open, so the User can sign in again and continue it".
+
+**Suggestion.** Align them.
+
+### 36. The guides' example operation ID isn't a valid ID
+
+*Editorial. Guides, Operations 3.*
+
+**What the text says.** The guides suggest "such as `exchange:ord_7Hk2:itm_4Qa`". Operations says an `operation_id` "has the same characters as the IDs in" §8.2, which allows only letters, digits, `-` and `_`.
+
+**Suggestion.** Use underscores, or a hash.
+
+### 37. Refresh responses
+
+*Editorial. §4.4, §4.7.*
+
+**What the text says.** §4.7: "Sign-in and refresh (4.4) return the same token fields: an access token (4.5) and a refresh token". But §4.4 says "A Company MAY return a new refresh token" on refresh.
+
+**Suggestion.** Make the refresh token optional in the refresh response.
+
+### 38. Citations
+
+*Editorial. §7, §11.*
+
+- **A section number.** The 401 row cites "as RFC 6750 §3.1 describes" for the `scope` attribute. RFC 6750 defines the attribute in §3; §3.1 is its error codes.
+- **Missing references.** §11 leaves out RFC 3339, RFC 4648, RFC 5646, the server-sent events standard, draft-ietf-wimse-aims, and the JOSE RFCs behind `ES256` and `PS384`, though the body cites them all.
+- **Unused references.** RFC 9111 and RFC 6265bis are listed but never cited.
+
+**Suggestion.** Cite §3 of RFC 6750, and make §11 match the body.
+
+### 39. Smaller slips
+
+*Editorial.*
+
+- §5.3: "An unknown `sid` starts a signed-out Session", even when the request carries an access token and is signed in.
+- §4.1 sends a refused `client_id` to "or `invalid_session` at a resource (5.3)", but §5.3 doesn't mention refusal; only §7's table does.
+- The paragraph on second accounts in §10.4 has nothing to do with "Token and assertion audiences".
+- §7's table follows "Other errors have a JSON body", but `extension_required` is "In the `WWW-Authenticate` header".
+- Operations' examples reuse the specification's `evt_c4` and `msg_r2Kq` for different content, though they say they continue its example.
+
+**Suggestion.** Fix each in place; none changes behaviour.
