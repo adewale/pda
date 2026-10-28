@@ -137,26 +137,32 @@ function enabled(model: Model): Command[] {
  * would have to start another to send it (approval_changed). Read from the
  * stored binding and the Company's own state, not predicted.
  */
-async function bindingGone(w: Pick<World, "client" | "company" | "sql" | "mock">, id: string): Promise<boolean> {
-  const row = w.sql.exec("SELECT request FROM poppy_approvals WHERE id = ?", id).toArray()[0]!;
+async function bindingGone(w: Pick<World, "client" | "company" | "sql">, mock: World["mock"], id: string): Promise<boolean> {
+  const row = w.sql.exec("SELECT label, request FROM poppy_approvals WHERE id = ?", id).toArray()[0]!;
   const bound = (JSON.parse(String(row.request)) as { binding?: { sessionId: string } }).binding?.sessionId;
-  const current = w.client.session(w.company.issuer, "main")?.session_id;
+  const current = w.client.session(w.company.issuer, String(row.label))?.session_id;
   const userId = w.client.userId(w.company.issuer);
-  const remote = (await w.mock.state()).sessions.find((session) => session.sid === current && session.userId === userId);
+  const remote = (await mock.state()).sessions.find((session) => session.sid === current && session.userId === userId);
   return bound !== current || remote?.ended === true;
 }
 
-/** Approve a card whose Session is gone: it fails, and the Company does nothing. */
-async function refusedAsChanged(w: Pick<World, "client" | "company" | "sql" | "mock">, model: Model, id: string): Promise<boolean> {
-  if (!(await bindingGone(w, id))) return false;
-  const before = await w.mock.state();
+/** Approve a card whose Session is gone: it fails, and the Company does nothing. False, and nothing sent, when its Session is live. */
+async function refusedWhenGone(w: Pick<World, "client" | "company" | "sql">, mock: World["mock"], id: string): Promise<boolean> {
+  if (!(await bindingGone(w, mock, id))) return false;
+  const before = await mock.state();
   await decideLocal(w.client, id, "approve");
   const row = w.sql.exec("SELECT status, result FROM poppy_approvals WHERE id = ?", id).toArray()[0]!;
   expect(row.status, String(row.result)).toBe("failed");
   expect(String(row.result)).toContain("approval_changed");
-  const after = await w.mock.state();
+  const after = await mock.state();
   expect(after.operations).toEqual(before.operations);
   expect(after.performs).toBe(before.performs);
+  return true;
+}
+
+/** `refusedWhenGone` for the single-client model, which then forgets the card. */
+async function refusedAsChanged(w: Pick<World, "client" | "company" | "sql" | "mock">, model: Model, id: string): Promise<boolean> {
+  if (!(await refusedWhenGone(w, w.mock, id))) return false;
   model.ours.delete(id);
   model.terms.delete(id);
   return true;
@@ -512,6 +518,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
       } else if (action === "approveOurs") {
         const id = tc.draw(gs.sampledFrom([...model.ours].filter(([, owner]) => owner === label).map(([key]) => key).sort()));
         const known = new Set(state0(models));
+        if (await refusedWhenGone(actor, w.mock, id)) { model.ours.delete(id); counts[action] = (counts[action] ?? 0) + 1; await agrees(); continue; }
         const { terms, operation } = await approveOursAmong(actor, w.mock, id, known);
         model.ours.delete(id);
         model.terms.set(terms, { label, operation });
@@ -520,6 +527,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
         const id = tc.draw(gs.sampledFrom(approvable(model, label)));
         const card = model.terms.get(id)!;
         const op = model.operations.get(card.operation)!;
+        if (await refusedWhenGone(actor, w.mock, id)) { model.terms.delete(id); counts[action] = (counts[action] ?? 0) + 1; await agrees(); continue; }
         await decideLocal(client, id, "approve");
         expect(approvals(actor).get(id)).toBe("done");
         model.terms.delete(id);

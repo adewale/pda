@@ -563,13 +563,11 @@ export class PoppyClient {
 
   /**
    * One request to the Company's token, device or revocation endpoint, with
-   * our client assertion and (unless `dpop` is false) a DPoP proof. Nonces,
-   * short `Retry-After` waits and fresh assertions on every attempt are
-   * handled here. The client assertion's `aud` is the endpoint called; the
-   * draft doesn't say (S1), and Companies differ, so at the device or
-   * revocation endpoint an `invalid_client` gets one more try with the token
-   * endpoint as `aud`, as RFC 7523 3 allows. Both name this Company, so
-   * neither can be replayed at another.
+   * our client assertion and, when the issuer asks for DPoP and `dpop` isn't
+   * false, a DPoP proof. Nonces, short `Retry-After` waits and fresh
+   * assertions on every attempt are handled here. The client assertion's
+   * `aud` is the issuer at every endpoint (4.1), so it can't be replayed at
+   * another Company. Never the Session header (5.2).
    */
   async oauthRequest(
     company: Company,
