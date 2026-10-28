@@ -15,6 +15,8 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Added
 
+- Dated ecosystem source/discovery receipts, a Monday survey PR with browser evidence, targeted smoke checks for reviewed peer changes, and a bounded monthly cross-project grid. Unsupported protocol declarations remain distinct from invalid supported-profile documents; historical grid and live-journey dates are preserved.
+
 - A 23 October ecosystem refresh: 17 checked source heads, 28 dated public discovery/metadata results, Archon's new entry and current 0.2 declarations. Older Session results and grid scores retain their original dates.
 
 - Public About and ecosystem pages at `/about` and `/about/ecosystem`. About links to the GitHub project, the Validator and the ecosystem map; the map uses the repository's Markdown, keeps historical results in a disclosure and has an About breadcrumb. The map is linked only from About; `/ecosystem` has no page or redirect.
@@ -35,6 +37,8 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Changed
 
+- The separate Datalayer 0.2 peers advance to SDK 0.26.0 at `0ff43c5`. A rebuilt smoke passes 18 cells; the full 3×3 run records 211 pass, 7 unexempted compatibility failures and 52 unsupported, with PDA passing all 74 exercised cells. The 0.1 peers and official-validator pin are unchanged.
+
 - The dependency security refresh moves Zod to 4.6.6, Happy DOM to 21.0.4, Vitest to 4.1.12 and the Workers test plugin to 1.4.9. Wrangler 4.154.0 and Miniflare 5.20261023.1-beta are shared with the Vite plugin through scoped overrides because its published dependencies still pin affected versions. The lockfile is regenerated with the project's `--legacy-peer-deps` install policy.
 
 - The interop harness's own implementations are renamed so the sets pair up: `pda-mock` is `lenient-company`, `pda-mock-strict` is `strict-company`, `pda-mock-v02` is `lenient-company-v02` and `evil-agent` is `evil-personal-agent`. Commands, known failures and CI use the new names; dated results keep the old.
@@ -45,6 +49,8 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 - Read and error validation, mock behavior, trace checks and known-failure matching use the selected protocol version. A 0.1 ambiguity cannot exempt a 0.2 failure.
 
 ### Fixed
+
+- The upstream drift check reports a removed current schema as drift and continues comparing the remaining files, while preserving other HTTP failures as unavailable checks.
 
 - Overlapping decisions on a local approval claim the pending request atomically after discovery, so an approved write is dispatched once and a competing decline cannot overwrite it.
 - Transcript outcomes use the Company's exact issuer and operation ID. API proposal results retain the issuer after cards expire; older results use a card's verified domain only when it identifies one issuer, otherwise they keep waiting for a known outcome.

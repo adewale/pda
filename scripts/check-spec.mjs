@@ -47,11 +47,16 @@ if (process.argv.includes("--drift")) {
     const url = (ref) => `https://raw.githubusercontent.com/personal-agent-protocol/personal-agent-protocol/${ref}/${file}`;
     const get = async (ref) => {
       const response = await fetch(url(ref), { signal: AbortSignal.timeout(15_000) });
+      if (response.status === 404 && ref === "main") return null;
       if (!response.ok) throw new Error(`${file}: HTTP ${response.status}`);
       return Buffer.from(await response.arrayBuffer());
     };
     const before = local ? readFileSync(path.join(dir, local)) : await get(pin.commit);
-    if (hash(before) !== hash(await get("main"))) {
+    const after = await get("main");
+    if (after === null) {
+      failed = true;
+      console.log(`REMOVED ${file}: review the official changelog before updating the profile.`);
+    } else if (hash(before) !== hash(after)) {
       failed = true;
       console.log(`CHANGED ${file}: review the official changelog before updating the profile.`);
     }

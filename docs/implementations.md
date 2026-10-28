@@ -1,8 +1,23 @@
 # Poppy implementations
 
-**Dated source survey.** This catalogue preserves the 12–18 October observations extracted from [PR #11](https://github.com/adewale/pda/pull/11). The [ecosystem map](ecosystem.md#current-ecosystem) was refreshed on **23 October 2026** and has current version and tooling findings; the [upgrade delta](poppy-0.2-upgrade.md) records the implemented 0.2 behavior. Statements below that PDA has yet to migrate describe the 18 October baseline.
+**Dated source survey.** This catalogue preserves the 12–18 October observations extracted from [PR #11](https://github.com/adewale/pda/pull/11). The [ecosystem map](ecosystem.md#current-ecosystem) was refreshed on **28 October 2026** and has current version and tooling findings; the [upgrade delta](poppy-0.2-upgrade.md) records the implemented 0.2 behavior. Statements below that PDA has yet to migrate describe the 18 October baseline.
 
 **23 October refresh.** The current [ecosystem map](ecosystem.md#current-ecosystem) and [refresh report](ecosystem-refresh-2026-10-23.md) now include 17 checked repository heads and 28 public discovery/metadata checks, including Archon, Print with Poppy's production and sandbox 0.2 documents, and current domain-validation refusals. The dated catalogue below and historical grid are preserved; the new document checks are not new Session or ordering results.
+
+## Source additions and profile changes — 28 October 2026
+
+The [new refresh report](ecosystem-refresh-2026-10-28.md) covers 23 repository heads and 33 public discovery checks. The six source additions below are candidates, not additional passing rows in PDA's grid.
+
+| Project | Role and profile claimed by its README | Checked revision and licence | PDA evidence |
+| --- | --- | --- | --- |
+| koh/poppy | Shared PHP Company core, draft 0.2 | [465b4fe](https://github.com/ohartwig/poppy/tree/465b4fec644ec24d812574ac9ee981e5d029d1e9), MIT | README/source inventory only; no adapter or code execution |
+| koh/typo3-poppy | TYPO3 integration of that core, draft 0.2 | [dafdd2b](https://github.com/ohartwig/typo3-poppy/tree/dafdd2b746e438009d3472f669f2515f2a2fa194), MIT | Shared engine, not a separately exercised protocol implementation |
+| koh/sylius-poppy | Sylius integration of that core, draft 0.2 | [39a317b](https://github.com/ohartwig/sylius-poppy/tree/39a317b4199f937694e0007bc762e457189ba5a0), MIT | Shared engine; no PDA interoperability result |
+| PoppyKit client | TypeScript Personal Agent SDK, draft 0.2 | [39e9fd8](https://github.com/LMol-4/poppykit-client/tree/39e9fd842e6cdcc803f591ea5e372903b48512fa), MIT | README states Node 24.21 minimum and unreleased repairs; not run here |
+| PoppyKit server | TypeScript Company SDK, draft 0.2 | [b0df53e](https://github.com/LMol-4/poppykit-server/tree/b0df53e417fd9ddc85dff9d70dc20a4ec049ab25), MIT | Same runtime/publication limits; no adapter |
+| kidkuddy/poppy-cli | Go command-line Personal Agent and testing skill, draft 0.2 | [0a6dab5](https://github.com/kidkuddy/poppy-cli/tree/0a6dab5560083824d7ac3908ada84cca6683e1fa), MIT | README inspected; no code execution |
+
+Datalayer's registries now advertise 0.27.0, whose source changelog describes a 0.3-only migration; PDA's compatible 0.2 peers instead advance to 0.26.0, with a newly exercised 3×3 result of 211 pass, 7 fail and 52 unsupported. Poppyseed 0.3.1 also tracks draft 0.3. Six live documents now declare 0.3 and are reported as unsupported by PDA, not validated under older rules. Earlier catalogue entries below retain their original dates and versions.
 
 ## Targeted source refresh — 22 October 2026
 

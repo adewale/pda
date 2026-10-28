@@ -92,3 +92,7 @@ Fixed by v0.10.0:
 ## Readings
 
 `S1: either` (assertion `aud` may be the issuer, the token endpoint or the endpoint it is sent to, at every endpoint), `S2: lenient-120s` (`typ` absent or `JWT`, lifetime at most 120 s, `jti` of 16 to 256 characters), `S4: either` (`scope` on a signed-out Session request is ignored). The issuer has no path, so S3 doesn't arise.
+
+## Separate draft 0.2 peer — 28 October 2026
+
+The `-v02` registry entry moves from SDK 0.25.0 (`97c1386`) to SDK 0.26.0 at [`0ff43c55cc303c3165cb2d5841eca026e1c7c699`](https://github.com/datalayer/personal-agent-protocol/tree/0ff43c55cc303c3165cb2d5841eca026e1c7c699). The shared Dockerfile takes that revision through its existing build argument; the runner supplies `INTEROP_COMMIT` for the manifest. The 0.1 peer and its source links above retain their original pin. Version 0.26 adds API-write idempotency and Company-side idempotency records; latest 0.27 changes to draft 0.3 and is not used by this 0.2 adapter.

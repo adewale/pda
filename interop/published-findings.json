@@ -1,0 +1,63 @@
+{
+  "purpose": "Publication allowlist only. These previously public compatibility findings remain unexempted failures; this file does not change runner exit status or known-failure attribution. Rechecked at the exact 0.26.0 pins on 28 October 2026.",
+  "findings": [
+    {
+      "agent": "datalayer-ts-v02",
+      "company": "lenient-company-v02",
+      "scenario": "CS",
+      "agentCommit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
+      "error": "poppy_error stream_unavailable",
+      "publishedEvidence": "docs/poppy-0.2-upgrade.md#validation"
+    },
+    {
+      "agent": "datalayer-ts-v02",
+      "company": "datalayer-ts-v02",
+      "scenario": "CS",
+      "agentCommit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
+      "error": "poppy_error stream_unavailable",
+      "publishedEvidence": "docs/poppy-0.2-upgrade.md#validation",
+      "companyCommit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699"
+    },
+    {
+      "agent": "datalayer-ts-v02",
+      "company": "datalayer-py-v02",
+      "scenario": "CS",
+      "agentCommit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
+      "error": "poppy_error stream_unavailable",
+      "publishedEvidence": "docs/poppy-0.2-upgrade.md#validation",
+      "companyCommit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699"
+    },
+    {
+      "agent": "datalayer-ts-v02",
+      "company": "lenient-company-v02",
+      "scenario": "H",
+      "agentCommit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
+      "error": "poppy_error invalid_response",
+      "publishedEvidence": "docs/poppy-0.2-upgrade.md#validation"
+    },
+    {
+      "agent": "datalayer-py-v02",
+      "company": "lenient-company-v02",
+      "scenario": "H",
+      "agentCommit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
+      "error": "poppy_error invalid_response",
+      "publishedEvidence": "docs/poppy-0.2-upgrade.md#validation"
+    },
+    {
+      "agent": "datalayer-ts-v02",
+      "company": "lenient-company-v02",
+      "scenario": "DC",
+      "agentCommit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
+      "error": "poppy_error invalid_response",
+      "publishedEvidence": "docs/poppy-0.2-upgrade.md#validation"
+    },
+    {
+      "agent": "datalayer-py-v02",
+      "company": "lenient-company-v02",
+      "scenario": "DC",
+      "agentCommit": "0ff43c55cc303c3165cb2d5841eca026e1c7c699",
+      "error": "poppy_error invalid_response",
+      "publishedEvidence": "docs/poppy-0.2-upgrade.md#validation"
+    }
+  ]
+}

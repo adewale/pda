@@ -74,3 +74,7 @@ Still present at `00216eb7` (v0.17.0):
 - Ended Sessions answer `401 invalid_token`, not `invalid_session` (`#caller`, lines 1922-1942).
 
 Fixed by v0.10.0: device authorization and revocation requests had to name that endpoint as `aud` (now any of the three); a confirmed Operation's `expires_at` was `null` (now omitted); Mediated Sign-In without `scope` signed in with no scopes (now `invalid_scope`).
+
+## Separate draft 0.2 peer — 28 October 2026
+
+The `-v02` registry entry moves from SDK 0.25.0 (`97c1386`) to SDK 0.26.0 at [`0ff43c55cc303c3165cb2d5841eca026e1c7c699`](https://github.com/datalayer/personal-agent-protocol/tree/0ff43c55cc303c3165cb2d5841eca026e1c7c699). The shared Dockerfile takes that revision through its existing build argument; the runner supplies `INTEROP_COMMIT` for the manifest. The 0.1 peer and its source links above retain their original pin. Version 0.26 adds API-write idempotency and Company-side idempotency records; latest 0.27 changes to draft 0.3 and is not used by this 0.2 adapter.

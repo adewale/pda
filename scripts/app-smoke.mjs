@@ -73,6 +73,7 @@ try {
   browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
   const anonymous = await browser.createBrowserContext();
   const signedOut = activePage = await anonymous.newPage();
+  if (args.includes("--ecosystem-viewport")) await signedOut.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
   signedOut.on("pageerror", error => failures.push(error.name));
   await signedOut.goto("https://agent.test/", { waitUntil: "networkidle0" });
   await signedOut.waitForSelector('a[aria-label="Sign in with GitHub"]');
@@ -95,7 +96,7 @@ try {
   assert.equal(new URL(signedOut.url()).pathname, "/about/ecosystem");
   assert.equal(await signedOut.$eval('nav[aria-label="Breadcrumb"] a', element => element.getAttribute("href")), "/about");
   assert.equal(await signedOut.$eval("details", element => element.open), false);
-  if (output) writeFileSync(`${output}.ecosystem.png`, Buffer.from(await signedOut.screenshot({ fullPage: true })));
+  if (output) writeFileSync(`${output}.ecosystem.png`, Buffer.from(await signedOut.screenshot({ fullPage: !args.includes("--ecosystem-viewport") })));
   await signedOut.setViewport({ width: 375, height: 812, deviceScaleFactor: 1 });
   assert.equal(await signedOut.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.equal(await signedOut.$eval(".ecosystem-table", element => element.scrollWidth > element.clientWidth), true);
