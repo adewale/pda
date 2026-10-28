@@ -1,6 +1,7 @@
 import {
   base64url,
   calculateJwkThumbprint,
+  compactVerify,
   createLocalJWKSet,
   decodeJwt,
   decodeProtectedHeader,
@@ -688,7 +689,8 @@ export class Company {
       throw oauthError(401, "invalid_client", "client assertion aud must be the token endpoint");
     }
     const audiences =
-      this.config.protocolVersion === "0.2"
+      // 0.2 and 0.3 (4.1): the issuer, as a single string, compared character for character.
+      this.config.protocolVersion === "0.2" || this.v3
         ? [this.hosts.issuer, ...(this.flawed("accept-token-endpoint-aud") ? [this.hosts.tokenEndpoint] : [])]
         : exact
           ? [endpoint]
@@ -1073,7 +1075,8 @@ export class Company {
     const signer = client.jwks.keys.find((key) => key.kid === header.kid);
     if (!signer) throw fail("delegation.kid", `kid ${JSON.stringify(header.kid)} names no key in jwks_uri`);
     try {
-      await jwtVerify(delegation, await importJWK(signer, header.alg), { algorithms: DELEGATION_ALGS, typ: "pap-delegation+jwt" });
+      // The signature alone: its times are checked below, each with its own finding.
+      await compactVerify(delegation, await importJWK(signer, header.alg), { algorithms: DELEGATION_ALGS });
     } catch (cause) {
       throw fail("delegation.signature", `signature: ${cause instanceof Error ? cause.message : String(cause)}`);
     }

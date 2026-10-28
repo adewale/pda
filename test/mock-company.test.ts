@@ -463,6 +463,147 @@ async function strangerKey(): Promise<CryptoKey> {
   return (await generateKeyPair("ES256")).privateKey;
 }
 
+// ---- 0.3: Session JWTs, delegations, and plain OAuth (spec/draft-0.3-retrieved-2026-10-28) ----
+
+const CLIENT_ID_03 = "https://agent.test/poppy/0.3/client.json";
+/** 0.3 with Bearer access tokens, so a signed-in request needs no DPoP proof. */
+const V3: Partial<MockConfig> = { protocolVersion: "0.3", dpopTokens: false };
+
+/** A delegated key (0.3 5.2): an ES256 pair, its public JWK and thumbprint. */
+async function delegatedKey() {
+  const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
+  const jwk = await exportJWK(publicKey);
+  return { privateKey, jwk, kid: await calculateJwkThumbprint(jwk), privateJwk: await exportJWK(privateKey) };
+}
+
+type Delegated = Awaited<ReturnType<typeof delegatedKey>>;
+
+/** A delegation for `key`, signed with our published key, optionally tampered with. */
+async function delegation(key: Delegated, tamper: JwtTamper = {}) {
+  const { kid, key: signing } = await agentKey();
+  const iat = seconds();
+  return signJwt(
+    { alg: "ES256", typ: "pap-delegation+jwt", kid, ...tamper.header },
+    { iss: CLIENT_ID_03, cnf: { jwk: key.jwk }, iat, exp: iat + 3600, jti: jti(), ...tamper.claims },
+    tamper.key ?? signing
+  );
+}
+
+type SessionJwtTamper = JwtTamper & { readonly delegation?: JwtTamper | string };
+
+/** A Session JWT (0.3 5.2) for one request, signed with `key`, carrying its delegation. */
+async function sessionJwt(c: C, key: Delegated, request: { method: string; url: string; token?: string; sid: string; sub?: string }, tamper: SessionJwtTamper = {}) {
+  const dlg = typeof tamper.delegation === "string" ? tamper.delegation : await delegation(key, tamper.delegation);
+  return signJwt(
+    { typ: "poppy-session+jwt", alg: "ES256", kid: key.kid, pap_dlg: dlg, ...tamper.header },
+    {
+      iss: CLIENT_ID_03,
+      aud: c.hosts.issuer,
+      sid: request.sid,
+      sub: request.sub ?? USER_ID,
+      htm: request.method,
+      htu: request.url.split("?")[0],
+      iat: seconds(),
+      jti: jti(),
+      ...(request.token ? { ath: await hash(request.token) } : {}),
+      ...tamper.claims
+    },
+    tamper.key ?? key.privateKey
+  );
+}
+
+/** A 0.3 Session as the test drives it: its delegated key and sid, and an access token once signed in. */
+type Session03 = { key: Delegated; sid: string; token?: string };
+
+async function session03(): Promise<Session03> {
+  return { key: await delegatedKey(), sid: jti() };
+}
+
+type Call03Options = {
+  readonly body?: unknown;
+  readonly headers?: Record<string, string>;
+  /** The Session header: a correct JWT by default, none with null, a tampered one, or this exact value. */
+  readonly jwt?: string | null | SessionJwtTamper;
+  /** Send the access token in `Authorization` (Bearer); default when the Session has one. */
+  readonly token?: string | null;
+};
+
+/** A request to a 0.3 resource: the Session header, and the access token when signed in. */
+async function call03(c: C, s: Session03, method: string, url: string, options: Call03Options = {}) {
+  const token = options.token === undefined ? s.token : options.token ?? undefined;
+  const jwt = options.jwt === null ? null : typeof options.jwt === "string" ? options.jwt : await sessionJwt(c, s.key, { method, url, sid: s.sid, ...(token ? { token } : {}) }, options.jwt ?? {});
+  return c.call(url, {
+    method,
+    headers: {
+      ...(jwt !== null ? { "Poppy-Session": jwt } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...options.headers
+    },
+    ...(options.body !== undefined ? { body: typeof options.body === "string" ? options.body : JSON.stringify(options.body) } : {})
+  });
+}
+
+/** A 0.3 token request: our client assertion for the issuer, a DPoP proof only when given a key. */
+async function token03(c: C, fields: Record<string, string>, options: { key?: Key; clientId?: string } = {}) {
+  const now = seconds();
+  const clientId = options.clientId ?? CLIENT_ID_03;
+  const assertion = await agentJwt({ iss: clientId, sub: clientId, aud: c.hosts.issuer, iat: now, exp: now + 60, jti: jti() });
+  return c.call(c.hosts.tokenEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", ...(options.key ? { DPoP: await proof(options.key, "POST", c.hosts.tokenEndpoint) } : {}) },
+    body: new URLSearchParams({ ...fields, client_id: clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: assertion })
+  });
+}
+
+/** Direct Sign-In under 0.3, as `account`: the access token, Bearer (`V3`). */
+async function signIn03(c: C, options: { account?: string; clientId?: string; resource?: string } = {}): Promise<string> {
+  const { verifier, challenge } = await pkce();
+  const clientId = options.clientId ?? CLIENT_ID_03;
+  const back = new URL(
+    await c.stub.approveAuthorization(
+      authorizeUrl(c, { response_type: "code", client_id: clientId, redirect_uri: REDIRECT_URI, scope: "orders:read orders:write", state: jti(), code_challenge: challenge, code_challenge_method: "S256" }),
+      { approve: true, ...(options.account ? { account: options.account } : {}) }
+    )
+  );
+  const response = await token03(c, { grant_type: "authorization_code", code: back.searchParams.get("code")!, redirect_uri: REDIRECT_URI, code_verifier: verifier, ...(options.resource ? { resource: options.resource } : {}) }, { clientId });
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { access_token: string }).access_token;
+}
+
+/** A signed-in 0.3 Session. */
+async function signedIn03(c: C, account?: string): Promise<Session03> {
+  return { ...(await session03()), token: await signIn03(c, account ? { account } : {}) };
+}
+
+/** 0.3's browser join, step 1: the page's code and the cookie set with it. */
+async function joinPage(c: C) {
+  const page = await c.call(c.hosts.browserSessionEndpoint);
+  const code = /name="code" value="([^"]+)"/.exec(await page.text())![1]!;
+  const cookie = page.headers.get("Set-Cookie")!.split(";")[0]!;
+  return { code, cookie };
+}
+
+function authorizeJoin(c: C, s: Session03, code: string, init: { body?: unknown; contentType?: string } = {}) {
+  return call03(c, s, "POST", `${c.hosts.browserSessionEndpoint}/authorize`, { body: init.body ?? { code }, ...(init.contentType ? { headers: { "Content-Type": init.contentType } } : {}) });
+}
+
+function submitJoin(c: C, code: string, cookie: string | null, init: { contentType?: string; body?: string } = {}) {
+  return c.call(c.hosts.browserSessionEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": init.contentType ?? "application/x-www-form-urlencoded", ...(cookie ? { Cookie: cookie } : {}) },
+    body: init.body ?? new URLSearchParams({ code }).toString()
+  });
+}
+
+function exchange03(c: C, s: Session03, headers: Record<string, string> = {}) {
+  return call03(c, s, "POST", `${c.hosts.api}/orders/ord_7Hk2/exchanges`, { body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, headers });
+}
+
+function message03(fields: Record<string, unknown> = {}) {
+  return defined({ id: `msg_${jti()}`, author: { type: "agent" }, text: "Hello", ...fields });
+}
+
 type Tamper = {
   /** The violation this row must record. */
   readonly id: ViolationId;
@@ -1835,7 +1976,194 @@ const TAMPERS: readonly Tamper[] = [
         body: { revision: operation.revision, approved_by: "standing_permission" }
       });
     }
-  }
+  },
+  // ---- 0.3: the Session header (5.2, 5.3) ----
+  ...(() => {
+    const products = (c: C) => `${c.hosts.api}/products`;
+    const get = async (c: C, jwt: Call03Options["jwt"], s?: Session03) => call03(c, s ?? (await session03()), "GET", products(c), { jwt });
+    const now = () => seconds();
+    const rows: Tamper[] = [
+      { id: "session-jwt.missing", what: "a request without the Session header", config: V3, detail: /^\[session-jwt\.missing\] Session JWT: no Poppy-Session header \(GET \/products\)$/, run: (c) => get(c, null) },
+      {
+        id: "session-jwt.missing-with-token", what: "an access token without the Session header", config: V3,
+        detail: /^\[session-jwt\.missing-with-token\] Session JWT: an access token without the Session header/,
+        run: async (c) => call03(c, await signedIn03(c), "GET", `${c.hosts.api}/orders`, { jwt: null })
+      },
+      { id: "session-jwt.not-jwt", what: "a Session header that isn't a JWT", config: V3, detail: /^\[session-jwt\.not-jwt\]/, run: (c) => get(c, "not.a.jwt") },
+      { id: "session-jwt.typ", what: "a Session JWT with typ JWT", config: V3, detail: /^\[session-jwt\.typ\] Session JWT: typ is "JWT"/, run: (c) => get(c, { header: { typ: "JWT" } }) },
+      { id: "session-jwt.alg", what: "a Session JWT signed with HS256", config: V3, detail: /^\[session-jwt\.alg\]/, run: async (c) => get(c, { header: { alg: "HS256" }, key: await hmacKey() }) },
+      { id: "session-jwt.no-delegation", what: "a Session JWT without pap_dlg", config: V3, detail: /^\[session-jwt\.no-delegation\]/, run: (c) => get(c, { header: { pap_dlg: undefined } }) },
+      { id: "session-jwt.iss", what: "a Session JWT without iss", config: V3, detail: /^\[session-jwt\.iss\]/, run: (c) => get(c, { claims: { iss: undefined } }) },
+      { id: "session-jwt.kid", what: "a Session JWT whose kid isn't its key's thumbprint", config: V3, detail: /^\[session-jwt\.kid\]/, run: (c) => get(c, { header: { kid: "someone-else" } }) },
+      { id: "session-jwt.signature", what: "a Session JWT signed with a key its delegation doesn't name", config: V3, detail: /^\[session-jwt\.signature\]/, run: async (c) => get(c, { key: await strangerKey() }) },
+      { id: "session-jwt.iat", what: "a Session JWT ten minutes old", config: V3, detail: /^\[session-jwt\.iat\] Session JWT: iat is outside the acceptance window/, run: (c) => get(c, { claims: { iat: now() - 600 } }) },
+      {
+        id: "session-jwt.after-delegation", what: "a Session JWT signed after its delegation expired", config: V3, detail: /^\[session-jwt\.after-delegation\]/,
+        run: (c) => get(c, { delegation: { claims: { iat: now() - 3600, exp: now() - 10 } } })
+      },
+      { id: "session-jwt.aud", what: "a Session JWT for the token endpoint", config: V3, detail: /^\[session-jwt\.aud\]/, run: (c) => get(c, { claims: { aud: c.hosts.tokenEndpoint } }) },
+      { id: "session-jwt.htm", what: "a Session JWT for POST on a GET", config: V3, detail: /^\[session-jwt\.htm\]/, run: (c) => get(c, { claims: { htm: "POST" } }) },
+      { id: "session-jwt.htu", what: "a Session JWT for another URL", config: V3, detail: /^\[session-jwt\.htu\]/, run: (c) => get(c, { claims: { htu: `${c.hosts.api}/orders` } }) },
+      { id: "session-jwt.sid", what: "a Session JWT whose sid has a slash", config: V3, detail: /^\[session-jwt\.sid\]/, run: (c) => get(c, { claims: { sid: "a/b" } }) },
+      { id: "session-jwt.sub", what: "a Session JWT without sub", config: V3, detail: /^\[session-jwt\.sub\]/, run: (c) => get(c, { claims: { sub: undefined } }) },
+      {
+        id: "session-jwt.ath", what: "a Session JWT whose ath is another token's", config: V3, detail: /^\[session-jwt\.ath\]/,
+        run: async (c) => call03(c, await signedIn03(c), "GET", `${c.hosts.api}/orders`, { jwt: { claims: { ath: await hash("another token") } } })
+      },
+      { id: "session-jwt.ath-without-token", what: "ath with no access token", config: V3, detail: /^\[session-jwt\.ath-without-token\]/, run: async (c) => get(c, { claims: { ath: await hash("a token") } }) },
+      {
+        id: "session-jwt.sub-changed", what: "a Session's sid with another User ID", config: V3, detail: /^\[session-jwt\.sub-changed\]/,
+        run: async (c) => {
+          const s = await session03();
+          expect((await get(c, undefined, s)).status).toBe(200);
+          // A new delegated key for the other User ID, so only the sid is shared.
+          return call03(c, { ...s, key: await delegatedKey() }, "GET", products(c), { jwt: { claims: { sub: "usr_Another1User2Id3Here4" } } });
+        }
+      },
+      {
+        id: "session-jwt.token-other-client", what: "an access token issued to another client_id", config: V3, detail: /^\[session-jwt\.token-other-client\]/,
+        run: async (c) => call03(c, { ...(await session03()), token: await signIn03(c, { clientId: CLIENT_ID }) }, "GET", `${c.hosts.api}/orders`)
+      },
+      { id: "session-jwt.jti-missing", what: "a Session JWT without jti", config: V3, detail: "[session-jwt.jti-missing] session-jwt: missing jti", run: (c) => get(c, { claims: { jti: undefined } }) },
+      { id: "session-jwt.jti-weak", what: "a Session JWT jti of 64 bits", config: V3, detail: '[session-jwt.jti-weak] session-jwt: jti "abcdefgh" is not 128 random bits of base64url', run: (c) => get(c, { claims: { jti: "abcdefgh" } }) },
+      {
+        id: "session-jwt.jti-reused", what: "the same Session JWT twice", config: V3, detail: /^\[session-jwt\.jti-reused\] session-jwt: reused jti [\w-]{22}$/,
+        run: async (c) => {
+          const s = await session03();
+          const jwt = await sessionJwt(c, s.key, { method: "GET", url: products(c), sid: s.sid });
+          expect((await get(c, jwt, s)).status).toBe(200);
+          return get(c, jwt, s);
+        }
+      },
+      // ---- 0.3: delegations (5.2) ----
+      { id: "delegation.not-jwt", what: "a pap_dlg that isn't a JWT", config: V3, detail: /^\[delegation\.not-jwt\]/, run: (c) => get(c, { delegation: "not-a-delegation" }) },
+      { id: "delegation.typ", what: "a delegation with typ JWT", config: V3, detail: /^\[delegation\.typ\]/, run: (c) => get(c, { delegation: { header: { typ: "JWT" } } }) },
+      { id: "delegation.alg", what: "a delegation signed with HS256", config: V3, detail: /^\[delegation\.alg\]/, run: async (c) => get(c, { delegation: { header: { alg: "HS256" }, key: await hmacKey() } }) },
+      { id: "delegation.kid", what: "a delegation whose kid names no published key", config: V3, detail: /^\[delegation\.kid\]/, run: (c) => get(c, { delegation: { header: { kid: "unpublished" } } }) },
+      { id: "delegation.signature", what: "a delegation signed with an unpublished key", config: V3, detail: /^\[delegation\.signature\]/, run: async (c) => get(c, { delegation: { key: await strangerKey() } }) },
+      { id: "delegation.iss", what: "a delegation from another client", config: V3, detail: /^\[delegation\.iss\]/, run: (c) => get(c, { delegation: { claims: { iss: CLIENT_ID } } }) },
+      { id: "delegation.lifetime", what: "a delegation for 25 hours", config: V3, detail: /^\[delegation\.lifetime\] delegation: exp is 90000 s after iat/, run: (c) => get(c, { delegation: { claims: { iat: now(), exp: now() + 25 * 3600 } } }) },
+      { id: "delegation.expired", what: "an expired delegation", config: V3, detail: /^\[delegation\.expired\]/, run: (c) => get(c, { delegation: { claims: { iat: now() - 7200, exp: now() - 3600 } } }) },
+      { id: "delegation.jti", what: "a delegation with a short jti", config: V3, detail: /^\[delegation\.jti\]/, run: (c) => get(c, { delegation: { claims: { jti: "short" } } }) },
+      { id: "delegation.cnf", what: "a delegation without cnf", config: V3, detail: /^\[delegation\.cnf\]/, run: (c) => get(c, { delegation: { claims: { cnf: undefined } } }) },
+      {
+        id: "delegation.private-key", what: "a delegation that carries the private key", config: V3, detail: /^\[delegation\.private-key\]/,
+        run: async (c) => {
+          const s = await session03();
+          return get(c, { delegation: { claims: { cnf: { jwk: s.key.privateJwk } } } }, s);
+        }
+      },
+      { id: "delegation.names-user", what: "a delegation naming the User", config: V3, detail: /^\[delegation\.names-user\] delegation: carries sub/, run: (c) => get(c, { delegation: { claims: { sub: USER_ID } } }) },
+      {
+        id: "delegation.key-shared", what: "one delegated key signing for two User IDs", config: V3, detail: /^\[delegation\.key-shared\]/,
+        run: async (c) => {
+          const s = await session03();
+          expect((await get(c, undefined, s)).status).toBe(200);
+          return call03(c, { ...s, sid: jti() }, "GET", products(c), { jwt: { claims: { sub: "usr_Another1User2Id3Here4" } } });
+        }
+      },
+      // ---- 0.3: accounts, sign-in and the browser join ----
+      {
+        id: "session.second-account", what: "a second account in one Session", config: V3, detail: /^\[session\.second-account\]/,
+        run: async (c) => {
+          const s = await signedIn03(c);
+          expect((await call03(c, s, "GET", `${c.hosts.api}/orders`)).status).toBe(200);
+          return call03(c, { ...s, token: await signIn03(c, { account: "acct_grace" }) }, "GET", `${c.hosts.api}/orders`);
+        }
+      },
+      {
+        id: "token.dpop-not-sent", what: "a refresh without a DPoP proof where the issuer asks for one", config: { protocolVersion: "0.3" }, detail: /^\[token\.dpop-not-sent\] token request \(refresh_token\) without a DPoP proof/,
+        run: (c) => token03(c, { grant_type: "refresh_token", refresh_token: "pat_unknown" })
+      },
+      {
+        id: "mediated.scope-with-code", what: "scope resent with the one-time code", config: { ...V3, signIn: { direct: null, device: null, mediated: ["poppy:read"] } }, detail: /^\[mediated\.scope-with-code\]/,
+        run: async (c) => {
+          const first = (await (await token03(c, { grant_type: "https://personalagentprotocol.org/grant/mediated-sign-in", scope: "orders:read", email: "grace@example.com", password: "battery staple" })).json()) as { sign_in_id: string };
+          return token03(c, { grant_type: "https://personalagentprotocol.org/grant/mediated-sign-in", sign_in_id: first.sign_in_id, one_time_code: (await c.stub.lastOneTimeCode())!, scope: "orders:read" });
+        }
+      },
+      {
+        id: "mediated.code-other-client", what: "a one-time code sent by another client", config: { ...V3, signIn: { direct: null, device: null, mediated: ["poppy:read"] } }, detail: /^\[mediated\.code-other-client\]/,
+        run: async (c) => {
+          const first = (await (await token03(c, { grant_type: "https://personalagentprotocol.org/grant/mediated-sign-in", scope: "orders:read", email: "grace@example.com", password: "battery staple" })).json()) as { sign_in_id: string };
+          return token03(c, { grant_type: "https://personalagentprotocol.org/grant/mediated-sign-in", sign_in_id: first.sign_in_id, one_time_code: (await c.stub.lastOneTimeCode())! }, { clientId: CLIENT_ID });
+        }
+      },
+      {
+        id: "browser-join.form", what: "the join form sent as JSON", config: V3, detail: /^\[browser-join\.form\]/,
+        run: async (c) => {
+          const { code, cookie } = await joinPage(c);
+          expect((await authorizeJoin(c, await session03(), code)).status).toBe(204);
+          return submitJoin(c, code, cookie, { contentType: "application/json", body: JSON.stringify({ code }) });
+        }
+      },
+      {
+        id: "browser-join.code-reused", what: "a join code authorized twice", config: V3, detail: /^\[browser-join\.code-reused\] browser join: the code was authorized before$/,
+        run: async (c) => {
+          const { code } = await joinPage(c);
+          const s = await session03();
+          expect((await authorizeJoin(c, s, code)).status).toBe(204);
+          return authorizeJoin(c, s, code);
+        }
+      },
+      {
+        id: "browser-join.cookie", what: "the join form without its cookie", config: V3, detail: /^\[browser-join\.cookie\]/,
+        run: async (c) => {
+          const { code } = await joinPage(c);
+          expect((await authorizeJoin(c, await session03(), code)).status).toBe(204);
+          return submitJoin(c, code, null);
+        }
+      },
+      {
+        id: "browser-join.not-authorized", what: "the join form before its code was authorized", config: V3, detail: /^\[browser-join\.not-authorized\]/,
+        run: async (c) => {
+          const { code, cookie } = await joinPage(c);
+          return submitJoin(c, code, cookie);
+        }
+      },
+      {
+        id: "browser-join.authorize-body", what: "authorize with a form body", config: V3, detail: /^\[browser-join\.authorize-body\]/,
+        run: async (c) => {
+          const { code } = await joinPage(c);
+          return authorizeJoin(c, await session03(), code, { body: `code=${code}`, contentType: "application/x-www-form-urlencoded" });
+        }
+      },
+      // ---- 0.3: Operations 2 (Ops 6) and messages (8.4) ----
+      {
+        id: "approval.header", what: "a Poppy-Approval that isn't a Dictionary", config: V3, detail: /^\[approval\.header\]/,
+        run: async (c) => exchange03(c, await signedIn03(c), { "Poppy-Approval": "operation_id=exc_1 revision" })
+      },
+      {
+        id: "approval.idempotency-key-reused", what: "the approved request with the first request's Idempotency-Key", config: V3, detail: /^\[approval\.idempotency-key-reused\]/,
+        run: async (c) => {
+          const s = await signedIn03(c);
+          const key = jti();
+          const refused = (await (await exchange03(c, s, { "Idempotency-Key": key })).json()) as { operation: { operation_id: string; revision: string } };
+          return exchange03(c, s, { "Idempotency-Key": key, "Poppy-Approval": `operation_id="${refused.operation.operation_id}", revision="${refused.operation.revision}"` });
+        }
+      },
+      {
+        id: "approval.mcp-meta", what: "an MCP approval that isn't an object", config: V3, detail: /^\[approval\.mcp-meta\]/,
+        run: async (c) => call03(c, { ...(await session03()), token: await signIn03(c, { resource: c.hosts.mcpUrl }) }, "POST", c.hosts.mcpUrl, {
+          headers: { Accept: "application/json, text/event-stream" },
+          body: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "exchange_item", arguments: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, _meta: { "personalagentprotocol.org/approval": "yes" } } }
+        })
+      },
+      {
+        id: "approval.message", what: "a message whose approval isn't an object", config: V3, detail: /^\[approval\.message\]/,
+        run: async (c) => call03(c, await signedIn03(c), "POST", c.hosts.conversationsEndpoint, { body: { message: message03({ text: undefined, approval: "yes" }) } })
+      },
+      {
+        id: "message.author", what: "a message without author", config: V3, detail: /^\[message\.author\] conversation message: author\.type must be agent or human$/,
+        run: async (c) => call03(c, await session03(), "POST", c.hosts.conversationsEndpoint, { body: { message: message03({ author: undefined }) } })
+      },
+      {
+        id: "message.sender-field", what: "a 0.3 message that still says sender", config: V3, detail: /^\[message\.sender-field\]/,
+        run: async (c) => call03(c, await session03(), "POST", c.hosts.conversationsEndpoint, { body: { message: message03({ sender: "agent" }) } })
+      }
+    ];
+    return rows;
+  })()
 ];
 
 describe("each check the mock Company makes", () => {
@@ -1868,7 +2196,7 @@ describe("each check the mock Company makes", () => {
     // Ids are written out where a check records them, or built from the JWT kind.
     const produced = (id: string) => {
       const [kind, check] = id.split(/\.(.*)/s) as [string, string];
-      return source.includes(`"${id}"`) || source.includes(`\`\${kind}.${check}\``) && ["client-assertion", "session-assertion", "dpop", "browser-assertion"].includes(kind);
+      return source.includes(`"${id}"`) || source.includes(`\`\${kind}.${check}\``) && ["client-assertion", "session-assertion", "dpop", "browser-assertion", "session-jwt"].includes(kind);
     };
     expect(VIOLATION_IDS.filter((id) => !produced(id))).toEqual([]);
     // Every literal id the source passes to a check is in the catalog (TypeScript also enforces this).

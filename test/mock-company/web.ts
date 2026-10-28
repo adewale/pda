@@ -338,7 +338,7 @@ export class Web {
       return json({ error: "invalid_request" }, 400);
     }
     const join = this.#joins.get(code);
-    if (join?.authorized) co.violation("browser-join.code-reused", "the code was authorized before");
+    if (join?.authorized) co.violation("browser-join.code-reused", "browser join: the code was authorized before");
     if (!join || join.authorized || join.used || join.expiresAt <= co.now()) return json({ error: "invalid_request" }, 400);
     join.authorized = { sessionId: context.session.id, account: context.account, scope: context.scope, grant: context.token?.grant ?? null };
     return new Response(null, { status: 204 });
