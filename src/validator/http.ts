@@ -17,7 +17,7 @@ import { validateTarget, validateText, type Report } from "./validate.ts";
 import { checkJsonWork, HTTP_INPUT_LIMITS, InputError as BadInput, readInputBytes } from "./input.ts";
 
 const MAX_INPUT_BYTES = 100_000;
-const KINDS: readonly DocumentKind[] = ["poppy", "oauth-metadata", "client-metadata", "jwks"];
+const KINDS: readonly DocumentKind[] = ["poppy", "protected-resource", "oauth-metadata", "client-metadata", "jwks"];
 
 export type ValidatorHttpOptions = {
   readonly fetcher: Fetcher;

@@ -322,7 +322,7 @@ export function recordDiscovery(sql: Sql, domain: string, report: CompanyReport 
       issuer,
       step: "discovery.verdict",
       outcome: report.refused ? "refused" : "ok",
-      // `checkedAgainst` is the validator's own name for the profile, such as "Poppy 0.3".
+      // `checkedAgainst` is the validator's own name for the profile, such as "Draft 0.3".
       summary: `Validated against ${report.checkedAgainst}`,
       result: [
         `${VERDICT[report.outcome] ?? "unknown"}: ${error} error${error === 1 ? "" : "s"}, ${warning} warning${warning === 1 ? "" : "s"}, ${info} info`,

@@ -93,6 +93,7 @@ A refusal made for safety stays in the behaviour, but its level comes from its b
     - `api-type-unknown`: section 6 says agents SHOULD skip unknown API types;
     - `api-description-missing`;
     - `organization-name-missing`: we show the domain instead.
+  - Since the validator checks 0.3 alone (28 October 2026), the definitions carry 0.3's basis, with no promotion at report time: `http-non-public-host` and `http-non-public-address` are MUSTs (3), and `http-redirect-not-allowed` a Rule (5.3), so they are errors; 0.3 allows other API types, so `api-type-unknown` is info; our client refuses `organization-name-missing`, as it did for 0.2. Every URL is HTTPS by 0.3's MUST (3), so `not-https-url-unstated` is gone, and so are the messages only 0.1 and 0.2 rules gave (`auth-required`, `signed-out-only`, `scope-reserved`, `scope-unoffered`, `resource-invalid`, `mcp-resource-mismatch`, `metadata-domain-missing`, `metadata-auth-method`, `metadata-signing-alg`, `metadata-grant-type`). The warnings our client refuses are now the Guides' other fetch limits, `json-duplicate-member`, `url-has-fragment-unstated` and `mediated-fields-empty`; the errors it tolerates, `json-bom` and `api-description-missing`.
 - **The grid** reports security-relevant departures at the level of their basis:
   - `token.unlisted-host` (N10) is a warning;
   - `redirect.credentials-followed` (Guides) is a warning.

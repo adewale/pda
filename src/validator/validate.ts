@@ -1,5 +1,5 @@
 import { domainFromInput } from "../domain.ts";
-import { protocolRevision, versionAtLeast } from "../poppy/protocol-version.ts";
+import { protocolRevision } from "../poppy/protocol-version.ts";
 /**
  * The validator's entry points. The same functions back the library, the
  * CLI, the HTTP endpoint and the form, and our own Poppy client uses
@@ -40,7 +40,7 @@ export type Report = {
   readonly outputVersion: 1;
   readonly validator: typeof VALIDATOR;
   readonly outcome: Outcome;
-  /** The protocol version the documents were checked against, such as "Draft 0.1". */
+  /** The protocol version the documents were checked against, such as "Draft 0.3". */
   readonly checkedAgainst: string;
   readonly protocolVersion: string;
   readonly specificationRevision: string;
@@ -119,13 +119,13 @@ function parse(c: Checker, text: string): unknown {
  */
 function profileFor(c: Checker, doc: unknown): Profile | undefined {
   if (!isObject(doc) || !("protocol_version" in doc)) {
-    if (isObject(doc)) c.report("missing-member", "/protocol_version", 'protocol_version is required, such as "0.1".');
+    if (isObject(doc)) c.report("missing-member", "/protocol_version", 'protocol_version is required, such as "0.3".');
     return LATEST;
   }
   const version = doc.protocol_version;
   const match = typeof version === "string" ? /^(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version) : null;
   if (!match) {
-    c.report("version-format", "/protocol_version", `protocol_version must be major.minor, like "0.1", not ${JSON.stringify(version)}.`);
+    c.report("version-format", "/protocol_version", `protocol_version must be major.minor, like "0.3", not ${JSON.stringify(version)}.`);
     return LATEST;
   }
   const profile = profileForVersion(version as string);
@@ -158,13 +158,12 @@ export type TextOptions = {
   readonly domain?: string;
   /** client-metadata: the URL it was fetched from. */
   readonly fetchedFrom?: string;
-  /** Documents without their own version: which protocol version to check against, such as "0.1". */
+  /** Documents without their own version: which protocol version to check against. 0.3, the only one, is the default. */
   readonly protocolVersion?: string;
 };
 
 function profileByOption(option: string | undefined, c: Checker): Profile | undefined {
-  // Existing versionless API consumers retain the 0.1 default.
-  const profile = profileForVersion(option ?? "0.1");
+  const profile = option === undefined ? LATEST : profileForVersion(option);
   if (!profile) c.report("version-unsupported", "", `Unsupported protocol context ${JSON.stringify(option)}.`);
   return profile;
 }
@@ -177,25 +176,23 @@ export function validateText(kind: DocumentKind, text: string, options: TextOpti
   const skipped: Skipped[] = [];
   let profile = profileByOption(options.protocolVersion, c);
   if (value !== undefined && profile) {
-    c.protocolVersion = profile.version;
     if (kind === "poppy") {
       const chosen = profileFor(c, value);
       if (chosen) {
         profile = chosen;
         profile.poppy(c, value, { ...(options.domain ? { requestedDomain: options.domain } : {}) });
       }
-      if (!options.domain) skipped.push({ check: "organization.domain matches the requested domain", reason: "No domain given." });
-      skipped.push({ check: "auth.issuer's OAuth metadata: issuer and poppy_domains", reason: "Validate by domain to fetch it." });
+      if (!options.domain) skipped.push({ check: "organization.domain is the host that serves the document", reason: "No domain given." });
+      skipped.push({ check: "The domain's protected resource metadata and the issuer's OAuth metadata", reason: "Validate by domain to fetch them." });
     } else if (kind === "oauth-metadata") {
       profile.oauthMetadata(c, value, undefined);
-      skipped.push({ check: "issuer equals auth.issuer, poppy_domains includes the domain, sign-in endpoints", reason: "Needs the poppy.json; validate by domain." });
+      skipped.push({ check: "issuer is the one the domain names, protected_resources includes the domain, scopes are described", reason: "Needs the poppy.json; validate by domain." });
     } else if (kind === "client-metadata") {
       profile.clientMetadata(c, value, { ...(options.fetchedFrom ? { fetchedFrom: options.fetchedFrom } : {}) });
       if (!options.fetchedFrom) skipped.push({ check: "client_id equals the URL fetched", reason: "No URL given." });
       skipped.push({ check: "The key set at jwks_uri", reason: "Validate by URL to fetch it." });
     } else if (kind === "protected-resource") {
-      if (profile.protectedResource) profile.protectedResource(c, value, { signIn: { direct: false, device: false, mediated: false } });
-      else c.report("version-unsupported", "", `Protocol version ${profile.version} finds the issuer in poppy.json, not in protected resource metadata.`);
+      profile.protectedResource(c, value, { signIn: { direct: false, device: false, mediated: false } });
       skipped.push({ check: "resource is https://{organization.domain}; auth.issuer is one of authorization_servers", reason: "Needs the poppy.json; validate by domain." });
     } else {
       profile.jwks(c, value);
@@ -208,9 +205,9 @@ export type CompanyReport = Report & {
   /** The validated documents, for a client that ingests them. */
   readonly poppy?: unknown;
   readonly metadata?: unknown;
-  /** 0.3: the domain's protected resource metadata (3.2). */
+  /** The domain's protected resource metadata (3.2). */
   readonly protectedResource?: unknown;
-  /** The issuer the documents settled on: `auth.issuer` before 0.3, the one the domain's metadata names from 0.3. */
+  /** The issuer the documents settled on: the one the domain's protected resource metadata names. */
   readonly issuer?: string;
   /** The shorter of the two documents' cache lifetimes, unbounded; null if neither said. */
   readonly maxAgeSeconds: number | null;
@@ -219,8 +216,9 @@ export type CompanyReport = Report & {
 export { domainFromInput } from "../domain.ts";
 
 /**
- * Discovery for one domain (spec 3): fetch poppy.json, check it, then fetch
- * the issuer's OAuth metadata and check it against poppy.json (3.2).
+ * Discovery for one domain (spec 3): fetch poppy.json and check it, then the
+ * domain's protected resource metadata, which names the issuer, and the
+ * issuer's OAuth metadata, checked against poppy.json (3.2).
  */
 export async function validateCompany(fetcher: Fetcher, domain: string): Promise<CompanyReport> {
   const requested = domainFromInput(domain);
@@ -242,12 +240,13 @@ export async function validateCompany(fetcher: Fetcher, domain: string): Promise
     const chosen = profileFor(poppyChecker, poppy);
     if (chosen) {
       profile = chosen;
-      facts = profile.poppy(poppyChecker, poppy, { requestedDomain: versionAtLeast(profile.version, "0.2") ? new URL(fetched.finalUrl).hostname : requested });
+      // The document speaks for the host that served it, after redirects (3).
+      facts = profile.poppy(poppyChecker, poppy, { requestedDomain: new URL(fetched.finalUrl).hostname });
     }
   }
   let protectedResource: unknown;
-  if (facts && profile.protectedResource) {
-    // 0.3 (3): a redirect may change the host, never the path.
+  if (facts) {
+    // A redirect may change the host, never the path (3).
     const final = new URL(fetched.finalUrl);
     if (final.pathname !== "/.well-known/poppy.json" || final.search !== "") {
       poppyChecker.report("poppy-redirect-path", "", `The document came from ${final.origin}${final.pathname}${final.search ? " with a query" : ""}, not /.well-known/poppy.json.`);
@@ -257,7 +256,6 @@ export async function validateCompany(fetcher: Fetcher, domain: string): Promise
     facts.issuer = undefined;
     if (facts.domain && (facts.needsIssuer || named !== undefined)) {
       const prmChecker = new Checker("protected-resource");
-      prmChecker.protocolVersion = profile.version;
       checkers.push(prmChecker);
       const prmFetched = await fetchDocument(fetcher, `https://${facts.domain.toLowerCase()}/.well-known/oauth-protected-resource`, prmChecker);
       protectedResource = prmFetched.text !== undefined ? parse(prmChecker, prmFetched.text) : undefined;
@@ -268,7 +266,6 @@ export async function validateCompany(fetcher: Fetcher, domain: string): Promise
   }
   if (facts?.issuer) {
     const metadataChecker = new Checker("oauth-metadata");
-    metadataChecker.protocolVersion = profile.version;
     checkers.push(metadataChecker);
     const metaFetched = await fetchDocument(fetcher, metadataUrl(facts.issuer), metadataChecker);
     metadata = metaFetched.text !== undefined ? parse(metadataChecker, metaFetched.text) : undefined;
@@ -292,7 +289,6 @@ export async function validateClient(fetcher: Fetcher, url: string, options: Tex
   const c = new Checker("client-metadata");
   const selected = profileByOption(options.protocolVersion, c);
   const profile = selected ?? LATEST;
-  c.protocolVersion = profile.version;
   if (!selected) return report(profile, [], [c], []);
   const checkers = [c];
   const documents: DocumentResult[] = [];
@@ -304,7 +300,6 @@ export async function validateClient(fetcher: Fetcher, url: string, options: Tex
     const facts = profile.clientMetadata(c, value, { fetchedFrom: url });
     if (facts.jwksUri) {
       const keys = new Checker("jwks");
-      keys.protocolVersion = profile.version;
       checkers.push(keys);
       const keysFetched = await fetchDocument(fetcher, facts.jwksUri, keys);
       const jwks = keysFetched.text !== undefined ? parse(keys, keysFetched.text) : undefined;
@@ -328,12 +323,11 @@ export async function validateTarget(fetcher: Fetcher, target: string, options: 
     const c = new Checker("oauth-metadata");
     const profile = profileByOption(options.protocolVersion, c);
     if (!profile) return report(LATEST, [], [c], []);
-    c.protocolVersion = profile.version;
     const fetched = await fetchDocument(fetcher, url.href, c);
     const value = fetched.text !== undefined ? parse(c, fetched.text) : undefined;
-    if (value !== undefined && profile) profile.oauthMetadata(c, value, undefined);
-    return report(profile ?? LATEST, [documentResult("oauth-metadata", fetched, value)], [c], [
-      { check: "issuer equals auth.issuer, poppy_domains includes the domain, sign-in endpoints", reason: "Validate the Company's domain to check these." }
+    if (value !== undefined) profile.oauthMetadata(c, value, undefined);
+    return report(profile, [documentResult("oauth-metadata", fetched, value)], [c], [
+      { check: "issuer is the one the domain names, protected_resources includes the domain, scopes are described", reason: "Validate the Company's domain to check these." }
     ]);
   }
   return validateClient(fetcher, url.href, options);

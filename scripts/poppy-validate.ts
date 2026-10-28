@@ -10,16 +10,16 @@ import { addressCheckingFetcher } from "./node-fetcher.ts";
 
 const HELP = `Usage: poppy-validate [options] <domain | url | file | ->
 
-  example.com                         A Company: its poppy.json and OAuth server metadata
+  example.com                         A Company: its poppy.json, protected resource metadata and issuer metadata
   https://agent.example/client.json   A Personal Agent: its client metadata and key set
   ./poppy.json                        A file (say what it is with --kind)
   -                                   A document on standard input
 
 Options:
-  --kind <kind>         poppy (default), oauth-metadata, client-metadata or jwks
+  --kind <kind>         poppy (default), protected-resource, oauth-metadata, client-metadata or jwks
   --domain <domain>     For a poppy.json file: the domain that serves it
   --fetched-from <url>  For a client metadata file: the URL that serves it
-  --protocol <x.y>      Version for documents that don't declare one (default: newest known)
+  --protocol <x.y>      Version for documents that don't declare one (default: 0.3, the only one known)
   --json                Print the JSON report
   --strict              Fail on warnings too (SHOULDs, the Guides, our readings)
   --quiet               Print errors only
@@ -29,7 +29,7 @@ Exit status: 0 valid, 1 invalid (an error: a MUST or normative rule broken), 2 c
 Each message names its basis; only errors make a document invalid (docs/conformance-levels.md).
 Every message's explanation: /validator/messages on any deployment of this agent.`;
 
-const KINDS: readonly DocumentKind[] = ["poppy", "oauth-metadata", "client-metadata", "jwks"];
+const KINDS: readonly DocumentKind[] = ["poppy", "protected-resource", "oauth-metadata", "client-metadata", "jwks"];
 
 function fail(message: string): never {
   process.stderr.write(`poppy-validate: ${message}\n\n${HELP}\n`);

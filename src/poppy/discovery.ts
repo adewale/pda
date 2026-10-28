@@ -1,5 +1,4 @@
 import { summarize, validateCompany, type CompanyReport } from "../validator/index.ts";
-import { bareHost } from "../validator/primitives.ts";
 import type { Fetcher } from "./fetch";
 import { parseIssuer, type Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
