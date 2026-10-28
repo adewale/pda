@@ -667,7 +667,7 @@ export async function readConversation(
       // A Company's answer, read as the Guides ask (no duplicate members) and refused unless it is an object.
       const body = parseStrictJson(await client.readBody(response));
       if (!isObject(body)) throw new PoppyError("invalid_response", `${company.name}'s events answer isn't a JSON object`, response.status);
-      if ((body.conversation_id !== id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || typeof body.status !== "string" || typeof body.responder !== "string")) throw new PoppyError("invalid_response", "The conversation read is missing required fields (8.5)", response.status);
+      if ((body.conversation_id !== row.remote_id || !Array.isArray(body.events) || (typeof body.cursor !== "string" && !(body.cursor === null && body.events.length === 0 && !current.cursor)) || typeof body.has_more !== "boolean" || typeof body.status !== "string" || typeof body.responder !== "string")) throw new PoppyError("invalid_response", "The conversation read is missing required fields (8.5)", response.status);
       const events = Array.isArray(body.events) ? body.events : [];
       await handleEvents(client, company, conversation(client, id)!, events);
       if (typeof body.cursor === "string") saveCursor(client, id, body.cursor);

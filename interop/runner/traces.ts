@@ -10,8 +10,6 @@ import {
   browserJoins,
   browserSessionResponseChecks,
   clientDocuments,
-  confirmRepeatChecks,
-  confirmsByOperation,
   issuedTokens,
   retryAfterChecks,
   setCookies
@@ -104,8 +102,8 @@ export function requestSeen(all: readonly Exchange[], params: Record<string, unk
 }
 
 /**
- * Scenario W (spec 5): the agent's browser posted a browser assertion, and
- * the Company answered 303 to `return_to` with a cookie. `followed` says
+ * Scenario W (spec 6): the agent's browser loaded the join page and posted
+ * its form, and the Company answered with a redirect and the Session's cookie. `followed` says
  * whether the browser then carried that cookie to where it was sent.
  * Inapplicable when the Company lists no browser-session endpoint; failed
  * when no join was accepted.
@@ -118,7 +116,7 @@ export function browserJoined(all: readonly Exchange[]): RunnerReply {
       ? { kind: "failed", detail: "no browser join was sent to the Company's browser_session_endpoint" }
       : { kind: "inapplicable", detail: "the Company lists no web.browser_session_endpoint" };
   }
-  const accepted = joins.find((x) => x.status === 303 && x.responseHeaders.has("location") && setCookies(x).length > 0);
+  const accepted = joins.find((x) => x.method === "POST" && x.status >= 300 && x.status < 400 && x.responseHeaders.has("location") && setCookies(x).length > 0);
   if (!accepted) {
     const problems = browserSessionResponseChecks(all).map((item) => item.detail);
     return { kind: "failed", detail: `no join answered 303 with a cookie (${joins.map((x) => `HTTP ${x.status}`).join(", ")}${problems.length ? `; ${problems.join("; ")}` : ""})` };
@@ -137,23 +135,6 @@ export function browserJoined(all: readonly Exchange[]): RunnerReply {
 }
 
 /**
- * Scenario O2 (Operations 5.2, 6): an operation confirmed, then confirmed
- * again, every answer a success carrying the same confirmation, so it was
- * performed once. Inapplicable without a second confirm.
- */
-export function confirmRepeated(all: readonly Exchange[]): RunnerReply {
-  const repeated = [...confirmsByOperation(all)].filter(([, confirms]) => confirms.length >= 2);
-  if (repeated.length === 0) return { kind: "inapplicable", detail: "no operation was confirmed twice" };
-  const problems = confirmRepeatChecks(all);
-  if (problems.length > 0) return { kind: "failed", detail: problems.map((item) => item.detail).join("; ") };
-  const answered = repeated.filter(([, confirms]) => confirms.every((x) => x.status >= 200 && x.status < 300));
-  if (answered.length === 0) {
-    return { kind: "failed", detail: `the confirms were answered ${repeated.flatMap(([, confirms]) => confirms.map((x) => x.status)).join(", ")}` };
-  }
-  return { kind: "ok", result: { operations: answered.map(([id]) => decodeURIComponent(id)), confirms: answered[0]![1].length } };
-}
-
-/**
  * Scenario CM (4.1): the Company fetched the agent's client_id document,
  * and the jwks_uri it names with the key that signed the agent's first
  * granted Session assertion, before it granted that Session. Agents' keys
@@ -164,24 +145,29 @@ export function confirmRepeated(all: readonly Exchange[]): RunnerReply {
 export function clientFetched(all: readonly Exchange[]): RunnerReply {
   const fetches = all.filter((x) => x.direction === "to-agent" && !x.probe && x.method === "GET");
   if (fetches.length === 0) return { kind: "inapplicable", detail: "the Company fetched none of the agent's documents (registered ahead of time?)" };
+  // The first request the Company accepted that needed the agent's keys: one with the Session header,
+  // whose delegation a key in jwks_uri signed (5.3, step 1), or a token request with a client assertion (4.1).
   const grant = agentRequests(all)
-    .filter((x) => form(x)?.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer" && x.status === 200)
+    .filter((x) => x.status >= 200 && x.status < 300 && (x.requestHeaders.has("poppy-session") || form(x)?.has("client_assertion")))
     .sort((a, b) => a.ended - b.ended)[0];
-  if (!grant) return { kind: "failed", detail: "no Session was granted" };
-  const fields = form(grant)!;
-  const assertion = decodeJwt(fields.get("assertion") ?? "");
-  const clientId = fields.get("client_id") ?? (typeof assertion?.payload.iss === "string" ? assertion.payload.iss : null);
-  const kid = assertion?.header.kid;
+  if (!grant) return { kind: "failed", detail: "no request that needs the agent's keys was accepted" };
+  const header = grant.requestHeaders.get("poppy-session");
+  const session = header ? decodeJwt(header) : null;
+  const delegation = typeof session?.header.pap_dlg === "string" ? decodeJwt(session.header.pap_dlg) : null;
+  const assertion = header ? null : decodeJwt(form(grant)?.get("client_assertion") ?? "");
+  const signed = delegation ?? assertion;
+  const clientId = (header ? null : form(grant)?.get("client_id")) ?? (typeof signed?.payload.iss === "string" ? signed.payload.iss : null);
+  const kid = signed?.header.kid;
   const before = fetches.filter((x) => x.status === 200 && x.ended <= grant.ended);
   const metadata = before.find((x) => x.url.href === clientId);
-  if (!metadata) return { kind: "failed", detail: `the Session was granted (exchange ${grant.index}) without a fetch of ${clientId} in this cell` };
+  if (!metadata) return { kind: "failed", detail: `exchange ${grant.index} was accepted without a fetch of ${clientId} in this cell` };
   const { jwksUris } = clientDocuments(all);
   const jwks = before.find((x) => {
     if (!jwksUris.has(x.url.href)) return false;
     const keys = (jsonBody(x.responseBody) as { keys?: unknown } | undefined)?.keys;
     return Array.isArray(keys) && (typeof kid !== "string" || keys.some((key) => (key as { kid?: unknown } | null)?.kid === kid));
   });
-  if (!jwks) return { kind: "failed", detail: `the Session was granted (exchange ${grant.index}) without a fetch of the jwks_uri holding kid ${JSON.stringify(kid)}` };
+  if (!jwks) return { kind: "failed", detail: `exchange ${grant.index} was accepted without a fetch of the jwks_uri holding kid ${JSON.stringify(kid)}` };
   return { kind: "ok", result: { client_id: clientId, metadata: metadata.index, jwks: jwks.index } };
 }
 
@@ -431,7 +417,6 @@ export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params:
   retry_after_respected: (all) => retryAfterRespected(all),
   request_seen: requestSeen,
   browser_joined: (all) => browserJoined(all),
-  confirm_repeated: (all) => confirmRepeated(all),
   client_fetched: (all) => clientFetched(all),
   no_request_to: noRequestTo,
   token_not_sent_to: tokenNotSentTo,

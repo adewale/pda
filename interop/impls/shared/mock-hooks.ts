@@ -71,7 +71,7 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
     async fixture() {
       return {
         accounts: DEFAULT_CONFIG.accounts.map((item) => item.account),
-        scopes: { read: ["poppy:read"], write: ["poppy:read", "poppy:write"] },
+        scopes: { read: ["orders:read"], write: ["orders:read", "orders:write"] },
         openapi_public: { api: "openapi", operation: "searchProducts", args: { params: { q: "jacket" } } },
         openapi: { api: "openapi", operation: "listOrders", args: {} },
         openapi_write: {
@@ -159,20 +159,6 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
       }
       return { operation: proposed.id };
     },
-    /** The Company issues a new revision of a proposed operation, with new terms (Ops 3.1). */
-    async revise_operation(params) {
-      const terms = params.terms;
-      if (typeof terms !== "object" || terms === null || Array.isArray(terms)) {
-        throw new HookError(400, "invalid_params", "terms must be a JSON object");
-      }
-      const revision = await current().reviseOperation(str(params.operation, "operation"), str(params.summary, "summary"), terms as Record<string, unknown>);
-      return { revision };
-    },
-    /** The User confirms a proposed operation on the Company's website, in its Session (Ops 4.4). */
-    async confirm_on_website(params) {
-      await current().confirmOnWebsite(str(params.operation, "operation"));
-      return {};
-    },
     /** No person is available for a queued handoff: back to `idle` with the Company Agent, which says why (7.9). */
     async staff_unavailable(params) {
       await current().staffUnavailable(str(params.conversation, "conversation"), str(params.text, "text"));
@@ -199,7 +185,7 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
       return {};
     },
     async expire_tokens() {
-      return { expired: await current().expireSessionTokens() };
+      return { expired: await current().expireAccessTokens() };
     },
     /** From now until reset, the issuer has a path, its metadata inserted before it (RFC 8414 3.1, S3). */
     async issuer_path(params) {

@@ -1,3 +1,4 @@
+import type { RegistryEntry } from "../runner/types.ts";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -116,10 +117,12 @@ describe("the registry and known failures", () => {
     expect(gridCoverage(registry, "live", { agents: honest("agent"), companies: [], scenarios: all }, all).scenario).toBe(false);
   });
 
-  it("provisions the official validator only when explicitly selected for its vector lane", () => {
-    const registry = loadRegistry();
-    expect(selected(registry, "agent", null, "local").some((entry) => entry.name === "official-validator")).toBe(false);
-    expect(selected(registry, "agent", ["official-validator"], "local")).toHaveLength(1);
+  it("provisions a vectors-only entry only when explicitly selected for its lane", () => {
+    const base = loadRegistry();
+    // The official validator was one, until its 0.2 lane was retired with 0.2 (docs/interop-spec.md).
+    const registry = { ...base, implementations: [...base.implementations, { name: "a-vector-lane", role: "agent", owner: "self", source: "https://example.com", commit: "HEAD", build: "interop/impls/pda-agent", vectorsOnly: true } as RegistryEntry] };
+    expect(selected(registry, "agent", null, "local").some((entry) => entry.name === "a-vector-lane")).toBe(false);
+    expect(selected(registry, "agent", ["a-vector-lane"], "local")).toHaveLength(1);
   });
 
   it("lists our agent and the reference Company, each with a Dockerfile", () => {
@@ -153,7 +156,6 @@ describe("the registry and known failures", () => {
     expect(imageOf(entry("lenient-company"), registry)).toBe("poppy-interop/company-lenient-company:latest");
     expect(imageOf(entry("strict-company"), registry)).toBe("poppy-interop/company-lenient-company:latest");
     expect(entry("strict-company").env).toEqual({ INTEROP_MOCK_PROFILE: "strict" });
-    expect(imageOf(entry("datalayer-ts"), registry)).toBe("poppy-interop/company-datalayer-ts:latest");
   });
 });
 
@@ -269,39 +271,38 @@ describe("the report", () => {
   });
 });
 
-// A live 0.2 peer must not inherit the historical 0.1 label.
+/**
+ * Live Companies as the registry describes them. Every live peer spoke 0.1 or
+ * 0.2 and was retired with them (docs/interop-spec.md), so these are made up.
+ */
+const liveEntry = (name: string, extra: Record<string, unknown> = {}) => ({ name, role: "company" as const, source: "https://example.com", commit: "unknown", url: `https://${name}.example`, notes: "A made-up live Company.", ...extra });
+
+// A live peer's declared version is the one its cells are attributed to.
 it("attributes live cells to the configured wire version and preserves legacy entries", () => {
-  const registry = loadRegistry();
   const scenarios = loadScenarios();
-  const stacktree = registry.implementations.find((entry) => entry.name === "stacktree-live")!;
-  expect(liveCompanyManifest(stacktree, scenarios).poppy).toEqual(["0.2"]);
-  const old = registry.implementations.find((entry) => entry.name === "ilmer-live")!;
-  expect(liveCompanyManifest(old, scenarios).poppy).toEqual(["0.1"]);
+  expect(liveCompanyManifest(liveEntry("current", { protocolVersion: "0.3" }), scenarios).poppy).toEqual(["0.3"]);
+  expect(liveCompanyManifest(liveEntry("legacy"), scenarios).poppy).toEqual(["0.1"]);
 });
 
-it("limits a live Company to the scenarios its entry allows: the real Print with Poppy store gets discovery only", () => {
-  const registry = loadRegistry();
+it("limits a live Company to the scenarios its entry allows: a real store gets discovery only", () => {
   const scenarios = loadScenarios();
-  const store = registry.implementations.find((entry) => entry.name === "print-with-poppy-live")!;
-  expect(liveCompanyManifest(store, scenarios).scenarios).toEqual(["D"]);
-  const alpine = registry.implementations.find((entry) => entry.name === "alpine-retail-live")!;
-  expect([...liveCompanyManifest(alpine, scenarios).scenarios].sort()).toEqual(["CL", "D", "N", "S0"]);
+  expect(liveCompanyManifest(liveEntry("store", { liveScenarios: ["D"] }), scenarios).scenarios).toEqual(["D"]);
+  expect([...liveCompanyManifest(liveEntry("retail", { liveScenarios: ["D", "S0", "N", "CL"] }), scenarios).scenarios].sort()).toEqual(["CL", "D", "N", "S0"]);
   // A real Company's conversation is closed when the test ends: CL runs live, ending with a close; C, which leaves it open, never does.
   const live = scenarios.filter((scenario) => scenario.live);
   expect(live.map((scenario) => scenario.id)).toContain("CL");
   expect(live.filter((scenario) => scenario.steps.some((step) => "agent" in step && step.agent === "send") && !scenario.steps.some((step) => "agent" in step && step.agent === "close")).map((scenario) => scenario.id)).toEqual([]);
-  const stacktree = registry.implementations.find((entry) => entry.name === "stacktree-live")!;
-  expect(liveCompanyManifest(stacktree, scenarios).scenarios).toHaveLength(scenarios.length);
+  expect(liveCompanyManifest(liveEntry("open", { protocolVersion: "0.3" }), scenarios).scenarios).toHaveLength(scenarios.length);
 });
 
 it("stops a live version mismatch before a Session request can send credentials", async () => {
   const dir = mkdtempSync(path.join(tmpdir(), "live-version-mismatch-"));
   const registry = loadRegistry();
   const agentEntry = registry.implementations.find((entry) => entry.name === "pda" && entry.role === "agent")!;
-  const companyEntry = registry.implementations.find((entry) => entry.name === "stacktree-live")!;
+  const companyEntry = { ...liveEntry("current-live", { protocolVersion: "0.3" }) } as unknown as typeof agentEntry;
   const implementation = (entry: typeof agentEntry) => ({ entry, target: entry.name, domain: "company.example", manifest: null, hooks: [], broken: null });
   const calls: string[] = [];
-  const cell: Cell = { agent: "pda", company: "stacktree-live", scenario: "S0", protocolVersion: "0.2", outcome: "unsupported", blame: null, rule: null, steps: [], checks: [], har: null };
+  const cell: Cell = { agent: "pda", company: "current-live", scenario: "S0", protocolVersion: "0.3", outcome: "unsupported", blame: null, rule: null, steps: [], checks: [], har: null };
   try {
     await runOne(cell, loadScenarios().find((scenario) => scenario.id === "S0")!, implementation(agentEntry), implementation(companyEntry), {
       resultsDir: dir, proxy: null,

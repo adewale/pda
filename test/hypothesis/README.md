@@ -5,6 +5,8 @@ Our TypeScript client (`src/poppy/`) and our mock Company (`test/mock-company/`)
 - **an independent Poppy client in Python** (`poppy_client.py`), written from Draft 0.1 (`spec/draft-0.1-2026-10-09/`) and our spec's readings, not ported from `src/poppy`. It covers discovery, client and Session assertions, DPoP proofs with nonces and `ath`, the token grants, Account Token renewal and rotation, conversations with handoff and Direct Conversations, sign-out, the Operations extension, MCP with Bearer Session Tokens, joining a browser to a Session, Device Sign-In polling, and rate limits;
 - **five Hypothesis stateful, model-based tests** (`RuleBasedStateMachine`s) that drive it against the mock and hold every response to a model. `machine.py` has the model, the rules they share and the invariants they all hold; each `test_*.py` is one machine.
 
+**Needs a port to 0.3.** Since 28 October the mock speaks Poppy 0.3 alone ([decision 37](../../docs/decisions.md)), and this client still speaks Draft 0.1: Session assertions, Session Tokens and Operations 1. Until it is ported (the Session header with a delegated key, plain refresh and access tokens, the browser join and Operations 2), `npm run test:hypothesis` fails at the first Session. The launcher, `launcher.ts`, is current and type-checks with the rest. Per the maintenance decision below, the port waits for the next time the owner wants this check run.
+
 **Maintenance.** By the owner's decision on 12 October 2026, this client is maintained only as an occasional local check, run after a change to the draft or a large change to the mock Company. It is not expanded feature by feature.
 
 ## Running it

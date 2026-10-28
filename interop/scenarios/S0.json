@@ -2,7 +2,7 @@
   "id": "S0",
   "title": "Signed-out Session",
   "requirements": ["4.1", "4.2", "4.3"],
-  "readings": ["S1", "S2", "S4"],
+  "readings": ["S1", "S2"],
   "live": true,
   "needs": { "agent": ["discover", "session"] },
   "steps": [

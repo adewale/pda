@@ -102,7 +102,7 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 
   it("refreshes an expired access token with the refresh token alone", async () => {
-    const c = await company({ ...V3, sessionTokenTtl: 31 });
+    const c = await company({ ...V3, accessTokenTtl: 31 });
     const a = await agent();
     await signInDirect(a, c, SCOPES);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);

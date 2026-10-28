@@ -34,19 +34,21 @@ import operationsSource from "./mock-company/operations.ts?raw";
 import webSource from "./mock-company/web.ts?raw";
 
 /**
- * The mock Company itself, driven by hand-made requests (not the Personal
- * Agent client), so a broken mock shows up here first. `TAMPERS` proves
- * every check the mock makes still fires: each row breaks one thing in an
- * otherwise correct request and expects exactly that violation.
+ * The mock Company itself, driven by hand-made 0.3 requests (not the
+ * Personal Agent client), so a broken mock shows up here first. `TAMPERS`
+ * proves every check the mock makes still fires: each row breaks one thing
+ * in an otherwise correct request and expects exactly that violation.
  */
 
 const mocks = (env as unknown as { MOCK_COMPANY: DurableObjectNamespace<MockCompany> }).MOCK_COMPANY;
 const CLIENT_ID = "https://agent.test/poppy/client.json";
 const REDIRECT_URI = "https://agent.test/poppy/callback";
 const USER_ID = "usr_Q7c1vKx9TzLw3NdR5mHa2B";
-const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+const OTHER_USER = "usr_Hd8pW2zQ5nVb7LtK3xRc9F";
 const DEVICE_CODE = "urn:ietf:params:oauth:grant-type:device_code";
+const MEDIATED = "https://personalagentprotocol.org/grant/mediated-sign-in";
 const ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+const MCP_ACCEPT = { Accept: "application/json, text/event-stream" };
 
 function company() {
   const id = `c${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
@@ -104,36 +106,16 @@ async function signJwt(header: Record<string, unknown>, claims: Record<string, u
   return new SignJWT(defined(claims)).setProtectedHeader(defined(header) as { alg: string }).sign(key);
 }
 
-/** A JWT signed with our published key, as our client signs its assertions. */
+/** A JWT signed with our published key, as our client signs its client assertions. */
 async function agentJwt(claims: Record<string, unknown>, tamper: JwtTamper = {}) {
   const { kid, key } = await agentKey();
   return signJwt({ alg: "ES256", typ: "JWT", kid, ...tamper.header }, { ...claims, ...tamper.claims }, tamper.key ?? key);
 }
 
-/** A client assertion (RFC 7523) for `aud`. */
-function clientAssertion(aud: string, tamper: JwtTamper = {}) {
+/** A client assertion (4.1, RFC 7523): addressed to the Company's issuer. */
+function clientAssertion(c: C, tamper: JwtTamper = {}) {
   const now = seconds();
-  return agentJwt({ iss: CLIENT_ID, sub: CLIENT_ID, aud, iat: now, exp: now + 60, jti: jti() }, tamper);
-}
-
-/** A Session assertion (4.2) for the token endpoint. */
-function sessionAssertion(c: C, tamper: JwtTamper = {}) {
-  const now = seconds();
-  return agentJwt({ iss: CLIENT_ID, sub: USER_ID, aud: c.hosts.tokenEndpoint, iat: now, exp: now + 60, jti: jti() }, tamper);
-}
-
-/** The old helper's shape, for the strict-assertion cases below. */
-function assertion(aud: string, sub = CLIENT_ID, extra: Record<string, unknown> = {}, shape: { typ?: string | null; kid?: string | null; lifetime?: number } = {}) {
-  const now = seconds();
-  return agentJwt(
-    { iss: CLIENT_ID, sub, aud, iat: now, exp: now + (shape.lifetime ?? 60), jti: jti(), ...extra },
-    {
-      header: {
-        ...(shape.typ !== undefined ? { typ: shape.typ ?? undefined } : {}),
-        ...(shape.kid !== undefined ? { kid: shape.kid ?? undefined } : {})
-      }
-    }
-  );
+  return agentJwt({ iss: CLIENT_ID, sub: CLIENT_ID, aud: c.hosts.issuer, iat: now, exp: now + 60, jti: jti() }, tamper);
 }
 
 async function dpopKey() {
@@ -161,7 +143,7 @@ async function proof(key: Key, method: string, url: string, accessToken?: string
 }
 
 type FormOptions = {
-  /** The DPoP header: a proof by default, none with null, or this exact value. */
+  /** The DPoP header: a proof from the key by default, none with null, or this exact value. */
   readonly dpop?: string | null;
   /** The client assertion: correct by default, none with null, or this exact value. */
   readonly client?: string | null;
@@ -171,9 +153,9 @@ type FormOptions = {
   readonly headers?: Record<string, string>;
 };
 
-/** A form POST to the token, device or revocation endpoint, authenticated as our client. */
+/** A form POST to the token, device or revocation endpoint, authenticated as our client; a DPoP proof when given a key. */
 async function form(c: C, url: string, fields: Record<string, string>, key: Key | null, options: FormOptions = {}) {
-  const client = options.client === undefined ? await clientAssertion(url) : options.client;
+  const client = options.client === undefined ? await clientAssertion(c) : options.client;
   const body = new URLSearchParams({
     ...fields,
     ...(options.clientId === null ? {} : { client_id: options.clientId ?? CLIENT_ID }),
@@ -191,78 +173,121 @@ async function form(c: C, url: string, fields: Record<string, string>, key: Key 
   });
 }
 
-/** Start a signed-out Session with the JWT bearer grant. */
-async function startSession(c: C, key: Key, options: FormOptions & { assertion?: string | null; fields?: Record<string, string> } = {}) {
-  const assertion = options.assertion === undefined ? await sessionAssertion(c) : options.assertion;
-  return form(
-    c,
-    c.hosts.tokenEndpoint,
-    { grant_type: JWT_BEARER, ...(assertion !== null ? { assertion } : {}), ...options.fields },
-    key,
-    options
+/** A token request, with a DPoP proof from `key` (a fresh key by default; none with null), as the issuer's metadata asks (4.5). */
+async function tokenRequest(c: C, fields: Record<string, string>, options: FormOptions & { key?: Key | null } = {}) {
+  return form(c, c.hosts.tokenEndpoint, fields, options.key === undefined ? await dpopKey() : options.key, options);
+}
+
+/** A refresh with a refresh token the Company never issued: authenticated, then `invalid_grant`, with nothing recorded. */
+const UNKNOWN_REFRESH = { grant_type: "refresh_token", refresh_token: "pat_unknown" };
+
+/** A revocation (4.6); by default of a refresh token the Company never issued, which still gets 200 (RFC 7009). */
+function revoke(c: C, options: FormOptions & { token?: string; hint?: string | null } = {}) {
+  const hint = options.hint === undefined ? "refresh_token" : options.hint;
+  return form(c, c.hosts.revocationEndpoint, { token: options.token ?? "pat_unknown", ...(hint ? { token_type_hint: hint } : {}) }, null, options);
+}
+
+// ---- Sessions (5.2): delegated keys, delegations and Session JWTs ----
+
+/** A delegated key (5.2): an ES256 pair, its public JWK and thumbprint. */
+async function delegatedKey() {
+  const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
+  const jwk = await exportJWK(publicKey);
+  return { privateKey, jwk, kid: await calculateJwkThumbprint(jwk), privateJwk: await exportJWK(privateKey) };
+}
+
+type Delegated = Awaited<ReturnType<typeof delegatedKey>>;
+
+/** A delegation for `key`, signed with our published key, optionally tampered with. */
+async function delegation(key: Delegated, tamper: JwtTamper = {}) {
+  const { kid, key: signing } = await agentKey();
+  const iat = seconds();
+  return signJwt(
+    { alg: "ES256", typ: "pap-delegation+jwt", kid, ...tamper.header },
+    { iss: CLIENT_ID, cnf: { jwk: key.jwk }, iat, exp: iat + 3600, jti: jti(), ...tamper.claims },
+    tamper.key ?? signing
   );
 }
 
-type Session = { key: Key; token: string; sessionId: string };
+type SessionJwtTamper = JwtTamper & { readonly delegation?: JwtTamper | string };
 
-async function signedOut(c: C): Promise<Session> {
-  const key = await dpopKey();
-  const response = await startSession(c, key);
-  expect(response.status).toBe(200);
-  const body = (await response.json()) as { access_token: string; session_id: string };
-  return { key, token: body.access_token, sessionId: body.session_id };
+/** A Session JWT (5.2) for one request, signed with `key`, carrying its delegation. */
+async function sessionJwt(c: C, key: Delegated, request: { method: string; url: string; token?: string; sid: string; sub?: string }, tamper: SessionJwtTamper = {}) {
+  const dlg = typeof tamper.delegation === "string" ? tamper.delegation : await delegation(key, tamper.delegation);
+  return signJwt(
+    { typ: "poppy-session+jwt", alg: "ES256", kid: key.kid, pap_dlg: dlg, ...tamper.header },
+    {
+      iss: CLIENT_ID,
+      aud: c.hosts.issuer,
+      sid: request.sid,
+      sub: request.sub ?? USER_ID,
+      htm: request.method,
+      htu: request.url.split("?")[0],
+      iat: seconds(),
+      jti: jti(),
+      ...(request.token ? { ath: await hash(request.token) } : {}),
+      ...tamper.claims
+    },
+    tamper.key ?? key.privateKey
+  );
+}
+
+/** Tokens from a sign-in or refresh: the access token, its type, the refresh token, and the DPoP key it is bound to. */
+type Tokens = { readonly token: string; readonly tokenType: string; readonly refreshToken: string; readonly dpop: Key; readonly scope?: string };
+
+/** A Session as the test drives it: its delegated key, sid and User ID, and tokens once signed in. */
+type Session = { readonly key: Delegated; readonly sid: string; readonly sub?: string } & Partial<Tokens>;
+
+async function session(sub?: string): Promise<Session> {
+  return { key: await delegatedKey(), sid: jti(), ...(sub ? { sub } : {}) };
 }
 
 type CallOptions = {
   readonly body?: unknown;
+  /** A body sent as is, with `contentType`. */
+  readonly raw?: Uint8Array<ArrayBuffer> | string;
+  readonly contentType?: string;
   readonly headers?: Record<string, string>;
-  /** `Authorization`: `DPoP <token>` by default, none with null, or this exact value. */
+  /** The Session header: a correct JWT by default, none with null, a tampered one, or this exact value. */
+  readonly jwt?: string | null | SessionJwtTamper;
+  /** The access token: the Session's by default, none with null, or this one. */
+  readonly token?: string | null;
+  /** `Authorization`: the token with its scheme by default, none with null, or this exact value. */
   readonly auth?: string | null;
-  /** The DPoP header: a correct proof by default, none with null, a tampered proof, or this exact value. */
+  /** The DPoP header with a DPoP-bound token: a correct proof by default, none with null, a tampered proof, or this exact value. */
   readonly proof?: string | null | (JwtTamper & { nonce?: string });
 };
 
-/** A request to an API, conversation, operations or mediated endpoint with the Session Token. */
+/** A request to a resource (5.2, 7): the Session header, and the access token when signed in, with a DPoP proof when it is DPoP-bound. */
 async function call(c: C, s: Session, method: string, url: string, options: CallOptions = {}) {
-  const auth = options.auth === undefined ? `DPoP ${s.token}` : options.auth;
+  const token = options.token === undefined ? s.token : options.token ?? undefined;
+  const jwt =
+    options.jwt === null
+      ? null
+      : typeof options.jwt === "string"
+        ? options.jwt
+        : await sessionJwt(c, s.key, { method, url, sid: s.sid, ...(s.sub ? { sub: s.sub } : {}), ...(token ? { token } : {}) }, options.jwt ?? {});
+  const bound = token !== undefined && s.tokenType === "DPoP";
+  const auth = options.auth !== undefined ? options.auth : token ? `${bound ? "DPoP" : "Bearer"} ${token}` : null;
   const dpop =
-    options.proof === null
+    options.proof === null || !bound
       ? null
       : typeof options.proof === "string"
         ? options.proof
-        : await proof(s.key, method, url, s.token, options.proof ?? {});
+        : await proof(s.dpop!, method, url, token, options.proof ?? {});
+  const body = options.raw ?? (options.body === undefined ? undefined : typeof options.body === "string" ? options.body : JSON.stringify(options.body));
+  const contentType = options.contentType ?? (options.body !== undefined ? "application/json" : undefined);
   return c.call(url, {
     method,
     headers: {
+      ...(jwt !== null ? { "Poppy-Session": jwt } : {}),
       ...(auth !== null ? { Authorization: auth } : {}),
       ...(dpop !== null ? { DPoP: dpop } : {}),
-      ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(contentType ? { "Content-Type": contentType } : {}),
       ...options.headers
     },
-    ...(options.body !== undefined ? { body: typeof options.body === "string" ? options.body : JSON.stringify(options.body) } : {})
+    ...(body !== undefined ? { body } : {})
   });
-}
-
-/** Mediated Sign-In as Ada: the Session is signed in; returns its new tokens. */
-async function signedIn(c: C, scope = "poppy:read poppy:write") {
-  const s = await signedOut(c);
-  const response = await call(c, s, "POST", c.hosts.mediatedEndpoint, {
-    body: { scope, credentials: { email: "ada@example.com", password: "correct horse" } }
-  });
-  const done = (await response.json()) as { access_token: string; refresh_token: string; session_id: string };
-  expect(done.refresh_token).toMatch(/^pat_/);
-  return { ...s, token: done.access_token, refreshToken: done.refresh_token };
-}
-
-/** Mediated Sign-In as Grace, who gets a one-time code; returns the sign-in id and code. */
-async function oneTimeCode(c: C) {
-  const s = await signedOut(c);
-  const first = (await (
-    await call(c, s, "POST", c.hosts.mediatedEndpoint, {
-      body: { scope: "poppy:read", credentials: { email: "grace@example.com", password: "battery staple" } }
-    })
-  ).json()) as { sign_in_id: string };
-  return { s, signInId: first.sign_in_id, code: (await c.stub.lastOneTimeCode())! };
 }
 
 async function pkce() {
@@ -276,108 +301,156 @@ function authorizeUrl(c: C, params: Record<string, string | undefined>) {
   return url.href;
 }
 
-/** Direct Sign-In up to the code: the test plays the User approving, as `account` if given. */
-async function authorizationCode(c: C, account?: string) {
-  const s = await signedOut(c);
+/** A correct authorization request's parameters (4.2), with `changes` merged over them. */
+async function authorizeParams(changes: Record<string, string | undefined> = {}) {
+  const { challenge } = await pkce();
+  return { response_type: "code", client_id: CLIENT_ID, redirect_uri: REDIRECT_URI, scope: "orders:read", state: jti(), code_challenge: challenge, code_challenge_method: "S256", ...changes };
+}
+
+/** Direct Sign-In up to the code: the test plays the User approving. */
+async function authorizationCode(c: C, options: { account?: string; scope?: string; other?: Other } = {}) {
   const { verifier, challenge } = await pkce();
+  const redirect = options.other ? OTHER_REDIRECT : REDIRECT_URI;
   const back = new URL(
     await c.stub.approveAuthorization(
       authorizeUrl(c, {
         response_type: "code",
-        client_id: CLIENT_ID,
-        redirect_uri: REDIRECT_URI,
-        scope: "poppy:read",
+        client_id: options.other ? OTHER : CLIENT_ID,
+        redirect_uri: redirect,
+        scope: options.scope ?? "orders:read orders:write",
         state: jti(),
         code_challenge: challenge,
         code_challenge_method: "S256"
       }),
-      { approve: true, ...(account ? { account } : {}) }
+      { approve: true, ...(options.account ? { account: options.account } : {}) }
     )
   );
-  return { s, verifier, code: back.searchParams.get("code")! };
+  return { verifier, redirect, code: back.searchParams.get("code")! };
 }
 
-function exchangeCode(c: C, flow: Awaited<ReturnType<typeof authorizationCode>>, fields: Record<string, string | undefined> = {}) {
-  return form(
+/** The code's token request (4.2), as our client or `other`. */
+async function exchangeCode(c: C, flow: Awaited<ReturnType<typeof authorizationCode>>, key: Key | null, fields: Record<string, string | undefined> = {}, other?: Other) {
+  return tokenRequest(
     c,
-    c.hosts.tokenEndpoint,
-    defined({
-      grant_type: "authorization_code",
-      code: flow.code,
-      redirect_uri: REDIRECT_URI,
-      code_verifier: flow.verifier,
-      session_id: flow.s.sessionId,
-      ...fields
-    }) as Record<string, string>,
-    flow.s.key
+    defined({ grant_type: "authorization_code", code: flow.code, redirect_uri: flow.redirect, code_verifier: flow.verifier, ...fields }) as Record<string, string>,
+    { key, ...(other ? { clientId: OTHER, client: await other.clientAssertion() } : {}) }
   );
 }
 
-/** Device Sign-In started; `poll` polls the token endpoint once. */
+async function tokensFrom(response: Response, dpop: Key): Promise<Tokens> {
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { access_token: string; token_type: string; refresh_token: string; scope?: string };
+  return { token: body.access_token, tokenType: body.token_type, refreshToken: body.refresh_token, dpop, ...(body.scope !== undefined ? { scope: body.scope } : {}) };
+}
+
+type SignInOptions = { account?: string; scope?: string; resource?: string; other?: Other; /** Send no DPoP proof, for a Bearer token where the issuer doesn't ask for one (`dpopTokens: false`). */ bearer?: boolean };
+
+/** Direct Sign-In (4.2): the tokens, DPoP-bound unless for the MCP server (`resource`) or `bearer`. */
+async function signIn(c: C, options: SignInOptions = {}): Promise<Tokens> {
+  const flow = await authorizationCode(c, options);
+  const key = await dpopKey();
+  return tokensFrom(await exchangeCode(c, flow, options.bearer ? null : key, options.resource ? { resource: options.resource } : {}, options.other), key);
+}
+
+/** A Session signed in with Direct Sign-In. */
+async function signedIn(c: C, options: SignInOptions & { sub?: string } = {}): Promise<Session> {
+  return { ...(await session(options.sub)), ...(await signIn(c, options)) };
+}
+
+/** A refresh (4.4) with this Session's refresh token and DPoP key. */
+function refresh(c: C, s: Session, fields: Record<string, string> = {}) {
+  return tokenRequest(c, { grant_type: "refresh_token", refresh_token: s.refreshToken!, ...fields }, { key: s.dpop! });
+}
+
+/** Mediated Sign-In's grant at the token endpoint (Mediated Sign-In 3, 4). */
+function mediated(c: C, fields: Record<string, string>, options: FormOptions & { key?: Key | null } = {}) {
+  return tokenRequest(c, { grant_type: MEDIATED, ...fields }, options);
+}
+
+const ADA = { email: "ada@example.com", password: "correct horse" };
+const GRACE = { email: "grace@example.com", password: "battery staple" };
+
+/** Mediated Sign-In as Grace, who gets a one-time code; returns the sign-in id and the code. */
+async function oneTimeCode(c: C) {
+  const first = (await (await mediated(c, { scope: "orders:read", ...GRACE })).json()) as { error: string; sign_in_id: string };
+  expect(first.error).toBe("code_required");
+  return { signInId: first.sign_in_id, code: (await c.stub.lastOneTimeCode())! };
+}
+
+/** Device Sign-In started (4.3); `poll` polls the token endpoint once, with one DPoP key throughout. */
 async function deviceFlow(c: C, config: Partial<MockConfig> = {}) {
   await c.stub.configure({ deviceInterval: 1, ...config });
-  const s = await signedOut(c);
-  const device = (await (await form(c, c.hosts.deviceEndpoint, { scope: "poppy:read" }, null)).json()) as {
-    device_code: string;
-    user_code: string;
-  };
-  const poll = (fields: Record<string, string> = { session_id: s.sessionId }) =>
-    form(c, c.hosts.tokenEndpoint, { grant_type: DEVICE_CODE, device_code: device.device_code, ...fields }, s.key);
-  return { s, device, poll };
+  const device = (await (await form(c, c.hosts.deviceEndpoint, { scope: "orders:read" }, null)).json()) as { device_code: string; user_code: string };
+  const key = await dpopKey();
+  const poll = (headers: Record<string, string> = {}) => tokenRequest(c, { grant_type: DEVICE_CODE, device_code: device.device_code }, { key, headers });
+  return { device, key, poll };
 }
 
-/** A browser assertion (spec 5) for the Session. */
-function browserAssertion(c: C, s: Session, tamper: JwtTamper = {}) {
-  const now = seconds();
-  return agentJwt(
-    {
-      iss: CLIENT_ID,
-      sub: USER_ID,
-      aud: c.hosts.browserSessionEndpoint,
-      iat: now,
-      exp: now + 60,
-      jti: jti(),
-      session_id: s.sessionId,
-      return_to: `https://${c.hosts.domain}/orders`
-    },
-    { ...tamper, header: { typ: "poppy-browser+jwt", ...tamper.header } }
-  );
+/** The browser join (6), step 1: the page's code and the cookie set with it. */
+async function joinPage(c: C) {
+  const page = await c.call(c.hosts.browserSessionEndpoint);
+  const code = /name="code" value="([^"]+)"/.exec(await page.text())![1]!;
+  const cookie = page.headers.get("Set-Cookie")!.split(";")[0]!;
+  return { page, code, cookie };
 }
 
-function joinBrowser(c: C, assertion: string, init: RequestInit = {}, url = c.hosts.browserSessionEndpoint) {
-  return c.call(url, {
+/** Step 2: the agent authorizes the code with its Session header. */
+function authorizeJoin(c: C, s: Session, code: string, init: { body?: string; contentType?: string } = {}) {
+  return call(c, s, "POST", `${c.hosts.browserSessionEndpoint}/authorize`, init.body !== undefined ? { raw: init.body, contentType: init.contentType ?? "application/json" } : { body: { code } });
+}
+
+/** Step 3: the browser submits the form, with the cookie from step 1. */
+function submitJoin(c: C, code: string, cookie: string | null, init: { contentType?: string; body?: string } = {}) {
+  return c.call(c.hosts.browserSessionEndpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ assertion }),
-    ...init
+    headers: { "Content-Type": init.contentType ?? "application/x-www-form-urlencoded", ...(cookie ? { Cookie: cookie } : {}) },
+    body: init.body ?? new URLSearchParams({ code }).toString()
   });
 }
 
-/** Start a conversation with `message` (a correct one by default). */
-function converse(c: C, s: Session, message: unknown, extra: Record<string, unknown> = {}) {
-  return call(c, s, "POST", c.hosts.conversationsEndpoint, { body: { message, ...extra } });
+/** A browser joined to `s`: the Session's cookie. */
+async function joinBrowser(c: C, s: Session): Promise<string> {
+  const { code, cookie } = await joinPage(c);
+  expect((await authorizeJoin(c, s, code)).status).toBe(204);
+  const submitted = await submitJoin(c, code, cookie);
+  expect(submitted.status).toBe(303);
+  return /mock_sid=[^;]+/.exec(submitted.headers.get("Set-Cookie")!)![0];
 }
 
+/** A message from the Personal Agent (8.4), with `fields` merged over a correct one. */
 function message(fields: Record<string, unknown> = {}) {
-  return defined({ id: `msg_${jti()}`, sender: "agent", text: "Hello", ...fields });
+  return defined({ id: `msg_${jti()}`, author: { type: "agent" }, text: "Hello", ...fields });
+}
+
+/** Start a conversation with `message` (8.3). */
+function converse(c: C, s: Session, body: unknown, extra: Record<string, unknown> = {}) {
+  return call(c, s, "POST", c.hosts.conversationsEndpoint, { body: { message: body, ...extra } });
 }
 
 async function conversation(c: C, s: Session) {
   return ((await (await converse(c, s, message())).json()) as { conversation_id: string }).conversation_id;
 }
 
-/** Signed in with poppy:write and an exchange proposed (Operations extension). */
-async function proposed(c: C) {
-  const s = await signedIn(c);
-  const response = await call(c, s, "POST", `${c.hosts.api}/orders/ord_7Hk2/exchanges`, {
-    body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
-  });
-  const { operation } = (await response.json()) as { operation: { operation_id: string; revision: number } };
-  return { s, operation };
+const EXCHANGE = { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" };
+
+function exchange(c: C, s: Session, headers: Record<string, string> = {}, body: unknown = EXCHANGE) {
+  return call(c, s, "POST", `${c.hosts.api}/orders/ord_7Hk2/exchanges`, { body, headers });
 }
 
-function exchange(c: C, s: Session, headers: Record<string, string> = {}, body: unknown = { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }) {
-  return call(c, s, "POST", `${c.hosts.api}/orders/ord_7Hk2/exchanges`, { body, headers });
+type Operation = { operation_id: string; revision: string; summary: string; terms?: Record<string, unknown>; expires_at: string };
+
+/** A signed-in Session whose exchange came back `approval_required` with this operation (Ops 4). */
+async function refused(c: C, s?: Session) {
+  const signed = s ?? (await signedIn(c));
+  const response = await exchange(c, signed);
+  expect(response.status).toBe(403);
+  const body = (await response.json()) as { error: string; operation: Operation };
+  expect(body.error).toBe("approval_required");
+  return { s: signed, operation: body.operation };
+}
+
+function approval(operation: Pick<Operation, "operation_id" | "revision">) {
+  return { "Poppy-Approval": `operation_id="${operation.operation_id}", revision="${operation.revision}"` };
 }
 
 /** The first bytes of a JPEG: enough for the print shop, which reads only those. */
@@ -395,27 +468,42 @@ function multipart(boundary: string, disposition: string, bytes: Uint8Array = JP
 }
 
 /** A photo upload to the print shop, with the body and Content-Type as given. */
-async function uploadPhoto(c: C, s: Session, body: Uint8Array<ArrayBuffer>, contentType: string) {
-  const url = `${c.hosts.api}/photos`;
-  return c.call(url, {
-    method: "POST",
-    headers: { Authorization: `DPoP ${s.token}`, DPoP: await proof(s.key, "POST", url, s.token), "Content-Type": contentType },
-    body
-  });
+function uploadPhoto(c: C, s: Session, body: Uint8Array<ArrayBuffer>, contentType: string) {
+  return call(c, s, "POST", `${c.hosts.api}/photos`, { raw: body, contentType });
 }
 
+const PHOTO = () => multipart("b0undary", 'form-data; name="photo"; filename="lake.jpg"');
+const PHOTO_TYPE = "multipart/form-data; boundary=b0undary";
+
 /** An order of prints of `photoId`, as the print shop's description asks for it. */
-function printOrder(photoId: string) {
+function printOrder(photoId: string, copies = 1) {
   return {
     email: "ada@example.com",
     ship_to: { name: "Ada Lovelace", line1: "12 St James's Square", city: "London", postal_code: "SW1Y 4JH", country: "GB" },
-    items: [{ photo_id: photoId, copies: 1 }]
+    items: [{ photo_id: photoId, copies }]
   };
 }
+
+async function uploaded(c: C, s: Session): Promise<string> {
+  const response = await uploadPhoto(c, s, PHOTO(), PHOTO_TYPE);
+  expect(response.status).toBe(201);
+  return ((await response.json()) as { id: string }).id;
+}
+
+function orderPrints(c: C, s: Session, body: unknown, headers: Record<string, string> = {}) {
+  return call(c, s, "POST", `${c.hosts.api}/prints`, { body, headers });
+}
+
+function feedback(c: C, s: Session, body: unknown) {
+  return call(c, s, "POST", `${c.hosts.api}/poppy/feedback`, { body });
+}
+
+const REPORT = { task: "Pay with a gift card", description: "The User wanted to pay with a gift card, and neither the API nor the Company Agent can apply one." };
 
 /** A second Personal Agent, its metadata and JWKS served by the test, optionally broken. */
 const OTHER = "https://other.agent.test/poppy/client.json";
 const OTHER_JWKS = "https://other.agent.test/poppy/jwks.json";
+const OTHER_REDIRECT = "https://other.agent.test/poppy/callback";
 
 async function otherClient(
   c: C,
@@ -430,28 +518,26 @@ async function otherClient(
       client_id: OTHER,
       client_name: "Another agent",
       jwks_uri: OTHER_JWKS,
-      redirect_uris: ["https://other.agent.test/poppy/callback"],
+      redirect_uris: [OTHER_REDIRECT],
       token_endpoint_auth_method: "private_key_jwt",
       ...broken.metadata
     },
     broken.status ?? 200
   );
   await c.stub.serveClientDocument(OTHER_JWKS, broken.jwks ?? { keys: [jwk] }, broken.jwksStatus ?? 200);
-  const sign = (claims: Record<string, unknown>) =>
-    signJwt({ alg: "ES256", typ: "JWT", kid: kid ?? undefined }, claims, privateKey);
-  const now = seconds();
   return {
-    clientAssertion: (aud: string) => sign({ iss: OTHER, sub: OTHER, aud, iat: now, exp: now + 60, jti: jti() }),
-    sessionAssertion: () => sign({ iss: OTHER, sub: USER_ID, aud: c.hosts.tokenEndpoint, iat: now, exp: now + 60, jti: jti() })
+    clientAssertion: () => {
+      const now = seconds();
+      return signJwt({ alg: "ES256", typ: "JWT", kid: kid ?? undefined }, { iss: OTHER, sub: OTHER, aud: c.hosts.issuer, iat: now, exp: now + 60, jti: jti() }, privateKey);
+    }
   };
 }
 
-/** Start a Session as the other client. */
-async function startAsOther(c: C, other: Awaited<ReturnType<typeof otherClient>>, fields: Record<string, string> = {}) {
-  return form(c, c.hosts.tokenEndpoint, { grant_type: JWT_BEARER, assertion: await other.sessionAssertion(), ...fields }, await dpopKey(), {
-    clientId: OTHER,
-    client: await other.clientAssertion(c.hosts.tokenEndpoint)
-  });
+type Other = Awaited<ReturnType<typeof otherClient>>;
+
+/** A revocation as the other client, which fetches its metadata. */
+async function revokeAsOther(c: C, other: Other) {
+  return revoke(c, { clientId: OTHER, client: await other.clientAssertion() });
 }
 
 async function hmacKey(): Promise<Uint8Array> {
@@ -461,147 +547,6 @@ async function hmacKey(): Promise<Uint8Array> {
 /** A key the client never published, to sign something that mustn't verify. */
 async function strangerKey(): Promise<CryptoKey> {
   return (await generateKeyPair("ES256")).privateKey;
-}
-
-// ---- 0.3: Session JWTs, delegations, and plain OAuth (spec/draft-0.3-retrieved-2026-10-28) ----
-
-const CLIENT_ID_03 = "https://agent.test/poppy/0.3/client.json";
-/** 0.3 with Bearer access tokens, so a signed-in request needs no DPoP proof. */
-const V3: Partial<MockConfig> = { protocolVersion: "0.3", dpopTokens: false };
-
-/** A delegated key (0.3 5.2): an ES256 pair, its public JWK and thumbprint. */
-async function delegatedKey() {
-  const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
-  const jwk = await exportJWK(publicKey);
-  return { privateKey, jwk, kid: await calculateJwkThumbprint(jwk), privateJwk: await exportJWK(privateKey) };
-}
-
-type Delegated = Awaited<ReturnType<typeof delegatedKey>>;
-
-/** A delegation for `key`, signed with our published key, optionally tampered with. */
-async function delegation(key: Delegated, tamper: JwtTamper = {}) {
-  const { kid, key: signing } = await agentKey();
-  const iat = seconds();
-  return signJwt(
-    { alg: "ES256", typ: "pap-delegation+jwt", kid, ...tamper.header },
-    { iss: CLIENT_ID_03, cnf: { jwk: key.jwk }, iat, exp: iat + 3600, jti: jti(), ...tamper.claims },
-    tamper.key ?? signing
-  );
-}
-
-type SessionJwtTamper = JwtTamper & { readonly delegation?: JwtTamper | string };
-
-/** A Session JWT (0.3 5.2) for one request, signed with `key`, carrying its delegation. */
-async function sessionJwt(c: C, key: Delegated, request: { method: string; url: string; token?: string; sid: string; sub?: string }, tamper: SessionJwtTamper = {}) {
-  const dlg = typeof tamper.delegation === "string" ? tamper.delegation : await delegation(key, tamper.delegation);
-  return signJwt(
-    { typ: "poppy-session+jwt", alg: "ES256", kid: key.kid, pap_dlg: dlg, ...tamper.header },
-    {
-      iss: CLIENT_ID_03,
-      aud: c.hosts.issuer,
-      sid: request.sid,
-      sub: request.sub ?? USER_ID,
-      htm: request.method,
-      htu: request.url.split("?")[0],
-      iat: seconds(),
-      jti: jti(),
-      ...(request.token ? { ath: await hash(request.token) } : {}),
-      ...tamper.claims
-    },
-    tamper.key ?? key.privateKey
-  );
-}
-
-/** A 0.3 Session as the test drives it: its delegated key and sid, and an access token once signed in. */
-type Session03 = { key: Delegated; sid: string; token?: string };
-
-async function session03(): Promise<Session03> {
-  return { key: await delegatedKey(), sid: jti() };
-}
-
-type Call03Options = {
-  readonly body?: unknown;
-  readonly headers?: Record<string, string>;
-  /** The Session header: a correct JWT by default, none with null, a tampered one, or this exact value. */
-  readonly jwt?: string | null | SessionJwtTamper;
-  /** Send the access token in `Authorization` (Bearer); default when the Session has one. */
-  readonly token?: string | null;
-};
-
-/** A request to a 0.3 resource: the Session header, and the access token when signed in. */
-async function call03(c: C, s: Session03, method: string, url: string, options: Call03Options = {}) {
-  const token = options.token === undefined ? s.token : options.token ?? undefined;
-  const jwt = options.jwt === null ? null : typeof options.jwt === "string" ? options.jwt : await sessionJwt(c, s.key, { method, url, sid: s.sid, ...(token ? { token } : {}) }, options.jwt ?? {});
-  return c.call(url, {
-    method,
-    headers: {
-      ...(jwt !== null ? { "Poppy-Session": jwt } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...options.headers
-    },
-    ...(options.body !== undefined ? { body: typeof options.body === "string" ? options.body : JSON.stringify(options.body) } : {})
-  });
-}
-
-/** A 0.3 token request: our client assertion for the issuer, a DPoP proof only when given a key. */
-async function token03(c: C, fields: Record<string, string>, options: { key?: Key; clientId?: string } = {}) {
-  const now = seconds();
-  const clientId = options.clientId ?? CLIENT_ID_03;
-  const assertion = await agentJwt({ iss: clientId, sub: clientId, aud: c.hosts.issuer, iat: now, exp: now + 60, jti: jti() });
-  return c.call(c.hosts.tokenEndpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", ...(options.key ? { DPoP: await proof(options.key, "POST", c.hosts.tokenEndpoint) } : {}) },
-    body: new URLSearchParams({ ...fields, client_id: clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: assertion })
-  });
-}
-
-/** Direct Sign-In under 0.3, as `account`: the access token, Bearer (`V3`). */
-async function signIn03(c: C, options: { account?: string; clientId?: string; resource?: string } = {}): Promise<string> {
-  const { verifier, challenge } = await pkce();
-  const clientId = options.clientId ?? CLIENT_ID_03;
-  const back = new URL(
-    await c.stub.approveAuthorization(
-      authorizeUrl(c, { response_type: "code", client_id: clientId, redirect_uri: REDIRECT_URI, scope: "orders:read orders:write", state: jti(), code_challenge: challenge, code_challenge_method: "S256" }),
-      { approve: true, ...(options.account ? { account: options.account } : {}) }
-    )
-  );
-  const response = await token03(c, { grant_type: "authorization_code", code: back.searchParams.get("code")!, redirect_uri: REDIRECT_URI, code_verifier: verifier, ...(options.resource ? { resource: options.resource } : {}) }, { clientId });
-  expect(response.status).toBe(200);
-  return ((await response.json()) as { access_token: string }).access_token;
-}
-
-/** A signed-in 0.3 Session. */
-async function signedIn03(c: C, account?: string): Promise<Session03> {
-  return { ...(await session03()), token: await signIn03(c, account ? { account } : {}) };
-}
-
-/** 0.3's browser join, step 1: the page's code and the cookie set with it. */
-async function joinPage(c: C) {
-  const page = await c.call(c.hosts.browserSessionEndpoint);
-  const code = /name="code" value="([^"]+)"/.exec(await page.text())![1]!;
-  const cookie = page.headers.get("Set-Cookie")!.split(";")[0]!;
-  return { code, cookie };
-}
-
-function authorizeJoin(c: C, s: Session03, code: string, init: { body?: unknown; contentType?: string } = {}) {
-  return call03(c, s, "POST", `${c.hosts.browserSessionEndpoint}/authorize`, { body: init.body ?? { code }, ...(init.contentType ? { headers: { "Content-Type": init.contentType } } : {}) });
-}
-
-function submitJoin(c: C, code: string, cookie: string | null, init: { contentType?: string; body?: string } = {}) {
-  return c.call(c.hosts.browserSessionEndpoint, {
-    method: "POST",
-    headers: { "Content-Type": init.contentType ?? "application/x-www-form-urlencoded", ...(cookie ? { Cookie: cookie } : {}) },
-    body: init.body ?? new URLSearchParams({ code }).toString()
-  });
-}
-
-function exchange03(c: C, s: Session03, headers: Record<string, string> = {}) {
-  return call03(c, s, "POST", `${c.hosts.api}/orders/ord_7Hk2/exchanges`, { body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, headers });
-}
-
-function message03(fields: Record<string, unknown> = {}) {
-  return defined({ id: `msg_${jti()}`, author: { type: "agent" }, text: "Hello", ...fields });
 }
 
 type Tamper = {
@@ -618,10 +563,17 @@ type Tamper = {
 };
 
 const SITE = (c: C) => `https://${c.hosts.domain}`;
+const products = (c: C) => `${c.hosts.api}/products`;
+const orders = (c: C) => `${c.hosts.api}/orders`;
+/** A signed-out GET /products with the Session header as given. */
+const getProducts = async (c: C, jwt: CallOptions["jwt"], s?: Session) => call(c, s ?? (await session()), "GET", products(c), { jwt });
+/** A signed-in GET /orders, as given. */
+const getOrders = async (c: C, options: CallOptions = {}, s?: Session) => call(c, s ?? (await signedIn(c)), "GET", orders(c), options);
+const BEARER: Partial<MockConfig> = { dpopTokens: false };
 
 /**
- * One row per check in the mock. Each makes a correct request with one thing
- * broken; the test asserts the mock recorded exactly that violation.
+ * One row per check in the mock. Each makes a correct 0.3 request with one
+ * thing broken; the test asserts the mock recorded exactly that violation.
  */
 const TAMPERS: readonly Tamper[] = [
   // ---- jti ----
@@ -629,44 +581,22 @@ const TAMPERS: readonly Tamper[] = [
     id: "client-assertion.jti-missing",
     what: "a client assertion without jti",
     detail: "[client-assertion.jti-missing] client-assertion: missing jti",
-    run: async (c) => startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { claims: { jti: undefined } }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { jti: undefined } }) })
   },
   {
     id: "client-assertion.jti-weak",
     what: "a client assertion jti of 64 bits",
     detail: '[client-assertion.jti-weak] client-assertion: jti "abcdefgh" is not 128 random bits of base64url',
-    run: async (c) => startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { claims: { jti: "abcdefgh" } }) })
+    run: async (c) => expect((await revoke(c, { client: await clientAssertion(c, { claims: { jti: "abcdefgh" } }) })).status).toBe(200)
   },
   {
     id: "client-assertion.jti-reused",
     what: "the same client assertion twice",
     detail: /^\[client-assertion\.jti-reused\] client-assertion: reused jti [\w-]{22}$/,
     run: async (c) => {
-      const client = await clientAssertion(c.hosts.tokenEndpoint);
-      expect((await startSession(c, await dpopKey(), { client })).status).toBe(200);
-      return startSession(c, await dpopKey(), { client });
-    }
-  },
-  {
-    id: "session-assertion.jti-missing",
-    what: "a Session assertion without jti",
-    detail: "[session-assertion.jti-missing] session-assertion: missing jti",
-    run: async (c) => startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { jti: undefined } }) })
-  },
-  {
-    id: "session-assertion.jti-weak",
-    what: "a Session assertion jti of 64 bits",
-    detail: '[session-assertion.jti-weak] session-assertion: jti "abcdefgh" is not 128 random bits of base64url',
-    run: async (c) => startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { jti: "abcdefgh" } }) })
-  },
-  {
-    id: "session-assertion.jti-reused",
-    what: "the same Session assertion twice",
-    detail: /^\[session-assertion\.jti-reused\] session-assertion: reused jti [\w-]{22}$/,
-    run: async (c) => {
-      const assertion = await sessionAssertion(c);
-      expect((await startSession(c, await dpopKey(), { assertion })).status).toBe(200);
-      return startSession(c, await dpopKey(), { assertion });
+      const client = await clientAssertion(c);
+      expect((await revoke(c, { client })).status).toBe(200);
+      return revoke(c, { client });
     }
   },
   {
@@ -675,7 +605,7 @@ const TAMPERS: readonly Tamper[] = [
     detail: "[dpop.jti-missing] dpop: missing jti",
     run: async (c) => {
       const key = await dpopKey();
-      return startSession(c, key, { dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { jti: undefined } }) });
+      return tokenRequest(c, UNKNOWN_REFRESH, { key, dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { jti: undefined } }) });
     }
   },
   {
@@ -684,7 +614,8 @@ const TAMPERS: readonly Tamper[] = [
     detail: '[dpop.jti-weak] dpop: jti "abcdefgh" is not 128 random bits of base64url',
     run: async (c) => {
       const key = await dpopKey();
-      return startSession(c, key, { dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { jti: "abcdefgh" } }) });
+      const response = await tokenRequest(c, UNKNOWN_REFRESH, { key, dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { jti: "abcdefgh" } }) });
+      expect(await response.json()).toMatchObject({ error: "invalid_grant" });
     }
   },
   {
@@ -692,245 +623,142 @@ const TAMPERS: readonly Tamper[] = [
     what: "the same DPoP proof twice",
     detail: /^\[dpop\.jti-reused\] dpop: reused jti [\w-]{22}$/,
     run: async (c) => {
-      const key = await dpopKey();
-      const dpop = await proof(key, "POST", c.hosts.tokenEndpoint);
-      expect((await startSession(c, key, { dpop })).status).toBe(200);
-      return startSession(c, key, { dpop });
+      const s = await signedIn(c);
+      const dpop = await proof(s.dpop!, "GET", orders(c), s.token);
+      expect((await getOrders(c, { proof: dpop }, s)).status).toBe(200);
+      return getOrders(c, { proof: dpop }, s);
     }
   },
+  { id: "session-jwt.jti-missing", what: "a Session JWT without jti", detail: "[session-jwt.jti-missing] session-jwt: missing jti", run: (c) => getProducts(c, { claims: { jti: undefined } }) },
   {
-    id: "browser-assertion.jti-missing",
-    what: "a browser assertion without jti",
-    detail: "[browser-assertion.jti-missing] browser-assertion: missing jti",
-    run: async (c) => {
-      const s = await signedOut(c);
-      return joinBrowser(c, await browserAssertion(c, s, { claims: { jti: undefined } }));
-    }
+    id: "session-jwt.jti-weak",
+    what: "a Session JWT jti of 64 bits",
+    detail: '[session-jwt.jti-weak] session-jwt: jti "abcdefgh" is not 128 random bits of base64url',
+    run: async (c) => expect((await getProducts(c, { claims: { jti: "abcdefgh" } })).status).toBe(200)
   },
   {
-    id: "browser-assertion.jti-weak",
-    what: "a browser assertion jti of 64 bits",
-    detail: '[browser-assertion.jti-weak] browser-assertion: jti "abcdefgh" is not 128 random bits of base64url',
+    id: "session-jwt.jti-reused",
+    what: "the same Session JWT twice",
+    detail: /^\[session-jwt\.jti-reused\] session-jwt: reused jti [\w-]{22}$/,
     run: async (c) => {
-      const s = await signedOut(c);
-      expect((await joinBrowser(c, await browserAssertion(c, s, { claims: { jti: "abcdefgh" } }))).status).toBe(303);
-    }
-  },
-  {
-    id: "browser-assertion.jti-reused",
-    what: "the same browser assertion twice",
-    detail: /^\[browser-assertion\.jti-reused\] browser-assertion: reused jti [\w-]{22}$/,
-    run: async (c) => {
-      const s = await signedOut(c);
-      const assertion = await browserAssertion(c, s);
-      expect((await joinBrowser(c, assertion)).status).toBe(303);
-      return joinBrowser(c, assertion);
+      const s = await session();
+      const jwt = await sessionJwt(c, s.key, { method: "GET", url: products(c), sid: s.sid });
+      expect((await getProducts(c, jwt, s)).status).toBe(200);
+      return getProducts(c, jwt, s);
     }
   },
 
-  // ---- Client assertions ----
+  // ---- Client assertions (4.1) ----
   {
     id: "client-assertion.alg",
     what: "a client assertion signed with HS256",
     detail: "[client-assertion.alg] client assertion: alg HS256 is not allowed",
-    run: async (c) =>
-      startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { header: { alg: "HS256" }, key: await hmacKey() }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { alg: "HS256" }, key: await hmacKey() }) })
   },
   {
     id: "client-assertion.embedded-key",
     what: "a client assertion carrying its own jwk",
     detail: "[client-assertion.embedded-key] client assertion: embeds or points to a key (jku/x5u/jwk)",
-    run: async (c) => {
-      const key = await dpopKey();
-      const response = await startSession(c, key, { client: await clientAssertion(c.hosts.tokenEndpoint, { header: { jwk: key.jwk } }) });
-      expect(response.status).toBe(200);
-    }
+    run: async (c) => expect((await revoke(c, { client: await clientAssertion(c, { header: { jwk: (await dpopKey()).jwk } }) })).status).toBe(200)
   },
   {
     id: "client-assertion.typ",
     what: 'a client assertion with typ "at+jwt"',
     detail: '[client-assertion.typ] client assertion: strict Company: header typ must be "JWT", got "at+jwt"',
-    run: async (c) => startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { header: { typ: "at+jwt" } }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { typ: "at+jwt" } }) })
   },
   {
     id: "client-assertion.kid",
     what: "a client assertion whose kid names no key",
     detail: '[client-assertion.kid] client assertion: strict Company: kid "not-a-key" names no published key',
-    run: async (c) => startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { header: { kid: "not-a-key" } }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { kid: "not-a-key" } }) })
   },
   {
     id: "client-assertion.signature",
     what: "a client assertion signed with an unpublished key",
     detail: "[client-assertion.signature] client assertion: signature verification failed",
-    run: async (c) => startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { key: await strangerKey() }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { key: await strangerKey() }) })
   },
   {
     id: "client-assertion.iat-exp-missing",
-    what: "a client assertion without exp",
+    what: "a client assertion without iat",
     detail: "[client-assertion.iat-exp-missing] client assertion: iat and exp are required",
-    run: async (c) => startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { claims: { exp: undefined } }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { iat: undefined } }) })
   },
   {
     id: "client-assertion.lifetime",
     what: "a client assertion valid for 120 s",
     detail: "[client-assertion.lifetime] client assertion: lifetime 120s is too long (at most 60s)",
-    run: async (c) =>
-      startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { claims: lifetime(120) }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: lifetime(120) }) })
   },
   {
     id: "client-assertion.lifetime",
     what: "a client assertion valid for 301 s at a lenient Company",
     config: { strictAssertions: false },
     detail: "[client-assertion.lifetime] client assertion: lifetime 301s is too long (at most 300s)",
-    run: async (c) =>
-      startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { claims: lifetime(301) }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: lifetime(301) }) })
+  },
+  {
+    id: "client-assertion.missing",
+    what: "a revocation without a client assertion",
+    detail: (c) => `[client-assertion.missing] no client assertion at ${c.hosts.revocationEndpoint}`,
+    run: async (c) => revoke(c, { client: null })
   },
   {
     id: "client-assertion.missing",
     what: "a token request without a client assertion",
     detail: (c) => `[client-assertion.missing] no client assertion at ${c.hosts.tokenEndpoint}`,
-    run: async (c) => startSession(c, await dpopKey(), { client: null })
+    run: async (c) => tokenRequest(c, UNKNOWN_REFRESH, { client: null })
   },
   {
     id: "client-assertion.not-jwt",
     what: "a client assertion that isn't a JWT",
     detail: "[client-assertion.not-jwt] client assertion: not a JWT",
-    run: async (c) => startSession(c, await dpopKey(), { client: "not.a.jwt" })
+    run: async (c) => revoke(c, { client: "not.a.jwt" })
+  },
+  {
+    id: "client-assertion.wrong-typ",
+    what: "a delegation as the client assertion",
+    detail: "[client-assertion.wrong-typ] client assertion has typ pap-delegation+jwt",
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { typ: "pap-delegation+jwt" } }) })
   },
   {
     id: "client-assertion.wrong-typ",
     what: "a DPoP proof as the client assertion",
     detail: "[client-assertion.wrong-typ] client assertion has typ dpop+jwt",
-    run: async (c) => startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { header: { typ: "dpop+jwt" } }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { header: { typ: "dpop+jwt" } }) })
   },
   {
     id: "client-assertion.aud-array",
     what: "a client assertion whose aud is an array",
     detail: "[client-assertion.aud-array] client assertion: aud is an array",
-    run: async (c) =>
-      startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { claims: { aud: [c.hosts.tokenEndpoint] } }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { aud: [c.hosts.issuer] } }) })
+  },
+  {
+    id: "client-assertion.aud",
+    what: "a client assertion for the token endpoint, not the issuer",
+    detail: (c) => `[client-assertion.aud] client assertion: aud "${c.hosts.tokenEndpoint}" is not the issuer ${c.hosts.issuer}`,
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { aud: c.hosts.tokenEndpoint } }) })
   },
   {
     id: "client-assertion.aud",
     what: "a client assertion for another Company",
-    detail: '[client-assertion.aud] client assertion: aud "https://auth.other.shop.test/oauth/token" is not this Company',
-    run: async (c) =>
-      startSession(c, await dpopKey(), { client: await clientAssertion("https://auth.other.shop.test/oauth/token") })
-  },
-  {
-    id: "client-assertion.aud",
-    what: "a client assertion for the issuer, at an exact-aud Company (S1)",
-    config: { clientAssertionAud: "exact" },
-    detail: (c) => `[client-assertion.aud] client assertion: aud "${c.hosts.issuer}" is not exactly ${c.hosts.tokenEndpoint}`,
-    run: async (c) => startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.issuer) })
-  },
-  {
-    id: "client-assertion.aud",
-    what: "a revocation client assertion for the token endpoint, at an exact-aud Company (S1)",
-    config: { clientAssertionAud: "exact" },
-    detail: (c) => `[client-assertion.aud] client assertion: aud "${c.hosts.tokenEndpoint}" is not exactly ${c.hosts.revocationEndpoint}`,
-    run: async (c) =>
-      form(c, c.hosts.revocationEndpoint, { token: "pat_unknown" }, null, { client: await clientAssertion(c.hosts.tokenEndpoint) })
+    detail: (c) => `[client-assertion.aud] client assertion: aud "https://auth.other.shop.test" is not the issuer ${c.hosts.issuer}`,
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { aud: "https://auth.other.shop.test" } }) })
   },
   {
     id: "client-assertion.iss-sub",
     what: "a client assertion whose sub isn't the client_id",
     detail: "[client-assertion.iss-sub] client assertion: iss and sub must both be the client_id",
-    run: async (c) => startSession(c, await dpopKey(), { client: await clientAssertion(c.hosts.tokenEndpoint, { claims: { sub: USER_ID } }) })
+    run: async (c) => revoke(c, { client: await clientAssertion(c, { claims: { sub: USER_ID } }) })
   },
 
-  // ---- Session assertions ----
-  {
-    id: "session-assertion.alg",
-    what: "a Session assertion signed with HS256",
-    detail: "[session-assertion.alg] Session assertion: alg HS256 is not allowed",
-    run: async (c) => startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { header: { alg: "HS256" }, key: await hmacKey() }) })
-  },
-  {
-    id: "session-assertion.embedded-key",
-    what: "a Session assertion carrying its own jwk",
-    detail: "[session-assertion.embedded-key] Session assertion: embeds or points to a key (jku/x5u/jwk)",
-    run: async (c) => {
-      const key = await dpopKey();
-      expect((await startSession(c, key, { assertion: await sessionAssertion(c, { header: { jwk: key.jwk } }) })).status).toBe(200);
-    }
-  },
-  {
-    id: "session-assertion.typ",
-    what: "a Session assertion without typ",
-    detail: '[session-assertion.typ] Session assertion: strict Company: header typ must be "JWT", got undefined',
-    run: async (c) => startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { header: { typ: undefined } }) })
-  },
-  {
-    id: "session-assertion.kid",
-    what: "a Session assertion without kid",
-    detail: "[session-assertion.kid] Session assertion: strict Company: kid undefined names no published key",
-    run: async (c) => startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { header: { kid: undefined } }) })
-  },
-  {
-    id: "session-assertion.signature",
-    what: "an expired Session assertion",
-    detail: '[session-assertion.signature] Session assertion: "exp" claim timestamp check failed',
-    run: async (c) =>
-      startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { iat: seconds() - 600, exp: seconds() - 560 } }) })
-  },
-  {
-    id: "session-assertion.iat-exp-missing",
-    what: "a Session assertion without iat",
-    detail: "[session-assertion.iat-exp-missing] Session assertion: iat and exp are required",
-    run: async (c) => startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { iat: undefined } }) })
-  },
-  {
-    id: "session-assertion.lifetime",
-    what: "a Session assertion valid for an hour",
-    detail: "[session-assertion.lifetime] Session assertion: lifetime 3600s is too long (at most 60s)",
-    run: async (c) =>
-      startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: lifetime(3600) }) })
-  },
-  {
-    id: "session-assertion.missing",
-    what: "a JWT bearer grant without an assertion",
-    detail: "[session-assertion.missing] JWT bearer grant without an assertion",
-    run: async (c) => startSession(c, await dpopKey(), { assertion: null })
-  },
-  {
-    id: "session-assertion.not-jwt",
-    what: "a Session assertion that isn't a JWT",
-    detail: "[session-assertion.not-jwt] Session assertion: not a JWT",
-    run: async (c) => startSession(c, await dpopKey(), { assertion: "garbage" })
-  },
-  {
-    id: "session-assertion.browser-typ",
-    what: "a browser assertion at the token endpoint",
-    detail: "[session-assertion.browser-typ] browser assertion sent to the token endpoint",
-    run: async (c) => startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { header: { typ: "poppy-browser+jwt" } }) })
-  },
-  {
-    id: "session-assertion.aud",
-    what: "a Session assertion for the issuer",
-    detail: (c) => `[session-assertion.aud] Session assertion: aud must be the token_endpoint as a single string, got "${c.hosts.issuer}"`,
-    run: async (c) => startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { aud: c.hosts.issuer } }) })
-  },
-  {
-    id: "session-assertion.iss",
-    what: "a Session assertion from another client",
-    detail: "[session-assertion.iss] Session assertion: iss must be the client_id",
-    run: async (c) => startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { iss: OTHER } }) })
-  },
-  {
-    id: "session-assertion.sub",
-    what: "a Session assertion without a User ID",
-    detail: "[session-assertion.sub] Session assertion: sub (User ID) is missing",
-    run: async (c) => startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub: undefined } }) })
-  },
+  // ---- User IDs (5.1) ----
   {
     id: "user-id.personal",
     what: "an email address as the User ID",
     detail: '[user-id.personal] User ID "ada@example.com" contains personal information',
-    run: async (c) => {
-      const response = await startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub: "ada@example.com" } }) });
-      expect(response.status).toBe(200);
-    }
+    run: async (c) => expect((await getProducts(c, undefined, await session("ada@example.com"))).status).toBe(200)
   },
   {
     id: "user-id.personal",
@@ -940,77 +768,73 @@ const TAMPERS: readonly Tamper[] = [
       // Random ids that merely contain the letters are fine: this one has "ADA" inside,
       // and the next has "adA" as a word between `_` and the end, as 128 random bits may.
       for (const sub of ["usr_rTcRuOEIIRADAIQTZPEmrA", "usr_hB1U-xQz3FnJ1q7J8u_adA"]) {
-        const random = await startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub } }) });
-        expect(random.status).toBe(200);
+        expect((await getProducts(c, undefined, await session(sub))).status).toBe(200);
         expect((await c.stub.state()).recorded, sub).toEqual([]);
       }
-      return startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { sub: "usr_ada_7" } }) });
+      return getProducts(c, undefined, await session("usr_ada_7"));
     }
   },
 
-  // ---- Client metadata (as a second client the test serves) ----
+  // ---- Client metadata (4.1), as a second client the test serves ----
   {
     id: "client-metadata.not-url",
     what: "a client_id that isn't a URL",
     detail: '[client-metadata.not-url] client metadata: client_id "not a url" is not a URL',
-    run: async (c) => startSession(c, await dpopKey(), { clientId: "not a url" })
+    run: async (c) => revoke(c, { clientId: "not a url" })
   },
   {
     id: "client-metadata.not-https",
     what: "an http client_id",
     detail: "[client-metadata.not-https] client metadata: client_id must be an https URL",
-    run: async (c) => startSession(c, await dpopKey(), { clientId: "http://agent.test/poppy/client.json" })
+    run: async (c) => revoke(c, { clientId: "http://agent.test/poppy/client.json" })
   },
   {
     id: "client-metadata.fetch-status",
     what: "a client_id that redirects",
     detail: "[client-metadata.fetch-status] client metadata: fetching client_id returned 302; it must not redirect",
-    run: async (c) => startAsOther(c, await otherClient(c, { raw: "", status: 302 }))
+    run: async (c) => revokeAsOther(c, await otherClient(c, { raw: "", status: 302 }))
   },
   {
     id: "client-metadata.not-json",
     what: "client metadata that isn't JSON",
     detail: "[client-metadata.not-json] client metadata: client metadata is not JSON",
-    run: async (c) => startAsOther(c, await otherClient(c, { raw: "<html>" }))
+    run: async (c) => revokeAsOther(c, await otherClient(c, { raw: "<html>" }))
   },
   {
     id: "client-metadata.client-id-mismatch",
     what: "client metadata naming another client_id",
     detail: "[client-metadata.client-id-mismatch] client metadata: client_id in the document doesn't equal the URL it was fetched from",
-    run: async (c) => startAsOther(c, await otherClient(c, { metadata: { client_id: CLIENT_ID } }))
+    run: async (c) => revokeAsOther(c, await otherClient(c, { metadata: { client_id: CLIENT_ID } }))
   },
   {
     id: "client-metadata.jwks-uri",
     what: "a jwks_uri on another domain",
     detail: "[client-metadata.jwks-uri] client metadata: jwks_uri must be https on the client_id domain",
-    run: async (c) => startAsOther(c, await otherClient(c, { metadata: { jwks_uri: "https://elsewhere.test/jwks.json" } }))
+    run: async (c) => revokeAsOther(c, await otherClient(c, { metadata: { jwks_uri: "https://elsewhere.test/jwks.json" } }))
   },
   {
     id: "client-metadata.redirect-uris",
-    what: "an http redirect_uri",
+    what: "an http redirect_uri that isn't loopback",
     detail: "[client-metadata.redirect-uris] client metadata: redirect_uris must be https on the client_id domain",
-    run: async (c) => startAsOther(c, await otherClient(c, { metadata: { redirect_uris: ["http://other.agent.test/poppy/callback"] } }))
+    run: async (c) => revokeAsOther(c, await otherClient(c, { metadata: { redirect_uris: ["http://other.agent.test/poppy/callback"] } }))
   },
   {
     id: "client-metadata.auth-method",
     what: "token_endpoint_auth_method client_secret_basic",
     detail: "[client-metadata.auth-method] client metadata: token_endpoint_auth_method should be private_key_jwt",
-    run: async (c) => {
-      const response = await startAsOther(c, await otherClient(c, { metadata: { token_endpoint_auth_method: "client_secret_basic" } }));
-      expect(response.status).toBe(200);
-    }
+    run: async (c) => expect((await revokeAsOther(c, await otherClient(c, { metadata: { token_endpoint_auth_method: "client_secret_basic" } }))).status).toBe(200)
   },
   {
     id: "client-metadata.jwks-status",
     what: "a jwks_uri that answers 404",
     detail: "[client-metadata.jwks-status] client metadata: jwks_uri returned 404",
-    run: async (c) => startAsOther(c, await otherClient(c, { jwksStatus: 404 }))
+    run: async (c) => revokeAsOther(c, await otherClient(c, { jwksStatus: 404 }))
   },
   {
     id: "client-metadata.jwks-empty",
     what: "a JWKS with no keys",
     detail: "[client-metadata.jwks-empty] client metadata: JWKS has no keys",
-    run: async (c) => startAsOther(c, await otherClient(c, { jwks: { keys: [] } }))
+    run: async (c) => revokeAsOther(c, await otherClient(c, { jwks: { keys: [] } }))
   },
   {
     id: "client-metadata.jwks-private",
@@ -1018,7 +842,7 @@ const TAMPERS: readonly Tamper[] = [
     detail: "[client-metadata.jwks-private] client metadata: JWKS publishes a private key",
     run: async (c) => {
       const { privateKey } = await generateKeyPair("ES256", { extractable: true });
-      return startAsOther(c, await otherClient(c, { jwks: { keys: [{ ...(await exportJWK(privateKey)), kid: "other-1" }] } }));
+      return revokeAsOther(c, await otherClient(c, { jwks: { keys: [{ ...(await exportJWK(privateKey)), kid: "other-1" }] } }));
     }
   },
   {
@@ -1026,127 +850,79 @@ const TAMPERS: readonly Tamper[] = [
     what: "a JWKS key without kid, at a lenient Company",
     config: { strictAssertions: false },
     detail: "[client-metadata.key-without-kid] client metadata: JWKS key without kid (Guides: give every key a kid)",
-    run: async (c) => {
-      expect((await startAsOther(c, await otherClient(c, { kid: null }))).status).toBe(200);
-    }
+    run: async (c) => expect((await revokeAsOther(c, await otherClient(c, { kid: null }))).status).toBe(200)
   },
 
-  // ---- DPoP proofs ----
-  {
-    id: "dpop.missing",
-    what: "an API request without a DPoP proof",
-    detail: "[dpop.missing] DPoP: missing DPoP header (GET /products)",
-    run: async (c) => call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, { proof: null })
-  },
+  // ---- DPoP proofs for DPoP-bound access tokens (4.5, RFC 9449) ----
+  { id: "dpop.missing", what: "a DPoP-bound token without a proof", detail: "[dpop.missing] DPoP: missing DPoP header (GET /orders)", run: (c) => getOrders(c, { proof: null }) },
   {
     id: "dpop.multiple",
     what: "two DPoP proofs in one header",
-    detail: "[dpop.multiple] DPoP: more than one DPoP proof (GET /products)",
+    detail: "[dpop.multiple] DPoP: more than one DPoP proof (GET /orders)",
     run: async (c) => {
-      const s = await signedOut(c);
-      const url = `${c.hosts.api}/products`;
-      return call(c, s, "GET", url, { proof: `${await proof(s.key, "GET", url, s.token)}, ${await proof(s.key, "GET", url, s.token)}` });
+      const s = await signedIn(c);
+      return getOrders(c, { proof: `${await proof(s.dpop!, "GET", orders(c), s.token)}, ${await proof(s.dpop!, "GET", orders(c), s.token)}` }, s);
     }
   },
-  {
-    id: "dpop.not-jwt",
-    what: "a DPoP proof that isn't a JWT",
-    detail: "[dpop.not-jwt] DPoP: proof is not a JWT (GET /products)",
-    run: async (c) => call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, { proof: "not-a-jwt" })
-  },
-  {
-    id: "dpop.typ",
-    what: 'a DPoP proof with typ "JWT"',
-    detail: "[dpop.typ] DPoP: typ is JWT (GET /products)",
-    run: async (c) => call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, { proof: { header: { typ: "JWT" } } })
-  },
+  { id: "dpop.not-jwt", what: "a DPoP proof that isn't a JWT", detail: "[dpop.not-jwt] DPoP: proof is not a JWT (GET /orders)", run: (c) => getOrders(c, { proof: "not-a-jwt" }) },
+  { id: "dpop.typ", what: 'a DPoP proof with typ "JWT"', detail: "[dpop.typ] DPoP: typ is JWT (GET /orders)", run: (c) => getOrders(c, { proof: { header: { typ: "JWT" } } }) },
   {
     id: "dpop.alg",
     what: "a DPoP proof signed with ES384",
-    detail: "[dpop.alg] DPoP: alg ES384 not allowed (GET /products)",
+    detail: "[dpop.alg] DPoP: alg ES384 not allowed (GET /orders)",
     run: async (c) => {
       const { privateKey, publicKey } = await generateKeyPair("ES384");
-      return call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, {
-        proof: { header: { alg: "ES384", jwk: await exportJWK(publicKey) }, key: privateKey }
-      });
+      return getOrders(c, { proof: { header: { alg: "ES384", jwk: await exportJWK(publicKey) }, key: privateKey } });
     }
   },
-  {
-    id: "dpop.no-jwk",
-    what: "a DPoP proof without its jwk",
-    detail: "[dpop.no-jwk] DPoP: no jwk in header (GET /products)",
-    run: async (c) => call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, { proof: { header: { jwk: undefined } } })
-  },
+  { id: "dpop.no-jwk", what: "a DPoP proof without its jwk", detail: "[dpop.no-jwk] DPoP: no jwk in header (GET /orders)", run: (c) => getOrders(c, { proof: { header: { jwk: undefined } } }) },
   {
     id: "dpop.private-jwk",
     what: "a DPoP proof whose jwk is the private key",
-    detail: "[dpop.private-jwk] DPoP: jwk contains a private key (GET /products)",
+    detail: "[dpop.private-jwk] DPoP: jwk contains a private key (GET /orders)",
     run: async (c) => {
       const { privateKey } = await generateKeyPair("ES256", { extractable: true });
-      return call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, {
-        proof: { header: { jwk: await exportJWK(privateKey) }, key: privateKey }
-      });
+      return getOrders(c, { proof: { header: { jwk: await exportJWK(privateKey) }, key: privateKey } });
     }
   },
   {
     id: "dpop.signature",
     what: "a DPoP proof signed by a key other than its jwk",
-    detail: "[dpop.signature] DPoP: signature: signature verification failed (GET /products)",
-    run: async (c) => call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, { proof: { key: await strangerKey() } })
+    detail: "[dpop.signature] DPoP: signature: signature verification failed (GET /orders)",
+    run: async (c) => getOrders(c, { proof: { key: await strangerKey() } })
   },
-  {
-    id: "dpop.htm",
-    what: "a DPoP proof for POST on a GET",
-    detail: "[dpop.htm] DPoP: htm POST != GET (GET /products)",
-    run: async (c) => call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, { proof: { claims: { htm: "POST" } } })
-  },
+  { id: "dpop.htm", what: "a DPoP proof for POST on a GET", detail: "[dpop.htm] DPoP: htm POST != GET (GET /orders)", run: (c) => getOrders(c, { proof: { claims: { htm: "POST" } } }) },
   {
     id: "dpop.htu",
     what: "a DPoP proof whose htu keeps the query",
-    detail: (c) => `[dpop.htu] DPoP: htu ${c.hosts.api}/products?q=jacket != ${c.hosts.api}/products (GET /products)`,
-    run: async (c) =>
-      call(c, await signedOut(c), "GET", `${c.hosts.api}/products?q=jacket`, { proof: { claims: { htu: `${c.hosts.api}/products?q=jacket` } } })
+    detail: (c) => `[dpop.htu] DPoP: htu ${c.hosts.api}/orders?q=jacket != ${c.hosts.api}/orders (GET /orders)`,
+    run: async (c) => call(c, await signedIn(c), "GET", `${orders(c)}?q=jacket`, { proof: { claims: { htu: `${orders(c)}?q=jacket` } } })
   },
-  {
-    id: "dpop.iat",
-    what: "a DPoP proof made ten minutes ago",
-    detail: "[dpop.iat] DPoP: iat outside the acceptance window (GET /products)",
-    run: async (c) => call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, { proof: { claims: { iat: seconds() - 600 } } })
-  },
-  {
-    id: "dpop.ath-at-token-endpoint",
-    what: "ath on a token request's proof",
-    detail: "[dpop.ath-at-token-endpoint] DPoP: ath on a token request (POST /oauth/token)",
-    run: async (c) => {
-      const key = await dpopKey();
-      return startSession(c, key, { dpop: await proof(key, "POST", c.hosts.tokenEndpoint, "at_something") });
-    }
-  },
+  { id: "dpop.iat", what: "a DPoP proof made ten minutes ago", detail: "[dpop.iat] DPoP: iat outside the acceptance window (GET /orders)", run: (c) => getOrders(c, { proof: { claims: { iat: seconds() - 600 } } }) },
   {
     id: "dpop.ath",
     what: "a DPoP proof whose ath is for another token",
-    detail: "[dpop.ath] DPoP: ath doesn't match the token (GET /products)",
-    run: async (c) => call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, { proof: { claims: { ath: await hash("at_other") } } })
+    detail: "[dpop.ath] DPoP: ath doesn't match the token (GET /orders)",
+    run: async (c) => getOrders(c, { proof: { claims: { ath: await hash("at_other") } } })
   },
   {
     id: "dpop.nonce-ignored",
     what: "a proof, a second after using the nonce, without it",
     config: { requireNonce: true },
-    detail: (c) =>
-      `[dpop.nonce-ignored] DPoP: proof without the nonce this key already used at ${new URL(c.hosts.tokenEndpoint).origin} (must keep using nonces)`,
+    detail: (c) => `[dpop.nonce-ignored] DPoP: proof without the nonce this key already used at ${new URL(c.hosts.tokenEndpoint).origin} (must keep using nonces)`,
     run: async (c) => {
       const key = await dpopKey();
-      const first = await startSession(c, key);
+      const send = (dpop: string) => tokenRequest(c, UNKNOWN_REFRESH, { key, dpop });
+      const first = await tokenRequest(c, UNKNOWN_REFRESH, { key });
       expect(await first.json()).toMatchObject({ error: "use_dpop_nonce" });
       const nonce = first.headers.get("DPoP-Nonce")!;
       const now = seconds();
-      const withNonce = await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { nonce, claims: { iat: now } });
-      expect((await startSession(c, key, { dpop: withNonce })).status).toBe(200);
+      // With the nonce, the proof passes, and the unknown refresh token is refused.
+      expect(await (await send(await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { nonce, claims: { iat: now } }))).json()).toMatchObject({ error: "invalid_grant" });
       // Made in the same second, it may have been in flight before the nonce arrived: excused.
-      const racing = await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { iat: now } });
-      expect((await startSession(c, key, { dpop: racing })).status).toBe(400);
+      expect(await (await send(await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { iat: now } }))).json()).toMatchObject({ error: "use_dpop_nonce" });
       expect((await c.stub.state()).recorded).toEqual([]);
-      return startSession(c, key, { dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { iat: now + 1 } }) });
+      return send(await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { claims: { iat: now + 1 } }));
     }
   },
   {
@@ -1154,116 +930,61 @@ const TAMPERS: readonly Tamper[] = [
     what: "a correct proof from a key the token isn't bound to",
     detail: "[dpop.key-mismatch] DPoP proof key isn't the key the token is bound to",
     run: async (c) => {
-      const s = await signedOut(c);
-      return call(c, { ...s, key: await dpopKey() }, "GET", `${c.hosts.api}/products`);
-    }
-  },
-  {
-    id: "dpop.key-shared",
-    what: "one DPoP key for two User IDs",
-    detail: /^\[dpop\.key-shared\] DPoP key [\w-]{43} used for User usr_Hd8pW2zQ5nVb7LtK3xRc9F after User usr_Q7c1vKx9TzLw3NdR5mHa2B$/,
-    run: async (c) => {
-      const key = await dpopKey();
-      expect((await startSession(c, key)).status).toBe(200);
-      const other = await startSession(c, key, { assertion: await sessionAssertion(c, { claims: { sub: "usr_Hd8pW2zQ5nVb7LtK3xRc9F" } }) });
-      expect(other.status).toBe(200);
+      const s = await signedIn(c);
+      return getOrders(c, {}, { ...s, dpop: await dpopKey() });
     }
   },
 
-  // ---- Session Tokens on resources ----
+  // ---- Access tokens at resources (4.5, 7) ----
   {
-    id: "resource.no-token",
-    what: "an API request without a Session Token",
-    detail: (c) => `[resource.no-token] request without a Session Token: GET ${c.hosts.api}/products`,
-    run: async (c) => call(c, await signedOut(c), "GET", `${c.hosts.api}/products`, { auth: null })
+    id: "resource.bearer-scheme",
+    what: "a DPoP-bound token with the Bearer scheme",
+    detail: "[resource.bearer-scheme] Bearer scheme for a DPoP-bound token on /orders",
+    run: async (c) => {
+      const s = await signedIn(c);
+      return getOrders(c, { auth: `Bearer ${s.token}`, proof: null }, s);
+    }
   },
   {
     id: "resource.bearer-scheme",
-    what: "a Session Token with the Bearer scheme at an API",
-    detail: "[resource.bearer-scheme] Bearer token on /products; Bearer is only for MCP",
+    what: "a Bearer token with the DPoP scheme",
+    config: BEARER,
+    detail: "[resource.bearer-scheme] DPoP scheme for a Bearer token on /orders",
     run: async (c) => {
-      const s = await signedOut(c);
-      return call(c, s, "GET", `${c.hosts.api}/products`, { auth: `Bearer ${s.token}` });
+      const s = await signedIn(c, { bearer: true });
+      expect(s.tokenType).toBe("Bearer");
+      return getOrders(c, { auth: `DPoP ${s.token}` }, s);
     }
-  },
-  {
-    id: "resource.bearer-token-as-dpop",
-    what: "an MCP Bearer token with the DPoP scheme at an API",
-    detail: "[resource.bearer-token-as-dpop] Bearer Session Token sent with the DPoP scheme",
-    run: async (c) => {
-      const s = await signedOut(c);
-      const bearer = (await (
-        await form(c, c.hosts.tokenEndpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(c), resource: c.hosts.mcpUrl }, null)
-      ).json()) as { access_token: string; token_type: string };
-      expect(bearer.token_type).toBe("Bearer");
-      return call(c, { ...s, token: bearer.access_token }, "GET", `${c.hosts.api}/products`);
-    }
-  },
-  {
-    id: "resource.stale-token",
-    what: "an older Session Token, seconds after a newer one",
-    detail: "[resource.stale-token] used an older Session Token after a newer one was issued for the Session",
-    run: async (c) => {
-      const s = await signedOut(c);
-      const renewed = await startSession(c, s.key, { fields: { session_id: s.sessionId } });
-      expect(renewed.status).toBe(200);
-      // Three seconds later, by the mock's clock.
-      return call(c, s, "GET", `${c.hosts.api}/products`, { headers: { [CLOCK_HEADER]: String(Date.now() + 3000) } });
-    }
-  },
-  {
-    id: "mcp.not-bearer",
-    what: "an MCP request with the DPoP scheme",
-    detail: "[mcp.not-bearer] MCP request with DPoP scheme; MCP uses Bearer",
-    run: async (c) =>
-      call(c, await signedOut(c), "POST", c.hosts.mcpUrl, {
-        body: { jsonrpc: "2.0", id: 1, method: "tools/list" },
-        headers: { Accept: "application/json, text/event-stream" }
-      })
   },
   {
     id: "mcp.wrong-token",
-    what: "a DPoP Session Token as an MCP Bearer token",
+    what: "the default access token at the MCP server",
+    config: BEARER,
     detail: "[mcp.wrong-token] MCP request with a token not issued for this MCP server",
-    run: async (c) => {
-      const s = await signedOut(c);
-      return call(c, s, "POST", c.hosts.mcpUrl, {
-        auth: `Bearer ${s.token}`,
-        proof: null,
-        body: { jsonrpc: "2.0", id: 1, method: "tools/list" },
-        headers: { Accept: "application/json, text/event-stream" }
-      });
-    }
+    run: async (c) => call(c, await signedIn(c, { bearer: true }), "POST", c.hosts.mcpUrl, { body: { jsonrpc: "2.0", id: 1, method: "tools/list" }, headers: MCP_ACCEPT })
   },
   {
     id: "mcp.accept",
     what: "an MCP request that only Accepts JSON",
     detail: '[mcp.accept] MCP request must Accept application/json and text/event-stream, got "application/json"',
     run: async (c) => {
-      const bearer = (await (
-        await form(c, c.hosts.tokenEndpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(c), resource: c.hosts.mcpUrl }, null)
-      ).json()) as { access_token: string };
-      const response = await c.call(c.hosts.mcpUrl, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${bearer.access_token}`, Accept: "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })
-      });
+      const response = await call(c, await session(), "POST", c.hosts.mcpUrl, { body: { jsonrpc: "2.0", id: 1, method: "tools/list" }, headers: { Accept: "application/json" } });
       expect(response.status).toBe(200);
     }
   },
 
-  // ---- Rate limits and secrets ----
+  // ---- Rate limits and secrets (5.6, 10.2; Mediated Sign-In 6) ----
   {
     id: "rate-limit.retry-after-ignored",
     what: "a retry before Retry-After elapsed",
     config: { rateLimit: { tokenRequests429: 0, requests429: 1, retryAfterSeconds: 1 } },
     detail: /^\[rate-limit\.retry-after-ignored\] sent GET \/products \d+ ms before Retry-After elapsed$/,
     run: async (c) => {
-      const s = await signedOut(c);
-      const first = await call(c, s, "GET", `${c.hosts.api}/products`);
+      const s = await session();
+      const first = await call(c, s, "GET", products(c));
       expect(first.status).toBe(429);
       expect(first.headers.get("Retry-After")).toBe("1");
-      return call(c, s, "GET", `${c.hosts.api}/products`);
+      return call(c, s, "GET", products(c));
     }
   },
   {
@@ -1272,11 +993,10 @@ const TAMPERS: readonly Tamper[] = [
     config: { rateLimit: { tokenRequests429: 1, requests429: 0, retryAfterSeconds: 2 } },
     detail: /^\[rate-limit\.retry-after-ignored\] sent POST \/oauth\/token \d+ ms before Retry-After elapsed$/,
     run: async (c) => {
-      const key = await dpopKey();
-      expect((await startSession(c, key)).status).toBe(429);
-      // One second on is still too soon; two seconds on is fine.
-      expect((await startSession(c, key, { headers: { [CLOCK_HEADER]: String(Date.now() + 1000) } })).status).toBe(429);
-      expect((await startSession(c, key, { headers: { [CLOCK_HEADER]: String(Date.now() + 3100) } })).status).toBe(200);
+      expect((await tokenRequest(c, UNKNOWN_REFRESH)).status).toBe(429);
+      // One second on is still too soon; three seconds on is fine.
+      expect((await tokenRequest(c, UNKNOWN_REFRESH, { headers: { [CLOCK_HEADER]: String(Date.now() + 1000) } })).status).toBe(429);
+      expect(await (await tokenRequest(c, UNKNOWN_REFRESH, { headers: { [CLOCK_HEADER]: String(Date.now() + 3100) } })).json()).toMatchObject({ error: "invalid_grant" });
     }
   },
   {
@@ -1285,13 +1005,10 @@ const TAMPERS: readonly Tamper[] = [
     config: { rateLimit: { tokenRequests429: 1, requests429: 0, retryAfterSeconds: 2 } },
     detail: /^\[rate-limit\.shared-limit-ignored\] sent GET \/products \d+ ms before another request's Retry-After elapsed$/,
     run: async (c) => {
-      const key = await dpopKey();
-      expect((await startSession(c, key)).status).toBe(429);
-      const s = { key, token: "at_unused", sessionId: "ses_unused" };
-      const read = await call(c, s, "GET", `${c.hosts.api}/products`);
+      expect((await tokenRequest(c, UNKNOWN_REFRESH)).status).toBe(429);
+      const read = await call(c, await session(), "GET", products(c));
       expect(read.status).toBe(429);
       expect(Number(read.headers.get("Retry-After"))).toBeGreaterThanOrEqual(1);
-      return read;
     }
   },
   {
@@ -1301,104 +1018,75 @@ const TAMPERS: readonly Tamper[] = [
     run: async (c) => c.call(`${SITE(c)}/`, { headers: { "X-Note": "correct horse" } })
   },
   {
+    id: "secret.password",
+    what: "a password in a conversation message",
+    detail: (c) => `[secret.password] password sent in body of POST ${c.hosts.conversationsEndpoint}`,
+    run: async (c) => expect((await converse(c, await session(), message({ text: "My password is correct horse" }))).status).toBe(201)
+  },
+  {
     id: "secret.one-time-code",
     what: "a one-time code in the body of a conversation",
     detail: (c) => `[secret.one-time-code] one-time code sent in body of POST ${c.hosts.conversationsEndpoint}`,
     run: async (c) => {
-      const { s, code } = await oneTimeCode(c);
-      return converse(c, s, message({ text: `My code is ${code}` }));
+      const { code } = await oneTimeCode(c);
+      return converse(c, await session(), message({ text: `My code is ${code}` }));
     }
   },
   {
     id: "secret.account-token",
-    what: "an Account Token in a header to an API",
-    detail: (c) => `[secret.account-token] Account Token sent in headers of GET ${c.hosts.api}/orders`,
+    what: "a refresh token in a header to an API",
+    detail: (c) => `[secret.account-token] refresh token sent in headers of GET ${c.hosts.api}/orders`,
     run: async (c) => {
       const s = await signedIn(c);
-      return call(c, s, "GET", `${c.hosts.api}/orders`, { headers: { "X-Refresh": s.refreshToken } });
+      expect((await getOrders(c, { headers: { "X-Refresh": s.refreshToken! } }, s)).status).toBe(200);
     }
   },
   {
     id: "secret.token-in-url",
-    what: "a Session Token in the query string",
+    what: "an access token in the query string",
     detail: /^\[secret\.token-in-url\] token sent in URL https:\/\/api\.\w+\.shop\.test\/products\?access_token=at_[\w-]+$/,
     run: async (c) => {
-      const s = await signedOut(c);
-      return c.call(`${c.hosts.api}/products?access_token=${s.token}`);
+      const s = await signedIn(c);
+      return call(c, s, "GET", `${products(c)}?access_token=${s.token}`, { token: null });
     }
   },
 
-  // ---- Token endpoint ----
+  // ---- Token endpoint and refresh tokens (4.4, 4.6) ----
   {
     id: "form.not-form",
-    what: "a token request as JSON",
-    detail: '[form.not-form] /oauth/token sent as "application/json", not a form',
-    run: async (c) => startSession(c, await dpopKey(), { contentType: "application/json" })
-  },
-  {
-    id: "token.no-dpop",
-    what: "a token request without a DPoP proof",
-    detail: `[token.no-dpop] token request (${JWT_BEARER}) without a DPoP proof`,
-    run: async (c) => startSession(c, await dpopKey(), { dpop: null })
-  },
-  {
-    id: "token.mcp-dpop",
-    what: "a DPoP proof on a token request for the MCP server",
-    detail: "[token.mcp-dpop] asked for a DPoP-bound token for the MCP server; MCP uses Bearer",
-    run: async (c) => {
-      expect((await startSession(c, await dpopKey(), { fields: { resource: c.hosts.mcpUrl } })).status).toBe(200);
-    }
-  },
-  {
-    id: "token.signed-in-renewed-with-assertion",
-    what: "a signed-in Session renewed with the assertion",
-    detail: "[token.signed-in-renewed-with-assertion] renewed a signed-in Session with the assertion instead of the Account Token",
-    run: async (c) => {
-      const s = await signedIn(c);
-      return startSession(c, s.key, { fields: { session_id: s.sessionId } });
-    }
+    what: "a revocation as JSON",
+    detail: '[form.not-form] /oauth/revoke sent as "application/json", not a form',
+    run: async (c) => revoke(c, { contentType: "application/json" })
   },
   {
     id: "account-token.other-client",
-    what: "an Account Token used by another client_id",
-    detail: "[account-token.other-client] Account Token used by a different client_id",
+    what: "a refresh token used by another client_id",
+    detail: "[account-token.other-client] refresh token used by a different client_id",
     run: async (c) => {
       const s = await signedIn(c);
       const other = await otherClient(c);
-      return form(c, c.hosts.tokenEndpoint, { grant_type: "refresh_token", refresh_token: s.refreshToken }, s.key, {
-        clientId: OTHER,
-        client: await other.clientAssertion(c.hosts.tokenEndpoint)
-      });
+      return tokenRequest(c, { grant_type: "refresh_token", refresh_token: s.refreshToken! }, { key: s.dpop!, clientId: OTHER, client: await other.clientAssertion() });
     }
   },
   {
     id: "account-token.rotated-reused",
-    what: "an Account Token used after it rotated",
+    what: "a refresh token used after it rotated",
     config: { rotateRefreshTokens: true },
-    detail: "[account-token.rotated-reused] used an Account Token after the Company rotated it (4.8)",
+    detail: "[account-token.rotated-reused] used a refresh token after the Company rotated it (4.4)",
     run: async (c) => {
       const s = await signedIn(c);
-      const refresh = () =>
-        form(c, c.hosts.tokenEndpoint, { grant_type: "refresh_token", refresh_token: s.refreshToken, session_id: s.sessionId }, s.key);
-      expect((await refresh()).status).toBe(200);
-      return refresh();
+      expect((await refresh(c, s)).status).toBe(200);
+      return refresh(c, s);
     }
   },
-
   {
-    id: "session.account-mismatch-reused",
-    what: "a Session refused with account_mismatch asked again to sign in to another account",
-    detail: /^\[session\.account-mismatch-reused\] Session ses_[\w-]+ asked again to sign in to another account after account_mismatch \(4\.4 says the agent starts a new Session; no RFC 2119 keyword\)$/,
-    run: async (c) => {
-      // Ada's Session; Grace's codes exchanged into it.
-      const ada = await signedIn(c);
-      const grace = async () => exchangeCode(c, { ...(await authorizationCode(c, "acct_grace")), s: ada });
-      expect(await (await grace()).json()).toMatchObject({ error: "account_mismatch" });
-      return grace();
-    }
+    id: "token.dpop-not-sent",
+    what: "a refresh without a DPoP proof where the issuer asks for one",
+    detail: /^\[token\.dpop-not-sent\] token request \(refresh_token\) without a DPoP proof/,
+    run: (c) => tokenRequest(c, UNKNOWN_REFRESH, { key: null })
   },
 
-  // ---- Sign-in ----
+  // ---- Sign-in (4.2, 4.3, 4.7; Mediated Sign-In) ----
   {
     id: "signin.no-scope",
     what: "a device sign-in without scope",
@@ -1409,65 +1097,37 @@ const TAMPERS: readonly Tamper[] = [
     id: "signin.no-scope",
     what: "a direct sign-in without scope",
     detail: "[signin.no-scope] direct sign-in without scope",
-    run: async (c) => {
-      const { challenge } = await pkce();
-      return c.call(authorizeUrl(c, { response_type: "code", client_id: CLIENT_ID, redirect_uri: REDIRECT_URI, state: jti(), code_challenge: challenge, code_challenge_method: "S256" }));
-    }
+    run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ scope: undefined })))
   },
   {
     id: "signin.no-scope",
     what: "a mediated sign-in without scope",
     detail: "[signin.no-scope] mediated sign-in without scope",
-    run: async (c) =>
-      call(c, await signedOut(c), "POST", c.hosts.mediatedEndpoint, { body: { credentials: { email: "ada@example.com", password: "correct horse" } } })
+    run: async (c) => mediated(c, ADA)
   },
   {
     id: "authorize.redirect-uri",
     what: "an unregistered redirect_uri",
     detail: "[authorize.redirect-uri] redirect_uri https://agent.test/elsewhere isn't an exact registered redirect_uri",
-    run: async (c) => {
-      const { challenge } = await pkce();
-      return c.call(
-        authorizeUrl(c, { response_type: "code", client_id: CLIENT_ID, redirect_uri: "https://agent.test/elsewhere", scope: "poppy:read", state: jti(), code_challenge: challenge, code_challenge_method: "S256" })
-      );
-    }
+    run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ redirect_uri: "https://agent.test/elsewhere" })))
   },
   {
     id: "authorize.no-state",
     what: "an authorization request without state",
     detail: "[authorize.no-state] authorization request without state",
-    run: async (c) => {
-      const { challenge } = await pkce();
-      return c.call(authorizeUrl(c, { response_type: "code", client_id: CLIENT_ID, redirect_uri: REDIRECT_URI, scope: "poppy:read", code_challenge: challenge, code_challenge_method: "S256" }));
-    }
+    run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ state: undefined })))
   },
   {
     id: "authorize.no-pkce",
     what: "PKCE plain instead of S256",
     detail: "[authorize.no-pkce] authorization request without PKCE S256",
-    run: async (c) =>
-      c.call(authorizeUrl(c, { response_type: "code", client_id: CLIENT_ID, redirect_uri: REDIRECT_URI, scope: "poppy:read", state: jti(), code_challenge: "plain-verifier", code_challenge_method: "plain" }))
+    run: async (c) => c.call(authorizeUrl(c, await authorizeParams({ code_challenge: "plain-verifier", code_challenge_method: "plain" })))
   },
   {
     id: "authorize.secret-in-url",
     what: "a client assertion in the authorization URL",
     detail: "[authorize.secret-in-url] client_assertion in the authorization URL",
-    run: async (c) => {
-      const { challenge } = await pkce();
-      const page = await c.call(
-        authorizeUrl(c, {
-          response_type: "code",
-          client_id: CLIENT_ID,
-          redirect_uri: REDIRECT_URI,
-          scope: "poppy:read",
-          state: jti(),
-          code_challenge: challenge,
-          code_challenge_method: "S256",
-          client_assertion: await clientAssertion(c.hosts.authorizationEndpoint)
-        })
-      );
-      expect(page.status).toBe(200);
-    }
+    run: async (c) => expect((await c.call(authorizeUrl(c, await authorizeParams({ client_assertion: await clientAssertion(c) })))).status).toBe(200)
   },
   {
     id: "code.reused",
@@ -1475,27 +1135,22 @@ const TAMPERS: readonly Tamper[] = [
     detail: "[code.reused] authorization code used twice",
     run: async (c) => {
       const flow = await authorizationCode(c);
-      expect((await exchangeCode(c, flow)).status).toBe(200);
-      return exchangeCode(c, flow);
+      const key = await dpopKey();
+      expect((await exchangeCode(c, flow, key)).status).toBe(200);
+      return exchangeCode(c, flow, key);
     }
   },
   {
     id: "code.redirect-uri",
     what: "a different redirect_uri at the token endpoint",
     detail: "[code.redirect-uri] redirect_uri at the token endpoint differs from the authorization request",
-    run: async (c) => exchangeCode(c, await authorizationCode(c), { redirect_uri: "https://agent.test/poppy/callback2" })
+    run: async (c) => exchangeCode(c, await authorizationCode(c), await dpopKey(), { redirect_uri: "https://agent.test/poppy/callback2" })
   },
   {
     id: "code.pkce",
     what: "the wrong PKCE verifier",
     detail: "[code.pkce] PKCE code_verifier doesn't match the challenge",
-    run: async (c) => exchangeCode(c, await authorizationCode(c), { code_verifier: jti() + jti() })
-  },
-  {
-    id: "code.no-session-id",
-    what: "a code exchanged without session_id",
-    detail: "[code.no-session-id] authorization code exchanged without session_id (4.5)",
-    run: async (c) => exchangeCode(c, await authorizationCode(c), { session_id: undefined })
+    run: async (c) => exchangeCode(c, await authorizationCode(c), await dpopKey(), { code_verifier: jti() + jti() })
   },
   {
     id: "device.polled-after-final",
@@ -1541,198 +1196,54 @@ const TAMPERS: readonly Tamper[] = [
     }
   },
   {
-    id: "device.no-session-id",
-    what: "a device code exchanged without session_id",
-    detail: "[device.no-session-id] device code exchanged without session_id",
-    run: async (c) => {
-      const flow = await deviceFlow(c);
-      await c.stub.approveDevice(flow.device.user_code);
-      return flow.poll({});
-    }
-  },
-  {
     id: "mediated.missing-field",
-    what: "credentials without the password field",
+    what: "Mediated Sign-In without the password field",
     detail: "[mediated.missing-field] mediated sign-in missing field password",
-    run: async (c) =>
-      call(c, await signedOut(c), "POST", c.hosts.mediatedEndpoint, { body: { scope: "poppy:read", credentials: { email: "ada@example.com" } } })
+    run: async (c) => mediated(c, { scope: "orders:read", email: ADA.email })
   },
   {
     id: "mediated.credentials-with-code",
-    what: "the password resent with the one-time code",
-    detail: "[mediated.credentials-with-code] credentials resent with the one-time code (4.7: submit only the code)",
-    run: async (c) => {
-      const { s, signInId, code } = await oneTimeCode(c);
-      return call(c, s, "POST", `${c.hosts.mediatedEndpoint}/${signInId}`, { body: { code, email: "grace@example.com" } });
-    }
-  },
-  {
-    id: "mediated.code-other-session",
-    what: "the one-time code submitted from another Session",
-    detail: /^\[mediated\.code-other-session\] one-time code for sgn_[\w-]+ submitted from another Session$/,
+    what: "the email resent with the one-time code",
+    detail: "[mediated.credentials-with-code] credentials resent with the one-time code (Mediated Sign-In 4: not the credentials or scope)",
     run: async (c) => {
       const { signInId, code } = await oneTimeCode(c);
-      const response = await call(c, await signedOut(c), "POST", `${c.hosts.mediatedEndpoint}/${signInId}`, { body: { code } });
-      expect(response.status).toBe(404);
+      return mediated(c, { sign_in_id: signInId, one_time_code: code, email: GRACE.email });
+    }
+  },
+  {
+    id: "mediated.scope-with-code",
+    what: "scope resent with the one-time code",
+    detail: "[mediated.scope-with-code] scope resent with the one-time code (Mediated Sign-In 4: the sign-in keeps its first scopes)",
+    run: async (c) => {
+      const { signInId, code } = await oneTimeCode(c);
+      return mediated(c, { sign_in_id: signInId, one_time_code: code, scope: "orders:read" });
+    }
+  },
+  {
+    id: "mediated.code-other-client",
+    what: "a one-time code sent by another client",
+    detail: /^\[mediated\.code-other-client\] one-time code for sgn_[\w-]+ sent by another client$/,
+    run: async (c) => {
+      const { signInId, code } = await oneTimeCode(c);
+      const other = await otherClient(c);
+      const response = await mediated(c, { sign_in_id: signInId, one_time_code: code }, { clientId: OTHER, client: await other.clientAssertion() });
+      expect(await response.json()).toMatchObject({ error: "invalid_grant" });
     }
   },
 
-  // ---- Browser join ----
-  {
-    id: "browser-assertion.in-url",
-    what: "the browser assertion in the URL",
-    detail: "[browser-assertion.in-url] browser session: assertion sent in the URL",
-    run: async (c) => {
-      const s = await signedOut(c);
-      const assertion = await browserAssertion(c, s);
-      return joinBrowser(c, assertion, {}, `${c.hosts.browserSessionEndpoint}?assertion=${assertion}`);
-    }
-  },
-  {
-    id: "browser-assertion.not-post",
-    what: "a GET to the browser-session endpoint",
-    detail: "[browser-assertion.not-post] browser session: must be a form POST",
-    run: async (c) => c.call(c.hosts.browserSessionEndpoint)
-  },
-  {
-    id: "browser-assertion.content-type",
-    what: "the browser assertion posted as JSON",
-    detail: '[browser-assertion.content-type] browser session: content type "application/json"',
-    run: async (c) => {
-      const s = await signedOut(c);
-      return c.call(c.hosts.browserSessionEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assertion: await browserAssertion(c, s) })
-      });
-    }
-  },
-  {
-    id: "browser-assertion.missing",
-    what: "a browser join without an assertion",
-    detail: "[browser-assertion.missing] browser session: no assertion",
-    run: async (c) =>
-      c.call(c.hosts.browserSessionEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ return_to: SITE(c) })
-      })
-  },
-  {
-    id: "browser-assertion.not-jwt",
-    what: "a browser assertion that isn't a JWT",
-    detail: "[browser-assertion.not-jwt] browser session: assertion is not a JWT",
-    run: async (c) => joinBrowser(c, "garbage")
-  },
-  {
-    id: "browser-assertion.typ",
-    what: 'a browser assertion with typ "JWT"',
-    detail: "[browser-assertion.typ] browser session: typ JWT",
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { header: { typ: "JWT" } }))
-  },
-  {
-    id: "browser-assertion.alg",
-    what: "a browser assertion signed with HS256",
-    detail: "[browser-assertion.alg] browser session: alg HS256 is not allowed",
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { header: { alg: "HS256" }, key: await hmacKey() }))
-  },
-  {
-    id: "browser-assertion.embedded-key",
-    what: "a browser assertion carrying its own jwk",
-    detail: "[browser-assertion.embedded-key] browser session: assertion embeds or points to a key (jku/x5u/x5c/jwk)",
-    run: async (c) => {
-      const s = await signedOut(c);
-      expect((await joinBrowser(c, await browserAssertion(c, s, { header: { jwk: s.key.jwk } }))).status).toBe(303);
-    }
-  },
-  {
-    id: "browser-assertion.embedded-key",
-    what: "a browser assertion carrying a certificate chain",
-    detail: "[browser-assertion.embedded-key] browser session: assertion embeds or points to a key (jku/x5u/x5c/jwk)",
-    run: async (c) => {
-      const s = await signedOut(c);
-      expect((await joinBrowser(c, await browserAssertion(c, s, { header: { x5c: ["MIIBIjANBgkq"] } }))).status).toBe(303);
-    }
-  },
-  {
-    id: "browser-assertion.kid",
-    what: "a browser assertion whose kid names no key",
-    detail: '[browser-assertion.kid] browser session: strict Company: kid "not-a-key" names no published key',
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { header: { kid: "not-a-key" } }))
-  },
-  {
-    id: "browser-assertion.no-iss",
-    what: "a browser assertion without iss",
-    detail: "[browser-assertion.no-iss] browser session: no iss",
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: { iss: undefined } }))
-  },
-  {
-    id: "browser-assertion.unknown-agent",
-    what: "a browser assertion from a client_id that isn't a URL",
-    ids: ["client-metadata.not-url", "browser-assertion.unknown-agent"],
-    detail: "[browser-assertion.unknown-agent] browser session: unknown Personal Agent",
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: { iss: "not a url" } }))
-  },
-  {
-    id: "browser-assertion.signature",
-    what: "a browser assertion signed with an unpublished key",
-    detail: "[browser-assertion.signature] browser session: signature or expiry: signature verification failed",
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { key: await strangerKey() }))
-  },
-  {
-    id: "browser-assertion.aud",
-    what: "a browser assertion for the token endpoint",
-    detail: (c) => `[browser-assertion.aud] browser session: aud "${c.hosts.tokenEndpoint}"`,
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: { aud: c.hosts.tokenEndpoint } }))
-  },
-  {
-    id: "browser-assertion.lifetime",
-    what: "a browser assertion valid for two minutes",
-    detail: "[browser-assertion.lifetime] browser session: exp must be no more than 60 seconds after iat",
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: lifetime(120) }))
-  },
-  {
-    id: "browser-assertion.iat-exp-missing",
-    what: "a browser assertion without exp",
-    detail: "[browser-assertion.iat-exp-missing] browser session: iat and exp are required",
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: { exp: undefined } }))
-  },
-  {
-    id: "browser-assertion.iat-future",
-    what: "a browser assertion issued an hour from now",
-    detail: /^\[browser-assertion\.iat-future\] browser session: iat \d+ is in the future$/,
-    run: async (c) =>
-      joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: { iat: seconds() + 3600, exp: seconds() + 3660 } }))
-  },
-  {
-    id: "browser-assertion.session",
-    what: "a browser assertion for a Session that doesn't exist",
-    detail: "[browser-assertion.session] browser session: Session isn't active or isn't this agent's and User's",
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: { session_id: "ses_nope" } }))
-  },
-  {
-    id: "browser-assertion.return-to-not-url",
-    what: "a return_to that isn't a URL",
-    detail: "[browser-assertion.return-to-not-url] browser session: return_to is not a URL",
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: { return_to: "/orders" } }))
-  },
-  {
-    id: "browser-assertion.return-to-off-domain",
-    what: "a return_to on another domain",
-    detail: "[browser-assertion.return-to-off-domain] browser session: return_to is not on the Company's domain",
-    run: async (c) => joinBrowser(c, await browserAssertion(c, await signedOut(c), { claims: { return_to: "https://elsewhere.test/" } }))
-  },
-
-  // ---- APIs ----
+  // ---- Writes and retries (Guides; Ops 7) ----
   {
     id: "idempotency.key-reused",
     what: "an Idempotency-Key reused with another body",
-    config: { operations: false },
-    detail: "[idempotency.key-reused] Idempotency-Key key_1 reused with a different body",
+    config: { printShop: true },
+    detail: "[idempotency.key-reused] Idempotency-Key key_approved_order_1 reused with a different body",
     run: async (c) => {
-      const s = await signedIn(c);
-      expect((await exchange(c, s, { "Idempotency-Key": "key_1" })).status).toBe(201);
-      return exchange(c, s, { "Idempotency-Key": "key_1" }, { item_id: "itm_4Qa", replacement_sku: "stormline-m" });
+      const s = await session();
+      const photo = await uploaded(c, s);
+      const first = await orderPrints(c, s, printOrder(photo), { "Idempotency-Key": "key_first_request_1" });
+      const { operation } = (await first.json()) as { operation: Operation };
+      expect((await orderPrints(c, s, printOrder(photo), { "Idempotency-Key": "key_approved_order_1", ...approval(operation) })).status).toBe(201);
+      return orderPrints(c, s, printOrder(photo, 2), { "Idempotency-Key": "key_approved_order_1" });
     }
   },
   {
@@ -1741,11 +1252,8 @@ const TAMPERS: readonly Tamper[] = [
     config: { printShop: true },
     detail: "[idempotency.key-missing] POST /prints without the Idempotency-Key its description requires",
     run: async (c) => {
-      const s = await signedOut(c);
-      const uploaded = await uploadPhoto(c, s, multipart("b0undary", 'form-data; name="photo"; filename="lake"'), "multipart/form-data; boundary=b0undary");
-      expect(uploaded.status).toBe(201);
-      const { id } = (await uploaded.json()) as { id: string };
-      return call(c, s, "POST", `${c.hosts.api}/prints`, { body: printOrder(id) });
+      const s = await session();
+      return orderPrints(c, s, printOrder(await uploaded(c, s)));
     }
   },
   {
@@ -1753,18 +1261,18 @@ const TAMPERS: readonly Tamper[] = [
     what: "a photo upload whose multipart/form-data has no boundary",
     config: { printShop: true },
     detail: '[upload.boundary] multipart/form-data without a boundary: "multipart/form-data"',
-    run: async (c) => uploadPhoto(c, await signedOut(c), multipart("b0undary", 'form-data; name="photo"; filename="lake"'), "multipart/form-data")
+    run: async (c) => uploadPhoto(c, await session(), PHOTO(), "multipart/form-data")
   },
   {
     id: "upload.part-name",
     what: "a photo upload whose part has no form-data name",
     config: { printShop: true },
     detail: '[upload.part-name] multipart part without a form-data name (Content-Disposition: "attachment; filename=\\"lake\\"")',
-    run: async (c) => uploadPhoto(c, await signedOut(c), multipart("b0undary", 'attachment; filename="lake"'), "multipart/form-data; boundary=b0undary")
+    run: async (c) => uploadPhoto(c, await session(), multipart("b0undary", 'attachment; filename="lake"'), PHOTO_TYPE)
   },
   {
     id: "exchange.performed-twice",
-    what: "a write retried without its Idempotency-Key",
+    what: "a write retried without its Idempotency-Key, at a Company without Operations",
     config: { operations: false },
     detail: "[exchange.performed-twice] itm_4Qa on ord_7Hk2 exchanged again for acct_ada (direct API call)",
     run: async (c) => {
@@ -1775,76 +1283,47 @@ const TAMPERS: readonly Tamper[] = [
   },
   {
     id: "exchange.performed-twice",
-    what: "a second proposal for the same exchange confirmed",
+    what: "the same exchange approved again as a new operation",
     detail: /^\[exchange\.performed-twice\] itm_4Qa on ord_7Hk2 exchanged again for acct_ada \(operation exc_[\w-]+\)$/,
     run: async (c) => {
-      for (let i = 0; i < 2; i++) {
-        const { s, operation } = await proposed(c);
-        const confirmed = await call(c, s, "POST", `${c.hosts.operationsEndpoint}/${operation.operation_id}/confirm`, {
-          body: { revision: operation.revision, approved_by: "user" }
-        });
-        expect(await confirmed.json()).toMatchObject({ state: "succeeded" });
-      }
+      const { s, operation } = await refused(c);
+      expect((await exchange(c, s, approval(operation))).status).toBe(201);
+      // Asked again without the approval, the Company returns a new operation, which the agent approves.
+      const again = await refused(c, s);
+      expect(again.operation.operation_id).not.toBe(operation.operation_id);
+      expect((await exchange(c, s, approval(again.operation))).status).toBe(201);
     }
   },
 
-  // ---- Conversations ----
+  // ---- Conversations (8) ----
   {
     id: "message.missing",
     what: "a conversation started without a message",
     detail: "[message.missing] conversation message: missing message",
-    run: async (c) => call(c, await signedOut(c), "POST", c.hosts.conversationsEndpoint, { body: {} })
+    run: async (c) => call(c, await session(), "POST", c.hosts.conversationsEndpoint, { body: {} })
   },
-  {
-    id: "message.id",
-    what: "a message id with a space",
-    detail: "[message.id] conversation message: id must be 1-256 base64url characters",
-    run: async (c) => converse(c, await signedOut(c), message({ id: "msg 1" }))
-  },
-  {
-    id: "message.sender",
-    what: 'a message from sender "company"',
-    detail: "[message.sender] conversation message: sender must be agent or human",
-    run: async (c) => converse(c, await signedOut(c), message({ sender: "company" }))
-  },
+  { id: "message.id", what: "a message id with a space", detail: "[message.id] conversation message: id must be 1-256 base64url characters", run: async (c) => converse(c, await session(), message({ id: "msg 1" })) },
   {
     id: "message.empty",
     what: "a message with no text, data or context",
     detail: "[message.empty] conversation message: needs at least one of text, data or context",
-    run: async (c) => converse(c, await signedOut(c), message({ text: undefined }))
+    run: async (c) => converse(c, await session(), message({ text: undefined }))
   },
-  {
-    id: "message.text-type",
-    what: "a number as text",
-    detail: "[message.text-type] conversation message: text must be a string",
-    run: async (c) => converse(c, await signedOut(c), message({ text: 1042 }))
-  },
+  { id: "message.text-type", what: "a number as text", detail: "[message.text-type] conversation message: text must be a string", run: async (c) => converse(c, await session(), message({ text: 1042 })) },
   {
     id: "message.json-in-text",
     what: "JSON in text",
-    detail: "[message.json-in-text] conversation message: JSON in text; use data (7.4)",
-    run: async (c) => {
-      expect((await converse(c, await signedOut(c), message({ text: '{"order": 1042}' }))).status).toBe(201);
-    }
+    detail: "[message.json-in-text] conversation message: JSON in text; use data (8.4)",
+    run: async (c) => expect((await converse(c, await session(), message({ text: '{"order": 1042}' }))).status).toBe(201)
   },
-  {
-    id: "message.data-type",
-    what: "an array as data",
-    detail: "[message.data-type] conversation message: data must be a JSON object",
-    run: async (c) => converse(c, await signedOut(c), message({ data: [1042] }))
-  },
-  {
-    id: "message.context-type",
-    what: "a string as context",
-    detail: "[message.context-type] conversation message: context must be an object",
-    run: async (c) => converse(c, await signedOut(c), message({ context: "London" }))
-  },
+  { id: "message.data-type", what: "an array as data", detail: "[message.data-type] conversation message: data must be a JSON object", run: async (c) => converse(c, await session(), message({ data: [1042] })) },
+  { id: "message.context-type", what: "a string as context", detail: "[message.context-type] conversation message: context must be an object", run: async (c) => converse(c, await session(), message({ context: "London" })) },
   {
     id: "message.id-reused",
     what: "a message id reused for other words",
     detail: /^\[message\.id-reused\] message id msg_[\w-]+ reused with different content$/,
     run: async (c) => {
-      const s = await signedOut(c);
+      const s = await session();
       const first = message();
       expect((await converse(c, s, first)).status).toBe(201);
       return converse(c, s, { ...first, text: "Something else" });
@@ -1854,26 +1333,26 @@ const TAMPERS: readonly Tamper[] = [
     id: "context.locale",
     what: "a locale that isn't a language tag",
     detail: '[context.locale] context.locale "English please" is not an RFC 5646 tag',
-    run: async (c) => converse(c, await signedOut(c), message({ context: { locale: "English please" } }))
+    run: async (c) => converse(c, await session(), message({ context: { locale: "English please" } }))
   },
   {
     id: "context.time-zone",
     what: "a time zone that isn't an IANA name",
     detail: '[context.time-zone] context.time_zone "GMT+1 please" is not an IANA name',
-    run: async (c) => converse(c, await signedOut(c), message({ context: { time_zone: "GMT+1 please" } }))
+    run: async (c) => converse(c, await session(), message({ context: { time_zone: "GMT+1 please" } }))
   },
   {
     id: "context.user-available",
     what: 'user_available "yes"',
     detail: "[context.user-available] context.user_available must be a boolean",
-    run: async (c) => converse(c, await signedOut(c), message({ context: { user_available: "yes" } }))
+    run: async (c) => converse(c, await session(), message({ context: { user_available: "yes" } }))
   },
   {
     id: "direct.agent-words",
     what: "a Direct Conversation opened with the agent's words",
     detail: "[direct.agent-words] Direct Conversation opened with words not marked as the User's (sender agent)",
     run: async (c) => {
-      const s = await signedOut(c);
+      const s = await session();
       const parent = await conversation(c, s);
       expect((await converse(c, s, message({ text: "Hi, it's me." }), { parent_conversation_id: parent })).status).toBe(201);
     }
@@ -1883,14 +1362,13 @@ const TAMPERS: readonly Tamper[] = [
     what: "the agent's own words in an open Direct Conversation",
     detail: /^\[direct\.agent-words-later\] agent's own words sent into Direct Conversation cnv_[\w-]+$/,
     run: async (c) => {
-      const s = await signedOut(c);
+      const s = await session();
       const parent = await conversation(c, s);
-      const opened = await converse(c, s, message({ sender: "human", text: "Hi, it's me." }), { parent_conversation_id: parent });
+      const opened = await converse(c, s, message({ author: { type: "human" }, text: "Hi, it's me." }), { parent_conversation_id: parent });
       const { conversation_id: direct } = (await opened.json()) as { conversation_id: string };
-      const send = (fields: Record<string, unknown>) =>
-        call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${direct}/messages`, { body: { message: message(fields) } });
+      const send = (fields: Record<string, unknown>) => call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${direct}/messages`, { body: { message: message(fields) } });
       // The User's words, and a context update from the agent, belong there.
-      expect((await send({ sender: "human", text: "Medium, please." })).status).toBe(202);
+      expect((await send({ author: { type: "human" }, text: "Medium, please." })).status).toBe(202);
       expect((await send({ text: undefined, context: { user_available: false } })).status).toBe(202);
       expect((await send({ text: "The user means the medium." })).status).toBe(202);
     }
@@ -1900,7 +1378,7 @@ const TAMPERS: readonly Tamper[] = [
     what: "a handoff with a reason in the body",
     detail: '[handoff.body] handoff body should be {}, got {"reason":"needs a person"}',
     run: async (c) => {
-      const s = await signedOut(c);
+      const s = await session();
       const id = await conversation(c, s);
       return call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${id}/handoff`, { body: { reason: "needs a person" } });
     }
@@ -1910,7 +1388,7 @@ const TAMPERS: readonly Tamper[] = [
     what: "a close with a body",
     detail: '[close.body] close body should be {}, got {"done":true}',
     run: async (c) => {
-      const s = await signedOut(c);
+      const s = await session();
       const id = await conversation(c, s);
       return call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${id}/close`, { body: { done: true } });
     }
@@ -1918,252 +1396,270 @@ const TAMPERS: readonly Tamper[] = [
   {
     id: "conversation.cross-user",
     what: "another User of the same agent reading a conversation",
-    detail: /^\[conversation\.cross-user\] User usr_Hd8pW2zQ5nVb7LtK3xRc9F reached conversation cnv_[\w-]+ of User usr_Q7c1vKx9TzLw3NdR5mHa2B$/,
+    detail: new RegExp(`^\\[conversation\\.cross-user\\] User ${OTHER_USER} reached conversation cnv_[\\w-]+ of User ${USER_ID}$`),
     run: async (c) => {
-      const a = await signedOut(c);
-      const id = await conversation(c, a);
-      // A second signed-out Session of the same agent, for a different User.
-      const bKey = await dpopKey();
-      const bResponse = await startSession(c, bKey, { assertion: await sessionAssertion(c, { claims: { sub: "usr_Hd8pW2zQ5nVb7LtK3xRc9F" } }) });
-      const b = { key: bKey, token: ((await bResponse.json()) as { access_token: string }).access_token, sessionId: "" };
-      return call(c, b, "GET", `${c.hosts.conversationsEndpoint}/${id}/events`);
+      const id = await conversation(c, await session());
+      return call(c, await session(OTHER_USER), "GET", `${c.hosts.conversationsEndpoint}/${id}/events`);
+    }
+  },
+  {
+    id: "message.author",
+    what: "a message without author",
+    detail: /^\[message\.author\] conversation message: author\.type must be agent or human$/,
+    run: async (c) => converse(c, await session(), message({ author: undefined }))
+  },
+  {
+    id: "message.author",
+    what: "an agent's message that names its author",
+    detail: "[message.author] conversation message: only Company messages name an author's id, name or image (8.4)",
+    run: async (c) => expect((await converse(c, await session(), message({ author: { type: "agent", name: "Helper" } }))).status).toBe(201)
+  },
+  {
+    id: "message.sender-field",
+    what: "a message that still says sender",
+    detail: /^\[message\.sender-field\]/,
+    run: async (c) => expect((await converse(c, await session(), message({ sender: "agent" }))).status).toBe(201)
+  },
+
+  // ---- The Session header (5.2, 5.3) ----
+  { id: "session-jwt.missing", what: "a request without the Session header", detail: /^\[session-jwt\.missing\] Session JWT: no Poppy-Session header \(GET \/products\)$/, run: (c) => getProducts(c, null) },
+  {
+    id: "session-jwt.missing-with-token",
+    what: "an access token without the Session header",
+    detail: /^\[session-jwt\.missing-with-token\] Session JWT: an access token without the Session header/,
+    run: (c) => getOrders(c, { jwt: null })
+  },
+  { id: "session-jwt.not-jwt", what: "a Session header that isn't a JWT", detail: /^\[session-jwt\.not-jwt\]/, run: (c) => getProducts(c, "not.a.jwt") },
+  { id: "session-jwt.typ", what: "a Session JWT with typ JWT", detail: /^\[session-jwt\.typ\] Session JWT: typ is "JWT"/, run: (c) => getProducts(c, { header: { typ: "JWT" } }) },
+  { id: "session-jwt.alg", what: "a Session JWT signed with HS256", detail: /^\[session-jwt\.alg\]/, run: async (c) => getProducts(c, { header: { alg: "HS256" }, key: await hmacKey() }) },
+  { id: "session-jwt.no-delegation", what: "a Session JWT without pap_dlg", detail: /^\[session-jwt\.no-delegation\]/, run: (c) => getProducts(c, { header: { pap_dlg: undefined } }) },
+  { id: "session-jwt.iss", what: "a Session JWT without iss", detail: /^\[session-jwt\.iss\]/, run: (c) => getProducts(c, { claims: { iss: undefined } }) },
+  { id: "session-jwt.kid", what: "a Session JWT whose kid isn't its key's thumbprint", detail: /^\[session-jwt\.kid\]/, run: (c) => getProducts(c, { header: { kid: "someone-else" } }) },
+  { id: "session-jwt.signature", what: "a Session JWT signed with a key its delegation doesn't name", detail: /^\[session-jwt\.signature\]/, run: async (c) => getProducts(c, { key: await strangerKey() }) },
+  { id: "session-jwt.iat", what: "a Session JWT ten minutes old", detail: /^\[session-jwt\.iat\] Session JWT: iat is outside the acceptance window/, run: (c) => getProducts(c, { claims: { iat: seconds() - 600 } }) },
+  {
+    id: "session-jwt.after-delegation",
+    what: "a Session JWT signed after its delegation expired",
+    detail: /^\[session-jwt\.after-delegation\]/,
+    run: (c) => getProducts(c, { delegation: { claims: { iat: seconds() - 3600, exp: seconds() - 10 } } })
+  },
+  { id: "session-jwt.aud", what: "a Session JWT for the token endpoint", detail: /^\[session-jwt\.aud\]/, run: (c) => getProducts(c, { claims: { aud: c.hosts.tokenEndpoint } }) },
+  { id: "session-jwt.htm", what: "a Session JWT for POST on a GET", detail: /^\[session-jwt\.htm\]/, run: (c) => getProducts(c, { claims: { htm: "POST" } }) },
+  { id: "session-jwt.htu", what: "a Session JWT for another URL", detail: /^\[session-jwt\.htu\]/, run: (c) => getProducts(c, { claims: { htu: orders(c) } }) },
+  { id: "session-jwt.sid", what: "a Session JWT whose sid has a slash", detail: /^\[session-jwt\.sid\]/, run: (c) => getProducts(c, { claims: { sid: "a/b" } }) },
+  { id: "session-jwt.sub", what: "a Session JWT without sub", detail: /^\[session-jwt\.sub\] Session JWT: sub/, run: (c) => getProducts(c, { claims: { sub: undefined } }) },
+  { id: "session-jwt.sub", what: "a Session JWT with an empty agent_id", detail: /^\[session-jwt\.sub\] Session JWT: agent_id/, run: (c) => getProducts(c, { claims: { agent_id: "" } }) },
+  { id: "session-jwt.ath", what: "a Session JWT whose ath is another token's", detail: /^\[session-jwt\.ath\]/, run: async (c) => getOrders(c, { jwt: { claims: { ath: await hash("another token") } } }) },
+  { id: "session-jwt.oauth-endpoint", what: "a Session header at the revocation endpoint", detail: /^\[session-jwt\.oauth-endpoint\] \/oauth\/revoke got a Poppy-Session header$/, run: async (c) => revoke(c, { headers: { "Poppy-Session": "eyJ.a.session-header" } }) },
+  { id: "session-jwt.ath-without-token", what: "ath with no access token", detail: /^\[session-jwt\.ath-without-token\]/, run: async (c) => getProducts(c, { claims: { ath: await hash("a token") } }) },
+  {
+    id: "session-jwt.sub-changed",
+    what: "a Session's sid with another User ID",
+    detail: /^\[session-jwt\.sub-changed\]/,
+    run: async (c) => {
+      const s = await session();
+      expect((await getProducts(c, undefined, s)).status).toBe(200);
+      // A new delegated key for the other User ID, so only the sid is shared.
+      return getProducts(c, { claims: { sub: "usr_Another1User2Id3Here4" } }, { ...s, key: await delegatedKey() });
+    }
+  },
+  {
+    id: "session-jwt.token-other-client",
+    what: "an access token issued to another client_id",
+    detail: /^\[session-jwt\.token-other-client\]/,
+    run: async (c) => getOrders(c, {}, { ...(await session()), ...(await signIn(c, { other: await otherClient(c) })) })
+  },
+
+  // ---- Delegations (5.2 Delegated keys) ----
+  { id: "delegation.not-jwt", what: "a pap_dlg that isn't a JWT", detail: /^\[delegation\.not-jwt\]/, run: (c) => getProducts(c, { delegation: "not-a-delegation" }) },
+  { id: "delegation.typ", what: "a delegation with typ JWT", detail: /^\[delegation\.typ\]/, run: (c) => getProducts(c, { delegation: { header: { typ: "JWT" } } }) },
+  { id: "delegation.alg", what: "a delegation signed with HS256", detail: /^\[delegation\.alg\]/, run: async (c) => getProducts(c, { delegation: { header: { alg: "HS256" }, key: await hmacKey() } }) },
+  { id: "delegation.kid", what: "a delegation whose kid names no published key", detail: /^\[delegation\.kid\]/, run: (c) => getProducts(c, { delegation: { header: { kid: "unpublished" } } }) },
+  { id: "delegation.signature", what: "a delegation signed with an unpublished key", detail: /^\[delegation\.signature\]/, run: async (c) => getProducts(c, { delegation: { key: await strangerKey() } }) },
+  { id: "delegation.iss", what: "a delegation from another client", detail: /^\[delegation\.iss\]/, run: (c) => getProducts(c, { delegation: { claims: { iss: OTHER } } }) },
+  {
+    id: "delegation.lifetime",
+    what: "a delegation for 25 hours",
+    detail: /^\[delegation\.lifetime\] delegation: exp is 90000 s after iat/,
+    run: (c) => getProducts(c, { delegation: { claims: { iat: seconds(), exp: seconds() + 25 * 3600 } } })
+  },
+  { id: "delegation.lifetime", what: "a delegation without exp", detail: /^\[delegation\.lifetime\] delegation: iat and exp are required/, run: (c) => getProducts(c, { delegation: { claims: { exp: undefined } } }) },
+  { id: "delegation.expired", what: "an expired delegation", detail: /^\[delegation\.expired\]/, run: (c) => getProducts(c, { delegation: { claims: { iat: seconds() - 7200, exp: seconds() - 3600 } } }) },
+  { id: "delegation.jti", what: "a delegation with a short jti", detail: /^\[delegation\.jti\]/, run: (c) => getProducts(c, { delegation: { claims: { jti: "short" } } }) },
+  { id: "delegation.cnf", what: "a delegation without cnf", detail: /^\[delegation\.cnf\]/, run: (c) => getProducts(c, { delegation: { claims: { cnf: undefined } } }) },
+  {
+    id: "delegation.private-key",
+    what: "a delegation that carries the private key",
+    detail: /^\[delegation\.private-key\]/,
+    run: async (c) => {
+      const s = await session();
+      return getProducts(c, { delegation: { claims: { cnf: { jwk: s.key.privateJwk } } } }, s);
+    }
+  },
+  { id: "delegation.names-user", what: "a delegation naming the User", detail: /^\[delegation\.names-user\] delegation: carries sub/, run: (c) => getProducts(c, { delegation: { claims: { sub: USER_ID } } }) },
+  {
+    id: "delegation.key-shared",
+    what: "one delegated key signing for two User IDs",
+    detail: /^\[delegation\.key-shared\]/,
+    run: async (c) => {
+      const s = await session();
+      expect((await getProducts(c, undefined, s)).status).toBe(200);
+      expect((await getProducts(c, { claims: { sub: "usr_Another1User2Id3Here4" } }, { ...s, sid: jti() })).status).toBe(200);
     }
   },
 
-  // ---- Operations extension ----
+  // ---- Accounts in Sessions (5.4) ----
   {
-    id: "confirm.approved-by",
-    what: 'a confirm approved_by "model"',
-    detail: '[confirm.approved-by] confirm with approved_by "model"',
+    id: "session.second-account",
+    what: "a second account in one Session",
+    detail: /^\[session\.second-account\]/,
     run: async (c) => {
-      const { s, operation } = await proposed(c);
-      return call(c, s, "POST", `${c.hosts.operationsEndpoint}/${operation.operation_id}/confirm`, { body: { revision: operation.revision, approved_by: "model" } });
+      const s = await signedIn(c);
+      expect((await getOrders(c, {}, s)).status).toBe(200);
+      return getOrders(c, {}, { ...s, ...(await signIn(c, { account: "acct_grace" })) });
+    }
+  },
+
+  // ---- Browser join (6) ----
+  {
+    id: "browser-join.form",
+    what: "the join form sent as JSON",
+    detail: /^\[browser-join\.form\] browser join: the form was sent as "application\/json"$/,
+    run: async (c) => {
+      const { code, cookie } = await joinPage(c);
+      expect((await authorizeJoin(c, await session(), code)).status).toBe(204);
+      return submitJoin(c, code, cookie, { contentType: "application/json", body: JSON.stringify({ code }) });
     }
   },
   {
-    id: "confirm.revision",
-    what: "a confirm without revision",
-    detail: "[confirm.revision] confirm with revision undefined",
+    id: "browser-join.form",
+    what: "the join form with another field",
+    detail: "[browser-join.form] the form carried fields other than code",
     run: async (c) => {
-      const { s, operation } = await proposed(c);
-      const response = await call(c, s, "POST", `${c.hosts.operationsEndpoint}/${operation.operation_id}/confirm`, { body: { approved_by: "user" } });
-      expect(response.status).toBe(400);
+      const { code, cookie } = await joinPage(c);
+      expect((await authorizeJoin(c, await session(), code)).status).toBe(204);
+      expect((await submitJoin(c, code, cookie, { body: new URLSearchParams({ code, return_to: "/orders" }).toString() })).status).toBe(303);
     }
   },
   {
-    id: "proposal.while-open",
-    what: "the same exchange asked for again while the confirmed one is in progress",
-    config: { slowConfirm: true },
-    detail: /^\[proposal\.while-open\] new proposal asked for while exc_[\w-]+ is in_progress after a confirm$/,
+    id: "browser-join.code-reused",
+    what: "a join code authorized twice",
+    detail: /^\[browser-join\.code-reused\] browser join: the code was authorized before$/,
     run: async (c) => {
-      const { s, operation } = await proposed(c);
-      const confirmed = await call(c, s, "POST", `${c.hosts.operationsEndpoint}/${operation.operation_id}/confirm`, {
-        body: { revision: operation.revision, approved_by: "user" }
-      });
-      expect(await confirmed.json()).toMatchObject({ state: "in_progress" });
-      // The Company returns the open operation rather than proposing another (Ops 4).
-      expect(await (await exchange(c, s)).json()).toMatchObject({ operation: { operation_id: operation.operation_id } });
+      const { code } = await joinPage(c);
+      const s = await session();
+      expect((await authorizeJoin(c, s, code)).status).toBe(204);
+      return authorizeJoin(c, s, code);
     }
   },
   {
-    id: "confirm.standing-permission-overrides-user",
-    what: "a standing permission where the User must approve",
-    config: { userApprovalRequired: true },
-    detail: "[confirm.standing-permission-overrides-user] confirmed with a standing permission when user_approval_required is true",
+    id: "browser-join.code-reused",
+    what: "a join form submitted twice",
+    detail: /^\[browser-join\.code-reused\] browser join: the code was submitted before$/,
     run: async (c) => {
-      const { s, operation } = await proposed(c);
-      return call(c, s, "POST", `${c.hosts.operationsEndpoint}/${operation.operation_id}/confirm`, {
-        body: { revision: operation.revision, approved_by: "standing_permission" }
-      });
+      const { code, cookie } = await joinPage(c);
+      expect((await authorizeJoin(c, await session(), code)).status).toBe(204);
+      expect((await submitJoin(c, code, cookie)).status).toBe(303);
+      return submitJoin(c, code, cookie);
     }
   },
-  // ---- 0.3: the Session header (5.2, 5.3) ----
-  ...(() => {
-    const products = (c: C) => `${c.hosts.api}/products`;
-    const get = async (c: C, jwt: Call03Options["jwt"], s?: Session03) => call03(c, s ?? (await session03()), "GET", products(c), { jwt });
-    const now = () => seconds();
-    const rows: Tamper[] = [
-      { id: "session-jwt.missing", what: "a request without the Session header", config: V3, detail: /^\[session-jwt\.missing\] Session JWT: no Poppy-Session header \(GET \/products\)$/, run: (c) => get(c, null) },
-      {
-        id: "session-jwt.missing-with-token", what: "an access token without the Session header", config: V3,
-        detail: /^\[session-jwt\.missing-with-token\] Session JWT: an access token without the Session header/,
-        run: async (c) => call03(c, await signedIn03(c), "GET", `${c.hosts.api}/orders`, { jwt: null })
-      },
-      { id: "session-jwt.not-jwt", what: "a Session header that isn't a JWT", config: V3, detail: /^\[session-jwt\.not-jwt\]/, run: (c) => get(c, "not.a.jwt") },
-      { id: "session-jwt.typ", what: "a Session JWT with typ JWT", config: V3, detail: /^\[session-jwt\.typ\] Session JWT: typ is "JWT"/, run: (c) => get(c, { header: { typ: "JWT" } }) },
-      { id: "session-jwt.alg", what: "a Session JWT signed with HS256", config: V3, detail: /^\[session-jwt\.alg\]/, run: async (c) => get(c, { header: { alg: "HS256" }, key: await hmacKey() }) },
-      { id: "session-jwt.no-delegation", what: "a Session JWT without pap_dlg", config: V3, detail: /^\[session-jwt\.no-delegation\]/, run: (c) => get(c, { header: { pap_dlg: undefined } }) },
-      { id: "session-jwt.iss", what: "a Session JWT without iss", config: V3, detail: /^\[session-jwt\.iss\]/, run: (c) => get(c, { claims: { iss: undefined } }) },
-      { id: "session-jwt.kid", what: "a Session JWT whose kid isn't its key's thumbprint", config: V3, detail: /^\[session-jwt\.kid\]/, run: (c) => get(c, { header: { kid: "someone-else" } }) },
-      { id: "session-jwt.signature", what: "a Session JWT signed with a key its delegation doesn't name", config: V3, detail: /^\[session-jwt\.signature\]/, run: async (c) => get(c, { key: await strangerKey() }) },
-      { id: "session-jwt.iat", what: "a Session JWT ten minutes old", config: V3, detail: /^\[session-jwt\.iat\] Session JWT: iat is outside the acceptance window/, run: (c) => get(c, { claims: { iat: now() - 600 } }) },
-      {
-        id: "session-jwt.after-delegation", what: "a Session JWT signed after its delegation expired", config: V3, detail: /^\[session-jwt\.after-delegation\]/,
-        run: (c) => get(c, { delegation: { claims: { iat: now() - 3600, exp: now() - 10 } } })
-      },
-      { id: "session-jwt.aud", what: "a Session JWT for the token endpoint", config: V3, detail: /^\[session-jwt\.aud\]/, run: (c) => get(c, { claims: { aud: c.hosts.tokenEndpoint } }) },
-      { id: "session-jwt.htm", what: "a Session JWT for POST on a GET", config: V3, detail: /^\[session-jwt\.htm\]/, run: (c) => get(c, { claims: { htm: "POST" } }) },
-      { id: "session-jwt.htu", what: "a Session JWT for another URL", config: V3, detail: /^\[session-jwt\.htu\]/, run: (c) => get(c, { claims: { htu: `${c.hosts.api}/orders` } }) },
-      { id: "session-jwt.sid", what: "a Session JWT whose sid has a slash", config: V3, detail: /^\[session-jwt\.sid\]/, run: (c) => get(c, { claims: { sid: "a/b" } }) },
-      { id: "session-jwt.sub", what: "a Session JWT without sub", config: V3, detail: /^\[session-jwt\.sub\]/, run: (c) => get(c, { claims: { sub: undefined } }) },
-      {
-        id: "session-jwt.ath", what: "a Session JWT whose ath is another token's", config: V3, detail: /^\[session-jwt\.ath\]/,
-        run: async (c) => call03(c, await signedIn03(c), "GET", `${c.hosts.api}/orders`, { jwt: { claims: { ath: await hash("another token") } } })
-      },
-      { id: "session-jwt.ath-without-token", what: "ath with no access token", config: V3, detail: /^\[session-jwt\.ath-without-token\]/, run: async (c) => get(c, { claims: { ath: await hash("a token") } }) },
-      {
-        id: "session-jwt.sub-changed", what: "a Session's sid with another User ID", config: V3, detail: /^\[session-jwt\.sub-changed\]/,
-        run: async (c) => {
-          const s = await session03();
-          expect((await get(c, undefined, s)).status).toBe(200);
-          // A new delegated key for the other User ID, so only the sid is shared.
-          return call03(c, { ...s, key: await delegatedKey() }, "GET", products(c), { jwt: { claims: { sub: "usr_Another1User2Id3Here4" } } });
-        }
-      },
-      {
-        id: "session-jwt.token-other-client", what: "an access token issued to another client_id", config: V3, detail: /^\[session-jwt\.token-other-client\]/,
-        run: async (c) => call03(c, { ...(await session03()), token: await signIn03(c, { clientId: CLIENT_ID }) }, "GET", `${c.hosts.api}/orders`)
-      },
-      { id: "session-jwt.jti-missing", what: "a Session JWT without jti", config: V3, detail: "[session-jwt.jti-missing] session-jwt: missing jti", run: (c) => get(c, { claims: { jti: undefined } }) },
-      { id: "session-jwt.jti-weak", what: "a Session JWT jti of 64 bits", config: V3, detail: '[session-jwt.jti-weak] session-jwt: jti "abcdefgh" is not 128 random bits of base64url', run: (c) => get(c, { claims: { jti: "abcdefgh" } }) },
-      {
-        id: "session-jwt.jti-reused", what: "the same Session JWT twice", config: V3, detail: /^\[session-jwt\.jti-reused\] session-jwt: reused jti [\w-]{22}$/,
-        run: async (c) => {
-          const s = await session03();
-          const jwt = await sessionJwt(c, s.key, { method: "GET", url: products(c), sid: s.sid });
-          expect((await get(c, jwt, s)).status).toBe(200);
-          return get(c, jwt, s);
-        }
-      },
-      // ---- 0.3: delegations (5.2) ----
-      { id: "delegation.not-jwt", what: "a pap_dlg that isn't a JWT", config: V3, detail: /^\[delegation\.not-jwt\]/, run: (c) => get(c, { delegation: "not-a-delegation" }) },
-      { id: "delegation.typ", what: "a delegation with typ JWT", config: V3, detail: /^\[delegation\.typ\]/, run: (c) => get(c, { delegation: { header: { typ: "JWT" } } }) },
-      { id: "delegation.alg", what: "a delegation signed with HS256", config: V3, detail: /^\[delegation\.alg\]/, run: async (c) => get(c, { delegation: { header: { alg: "HS256" }, key: await hmacKey() } }) },
-      { id: "delegation.kid", what: "a delegation whose kid names no published key", config: V3, detail: /^\[delegation\.kid\]/, run: (c) => get(c, { delegation: { header: { kid: "unpublished" } } }) },
-      { id: "delegation.signature", what: "a delegation signed with an unpublished key", config: V3, detail: /^\[delegation\.signature\]/, run: async (c) => get(c, { delegation: { key: await strangerKey() } }) },
-      { id: "delegation.iss", what: "a delegation from another client", config: V3, detail: /^\[delegation\.iss\]/, run: (c) => get(c, { delegation: { claims: { iss: CLIENT_ID } } }) },
-      { id: "delegation.lifetime", what: "a delegation for 25 hours", config: V3, detail: /^\[delegation\.lifetime\] delegation: exp is 90000 s after iat/, run: (c) => get(c, { delegation: { claims: { iat: now(), exp: now() + 25 * 3600 } } }) },
-      { id: "delegation.expired", what: "an expired delegation", config: V3, detail: /^\[delegation\.expired\]/, run: (c) => get(c, { delegation: { claims: { iat: now() - 7200, exp: now() - 3600 } } }) },
-      { id: "delegation.jti", what: "a delegation with a short jti", config: V3, detail: /^\[delegation\.jti\]/, run: (c) => get(c, { delegation: { claims: { jti: "short" } } }) },
-      { id: "delegation.cnf", what: "a delegation without cnf", config: V3, detail: /^\[delegation\.cnf\]/, run: (c) => get(c, { delegation: { claims: { cnf: undefined } } }) },
-      {
-        id: "delegation.private-key", what: "a delegation that carries the private key", config: V3, detail: /^\[delegation\.private-key\]/,
-        run: async (c) => {
-          const s = await session03();
-          return get(c, { delegation: { claims: { cnf: { jwk: s.key.privateJwk } } } }, s);
-        }
-      },
-      { id: "delegation.names-user", what: "a delegation naming the User", config: V3, detail: /^\[delegation\.names-user\] delegation: carries sub/, run: (c) => get(c, { delegation: { claims: { sub: USER_ID } } }) },
-      {
-        id: "delegation.key-shared", what: "one delegated key signing for two User IDs", config: V3, detail: /^\[delegation\.key-shared\]/,
-        run: async (c) => {
-          const s = await session03();
-          expect((await get(c, undefined, s)).status).toBe(200);
-          return call03(c, { ...s, sid: jti() }, "GET", products(c), { jwt: { claims: { sub: "usr_Another1User2Id3Here4" } } });
-        }
-      },
-      // ---- 0.3: accounts, sign-in and the browser join ----
-      {
-        id: "session.second-account", what: "a second account in one Session", config: V3, detail: /^\[session\.second-account\]/,
-        run: async (c) => {
-          const s = await signedIn03(c);
-          expect((await call03(c, s, "GET", `${c.hosts.api}/orders`)).status).toBe(200);
-          return call03(c, { ...s, token: await signIn03(c, { account: "acct_grace" }) }, "GET", `${c.hosts.api}/orders`);
-        }
-      },
-      {
-        id: "token.dpop-not-sent", what: "a refresh without a DPoP proof where the issuer asks for one", config: { protocolVersion: "0.3" }, detail: /^\[token\.dpop-not-sent\] token request \(refresh_token\) without a DPoP proof/,
-        run: (c) => token03(c, { grant_type: "refresh_token", refresh_token: "pat_unknown" })
-      },
-      {
-        id: "mediated.scope-with-code", what: "scope resent with the one-time code", config: { ...V3, signIn: { direct: null, device: null, mediated: ["poppy:read"] } }, detail: /^\[mediated\.scope-with-code\]/,
-        run: async (c) => {
-          const first = (await (await token03(c, { grant_type: "https://personalagentprotocol.org/grant/mediated-sign-in", scope: "orders:read", email: "grace@example.com", password: "battery staple" })).json()) as { sign_in_id: string };
-          return token03(c, { grant_type: "https://personalagentprotocol.org/grant/mediated-sign-in", sign_in_id: first.sign_in_id, one_time_code: (await c.stub.lastOneTimeCode())!, scope: "orders:read" });
-        }
-      },
-      {
-        id: "mediated.code-other-client", what: "a one-time code sent by another client", config: { ...V3, signIn: { direct: null, device: null, mediated: ["poppy:read"] } }, detail: /^\[mediated\.code-other-client\]/,
-        run: async (c) => {
-          const first = (await (await token03(c, { grant_type: "https://personalagentprotocol.org/grant/mediated-sign-in", scope: "orders:read", email: "grace@example.com", password: "battery staple" })).json()) as { sign_in_id: string };
-          return token03(c, { grant_type: "https://personalagentprotocol.org/grant/mediated-sign-in", sign_in_id: first.sign_in_id, one_time_code: (await c.stub.lastOneTimeCode())! }, { clientId: CLIENT_ID });
-        }
-      },
-      {
-        id: "browser-join.form", what: "the join form sent as JSON", config: V3, detail: /^\[browser-join\.form\]/,
-        run: async (c) => {
-          const { code, cookie } = await joinPage(c);
-          expect((await authorizeJoin(c, await session03(), code)).status).toBe(204);
-          return submitJoin(c, code, cookie, { contentType: "application/json", body: JSON.stringify({ code }) });
-        }
-      },
-      {
-        id: "browser-join.code-reused", what: "a join code authorized twice", config: V3, detail: /^\[browser-join\.code-reused\] browser join: the code was authorized before$/,
-        run: async (c) => {
-          const { code } = await joinPage(c);
-          const s = await session03();
-          expect((await authorizeJoin(c, s, code)).status).toBe(204);
-          return authorizeJoin(c, s, code);
-        }
-      },
-      {
-        id: "browser-join.cookie", what: "the join form without its cookie", config: V3, detail: /^\[browser-join\.cookie\]/,
-        run: async (c) => {
-          const { code } = await joinPage(c);
-          expect((await authorizeJoin(c, await session03(), code)).status).toBe(204);
-          return submitJoin(c, code, null);
-        }
-      },
-      {
-        id: "browser-join.not-authorized", what: "the join form before its code was authorized", config: V3, detail: /^\[browser-join\.not-authorized\]/,
-        run: async (c) => {
-          const { code, cookie } = await joinPage(c);
-          return submitJoin(c, code, cookie);
-        }
-      },
-      {
-        id: "browser-join.authorize-body", what: "authorize with a form body", config: V3, detail: /^\[browser-join\.authorize-body\]/,
-        run: async (c) => {
-          const { code } = await joinPage(c);
-          return authorizeJoin(c, await session03(), code, { body: `code=${code}`, contentType: "application/x-www-form-urlencoded" });
-        }
-      },
-      // ---- 0.3: Operations 2 (Ops 6) and messages (8.4) ----
-      {
-        id: "approval.header", what: "a Poppy-Approval that isn't a Dictionary", config: V3, detail: /^\[approval\.header\]/,
-        run: async (c) => exchange03(c, await signedIn03(c), { "Poppy-Approval": "operation_id=exc_1 revision" })
-      },
-      {
-        id: "approval.idempotency-key-reused", what: "the approved request with the first request's Idempotency-Key", config: V3, detail: /^\[approval\.idempotency-key-reused\]/,
-        run: async (c) => {
-          const s = await signedIn03(c);
-          const key = jti();
-          const refused = (await (await exchange03(c, s, { "Idempotency-Key": key })).json()) as { operation: { operation_id: string; revision: string } };
-          return exchange03(c, s, { "Idempotency-Key": key, "Poppy-Approval": `operation_id="${refused.operation.operation_id}", revision="${refused.operation.revision}"` });
-        }
-      },
-      {
-        id: "approval.mcp-meta", what: "an MCP approval that isn't an object", config: V3, detail: /^\[approval\.mcp-meta\]/,
-        run: async (c) => call03(c, { ...(await session03()), token: await signIn03(c, { resource: c.hosts.mcpUrl }) }, "POST", c.hosts.mcpUrl, {
-          headers: { Accept: "application/json, text/event-stream" },
-          body: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "exchange_item", arguments: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, _meta: { "personalagentprotocol.org/approval": "yes" } } }
-        })
-      },
-      {
-        id: "approval.message", what: "a message whose approval isn't an object", config: V3, detail: /^\[approval\.message\]/,
-        run: async (c) => call03(c, await signedIn03(c), "POST", c.hosts.conversationsEndpoint, { body: { message: message03({ text: undefined, approval: "yes" }) } })
-      },
-      {
-        id: "message.author", what: "a message without author", config: V3, detail: /^\[message\.author\] conversation message: author\.type must be agent or human$/,
-        run: async (c) => call03(c, await session03(), "POST", c.hosts.conversationsEndpoint, { body: { message: message03({ author: undefined }) } })
-      },
-      {
-        id: "message.sender-field", what: "a 0.3 message that still says sender", config: V3, detail: /^\[message\.sender-field\]/,
-        run: async (c) => call03(c, await session03(), "POST", c.hosts.conversationsEndpoint, { body: { message: message03({ sender: "agent" }) } })
-      }
-    ];
-    return rows;
-  })()
+  {
+    id: "browser-join.cookie",
+    what: "the join form without its cookie",
+    detail: /^\[browser-join\.cookie\]/,
+    run: async (c) => {
+      const { code } = await joinPage(c);
+      expect((await authorizeJoin(c, await session(), code)).status).toBe(204);
+      return submitJoin(c, code, null);
+    }
+  },
+  {
+    id: "browser-join.not-authorized",
+    what: "the join form before its code was authorized",
+    detail: /^\[browser-join\.not-authorized\]/,
+    run: async (c) => {
+      const { code, cookie } = await joinPage(c);
+      return submitJoin(c, code, cookie);
+    }
+  },
+  {
+    id: "browser-join.authorize-body",
+    what: "authorize with a form body",
+    detail: /^\[browser-join\.authorize-body\]/,
+    run: async (c) => {
+      const { code } = await joinPage(c);
+      return authorizeJoin(c, await session(), code, { body: `code=${code}`, contentType: "application/x-www-form-urlencoded" });
+    }
+  },
+
+  // ---- Operations 2 (Ops 6) ----
+  {
+    id: "approval.header",
+    what: "a Poppy-Approval that isn't a Dictionary",
+    detail: /^\[approval\.header\]/,
+    run: async (c) => exchange(c, await signedIn(c), { "Poppy-Approval": "operation_id=exc_1 revision" })
+  },
+  {
+    id: "approval.idempotency-key-reused",
+    what: "the approved request with the first request's Idempotency-Key",
+    detail: /^\[approval\.idempotency-key-reused\]/,
+    run: async (c) => {
+      const s = await signedIn(c);
+      const key = jti();
+      const first = (await (await exchange(c, s, { "Idempotency-Key": key })).json()) as { operation: Operation };
+      return exchange(c, s, { "Idempotency-Key": key, ...approval(first.operation) });
+    }
+  },
+  {
+    id: "approval.mcp-meta",
+    what: "an MCP approval that isn't an object",
+    detail: /^\[approval\.mcp-meta\]/,
+    run: async (c) =>
+      call(c, await signedIn(c, { resource: c.hosts.mcpUrl }), "POST", c.hosts.mcpUrl, {
+        headers: MCP_ACCEPT,
+        body: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "exchange_item", arguments: { order_id: "ord_7Hk2", ...EXCHANGE }, _meta: { "personalagentprotocol.org/approval": "yes" } } }
+      })
+  },
+  {
+    id: "approval.message",
+    what: "a message whose approval isn't an object",
+    detail: /^\[approval\.message\]/,
+    run: async (c) => converse(c, await signedIn(c), message({ text: undefined, approval: "yes" }))
+  },
+
+  // ---- Feedback (9.3) ----
+  {
+    id: "feedback.fields",
+    what: "a feedback report whose task is over 200 characters",
+    config: { feedback: true },
+    detail: "[feedback.fields] feedback report: task (at most 200 characters) and description (at most 2,000) are required strings",
+    run: async (c) => feedback(c, await session(), { ...REPORT, task: "x".repeat(201) })
+  },
+  {
+    id: "feedback.kind",
+    what: "a feedback report with kind",
+    config: { feedback: true },
+    detail: "[feedback.kind] feedback report: kind is 0.2's; 0.3 removed it (9.3)",
+    run: async (c) => expect((await feedback(c, await session(), { kind: "missing", ...REPORT })).status).toBe(202)
+  },
+  {
+    id: "feedback.excluded-task",
+    what: "a feedback report about an excluded task",
+    config: { feedback: true },
+    detail: '[feedback.excluded-task] feedback report about "Close an account", which the Company lists as excluded',
+    run: async (c) => expect((await feedback(c, await session(), { ...REPORT, task: "Close an account" })).status).toBe(202)
+  },
+  {
+    id: "feedback.repeated",
+    what: "a second feedback report about the same task",
+    config: { feedback: true },
+    detail: '[feedback.repeated] a second feedback report about "Pay with a gift card"',
+    run: async (c) => {
+      const s = await session();
+      expect((await feedback(c, s, REPORT)).status).toBe(202);
+      expect((await feedback(c, s, REPORT)).status).toBe(202);
+    }
+  }
 ];
 
 describe("each check the mock Company makes", () => {
@@ -2196,7 +1692,7 @@ describe("each check the mock Company makes", () => {
     // Ids are written out where a check records them, or built from the JWT kind.
     const produced = (id: string) => {
       const [kind, check] = id.split(/\.(.*)/s) as [string, string];
-      return source.includes(`"${id}"`) || source.includes(`\`\${kind}.${check}\``) && ["client-assertion", "session-assertion", "dpop", "browser-assertion", "session-jwt"].includes(kind);
+      return source.includes(`"${id}"`) || (source.includes(`\`\${kind}.${check}\``) && ["client-assertion", "dpop", "session-jwt"].includes(kind));
     };
     expect(VIOLATION_IDS.filter((id) => !produced(id))).toEqual([]);
     // Every literal id the source passes to a check is in the catalog (TypeScript also enforces this).
@@ -2208,12 +1704,14 @@ describe("each check the mock Company makes", () => {
     expect(source.match(/\bviolation\(\s*`[^`$]*`/g) ?? []).toEqual([]);
   });
 
-  it("says what each check rests on, and files it as a violation or a warning by that basis", () => {
-    // "MUST (4.3): …", "RFC (RFC 9449 4.2): …", "Guides (Retries): …": the basis, where, then what.
+  it("says what each check rests on, and where in 0.3, and files it as a violation or a warning by that basis", () => {
+    // "MUST (5.2: …): …", "RFC (RFC 9449 4.3; 4.5): …", "Guides (Retries: …): …": the basis, where, then what.
     const malformed = VIOLATION_IDS.filter(
       (id) => !/^(?:MUST(?: NOT)?|RFC|Rule|SHOULD(?: NOT)?|Guides|Reading) \([^)]+\)(?:, strict Company only)?: \S/.test(VIOLATIONS[id])
     );
     expect(malformed).toEqual([]);
+    // Every section is 0.3's, so none says so, and none names a version's section.
+    expect(VIOLATION_IDS.filter((id) => /\b0\.3 /.test(VIOLATIONS[id]))).toEqual([]);
     // docs/conformance-levels.md: MUST, RFC and Rule are failures; SHOULD and Guides warnings;
     // readings tentative. Nothing rests on a MAY.
     const expected = { MUST: "failure", RFC: "failure", Rule: "failure", SHOULD: "warning", Guides: "warning", Reading: "tentative" } as const;
@@ -2227,67 +1725,43 @@ describe("each check the mock Company makes", () => {
 });
 
 describe("the mock Company", () => {
-  // A signed-in User opens a conversation, which an order-related message makes the account's
-  // (7.2). Then the retry of its first message id comes from a Session that has left that account:
-  // another, signed-out Session of the same User, or the same Session once its Account Token is
-  // revoked (7.11). The idempotency cache would hand back the original conversation and its
-  // reply; the ownership gate must come first, so the retry gets sign_in_required.
-  it.each(([
-    {
-      name: "checks conversation ownership before message-id idempotency on a signed-out retry (S8)",
-      retryFrom: async (c: C) => signedOut(c)
-    },
-    {
-      name: "checks conversation ownership before message-id idempotency on a retry after the Account Token is revoked (7.11, S8)",
-      retryFrom: async (c: C, s: Awaited<ReturnType<typeof signedIn>>) => {
-        const revoke = await form(c, c.hosts.revocationEndpoint, { token: s.refreshToken, token_type_hint: "refresh_token" }, null);
-        expect(revoke.status).toBe(200);
-        return s;
-      }
-    }
-  ] as const).map((row) => [row.name, row] as const))("%s", async (_name, { retryFrom }) => {
-    const c = company();
-    const s = await signedIn(c);
-    const first = message({ id: `msg_${jti()}`, text: "I'd like to exchange the jacket on my order" });
-    const opened = await converse(c, s, first);
-    expect(opened.status).toBe(201);
-    const { conversation_id } = (await opened.json()) as { conversation_id: string };
-    expect(conversation_id).toMatch(/^cnv_/);
-    const retry = await call(c, await retryFrom(c, s), "POST", `${c.hosts.conversationsEndpoint}?wait=1`, { body: { message: first } });
-    expect(retry.status).toBe(403);
-    expect(retry.headers.get("WWW-Authenticate")).toContain("sign_in_required");
-    const body = JSON.stringify(await retry.json());
-    expect(JSON.parse(body)).toMatchObject({ error: "sign_in_required" });
-    expect(body).not.toContain(conversation_id);
-    expect(body).not.toContain("ord_7Hk2");
-    // The same User retried their own message: no cross-user violation.
-    expect((await c.stub.state()).recorded).toEqual([]);
-  });
-
-  it("publishes poppy.json and OAuth server metadata that check out", async () => {
+  it("publishes poppy.json, the domain's protected resource metadata and the issuer's metadata that check out (3, 3.2)", async () => {
     const c = company();
     const document = (await (await c.call(`https://${c.hosts.domain}/.well-known/poppy.json`)).json()) as {
       protocol_version: string;
       organization: { domain: string };
-      auth: { issuer: string; mediated: { endpoint: string } };
+      auth: { issuer?: string; scopes: Record<string, string>; scope_hints: Record<string, unknown> };
       apis: { type: string }[];
+      extensions: Record<string, { version: string }>;
     };
-    expect(document.protocol_version).toBe("0.1");
+    expect(document.protocol_version).toBe("0.3");
     expect(document.organization.domain).toBe(c.hosts.domain);
-    expect(document.auth.issuer).toBe(c.hosts.issuer);
+    // One authorization server, so auth.issuer is left out (3.1).
+    expect(document.auth.issuer).toBeUndefined();
+    expect(Object.keys(document.auth.scopes).sort()).toEqual(["addresses", "orders:read", "orders:write"]);
+    expect(Object.keys(document.auth.scope_hints).sort()).toEqual(["addresses", "orders:read", "orders:write"]);
     expect(document.apis.map((api) => api.type)).toEqual(["graphql", "openapi", "mcp"]);
-    const alt = (await (await c.call(`https://www.${c.hosts.altDomain}/.well-known/poppy.json`)).json()) as {
-      organization: { domain: string };
-      auth: { issuer: string };
-    };
+    expect(document.extensions.operations).toEqual({ version: "2" });
+    expect(document.extensions["mediated-sign-in"]).toMatchObject({ version: "1", scopes: ["orders:read", "orders:write"] });
+    for (const domain of [c.hosts.domain, c.hosts.altDomain]) {
+      const resource = (await (await c.call(`https://${domain}/.well-known/oauth-protected-resource`)).json()) as Record<string, unknown>;
+      expect(resource).toEqual({ resource: `https://${domain}`, authorization_servers: [c.hosts.issuer] });
+    }
+    const alt = (await (await c.call(`https://www.${c.hosts.altDomain}/.well-known/poppy.json`)).json()) as { organization: { domain: string } };
     expect(alt.organization.domain).toBe(c.hosts.altDomain);
-    expect(alt.auth.issuer).toBe(c.hosts.issuer);
-    const metadata = (await (
-      await c.call(`${c.hosts.issuer}/.well-known/oauth-authorization-server`)
-    ).json()) as { issuer: string; poppy_domains: string[]; token_endpoint: string };
-    expect(metadata.issuer).toBe(c.hosts.issuer);
-    expect(metadata.poppy_domains).toEqual([c.hosts.domain, c.hosts.altDomain]);
-    expect(metadata.token_endpoint).toBe(c.hosts.tokenEndpoint);
+    const metadata = (await (await c.call(`${c.hosts.issuer}/.well-known/oauth-authorization-server`)).json()) as Record<string, unknown>;
+    expect(metadata).toMatchObject({
+      issuer: c.hosts.issuer,
+      token_endpoint: c.hosts.tokenEndpoint,
+      revocation_endpoint: c.hosts.revocationEndpoint,
+      authorization_endpoint: c.hosts.authorizationEndpoint,
+      device_authorization_endpoint: c.hosts.deviceEndpoint,
+      grant_types_supported: ["refresh_token", "authorization_code", DEVICE_CODE, MEDIATED],
+      scopes_supported: ["orders:read", "orders:write", "addresses"],
+      protected_resources: [`https://${c.hosts.domain}`, `https://${c.hosts.altDomain}`, c.hosts.mcpUrl],
+      dpop_signing_alg_values_supported: ["ES256"]
+    });
+    expect("poppy_domains" in metadata).toBe(false);
   });
 
   it("serves an issuer with a trailing slash exactly, endpoints unchanged (S7)", async () => {
@@ -2295,12 +1769,9 @@ describe("the mock Company", () => {
     await c.stub.configure({ issuerTrailingSlash: true });
     const slashed = hostsFor(c.id, { issuerTrailingSlash: true });
     expect(slashed.issuer).toBe(`https://auth.${c.hosts.domain}/`);
-    const document = (await (await c.call(`https://${c.hosts.domain}/.well-known/poppy.json`)).json()) as { auth: { issuer: string } };
-    expect(document.auth.issuer).toBe(slashed.issuer);
-    const metadata = (await (await c.call(`https://auth.${c.hosts.domain}/.well-known/oauth-authorization-server`)).json()) as {
-      issuer: string;
-      token_endpoint: string;
-    };
+    const resource = (await (await c.call(`https://${c.hosts.domain}/.well-known/oauth-protected-resource`)).json()) as { authorization_servers: string[] };
+    expect(resource.authorization_servers).toEqual([slashed.issuer]);
+    const metadata = (await (await c.call(`https://auth.${c.hosts.domain}/.well-known/oauth-authorization-server`)).json()) as Record<string, unknown>;
     expect(metadata).toMatchObject({ issuer: slashed.issuer, token_endpoint: c.hosts.tokenEndpoint });
   });
 
@@ -2309,8 +1780,8 @@ describe("the mock Company", () => {
     await c.stub.configure({ issuerPath: "/tenant" });
     const pathed = hostsFor(c.id, { issuerPath: "/tenant" });
     expect(pathed.issuer).toBe(`https://auth.${c.hosts.domain}/tenant`);
-    const document = (await (await c.call(`https://${c.hosts.domain}/.well-known/poppy.json`)).json()) as { auth: { issuer: string } };
-    expect(document.auth.issuer).toBe(pathed.issuer);
+    const resource = (await (await c.call(`https://${c.hosts.domain}/.well-known/oauth-protected-resource`)).json()) as { authorization_servers: string[] };
+    expect(resource.authorization_servers).toEqual([pathed.issuer]);
     const inserted = await c.call(`https://auth.${c.hosts.domain}/.well-known/oauth-authorization-server/tenant`);
     expect(inserted.status).toBe(200);
     expect(await inserted.json()).toMatchObject({ issuer: pathed.issuer, token_endpoint: c.hosts.tokenEndpoint });
@@ -2319,17 +1790,17 @@ describe("the mock Company", () => {
     expect(() => hostsFor(c.id, { issuerPath: "tenant/" })).toThrow(/issuerPath/);
   });
 
-  it("rejects assertions a strict Company would, and records why", async () => {
+  it("rejects client assertions a strict Company would, and records why (S2)", async () => {
     const cases = [
-      { shape: { typ: null }, expected: 'header typ must be "JWT", got undefined' },
-      { shape: { typ: "at+jwt" }, expected: 'header typ must be "JWT", got "at+jwt"' },
-      { shape: { kid: null }, expected: "kid undefined names no published key" },
-      { shape: { kid: "not-a-key" }, expected: 'kid "not-a-key" names no published key' },
-      { shape: { lifetime: 120 }, expected: "lifetime 120s is too long" }
-    ] as const;
-    for (const { shape, expected } of cases) {
+      { tamper: { header: { typ: undefined } }, expected: 'header typ must be "JWT", got undefined' },
+      { tamper: { header: { typ: "at+jwt" } }, expected: 'header typ must be "JWT", got "at+jwt"' },
+      { tamper: { header: { kid: undefined } }, expected: "kid undefined names no published key" },
+      { tamper: { header: { kid: "not-a-key" } }, expected: 'kid "not-a-key" names no published key' },
+      { tamper: { claims: lifetime(120) }, expected: "lifetime 120s is too long" }
+    ];
+    for (const { tamper, expected } of cases) {
       const c = company();
-      const response = await startSession(c, await dpopKey(), { client: await assertion(c.hosts.tokenEndpoint, CLIENT_ID, {}, shape) });
+      const response = await revoke(c, { client: await clientAssertion(c, tamper) });
       expect(response.status).toBe(401);
       expect(await response.json()).toMatchObject({ error: "invalid_client" });
       const violations = (await c.stub.state()).recorded;
@@ -2338,61 +1809,99 @@ describe("the mock Company", () => {
     }
   });
 
-  it("accepts the same assertions with strict checks turned off", async () => {
+  it("accepts the same client assertion with strict checks turned off", async () => {
     const c = company();
     await c.stub.configure({ strictAssertions: false });
-    const response = await startSession(c, await dpopKey(), {
-      // With two published keys, an assertion without a kid can't be verified at all.
-      assertion: await assertion(c.hosts.tokenEndpoint, USER_ID, {}, { typ: null }),
-      client: await assertion(c.hosts.tokenEndpoint, CLIENT_ID, {}, { typ: null, lifetime: 120 })
-    });
-    expect(response.status).toBe(200);
+    expect((await revoke(c, { client: await clientAssertion(c, { header: { typ: undefined }, claims: lifetime(120) }) })).status).toBe(200);
     expect((await c.stub.state()).recorded).toEqual([]);
   });
 
-  it("accepts a client assertion for the token endpoint or issuer unless aud must be exact (S1)", async () => {
-    for (const aud of ["issuer", "tokenEndpoint"] as const) {
-      const c = company();
-      const response = await form(c, c.hosts.revocationEndpoint, { token: "pat_unknown" }, null, { client: await clientAssertion(c.hosts[aud]) });
-      expect(response.status).toBe(200);
-      expect((await c.stub.state()).recorded).toEqual([]);
-    }
-    const exact = company();
-    await exact.stub.configure({ clientAssertionAud: "exact" });
-    expect((await form(exact, exact.hosts.revocationEndpoint, { token: "pat_unknown" }, null)).status).toBe(200);
-    expect((await exact.stub.state()).recorded).toEqual([]);
-  });
-
-  it("starts a signed-out Session for a correct request, with no violations", async () => {
+  it("accepts a client assertion for the issuer at the token, device and revocation endpoints, and nothing else (4.1)", async () => {
     const c = company();
-    const response = await startSession(c, await dpopKey());
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-    const token = (await response.json()) as Record<string, unknown>;
-    expect(token).toMatchObject({ token_type: "DPoP", signed_in: false, scope: "" });
-    expect(token.session_id).toMatch(/^ses_/);
-    const state = await c.stub.state();
-    expect(state.recorded).toEqual([]);
-    expect(state.userIds).toEqual([USER_ID]);
-    expect(state.requests).toEqual([
-      expect.objectContaining({ method: "POST", url: c.hosts.tokenEndpoint, grant: JWT_BEARER, status: 200, error: null, proofNonce: null })
-    ]);
+    expect((await form(c, c.hosts.deviceEndpoint, { scope: "orders:read" }, null)).status).toBe(200);
+    expect(await (await tokenRequest(c, UNKNOWN_REFRESH)).json()).toMatchObject({ error: "invalid_grant" });
+    expect((await revoke(c)).status).toBe(200);
+    expect((await c.stub.state()).recorded).toEqual([]);
+    for (const aud of [c.hosts.tokenEndpoint, c.hosts.revocationEndpoint, c.hosts.deviceEndpoint]) {
+      expect(await (await revoke(c, { client: await clientAssertion(c, { claims: { aud } }) })).json()).toMatchObject({ error: "invalid_client" });
+    }
+    expect((await c.stub.state()).recorded.map(violationId)).toEqual(["client-assertion.aud", "client-assertion.aud", "client-assertion.aud"]);
   });
 
   it("takes the client from the client assertion when client_id is left out (RFC 7521 4.2, RFC 7523 3)", async () => {
     const c = company();
-    const response = await startSession(c, await dpopKey(), { clientId: null });
-    expect(response.status).toBe(200);
-    expect(((await response.json()) as Record<string, unknown>).signed_in).toBe(false);
+    expect((await revoke(c, { clientId: null })).status).toBe(200);
     expect((await c.stub.state()).recorded).toEqual([]);
     // Without client_id, an assertion whose iss and sub differ names no client.
-    const unnamed = await startSession(c, await dpopKey(), {
-      clientId: null,
-      client: await clientAssertion(c.hosts.tokenEndpoint, { claims: { sub: USER_ID } })
-    });
+    const unnamed = await revoke(c, { clientId: null, client: await clientAssertion(c, { claims: { sub: USER_ID } }) });
     expect(unnamed.status).toBe(401);
     expect(((await unnamed.json()) as Record<string, unknown>).error).toBe("invalid_client");
     // A client_id that is sent must still be the assertion's: the client-assertion.iss-sub row.
+  });
+
+  it("accepts a loopback redirect URI in client metadata, and any port on it (4.1, 4.2, RFC 8252 7.3)", async () => {
+    const c = company();
+    await otherClient(c, { metadata: { redirect_uris: ["http://127.0.0.1/callback"] } });
+    const params = await authorizeParams({ client_id: OTHER, redirect_uri: "http://127.0.0.1:53110/callback" });
+    expect((await c.call(authorizeUrl(c, params))).status).toBe(200);
+    // Another path on the loopback host is still refused.
+    expect((await c.call(authorizeUrl(c, { ...params, state: jti(), redirect_uri: "http://127.0.0.1:53110/elsewhere" }))).status).toBe(400);
+    expect((await c.stub.state()).recorded.map(violationId)).toEqual(["authorize.redirect-uri"]);
+  });
+
+  it("starts a signed-out Session from the Session header alone, with no token request (5, 5.3)", async () => {
+    const c = company();
+    const s = await session();
+    expect((await call(c, s, "GET", products(c))).status).toBe(200);
+    expect((await call(c, s, "GET", products(c))).status).toBe(200);
+    const state = await c.stub.state();
+    expect(state.recorded).toEqual([]);
+    expect(state.userIds).toEqual([USER_ID]);
+    expect(state.sessions).toEqual([expect.objectContaining({ userId: USER_ID, signedIn: false, ended: false })]);
+    expect(state.requests.map((request) => request.url)).toEqual([products(c), products(c)]);
+    expect(state.requests.every((request) => request.headers["poppy-session"] && !request.headers.authorization)).toBe(true);
+    // An account action without a token gets a challenge with the scopes it needs, and no error code (7).
+    const challenge = await call(c, s, "GET", orders(c));
+    expect(challenge.status).toBe(401);
+    const header = challenge.headers.get("WWW-Authenticate")!;
+    expect(header).toContain('scope="orders:read"');
+    expect(header).not.toContain("error=");
+  });
+
+  it("answers an ended Session with invalid_session, and a new sid starts a new one (5.5)", async () => {
+    const c = company();
+    const s = await session();
+    expect((await call(c, s, "GET", products(c))).status).toBe(200);
+    expect(await c.stub.endAllSessions()).toBe(1);
+    const ended = await call(c, s, "GET", products(c));
+    expect(ended.status).toBe(400);
+    expect(await ended.json()).toMatchObject({ error: "invalid_session" });
+    expect((await call(c, { ...s, sid: jti() }, "GET", products(c))).status).toBe(200);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("signs a Session in on each request with an access token, and leaves it signed out after revocation, with or without token_type_hint (5.4, 5.5)", async () => {
+    for (const hint of ["refresh_token", null] as const) {
+      const c = company();
+      const s = await signedIn(c, { scope: "orders:read" });
+      expect(s.tokenType).toBe("DPoP");
+      expect((await getOrders(c, {}, s)).status).toBe(200);
+      expect((await c.stub.state()).sessions).toEqual([expect.objectContaining({ signedIn: true, account: "acct_ada" })]);
+      expect((await revoke(c, { token: s.refreshToken!, hint })).status).toBe(200);
+      const state = await c.stub.state();
+      expect(state.accountTokens).toBe(0);
+      expect(state.revocationHints).toEqual([hint]);
+      expect(state.sessions[0]).toMatchObject({ signedIn: false, ended: false });
+      // Its access tokens go with it (RFC 7009 2.1), and the Session continues signed out.
+      const revoked = await getOrders(c, {}, s);
+      expect(revoked.status).toBe(401);
+      expect(revoked.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
+      const signedOut = await getOrders(c, { token: null }, s);
+      expect(signedOut.status).toBe(401);
+      expect(signedOut.headers.get("WWW-Authenticate")).not.toContain("error=");
+      expect((await call(c, s, "GET", products(c), { token: null })).status).toBe(200);
+      expect((await c.stub.state()).recorded).toEqual([]);
+    }
   });
 
   it("asks for a DPoP nonce per origin or per Company, as configured (S23)", async () => {
@@ -2400,76 +1909,247 @@ describe("the mock Company", () => {
       const c = company();
       await c.stub.configure({ requireNonce: true, nonceScope });
       const key = await dpopKey();
-      const first = await startSession(c, key);
+      const flow = await authorizationCode(c);
+      const first = await exchangeCode(c, flow, key);
       expect(first.status).toBe(400);
       expect(await first.json()).toMatchObject({ error: "use_dpop_nonce" });
       const authNonce = first.headers.get("DPoP-Nonce")!;
-      const token = (await (await startSession(c, key, { dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { nonce: authNonce }) })).json()) as {
-        access_token: string;
-      };
-      const s = { key, token: token.access_token, sessionId: "" };
-      const api = await call(c, s, "GET", `${c.hosts.api}/products`, { proof: { nonce: authNonce } });
+      const tokens = await tokensFrom(
+        await tokenRequest(c, { grant_type: "authorization_code", code: flow.code, redirect_uri: flow.redirect, code_verifier: flow.verifier }, { key, dpop: await proof(key, "POST", c.hosts.tokenEndpoint, undefined, { nonce: authNonce }) }),
+        key
+      );
+      const s = { ...(await session()), ...tokens };
+      const api = await getOrders(c, { proof: { nonce: authNonce } }, s);
       if (nonceScope === "company") {
         expect(api.status).toBe(200);
       } else {
         expect(api.status).toBe(401);
         const apiNonce = api.headers.get("DPoP-Nonce")!;
         expect(apiNonce).not.toBe(authNonce);
-        expect((await call(c, s, "GET", `${c.hosts.api}/products`, { proof: { nonce: apiNonce } })).status).toBe(200);
+        expect((await getOrders(c, { proof: { nonce: apiNonce } }, s)).status).toBe(200);
       }
       expect((await c.stub.state()).recorded).toEqual([]);
     }
   });
 
-  it("runs a conversation, Direct Sign-In and a confirmed operation end to end", async () => {
+  it("joins a browser to a signed-in Session, whose cookie acts for that account until sign-out (6)", async () => {
     const c = company();
-    const s = await signedOut(c);
+    const s = await signedIn(c);
+    const { page, code, cookie } = await joinPage(c);
+    expect(page.status).toBe(200);
+    expect(page.headers.get("Cache-Control")).toBe("no-store");
+    expect(page.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'none'");
+    expect(page.headers.get("Cross-Origin-Opener-Policy")).toBe("same-origin");
+    expect(page.headers.get("Set-Cookie")).toMatch(/^__Host-poppy_join=[^;]+; Path=\/; Max-Age=60; Secure; HttpOnly; SameSite=Strict$/);
+    expect((await authorizeJoin(c, s, code)).status).toBe(204);
+    const submitted = await submitJoin(c, code, cookie);
+    expect(submitted.status).toBe(303);
+    const cookies = submitted.headers.get("Set-Cookie")!;
+    expect(cookies).toMatch(/mock_sid=[^;]+; Path=\/; Secure; HttpOnly; SameSite=Lax/);
+    expect(cookies).toContain("__Host-poppy_join=; Path=/; Max-Age=0");
+    const sid = /mock_sid=[^;]+/.exec(cookies)![0];
+    expect(await (await c.call(`${SITE(c)}/orders`, { headers: { Cookie: sid } })).text()).toContain("Signed in as acct_ada");
+    expect((await revoke(c, { token: s.refreshToken! })).status).toBe(200);
+    expect(await (await c.call(`${SITE(c)}/orders`, { headers: { Cookie: sid } })).text()).toContain("Signed out");
+    const state = await c.stub.state();
+    expect(state.browserJoins).toBe(1);
+    expect(state.recorded).toEqual([]);
+  });
+
+  it("signs in with Mediated Sign-In's grant, with and without a one-time code (Mediated Sign-In 3 to 5)", async () => {
+    const c = company();
+    const ada = await mediated(c, { scope: "orders:read", ...ADA });
+    expect(ada.status).toBe(200);
+    expect(await ada.json()).toMatchObject({ token_type: "DPoP", scope: "orders:read", refresh_token: expect.stringMatching(/^pat_/) });
+    const grace = await mediated(c, { scope: "orders:read", ...GRACE });
+    expect(grace.status).toBe(400);
+    const required = (await grace.json()) as Record<string, unknown>;
+    expect(required).toMatchObject({ error: "code_required", sign_in_id: expect.stringMatching(/^sgn_/), sent_to: expect.any(String), expires_in: expect.any(Number) });
+    const signInId = required.sign_in_id as string;
+    expect(await (await mediated(c, { sign_in_id: signInId, one_time_code: "WRONG1" })).json()).toMatchObject({ error: "code_required", sign_in_id: signInId });
+    const done = await mediated(c, { sign_in_id: signInId, one_time_code: (await c.stub.lastOneTimeCode())! });
+    expect(done.status).toBe(200);
+    expect(await done.json()).toMatchObject({ scope: "orders:read" });
+    expect(await (await mediated(c, { scope: "orders:read", email: ADA.email, password: "wrong" })).json()).toMatchObject({ error: "invalid_grant" });
+    expect(await (await mediated(c, { scope: "addresses", ...ADA })).json()).toMatchObject({ error: "invalid_scope" });
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("signs in with Device Sign-In, then gets an MCP token by refresh and calls the MCP server with the Session header (4.3, 4.4, 7)", async () => {
+    const c = company();
+    const flow = await deviceFlow(c);
+    expect(await (await flow.poll()).json()).toMatchObject({ error: "authorization_pending" });
+    await c.stub.approveDevice(flow.device.user_code, { scopes: ["orders:read"] });
+    // A second later, by the mock's clock (which follows the agent's fake clock).
+    const tokens = await tokensFrom(await flow.poll({ [CLOCK_HEADER]: String(Date.now() + 1100) }), flow.key);
+    expect(tokens.scope).toBe("orders:read");
+    const s: Session = { ...(await session()), ...tokens };
+    const mcp = await tokensFrom(await refresh(c, s, { resource: c.hosts.mcpUrl }), flow.key);
+    expect(mcp.tokenType).toBe("Bearer");
+    const listed = await call(c, { ...s, ...mcp }, "POST", c.hosts.mcpUrl, { headers: MCP_ACCEPT, body: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
+    const tools = (await listed.json()) as { result: { tools: { name: string }[] } };
+    expect(tools.result.tools.map((tool) => tool.name)).toEqual(["search_products", "exchange_item"]);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("streams events with text-delta (8.6)", async () => {
+    const c = company();
+    const s = await session();
+    const id = await conversation(c, s);
+    const stream = await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${id}/events`, { headers: { Accept: "text/event-stream" } });
+    const text = await stream.text();
+    expect(stream.headers.get("Content-Type")).toBe("text/event-stream");
+    expect(text).toContain("event: text-delta");
+    expect(text).toMatch(/id: evt_/);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("runs a conversation, Direct Sign-In and an approved operation end to end (8, Ops 4, 6)", async () => {
+    const c = company();
+    const s = await session();
     const conversations = c.hosts.conversationsEndpoint;
-    const started = await call(c, s, "POST", `${conversations}?wait=1`, {
-      body: { message: { id: `msg_${jti()}`, sender: "agent", text: "The user wants to exchange order 1042." } }
-    });
+    const started = await call(c, s, "POST", `${conversations}?wait=1`, { body: { message: message({ text: "The user wants to exchange order 1042." }) } });
     expect(started.status).toBe(201);
-    const read = (await started.json()) as { conversation_id: string; events: { type: string }[] };
+    const read = (await started.json()) as { conversation_id: string; events: { type: string; error?: string; scope?: string }[] };
     expect(read.events.map((event) => event.type)).toEqual(["message", "authorization", "message"]);
+    expect(read.events[1]).toMatchObject({ error: "insufficient_scope", scope: "orders:read orders:write" });
 
-    // Direct Sign-In, with the test as the User.
-    const { verifier, challenge } = await pkce();
-    const back = new URL(
-      await c.stub.approveAuthorization(
-        authorizeUrl(c, {
-          response_type: "code",
-          client_id: CLIENT_ID,
-          redirect_uri: REDIRECT_URI,
-          scope: "poppy:read poppy:write",
-          state: "st_1",
-          code_challenge: challenge,
-          code_challenge_method: "S256"
-        }),
-        { approve: true }
-      )
-    );
-    expect(back.searchParams.get("iss")).toBe(c.hosts.issuer);
-    expect(back.searchParams.get("state")).toBe("st_1");
-    const signedIn = (await (
-      await exchangeCode(c, { s, verifier, code: back.searchParams.get("code")! })
-    ).json()) as { access_token: string; refresh_token: string; signed_in: boolean };
-    expect(signedIn.signed_in).toBe(true);
-    expect(signedIn.refresh_token).toMatch(/^pat_/);
-    const now = { ...s, token: signedIn.access_token };
-
-    const again = await call(c, now, "POST", `${conversations}/${read.conversation_id}/messages?wait=1`, {
-      body: { message: { id: `msg_${jti()}`, sender: "agent", text: "Signed in. Please exchange the jacket." } }
-    });
-    expect(again.status).toBe(202);
-    const events = (await again.json()) as { events: { type: string; message?: { operation?: { operation_id: string } } }[] };
-    const operation = events.events.find((event) => event.message?.operation)?.message?.operation;
+    const now = { ...s, ...(await signIn(c)) };
+    const send = (fields: Record<string, unknown>) => call(c, now, "POST", `${conversations}/${read.conversation_id}/messages?wait=1`, { body: { message: message(fields) } });
+    type Events = { events: { type: string; message?: { role: string; text?: string; operation?: Operation } }[] };
+    const asked = (await (await send({ text: "Signed in. Please exchange the jacket." })).json()) as Events;
+    const operation = asked.events.find((event) => event.message?.operation)?.message?.operation;
     expect(operation?.operation_id).toMatch(/^exc_/);
+    expect((await c.stub.state()).performs).toBe(0);
 
-    const confirm = () =>
-      call(c, now, "POST", `${c.hosts.operationsEndpoint}/${operation!.operation_id}/confirm`, { body: { revision: 1, approved_by: "user" } });
-    expect(await (await confirm()).json()).toMatchObject({ state: "succeeded", confirmation: { approved_by: "user" } });
-    expect(await (await confirm()).json()).toMatchObject({ state: "succeeded" });
+    // Only the approval field approves, and the Company Agent says how it went in a later message.
+    const approved = (await (await send({ text: "The user approved the exchange.", approval: { operation_id: operation!.operation_id, revision: operation!.revision } })).json()) as Events;
+    expect(approved.events.at(-1)?.message).toMatchObject({ role: "company", text: expect.stringContaining("Done") });
+    // A new message with the same approval performs nothing more (Ops 7).
+    expect((await send({ text: undefined, approval: { operation_id: operation!.operation_id, revision: operation!.revision } })).status).toBe(202);
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.recorded).toEqual([]);
+  });
 
+  it("takes a feedback report signed in or out, and answers with an alternative when configured (9.3)", async () => {
+    const c = company();
+    await c.stub.configure({ feedback: true });
+    const document = (await (await c.call(`https://${c.hosts.domain}/.well-known/poppy.json`)).json()) as { feedback: { endpoint: string } };
+    expect(document.feedback.endpoint).toBe(`${c.hosts.api}/poppy/feedback`);
+    const out = await feedback(c, await session(), REPORT);
+    expect(out.status).toBe(202);
+    expect(await out.text()).toBe("");
+    expect((await feedback(c, await signedIn(c), { ...REPORT, task: "Return a jacket" })).status).toBe(202);
+    await c.stub.configure({ feedbackAlternative: true });
+    const answered = await feedback(c, await session(), { ...REPORT, task: "Move a flight" });
+    expect(answered.status).toBe(200);
+    expect(await answered.json()).toMatchObject({ instructions: expect.any(String) });
+    const state = await c.stub.state();
+    expect(state.feedback).toEqual([
+      { task: REPORT.task, signedIn: false },
+      { task: "Return a jacket", signedIn: true },
+      { task: "Move a flight", signedIn: false }
+    ]);
+    expect(state.recorded).toEqual([]);
+  });
+});
+
+describe("the mock Company's Operations 2 (Ops 3, 4, 6, 7)", () => {
+  it("refuses a write that needs approval with the operation, then performs it once, answering the same approval again with the first response (Ops 4, check 2, Ops 7)", async () => {
+    const c = company();
+    const { s, operation } = await refused(c);
+    expect(operation).toMatchObject({ operation_id: expect.stringMatching(/^exc_/), revision: expect.stringMatching(/^[A-Za-z0-9_-]+$/), summary: expect.stringContaining("$70.00"), terms: { order_id: "ord_7Hk2", item_id: "itm_4Qa" } });
+    expect(Date.parse(operation.expires_at)).toBeGreaterThan(Date.now());
+    // Asked again before approval, it returns the same revision; nothing is performed.
+    const again = await refused(c, s);
+    expect(again.operation).toEqual(operation);
+    const performed = await exchange(c, s, approval(operation));
+    expect(performed.status).toBe(201);
+    const first = await performed.json();
+    const retried = await exchange(c, s, approval(operation));
+    expect(retried.status).toBe(201);
+    expect(await retried.json()).toEqual(first);
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.recorded).toEqual([]);
+  });
+
+  it("handles an approval from a Session that can't approve the operation as no approval: another User's, or a signed-out one's (check 1, Ops 3)", async () => {
+    const c = company();
+    const { operation } = await refused(c);
+    // Another User of the same agent, signed in to the same account, gets an operation of their own.
+    const theirs = await signedIn(c, { sub: "usr_Hn4wQ2cVx8TbLm1KpZr7Ys" });
+    const answered = await exchange(c, theirs, approval(operation));
+    expect(answered.status).toBe(403);
+    const own = ((await answered.json()) as { operation: Operation }).operation;
+    expect(own.operation_id).not.toBe(operation.operation_id);
+    // A signed-out Session of the same User gets a challenge for the account.
+    const signedOut = await exchange(c, await session(), approval(operation));
+    expect(signedOut.status).toBe(401);
+    expect((await c.stub.state()).performs).toBe(0);
+    // Any Session of the same User signed in to the same account can approve it.
+    expect((await exchange(c, await signedIn(c), approval(operation))).status).toBe(201);
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.recorded).toEqual([]);
+  });
+
+  it("never performs an approval of a revision it didn't return, or of other terms, and never answers it with the revision it names (check 3, Ops 6)", async () => {
+    const c = company();
+    const { s, operation } = await refused(c);
+    const unknown = await exchange(c, s, approval({ operation_id: operation.operation_id, revision: "1791487200-notOneOfOurs" }));
+    expect(unknown.status).toBe(403);
+    const renewed = ((await unknown.json()) as { operation: Operation }).operation;
+    expect(renewed.operation_id).toBe(operation.operation_id);
+    expect(renewed.revision).not.toBe("1791487200-notOneOfOurs");
+    // The approved revision with a request for something else: new terms, for what it asks.
+    const other = await exchange(c, s, approval(operation), { item_id: "itm_4Qa", replacement_sku: "stormline-m" });
+    expect(other.status).toBe(403);
+    const changed = ((await other.json()) as { operation: Operation }).operation;
+    expect(changed.operation_id).toBe(operation.operation_id);
+    expect(changed.revision).not.toBe(operation.revision);
+    expect(changed.summary).toContain("stormline-m");
+    const state = await c.stub.state();
+    expect(state.performs).toBe(0);
+    expect(state.recorded).toEqual([]);
+  });
+
+  it("asks for approval in an MCP tool result and performs the tool call sent again with the approval in _meta (Ops 4, 6)", async () => {
+    const c = company();
+    const s = await signedIn(c, { resource: c.hosts.mcpUrl });
+    const callTool = (meta?: Record<string, unknown>) =>
+      call(c, s, "POST", c.hosts.mcpUrl, {
+        headers: MCP_ACCEPT,
+        body: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "exchange_item", arguments: { order_id: "ord_7Hk2", ...EXCHANGE }, ...(meta ? { _meta: meta } : {}) } }
+      });
+    const first = (await (await callTool()).json()) as { result: { isError: boolean; structuredContent: { operation: Operation } } };
+    expect(first.result.isError).toBe(true);
+    const { operation } = first.result.structuredContent;
+    const done = (await (await callTool({ "personalagentprotocol.org/approval": { operation_id: operation.operation_id, revision: operation.revision } })).json()) as { result: { isError?: boolean } };
+    expect(done.result.isError).toBeUndefined();
+    const state = await c.stub.state();
+    expect(state.performs).toBe(1);
+    expect(state.recorded).toEqual([]);
+  });
+
+  it("orders prints signed out, only once the User approves their terms (Ops 4, 6)", async () => {
+    const c = company();
+    await c.stub.configure({ printShop: true });
+    const s = await session();
+    const photo = await uploaded(c, s);
+    const asked = await orderPrints(c, s, printOrder(photo), { "Idempotency-Key": `idk_${jti()}` });
+    expect(asked.status).toBe(403);
+    const { operation } = (await asked.json()) as { operation: Operation };
+    expect(operation.operation_id).toMatch(/^prt_/);
+    expect((await c.stub.state()).performs).toBe(0);
+    const placed = await orderPrints(c, s, printOrder(photo), { "Idempotency-Key": `idk_${jti()}`, ...approval(operation) });
+    expect(placed.status).toBe(201);
+    expect(await placed.json()).toMatchObject({ order: { state: "awaiting_payment" } });
+    // Another Session can't approve a signed-out Session's operation (Ops 3).
+    const elsewhere = await session();
+    const theirPhoto = await uploaded(c, elsewhere);
+    expect((await orderPrints(c, elsewhere, printOrder(theirPhoto), { "Idempotency-Key": `idk_${jti()}`, ...approval(operation) })).status).toBe(403);
     const state = await c.stub.state();
     expect(state.performs).toBe(1);
     expect(state.recorded).toEqual([]);
@@ -2478,22 +2158,57 @@ describe("the mock Company", () => {
 
 // Found by the Hypothesis stateful test (test/hypothesis), each a reading the mock got wrong.
 describe("the mock Company, as the Hypothesis model found it", () => {
-  it("takes a retry with the message's members in another order as the same message (7.3)", async () => {
+  // A signed-in User opens a conversation, which an order-related message makes the account's
+  // (8.2). Then the retry of its first message id comes from a Session that has left that account:
+  // another, signed-out Session of the same User, or the same Session continuing signed out once
+  // its refresh token is revoked (5.5, 8.11). The idempotency cache would hand back the original
+  // conversation and its reply; the ownership gate must come first, so the retry gets a challenge.
+  it.each(([
+    {
+      name: "checks conversation ownership before message-id idempotency on a signed-out retry (S8)",
+      retryFrom: async (_c: C, _s: Session): Promise<Session> => session()
+    },
+    {
+      name: "checks conversation ownership before message-id idempotency on a retry after the refresh token is revoked (5.5, 8.11, S8)",
+      retryFrom: async (c: C, s: Session): Promise<Session> => {
+        expect((await revoke(c, { token: s.refreshToken! })).status).toBe(200);
+        return { key: s.key, sid: s.sid };
+      }
+    }
+  ] as const).map((row) => [row.name, row] as const))("%s", async (_name, { retryFrom }) => {
     const c = company();
-    const s = await signedOut(c);
+    const s = await signedIn(c);
+    const first = message({ text: "I'd like to exchange the jacket on my order" });
+    const opened = await converse(c, s, first);
+    expect(opened.status).toBe(201);
+    const { conversation_id } = (await opened.json()) as { conversation_id: string };
+    expect(conversation_id).toMatch(/^cnv_/);
+    const retry = await call(c, await retryFrom(c, s), "POST", `${c.hosts.conversationsEndpoint}?wait=1`, { body: { message: first } });
+    expect(retry.status).toBe(401);
+    expect(retry.headers.get("WWW-Authenticate")).toContain('scope="orders:read"');
+    const body = await retry.text();
+    expect(body).not.toContain(conversation_id);
+    expect(body).not.toContain("ord_7Hk2");
+    // The same User retried their own message: no cross-user violation.
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("takes a retry with the message's members in another order as the same message (8.3)", async () => {
+    const c = company();
+    const s = await session();
     const first = message({ data: { size: "M", colour: "blue" } });
     const created = await converse(c, s, first);
     expect(created.status).toBe(201);
     const { conversation_id } = (await created.json()) as { conversation_id: string };
-    const retry = await converse(c, s, { data: { colour: "blue", size: "M" }, text: first.text, sender: first.sender, id: first.id });
+    const retry = await converse(c, s, { data: { colour: "blue", size: "M" }, text: first.text, author: first.author, id: first.id });
     expect(retry.status).toBe(201);
     expect(((await retry.json()) as { conversation_id: string }).conversation_id).toBe(conversation_id);
     expect((await c.stub.state()).recorded).toEqual([]);
   });
 
-  it("accepts every well-formed RFC 5646 locale and IANA time zone name in context (7.4)", async () => {
+  it("accepts every well-formed RFC 5646 locale and IANA time zone name in context (8.4)", async () => {
     const c = company();
-    const s = await signedOut(c);
+    const s = await session();
     const locales = ["en-US", "i-ami", "en-US-u-ca-gregory", "x-private", "de-CH-1901", "zh-Hant-TW", "sgn-BE-FR", "abcde"];
     const zones = ["CET", "EST5EDT", "Etc/GMT+5", "America/Argentina/Buenos_Aires", "UTC", "Factory", "W-SU"];
     for (const context of [...locales.map((locale) => ({ locale })), ...zones.map((time_zone) => ({ time_zone }))]) {
@@ -2502,70 +2217,40 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     expect((await c.stub.state()).recorded).toEqual([]);
   });
 
-  it("signs out only the Sessions signed in with the revoked Account Token or one it rotated from (4.9)", async () => {
+  it("signs out only the Sessions signed in with the revoked refresh token or one it rotated from (4.6, 5.5)", async () => {
     const c = company();
     await c.stub.configure({ rotateRefreshTokens: true });
-    const first = await signedIn(c, "poppy:read");
-    const second = await signedIn(c, "poppy:read");
-    // `first` renews, so its Account Token rotates; revoking the new one signs it out.
-    const renewed = await form(
-      c,
-      c.hosts.tokenEndpoint,
-      { grant_type: "refresh_token", refresh_token: first.refreshToken, session_id: first.sessionId },
-      first.key
-    );
-    const { access_token, refresh_token } = (await renewed.json()) as { access_token: string; refresh_token: string };
-    const revoke = await form(c, c.hosts.revocationEndpoint, { token: refresh_token, token_type_hint: "refresh_token" }, null);
-    expect(revoke.status).toBe(200);
-    const orders = (s: { key: Key; token: string; sessionId: string }) => call(c, s, "GET", `${c.hosts.api}/orders`);
-    expect((await orders({ ...first, token: access_token })).headers.get("WWW-Authenticate")).toContain("sign_in_required");
-    // `second` signed in on its own, with its own Account Token, so it stays signed in.
-    expect((await orders(second)).status).toBe(200);
+    const first = await signedIn(c, { scope: "orders:read" });
+    const second = await signedIn(c, { scope: "orders:read", sub: OTHER_USER });
+    expect((await getOrders(c, {}, first)).status).toBe(200);
+    expect((await getOrders(c, {}, second)).status).toBe(200);
+    // `first` refreshes, so its refresh token rotates; revoking the new one signs it out.
+    const renewed = await tokensFrom(await refresh(c, first), first.dpop!);
+    expect((await revoke(c, { token: renewed.refreshToken })).status).toBe(200);
+    expect((await getOrders(c, {}, { ...first, ...renewed })).headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
+    // `second` signed in on its own, with its own refresh token, so it stays signed in.
+    expect((await getOrders(c, {}, second)).status).toBe(200);
     const state = await c.stub.state();
-    expect(state.sessions.map((session) => session.signedIn)).toEqual([false, true]);
+    expect(state.sessions.map((entry) => entry.signedIn)).toEqual([false, true]);
     expect(state.recorded).toEqual([]);
   });
 
   it("revokes only the reused token's own sign-in when it detects reuse (RFC 9700 4.14.2)", async () => {
     const c = company();
     await c.stub.configure({ rotateRefreshTokens: true, reuseDetection: true });
-    const first = await signedIn(c, "poppy:read");
-    const second = await signedIn(c, "poppy:read");
-    const refresh = () =>
-      form(c, c.hosts.tokenEndpoint, { grant_type: "refresh_token", refresh_token: first.refreshToken, session_id: first.sessionId }, first.key);
-    expect((await refresh()).status).toBe(200);
-    expect((await refresh()).status).toBe(400);
-    expect((await call(c, second, "GET", `${c.hosts.api}/orders`)).status).toBe(200);
+    const first = await signedIn(c, { scope: "orders:read" });
+    const second = await signedIn(c, { scope: "orders:read", sub: OTHER_USER });
+    expect((await refresh(c, first)).status).toBe(200);
+    expect((await refresh(c, first)).status).toBe(400);
+    expect((await getOrders(c, {}, second)).status).toBe(200);
     const state = await c.stub.state();
     expect(state.accountTokens).toBe(1);
     expect(state.recorded.map(violationId)).toEqual(["account-token.rotated-reused"]);
   });
 
-  it("gives a second User signed in to the same account a proposal of their own, not the first User's (Ops 3.2, 4)", async () => {
+  it("changes nothing on a handoff while a person already handles the conversation: while queued, responder stays agent (8.7, 8.9)", async () => {
     const c = company();
-    const { operation } = await proposed(c);
-    // Another User of the same agent signs in to Ada's account too.
-    const key = await dpopKey();
-    const started = await startSession(c, key, { assertion: await sessionAssertion(c, { claims: { sub: "usr_Hn4wQ2cVx8TbLm1KpZr7Ys" } }) });
-    const { access_token, session_id } = (await started.json()) as { access_token: string; session_id: string };
-    const other = { key, token: access_token, sessionId: session_id };
-    const signIn = await call(c, other, "POST", c.hosts.mediatedEndpoint, {
-      body: { scope: "poppy:read poppy:write", credentials: { email: "ada@example.com", password: "correct horse" } }
-    });
-    const theirs = { ...other, token: ((await signIn.json()) as { access_token: string }).access_token };
-    const response = await exchange(c, theirs);
-    expect(response.status).toBe(202);
-    const own = ((await response.json()) as { operation: { operation_id: string } }).operation.operation_id;
-    expect(own).not.toBe(operation.operation_id);
-    // Each User can use their own, and only their own.
-    expect((await call(c, theirs, "GET", `${c.hosts.operationsEndpoint}/${encodeURIComponent(own)}`)).status).toBe(200);
-    expect((await call(c, theirs, "GET", `${c.hosts.operationsEndpoint}/${encodeURIComponent(operation.operation_id)}`)).status).toBe(404);
-    expect((await c.stub.state()).recorded).toEqual([]);
-  });
-
-  it("changes nothing on a handoff while a person already handles the conversation: while queued, responder stays agent (7.7, 7.9)", async () => {
-    const c = company();
-    const s = await signedOut(c);
+    const s = await session();
     const id = await conversation(c, s);
     await c.stub.humanJoin(id, "Hi, this is Sam.");
     const handoff = await call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${id}/handoff`, { body: {} });
@@ -2578,11 +2263,11 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     expect((await c.stub.state()).recorded).toEqual([]);
   });
 
-  it("adds direct_closed to the parent when closing the parent closes its Direct Conversation, before the parent's closed state (7.10, 7.12)", async () => {
+  it("adds direct_closed to the parent when closing the parent closes its Direct Conversation, before the parent's closed state (8.10, 8.12)", async () => {
     const c = company();
-    const s = await signedOut(c);
+    const s = await session();
     const parent = await conversation(c, s);
-    const opened = await converse(c, s, message({ sender: "human", text: "Hi, I have a question." }), { parent_conversation_id: parent });
+    const opened = await converse(c, s, message({ author: { type: "human" }, text: "Hi, I have a question." }), { parent_conversation_id: parent });
     const direct = ((await opened.json()) as { conversation_id: string }).conversation_id;
     expect((await call(c, s, "POST", `${c.hosts.conversationsEndpoint}/${parent}/close`, { body: {} })).status).toBe(200);
     const { events } = (await (await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${parent}/events`)).json()) as {
@@ -2598,116 +2283,21 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     expect((await c.stub.state()).recorded).toEqual([]);
   });
 
-  it("shows an order of prints at its operation's url, in its Session (Ops 3, 4.4)", async () => {
-    const c = company();
-    await c.stub.configure({ printShop: true });
-    const s = await signedOut(c);
-    const uploaded = await uploadPhoto(c, s, multipart("b0undary", 'form-data; name="photo"; filename="lake.jpg"'), "multipart/form-data; boundary=b0undary");
-    const { id } = (await uploaded.json()) as { id: string };
-    const ordered = await call(c, s, "POST", `${c.hosts.api}/prints`, { body: printOrder(id), headers: { "Idempotency-Key": `idk_${jti()}` } });
-    const { operation } = (await ordered.json()) as { operation: { url: string; summary: string } };
-    const joined = await joinBrowser(c, await browserAssertion(c, s));
-    const cookie = joined.headers.get("Set-Cookie")!.split(";")[0]!;
-    const page = await c.call(operation.url, { headers: { Cookie: cookie } });
-    expect(page.status).toBe(200);
-    expect(await page.text()).toContain(operation.summary);
-    // Another Session's browser doesn't see it (Ops 3.2).
-    const other = await signedOut(c);
-    const elsewhere = (await joinBrowser(c, await browserAssertion(c, other))).headers.get("Set-Cookie")!.split(";")[0]!;
-    expect((await c.call(operation.url, { headers: { Cookie: elsewhere } })).status).toBe(404);
-    expect((await c.stub.state()).recorded).toEqual([]);
-  });
-
-  it("records the MUST only for the same request sent again inside its Retry-After, not another request (4.3)", async () => {
+  it("records the MUST only for the same request sent again inside its Retry-After, not another request (5.6)", async () => {
     const c = company();
     await c.stub.configure({ rateLimit: { tokenRequests429: 0, requests429: 1, retryAfterSeconds: 2 } });
-    const s = await signedOut(c);
-    expect((await call(c, s, "GET", `${c.hosts.api}/products`)).status).toBe(429);
+    const s = await session();
+    expect((await call(c, s, "GET", products(c))).status).toBe(429);
     // A different request inside the window: still 429, but only the Guides' advice is broken.
-    expect((await call(c, s, "GET", `${c.hosts.api}/orders`)).status).toBe(429);
+    expect((await call(c, s, "GET", orders(c))).status).toBe(429);
     // Each request that got 429 sent again inside its Retry-After: the MUST.
-    expect((await call(c, s, "GET", `${c.hosts.api}/products`)).status).toBe(429);
-    expect((await call(c, s, "GET", `${c.hosts.api}/orders`)).status).toBe(429);
+    expect((await call(c, s, "GET", products(c))).status).toBe(429);
+    expect((await call(c, s, "GET", orders(c))).status).toBe(429);
     expect((await c.stub.state()).recorded.map(violationId)).toEqual([
       "rate-limit.shared-limit-ignored",
       "rate-limit.retry-after-ignored",
       "rate-limit.retry-after-ignored"
     ]);
-  });
-});
-
-describe("the mock Company's other surfaces", () => {
-  it("signs in with Device Sign-In, then gets an MCP Bearer token", async () => {
-    const c = company();
-    const flow = await deviceFlow(c);
-    expect(await (await flow.poll()).json()).toMatchObject({ error: "authorization_pending" });
-    await c.stub.approveDevice(flow.device.user_code, { scopes: ["poppy:read"] });
-    // A second later, by the mock's clock (which follows the agent's fake clock).
-    const signedIn = (await (
-      await form(c, c.hosts.tokenEndpoint, { grant_type: DEVICE_CODE, device_code: flow.device.device_code, session_id: flow.s.sessionId }, flow.s.key, {
-        headers: { [CLOCK_HEADER]: String(Date.now() + 1100) }
-      })
-    ).json()) as { refresh_token: string; scope: string };
-    expect(signedIn.scope).toBe("poppy:read");
-
-    const bearer = (await (
-      await form(c, c.hosts.tokenEndpoint, { grant_type: "refresh_token", refresh_token: signedIn.refresh_token, session_id: flow.s.sessionId, resource: c.hosts.mcpUrl }, null)
-    ).json()) as { token_type: string; access_token: string };
-    expect(bearer.token_type).toBe("Bearer");
-    const mcp = await c.call(c.hosts.mcpUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${bearer.access_token}`,
-        Accept: "application/json, text/event-stream",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })
-    });
-    const tools = (await mcp.json()) as { result: { tools: { name: string }[] } };
-    expect(tools.result.tools.map((tool) => tool.name)).toEqual(["search_products", "exchange_item"]);
-    expect((await c.stub.state()).recorded).toEqual([]);
-  });
-
-  it("signs in with Mediated Sign-In and a one-time code", async () => {
-    const c = company();
-    const { s, signInId, code } = await oneTimeCode(c);
-    const done = (await (await call(c, s, "POST", `${c.hosts.mediatedEndpoint}/${signInId}`, { body: { code } })).json()) as Record<string, unknown>;
-    expect(done).toMatchObject({ status: "complete", signed_in: true, scope: "poppy:read" });
-    expect((await c.stub.state()).recorded).toEqual([]);
-  });
-
-  it("streams events with text-delta and joins a browser", async () => {
-    const c = company();
-    const s = await signedOut(c);
-    const id = await conversation(c, s);
-    const stream = await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${id}/events`, { headers: { Accept: "text/event-stream" } });
-    const text = await stream.text();
-    expect(stream.headers.get("Content-Type")).toBe("text/event-stream");
-    expect(text).toContain("event: text-delta");
-    expect(text).toMatch(/id: evt_/);
-
-    const join = await joinBrowser(c, await browserAssertion(c, s));
-    expect(join.status).toBe(303);
-    expect(join.headers.get("Set-Cookie")).toMatch(/Secure; HttpOnly; SameSite=Lax/);
-    expect((await c.stub.state()).recorded).toEqual([]);
-  });
-
-  it("revokes an Account Token, with or without token_type_hint, and leaves the Session signed out", async () => {
-    for (const hint of ["refresh_token", null] as const) {
-      const c = company();
-      const s = await signedIn(c, "poppy:read");
-      expect((await c.stub.state()).accountTokens).toBe(1);
-      const revoke = await form(c, c.hosts.revocationEndpoint, { token: s.refreshToken, ...(hint ? { token_type_hint: hint } : {}) }, null);
-      expect(revoke.status).toBe(200);
-      const state = await c.stub.state();
-      expect(state.accountTokens).toBe(0);
-      expect(state.revocationHints).toEqual([hint]);
-      expect(state.sessions[0]).toMatchObject({ signedIn: false, ended: false });
-      const after = await call(c, s, "GET", `${c.hosts.api}/orders`);
-      expect(after.status).toBe(403);
-      expect(after.headers.get("WWW-Authenticate")).toContain("sign_in_required");
-      expect(state.recorded).toEqual([]);
-    }
   });
 });
 
@@ -2721,58 +2311,56 @@ describe("the mock Company's other surfaces", () => {
 const FLAW_CASES: Record<CompanyFlaw, { readonly config?: Partial<MockConfig>; readonly protects: (c: C) => Promise<boolean> }> = {
   "accept-replayed-assertion": {
     protects: async (c) => {
-      const assertion = await sessionAssertion(c);
-      expect((await startSession(c, await dpopKey(), { assertion })).status).toBe(200);
-      return (await startSession(c, await dpopKey(), { assertion })).status !== 200;
+      const client = await clientAssertion(c);
+      expect((await revoke(c, { client })).status).toBe(200);
+      return (await revoke(c, { client })).status !== 200;
     }
   },
   "accept-replayed-proof": {
     protects: async (c) => {
-      const key = await dpopKey();
-      const dpop = await proof(key, "POST", c.hosts.tokenEndpoint);
-      expect((await startSession(c, key, { dpop })).status).toBe(200);
-      return (await startSession(c, key, { dpop })).status !== 200;
+      const s = await signedIn(c);
+      const dpop = await proof(s.dpop!, "GET", orders(c), s.token);
+      expect((await getOrders(c, { proof: dpop }, s)).status).toBe(200);
+      return (await getOrders(c, { proof: dpop }, s)).status !== 200;
     }
   },
   "accept-wrong-htu": {
-    protects: async (c) => {
-      const s = await signedOut(c);
-      return (await call(c, s, "GET", `${c.hosts.api}/products`, { proof: { claims: { htu: `${c.hosts.api}/orders` } } })).status !== 200;
-    }
+    protects: async (c) => (await getOrders(c, { proof: { claims: { htu: products(c) } } })).status !== 200
   },
   "accept-other-key": {
     protects: async (c) => {
-      const s = await signedOut(c);
-      const url = `${c.hosts.api}/products`;
-      return (await call(c, s, "GET", url, { proof: await proof(await dpopKey(), "GET", url, s.token) })).status !== 200;
+      const s = await signedIn(c);
+      return (await getOrders(c, {}, { ...s, dpop: await dpopKey() })).status !== 200;
     }
   },
   "accept-bearer-scheme": {
     protects: async (c) => {
-      const s = await signedOut(c);
-      return (await call(c, s, "GET", `${c.hosts.api}/products`, { auth: `Bearer ${s.token}`, proof: null })).status !== 200;
+      const s = await signedIn(c);
+      return (await getOrders(c, { auth: `Bearer ${s.token}`, proof: null }, s)).status !== 200;
     }
   },
   "accept-query-token": {
     protects: async (c) => {
-      const s = await signedOut(c);
-      return (await c.call(`${c.hosts.api}/products?access_token=${encodeURIComponent(s.token)}`)).status !== 200;
+      const s = await signedIn(c);
+      return (await call(c, s, "GET", `${orders(c)}?access_token=${encodeURIComponent(s.token!)}`, { token: null })).status !== 200;
     }
   },
   "accept-token-endpoint-aud": {
-    config: { protocolVersion: "0.2" },
     protects: async (c) => {
-      const assertion = await sessionAssertion(c, { claims: { aud: c.hosts.issuer } });
-      expect((await startSession(c, await dpopKey(), { assertion: await sessionAssertion(c, { claims: { aud: c.hosts.issuer } }), client: await clientAssertion(c.hosts.issuer) })).status).toBe(200);
-      return (await startSession(c, await dpopKey(), { assertion, client: await clientAssertion(c.hosts.tokenEndpoint) })).status !== 200;
+      expect((await revoke(c)).status).toBe(200);
+      return (await revoke(c, { client: await clientAssertion(c, { claims: { aud: c.hosts.tokenEndpoint } }) })).status !== 200;
     }
   },
   "token-cacheable": {
-    protects: async (c) => (await startSession(c, await dpopKey())).headers.get("Cache-Control") === "no-store"
+    protects: async (c) => {
+      const response = await exchangeCode(c, await authorizationCode(c), await dpopKey());
+      expect(response.status).toBe(200);
+      return response.headers.get("Cache-Control") === "no-store";
+    }
   },
   "retry-new-conversation": {
     protects: async (c) => {
-      const s = await signedOut(c);
+      const s = await session();
       const first = message();
       const ids = [];
       for (let attempt = 0; attempt < 2; attempt++) ids.push(((await (await converse(c, s, first)).json()) as { conversation_id: string }).conversation_id);
@@ -2783,9 +2371,8 @@ const FLAW_CASES: Record<CompanyFlaw, { readonly config?: Partial<MockConfig>; r
     config: { rotateRefreshTokens: true },
     protects: async (c) => {
       const s = await signedIn(c);
-      const refresh = () => form(c, c.hosts.tokenEndpoint, { grant_type: "refresh_token", refresh_token: s.refreshToken, session_id: s.sessionId }, s.key);
-      expect((await refresh()).status).toBe(200);
-      return (await refresh()).status !== 200;
+      expect((await refresh(c, s)).status).toBe(200);
+      return (await refresh(c, s)).status !== 200;
     }
   }
 };
@@ -2804,9 +2391,9 @@ describe("Company flaws", () => {
   it("still records what the agent did wrong when a flaw lets it through", async () => {
     const c = company();
     await c.stub.configure({ flaws: ["accept-replayed-assertion"] });
-    const assertion = await sessionAssertion(c);
-    await startSession(c, await dpopKey(), { assertion });
-    await startSession(c, await dpopKey(), { assertion });
-    expect((await c.stub.state()).recorded.map(violationId)).toEqual(["session-assertion.jti-reused"]);
+    const client = await clientAssertion(c);
+    await revoke(c, { client });
+    await revoke(c, { client });
+    expect((await c.stub.state()).recorded.map(violationId)).toEqual(["client-assertion.jti-reused"]);
   });
 });

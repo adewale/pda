@@ -2,7 +2,7 @@
   "id": "CM",
   "title": "The Company fetches the agent's client_id and keys",
   "requirements": ["4.1", "4.2"],
-  "readings": ["S1", "S2", "S4"],
+  "readings": ["S1", "S2"],
   "needs": { "agent": ["discover", "session"] },
   "steps": [
     { "agent": "discover" },

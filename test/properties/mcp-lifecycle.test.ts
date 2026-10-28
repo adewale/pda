@@ -13,7 +13,7 @@ function gate() {
 
 describe("MCP initialization belongs to one client and completes before tools run", () => {
   it.each([false, true])("reinitializes after sign-in and account changes with DPoP=%s", async (mcpDpop) => {
-    const w = await world({ protocolVersion: "0.2", mcpDpop });
+    const w = await world({ mcpDpop });
     let initializations = 0;
     const client = new PoppyClient({ ...w.client.host, fetcher: async (request) => {
       if (new URL(request.url).pathname === "/mcp" && request.method === "POST") {
@@ -24,7 +24,7 @@ describe("MCP initialization belongs to one client and completes before tools ru
     } });
     const list = () => listMcpTools(client, w.company, "main");
     const signIn = async (account: string, label = "main") => {
-      const started = await startSignIn(client, w.company, { label, account, scopes: ["poppy:read"], reason: "MCP account isolation", type: "direct" });
+      const started = await startSignIn(client, w.company, { label, account, scopes: ["orders:read"], reason: "MCP account isolation", type: "direct" });
       if (started.status !== "waiting") {
         expect(started.status).toBe("signed_in");
         return;
@@ -45,7 +45,7 @@ describe("MCP initialization belongs to one client and completes before tools ru
   });
 
   it("shares initialization across concurrent callers without exposing a provisional session", async () => {
-    const w = await world({ protocolVersion: "0.2", mcpDpop: true });
+    const w = await world({ mcpDpop: true });
     const entered = gate(), proceed = gate();
     let initializations = 0, earlyTools = 0, released = false;
     const client = new PoppyClient({ ...w.client.host, fetcher: async (request) => {
@@ -70,7 +70,7 @@ describe("MCP initialization belongs to one client and completes before tools ru
   });
 
   it("discards failed initialization and retries it on the next request", async () => {
-    const w = await world({ protocolVersion: "0.2" });
+    const w = await world({});
     let notifications = 0, initializations = 0;
     const client = new PoppyClient({ ...w.client.host, fetcher: async (request) => {
       if (new URL(request.url).pathname === "/mcp" && request.method === "POST") {

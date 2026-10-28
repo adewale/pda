@@ -90,7 +90,7 @@ describe("attribution", () => {
   });
 
   it("rule 3 after rule 2: a Company-recorded error of the question is evidence, beside errors on both sides", () => {
-    const typ: Check = { id: "session-assertion.typ", side: "agent", severity: "error", exchange: null, detail: "typ", source: "company:strict-company" };
+    const typ: Check = { id: "client-assertion.typ", side: "agent", severity: "error", exchange: null, detail: "typ", source: "company:strict-company" };
     const readings = { agent: { a: { S2: "any" } }, company: { "strict-company": { S2: "jwt-60s" } } };
     const target = cell("a", "strict-company", "fail", [typ, error("agent"), error("company")], "C");
     expect(attribute(target, [target], { readings, scenarios })).toEqual({ blame: "spec", rule: "reading", detail: "S2: a reads any, strict-company reads jwt-60s" });
@@ -108,8 +108,8 @@ describe("attribution", () => {
   });
 
   it("rule 3: a Company-recorded reading of ours that is exactly a declared reading difference", () => {
-    // A strict Company refuses a typ-less Session assertion (Reading S2: a tentative warning); the agent declared S2 any.
-    const typ = companyRecorded({ id: "session-assertion.typ", basis: "Reading", level: "tentative", detail: "typ" }, "strict-company", false);
+    // A strict Company refuses a typ-less client assertion (Reading S2: a tentative warning); the agent declared S2 any.
+    const typ = companyRecorded({ id: "client-assertion.typ", basis: "Reading", level: "tentative", detail: "typ" }, "strict-company", false);
     expect(typ).toMatchObject({ severity: "warning", basis: "Reading" });
     const readings = { agent: { "pi-poppy": { S2: "any" } }, company: { "strict-company": { S2: "jwt-60s" }, "lenient-company": { S2: "any" } } };
     const strict = cell("pi-poppy", "strict-company", "fail", [typ], "C");
@@ -353,8 +353,8 @@ describe("reading compatibility", () => {
     const assertion = (aud: string) => jwt({ alg: "ES256", typ: "JWT", kid: "k" }, { iss: "c", sub: "c", aud, iat: NOW, exp: NOW + 60, jti: "j" });
     const trace = recording(
       { url: "https://auth.x.company.interop.test/.well-known/oauth-authorization-server", response: metadata },
-      { url: metadata.token_endpoint, form: { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", client_assertion: assertion(metadata.token_endpoint) } },
-      { url: metadata.device_authorization_endpoint, form: { scope: "poppy:read", client_assertion: assertion(metadata.device_authorization_endpoint) } },
+      { url: metadata.token_endpoint, form: { grant_type: "refresh_token", refresh_token: "rt", client_assertion: assertion(metadata.token_endpoint) } },
+      { url: metadata.device_authorization_endpoint, form: { scope: "orders:read", client_assertion: assertion(metadata.device_authorization_endpoint) } },
       { url: metadata.revocation_endpoint, form: { token: "t", client_assertion: assertion(metadata.token_endpoint) } }
     );
     const s1 = (reading: string) => readingChecks(trace, { S1: reading }).filter((check) => check.id === "reading.S1").map((check) => check.exchange);
@@ -380,15 +380,15 @@ describe("reading compatibility", () => {
       // Appended to the issuer's path (S3 append).
       { url: "https://x.company.interop.test/poppy/.well-known/oauth-authorization-server", response: metadata },
       // Accepted at the token endpoint without typ: no refusal to explain.
-      { url: metadata.token_endpoint, form: { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", client_assertion: assertion(metadata.token_endpoint) } },
+      { url: metadata.token_endpoint, form: { grant_type: "refresh_token", refresh_token: "rt", client_assertion: assertion(metadata.token_endpoint) } },
       // The device endpoint refuses an aud naming the token endpoint.
-      { url: metadata.device_authorization_endpoint, form: { scope: "poppy:read", client_assertion: assertion(metadata.token_endpoint, "JWT") }, ...refused },
-      // The token endpoint refuses a Session assertion without typ.
+      { url: metadata.device_authorization_endpoint, form: { scope: "orders:read", client_assertion: assertion(metadata.token_endpoint, "JWT") }, ...refused },
+      // The token endpoint refuses a client assertion without typ.
       {
         url: metadata.token_endpoint,
-        form: { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: assertion(metadata.token_endpoint), client_assertion: assertion(metadata.token_endpoint, "JWT") },
+        form: { grant_type: "refresh_token", refresh_token: "rt", client_assertion: assertion(metadata.token_endpoint) },
         status: 400,
-        response: { error: "invalid_grant" }
+        response: { error: "invalid_client" }
       },
       // Another error isn't an assertion refusal.
       { url: metadata.revocation_endpoint, form: { token: "t", client_assertion: assertion(metadata.token_endpoint) }, status: 400, response: { error: "invalid_request" } }

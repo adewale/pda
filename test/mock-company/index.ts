@@ -243,6 +243,7 @@ export class MockCompany extends DurableObject<Env> {
       clientIds: [...company.clients.keys()],
       sessions: [...company.sessions.values()].map((session) => ({
         id: session.id,
+        sid: session.sid,
         userId: session.userId,
         account: session.account,
         signedIn: session.account !== null,

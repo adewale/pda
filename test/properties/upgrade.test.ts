@@ -5,12 +5,19 @@ import { migrate } from "../../src/poppy/store";
 import type { Company } from "../../src/poppy/discovery";
 import type { Card } from "../../src/poppy/wire";
 
-/** Real SQLite migrations and discovery, with transport fixtures; no token or network needed. */
+const ISSUER = "https://auth.shop.example";
+
+/**
+ * Real SQLite migrations and discovery, with transport fixtures; no token or
+ * network needed. Each domain serves a 0.3 poppy.json and protected resource
+ * metadata naming one issuer, whose metadata lists both domains (3.2).
+ */
 function fixture() {
   const sql = memorySql();
   migrate(sql);
-  let version = "0.1";
+  let version = "0.3";
   let conversations = "https://shop.example/conversations";
+  let scopes: Record<string, string> = { "orders:read": "See your orders" };
   const cards: Card[] = [];
   const requests: string[] = [];
   const host: PoppyHost = {
@@ -18,14 +25,33 @@ function fixture() {
     sql,
     fetcher: async (request) => {
       requests.push(request.url);
-      return Response.json(request.url.includes("oauth-authorization-server")
-        ? { issuer: "https://auth.shop.example", token_endpoint: "https://auth.shop.example/token", revocation_endpoint: "https://auth.shop.example/revoke", poppy_domains: ["shop.example", "other.example"] }
-        : { protocol_version: version, organization: { name: "Shop", domain: new URL(request.url).hostname }, auth: { issuer: "https://auth.shop.example" }, agent: { protocols: [{ type: "poppy", endpoint: conversations }] } });
+      const url = new URL(request.url);
+      if (url.pathname.startsWith("/.well-known/oauth-authorization-server")) {
+        return Response.json({
+          issuer: ISSUER,
+          token_endpoint: `${ISSUER}/token`,
+          revocation_endpoint: `${ISSUER}/revoke`,
+          grant_types_supported: ["refresh_token"],
+          scopes_supported: Object.keys(scopes),
+          protected_resources: ["https://shop.example", "https://other.example"]
+        });
+      }
+      if (url.pathname === "/.well-known/oauth-protected-resource") return Response.json({ resource: `https://${url.hostname}`, authorization_servers: [ISSUER] });
+      return Response.json({ protocol_version: version, organization: { name: "Shop", domain: url.hostname }, auth: { scopes }, agent: { protocols: [{ type: "poppy", endpoint: conversations }] } });
     },
     showCard: async (card) => { cards.push(card); }, notifyModel: async () => {}, schedule: async () => {}, hasJob: () => false,
     pushDirect: () => {}, userContext: () => ({ user_available: true }), sleep: async () => {}, now: () => Date.now()
   };
-  return { sql, host, client: new PoppyClient(host), cards, requests, change: (v: string, endpoint = conversations) => { version = v; conversations = endpoint; sql.exec("UPDATE poppy_domains SET expires_at = 0"); } };
+  const expire = () => sql.exec("UPDATE poppy_domains SET expires_at = 0");
+  return {
+    sql, host, client: new PoppyClient(host), cards, requests,
+    change: (next: { version?: string; conversations?: string; scopes?: Record<string, string> }) => {
+      version = next.version ?? version;
+      conversations = next.conversations ?? conversations;
+      scopes = next.scopes ?? scopes;
+      expire();
+    }
+  };
 }
 
 describe("upgrade state and pending-work compatibility", () => {
@@ -34,40 +60,67 @@ describe("upgrade state and pending-work compatibility", () => {
     const company = await f.client.company("shop.example");
     const userId = f.client.userId(company.issuer);
     const secret = await f.client.sealer.seal("account-token", `account|${company.issuer}|default`);
-    f.client.rememberCompany("operation", "op1", company);
+    f.client.rememberCompany("approval", "apr_1", company);
     migrate(f.sql);
     const restarted = new PoppyClient(f.host);
     expect(restarted.userId(company.issuer)).toBe(userId);
     expect(await restarted.sealer.open(secret, `account|${company.issuer}|default`)).toBe("account-token");
-    expect((await restarted.resumeCompany(company.issuer, "operation", "op1")).protocolVersion).toBe("0.1");
+    expect((await restarted.resumeCompany(company.issuer, "approval", "apr_1")).protocolVersion).toBe("0.3");
   });
 
-  it.each(["version", "interface"])("holds pending approvals when the %s changes, without replaying an action", async (change) => {
+  it.each([
+    ["its interfaces", { conversations: "https://shop.example/new-conversations" }],
+    ["its auth", { scopes: { "orders:read": "See your orders", addresses: "Your addresses" } }]
+  ] as const)("holds pending approvals when %s change, without replaying an action", async (_, next) => {
     const f = fixture();
     const original = await f.client.company("shop.example");
-    f.client.rememberCompany("operation", "op1", original);
-    f.change(change === "version" ? "0.2" : "0.1", change === "interface" ? "https://shop.example/new-conversations" : undefined);
-    await expect(f.client.resumeCompany(original.issuer, "operation", "op1")).rejects.toMatchObject({ code: "company_changed" });
+    f.client.rememberCompany("approval", "apr_1", original);
+    f.change(next);
+    await expect(f.client.resumeCompany(original.issuer, "approval", "apr_1")).rejects.toMatchObject({ code: "company_changed" });
     expect(f.requests.every((url) => url.includes(".well-known/"))).toBe(true);
     expect(f.cards.at(-1)).toMatchObject({ kind: "notice", domain: original.domain });
+  });
+
+  it("holds a pending approval when its Company moves to a version this agent doesn't speak, without replaying an action", async () => {
+    const f = fixture();
+    const original = await f.client.company("shop.example");
+    f.client.rememberCompany("approval", "apr_1", original);
+    f.change({ version: "0.4" });
+    await expect(f.client.resumeCompany(original.issuer, "approval", "apr_1")).rejects.toMatchObject({ name: "DiscoveryError" });
+    expect(f.requests.every((url) => url.includes(".well-known/"))).toBe(true);
+  });
+
+  it("holds a task begun under 0.2, before this agent spoke 0.3 only, without replaying it", async () => {
+    const f = fixture();
+    const current = await f.client.company("shop.example");
+    const legacy = { ...current, protocolVersion: "0.2" } as Company & { specificationRevision?: string };
+    delete legacy.specificationRevision;
+    f.client.rememberCompany("approval", "apr_old", legacy);
+    await expect(f.client.resumeCompany(current.issuer, "approval", "apr_old")).rejects.toMatchObject({ code: "company_changed" });
+    expect(f.requests.every((url) => url.includes(".well-known/"))).toBe(true);
+    expect(f.cards.at(-1)).toMatchObject({ kind: "notice", domain: current.domain });
   });
 
   it("refuses ambiguous legacy tasks instead of picking the newest domain for an issuer", async () => {
     const f = fixture();
     const original = await f.client.company("shop.example");
     await f.client.company("other.example");
+    expect((await f.client.company("other.example")).issuer).toBe(original.issuer);
     await expect(f.client.resumeCompany(original.issuer, "signin", "old")).rejects.toMatchObject({ code: "company_changed" });
   });
 
-  it("revalidates an old cache entry without changing exact issuer identity", async () => {
+  it("rediscovers an entry an older agent cached, without changing exact issuer identity", async () => {
     const f = fixture();
     const original = await f.client.company("shop.example");
-    const legacy = { ...original } as Company & { specificationRevision?: string };
+    const legacy = { ...original, protocolVersion: "0.2" } as Company & { specificationRevision?: string };
     delete legacy.specificationRevision;
+    // Still fresh, but from a version this agent no longer speaks: never used as it is.
     f.sql.exec("UPDATE poppy_domains SET company = ?", JSON.stringify(legacy));
-    f.change("0.2");
+    const before = f.requests.length;
     const current = await f.client.company("shop.example");
-    expect(current.protocolVersion).toBe("0.2");
+    expect(f.requests.length).toBeGreaterThan(before);
+    expect(current.protocolVersion).toBe("0.3");
+    expect(current.specificationRevision).toBe(original.specificationRevision);
     expect(current.issuer).toBe(original.issuer);
     expect(f.client.userId(current.issuer)).toBe(f.client.userId(original.issuer));
   });

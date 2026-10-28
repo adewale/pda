@@ -7,6 +7,7 @@ import {
   oauthError,
   parseScope,
   randomId,
+  redirectUriMatches,
   sha256b64,
   type ClientInfo,
   type Inbound
@@ -67,7 +68,11 @@ export class AuthServer {
 
   constructor(readonly company: Company) {}
 
+  /** A form at one of the issuer's OAuth endpoints, which never carries the Session header (5.2). */
   #form(inbound: Inbound): URLSearchParams {
+    if (inbound.request.headers.has("Poppy-Session")) {
+      this.company.violation("session-jwt.oauth-endpoint", `${inbound.url.pathname} got a Poppy-Session header`);
+    }
     const type = inbound.request.headers.get("Content-Type") ?? "";
     if (!type.startsWith("application/x-www-form-urlencoded")) {
       this.company.violation("form.not-form", `${inbound.url.pathname} sent as ${JSON.stringify(type)}, not a form`);
@@ -388,7 +393,7 @@ export class AuthServer {
       throw error;
     }
     const redirectUri = params.get("redirect_uri") ?? "";
-    if (!client.redirectUris.includes(redirectUri)) {
+    if (!client.redirectUris.some((registered) => redirectUriMatches(registered, redirectUri))) {
       co.violation("authorize.redirect-uri", `redirect_uri ${redirectUri} isn't an exact registered redirect_uri`);
       return page(400, "redirect_uri doesn't match");
     }

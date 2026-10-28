@@ -539,13 +539,14 @@ export type OpenApiCall = {
 
 /**
  * The narrower scope a read-only lookup asks for (Guides), or null to use
- * the Session's: the scopes the operation declares, or `poppy:read` when it
- * declares none, if the signed-in Session holds them all and more besides.
- * A lookup that needs a custom scope keeps it.
+ * the Session's: the scopes the operation declares, if the signed-in
+ * Session holds them all and more besides. 0.3 defines no scopes (4.7), so
+ * a lookup that declares none keeps the Session's.
  */
 export function readOnlyScope(sessionScope: string | undefined, op: OpenApiOperation): string | null {
+  if (op.scopes.length === 0) return null;
   const held = scopeSet(sessionScope);
-  const wanted = new Set(op.scopes.length ? op.scopes : ["poppy:read"]);
+  const wanted = new Set(op.scopes);
   if (![...wanted].every((scope) => held.has(scope)) || wanted.size >= held.size) return null;
   return [...wanted].join(" ");
 }

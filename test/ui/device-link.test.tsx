@@ -5,16 +5,20 @@ import { gs, property } from "../properties/hegel";
 import { toIssuer } from "../../src/poppy/issuer";
 
 /**
- * Which device sign-in links reach a card at all (spec 4.6). The page checks
+ * Which device sign-in links reach a card at all (spec 4.3): the host of the
+ * Company's issuer or of a URL in its `protected_resources`, or a subdomain
+ * of either, and nothing else, not even its device endpoint's host. The page checks
  * again before it renders one (`poppy-ui.test.tsx`); this is the check where
  * the card is made, from the Company's device authorization response.
  */
 
 const company = {
-  protocolVersion: "0.1",
+  protocolVersion: "0.3",
   issuer: toIssuer("https://login.acme-id.example"),
   name: "Acme",
   domain: "acme.example",
+  // The hosts of the issuer's `protected_resources` (3.2).
+  poppyDomains: ["acme.example"],
   endpoints: {
     token: "https://login.acme-id.example/token",
     revocation: "https://login.acme-id.example/revoke",
@@ -28,7 +32,7 @@ describe("deviceLink", () => {
     "https://www.acme.example/device?user_code=WDJB-MJHT",
     "https://auth.acme.example/device",
     "https://login.acme-id.example/device",
-    "https://device.acme-auth.example/activate",
+    "https://eu.login.acme-id.example/device",
     "HTTPS://ACME.EXAMPLE/device"
   ])("accepts %s", (uri) => {
     expect(deviceLink(company, uri)).toBe(new URL(uri).href);
@@ -42,6 +46,8 @@ describe("deviceLink", () => {
     "https://evil.example/device",
     "https://acme.example.evil.example/device",
     "https://evilacme.example/device",
+    // The device endpoint's host is neither the issuer's nor a protected resource's.
+    "https://device.acme-auth.example/activate",
     "https://user:pass@acme.example/device",
     "//acme.example/device",
     "/device",
@@ -55,9 +61,9 @@ describe("deviceLink", () => {
     for (const value of [undefined, null, 42, {}, ["https://acme.example/"]]) expect(deviceLink(company, value)).toBeNull();
   });
 
-  /** The Company's hosts: its domain and subdomains, its issuer's and its device endpoint's. */
+  /** The Company's hosts: its protected resource's and its issuer's, and their subdomains. */
   const onCompany = (hostname: string) =>
-    hostname === "acme.example" || hostname.endsWith(".acme.example") || ["login.acme-id.example", "device.acme-auth.example"].includes(hostname);
+    ["acme.example", "login.acme-id.example"].some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
 
   it(
     "returns exactly the HTTPS links on the Company's hosts, unchanged",
@@ -66,9 +72,10 @@ describe("deviceLink", () => {
       const label = gs.fromRegex("[a-z0-9]([a-z0-9-]{0,6}[a-z0-9])?", { fullmatch: true });
       const host = tc.draw(
         gs.oneOf(
-          gs.sampledFrom(["acme.example", "www.acme.example", "ACME.Example", "login.acme-id.example", "device.acme-auth.example"]),
+          gs.sampledFrom(["acme.example", "www.acme.example", "ACME.Example", "login.acme-id.example"]),
           label.map((sub) => `${sub}.acme.example`),
-          gs.sampledFrom(["evil.example", "acme.example.evil.example", "evilacme.example", "acme-id.example", "acme-auth.example"]),
+          label.map((sub) => `${sub}.login.acme-id.example`),
+          gs.sampledFrom(["evil.example", "acme.example.evil.example", "evilacme.example", "acme-id.example", "acme-auth.example", "device.acme-auth.example"]),
           label.map((name) => `${name}.example`)
         )
       );
@@ -95,12 +102,4 @@ describe("deviceLink", () => {
       expect(onCompany(url.hostname)).toBe(true);
     })
   );
-});
-
-// 0.2 trusts the issuer host and published poppy_domains, not an unrelated device endpoint.
-it("uses the narrower 0.2 device-link trust boundary", () => {
-  const v02 = { ...company, protocolVersion: "0.2", poppyDomains: ["acme.example"] };
-  expect(deviceLink(v02, "https://login.acme-id.example/device")).not.toBeNull();
-  expect(deviceLink(v02, "https://www.acme.example/device")).not.toBeNull();
-  expect(deviceLink(v02, "https://device.acme-auth.example/activate")).toBeNull();
 });

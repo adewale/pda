@@ -63,6 +63,8 @@ export type ClientInfo = {
 
 export type Session = {
   readonly id: string;
+  /** The `sid` the agent chose (5.2). */
+  readonly sid: string;
   readonly clientId: string;
   readonly userId: string;
   /** The account the Session is signed in to now, if any. */
@@ -997,6 +999,9 @@ export class Company {
     if (header.alg !== "ES256") throw fail("session-jwt.alg", `alg ${String(header.alg)} is not ES256`);
     if (typeof header.pap_dlg !== "string") throw fail("session-jwt.no-delegation", "no pap_dlg delegation in the header");
     if (typeof claims.iss !== "string") throw fail("session-jwt.iss", "iss is missing");
+    // 4.1: a refused Personal Agent gets `invalid_session` at a resource, as `invalid_client` at the authorization server.
+    const registered = this.config.requireRegistration;
+    if (registered && !registered.includes(claims.iss)) throw this.invalidSession("this Personal Agent is not accepted");
     let client: ClientInfo;
     try {
       client = await this.client(claims.iss);
@@ -1040,7 +1045,7 @@ export class Company {
     const key = `${client.clientId}|${claims.sid}`;
     let session = this.sessionsBySid.get(key);
     if (!session) {
-      session = { id: randomId("ses_", 8), clientId: client.clientId, userId: claims.sub, agentId, account: null, boundAccount: null, grant: null, scope: [], ended: false };
+      session = { id: randomId("ses_", 8), sid: claims.sid, clientId: client.clientId, userId: claims.sub, agentId, account: null, boundAccount: null, grant: null, scope: [], ended: false };
       this.sessions.set(session.id, session);
       this.sessionsBySid.set(key, session);
     } else if (session.userId !== claims.sub || (session.agentId ?? null) !== agentId) {
@@ -1087,8 +1092,10 @@ export class Company {
         // A flawed Company takes a DPoP-bound token as Bearer, with no proof (RFC 9449 7.1 forbids it).
         if (!(given === "Bearer" && this.flawed("accept-bearer-scheme"))) throw resourceError(scheme, 401, "invalid_token");
       }
-      // 4.5, 7: a token for one service only there, and an MCP server only takes its own.
-      const resource = mcp ? this.hosts.mcpUrl : this.config.apiResource && inbound.url.origin === this.hosts.api ? this.hosts.api : null;
+      // 4.5, 7: a token for one service only there, and an MCP server only takes its own. The conversation
+      // endpoint on the API's host publishes no metadata of its own, so the default token works there (4.5).
+      const conversations = inbound.url.pathname.startsWith(new URL(this.hosts.conversationsEndpoint).pathname);
+      const resource = mcp ? this.hosts.mcpUrl : this.config.apiResource && inbound.url.origin === this.hosts.api && !conversations ? this.hosts.api : null;
       if (token.resource !== resource) {
         if (mcp) this.violation("mcp.wrong-token", "MCP request with a token not issued for this MCP server");
         throw resourceError(scheme, 401, "invalid_token", { headers: mcp ? { "WWW-Authenticate": `${scheme} error="invalid_token", resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", this.hosts.mcpUrl).href}"` } : {} });

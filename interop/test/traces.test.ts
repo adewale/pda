@@ -67,16 +67,14 @@ describe("readings against the trace", () => {
   const metadata = { url: "https://auth.acme.company.interop.test/.well-known/oauth-authorization-server", response: { issuer: "https://auth.acme.company.interop.test", token_endpoint: TOKEN } };
 
   it("accepts an agent that does what it declares", () => {
-    expect(readingChecks(recording(metadata, sessionStart()), { S1: "token-endpoint", S2: "jwt-60s", S4: "omit" })).toEqual([]);
+    expect(readingChecks(recording(metadata, sessionStart()), { S1: "issuer", S2: "jwt-60s" })).toEqual([]);
   });
 
   it("warns when the trace contradicts a declared reading", () => {
-    const issuerAud = clientAssertion({ payload: { aud: "https://auth.acme.company.interop.test" } });
-    const long = jwt({ alg: "ES256", kid: "k1" }, { iss: "x", sub: "u", aud: TOKEN, iat: NOW, exp: NOW + 300, jti: "j".repeat(22) });
-    const start = sessionStart(0, { client: issuerAud, assertion: long });
-    const scoped = { ...start, form: { ...start.form!, scope: "poppy:read" } };
-    const checks = readingChecks(recording(metadata, scoped), { S1: "token-endpoint", S2: "jwt-60s", S4: "omit" });
-    expect(checks.map((check) => check.id)).toEqual(["reading.S1", "reading.S2", "reading.S4"]);
+    // 0.3 settles S1 (the issuer, 4.1); an agent that declares it and sends the token endpoint contradicts itself.
+    const client = clientAssertion({ header: { typ: undefined }, payload: { aud: TOKEN } });
+    const checks = readingChecks(recording(metadata, sessionStart(0, { client })), { S1: "issuer", S2: "jwt-60s" });
+    expect(checks.map((check) => check.id)).toEqual(["reading.S1", "reading.S2"]);
     expect(checks.every((check) => check.severity === "warning")).toBe(true);
   });
 

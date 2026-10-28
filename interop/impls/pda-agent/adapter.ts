@@ -34,7 +34,8 @@ import type { Json } from "../../../src/poppy/json.ts";
 import { randomId } from "../../../src/poppy/jwt.ts";
 import { currentKey } from "../../../src/poppy/keys.ts";
 import { CompanyLimiter } from "../../../src/poppy/limiter.ts";
-import { approveAndConfirm, cancelOperation, decideLocal, operation as operationOf, trackOperation } from "../../../src/poppy/operations.ts";
+import { decideLocal } from "../../../src/poppy/operations.ts";
+import { writtenBy } from "../../../src/poppy/message-author.ts";
 import { EndpointRequest } from "../../../src/poppy/outgoing.ts";
 import { handleIdentityRoute } from "../../../src/poppy/routes.ts";
 import {
@@ -45,25 +46,22 @@ import {
   submitCredentials,
   submitSignInCode
 } from "../../../src/poppy/signin.ts";
-import { approvalsTable, inboxTable, intentsTable, migrate, operationsTable, signInsTable } from "../../../src/poppy/store.ts";
+import { approvalsTable, inboxTable, intentsTable, migrate, signInsTable } from "../../../src/poppy/store.ts";
 import { rows } from "../../../src/rows.ts";
 import type { Card } from "../../../src/poppy/wire.ts";
-import { ATTACKS, AttackSetupError, runAttack, type AttackContext } from "./attacks.ts";
 import { LiveIdentityClient, liveIdentityFrom } from "./live-identity.ts";
 import { changedClaims, Endpoints, lenientFetch, PROFILE_READINGS, profileFrom, sloppyRequest, StrictObserver, StrictRefusal, type Resign } from "./profiles.ts";
 
 const NAME = process.env.INTEROP_NAME ?? "pda";
-/** Interop-only: the adversarial Personal Agent (`evil-personal-agent`). Off unless the registry sets it. */
-const ADVERSARY = process.env.INTEROP_ADVERSARY === "agent";
+// The adversarial Personal Agent (`evil-personal-agent`) spoke 0.2's wire; it is retired until it has a 0.3 port (docs/interop-spec.md).
+if (process.env.INTEROP_ADVERSARY === "agent") throw new Error("The adversarial agent is retired until it has a 0.3 port");
 /** Interop-only: a fake Personal Agent's profile (profiles.ts). Off unless the registry sets it. */
 const PROFILE = profileFrom(process.env.INTEROP_AGENT_PROFILE);
-if (PROFILE && ADVERSARY) throw new Error("A fake Personal Agent's profile and the adversary don't mix");
 const SECRET = setting("INTEROP_SECRET");
 /** Live lane only: the interop test client's public client_id and its key, from the runner (live-identity.ts). */
 const LIVE = liveIdentityFrom({ INTEROP_LIVE_CLIENT_ID: process.env.INTEROP_LIVE_CLIENT_ID ?? "", INTEROP_LIVE_KEY: process.env.INTEROP_LIVE_KEY ?? "" });
 // Read once; nothing else in this process needs the key in its environment.
 delete process.env.INTEROP_LIVE_KEY;
-if (LIVE && ADVERSARY) throw new Error("The adversarial agent never takes the live identity");
 if (LIVE && PROFILE === "sloppy") throw new Error("The sloppy fake agent never takes the live identity");
 const ORIGIN = LIVE?.origin ?? process.env.INTEROP_ORIGIN ?? `https://${NAME}.agent.interop.test`;
 const COMMIT = process.env.INTEROP_COMMIT ?? "unknown";
@@ -75,34 +73,25 @@ const MANIFEST = {
   name: NAME,
   role: "agent",
   commit: COMMIT,
-  poppy: ["0.1", "0.2"],
+  poppy: ["0.3"],
   extensions: ["operations"],
-  scenarios: ADVERSARY
-    ? [...ATTACKS]
-    : [
-        "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
-        "H", "DC", "W", "O2", "CM", "ML",
-        // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
-        "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE", "XR", "XT"
-      ],
-  // S1 "endpoint": a client assertion's aud is the endpoint it is sent to, then, after an invalid_client at the
-  // device or revocation endpoint, the token endpoint (src/poppy/client.ts oauthRequest; docs/readings.md S1).
-  readings: PROFILE ? PROFILE_READINGS[PROFILE] : { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
+  scenarios: [
+    "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
+    "H", "DC", "W", "CM", "ML",
+    // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
+    "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX", "XB", "XN", "XP", "XE", "XR"
+  ],
+  // 0.3 settles S1: the issuer (4.1).
+  readings: PROFILE ? PROFILE_READINGS[PROFILE] : { S1: "issuer", S2: "jwt-60s", S3: "insertion", S23: "per-origin" },
   relaxations: [] as string[],
-  ...(ADVERSARY ? { attacks: [...ATTACKS], adversarial: true } : {}),
   ...(PROFILE ? { profile: PROFILE } : {}),
   // The client_id it signs as, which the runner checks against the live identity it passed.
   client_id: LIVE?.clientId ?? `${ORIGIN}/poppy/client.json`,
   ...(FAULT ? { faults: [FAULT] } : {}),
-  notes: ADVERSARY
-    ? "Adversarial Personal Agent: raw attacks over the wire (interop/impls/pda-agent/attacks.ts); never src/poppy."
-    : PROFILE
-      ? `Fake Personal Agent, ${PROFILE} profile: src/poppy with the adapter's network seam changed (interop/impls/pda-agent/profiles.ts).`
-      : "Drives src/poppy directly (PoppyClient, signin, conversations, apis, operations); no model."
+  notes: PROFILE
+    ? `Fake Personal Agent, ${PROFILE} profile: src/poppy with the adapter's network seam changed (interop/impls/pda-agent/profiles.ts).`
+    : "Drives src/poppy directly (PoppyClient, signin, conversations, apis, operations); no model."
 };
-
-/** The armed attack, for the adversarial agent's `arm` then `attack` ops. */
-let armed: { attack: string; params: Params } | null = null;
 
 // ---------------------------------------------------------------- The agent, per reset
 
@@ -393,7 +382,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     if (method && method !== "direct" && method !== "device" && method !== "mediated") {
       throw new StepError(400, "invalid_params", `Unknown sign-in method ${method}`);
     }
-    const scopes = Array.isArray(params.scopes) ? params.scopes.filter((s): s is string => typeof s === "string") : ["poppy:read"];
+    const scopes = Array.isArray(params.scopes) ? params.scopes.filter((s): s is string => typeof s === "string") : [];
     const sessionLabel = label(params);
     const account = optional(params.account);
     const started = await startSignIn(agent.client, c, {
@@ -500,11 +489,12 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     if (at !== -1) events = events.slice(at + 1);
     return {
       messages: events.map((entry) => {
-        const event = JSON.parse(entry.event) as { id: string; message: { role?: string; sender?: string; text?: string; data?: Json; operation?: { operation_id?: string } } };
+        const event = JSON.parse(entry.event) as { id: string; message: { role?: string; author?: Json; text?: string; data?: Json; operation?: { operation_id?: string } } };
         return {
           event: event.id,
           role: event.message.role ?? null,
-          sender: event.message.sender ?? null,
+          // `author.type` (8.4); the field keeps the harness's name for it.
+          sender: writtenBy(event.message) ?? null,
           text: event.message.text ?? null,
           ...(event.message.operation?.operation_id ? { operation: event.message.operation.operation_id } : {})
         };
@@ -530,7 +520,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     const opened = agent.client.resource(
       c,
       EndpointRequest.to(c, { method: "GET", url: url.href, accept: "text/event-stream", ...(cursor ? { headers: { "Last-Event-ID": cursor } } : {}) }),
-      { label: label(params), ...(c.conversations?.resource ? { resource: c.conversations.resource } : {}) }
+      { label: label(params), service: c.conversations!.endpoint }
     );
     // A Company may hold an idle stream's headers until its first event: that is a stream with nothing new yet.
     const response = await Promise.race([opened, new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), SSE_HEADER_DEADLINE_MS))]);
@@ -620,15 +610,10 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
       ...(files ? { files } : {}),
       callKey: randomId("call_")
     });
-    // A write at a Company without the Operations extension, and any upload of the User's
-    // file, waits for the User's approval (src/poppy/apis.ts): `held` is the approval
-    // `approve_op` decides.
+    // Any write, and any upload of the User's file, waits for the User's approval on our
+    // card (src/poppy/apis.ts), and so does an operation the Company returns (Ops 4):
+    // `held` is the approval `approve_op` decides.
     if (isRecord(result) && typeof result.proposed === "string") return { held: result.proposed };
-    // A proposal (Operations 4.1): the Company's 202, with the operation as the agent keeps it.
-    if (isRecord(result) && isRecord(result.proposed) && typeof result.proposed.operation_id === "string") {
-      const kept = operationOf(agent.client, c.issuer, result.proposed.operation_id);
-      return { status: result.status ?? 202, body: { operation: kept ?? result.proposed } };
-    }
     return apiResult(result);
   },
 
@@ -665,53 +650,26 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
   },
 
   /**
-   * Send the confirm of an approved operation again, unchanged (Ops 5.2):
-   * the request src/poppy's tracking job sends when a confirm's answer was
-   * lost (Ops 6), with the approval it recorded. src/poppy itself never
-   * confirms an operation it knows is no longer proposed, so the adapter
-   * sends it through the client's own DPoP-bound request. The answer is the
-   * Company's operation, as it returned it.
+   * The User's decision on a card: one of ours (`apr_`, `apr2_`), or the
+   * card of an operation the Company returned, by its `operation_id` (Ops 5).
+   * Approved, the request goes again with the approval (Ops 6).
    */
-  async confirm_again(domain, params) {
-    const c = await company(domain);
-    const id = text(params.operation, "operation");
-    const row = rows(
-      agent.client.sql,
-      operationsTable.pick("approved_revision", "approved_by", "label"),
-      "SELECT approved_revision, approved_by, label FROM poppy_operations WHERE issuer = ? AND operation_id = ?",
-      c.issuer,
-      id
-    )[0];
-    if (!row || row.approved_revision === null || !row.approved_by) throw new StepError(409, "not_confirmed", `The agent hasn't confirmed ${id}`);
-    const endpoint = c.extensions.operations;
-    if (!endpoint) throw new PoppyStepError("no_operations", 0, `${c.name} has no operations endpoint`);
-    const { status, body } = await agent.client.resourceJson(
-      c,
-      EndpointRequest.to(c, {
-        method: "POST",
-        url: `${endpoint.endpoint.replace(/\/+$/, "")}/${encodeURIComponent(id)}/confirm`,
-        body: { revision: row.approved_revision, approved_by: row.approved_by }
-      }),
-      { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
-    );
-    const operation = isRecord(body) ? body : {};
-    return { status: typeof operation.state === "string" ? operation.state : null, http_status: status, operation };
-  },
-
   async approve_op(domain, params) {
     const c = await company(domain);
     const id = text(params.operation, "operation");
-    if (id.startsWith("apr_")) return decideHeld(id, params.decision === "decline" ? "decline" : "approve");
-    const operation = operationOf(agent.client, c.issuer, id);
-    if (!operation) throw new StepError(404, "unknown_operation", `The agent has no operation ${id} from ${c.issuer}`);
-    if (params.decision === "decline") {
-      await cancelOperation(agent.client, c.issuer, id);
-    } else {
-      await approveAndConfirm(agent.client, c.issuer, id, operation.revision, "user");
-      await drain(`op-${c.issuer}-${id}`, async () => trackOperation(agent.client, c.issuer, id), 30_000);
-    }
-    const after = operationOf(agent.client, c.issuer, id)!;
-    return { status: after.state, revision: after.revision, ...(after.result?.summary ? { result: after.result.summary } : {}) };
+    const decision = params.decision === "decline" ? "decline" : "approve";
+    if (/^apr2?_/.test(id)) return decideHeld(id, decision);
+    const card = rows(
+      agent.client.sql,
+      approvalsTable.pick("id"),
+      `SELECT id FROM poppy_approvals WHERE issuer = ? AND status = 'pending'
+       AND ? IN (json_extract(request, '$.approval.operation_id'), json_extract(request, '$.call.approval.operation_id'))
+       ORDER BY created_at DESC LIMIT 1`,
+      c.issuer,
+      id
+    )[0];
+    if (!card) throw new StepError(404, "unknown_operation", `The agent has no card for operation ${id} from ${c.issuer}`);
+    return decideHeld(card.id, decision);
   },
 
   async signout(domain, params) {
@@ -723,29 +681,6 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     return { revoked: outcome !== "not_accepted" };
   },
 
-  /**
-   * Adversarial agent only (docs/adversarial-interop.md, Part B). `arm` stores an
-   * attack; `attack` runs it as a raw wire attack. An unknown attack answers 501,
-   * so the cell is `unsupported` (spec §5).
-   */
-  async arm(_domain, params) {
-    if (!ADVERSARY) throw new StepError(501, "unsupported", "This adapter isn't the adversarial agent");
-    const attack = text(params.attack, "attack");
-    if (!ATTACKS.includes(attack as (typeof ATTACKS)[number])) throw new StepError(501, "unsupported", `Unknown attack ${attack}`);
-    armed = { attack, params };
-    return { armed: attack };
-  },
-
-  async attack(domain, params) {
-    if (!ADVERSARY) throw new StepError(501, "unsupported", "This adapter isn't the adversarial agent");
-    if (!armed) throw new StepError(409, "not_armed", "No attack armed; call arm first");
-    const c = await company(domain);
-    const ctx: AttackContext = { clientId: `${ORIGIN}/poppy/client.json`, signingJwks: agent.env.POPPY_SIGNING_JWKS as unknown as string, fetcher: (request) => fetch(request) };
-    const result = await runAttack(ctx, c, armed.attack, { ...armed.params, ...params });
-    if (result.poppy_error === "unsupported") throw new StepError(501, "unsupported", result.detail ?? "Attack unavailable");
-    if (result.poppy_error) throw new PoppyStepError(result.poppy_error, result.status, result.detail ?? `${armed.attack} refused`);
-    return { status: result.status, body: result.body };
-  },
 
   /**
    * What the agent would show the User to identify a Company (XP, N14): the
@@ -834,6 +769,11 @@ async function decideHeld(id: string, decision: "approve" | "decline") {
     if (answered?.[2]) throw new PoppyStepError(answered[2], status, row.result ?? "");
     return { status: "done", result: { status, body: null } };
   }
+  // Sent, and the Company answered with an operation (Ops 4): its terms wait on the next card, held for the User too.
+  if (row.status === "terms") {
+    const next = rows(agent.client.sql, approvalsTable.pick("id"), "SELECT id FROM poppy_approvals WHERE status = 'pending' AND terms IS NOT NULL ORDER BY created_at DESC LIMIT 1")[0];
+    return { status: "terms", ...(next ? { held: next.id } : {}) };
+  }
   if (row.status !== "done") return { status: row.status };
   let outcome: Json = null;
   try {
@@ -862,7 +802,6 @@ async function step(request: Request): Promise<Response> {
     // The strict agent's refusal stands, whatever src/poppy made of the error it threw.
     const error = agent.strict?.refusal ?? caught;
     if (error instanceof StrictRefusal) return json({ ok: false, poppy_error: error.document ? "discovery_failed" : "company_departure", status: 0, detail: error.message });
-    if (error instanceof AttackSetupError) return failure(500, "attack_setup_failed", error.message);
     if (error instanceof StepError) return failure(error.status, error.code, error.message);
     if (error instanceof PoppyStepError) return json({ ok: false, poppy_error: error.code, status: error.status, detail: error.message });
     if (error instanceof PoppyError) {
@@ -882,7 +821,6 @@ async function control(request: Request): Promise<Response> {
   if (request.method === "POST" && url.pathname === "/reset") {
     agent = await newAgent();
     pending.clear();
-    armed = null;
     return json({ ok: true });
   }
   if (request.method === "POST" && url.pathname === "/step") return step(request);

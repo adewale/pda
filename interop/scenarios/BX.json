@@ -3,12 +3,13 @@
   "title": "Refused agent: the Company admits no client_id",
   "requirements": ["4.1"],
   "adversary": "company",
-  "needs": { "agent": ["discover", "session"], "company": ["arm"] },
+  "needs": { "agent": ["discover", "session", "api"], "company": ["arm"] },
   "steps": [
     { "company": "arm", "params": { "attack": "BX" } },
     { "agent": "discover" },
-    { "agent": "session", "save": "r" },
+    { "agent": "session", "save": "s" },
+    { "agent": "api", "params": { "api": "${fixture.openapi_public.api}", "operation": "${fixture.openapi_public.operation}", "args": "${fixture.openapi_public.args}" }, "save": "r" },
     { "expect": { "step": "r", "poppy_error": { "$exists": true } } },
-    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "/oauth/token", "method": "POST" } }
+    { "runner": "assert_trace", "params": { "check": "attack_observed", "status": 400, "body_contains": "invalid_session" } }
   ]
 }

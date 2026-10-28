@@ -207,17 +207,18 @@ function company(doc: Obj, auth: Obj, metadata: Obj, known: { issuer: Issuer; na
       scopes: strings(mediated.scopes).filter((scope) => supported.includes(scope))
     };
   }
-  const customScopes: Record<string, string> = {};
-  if (isObj(auth.scopes)) for (const [scope, description] of Object.entries(auth.scopes)) if (typeof description === "string") customScopes[scope] = description;
-  const scopeHints: Record<string, ScopeHint> = {};
-  if (isObj(auth.scope_hints)) {
-    for (const [scope, hint] of Object.entries(auth.scope_hints)) {
-      if (!isObj(hint) || typeof hint.personal_data !== "boolean") continue;
+  // Built from entries, so a scope named like an inherited member (`__proto__`) is a member like any other.
+  const customScopes: Record<string, string> = Object.fromEntries(
+    Object.entries(isObj(auth.scopes) ? auth.scopes : {}).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  );
+  const scopeHints: Record<string, ScopeHint> = Object.fromEntries(
+    Object.entries(isObj(auth.scope_hints) ? auth.scope_hints : {}).flatMap(([scope, hint]): [string, ScopeHint][] => {
+      if (!isObj(hint) || typeof hint.personal_data !== "boolean") return [];
       // 4.7: a changes value it doesn't recognize is irreversible.
       const changes = hint.changes === "none" || hint.changes === "reversible" ? hint.changes : "irreversible";
-      scopeHints[scope] = { changes, personalData: hint.personal_data };
-    }
-  }
+      return [[scope, { changes, personalData: hint.personal_data }]];
+    })
+  );
   const protectedResources = strings(metadata.protected_resources);
   const operations = extensions.operations;
   return {

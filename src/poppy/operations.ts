@@ -115,21 +115,35 @@ function numbersIn(text: string): number[] {
   return [...text.matchAll(/\d[\d,]*(?:\.\d+)?/g)].map((match) => Number(match[0].replace(/,/g, ""))).filter(Number.isFinite);
 }
 
-/** The first scalar under `key` anywhere in a value, breadth first: what the request asked for under that name. */
-function scalarAt(value: Json | undefined, key: string): string | number | boolean | undefined {
+type Scalar = string | number | boolean;
+const isScalar = (value: Json | undefined): value is Scalar => typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+
+/** The scalar at exactly `path` in a value, if there is one: what the request asked for in that place. */
+function scalarAtPath(value: Json | undefined, path: readonly (string | number)[]): Scalar | undefined {
+  let at: Json | undefined = value;
+  for (const segment of path) {
+    if (typeof segment === "number") at = Array.isArray(at) ? at[segment] : undefined;
+    else at = isObject(at) && Object.hasOwn(at, segment) ? at[segment] : undefined;
+  }
+  return isScalar(at) ? at : undefined;
+}
+
+/** Every scalar under `key` anywhere in a value, breadth first, to six levels: what the request asked for under that name. */
+function scalarsAt(value: Json | undefined, key: string): Scalar[] {
+  const found: Scalar[] = [];
   let level: Json[] = value === undefined ? [] : [value];
   for (let depth = 0; depth < 6 && level.length; depth++) {
     const next: Json[] = [];
     for (const item of level) {
       if (Array.isArray(item)) next.push(...item);
       if (!isObject(item)) continue;
-      const found = item[key];
-      if (typeof found === "string" || typeof found === "number" || typeof found === "boolean") return found;
+      const named = Object.hasOwn(item, key) ? item[key] : undefined;
+      if (isScalar(named)) found.push(named);
       next.push(...Object.values(item));
     }
     level = next;
   }
-  return undefined;
+  return found;
 }
 
 /**
@@ -137,38 +151,43 @@ function scalarAt(value: Json | undefined, key: string): string | number | boole
  * that returned it (Ops 5: the agent "SHOULD check that they agree with the
  * `summary` and with what it asked for ... and point out any difference").
  * Two checks, both mechanical: every amount the terms name appears as a
- * number in the summary, and every scalar the terms name under a key the
- * request also used has the request's value. Wording, dates and anything
- * else the summary says are left to the User, who reads it in full.
+ * number in the summary (its size: a refund of -20.00 may be written
+ * "20.00"), and every scalar the terms name has the request's value: the
+ * request's at the same place, or, where the request has none there, one
+ * of the request's under the same key, if it used that key. So an order of
+ * several items, each with its own `sku`, agrees with itself. Wording,
+ * dates and anything else the summary says are left to the User, who
+ * reads it in full.
  */
 export function termsDifferences(operation: Pick<OperationV2, "summary" | "terms">, asked: Json | undefined): string[] {
   const differences: string[] = [];
   const written = numbersIn(operation.summary);
-  const walk = (value: Json, path: string) => {
+  const walk = (value: Json, path: string, segments: readonly (string | number)[]) => {
     if (differences.length >= 8) return;
-    if (Array.isArray(value)) return value.forEach((item, index) => walk(item, `${path}[${index}]`));
+    if (Array.isArray(value)) return value.forEach((item, index) => walk(item, `${path}[${index}]`, [...segments, index]));
     if (!isObject(value)) return;
     if (typeof value.amount === "string" || typeof value.amount === "number") {
       const amount = Number(value.amount);
       const currency = typeof value.currency === "string" ? ` ${value.currency}` : "";
-      if (!Number.isFinite(amount) || !written.includes(amount)) {
+      if (!Number.isFinite(amount) || !written.includes(Math.abs(amount))) {
         differences.push(`The terms name ${quoted(value.amount)}${quoted(currency)} (${path || "amount"}), which the summary doesn't mention.`);
       }
       return;
     }
     for (const [key, item] of Object.entries(value)) {
       const where = path ? `${path}.${key}` : key;
-      if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
-        const sent = scalarAt(asked, key);
-        if (sent !== undefined && String(sent) !== String(item)) {
-          differences.push(`The terms say ${where} is ${quoted(item)}, but the request asked for ${quoted(sent)}.`);
+      if (isScalar(item)) {
+        const here = scalarAtPath(asked, [...segments, key]);
+        const sent = here === undefined ? scalarsAt(asked, key) : [here];
+        if (sent.length > 0 && !sent.some((value) => String(value) === String(item))) {
+          differences.push(`The terms say ${where} is ${quoted(item)}, but the request asked for ${quoted(sent[0]!)}.`);
         }
       } else {
-        walk(item, where);
+        walk(item, where, [...segments, key]);
       }
     }
   };
-  if (operation.terms !== undefined) walk(operation.terms, "");
+  if (operation.terms !== undefined) walk(operation.terms, "", []);
   return differences.slice(0, 8);
 }
 
@@ -238,10 +257,24 @@ export async function proposeLocal(
   const stored = storedApproval(approval);
   const attachments = approvalAttachments(stored);
   const existing = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
-  if (existing && (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored || existing.summary !== summary)) {
+  // A Company's terms have one card per revision (operations-v2.ts `approvalCardId`), so a new request of
+  // the User's that the Company answers with the same revision asks for the same terms again (Ops 4).
+  const askedAgain = terms !== undefined && existing !== undefined && existing.issuer === company.issuer && existing.label === label && existing.summary === summary && existing.request !== stored;
+  if (askedAgain) {
+    // Sent already: its outcome stands, and the Company performs it at most once (Ops 7).
+    if (existing.status !== "pending" && existing.status !== "declined" && existing.status !== "failed") return id;
+    // Waiting, declined, or never sent: the card waits for the User's decision on the newest request.
+    client.sql.exec(
+      "UPDATE poppy_approvals SET request = ?, terms = ?, status = 'pending', result = NULL WHERE id = ? AND status = ?",
+      stored,
+      JSON.stringify(terms),
+      id,
+      existing.status
+    );
+  } else if (existing && (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored || existing.summary !== summary)) {
     throw new PoppyError("approval_changed", "This tool call already proposed a different request. Use a new call for fresh approval.", 0);
   }
-  if (existing && existing.status !== "pending") return id;
+  if (existing && !askedAgain && existing.status !== "pending") return id;
   if (!existing) {
     client.rememberCompany("approval", id, company);
     client.sql.exec(

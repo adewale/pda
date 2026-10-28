@@ -1,21 +1,19 @@
 /**
  * The checks and trace predicates behind scenarios H (handoff), DC (Direct
- * Conversation), W (browser Session join), O2 (confirmed twice, performed
- * once) and CM (the Company fetches the agent's client_id and keys).
+ * Conversation), W (browser Session join) and CM (the Company fetches the
+ * agent's client_id and keys).
  */
 import { describe, expect, it } from "vitest";
 import { withWebPage } from "../runner/cell.ts";
 import {
-  browserAssertionChecks,
   browserSessionResponseChecks,
-  confirmRepeatChecks,
   directParentChecks,
   handoffChecks,
   metadataFetchChecks,
   setCookies,
   traceChecks
 } from "../runner/checks.ts";
-import { assertTrace, browserJoined, clientFetched, confirmRepeated } from "../runner/traces.ts";
+import { assertTrace, browserJoined, clientFetched } from "../runner/traces.ts";
 import { API, CLIENT_ID, jti, jwt, NOW, recording, sessionStart, type Spec } from "./helpers.ts";
 
 const ids = (checks: { id: string; severity: string }[]) => checks.map((check) => `${check.id}:${check.severity}`);
@@ -24,73 +22,34 @@ const SITE = "https://acme.company.interop.test";
 const ENDPOINT = `${SITE}/poppy/browser-session`;
 const POPPY_JSON: Spec = {
   url: `${SITE}/.well-known/poppy.json`,
-  response: { protocol_version: "0.1", organization: { name: "Acme", domain: "acme.company.interop.test" }, auth: { issuer: "https://auth.acme.company.interop.test" }, web: { browser_session_endpoint: ENDPOINT } }
+  response: { protocol_version: "0.3", organization: { name: "Acme", domain: "acme.company.interop.test" }, web: { browser_session_endpoint: ENDPOINT } }
 };
 
-function browserAssertion(overrides: { header?: Record<string, unknown>; payload?: Record<string, unknown> } = {}): string {
-  return jwt(
-    { alg: "ES256", kid: "k1", typ: "poppy-browser+jwt", ...overrides.header },
-    { iss: CLIENT_ID, sub: "usr_1", aud: ENDPOINT, session_id: "ses_1", return_to: `${SITE}/orders`, iat: NOW, exp: NOW + 60, jti: jti(), ...overrides.payload }
-  );
-}
-
 const COOKIE = "sid=abc; Path=/; Secure; HttpOnly; SameSite=Lax";
-function join(assertion = browserAssertion(), response: Partial<Spec> = {}): Spec {
-  return { url: ENDPOINT, form: { assertion }, status: 303, responseHeaders: { location: `${SITE}/orders`, "set-cookie": COOKIE }, ...response };
+/** 0.3's join (6): the page with its code, the agent's authorize, then the browser's form with the code alone. */
+const page: Spec = { url: ENDPOINT, method: "GET", status: 200, responseHeaders: { "set-cookie": "__Host-poppy_join=j1; Path=/; Max-Age=60; Secure; HttpOnly; SameSite=Strict" } };
+function join(response: Partial<Spec> = {}): Spec {
+  return { url: ENDPOINT, form: { code: "bc_1" }, status: 303, responseHeaders: { location: `${SITE}/`, "set-cookie": COOKIE }, ...response };
 }
 
-describe("browser Session joins (spec 5, scenario W)", () => {
+describe("browser Session joins (spec 6, scenario W)", () => {
   it("find nothing wrong with a correct join and its answer", () => {
-    const all = recording(POPPY_JSON, join(), { url: `${SITE}/orders`, headers: { cookie: "sid=abc" } });
+    const all = recording(POPPY_JSON, page, join(), { url: `${SITE}/`, headers: { cookie: "sid=abc" } });
     expect(traceChecks(all)).toEqual([]);
-    expect(browserJoined(all)).toEqual({ kind: "ok", result: { exchange: 1, return_to: `${SITE}/orders`, followed: true } });
+    expect(browserJoined(all)).toEqual({ kind: "ok", result: { exchange: 2, return_to: `${SITE}/`, followed: true } });
   });
 
-  it("judge the agent's assertion by the mock's ids and bases: typ, aud, lifetime, return_to, jti, and never in the URL", () => {
-    const reused = browserAssertion();
-    const checks = browserAssertionChecks(
-      recording(
-        POPPY_JSON,
-        join(browserAssertion({ header: { typ: "JWT" } })),
-        join(browserAssertion({ payload: { aud: "https://auth.acme.company.interop.test/oauth/token" } })),
-        join(browserAssertion({ payload: { exp: NOW + 120 } })),
-        join(browserAssertion({ payload: { return_to: "https://evil.company.interop.test/" } })),
-        join(reused),
-        join(reused),
-        { url: `${ENDPOINT}?assertion=${browserAssertion()}`, method: "POST", body: "", status: 400 }
-      )
-    );
-    expect(ids(checks)).toEqual([
-      "browser-assertion.typ:error",
-      "browser-assertion.aud:error",
-      "browser-assertion.lifetime:error",
-      "browser-assertion.return-to-off-domain:error",
-      "browser-assertion.jti-reused:error",
-      "browser-assertion.in-url:error",
-      "browser-assertion.content-type:error"
-    ]);
-  });
-
-  it("know a browser assertion sent anywhere by its typ, even without poppy.json in the recording", () => {
-    const checks = browserAssertionChecks(recording({ ...join(), url: `${SITE}/elsewhere` }));
-    expect(ids(checks)).toEqual(["browser-assertion.aud:error"]);
-  });
-
-  it("hold an accepted join to 303, return_to and a Secure, HttpOnly, not Strict cookie; a 400 refusal is the Company's to make", () => {
-    const answer = (responseHeaders: Record<string, string>, status = 303) => browserSessionResponseChecks(recording(POPPY_JSON, join(undefined, { status, responseHeaders })));
-    expect(ids(answer({ location: `${SITE}/orders`, "set-cookie": COOKIE }, 200))).toEqual(["company.browser-session-response:error"]);
-    expect(ids(answer({ location: `${SITE}/`, "set-cookie": COOKIE }))).toEqual(["company.browser-session-response:error"]);
-    expect(ids(answer({ location: `${SITE}/orders` }))).toEqual(["company.browser-session-response:error"]);
+  it("hold an accepted form to a redirect with a Secure, HttpOnly cookie (Guides); SameSite=Strict is allowed now, and a 400 refusal is the Company's to make", () => {
+    const answer = (responseHeaders: Record<string, string>, status = 303) => browserSessionResponseChecks(recording(POPPY_JSON, page, join({ status, responseHeaders })));
+    expect(ids(answer({ location: `${SITE}/`, "set-cookie": COOKIE }, 200))).toEqual(["company.browser-session-response:error"]);
+    expect(ids(answer({ location: `${SITE}/` }))).toEqual(["company.browser-session-response:error"]);
     for (const [cookie, detail] of [
       ["sid=abc; Path=/; HttpOnly; SameSite=Lax", "cookie sid: no Secure"],
-      ["sid=abc; Path=/; Secure; SameSite=Lax", "cookie sid: no HttpOnly"],
-      ["sid=abc; Path=/; Secure; HttpOnly; SameSite=Strict", "cookie sid: SameSite=Strict"]
+      ["sid=abc; Path=/; Secure; SameSite=Lax", "cookie sid: no HttpOnly"]
     ]) {
-      expect(answer({ location: `${SITE}/orders`, "set-cookie": cookie! })).toEqual([
-        expect.objectContaining({ id: "company.browser-cookie", severity: "error", detail })
-      ]);
+      expect(answer({ location: `${SITE}/`, "set-cookie": cookie! })).toEqual([expect.objectContaining({ id: "company.browser-cookie", severity: "warning", detail })]);
     }
-    expect(answer({ location: `${SITE}/orders`, "set-cookie": "sid=abc; Path=/; Secure; HttpOnly; SameSite=None" })).toEqual([]);
+    expect(answer({ location: `${SITE}/`, "set-cookie": "sid=abc; Path=/; Secure; HttpOnly; SameSite=Strict" })).toEqual([]);
     expect(answer({}, 400)).toEqual([]);
   });
 
@@ -99,12 +58,14 @@ describe("browser Session joins (spec 5, scenario W)", () => {
     expect(setCookies(x!)).toEqual(["a=1; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Secure", "b=2; HttpOnly"]);
   });
 
-  it("browser_joined: inapplicable without an endpoint, failed without an accepted join, and says whether the cookie came back", () => {
-    expect(browserJoined(recording({ ...POPPY_JSON, response: { protocol_version: "0.1" } })).kind).toBe("inapplicable");
+  it("browser_joined: inapplicable without an endpoint, failed without an accepted form, and says whether the cookie came back", () => {
+    expect(browserJoined(recording({ ...POPPY_JSON, response: { protocol_version: "0.3" } })).kind).toBe("inapplicable");
     expect(browserJoined(recording(POPPY_JSON)).kind).toBe("failed");
-    expect(browserJoined(recording(POPPY_JSON, join(undefined, { status: 400, responseHeaders: {} }))).kind).toBe("failed");
-    expect(browserJoined(recording(POPPY_JSON, join(), { url: `${SITE}/orders` }))).toMatchObject({ kind: "ok", result: { followed: false } });
-    expect(assertTrace(recording(POPPY_JSON, join()), { check: "browser_joined" }).kind).toBe("ok");
+    // The page's GET sets the join's own cookie: it is never the join.
+    expect(browserJoined(recording(POPPY_JSON, page)).kind).toBe("failed");
+    expect(browserJoined(recording(POPPY_JSON, page, join({ status: 400, responseHeaders: {} }))).kind).toBe("failed");
+    expect(browserJoined(recording(POPPY_JSON, page, join(), { url: `${SITE}/orders` }))).toMatchObject({ kind: "ok", result: { followed: false } });
+    expect(assertTrace(recording(POPPY_JSON, page, join()), { check: "browser_joined" }).kind).toBe("ok");
   });
 
   it("the runner gives W the Company's home page when its fixture names no web_page", () => {
@@ -147,41 +108,22 @@ describe("Direct Conversations (7.10, scenario DC)", () => {
   });
 });
 
-describe("a repeated confirm (Operations 5.2 and 6, scenario O2)", () => {
-  const confirm = `${API}/poppy/operations/exc_1/confirm`;
-  const confirmation = { revision: 1, approved_by: "user", confirmed_at: "2026-10-12T12:00:00Z" };
-  const answer = (status: number, response: unknown, at: number): Spec => ({ ...post(confirm, status, response, { revision: 1, approved_by: "user" }), at });
-
-  it("returns the operation as it is: the same confirmation, whatever its state now", () => {
-    const all = recording(answer(200, { operation_id: "exc_1", state: "in_progress", confirmation }, 0), answer(200, { operation_id: "exc_1", state: "succeeded", confirmation }, 10));
-    expect(confirmRepeatChecks(all)).toEqual([]);
-    expect(confirmRepeated(all)).toEqual({ kind: "ok", result: { operations: ["exc_1"], confirms: 2 } });
-  });
-
-  it("fails a second confirmation, or an error that isn't about the token, its scopes or a limit", () => {
-    const first = answer(200, { operation_id: "exc_1", state: "succeeded", confirmation }, 0);
-    const again = recording(first, answer(200, { operation_id: "exc_1", state: "succeeded", confirmation: { ...confirmation, confirmed_at: "2026-10-12T12:00:05Z" } }, 10));
-    expect(ids(confirmRepeatChecks(again))).toEqual(["company.confirm-repeated:error"]);
-    expect(confirmRepeated(again).kind).toBe("failed");
-    expect(ids(confirmRepeatChecks(recording(first, answer(409, { error: "operation_not_proposed" }, 10))))).toEqual(["company.confirm-repeated:error"]);
-    expect(confirmRepeatChecks(recording(first, answer(403, { error: "insufficient_scope" }, 10)))).toEqual([]);
-    expect(confirmRepeated(recording(first, answer(403, { error: "insufficient_scope" }, 10))).kind).toBe("failed");
-  });
-
-  it("is inapplicable without a second confirm, and judges nothing before the first was answered", () => {
-    expect(confirmRepeated(recording(answer(200, { state: "succeeded", confirmation }, 0))).kind).toBe("inapplicable");
-    expect(confirmRepeatChecks(recording(answer(503, { error: "server_error" }, 0), answer(200, { state: "succeeded", confirmation }, 10)))).toEqual([]);
-  });
-});
-
 describe("the Company's fetches of the agent's documents (4.1, scenario CM)", () => {
   const JWKS = "https://pda.agent.interop.test/poppy/jwks.json";
   const metadata = (at: number, headers: Record<string, string> = {}): Spec => ({ url: CLIENT_ID, at, headers, response: { client_id: CLIENT_ID, jwks_uri: JWKS } });
   const keys = (at: number, kid = "k1"): Spec => ({ url: JWKS, at, response: { keys: [{ kty: "EC", kid }] } });
   const grant = (at: number): Spec => ({ ...sessionStart(at), time: 100 });
 
-  it("client_fetched: the client_id document and the key that signed the Session assertion, both before the Session was granted", () => {
+  it("client_fetched: the client_id document and the key that signed the client assertion, both before the token was granted", () => {
     expect(clientFetched(recording(grant(0), metadata(10), keys(20)))).toMatchObject({ kind: "ok", result: { client_id: CLIENT_ID, metadata: 1, jwks: 2 } });
+  });
+
+  it("client_fetched: or the key that signed the delegation of the first Session JWT the Company accepted (5.3, step 1)", () => {
+    const delegation = jwt({ alg: "ES256", kid: "k1", typ: "pap-delegation+jwt" }, { iss: CLIENT_ID, cnf: { jwk: { kty: "EC" } }, iat: NOW, exp: NOW + 3600, jti: jti() });
+    const session = jwt({ alg: "ES256", kid: "thumb", typ: "poppy-session+jwt", pap_dlg: delegation }, { iss: CLIENT_ID, aud: "https://auth.acme.company.interop.test", sid: "s1", sub: "usr_1", htm: "GET", htu: `${API}/products`, iat: NOW, jti: jti() });
+    const request: Spec = { url: `${API}/products`, at: 0, time: 100, headers: { "poppy-session": session } };
+    expect(clientFetched(recording(request, metadata(10), keys(20)))).toMatchObject({ kind: "ok", result: { client_id: CLIENT_ID, metadata: 1, jwks: 2 } });
+    expect(clientFetched(recording(request, metadata(10), keys(20, "k-old"))).kind).toBe("failed");
   });
 
   it("client_fetched: an agent that sends no client_id (optional beside a client assertion, RFC 7521 4.2) is known by the assertion's iss", () => {

@@ -82,13 +82,6 @@ function noun(path: string): string {
   return parts.length ? words(parts.at(-1)!) : "the API";
 }
 
-function access(scopes: unknown): ToolAccess | null {
-  if (!Array.isArray(scopes)) return null;
-  if (scopes.includes("poppy:write")) return "view and change";
-  if (scopes.includes("poppy:read")) return "view";
-  return null;
-}
-
 function proposed(outcome: ToolOutcome | undefined): boolean {
   if (!outcome || outcome.error) return false;
   if (isRecord(outcome.details) && outcome.details.proposed !== undefined) return true;
@@ -219,7 +212,8 @@ export function describeToolCall(
       return line(`Looked up what ${company} offers personal agents`, null);
     case "poppy_sign_in": {
       const granted = isRecord(outcome?.details) && typeof outcome.details.status === "string" && outcome.details.status.startsWith("signed in");
-      return line(granted ? `Used the access you gave ${company} before` : `Asked you to sign in at ${company}`, "sign-in", access(a.scopes));
+      // 0.3 defines no scopes: each Company's are its own (spec 4.7), so a sign-in names no access level.
+      return line(granted ? `Used the access you gave ${company} before` : `Asked you to sign in at ${company}`, "sign-in");
     }
     case "poppy_status":
       return line(domain ? `Checked your accounts and conversations at ${company}` : "Checked what's open at every Company", null);

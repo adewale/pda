@@ -67,36 +67,32 @@ describe("profiles", () => {
     expect(() => profileFrom("careless")).toThrow(/Unknown/);
   });
 
-  it("registers each profile as a fake, honest, self-owned agent, and the adversary as evil-personal-agent", () => {
+  it("registers each profile as a fake, honest, self-owned agent", () => {
     const agents = loadRegistry().implementations.filter((entry) => entry.role === "agent" && entry.owner === "self");
     for (const profile of PROFILES) {
       const entry = agents.find((found) => found.name === `${profile}-personal-agent`);
       expect(entry, profile).toMatchObject({ fake: true, build: "interop/impls/pda-agent", env: { INTEROP_AGENT_PROFILE: profile } });
       expect(entry?.adversarial).toBeUndefined();
     }
+    // The adversarial agent spoke 0.2's wire and waits for a 0.3 port (docs/interop-spec.md).
     const names = loadRegistry().implementations.map((entry) => entry.name);
-    expect(names).toContain("evil-personal-agent");
+    expect(names).not.toContain("evil-personal-agent");
     expect(names.filter((name) => /pda-mock|evil-agent$/.test(name))).toEqual([]);
   });
 });
 
 describe("the sloppy agent", () => {
-  it("drops typ, lives 300 s, names the token endpoint, and asks for poppy:read on a signed-out Session", async () => {
+  it("drops typ, lives 300 s and names the token endpoint in its client assertion, and changes nothing else", async () => {
     const endpoints = await knownEndpoints();
-    const request = formPost(TOKEN, {
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      client_assertion: await assertion(TOKEN),
-      assertion: await assertion(ISSUER, { sub: "user-1" })
-    });
+    const request = formPost(TOKEN, { grant_type: "refresh_token", refresh_token: "rt_1", client_assertion: await assertion(ISSUER) });
     const sent = new URLSearchParams(await (await sloppyRequest(request, endpoints, resign)).text());
-    expect(sent.get("scope")).toBe("poppy:read");
-    for (const name of ["client_assertion", "assertion"]) {
-      const jwt = sent.get(name)!;
-      expect(decodeProtectedHeader(jwt).typ, name).toBeUndefined();
-      const claims = decodeJwt(jwt);
-      expect(claims.aud).toBe(TOKEN);
-      expect(Number(claims.exp) - Number(claims.iat)).toBe(SLOPPY_LIFETIME);
-    }
+    expect(sent.has("scope")).toBe(false);
+    expect(sent.get("refresh_token")).toBe("rt_1");
+    const jwt = sent.get("client_assertion")!;
+    expect(decodeProtectedHeader(jwt).typ).toBeUndefined();
+    const claims = decodeJwt(jwt);
+    expect(claims.aud).toBe(TOKEN);
+    expect(Number(claims.exp) - Number(claims.iat)).toBe(SLOPPY_LIFETIME);
   });
 
   it("names the token endpoint at the revocation endpoint too, and leaves an unknown endpoint alone", async () => {

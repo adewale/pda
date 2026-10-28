@@ -22,11 +22,16 @@ export type SignInStart =
   | { readonly status: "signed_in"; readonly scope: string }
   | { readonly status: "waiting"; readonly type: SignInType; readonly signInId: string };
 
+/** A record's own member, never one every object inherits: a scope can be named `constructor` or `toString`. */
+function own<T>(record: Readonly<Record<string, T>> | undefined, key: string): T | undefined {
+  return record && Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
 export function describeScopes(company: Company, scopes: readonly string[], fromApis: Readonly<Record<string, string>> = {}): ScopeInfo[] {
   return scopes.map((scope) => {
-    const hint = company.scopeHints?.[scope];
+    const hint = own(company.scopeHints, scope);
     // 4.7: described in an OpenAPI description's OAuth scheme, or otherwise in auth.scopes.
-    return { scope, description: fromApis[scope] ?? company.customScopes[scope] ?? scope, ...(hint ? { hint: hintText(hint) } : {}) };
+    return { scope, description: own(fromApis, scope) ?? own(company.customScopes, scope) ?? scope, ...(hint ? { hint: hintText(hint) } : {}) };
   });
 }
 
@@ -93,7 +98,7 @@ export async function startSignIn(
   if (scopes.length === 0) throw new PoppyError("invalid_scope", "Name at least one scope to request", 0);
   for (const scope of scopes) {
     // The protocol defines no scopes (4.7): a scope is one the Company describes or a sign-in type can request.
-    const known = company.customScopes[scope] !== undefined || offeredBySignIn(company, scope);
+    const known = own(company.customScopes, scope) !== undefined || offeredBySignIn(company, scope);
     if (!known) {
       throw new PoppyError("invalid_scope", `${company.name} doesn't define the scope ${scope}`, 0);
     }

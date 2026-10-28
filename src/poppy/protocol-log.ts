@@ -29,6 +29,7 @@ export { PROTOCOL_LOG_LIMIT };
 /** Each step's section of 0.3 ("§"), the Operations extension ("Ops §") or the Mediated Sign-In extension ("MSI §"), and its subject. */
 export const PROTOCOL_STEPS = {
   "discovery.poppy": { section: "§3", title: "Discovery" },
+  "discovery.resource": { section: "§3.2", title: "Protected resource" },
   "discovery.metadata": { section: "§3.2", title: "OAuth server" },
   "discovery.verdict": { section: "§3", title: "Validator" },
   "token.other": { section: "§4.7", title: "Token endpoint" },
@@ -290,18 +291,24 @@ export function recordDiscovery(sql: Sql, domain: string, report: CompanyReport 
     }
     for (const document of report.documents) {
       const metadata = document.kind === "oauth-metadata";
+      // The domain's protected resource metadata names the issuer (3.2, RFC 9728).
+      const resource = document.kind === "protected-resource";
       const url = bareUrl(document.url);
       const final = bareUrl(document.finalUrl);
       const status = typeof document.status === "number" ? document.status : null;
       insert(sql, {
         key,
         issuer,
-        step: metadata ? "discovery.metadata" : "discovery.poppy",
+        step: metadata ? "discovery.metadata" : resource ? "discovery.resource" : "discovery.poppy",
         method: "GET",
         url,
         status,
         outcome: status === null ? "failed" : status >= 200 && status < 300 ? "ok" : "error",
-        summary: metadata ? "Fetch the issuer's OAuth server metadata (RFC 8414)" : "Fetch poppy.json, without credentials",
+        summary: metadata
+          ? "Fetch the issuer's OAuth server metadata (RFC 8414)"
+          : resource
+            ? "Fetch the domain's protected resource metadata (RFC 9728), for its issuer"
+            : "Fetch poppy.json, without credentials",
         result: [
           status === null ? unanswered(report, document.kind) : String(status),
           final && final !== url ? `from ${final}` : null,
@@ -382,8 +389,8 @@ function oauthStep(company: Company, attempt: OauthAttempt): { step: ProtocolSte
   const proof = attempt.dpop ? `DPoP proof${attempt.nonce ? " with nonce" : ""}` : null;
   const extras = [scope ? `scope ${scope}` : null, resource ? `resource ${resource}` : null];
   const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(", ");
-  // Every request to the issuer carries the Session header (5.2), which names the client (4.1).
-  const session = "Session header";
+  // Every request to the issuer carries our client assertion (4.1); never the Session header, which 5.2 keeps off OAuth endpoints.
+  const session = "client assertion";
   if (attempt.endpoint === company.endpoints.deviceAuthorization) {
     return { step: "signin.device.start", summary: join("Device authorization request", ...extras, session) };
   }

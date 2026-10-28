@@ -28,33 +28,22 @@ export const TRACE_CHECKS = {
   "client-assertion.typ": { side: "agent", basis: "Reading", mock: true, what: "Client assertion header typ isn't \"JWT\" (S2)" },
   "client-assertion.kid": { side: "agent", basis: "Reading", mock: true, what: "Client assertion has no kid (S2)" },
   "client-assertion.alg": { side: "agent", basis: "Guides", mock: true, what: "Client assertion alg isn't ES256 or RS256" },
-  "client-assertion.iat-exp-missing": { side: "agent", basis: "RFC", mock: true, what: "Client assertion without iat or exp" },
+  "client-assertion.iat-exp-missing": { side: "agent", basis: "MUST", mock: true, what: "Client assertion without iat or exp" },
   "client-assertion.lifetime": { side: "agent", basis: "Reading", mock: true, what: "Client assertion lifetime over 60 seconds (S2; the detail says if over 300)" },
-  "client-assertion.jti-missing": { side: "agent", basis: "Guides", mock: true, what: "Client assertion without a jti" },
-  "client-assertion.jti-reused": { side: "agent", basis: "Rule", mock: true, what: "Client assertion jti used twice" },
-  "client-assertion.aud-array": { side: "agent", basis: "Reading", mock: true, what: "Client assertion aud is an array" },
+  "client-assertion.jti-missing": { side: "agent", basis: "MUST", mock: true, what: "Client assertion without a jti" },
+  "client-assertion.jti-reused": { side: "agent", basis: "MUST", mock: true, what: "Client assertion jti used twice" },
+  "client-assertion.aud-array": { side: "agent", basis: "MUST", mock: true, what: "Client assertion aud is an array" },
   "client-assertion.iss-sub": { side: "agent", basis: "RFC", mock: true, what: "Client assertion iss and sub aren't both the client_id" },
   "client-assertion.not-jwt": { side: "agent", basis: "RFC", mock: true, what: "Client assertion is not a JWT" },
-  "session-assertion.typ": { side: "agent", basis: "Reading", mock: true, what: "Session assertion header typ isn't \"JWT\" (S2)" },
-  "session-assertion.kid": { side: "agent", basis: "Reading", mock: true, what: "Session assertion has no kid (S2)" },
-  "session-assertion.alg": { side: "agent", basis: "Guides", mock: true, what: "Session assertion alg isn't ES256 or RS256" },
-  "session-assertion.iat-exp-missing": { side: "agent", basis: "Rule", mock: true, what: "Session assertion without iat or exp" },
-  "session-assertion.lifetime": { side: "agent", basis: "Reading", mock: true, what: "Session assertion lifetime over 60 seconds (S2; the detail says if over 300)" },
-  "session-assertion.jti-missing": { side: "agent", basis: "Rule", mock: true, what: "Session assertion without a jti" },
-  "session-assertion.jti-reused": { side: "agent", basis: "Rule", mock: true, what: "Session assertion jti used twice" },
-  "session-assertion.aud": { side: "agent", basis: "Rule", mock: true, what: "Session assertion aud isn't the token endpoint as a single string" },
-  "session-assertion.iss": { side: "agent", basis: "Rule", mock: true, what: "Session assertion iss isn't the client_id" },
-  "session-assertion.not-jwt": { side: "agent", basis: "RFC", mock: true, what: "Session assertion is not a JWT" },
   "dpop.not-jwt": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof is not a JWT" },
   "dpop.typ": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof typ isn't dpop+jwt" },
   "dpop.no-jwk": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof has no jwk in its header" },
-  "dpop.htm": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof htm isn't the request method" },
-  "dpop.htu": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof htu isn't the request URL without query or fragment" },
-  "dpop.iat": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof iat is outside the acceptance window" },
+  "dpop.htm": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof htm isn't the request method" },
+  "dpop.htu": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof htu isn't the request URL without query or fragment" },
+  "dpop.iat": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof iat is outside the acceptance window" },
   "dpop.jti-missing": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof without a jti" },
-  "dpop.jti-reused": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof jti used twice" },
-  "dpop.ath": { side: "agent", basis: "MUST", mock: true, what: "DPoP proof ath isn't the hash of the token sent" },
-  "dpop.ath-at-token-endpoint": { side: "agent", basis: "Rule", mock: true, what: "DPoP proof at the token endpoint carries ath" },
+  "dpop.jti-reused": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof jti used twice" },
+  "dpop.ath": { side: "agent", basis: "RFC", mock: true, what: "DPoP proof ath isn't the hash of the token sent" },
   "secret.token-in-url": { side: "agent", basis: "MUST", mock: true, what: "A token sent in a URL" },
   "rate-limit.retry-after-ignored": { side: "agent", basis: "MUST", mock: true, what: "Request sent again before its Retry-After elapsed" },
   "rate-limit.shared-limit-ignored": { side: "agent", basis: "Guides", mock: true, what: "A different request sent to the Company before an earlier Retry-After elapsed" },
@@ -63,7 +52,7 @@ export const TRACE_CHECKS = {
   "company.www-authenticate": { side: "company", basis: "RFC", mock: false, what: "401 to a request with a token, without WWW-Authenticate (RFC 6750, RFC 9449)" },
   "company.retry-after": { side: "company", basis: "Rule", mock: false, what: "429 without Retry-After" },
   "company.oauth-error-body": { side: "company", basis: "RFC", mock: false, what: "OAuth endpoint error that isn't JSON with a string error (RFC 6749 5.2)" },
-  "company.token-response": { side: "company", basis: "Rule", mock: false, what: "Token response without access_token, token_type, expires_in or session_id (4.2)" },
+  "company.token-response": { side: "company", basis: "RFC", mock: false, what: "Token response without access_token or token_type (RFC 6749 5.1; 4.7)" },
   "company.token-no-store": { side: "company", basis: "RFC", mock: false, what: "Token response without Cache-Control: no-store (RFC 6749 5.1; Guides)" },
   "company.iss-missing": { side: "company", basis: "RFC", mock: false, what: "Authorization response without iss (RFC 9207, spec 4.5)" },
   "company.events-shape": {
@@ -86,30 +75,17 @@ export const TRACE_CHECKS = {
   },
   "company.sse-event-id": { side: "company", basis: "Rule", mock: false, what: "A streamed event without an id (7.6)" },
   // Browser Sessions (spec 5): the agent's join request, by the mock's ids, and the Company's answer.
-  "browser-assertion.in-url": { side: "agent", basis: "MUST", mock: true, what: "Browser assertion sent in the URL (5)" },
-  "browser-assertion.not-post": { side: "agent", basis: "Rule", mock: true, what: "Browser join isn't a POST (5)" },
-  "browser-assertion.content-type": { side: "agent", basis: "Rule", mock: true, what: "Browser join isn't a form POST (5)" },
-  "browser-assertion.missing": { side: "agent", basis: "Rule", mock: true, what: "Browser join without an assertion (5)" },
-  "browser-assertion.not-jwt": { side: "agent", basis: "Rule", mock: true, what: "Browser assertion is not a JWT (5)" },
-  "browser-assertion.typ": { side: "agent", basis: "MUST", mock: true, what: "Browser assertion typ isn't poppy-browser+jwt (5)" },
-  "browser-assertion.no-iss": { side: "agent", basis: "MUST", mock: true, what: "Browser assertion without iss (5)" },
-  "browser-assertion.iat-exp-missing": { side: "agent", basis: "MUST", mock: true, what: "Browser assertion without iat or exp (5)" },
-  "browser-assertion.lifetime": { side: "agent", basis: "MUST", mock: true, what: "Browser assertion exp more than 60 seconds after iat (5)" },
-  "browser-assertion.aud": { side: "agent", basis: "MUST", mock: true, what: "Browser assertion aud isn't the browser_session_endpoint it was sent to (5)" },
-  "browser-assertion.jti-missing": { side: "agent", basis: "Rule", mock: true, what: "Browser assertion without a jti (5, as in 4.2)" },
-  "browser-assertion.jti-reused": { side: "agent", basis: "MUST", mock: true, what: "Browser assertion jti used twice (5)" },
-  "browser-assertion.return-to-off-domain": { side: "agent", basis: "MUST", mock: true, what: "Browser assertion return_to isn't HTTPS on the Company's domain (5)" },
   "company.browser-session-response": {
     side: "company",
     basis: "Rule",
     mock: false,
-    what: "A browser join the Company accepted without 303 See Other to return_to and a cookie (5: \"sets a cookie for the Session and responds with 303 See Other to return_to\")"
+    what: "A browser join's form the Company accepted without a redirect and a cookie (6, step 3: it sets the Session's cookie when it redirects the browser)"
   },
   "company.browser-cookie": {
     side: "company",
-    basis: "MUST",
+    basis: "Guides",
     mock: false,
-    what: "The cookie a browser join set isn't Secure and HttpOnly, or is SameSite=Strict (5: it MUST be Secure and HttpOnly, and use SameSite=Lax or None, not Strict)"
+    what: "The cookie a browser join set isn't Secure and HttpOnly (Guides, \"Browser sessions\"; 0.3 left the cookie's attributes to the Guides)"
   },
   "company.handoff-response": {
     side: "company",
@@ -122,12 +98,6 @@ export const TRACE_CHECKS = {
     basis: "Rule",
     mock: false,
     what: "A message or handoff to a parent conversation accepted while its Direct Conversation was open, or refused without that conversation's id (7.10: they \"return direct_conversation_open, with the Direct Conversation's ID in conversation_id\")"
-  },
-  "company.confirm-repeated": {
-    side: "company",
-    basis: "Rule",
-    mock: false,
-    what: "A repeated confirm of an operation already confirmed answered with an error, or with a different confirmation (Ops 5.2: the Company \"returns the operation as it is and does nothing else\"; Ops 6's MUST: at most once)"
   },
   "company.metadata-fetch-credentials": {
     side: "company",
@@ -154,52 +124,40 @@ const sha256 = (text: string) => createHash("sha256").update(text).digest("base6
 /** Requests an agent sent to a Company, excluding the runner's probes and the proxy's injected exchanges (spec §6). */
 const agentRequests = (all: readonly Exchange[]) => all.filter((x) => x.direction === "to-company" && !x.probe && !x.injected);
 
-/** Client and Session assertions: header, lifetime, jti, audience. */
-export function assertionChecks(all: readonly Exchange[], protocolVersion = "0.1"): Check[] {
+/** Client assertions: header, lifetime, jti, and an audience that is the issuer (4.1). */
+export function assertionChecks(all: readonly Exchange[]): Check[] {
   const found: Check[] = [];
-  const seen = { "client-assertion": new Set<string>(), "session-assertion": new Set<string>() };
+  const seen = new Set<string>();
   for (const x of agentRequests(all)) {
     const fields = form(x);
-    if (!fields) continue;
+    const jwt = fields?.get("client_assertion");
+    if (!fields || jwt === null || jwt === undefined) continue;
     const clientId = fields.get("client_id");
-    const jwts: ["client-assertion" | "session-assertion", string][] = [];
-    const client = fields.get("client_assertion");
-    if (client !== null) jwts.push(["client-assertion", client]);
-    const assertion = fields.get("assertion");
-    if (assertion !== null && fields.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer") jwts.push(["session-assertion", assertion]);
-    for (const [kind, jwt] of jwts) {
-      const decoded = decodeJwt(jwt);
-      if (!decoded) {
-        found.push(check(`${kind}.not-jwt`, x, `${kind} at ${withoutQuery(x.url)} isn't a JWT`));
-        continue;
-      }
-      const { header, payload } = decoded;
-      if (header.typ !== "JWT") found.push(check(`${kind}.typ`, x, `typ is ${JSON.stringify(header.typ)}`));
-      if (typeof header.kid !== "string" || header.kid === "") found.push(check(`${kind}.kid`, x, "no kid in the header"));
-      if (!SIGNING.has(String(header.alg))) found.push(check(`${kind}.alg`, x, `alg ${JSON.stringify(header.alg)}`));
-      if (typeof payload.iat !== "number" || typeof payload.exp !== "number") {
-        found.push(check(`${kind}.iat-exp-missing`, x, "no numeric iat and exp"));
-      } else {
-        const lifetime = payload.exp - payload.iat;
-        if (lifetime > 300) found.push(check(`${kind}.lifetime`, x, `lifetime ${lifetime} s, over the 300 even lenient Companies allow`));
-        else if (protocolVersion !== "0.2" && lifetime > 60) found.push(check(`${kind}.lifetime`, x, `lifetime ${lifetime} s, over the 60 strict Companies allow`));
-      }
-      if (typeof payload.jti !== "string" || payload.jti === "") found.push(check(`${kind}.jti-missing`, x, "no jti"));
-      else if (seen[kind].has(payload.jti)) found.push(check(`${kind}.jti-reused`, x, `jti ${payload.jti} again`));
-      else seen[kind].add(payload.jti);
-      if (protocolVersion === "0.2") {
-        const issuer = all.filter(isServerMetadata).map((exchange) => jsonBody(exchange.responseBody) as Record<string, unknown> | undefined).find((doc) => doc && typeof doc === "object" && !Array.isArray(doc) && [doc.token_endpoint, doc.revocation_endpoint, doc.device_authorization_endpoint].includes(x.url.href));
-        if (!issuer || typeof issuer !== "object" || Array.isArray(issuer) || payload.aud !== issuer.issuer) found.push({ ...check(kind === "client-assertion" ? "client-assertion.aud-array" : "session-assertion.aud", x, "0.2 assertion audience must equal the issuer exactly"), id: `${kind}.aud`, basis: "MUST", severity: "error" });
-      }
-      if (kind === "client-assertion") {
-        if (Array.isArray(payload.aud)) found.push(check("client-assertion.aud-array", x, "aud is an array"));
-        if (clientId && (payload.iss !== clientId || payload.sub !== clientId)) {
-          found.push(check("client-assertion.iss-sub", x, `iss ${JSON.stringify(payload.iss)}, sub ${JSON.stringify(payload.sub)}, client_id ${clientId}`));
-        }
-      } else {
-        if (protocolVersion !== "0.2" && payload.aud !== withoutQuery(x.url)) found.push(check("session-assertion.aud", x, `aud ${JSON.stringify(payload.aud)} at ${withoutQuery(x.url)}`));
-        if (clientId && payload.iss !== clientId) found.push(check("session-assertion.iss", x, `iss ${JSON.stringify(payload.iss)}, client_id ${clientId}`));
-      }
+    const decoded = decodeJwt(jwt);
+    if (!decoded) {
+      found.push(check("client-assertion.not-jwt", x, `client assertion at ${withoutQuery(x.url)} isn't a JWT`));
+      continue;
+    }
+    const { header, payload } = decoded;
+    if (header.typ !== "JWT") found.push(check("client-assertion.typ", x, `typ is ${JSON.stringify(header.typ)}`));
+    if (typeof header.kid !== "string" || header.kid === "") found.push(check("client-assertion.kid", x, "no kid in the header"));
+    if (!SIGNING.has(String(header.alg))) found.push(check("client-assertion.alg", x, `alg ${JSON.stringify(header.alg)}`));
+    if (typeof payload.iat !== "number" || typeof payload.exp !== "number") {
+      found.push(check("client-assertion.iat-exp-missing", x, "no numeric iat and exp"));
+    } else {
+      const lifetime = payload.exp - payload.iat;
+      if (lifetime > 300) found.push(check("client-assertion.lifetime", x, `lifetime ${lifetime} s, over the 300 even lenient Companies allow`));
+      else if (lifetime > 60) found.push(check("client-assertion.lifetime", x, `lifetime ${lifetime} s, over the 60 strict Companies allow`));
+    }
+    if (typeof payload.jti !== "string" || payload.jti === "") found.push(check("client-assertion.jti-missing", x, "no jti"));
+    else if (seen.has(payload.jti)) found.push(check("client-assertion.jti-reused", x, `jti ${payload.jti} again`));
+    else seen.add(payload.jti);
+    // 4.1: aud is the issuer, as a single string, whichever of its endpoints the assertion goes to.
+    const issuer = all.filter(isServerMetadata).map((exchange) => jsonBody(exchange.responseBody) as Record<string, unknown> | undefined).find((doc) => doc && typeof doc === "object" && !Array.isArray(doc) && [doc.token_endpoint, doc.revocation_endpoint, doc.device_authorization_endpoint].includes(x.url.href));
+    if (Array.isArray(payload.aud)) found.push(check("client-assertion.aud-array", x, "aud is an array"));
+    else if (issuer && payload.aud !== issuer.issuer) found.push({ ...check("client-assertion.aud-array", x, `aud ${JSON.stringify(payload.aud)}, not the issuer ${JSON.stringify(issuer.issuer)}`), id: "client-assertion.aud", basis: "MUST", severity: "error" });
+    if (clientId && (payload.iss !== clientId || payload.sub !== clientId)) {
+      found.push(check("client-assertion.iss-sub", x, `iss ${JSON.stringify(payload.iss)}, sub ${JSON.stringify(payload.sub)}, client_id ${clientId}`));
     }
   }
   return found;
@@ -231,7 +189,6 @@ export function dpopChecks(all: readonly Exchange[]): Check[] {
     else if (seen.has(payload.jti)) found.push(check("dpop.jti-reused", x, `jti ${payload.jti} again`));
     else seen.add(payload.jti);
     const auth = authorization(x);
-    if (form(x)?.has("grant_type") && payload.ath !== undefined) found.push(check("dpop.ath-at-token-endpoint", x, "ath at the token endpoint"));
     if (auth?.scheme === "DPoP" && payload.ath !== sha256(auth.token)) found.push(check("dpop.ath", x, "ath isn't the token's hash"));
   }
   return found;
@@ -422,7 +379,8 @@ export function companyChecks(all: readonly Exchange[], protocolVersion = "0.1")
     }
     if (oauth && fields?.has("grant_type") && x.status === 200) {
       const body = jsonBody(x.responseBody) as Record<string, unknown> | undefined;
-      const missing = ["access_token", "token_type", "expires_in", "session_id"].filter((field) => body?.[field] === undefined);
+      // RFC 6749 5.1: expires_in is only RECOMMENDED, and 0.3 has no session_id (4.7).
+      const missing = ["access_token", "token_type"].filter((field) => body?.[field] === undefined);
       if (missing.length) found.push(check("company.token-response", x, `missing ${missing.join(", ")}`));
       // RFC 6749 5.1: a response with tokens MUST carry Cache-Control: no-store, or a cache may keep them.
       if (body?.access_token !== undefined && !/(^|,)\s*no-store\s*(,|$)/i.test(x.responseHeaders.get("cache-control") ?? "")) {
@@ -484,66 +442,13 @@ export function browserEndpoints(all: readonly Exchange[]): Set<string> {
 }
 
 /**
- * The agent's browser joins (5): requests to a Company's browser-session
- * endpoint, and any form POST whose `assertion` is a browser assertion
- * (`typ: poppy-browser+jwt`) wherever it went.
+ * The agent's browser joins (6): requests to a Company's browser-session
+ * endpoint itself, the page's GET and the form's POST. The agent's own
+ * `{endpoint}/authorize` is a request of the agent's, not the browser's.
  */
 export function browserJoins(all: readonly Exchange[]): Exchange[] {
   const endpoints = browserEndpoints(all);
-  return agentRequests(all).filter((x) => {
-    if (endpoints.has(withoutQuery(x.url))) return true;
-    const fields = form(x);
-    const assertion = fields?.get("assertion") ?? x.url.searchParams.get("assertion");
-    return !!assertion && !fields?.has("grant_type") && decodeJwt(assertion)?.header.typ === "poppy-browser+jwt";
-  });
-}
-
-/** The join's request (5): a form POST of a browser assertion, its claims as section 5 lists them. */
-export function browserAssertionChecks(all: readonly Exchange[]): Check[] {
-  const found: Check[] = [];
-  const seen = new Set<string>();
-  for (const x of browserJoins(all)) {
-    if (x.url.searchParams.has("assertion")) found.push(check("browser-assertion.in-url", x, `assertion= in ${withoutQuery(x.url)}`));
-    if (x.method !== "POST") {
-      found.push(check("browser-assertion.not-post", x, `${x.method} ${withoutQuery(x.url)}`));
-      continue;
-    }
-    const fields = form(x);
-    if (!fields) {
-      found.push(check("browser-assertion.content-type", x, `content type ${JSON.stringify(x.requestHeaders.get("content-type") ?? "")}`));
-      continue;
-    }
-    const assertion = fields.get("assertion");
-    if (!assertion) {
-      found.push(check("browser-assertion.missing", x, "no assertion in the form"));
-      continue;
-    }
-    const decoded = decodeJwt(assertion);
-    if (!decoded) {
-      found.push(check("browser-assertion.not-jwt", x, "assertion isn't a JWT"));
-      continue;
-    }
-    const { header, payload } = decoded;
-    if (header.typ !== "poppy-browser+jwt") found.push(check("browser-assertion.typ", x, `typ ${JSON.stringify(header.typ)}`));
-    if (typeof payload.iss !== "string" || payload.iss === "") found.push(check("browser-assertion.no-iss", x, "no iss"));
-    if (typeof payload.iat !== "number" || typeof payload.exp !== "number") found.push(check("browser-assertion.iat-exp-missing", x, "no numeric iat and exp"));
-    else if (payload.exp - payload.iat > 60) found.push(check("browser-assertion.lifetime", x, `lifetime ${payload.exp - payload.iat} s`));
-    if (payload.aud !== withoutQuery(x.url)) found.push(check("browser-assertion.aud", x, `aud ${JSON.stringify(payload.aud)} at ${withoutQuery(x.url)}`));
-    if (typeof payload.jti !== "string" || payload.jti === "") found.push(check("browser-assertion.jti-missing", x, "no jti"));
-    else if (seen.has(payload.jti)) found.push(check("browser-assertion.jti-reused", x, `jti ${payload.jti} again`));
-    else seen.add(payload.jti);
-    let returnTo: URL | null = null;
-    try {
-      returnTo = new URL(String(payload.return_to));
-    } catch {
-      // Judged below.
-    }
-    // The Company's domain is the one the join went to: its own name or a subdomain (5).
-    if (!returnTo || returnTo.protocol !== "https:" || direction(returnTo.hostname).peer !== x.peer || direction(returnTo.hostname).direction !== "to-company") {
-      found.push(check("browser-assertion.return-to-off-domain", x, `return_to ${JSON.stringify(payload.return_to)}`));
-    }
-  }
-  return found;
+  return agentRequests(all).filter((x) => endpoints.has(withoutQuery(x.url)));
 }
 
 /** `Set-Cookie` lines of a response; the recording joins repeated headers with ", ", which an Expires date also contains. */
@@ -553,30 +458,26 @@ export function setCookies(x: Exchange): string[] {
   return value.split(/,\s*(?=[^;,=\s]+=)/).filter((line) => line.trim() !== "");
 }
 
-/** The Company's answer to a join it accepted (5): 303 to return_to with a cookie that is Secure, HttpOnly and not SameSite=Strict. */
+/** The Company's answer to a join's form it accepted (6, step 3): a redirect, with the Session's cookie, Secure and HttpOnly (Guides). */
 export function browserSessionResponseChecks(all: readonly Exchange[]): Check[] {
   const found: Check[] = [];
   for (const x of browserJoins(all)) {
-    if (x.status < 200 || x.status >= 400) continue;
-    const assertion = form(x)?.get("assertion");
-    const returnTo = assertion ? decodeJwt(assertion)?.payload.return_to : undefined;
+    if (x.method !== "POST" || x.status < 200 || x.status >= 400) continue;
     const location = x.responseHeaders.get("location");
     const target = location ? new URL(location, x.url).href : null;
     const cookies = setCookies(x);
     const problems: string[] = [];
-    if (x.status !== 303) problems.push(`HTTP ${x.status}, not 303`);
-    if (typeof returnTo === "string" && target !== null && target !== new URL(returnTo).href) problems.push(`Location ${target}, not return_to ${returnTo}`);
+    if (x.status < 300) problems.push(`HTTP ${x.status}, not a redirect`);
     if (target === null) problems.push("no Location");
     if (cookies.length === 0) problems.push("no Set-Cookie");
     if (problems.length > 0) found.push(check("company.browser-session-response", x, problems.join("; ")));
     for (const cookie of cookies) {
       const attributes = cookie.split(";").slice(1).map((part) => part.trim().toLowerCase());
       const name = cookie.split("=")[0]!.trim();
+      // Clearing the join's own cookie (Max-Age=0) sets nothing to protect.
+      if (attributes.includes("max-age=0")) continue;
       const missing = ["secure", "httponly"].filter((flag) => !attributes.includes(flag));
-      const strict = attributes.some((part) => part.replace(/\s+/g, "") === "samesite=strict");
-      if (missing.length || strict) {
-        found.push(check("company.browser-cookie", x, `cookie ${name}: ${[...missing.map((flag) => `no ${flag === "httponly" ? "HttpOnly" : "Secure"}`), ...(strict ? ["SameSite=Strict"] : [])].join(", ")}`));
-      }
+      if (missing.length) found.push(check("company.browser-cookie", x, `cookie ${name}: ${missing.map((flag) => `no ${flag === "httponly" ? "HttpOnly" : "Secure"}`).join(", ")}`));
     }
   }
   return found;
@@ -663,50 +564,6 @@ export function directParentChecks(all: readonly Exchange[]): Check[] {
   return found;
 }
 
-// ---------------------------------------------------------------- Repeated confirms (Operations 5.2, 6)
-
-const CONFIRM_PATH = /\/([^/]+)\/confirm$/;
-
-/** Confirms per operation (by the path's id), in the order sent. */
-export function confirmsByOperation(all: readonly Exchange[]): Map<string, Exchange[]> {
-  const byOperation = new Map<string, Exchange[]>();
-  for (const x of [...agentRequests(all)].sort((a, b) => a.started - b.started)) {
-    const id = x.method === "POST" ? CONFIRM_PATH.exec(x.url.pathname)?.[1] : undefined;
-    if (!id) continue;
-    byOperation.set(id, [...(byOperation.get(id) ?? []), x]);
-  }
-  return byOperation;
-}
-
-/** HTTP statuses a repeated confirm may get for reasons of its own: the token, its scopes, a limit or a server error. */
-const UNRELATED_REFUSAL = new Set([401, 403, 429]);
-
-/**
- * A confirm sent again for an operation the Company already confirmed gets
- * the operation as it is, with the same `confirmation` (Ops 5.2, 6).
- */
-export function confirmRepeatChecks(all: readonly Exchange[]): Check[] {
-  const found: Check[] = [];
-  for (const confirms of confirmsByOperation(all).values()) {
-    let first: { x: Exchange; confirmation: unknown } | null = null;
-    for (const x of confirms) {
-      const body = jsonBody(x.responseBody) as { state?: unknown; confirmation?: unknown } | undefined;
-      if (!first) {
-        if (x.status >= 200 && x.status < 300 && body && body.confirmation !== null && body.confirmation !== undefined) first = { x, confirmation: body.confirmation };
-        continue;
-      }
-      if (x.status >= 200 && x.status < 300) {
-        if (JSON.stringify(body?.confirmation) !== JSON.stringify(first.confirmation)) {
-          found.push(check("company.confirm-repeated", x, `confirmation ${JSON.stringify(body?.confirmation)}, was ${JSON.stringify(first.confirmation)} at exchange ${first.x.index}`));
-        }
-      } else if (x.status >= 400 && x.status < 500 && !UNRELATED_REFUSAL.has(x.status)) {
-        found.push(check("company.confirm-repeated", x, `HTTP ${x.status} to a confirm the Company had answered at exchange ${first.x.index}: ${x.responseBody.slice(0, 120)}`));
-      }
-    }
-  }
-  return found;
-}
-
 // ---------------------------------------------------------------- The Company's fetches of our documents (4.1)
 
 /** Every client_id the agents sent, and the jwks_uri each one's metadata names, as recorded. */
@@ -715,6 +572,10 @@ export function clientDocuments(all: readonly Exchange[]): { clientIds: Set<stri
   for (const x of agentRequests(all)) {
     const id = clientIdOf(form(x));
     if (id) clientIds.add(id);
+    // A Session JWT names its client in iss (5.2).
+    const session = x.requestHeaders.get("poppy-session");
+    const iss = session ? decodeJwt(session)?.payload.iss : undefined;
+    if (typeof iss === "string") clientIds.add(iss);
   }
   const jwksUris = new Set<string>();
   for (const x of all) {
@@ -740,13 +601,11 @@ export function metadataFetchChecks(all: readonly Exchange[]): Check[] {
 /** Every trace check. */
 export function traceChecks(all: readonly Exchange[], callbacks: readonly string[] = [], protocolVersion = "0.1"): Check[] {
   return [
-    ...browserAssertionChecks(all),
     ...browserSessionResponseChecks(all),
     ...handoffChecks(all),
     ...directParentChecks(all),
-    ...confirmRepeatChecks(all),
     ...metadataFetchChecks(all),
-    ...assertionChecks(all, protocolVersion),
+    ...assertionChecks(all),
     ...dpopChecks(all),
     ...tokenInUrlChecks(all),
     ...unlistedHostChecks(all),

@@ -31,7 +31,7 @@ describe("describeToolCall", () => {
     const line = describeToolCall(
       "poppy_api_call",
       { domain: "manzanita.example", operation: "POST /orders/{order_id}/exchanges" },
-      { error: false, details: { status: 202, proposed: { operation_id: "op_1" } } },
+      { error: false, details: { status: 403, proposed: "apr2_AbCdEfGhIjKlMnOpQrStUv" } },
       names
     )!;
     expect(line).toMatchObject({ text: "Asked you to approve a change at Manzanita", how: "API", access: "view and change", state: "waiting" });
@@ -70,15 +70,16 @@ describe("describeToolCall", () => {
     expect(line.quote!.endsWith("…")).toBe(true);
   });
 
-  it("describes a sign-in request with its access", () => {
-    expect(describeToolCall("poppy_sign_in", { domain: "manzanita.example", scopes: ["poppy:read"], reason: "x" }, { error: false, details: { status: "waiting for the User (direct sign-in card shown)" } }, names)).toMatchObject({
+  it("describes a sign-in request, naming no access level for the Company's own scopes", () => {
+    expect(describeToolCall("poppy_sign_in", { domain: "manzanita.example", scopes: ["orders:read"], reason: "x" }, { error: false, details: { status: "waiting for the User (direct sign-in card shown)" } }, names)).toMatchObject({
       text: "Asked you to sign in at Manzanita",
       how: "sign-in",
-      access: "view"
+      access: null
     });
+    // 0.3 defines no scopes (spec 4.7): a Company's scope named like 0.2's is still only the Company's.
     expect(describeToolCall("poppy_sign_in", { domain: "manzanita.example", scopes: ["poppy:read", "poppy:write"] }, { error: false, details: { status: "signed in with access the User granted earlier" } }, names)).toMatchObject({
       text: "Used the access you gave Manzanita before",
-      access: "view and change"
+      access: null
     });
   });
 

@@ -9,17 +9,30 @@ import { describe, expect, it } from "vitest";
 import { agent, cards, chat, company, connect, fetchWorker, ORIGIN, person, requests, signInDirect, stopAgent, testEnv, tool, until, type Agent, type Company } from "./agent-helpers";
 
 const exchange = (c: Company) => ({ domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+/**
+ * An operation waiting for the User: our card for the write approved, the
+ * Company answered `approval_required` (Ops 4), and its terms wait on a
+ * card of their own, whose approval sends the same request with
+ * `Poppy-Approval` (Ops 6).
+ */
 async function proposal() {
-  const c = await company({ requireNonce: true, nonceScope: "origin", clientAssertionAud: "exact" });
+  const c = await company({ requireNonce: true, nonceScope: "origin" });
   const a = await agent();
   await signInDirect(a, c);
   expect((await tool(a, "poppy_api_call", exchange(c))).isError).toBe(false);
-  const card = (await cards(a)).find((item) => item.kind === "operation")!;
-  expect(card).toMatchObject({ state: "proposed", open: true });
+  const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+  await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
+  const card = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms)!;
+  expect(card).toMatchObject({ status: "pending", open: true });
   expect((await c.stub.state()).performs).toBe(0);
   return { a, c, card };
 }
-const approve = (a: Agent, c: Company, card: Record<string, unknown>) => a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+const approve = (a: Agent, card: Record<string, unknown>) => a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+/** The exchange requests that reached the Company, with and without the approval. */
+async function exchanges(c: Company) {
+  const all = (await requests(c)).filter((request) => request.method === "POST" && request.url.endsWith("/exchanges"));
+  return { approved: all.filter((request) => request.headers["poppy-approval"]), asked: all.filter((request) => !request.headers["poppy-approval"]) };
+}
 async function crash(a: Agent): Promise<void> {
   // Graceful eviction drains in-flight work. Abort this one object to model
   // abrupt termination, retaining SQLite and leaving the Company untouched.
@@ -33,45 +46,53 @@ describe("approval recovery in workerd", () => {
     const { a, c, card } = await proposal();
     if (interruption === "before approval") {
       await crash(a);
-      // Refresh the Session/DPoP nonce before arming a transport fault. The
-      // fault must affect a valid confirm, not its preliminary challenge.
+      // Refresh the access token and DPoP nonce before arming a transport fault. The
+      // fault must affect the approved request, not its preliminary challenge.
       const baseline = await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" });
       expect(baseline.isError).toBe(false);
       expect(JSON.parse(baseline.text)).toMatchObject({ status: 200, body: { orders: [{ account: "acct_ada" }] } });
       expect((await requests(c)).some((request) => request.method === "GET" && request.url.endsWith("/orders") && request.status === 200)).toBe(true);
       expect((await c.stub.state()).performs).toBe(0);
     }
-    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: fault });
-    await approve(a, c, card);
+    // The card survived the termination, still the User's to decide.
+    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({ status: "pending", open: true });
+    await a.stub.poppyFault({ method: "POST", url: "/exchanges", mode: fault });
+    await approve(a, card);
     expect(await a.stub.poppyFaultsLeft()).toBe(0);
-    expect((await c.stub.state()).performs).toBe(fault === "lose" ? 0 : 1);
+    // `lose` fails before the request leaves; the others reach the Company, which performs it.
+    const reached = fault === "lose" ? 0 : 1;
+    expect((await c.stub.state()).performs).toBe(reached);
     if (interruption === "after lost answer") await crash(a);
     await a.stub.poppyAdvance(60_000);
-    await a.stub.poppyWaitForNotice("is succeeded");
-    // A delayed/replayed card and another abrupt termination cannot perform again.
-    await approve(a, c, card);
+    // No answer, or one we can't trust: the User and the model are told it may have happened (Safety).
+    await a.stub.poppyWaitForNotice(fault === "gateway" ? "answered 504" : "may or may not have happened");
+    // A delayed/replayed card and another abrupt termination cannot send it again.
+    await approve(a, card);
     await crash(a);
     await a.stub.poppyAdvance(60_000);
     const state = await c.stub.state();
-    expect(state.performs).toBe(1);
-    expect(state.operations).toEqual([expect.objectContaining({ id: card.operationId, state: "succeeded", confirms: 1, approvedBy: "user" })]);
-    expect((await cards(a)).find((item) => item.kind === "operation")).toMatchObject({ operationId: card.operationId, state: "succeeded", open: false });
-    const confirms = (await requests(c)).filter((request) => request.method === "POST" && request.url.endsWith("/confirm"));
-    expect(confirms).toHaveLength(1);
-    const proposals = (await requests(c)).filter((request) => request.method === "POST" && request.url.endsWith("/exchanges"));
-    expect(proposals.filter((request) => request.status === 202)).toHaveLength(1);
-    expect(proposals.filter((request) => request.status !== 202)).toEqual([
-      expect.objectContaining({ error: "use_dpop_nonce" })
+    expect(state.performs).toBe(reached);
+    expect(state.operations).toEqual([
+      expect.objectContaining({ state: reached ? "succeeded" : "proposed", confirms: reached, approvedBy: reached ? "user" : null })
     ]);
+    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({
+      status: fault === "gateway" ? "refused" : "unknown",
+      open: false
+    });
+    const { approved, asked } = await exchanges(c);
+    expect(approved).toHaveLength(reached);
+    // Asked once without the approval, after the one nonce challenge at that origin.
+    expect(asked.filter((request) => request.status === 403)).toHaveLength(1);
+    expect(asked.filter((request) => request.status !== 403)).toEqual([expect.objectContaining({ error: "use_dpop_nonce" })]);
   });
 
-  it("coalesces overlapping approvals while the first confirm answer is held", async () => {
+  it("coalesces overlapping approvals while the first answer is held", async () => {
     const { a, c, card } = await proposal();
-    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "hold" });
-    const first = approve(a, c, card);
+    await a.stub.poppyFault({ method: "POST", url: "/exchanges", mode: "hold" });
+    const first = approve(a, card);
     try {
       await until(async () => (await c.stub.state()).performs === 1);
-      await approve(a, c, card);
+      await approve(a, card);
       expect((await c.stub.state()).operations[0]).toMatchObject({ confirms: 1 });
     } finally {
       expect(await a.stub.poppyReleaseHeld()).toBe(1);
@@ -79,15 +100,17 @@ describe("approval recovery in workerd", () => {
     }
     await crash(a);
     await a.stub.poppyAdvance(60_000);
-    await a.stub.poppyWaitForNotice("is succeeded");
+    await a.stub.poppyWaitForNotice("may or may not have happened");
     expect((await c.stub.state()).performs).toBe(1);
+    expect((await exchanges(c)).approved).toHaveLength(1);
   });
 
   it("handles two approvals arriving together before either has completed", async () => {
     const { a, c, card } = await proposal();
-    await Promise.all([approve(a, c, card), approve(a, c, card)]);
+    await Promise.all([approve(a, card), approve(a, card)]);
     expect((await c.stub.state()).operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
     expect((await c.stub.state()).performs).toBe(1);
+    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({ status: "done", open: false });
   });
 });
 
@@ -125,17 +148,21 @@ describe("socket recovery and isolation in workerd", () => {
   });
 
   it("keeps local account access revoked through termination while remote revocation retries remain pending", async () => {
-    const c = await company({ refuseRevocations: 2 });
+    // The one revocation a 0.3 sign-out sends (the refresh token's) is refused once; its retry is pending.
+    const c = await company({ refuseRevocations: 1 });
     const a = await agent();
     await signInDirect(a, c);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" })).isError).toBe(false);
     expect(await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" })).toBe(true);
     expect((await c.stub.state()).accountTokens).toBe(1); // still live remotely
+    expect((await requests(c)).filter((request) => request.url === c.hosts.revocationEndpoint).map((request) => request.status)).toEqual([401]);
     await crash(a);
     expect(JSON.parse(await a.stub.poppySql("SELECT account FROM poppy_accounts"))).toEqual([]);
     const after = await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" });
+    // Signed out here: the Session goes on with its header alone, and the Company asks for the account (0.3 7).
     expect(after.isError).toBe(true);
-    expect(JSON.parse(after.details)).toMatchObject({ error: "sign_in_required" });
+    expect(JSON.parse(after.details)).toMatchObject({ error: "insufficient_scope" });
+    expect((await requests(c)).filter((request) => new URL(request.url).pathname === "/orders").at(-1)!.headers.authorization).toBeUndefined();
     await a.stub.poppyAdvance(60_000);
     await until(async () => (await c.stub.state()).accountTokens === 0);
     expect(JSON.parse(await a.stub.poppySql("SELECT status FROM poppy_signouts"))).toEqual([{ status: "revoked" }]);
@@ -145,19 +172,6 @@ describe("socket recovery and isolation in workerd", () => {
 });
 
 const NOW = Date.UTC(2026, 9, 16, 12);
-
-it("restores a missing confirmation job on actual object startup without asking for approval again", async () => {
-  const { a, c, card } = await proposal();
-  await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "gateway" });
-  await approve(a, c, card);
-  expect((await c.stub.state()).performs).toBe(1);
-  await a.stub.poppySql("DELETE FROM cf_agents_jobs WHERE fn = 'poppy-operation'");
-  await crash(a);
-  await a.stub.poppyAdvance(0);
-  await until(async () => JSON.parse(await a.stub.poppySql("SELECT operation FROM poppy_operations"))[0]?.operation.includes('"state":"succeeded"'));
-  expect((await c.stub.state()).operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
-  expect((await c.stub.state()).performs).toBe(1);
-});
 
 it("waits for another alarm's due revocation before returning from clock advancement", async () => {
   const c = await company({ refuseRevocations: 2 });

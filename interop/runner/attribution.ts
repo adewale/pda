@@ -4,7 +4,7 @@
  *
  * 1. violation: error checks on one side only. An error that is exactly a
  *    declared reading difference (a check of a section 7 question, such as
- *    a strict Company's `session-assertion.typ`, between sides whose
+ *    a strict Company's `client-assertion.typ`, between sides whose
  *    readings of it are incompatible) is not a violation: when every error
  *    is one, the cell goes to rule 3 at once. So does a cell with no
  *    one-sided errors whose trace shows a refusal the Company's declared

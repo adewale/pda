@@ -43,7 +43,7 @@ placeInteropCompanies();
 /** The settings a test may choose: each is a way real Companies differ, never a relaxed check. */
 const KNOBS = [
   "strictAssertions",
-  "clientAssertionAud",
+  "dpopTokens",
   "rotateRefreshTokens",
   "reuseDetection",
   "requireNonce",
@@ -51,13 +51,10 @@ const KNOBS = [
   "omitTokenScope",
   "issuerTrailingSlash",
   "endSessionsOnSignOut",
-  "endedSessionError",
   "streaming",
   "textDeltas",
   "sseKeepAlive",
   "agentReplies",
-  "slowConfirm",
-  "userApprovalRequired",
   "requireOperationsExtension",
   "operationIdPrefix",
   "deviceInterval",

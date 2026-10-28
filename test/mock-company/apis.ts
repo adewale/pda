@@ -503,8 +503,8 @@ export class Apis {
     const { pathname } = inbound.url;
     const method = inbound.request.method;
     const { read, write } = co.orderScopes;
-    // An API that names a `resource` takes only tokens issued for it (RFC 8707).
-    if (co.config.apiResource && context.token?.resource !== co.hosts.api) {
+    // An API that names a `resource` takes only tokens issued for it (RFC 8707). Signed out there is no token (5.2).
+    if (co.config.apiResource && context.token && context.token.resource !== co.hosts.api) {
       throw resourceError("DPoP", 401, "invalid_token");
     }
     if (co.config.printShop && method === "POST" && pathname === "/photos") return this.#uploadPhoto(inbound, context);

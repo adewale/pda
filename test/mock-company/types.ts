@@ -393,6 +393,8 @@ export type MockState = {
   readonly clientIds: string[];
   readonly sessions: {
     readonly id: string;
+    /** The `sid` the agent chose (5.2). */
+    readonly sid: string;
     readonly userId: string;
     readonly account: string | null;
     readonly signedIn: boolean;

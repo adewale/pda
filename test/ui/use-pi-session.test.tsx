@@ -5,7 +5,7 @@ import { toIssuer } from "../../src/poppy/issuer";
 
 /** How the page folds Poppy frames from the agent into what it shows. */
 
-const EMPTY: PoppyView = { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
+const EMPTY: PoppyView = { cards: [], accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
 
 const notice = (id: string, text = id): Card => ({ id, kind: "notice", company: "Acme", open: false, text });
 const approval = (id: string): Card => ({ id, kind: "approval", company: "Acme", open: true, approvalId: id, summary: "Submit", status: "pending" });
@@ -36,11 +36,11 @@ describe("reducePoppy", () => {
 
   it("replaces settings whole and leaves cards alone", () => {
     const before = { ...EMPTY, cards: [approval("a")] };
-    const accounts = [{ issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***", scope: "poppy:read", expiresAt: null }];
+    const accounts = [{ issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***", scope: "orders:read", expiresAt: null }];
     const signOuts = [{ id: "so_1", issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "b***", reason: "sign_out" as const, error: "invalid_client", attempts: 1, expiresAt: null, nextAt: 1 }];
-    const after = reducePoppy(before, { type: "poppy.settings", accounts, permissions: [], signOuts });
-    expect(after).toEqual({ ...before, accounts, permissions: [], signOuts });
-    const cleared = reducePoppy(after, { type: "poppy.settings", accounts: [], permissions: [], signOuts: [] });
+    const after = reducePoppy(before, { type: "poppy.settings", accounts, signOuts });
+    expect(after).toEqual({ ...before, accounts, signOuts });
+    const cleared = reducePoppy(after, { type: "poppy.settings", accounts: [], signOuts: [] });
     expect([cleared.accounts, cleared.signOuts]).toEqual([[], []]);
   });
 

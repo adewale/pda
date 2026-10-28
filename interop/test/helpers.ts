@@ -69,7 +69,8 @@ export const API = "https://api.acme.company.interop.test";
 export function clientAssertion(overrides: { header?: Record<string, unknown>; payload?: Record<string, unknown> } = {}): string {
   return jwt(
     { alg: "ES256", kid: "k1", typ: "JWT", ...overrides.header },
-    { iss: CLIENT_ID, sub: CLIENT_ID, aud: TOKEN, iat: NOW, exp: NOW + 60, jti: jti(), ...overrides.payload }
+    // 4.1: the issuer, as a single string.
+    { iss: CLIENT_ID, sub: CLIENT_ID, aud: "https://auth.acme.company.interop.test", iat: NOW, exp: NOW + 60, jti: jti(), ...overrides.payload }
   );
 }
 
@@ -87,22 +88,24 @@ export function proof(method: string, url: string, overrides: { header?: Record<
   );
 }
 
-/** A signed-out Session start, as our agent sends it. */
-export function sessionStart(at = 0, overrides: { client?: string; assertion?: string } = {}): Spec {
+/**
+ * A token request as our agent sends one: an access token from a refresh
+ * token (4.4), with its client assertion and a DPoP proof (4.5). The name
+ * is 0.2's, when a Session started at the token endpoint.
+ */
+export function sessionStart(at = 0, overrides: { client?: string } = {}): Spec {
   return {
     url: TOKEN,
     at,
     headers: { dpop: proof("POST", TOKEN) },
     form: {
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion:
-        overrides.assertion ??
-        jwt({ alg: "ES256", kid: "k1", typ: "JWT" }, { iss: CLIENT_ID, sub: "usr_1", aud: TOKEN, iat: NOW, exp: NOW + 60, jti: jti() }),
+      grant_type: "refresh_token",
+      refresh_token: "rt_1",
       client_id: CLIENT_ID,
       client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       client_assertion: overrides.client ?? clientAssertion()
     },
-    response: { access_token: "at_session_token_1", token_type: "DPoP", expires_in: 3600, session_id: "ses_1", signed_in: false },
+    response: { access_token: "at_token_1", token_type: "DPoP", expires_in: 3600 },
     responseHeaders: { "cache-control": "no-store" }
   };
 }

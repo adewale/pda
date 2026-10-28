@@ -1,21 +1,22 @@
 {
   "id": "OU",
   "title": "Signed-out operation after a file upload",
-  "requirements": ["4.2", "4.3", "6", "Operations 3.2", "Operations 4.1", "Operations 5", "Operations 6"],
-  "readings": ["S1", "S2", "S4"],
-  "needs": { "agent": ["discover", "session", "api", "approve_op"] },
+  "requirements": ["5", "5.2", "7", "Operations 3", "Operations 4", "Operations 5", "Operations 6"],
+  "readings": ["S2"],
+  "needs": {"agent": ["discover", "session", "api", "approve_op"]},
   "steps": [
-    { "agent": "discover" },
-    { "agent": "session", "save": "s" },
-    { "expect": { "${s.signed_in}": false } },
-    { "agent": "api", "params": { "api": "${fixture.openapi_upload.api}", "operation": "${fixture.openapi_upload.operation}", "args": "${fixture.openapi_upload.args}" }, "save": "upload" },
-    { "agent": "approve_op", "when": "${upload.held}", "params": { "operation": "${upload.held}", "decision": "approve" }, "save": "approved", "note": "An agent that asks its User before a file leaves it says so with held; the User approves, and the file is sent." },
-    { "runner": "first", "params": { "of": ["${approved.result.body.id}", "${upload.body.id}"] }, "save": "upload_id", "note": "The uploaded file's id, from whichever step sent it. The fixture's openapi_propose refers to it as ${upload_id}." },
-    { "agent": "api", "params": { "api": "${fixture.openapi_propose.api}", "operation": "${fixture.openapi_propose.operation}", "args": "${fixture.openapi_propose.args}" }, "save": "p" },
-    { "expect": { "${p.status}": 202, "${p.body.operation.state}": "proposed", "${p.body.operation.operation_id}": { "$exists": true } } },
-    { "agent": "approve_op", "params": { "operation": "${p.body.operation.operation_id}", "decision": "approve" }, "save": "a" },
-    { "expect": { "${a.status}": { "$in": ["succeeded", "in_progress"] } } },
-    { "agent": "session", "save": "after" },
-    { "expect": { "${after.signed_in}": false, "${after.session_id}": "${s.session_id}" } }
+    {"agent": "discover"},
+    {"agent": "session", "save": "s"},
+    {"expect": {"${s.signed_in}": false}},
+    {"agent": "api", "params": {"api": "${fixture.openapi_upload.api}", "operation": "${fixture.openapi_upload.operation}", "args": "${fixture.openapi_upload.args}"}, "save": "upload"},
+    {"agent": "approve_op", "when": "${upload.held}", "params": {"operation": "${upload.held}", "decision": "approve"}, "save": "approved", "note": "An agent that asks its User before a file leaves it says so with held; the User approves, and the file is sent."},
+    {"runner": "first", "params": {"of": ["${approved.result.body.id}", "${upload.body.id}"]}, "save": "upload_id", "note": "The uploaded file's id, from whichever step sent it. The fixture's openapi_propose refers to it as ${upload_id}."},
+    {"agent": "api", "params": {"api": "${fixture.openapi_propose.api}", "operation": "${fixture.openapi_propose.operation}", "args": "${fixture.openapi_propose.args}"}, "save": "p"},
+    {"agent": "approve_op", "params": {"operation": "${p.held}", "decision": "approve"}, "save": "ours", "note": "Our own card for the write: approved, the order goes, and the Company answers with its terms (Ops 4), held for the User on the next card."},
+    {"expect": {"${ours.status}": "terms", "${ours.held}": {"$exists": true}}},
+    {"agent": "approve_op", "params": {"operation": "${ours.held}", "decision": "approve"}, "save": "a", "note": "The User approves the Company's terms; the same order goes again with Poppy-Approval (Ops 6)."},
+    {"expect": {"${a.status}": "done"}},
+    {"agent": "session", "save": "after"},
+    {"expect": {"${after.signed_in}": false, "${after.session_id}": "${s.session_id}"}}
   ]
 }

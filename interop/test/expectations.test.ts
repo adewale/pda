@@ -13,7 +13,7 @@ import type { Manifest, RegistryEntry } from "../runner/types.ts";
 
 const registry = loadRegistry();
 const entry = (name: string): RegistryEntry => registry.implementations.find((item) => item.name === name)!;
-const manifest = (fields: Partial<Manifest>): Manifest => ({ interop: 1, name: "x", role: "agent", commit: "c", poppy: ["0.1", "0.2"], scenarios: [], ...fields });
+const manifest = (fields: Partial<Manifest>): Manifest => ({ interop: 1, name: "x", role: "agent", commit: "c", poppy: ["0.3"], scenarios: [], ...fields });
 
 describe("each implementation is what the registry says", () => {
   it("passes an agent that runs its registry profile, and names one that doesn't", () => {
@@ -25,12 +25,14 @@ describe("each implementation is what the registry says", () => {
   });
 
   it("checks the mock's profile and version, and that an adversary is one", () => {
-    expect(manifestMismatch(entry("strict-company"), manifest({ role: "company", profile: "strict", poppy: ["0.1"] }))).toBeNull();
-    expect(manifestMismatch(entry("strict-company"), manifest({ role: "company", profile: "lenient", poppy: ["0.1"] }))).toMatch(/registry sets "strict"/);
-    expect(manifestMismatch(entry("lenient-company-v02"), manifest({ role: "company", poppy: ["0.2"] }))).toBeNull();
-    expect(manifestMismatch(entry("lenient-company-v02"), manifest({ role: "company", poppy: ["0.1"] }))).toMatch(/registry sets Poppy 0\.2/);
-    expect(manifestMismatch(entry("evil-personal-agent"), manifest({}))).toMatch(/isn't adversarial/);
-    expect(manifestMismatch(entry("evil-personal-agent"), manifest({ adversarial: true }))).toBeNull();
+    expect(manifestMismatch(entry("strict-company"), manifest({ role: "company", profile: "strict" }))).toBeNull();
+    expect(manifestMismatch(entry("strict-company"), manifest({ role: "company", profile: "lenient" }))).toMatch(/registry sets "strict"/);
+    // A registry version the manifest doesn't speak, and an adversary that isn't one, with made-up entries.
+    const versioned = { ...entry("lenient-company"), env: { INTEROP_POPPY_VERSION: "0.4" } };
+    expect(manifestMismatch(versioned, manifest({ role: "company", poppy: ["0.4"] }))).toBeNull();
+    expect(manifestMismatch(versioned, manifest({ role: "company" }))).toMatch(/registry sets Poppy 0\.4/);
+    expect(manifestMismatch(entry("evil-company"), manifest({ role: "company" }))).toMatch(/isn't adversarial/);
+    expect(manifestMismatch(entry("evil-company"), manifest({ role: "company", adversarial: true }))).toBeNull();
   });
 
   it("checks that an agent given the live identity signs as it", () => {
@@ -38,15 +40,6 @@ describe("each implementation is what the registry says", () => {
     expect(manifestMismatch(entry("pda"), manifest({ client_id: live }), live)).toBeNull();
     expect(manifestMismatch(entry("pda"), manifest({ client_id: "https://pda.agent.interop.test/poppy/client.json" }), live)).toMatch(/signs as .*, not the live identity/);
     expect(manifestMismatch(entry("pda"), manifest({}), live)).toMatch(/signs as null/);
-  });
-
-  it("puts every honest agent that can run locally on Print with Poppy's allowlist", () => {
-    // Twice an agent was refused there for a missing line: the fakes (23 October), Datalayer's 0.2 agents (24 October).
-    const adapter = readFileSync(path.resolve(import.meta.dirname, "../impls/print-with-poppy-company/adapter.mjs"), "utf8");
-    const listed = adapter.slice(adapter.indexOf("const GRID_AGENTS"), adapter.indexOf("];", adapter.indexOf("const GRID_AGENTS")));
-    const honest = registry.implementations.filter((item) => item.role === "agent" && item.build && !item.adversarial && !item.vectorsOnly);
-    const missing = honest.filter((item) => !listed.includes(`https://${item.name}.agent.interop.test/`)).map((item) => item.name);
-    expect(missing).toEqual([]);
   });
 });
 
@@ -59,16 +52,6 @@ describe("the registry's other promises", () => {
       .filter((known) => !has("agent", known.agent) || !has("company", known.company) || (known.scenario !== "*" && !scenarios.has(known.scenario)))
       .map((known) => `${known.agent} × ${known.company} × ${known.scenario}`);
     expect(orphans).toEqual([]);
-  });
-
-  it("limits each live Company whose owner or notes limit what it may be sent", () => {
-    const limits = Object.fromEntries(registry.implementations.filter((item) => item.liveScenarios).map((item) => [item.name, item.liveScenarios]));
-    expect(limits).toMatchObject({
-      "print-with-poppy-live": ["D"],
-      "print-with-poppy-sandbox-live": ["D", "S0"],
-      "alpine-retail-live": ["D", "S0", "N", "CL"],
-      "ilmer-live": ["D", "S0", "CL"]
-    });
   });
 });
 

@@ -154,12 +154,12 @@ describe("a cell", () => {
     expect(inapplicable.outcome).toBe("unsupported");
   });
 
-  it("signs in with the Company's own scopes from its fixture, and Poppy's when it names none", async () => {
-    expect(withScopes({ accounts: ["a"] }).scopes).toEqual({ read: ["poppy:read"], write: ["poppy:read", "poppy:write"] });
+  it("signs in with the Company's own scopes from its fixture, and none when it names none", async () => {
+    expect(withScopes({ accounts: ["a"] }).scopes).toEqual({ read: [], write: [] });
     expect(withScopes({ scopes: { read: ["orders:read"], write: ["orders:read", "orders:write"] } }).scopes).toEqual({ read: ["orders:read"], write: ["orders:read", "orders:write"] });
     // Version 1's list of everything offered is kept, and the defaults still apply.
-    expect(withScopes({ scopes: ["poppy:read", "addresses"] }).scopes).toEqual({ all: ["poppy:read", "addresses"], read: ["poppy:read"], write: ["poppy:read", "poppy:write"] });
-    expect(withScopes(null)).toEqual({ scopes: { read: ["poppy:read"], write: ["poppy:read", "poppy:write"] } });
+    expect(withScopes({ scopes: ["orders:read", "addresses"] }).scopes).toEqual({ all: ["orders:read", "addresses"], read: [], write: [] });
+    expect(withScopes(null)).toEqual({ scopes: { read: [], write: [] } });
     const scenario: Scenario = {
       id: "SD",
       title: "sd",
@@ -215,24 +215,27 @@ describe("a cell", () => {
       };
     };
     const session: Reply = { kind: "ok", result: { signed_in: false, session_id: "ses_1" } };
-    const proposed: Reply = { kind: "ok", result: { status: 202, body: { operation: { operation_id: "op_1", state: "proposed" } } } };
+    // The order waits on our card, then on the Company's terms (Ops 4), each held for the User.
+    const order: Reply = { kind: "ok", result: { held: "apr_2" } };
+    const terms: Reply = { kind: "ok", result: { status: "terms", held: "apr2_1" } };
+    const done: Reply = { kind: "ok", result: { status: "done", result: { status: 201, body: { order: { order_id: "ord_1" } } } } };
     // An agent that asks its User before the photo leaves: held, then approved.
     const held = sequence({
       session: [session, session],
-      api: [{ kind: "ok", result: { held: "apr_1" } }, proposed],
-      approve_op: [{ kind: "ok", result: { status: "done", result: { status: 201, body: { id: "pho_1" } } } }, { kind: "ok", result: { status: "succeeded" } }]
+      api: [{ kind: "ok", result: { held: "apr_1" } }, order],
+      approve_op: [{ kind: "ok", result: { status: "done", result: { status: 201, body: { id: "pho_1" } } } }, terms, done]
     });
     expect((await runCell(OU, fixture, held)).outcome).toBe("pass");
     expect(held.calls).toContain('agent api {"api":"openapi","operation":"orderPrints","args":{"body":{"items":[{"photo_id":"pho_1","copies":1}]}}}');
-    expect(held.calls).toContain('agent approve_op {"operation":"op_1","decision":"approve"}');
-    // One that sends it at once.
+    expect(held.calls).toContain('agent approve_op {"operation":"apr2_1","decision":"approve"}');
+    // One that sends the photo at once.
     const direct = sequence({
       session: [session, session],
-      api: [{ kind: "ok", result: { status: 201, body: { id: "pho_2" } } }, proposed],
-      approve_op: [{ kind: "ok", result: { status: "in_progress" } }]
+      api: [{ kind: "ok", result: { status: 201, body: { id: "pho_2" } } }, order],
+      approve_op: [terms, done]
     });
     expect((await runCell(OU, fixture, direct)).outcome).toBe("pass");
-    expect(direct.calls.filter((call) => call.startsWith("agent approve_op"))).toEqual(['agent approve_op {"operation":"op_1","decision":"approve"}']);
+    expect(direct.calls.filter((call) => call.startsWith("agent approve_op"))).toEqual(['agent approve_op {"operation":"apr_2","decision":"approve"}', 'agent approve_op {"operation":"apr2_1","decision":"approve"}']);
     expect(direct.calls).toContain('agent api {"api":"openapi","operation":"orderPrints","args":{"body":{"items":[{"photo_id":"pho_2","copies":1}]}}}');
     // An upload that answered no id fails at `first`, before anything is ordered.
     const none = sequence({ session: [session], api: [{ kind: "ok", result: { status: 201, body: {} } }] });

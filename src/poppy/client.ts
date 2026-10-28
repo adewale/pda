@@ -794,9 +794,10 @@ export class PoppyClient {
 
   deleteAccount(issuer: Issuer, account: string): void {
     this.sql.exec("DELETE FROM poppy_accounts WHERE issuer = ? AND account = ?", issuer, account);
-    // Sessions signed in to it continue signed out on their next renewal.
+    // Sessions signed in to it continue signed out (5.5), now: an approval bound to the account
+    // (apis.ts `checkApprovalBinding`) is withdrawn before anything awaits, not at the next renewal.
     for (const session of this.sessions(issuer)) {
-      if (session.account === account) this.#forgetTokens(issuer, session.label);
+      if (session.account === account) this.signOutSession(issuer, session.label);
     }
   }
 
@@ -1251,8 +1252,12 @@ export class PoppyClient {
       log({ status: response.status, error: code ?? (typeof peek?.error === "string" ? peek.error : null) });
       if (code && (response.status === 401 || response.status === 403)) {
         await response.body?.cancel();
+        // 3.3: the model and the User are told which extension, as a JSON body's `extension` tells them.
+        const said = code === "extension_required"
+          ? `${company.name} requires the extension ${challenge.extension ?? "(unnamed)"}, which this agent doesn't support`
+          : `${company.name}: ${code}`;
         throw withAnswer(
-          new PoppyError(companyErrorCode(code, response.status), `${company.name}: ${code}`, response.status, {
+          new PoppyError(companyErrorCode(code, response.status), said, response.status, {
             ...(challenge.scope ? { scope: challenge.scope } : {}),
             ...(challenge.extension ? { extension: challenge.extension } : {})
           }),

@@ -123,7 +123,7 @@ const REPO_URL_ALLOWED_IN = new Set(["interop/registry.json", "interop/known-fai
  */
 const UPSTREAM_REPOS = new Set(
   registry.implementations
-    .filter((entry) => entry.owner !== "self")
+    .filter((entry) => entry.owner !== "self" && !REPO_URLS.has(entry.source))
     .map((entry) => /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(entry.source ?? "")?.[1])
     .filter((repo): repo is string => repo !== undefined)
 );
@@ -224,8 +224,9 @@ describe("the committed template", () => {
   });
 
   it("knows the upstream repositories the harness pins, so their owners' names in those references aren't identities", () => {
-    expect(UPSTREAM_REPOS.size).toBeGreaterThan(5);
-    expect(UPSTREAM_REPOS).toContain("spenciefy/print-with-poppy");
+    // None since the 0.1 and 0.2 peers were retired (docs/interop-spec.md); our own fakes, the evil Company among them, are never upstream.
+    expect([...UPSTREAM_REPOS]).toEqual([]);
+    expect(registry.implementations.every((entry) => REPO_URLS.has(entry.source))).toBe(true);
     for (const repo of UPSTREAM_REPOS) expect(repo).toMatch(/^[\w.-]+\/[\w.-]+$/);
   });
 

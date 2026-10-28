@@ -27,8 +27,6 @@
     "interop": "node interop/runner/cli.ts",
     "check:spec": "node scripts/check-spec.mjs",
     "spec:drift": "node --use-env-proxy scripts/check-spec.mjs --drift",
-    "interop:official": "node interop/vectors/official/run.mjs",
-    "interop:flaws": "node interop/vectors/official/flaws.mjs",
     "spec:import": "node scripts/spec-import.mjs",
     "spec:docs": "node scripts/spec-ledger.mjs --write"
   },

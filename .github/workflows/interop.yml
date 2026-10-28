@@ -51,10 +51,7 @@ jobs:
 
       - run: npm ci --legacy-peer-deps
 
-      - run: npm run interop -- --agents pda --companies lenient-company,strict-company,lenient-company-v02
-
-      # Our mock only: the SDK Companies (the default targets) are a local run, as they build from upstream.
-      - run: npm run interop:official -- --targets lenient-company-v02
+      - run: npm run interop -- --agents pda --companies lenient-company,strict-company
 
       - name: Upload the grid, HAR files and container logs
         if: always()

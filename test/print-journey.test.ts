@@ -78,20 +78,31 @@ async function turnAbout(a: Agent, fragment: string) {
 }
 
 /**
- * An operation the Company no longer has (N19) is final everywhere the agent
- * lists it: Activity's log says how it ended, nothing about it is in
- * progress, and `poppy_status` doesn't list it as open.
+ * An approval that ended without the Company doing it, or not knowing
+ * whether it did (N19), is final everywhere the agent lists it: Activity's
+ * log says how it ended, and nothing about it is in progress.
  */
-async function expectFinalElsewhere(a: Pick<Agent, "stub">, card: Record<string, any>, result: "expired" | "unknown", outcome: string) {
+async function expectFinalElsewhere(a: Pick<Agent, "stub">, card: Record<string, any>, result: "failed" | "unknown") {
   const activity = JSON.parse(await a.stub.poppyActivity()) as { inProgress: { id: string }[]; log: { id: string; result: string; outcome?: string }[] };
   const entry = activity.log.find((item) => item.id === card.id)!;
   expect(entry.result).toBe(result);
-  expect(entry.outcome).toContain(outcome);
   expect(activity.inProgress.map((item) => item.id)).not.toContain(card.id);
-  const status = JSON.parse((await tool(a, "poppy_status", {})).text) as { operations: { operation: string }[] };
-  expect(status.operations.map((item) => item.operation)).not.toContain(card.operationId);
 }
 
+/** Upload a photo and ask for its print, approving our own cards: the Company's terms card, waiting. */
+async function termsForPrint(a: Awaited<ReturnType<typeof poppyAgent>>, c: Company) {
+  const info = await attached(a);
+  await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: info.id } });
+  const approval = (await cards(a)).find((card) => card.kind === "approval")!;
+  await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
+  const photoId = /"id":"(pho_[A-Za-z0-9_-]+)"/.exec(await a.stub.poppyWaitForNotice("Done, as the User approved"))![1]!;
+  const asked = JSON.parse((await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder(photoId) })).text) as { proposed: string };
+  await a.stub.poppyFrame({ type: "poppy.approval", approvalId: asked.proposed, decision: "approve" });
+  const terms = await until(async () => (await cards(a)).find((card) => card.kind === "approval" && card.open && card.approvalId.startsWith("apr2_")));
+  return { photoId, terms };
+}
+
+const printRequests = async (c: Company) => (await requests(c)).filter((request) => request.url === `${c.hosts.api}/prints`);
 const photoRequests = async (c: Company) => (await requests(c)).filter((request) => request.url === `${c.hosts.api}/photos`);
 
 describe("photos the User attaches", () => {
@@ -236,30 +247,42 @@ describe("printing a photo at a Company (the demo journey)", () => {
     const done = await a.stub.poppyWaitForNotice("Done, as the User approved");
     const photoId = /"id":"(pho_[A-Za-z0-9_-]+)"/.exec(done)![1]!;
 
-    // The model orders: the Company proposes an operation in the signed-out Session.
+    // The model orders: our card first, as for every write (Safety).
     await chat(a.socket, a.client, `Order it. ${obey("poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder(photoId) })}`);
-    const card = await until(async () => (await cards(a)).find((item) => item.kind === "operation" && item.open));
-    const proposal = (await requests(c)).find((request) => request.url === `${c.hosts.api}/prints`)!;
-    expect(proposal.headers["idempotency-key"]).toMatch(/^[0-9a-f-]{36}$/);
-    expect(card).toMatchObject({ company: `Mock Shop ${c.id}`, domain: c.domain, account: null, userApprovalRequired: true, state: "proposed" });
-    expect(card.summary).toBe(
+    const ours = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open && item.approvalId !== approval.approvalId));
+    expect(await printRequests(c)).toEqual([]);
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
+    // The Company refuses it with an operation in the signed-out Session (Ops 4), and its terms wait on a card of their own.
+    const terms = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open && item.approvalId !== ours.approvalId));
+    expect(ours.summary).toContain(`Mock Shop ${c.id}: POST /prints`);
+    const asked = await printRequests(c);
+    expect(asked.map((request) => [request.status, request.error, "poppy-approval" in request.headers])).toEqual([[403, "approval_required", false]]);
+    expect(asked[0]!.headers["idempotency-key"]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(terms).toMatchObject({ company: `Mock Shop ${c.id}`, domain: c.domain, status: "pending" });
+    expect(terms.approvalId).toMatch(/^apr2_/);
+    expect(terms.terms.summary).toBe(
       "Print 1 copy of lake.jpg as 4×6 in (6×4) lustre prints and post them to Ada Lovelace, 12 St James's Square, London SW1Y 4JH, GB. Confirmation to ada@example.com. Prints $10.00 + shipping $5.00 = $15.00 USD, paid by card at a checkout link after approval. Can be cancelled until you pay."
     );
-    expect(card.highlights).toContain("Cost (total): 15.00 USD");
+    expect(terms.terms.highlights).toContain("Cost (total): 15.00 USD");
+    expect(terms.terms.total).toEqual({ amount: "15.00", currency: "USD" });
     expect((await c.stub.state()).sessions.every((session) => !session.signedIn)).toBe(true);
-    // Nothing is confirmed by the model: only the card.
-    expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ id: card.operationId, state: "proposed", confirms: 0 })]);
+    // Nothing is done by the model: only the card.
+    expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
 
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    // The User approves the terms: the same request again with Poppy-Approval, performed once (Ops 6, 7).
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
     expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "succeeded", confirms: 1, approvedBy: "user" })]);
-    const receipt = await until(async () => (await cards(a)).find((item) => item.id === card.id && item.state === "succeeded"));
+    const sent = await printRequests(c);
+    expect(sent.map((request) => [request.status, "poppy-approval" in request.headers])).toEqual([[403, false], [201, true]]);
+    const receipt = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.approvalId === terms.approvalId && item.status === "done"));
     expect(receipt.open).toBe(false);
-    expect(receipt.result).toMatch(/^Order ord_[\w-]+ placed\./);
-    expect(receipt.links).toEqual([{ label: "checkout", url: expect.stringMatching(new RegExp(`^https://${c.domain.replace(/\./g, "\\.")}/checkout/ord_`)) }]);
-    const final = await a.stub.poppyWaitForNotice(`Operation ${card.operationId} at Mock Shop ${c.id} is succeeded`);
-    expect(final).toContain('"checkout_url"');
+    // The receipt keeps the Company's answer, the checkout on its own website; the model is told it too.
+    const order = (JSON.parse(receipt.result!) as { status: number; body: { order: { order_id: string; checkout_url: string } } });
+    expect(order.status).toBe(201);
+    expect(order.body.order.checkout_url).toMatch(new RegExp(`^https://${c.domain.replace(/\./g, "\\.")}/checkout/ord_`));
+    expect(await a.stub.poppyWaitForNotice(order.body.order.checkout_url)).toContain("Done, as the User approved");
     // Activity records it.
-    expect(await a.stub.poppyActivity()).toContain(card.operationId);
+    expect(await a.stub.poppyActivity()).toContain(terms.approvalId);
   });
 
   it("sends nothing when the User declines to send the photo", async () => {
@@ -444,62 +467,54 @@ describe("printing a photo at a Company (the demo journey)", () => {
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
     const uploads = await photoRequests(c);
     expect(uploads).toHaveLength(1);
-    expect(uploads[0]!.headers.authorization).toMatch(/^DPoP /);
-    expect(uploads[0]!.headers.dpop).toBeTruthy();
+    // Signed out: the Session header alone, and no Authorization or DPoP for the model to supply (5.2).
+    expect(uploads[0]!.headers["poppy-session"]).toBeTruthy();
+    expect(uploads[0]!.headers.authorization).toBeUndefined();
+    expect(uploads[0]!.headers.dpop).toBeUndefined();
     const photoId = /"id":"(pho_[A-Za-z0-9_-]+)"/.exec(await a.stub.poppyWaitForNotice("Done, as the User approved"))![1]!;
     const order = JSON.parse((await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder(photoId) })).text);
-    expect(order).toMatchObject({ status: 202, proposed: { revision: 1 } });
+    expect(order.proposed).toMatch(/^apr_/);
   });
 
-
-  it("stops at an operation whose signed-out Session ended: nothing is confirmed, the User and model are told, and a new proposal can be asked for (N19)", async () => {
+  it("stops at the Company's terms when the signed-out Session they belong to ended: nothing is done, the User and model are told, and the order can be asked for again (N19)", async () => {
     const c = await company({ printShop: true });
     const a = await poppyAgent();
-    const info = await attached(a);
-    await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: info.id } });
-    const approval = (await cards(a)).find((card) => card.kind === "approval")!;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
-    const photoId = /"id":"(pho_[A-Za-z0-9_-]+)"/.exec(await a.stub.poppyWaitForNotice("Done, as the User approved"))![1]!;
-    await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder(photoId) });
-    const card = (await cards(a)).find((item) => item.kind === "operation")!;
-    // The Company ends every Session; the agent's next one can't see the old Session's operation (Ops 3.2).
+    const { photoId, terms } = await termsForPrint(a, c);
+    // The Company ends every Session; the approval names an operation of the old one (Ops 3).
     await c.stub.endAllSessions();
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    const lost = await until(async () => (await cards(a)).find((item) => item.id === card.id && item.lost));
-    expect(lost).toMatchObject({ open: false, lost: "not_done" });
-    expect(await a.stub.poppyWaitForNotice("no longer has operation")).toContain("The User approved it, but");
-    expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ id: card.operationId, state: "proposed", confirms: 0 })]);
-    // Activity and poppy_status treat it as final, not as waiting for the User.
-    await expectFinalElsewhere(a, card, "expired", "wasn't done");
-    // Nothing tracks it any more, and asking again isn't refused as a confirm still open.
-    await a.stub.poppyAdvance(120_000);
-    const again = await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder(photoId) });
-    expect(again.text).not.toContain("operation_open");
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
+    const failed = await until(async () => (await cards(a)).find((item) => item.id === terms.id && item.status === "failed"));
+    expect(failed.open).toBe(false);
+    // The approval went once on the ended Session and is never sent on a new one (approval_changed).
+    expect(failed.result).toBe("The account or Session changed. Review a fresh request before sending it. [approval_changed]");
+    expect(await a.stub.poppyWaitForNotice("The approved action failed")).toContain("[approval_changed]");
+    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers).map((request) => [request.status, request.error])).toEqual([[400, "invalid_session"]]);
+    expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
+    await expectFinalElsewhere(a, failed, "failed");
+    // Asking again gets a new card, on the new Session.
+    const again = JSON.parse((await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder(photoId) })).text);
+    expect(again.proposed).toMatch(/^apr_/);
   });
 
-  it("tells the User an order may have happened when its signed-out Session ended after a confirm whose answer was lost (N19)", async () => {
+  it("tells the User an order may have happened when the answer to its approved request was lost, and never sends it again (N19)", async () => {
     const c = await company({ printShop: true });
     const a = await poppyAgent();
-    const info = await attached(a);
-    await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: info.id } });
-    const approval = (await cards(a)).find((card) => card.kind === "approval")!;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
-    const photoId = /"id":"(pho_[A-Za-z0-9_-]+)"/.exec(await a.stub.poppyWaitForNotice("Done, as the User approved"))![1]!;
-    await tool(a, "poppy_api_call", { domain: c.domain, operation: "orderPrints", body: printOrder(photoId) });
-    const card = (await cards(a)).find((item) => item.kind === "operation")!;
-    // The Company confirms the order, the answer never arrives, then the Session ends.
-    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "throw" });
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    const { terms } = await termsForPrint(a, c);
+    // The Company performs the order, the answer never arrives, then the Session ends.
+    await a.stub.poppyFault({ method: "POST", url: "/prints", mode: "throw" });
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
     expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ state: "succeeded", confirms: 1 })]);
     await c.stub.endAllSessions();
     await a.stub.poppyAdvance(10_000);
-    const lost = await until(async () => (await cards(a)).find((item) => item.id === card.id && item.lost));
-    expect(lost).toMatchObject({ open: false, lost: "unknown" });
-    expect(await a.stub.poppyWaitForNotice("no longer has operation")).toContain("so it may have happened: tell the User to check");
-    await expectFinalElsewhere(a, card, "unknown", "may have happened");
-    // Confirmed once, and never again.
+    const lost = await until(async () => (await cards(a)).find((item) => item.id === terms.id && item.status === "unknown"));
+    expect(lost.open).toBe(false);
+    expect(lost.result).toBe(`Sent as you approved, but no answer came from Mock Shop ${c.id}, so it may or may not have reached them. Check with Mock Shop ${c.id} before asking again.`);
+    expect(await a.stub.poppyWaitForNotice("so it may or may not have happened")).toContain(`Tell the User to check with Mock Shop ${c.id}; it won't be retried automatically.`);
+    await expectFinalElsewhere(a, lost, "unknown");
+    // Performed once, and never sent again.
     await a.stub.poppyAdvance(120_000);
     expect((await c.stub.state()).operations).toEqual([expect.objectContaining({ confirms: 1 })]);
+    expect((await printRequests(c)).filter((request) => "poppy-approval" in request.headers)).toHaveLength(1);
   });
 });
 
