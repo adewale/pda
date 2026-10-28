@@ -1,7 +1,5 @@
 # Plan: keeping up with weekly Poppy versions, starting with 0.3
 
-> **The 0.3 section is out of date since 28 October 2026.** The draft dropped Session Keys and the JWT bearer grant for a signed `Poppy-Session` header with delegated keys and optional blind signing, moved Operations to version 2 and Mediated Sign-In to an extension grant ([snapshot](../spec/draft-0.3-retrieved-2026-10-28/README.md)). The weekly machinery and the removal of 0.1 still stand; the list of 0.3 work needs redoing against the new text.
-
 **Decisions (owner, 28 October 2026):** PDA speaks the current Poppy versions and drops 0.1 now. Upstream ships a new version roughly every week, so a version must cost days, not weeks. This replaces the first version of this plan, which treated 0.3 as a one-off migration. [poppy-0.3-upgrade.md](poppy-0.3-upgrade.md) still says what each 0.3 change touches; the problems in the 0.3 text are in [poppy-0.3-issues.md](poppy-0.3-issues.md).
 
 **Assumptions, for the owner to correct:**
@@ -54,15 +52,35 @@ These make each later version cheap. Most of the week goes on the first two.
 - moving the Python Hypothesis client to 0.2;
 - showing a clear "this Company uses a version we no longer support" message.
 
-## Then 0.3 (about 1.5 to 2 weeks, once published)
+## Then 0.3, as rewritten on 28 October
 
-0.3 is the largest change since 0.1, so it costs more than a typical week. The machinery doesn't make the Session Key rewrite small, but it does mean 0.2 keeps working unchanged beside it. In order, each a pull request against the 0.3 overlay:
+This section follows the 28 October text ([snapshot](../spec/draft-0.3-retrieved-2026-10-28/README.md)). That text replaced the earlier 0.3 design: Session Keys and signed-out Session Tokens are gone. Every request instead carries a `Poppy-Session` header, a JWT signed per request with a delegated key, and account access is plain OAuth. The problems in that text are in [poppy-0.3-issues.md](poppy-0.3-issues.md). Upstream's repository and official kit haven't caught up with it yet.
 
-1. **Discovery and validator.** `protected_resources`, sign-in types from `grant_types_supported`, `scopes_supported`, `auth.scopes`, `scope_hints`, `excluded_tasks`, the well-known-path redirect rule and loopback redirect URIs.
-2. **Session Keys and the token endpoint.** This includes `invalid_grant`, `dpop_jkt`, `scope` per RFC 6749 and `insufficient_scope`. Decide the readings for [T1, T2, T3 and T34](poppy-0.3-issues.md) in this pull request, not before it. Sessions are version-tagged and disposable, so a Company moving from 0.2 to 0.3 just gets new Sessions; its User ID stays, and its Account Token is tried with a new Session Key.
-3. **Scopes and cards,** the **browser join,** **MCP by Token Exchange,** **`author`** (show the name, not the picture, [T39](poppy-0.3-issues.md)), and **excluded tasks.** These are independent of each other once step 2 lands, so they can go in parallel.
+**Shape.** 0.2 and 0.3 now differ in how a request is authorised, not just in details, so the profile for each version supplies a *session model* behind one interface. The rest of the client calls that interface and doesn't change for the version:
+- **0.2:** the existing Session Tokens from the JWT bearer grant, with DPoP.
+- **0.3:** a Session JWT on every request, plus an OAuth access token when signed in, plus a DPoP proof when that token is DPoP-bound.
 
-If 0.4 is published while 0.3 is in progress, the intake imports it and its Breaking entries go into a 0.4 overlay on top. The window becomes 0.3 and 0.4 when both are done, and 0.2 retires then.
+Discovery, Direct and Device Sign-In, conversations, APIs and browsing stay shared, with 0.3's differences as overlays.
+
+**What we won't do: blind signing.** 10.7 says a Personal Agent SHOULD sign blindly "unless its own systems need to see which Companies a User works with". Ours do: the agent runs on our servers, in each User's Durable Object, and makes requests while the User is away, such as scheduled tasks. A User's device can't generate every `jti` on the agent's behalf. So we sign client assertions and delegations on the server, say so in the privacy policy, and avoid 10.7's risks by never handing a signature to a device.
+
+**Work, in order** (sizes as before: S a day or less, M a few days):
+
+| # | Step | What | Size |
+| --- | --- | --- | --- |
+| 1 | Discovery and validator | The issuer from `https://{domain}/.well-known/oauth-protected-resource`, with `auth.issuer` only when it lists several; `protected_resources`; the well-known-path redirect rule; sign-in types from `grant_types_supported`; `scope_hints`; `excluded_tasks`; extension entries. A `draft-0.3` validator profile. Today `src/poppy/discovery.ts` reads the issuer from `poppy.json` only | M |
+| 2 | Session JWTs and delegations | A P-256 delegated key per User ID in each Durable Object, non-extractable. Delegations are signed by the key in `POPPY_SIGNING_JWKS`, live 24 hours at most, and are renewed early with rounded times, as the guides suggest. A random `sid` per Session replaces `session_id` in `poppy_sessions`, as an additive column. Each request is signed in one place, `src/poppy/jwt.ts`, called from `PoppyClient.resource`. The mock verifies delegations and Session JWTs first, as 5.3 orders | M |
+| 3 | OAuth for 0.3 | Refresh and access tokens; Account Tokens keep their sealed storage. DPoP only when the issuer lists `dpop_signing_alg_values_supported`, reusing today's DPoP code. Tokens for one service when its protected resource metadata names another `resource`. New errors: `invalid_session`, where we start one new Session and then stop; a 401 with no error code, handled as a scope request; `invalid_token`, where we refresh. Under 0.3, drop `account_mismatch`, `sign_in_required` and the `rate_limited` body, and use a new Session for a second account | M |
+| 4 | Browser join | GET the page, POST the code to `{browser_session_endpoint}/authorize` with the Session header and token, then submit the form. The code never reaches the model, and the token never reaches the browser | S |
+| 5 | Operations version 2 | A write answered with `approval_required` and the operation shows the User a card with the `summary`, `terms` and `expires_at`. The approved request is then repeated, with `Poppy-Approval` (an RFC 9651 Dictionary, which needs a small serializer), MCP `_meta`, or a conversation message's `approval` field. A 503 waits for `Retry-After`. Under 0.3 there is no confirm, cancel or standing permission; `src/poppy/operations.ts` and `approvals.ts` keep v1 for 0.2 only. Writes at Companies without the extension keep our own approval card | M–L |
+| 6 | The rest | Mediated Sign-In as a token-endpoint grant (form parameters, the `code_required` error, `sign_in_id` and `one_time_code`); `author` on messages, showing the name and not the picture; unknown status and responder values; feedback without `kind`, and its 200 alternative; excluded tasks as Company content | S each |
+| 7 | Interop and docs | A 0.3 lane for our agent and mock, and the official kit once upstream publishes one for this design. The ledger for 0.3's 42 changelog entries, three of them about the guides. Readings for the open problems we take a side on | M |
+
+Step 2 is the foundation. After it, steps 3 to 6 are independent, and two people can split them. For one person that is about three weeks; with the weekly machinery already built and two people after step 2, about two.
+
+**Mock first, every step.** The mock Company implements each 0.3 rule before the client does, with a violation id for every MUST it checks. 5.3's verification, at-most-once Operations and the browser join's code checks matter most there, because no other 0.3 Company exists to catch our mistakes.
+
+**If 0.3 changes again before it is published:** of this list, step 2 is the most likely to move, since it was invented two days ago. That is why the weekly plan builds published versions only. This sketch is the order to use when 0.3 is published, not a reason to start on the in-progress text.
 
 ## What no longer gates a version
 
