@@ -1,7 +1,7 @@
 import { ConfigError } from "../config";
 import { base64url, fromBase64url } from "../base64url";
 import { migrateProtocolLog } from "./protocol-log";
-import { flag, literal } from "../decode";
+import { flag, jsonText, literal } from "../decode";
 import { integer, integerOf, nullable, one, table, text, textOf } from "../rows";
 import { issuerDecoder } from "./issuer";
 import { approvalTermsDecoder } from "./operations-v2";
@@ -318,7 +318,7 @@ export const approvalsTable = table("poppy_approvals", {
   status: text,
   result: nullable(text),
   created_at: integer,
-  terms: nullable(textOf(approvalTermsDecoder))
+  terms: nullable(textOf(jsonText(approvalTermsDecoder)))
 });
 export const approvalBatchesTable = table("poppy_approval_batches", { id: text, ids: text, told: integer, created_at: integer });
 export const intentsTable = table("poppy_intents", { call_key: text, value: text, created_at: integer });

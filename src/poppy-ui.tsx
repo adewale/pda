@@ -637,6 +637,8 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
         ? `${card.answer.status}${card.answer.error ? ` ${card.answer.error}` : ""}`
         : card.status === "done"
           ? "as you approved"
+          : card.status === "terms"
+            ? "sent; its terms wait on the next card"
           : card.status === "failed"
             ? "after you approved"
             : null;

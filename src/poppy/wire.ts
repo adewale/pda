@@ -59,13 +59,15 @@ export type Card =
       readonly approvalId: string;
       readonly summary: string;
       /**
-       * `done`: the Company answered 2xx. `refused`: sent as approved, and
+       * `done`: the Company answered 2xx. `terms`: sent as approved, and the
+       * Company answered with an operation, whose terms wait on a card of
+       * their own (Ops 4), so nothing is done yet. `refused`: sent as approved, and
        * the Company answered with another status (`answer`). `unknown`: no
        * answer came, or the agent restarted mid-call, so it may or may not
        * have reached the Company. `failed`: it wasn't sent, or its answer
        * couldn't be read.
        */
-      readonly status: "pending" | "approved" | "declined" | "done" | "refused" | "failed" | "unknown";
+      readonly status: "pending" | "approved" | "declined" | "done" | "terms" | "refused" | "failed" | "unknown";
       readonly result?: string;
       /** What the Company answered a `refused` write: its HTTP status and error code, if it gave one. */
       readonly answer?: { readonly status: number; readonly error?: string };

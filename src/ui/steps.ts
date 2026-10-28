@@ -17,6 +17,8 @@ export const APPROVAL_RESULT: Record<ApprovalCard["status"], ToolDecision["resul
   approved: "in_progress",
   declined: "declined",
   done: "done",
+  // Sent; the Company's terms wait on a card of their own.
+  terms: "waiting",
   refused: "failed",
   failed: "failed",
   unknown: "unknown"

@@ -4,7 +4,7 @@ import { answerOf, PoppyClient, PoppyError, scopeSet, withAnswer, withoutAnswer,
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
-import { approvalTerms, proposeLocal, registerExecutor } from "./operations";
+import { approvalTerms, proposeLocal, registerExecutor, TermsRequested } from "./operations";
 import type { Issuer } from "./issuer";
 import { randomId } from "./jwt";
 import { approvable, approvalCardId, approvalForModel, approvalHeader, approvalJson, approvalSummary, parseOperationV2, type ApprovalV2, type OperationV2 } from "./operations-v2";
@@ -889,7 +889,9 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
   if (answer.kind === "unusable") {
     throw withAnswer(new PoppyError("unusable_proposal", `${company.name} asked for approval of an operation the agent can't use, so nothing was done`, 403), 403);
   }
-  // The Company wants an approval of other terms (Ops 6, check 3): nothing was done, and a new card waits.
+  // The Company wants the User's approval of its terms (Ops 4): nothing was done, and its card waits.
+  if (answer.kind === "approval" && !approval.call.approval) throw new TermsRequested(`${company.name} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`);
+  // An approval answered with other terms (Ops 6, check 3): nothing was done, and a new card waits.
   if (answer.kind === "approval") {
     throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first, on a new card; nothing was done`, 403), 403);
   }
@@ -1188,6 +1190,8 @@ function checkMcpArgs(company: Company, name: string, inputSchema: Json | undefi
 /** An approved MCP call: sent only to an MCP server the Company still lists (`findApi`). */
 registerExecutor("mcp", async (client, company, approval, label, execution) => {
   const result = await performMcp(client, company, label, approval.call, () => { execution.beforeDispatch(); checkApprovalBinding(client, company, label, approval.binding); });
+  // The tool answered with an operation (Ops 4): its card waits, and nothing was done.
+  if (isObject(result) && isObject(result.approval_required)) throw new TermsRequested(`${company.name} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`);
   return JSON.stringify(result).slice(0, 2_000);
 });
 

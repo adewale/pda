@@ -60,6 +60,7 @@ const APPROVAL_RESULT: Record<string, ActivityResult> = {
   pending: "waiting",
   executing: "in_progress",
   done: "done",
+  terms: "waiting",
   declined: "declined",
   refused: "failed",
   failed: "failed",

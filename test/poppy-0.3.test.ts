@@ -45,7 +45,7 @@ describe("0.3: discovery and the Session header", () => {
     const header = decodeProtectedHeader(jwt);
     const claims = decodeJwt(jwt);
     expect(header).toMatchObject({ typ: "poppy-session+jwt", alg: "ES256" });
-    expect(claims).toMatchObject({ iss: `${testEnv.PUBLIC_ORIGIN}/poppy/0.3/client.json`, aud: c.hosts.issuer });
+    expect(claims).toMatchObject({ iss: `${testEnv.PUBLIC_ORIGIN}/poppy/client.json`, aud: c.hosts.issuer });
     expect(claims.ath).toBeUndefined();
     // The delegation names no User and no Company (5.2).
     const delegation = decodeJwt(header.pap_dlg as string);
@@ -122,7 +122,7 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 
   it("signs in on another device and uses the account", async () => {
-    const c = await company({ ...V3, signIn: { direct: null, device: ["poppy:read", "poppy:write"], mediated: null } });
+    const c = await company({ ...V3, signIn: { direct: null, device: ["orders:read", "orders:write"], mediated: null } });
     const a = await agent();
     expect((await tool(a, "poppy_sign_in", { domain: c.domain, scopes: SCOPES, reason: "Look at your orders" })).isError).toBe(false);
     const card = await until(async () => (await cards(a)).find((item) => item.kind === "signin_device" && item.open));
@@ -134,7 +134,7 @@ describe("0.3: plain OAuth for accounts", () => {
   });
 
   it("signs in with Mediated Sign-In's grant, sending the one-time code alone the second time", async () => {
-    const c = await company({ ...V3, signIn: { direct: null, device: null, mediated: ["poppy:read"] } });
+    const c = await company({ ...V3, signIn: { direct: null, device: null, mediated: ["orders:read"] } });
     const a = await agent();
     await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const credentials = (await cards(a)).find((item) => item.kind === "signin_credentials")!;

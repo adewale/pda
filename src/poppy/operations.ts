@@ -189,6 +189,18 @@ export function approvalTerms(company: Company, operation: OperationV2, asked: J
 
 // ---------------------------------------------------------------- Local approvals
 
+/**
+ * What an executor throws when the request it sent, as the User approved
+ * it, came back with an operation of the Company's (Ops 4): our card's
+ * request was sent, and nothing is done until the User approves the
+ * Company's terms on the card that now waits.
+ */
+export class TermsRequested extends Error {
+  constructor(readonly result: string) {
+    super(result);
+  }
+}
+
 /** How an approved local action of one kind is carried out (registered by the APIs and browser). */
 export type ApprovalExecution = { readonly beforeDispatch: () => void };
 export type ApprovalExecutor<K extends ApprovalKind> = (client: PoppyClient, company: Company, approval: ApprovalOf<K>, label: string, execution: ApprovalExecution) => Promise<string>;
@@ -282,7 +294,7 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
     decision === "decline" ? "declined" : "executing", id, row.issuer, row.label, row.request, row.summary
   ).toArray();
   if (claimed.length === 0) return null;
-  const card = (status: "approved" | "declined" | "done" | "refused" | "failed" | "unknown", result?: string, answer?: { status: number; error?: string }) =>
+  const card = (status: "approved" | "declined" | "done" | "terms" | "refused" | "failed" | "unknown", result?: string, answer?: { status: number; error?: string }) =>
     client.host.showCard({
       id: `approval-${id}`,
       kind: "approval",
@@ -323,6 +335,11 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
     await card("done", result);
     return `[system] Done, as the User approved: ${row.summary}. Result: ${result}`;
   } catch (error) {
+    if (error instanceof TermsRequested) {
+      client.sql.exec("UPDATE poppy_approvals SET status = 'terms', result = ? WHERE id = ?", error.result, id);
+      await card("terms", error.result);
+      return `[system] Sent as the User approved, and ${company.name} asks the User to approve its exact terms first, on a new card; nothing has happened yet: ${row.summary}. Don't tell the User it was done.`;
+    }
     // A Company's refusal keeps its code, as tool failures show it.
     const message = error instanceof PoppyError ? `${error.message} [${error.code}]` : error instanceof Error ? error.message : String(error);
     const answer = answerOf(error);
@@ -350,7 +367,7 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
       await card("refused", result, { status: answer, ...(code ? { error: code } : {}) });
       return `[system] Sent as the User approved, but ${name} answered ${answered}, so it wasn't done as far as ${name} says: ${row.summary}. Don't tell the User it was done. ${message}`;
     }
-    // No answer marked: the agent refused it before sending, couldn't get a Session Token, or couldn't read the answer.
+    // No answer marked: the agent refused it before sending, couldn't get an access token, or couldn't read the answer.
     client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = ? WHERE id = ?", message, id);
     await card("failed", message);
     return `[system] The approved action failed: ${row.summary}. ${message}`;

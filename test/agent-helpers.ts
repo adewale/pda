@@ -275,7 +275,7 @@ export async function requests(c: Company): Promise<MockRequest[]> {
 export async function signInDirect(
   a: Pick<Agent, "stub" | "cookie">,
   c: Company,
-  scopes = ["poppy:read", "poppy:write"],
+  scopes = ["orders:read", "orders:write"],
   decision: { approve?: boolean; scopes?: string[]; account?: string } = {},
   /** More `poppy_sign_in` arguments: `session`, `account`. */
   args: Record<string, unknown> = {}
