@@ -1,5 +1,7 @@
 # Plan: keeping up with weekly Poppy versions, starting with 0.3
 
+> **The 0.3 section is out of date since 28 October 2026.** The draft dropped Session Keys and the JWT bearer grant for a signed `Poppy-Session` header with delegated keys and optional blind signing, moved Operations to version 2 and Mediated Sign-In to an extension grant ([snapshot](../spec/draft-0.3-retrieved-2026-10-28/README.md)). The weekly machinery and the removal of 0.1 still stand; the list of 0.3 work needs redoing against the new text.
+
 **Decisions (owner, 28 October 2026):** PDA speaks the current Poppy versions and drops 0.1 now. Upstream ships a new version roughly every week, so a version must cost days, not weeks. This replaces the first version of this plan, which treated 0.3 as a one-off migration. [poppy-0.3-upgrade.md](poppy-0.3-upgrade.md) still says what each 0.3 change touches; the problems in the 0.3 text are in [poppy-0.3-issues.md](poppy-0.3-issues.md).
 
 **Assumptions, for the owner to correct:**
