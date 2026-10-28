@@ -15,6 +15,7 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Added
 
+- Three snapshots of Personal Agent Protocol draft 0.3 as the site served it, at [01:47](spec/draft-0.3-retrieved-2026-10-25/README.md) and [06:13 UTC](spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md) on 25 October and [18:34 UTC](spec/draft-0.3-retrieved-2026-10-26/README.md) on 26 October, since it kept changing, what it changes here ([docs/poppy-0.3-upgrade.md](docs/poppy-0.3-upgrade.md)), a plan to keep up with weekly versions, starting with 0.3 and dropping 0.1 ([docs/poppy-0.3-plan.md](docs/poppy-0.3-plan.md)), every open problem in one list ([docs/poppy-0.3-issues.md](docs/poppy-0.3-issues.md)) and a review of its text ([docs/spec-issues-0.3.md](docs/spec-issues-0.3.md)). Nothing of 0.3 is implemented; the protocol baseline stays 0.2. 0.2 was published and frozen on 24 October with the same text as the pinned revision.
 - A 28 October ecosystem refresh: 23 checked repository heads, six new source candidates and 33 dated public discovery results. Six unsupported 0.3 declarations are distinguished from invalid supported-profile documents; historical grid and live-journey dates are preserved.
 
 - A 23 October ecosystem refresh: 17 checked source heads, 28 dated public discovery/metadata results, Archon's new entry and current 0.2 declarations. Older Session results and grid scores retain their original dates.
