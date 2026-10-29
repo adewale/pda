@@ -1,0 +1,409 @@
+{
+  "interop": 1,
+  "run": "2026-10-29T23:04:45Z",
+  "spec": "Personal Agent Protocol Drafts 0.3 (2026-10-29)",
+  "lane": "local",
+  "isolation": {
+    "network": "poppy-interop-c83c8e",
+    "internal": true,
+    "probe": {
+      "tcp 1.1.1.1:443": "ENETUNREACH",
+      "tcp 8.8.8.8:53": "ENETUNREACH",
+      "dns example.com": "EAI_AGAIN"
+    }
+  },
+  "implementations": [
+    {
+      "name": "pda",
+      "role": "agent",
+      "commit": "b04764e-dirty",
+      "readings": {
+        "S1": "issuer",
+        "S2": "jwt-60s",
+        "S3": "insertion",
+        "S23": "per-origin"
+      },
+      "relaxations": []
+    },
+    {
+      "name": "print-with-poppy",
+      "role": "company",
+      "commit": "b340741d696d867ff3190c10c1f1d1e0c368e846",
+      "readings": {
+        "S1": "issuer",
+        "S2": "lenient-300s",
+        "S3": "either"
+      },
+      "relaxations": [
+        "APP_MODE=demo, upstream's local mode: payments, print orders and email are simulated in process, prices are illustrative, and no Stripe, Prodigi or Resend client is configured. Demo mode also serves the store's own browser demo (/api/demo/*, the Demo authorization scheme, its built-in demo agent), which no grid agent uses.",
+        "ALLOW_INTEROP_TEST_HOSTS=true, upstream's own setting for this grid (since 3360d8b): its private-address check lets an agent's client metadata and keys be fetched from a private address only when the host name ends in .interop.test. Off by default, and the store refuses to start with it outside demo mode, on a non-.interop.test origin, on Cloudflare or with provider credentials.",
+        "Sign-in codes: demo mode stores each code email in the store's SQLite (kind demo-signin-email) instead of sending it, and the adapter reads the code from there for the person signing in (approve_authorization, deny_authorization, last_one_time_code). expire_tokens rewrites the expiry of the store's access token records."
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "D",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 36,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 1,
+          "ok": true
+        },
+        {
+          "actor": "runner",
+          "op": "assert_trace",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "exchange": 0
+          }
+        },
+        {
+          "actor": "runner",
+          "op": "assert_trace",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "exchange": 2
+          }
+        }
+      ],
+      "checks": [],
+      "har": "D/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "SD",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 12,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "session_id": "k0DYUZFaafUjOZR3YDubEw",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 13,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://print-with-poppy.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread&state=taJMDFAbt7Sntc9QBdyqCw&code_challenge=CuVuUtrZie0ySq-qtIMuuJEERyUHvzF5CVeNlP2neU0&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 48,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=taJMDFAbt7Sntc9QBdyqCw&iss=https%3A%2F%2Fprint-with-poppy.company.interop.test&code=code_F0DBkbXvcCcGyHm9RxWgV-Q5"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 20,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read",
+            "session_id": "k0DYUZFaafUjOZR3YDubEw"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "SD/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "OU",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 10,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "session_id": "l1VfsXJTbm8_BJpruNWaEA",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 11,
+          "ok": true,
+          "result": {
+            "held": "apr_VaId8jN0hWn77R0it3D1jA"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 148,
+          "ok": true,
+          "result": {
+            "status": "done",
+            "result": {
+              "status": 201,
+              "body": {
+                "id": "photo_F-f0GJDvM6LxUZIWhKmJR7nQ",
+                "name": "Photo 1",
+                "width": 480,
+                "height": 360,
+                "lowResolution": true,
+                "created": 1793315136995,
+                "previews": {
+                  "contain": "https://print-with-poppy.company.interop.test/media/photo_F-f0GJDvM6LxUZIWhKmJR7nQ/contain?exp=1793318736&sig=bvxWnrdpKSyvYpdsgjvodj5T532Qb-rk8mOyh7wS4bk",
+                  "cover": "https://print-with-poppy.company.interop.test/media/photo_F-f0GJDvM6LxUZIWhKmJR7nQ/cover?exp=1793318736&sig=bpw88PoTGYgqRdQL9HZzDqkrZT3IksQUYXDpREsO368"
+                }
+              }
+            }
+          }
+        },
+        {
+          "actor": "runner",
+          "op": "first",
+          "ms": 0,
+          "ok": true,
+          "result": "photo_F-f0GJDvM6LxUZIWhKmJR7nQ"
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 55,
+          "ok": true,
+          "result": {
+            "held": "apr2_evfKEm5DBPiyQvm4kMb2TR"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 15,
+          "ok": true,
+          "result": {
+            "status": "done",
+            "result": {
+              "status": 201,
+              "body": {
+                "status_url": "https://print-with-poppy.company.interop.test/order/ord_v48kjqxynt0_-uLu0Yku7NKp#view_eCSFYwypHmuB-NQaa4_S4dxu",
+                "id": "ord_v48kjqxynt0_-uLu0Yku7NKp",
+                "status": "awaiting_payment",
+                "orderingMethod": "native-poppy",
+                "created": 1793315137065,
+                "quote": {
+                  "email": "ada@example.com",
+                  "address": {
+                    "name": "Ada Lovelace",
+                    "line1": "123 Market Street",
+                    "line2": "",
+                    "city": "San Francisco",
+                    "state": "CA",
+                    "postalCode": "94103",
+                    "country": "US"
+                  },
+                  "items": [
+                    {
+                      "photoId": "photo_F-f0GJDvM6LxUZIWhKmJR7nQ",
+                      "quantity": 1,
+                      "fit": "contain"
+                    }
+                  ],
+                  "subtotal": 1200,
+                  "shipping": 0,
+                  "printDiscount": 0,
+                  "shippingDiscount": 0,
+                  "discount": 0,
+                  "tax": 105,
+                  "total": 1305,
+                  "id": "quote_sPhhxkyFqkTj0sJo1dHRs6bU",
+                  "orderingMethod": "native-poppy",
+                  "created": 1793315137021,
+                  "expires": 1793316037021,
+                  "currency": "USD",
+                  "estimate": "Estimated delivery: 7–12 business days after payment. This is our estimate, not a guaranteed arrival date.",
+                  "finish": "lustre",
+                  "shippingMethod": "Budget",
+                  "summary": "Print with Poppy\n1 × 4 × 6 photo prints · lustre\nPhoto 1 · 1 copy each · whole image with white margins\nLow-resolution warning: Photo 1 may look soft at this size.\n\nDeliver to: Ada Lovelace, 123 Market Street, San Francisco, CA 94103, US\nEmail: ada@example.com\nDelivery: estimated 7–12 business days after payment; not guaranteed.\n\nPrints $12.00 · US shipping included + tax $1.05\nTotal: $13.05 USD\n\nApprove to continue to payment.\nCompleting checkout starts printing; cancellation is not guaranteed afterward.\nSANDBOX: simulated payment and fulfillment. No prints will be shipped.",
+                  "previews": [
+                    {
+                      "previewId": "preview_en2groHgIcIsdL9g00acGq2-",
+                      "product": "prints",
+                      "photoId": "photo_F-f0GJDvM6LxUZIWhKmJR7nQ",
+                      "url": "https://print-with-poppy.company.interop.test/media/photo_F-f0GJDvM6LxUZIWhKmJR7nQ/contain?exp=1793318737&sig=EFjApNJkC6Z4rYFrr6AFEa0RBAG_4dfrUELwFdXV5_A",
+                      "name": "Photo 1",
+                      "quantity": 1,
+                      "fit": "contain"
+                    }
+                  ]
+                },
+                "checkoutUrl": "https://print-with-poppy.company.interop.test/checkout/ord_v48kjqxynt0_-uLu0Yku7NKp#view_eCSFYwypHmuB-NQaa4_S4dxu",
+                "checkoutExpired": false,
+                "shipments": [],
+                "demo": true,
+                "operation_id": "op_yKBWwCF49s4pExjrZYDEN7dv"
+              }
+            }
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "skipped": "${a.held} is null"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 4,
+          "ok": true,
+          "result": {
+            "session_id": "l1VfsXJTbm8_BJpruNWaEA",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "OU/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    }
+  ],
+  "flaky": [],
+  "staleKnown": [],
+  "levels": {
+    "failure": 0,
+    "warning": 0,
+    "tentative": 0
+  }
+}

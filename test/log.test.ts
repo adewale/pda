@@ -148,7 +148,7 @@ describe("turn events", () => {
       tool_outcomes: "calculate:success"
     });
     expect(turn.model_rounds).toBeGreaterThanOrEqual(1);
-    expect(turn.tool_calls).toEqual([{ name: "calculate", outcome: "success", duration_ms: expect.any(Number) }]);
+    expect(turn.tool_calls).toEqual([{ name: "calculate", outcome: "success", duration_ms: expect.any(Number), call_id: expect.any(String) }]);
     expect(JSON.stringify(turn)).not.toContain("7123457");
     expect((await eventsOf(a, mark)).filter((event) => event.kind === "turn")).toHaveLength(1);
   });

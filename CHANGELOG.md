@@ -33,8 +33,15 @@ Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](sp
 - The interop agent reads pages in Node with `html-rewriter-wasm` (lol-html, as Workers' `HTMLRewriter`), so browsing scenarios see the page the Company served.
 - An ecosystem refresh for 29 October: who implements the 28 October text, and dated public discovery results ([ecosystem.md](docs/ecosystem.md), [evidence](docs/evidence/ecosystem-2026-10-29/README.md)).
 
+### Changed
+
+- Task API requests and MCP calls now run before the Company asks for approval of its exact terms. The preliminary per-write card is removed; photos still need disclosure consent and website forms still need approval. This replaces decisions 36/37's blanket confirmation policy ([decision 38](docs/decisions.md#38-task-requests-use-the-companys-approval-boundary)).
+
 ### Fixed
 
+- Pending Company terms no longer wake the model to recreate the request. Fresh calls reuse matching pending terms, and tool replay returns the recorded outcome without another write. Internal dispatch records stay out of approval cards, including after reconciliation and receipt expiry.
+- Approved API/MCP results are kept whole instead of cut at 2,000 characters. Successful result URL/link fields are delivered directly as HTTPS links with their destinations labelled, including signed query strings. Links in operation summaries remain inert. The reported live checkout link's exact failure is not established by diagnostics that omit bodies and URLs.
+- Diagnostic tool records now include call, task-request and approval IDs and whether pending terms were reused. Bodies, Company text and checkout URLs remain excluded.
 - A delayed refresh or retry response can no longer overwrite newer sign-in access, undo sign-out or restart a newer Session. Browser cookies and saved forms are invalidated when consent scopes or the account family change.
 - Approval receipt failures preserve completed Company outcomes. Reconciliation and batch notifications keep their ID/text across failure and restart, and a batch acknowledges only decisions it actually claimed.
 - Conversation streams handle CRLF split across chunks, bound individual events and unfinished text, cancel cleanly and release read timers. Concurrent feedback reports no longer duplicate a task or combine different Users in the mock's repetition oracle.

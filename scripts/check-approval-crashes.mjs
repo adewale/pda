@@ -108,8 +108,6 @@ try {
       ? { domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } }
       : { domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
     assert.equal((await ask()).isError, false);
-    const parent = JSON.parse(await call("poppyCards")).find(card => card.kind === "approval" && card.open);
-    await call("poppyFrame", { type: "poppy.approval", approvalId: parent.approvalId, decision: "approve" });
     const terms = JSON.parse(await call("poppyCards")).find(card => card.kind === "approval" && card.open);
     assert.ok(terms?.terms, "The Company's real terms must wait on their own card");
     const userId = await call("poppySql", "SELECT user_id FROM poppy_user_ids");
@@ -132,9 +130,10 @@ try {
     assert.equal(await call("poppySql", "SELECT user_id FROM poppy_user_ids"), userId, "SQLite identity must survive SIGKILL");
     const expectedStatus = point === "after-commit" || point === "after-notification" ? "done" : "unknown";
     const recovered = JSON.parse(await call("poppyCards"));
-    for (const approval of [parent, terms]) assert.equal(recovered.find(card => card.approvalId === approval.approvalId)?.status, expectedStatus);
+    assert.equal(recovered.find(card => card.approvalId === terms.approvalId)?.status, expectedStatus);
+    assert.equal(recovered.filter(card => card.kind === "approval").length, 1, "Internal task dispatch cannot become another approval receipt");
     const activity = JSON.parse(await call("poppyActivity"));
-    for (const approval of [parent, terms]) assert.equal(activity.log.find(entry => entry.id === approval.id)?.decidedBy, "you");
+    assert.equal(activity.log.find(entry => entry.id === terms.id)?.decidedBy, "you");
     await call("poppyFrame", { type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
     if (expectedStatus === "unknown") {
       const held = await ask();

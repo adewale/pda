@@ -628,6 +628,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
         tool: text(params.tool, "tool"),
         args: args as Json
       });
+      if (isRecord(result) && typeof result.proposed === "string") return { held: result.proposed };
       return { status: 200, body: result };
     }
     const files = uploads(args.files);
@@ -639,9 +640,8 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
       ...(files ? { files } : {}),
       callKey: randomId("call_")
     });
-    // Any write, and any upload of the User's file, waits for the User's approval on our
-    // card (src/poppy/apis.ts), and so does an operation the Company returns (Ops 4):
-    // `held` is the approval `approve_op` decides.
+    // File disclosure and Company operations wait for a User decision:
+    // `held` is the approval `approve_op` decides. Routine task writes run normally.
     if (isRecord(result) && typeof result.proposed === "string") return { held: result.proposed };
     return apiResult(result);
   },

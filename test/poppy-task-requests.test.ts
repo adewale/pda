@@ -44,7 +44,7 @@ describe("task requests use the Company's Operations 2 approval", () => {
     expect((await cards(a)).filter(card => card.kind === "approval" && card.open)).toHaveLength(1);
     expect((await c.stub.state()).performs).toBe(0);
     const calls = await until(async () => {
-      const found = (await wideEvents(a, mark)).flatMap(event => event.tool_calls ?? []).filter(call => call.call_id === "first" || call.call_id === "second");
+      const found = (await wideEvents(a, mark)).filter(event => event.agent_id === a.stub.id.toString().slice(0, 32)).flatMap(event => event.tool_calls ?? []).filter(call => call.call_id === "first" || call.call_id === "second");
       return found.length === 2 && found;
     });
     expect(calls.map(call => [call.call_id, call.reused_pending, call.approval_id])).toEqual([
@@ -103,7 +103,10 @@ describe("task requests use the Company's Operations 2 approval", () => {
     expect((await cards(a)).filter(card => card.kind === "approval")).toHaveLength(1);
     await a.stub.poppySql("UPDATE poppy_cards SET updated_at = 0 WHERE id = ?", `approval-${asked.proposed}`);
     await a.stub.poppyRestart();
-    expect((await cards(a)).filter(card => card.kind === "approval")).toEqual([]);
+    // The test helper reads all stored cards, including expired ones. Only the
+    // original terms receipt may remain, with its age preserved; no req_ receipt.
+    expect((await cards(a)).filter(card => card.kind === "approval").map(card => card.approvalId)).toEqual([asked.proposed]);
+    expect(JSON.parse(await a.stub.poppySql("SELECT updated_at FROM poppy_cards WHERE id = ?", `approval-${asked.proposed}`))).toEqual([{ updated_at: 0 }]);
     expect((await c.stub.state()).performs).toBe(1);
   });
 

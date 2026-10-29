@@ -14,7 +14,15 @@ PDA implements the pinned 29 October 2026 text of Poppy 0.3 alone. This is the c
 | Independent Company | The pinned print-with-poppy 0.3 demo was rerun against the current client and passed all ten supported scenarios. [Fresh receipts and source hashes](evidence/pr-36-interop-completion/README.md). Demo accounts, orders and payments are synthetic. |
 | Browser interaction | The fresh [application smoke run](evidence/pr-36-interop-completion/README.md#browser-evidence) uses the production build, authenticated WebSocket and strict mock. Identity, model and Company are synthetic. |
 | Process-crash recovery | Eight actual SIGKILL cases terminate PDA and workerd, reuse SQLite and retain a separate Company process/request ledger. OpenAPI and MCP each cover four boundaries; no business request or effect repeats. [Receipt and recovered-notification defect](evidence/pr-36-interop-completion/README.md). |
-| Live services | Discovery has been checked at printwithpoppy.com. Authenticated live 0.3 journeys remain unverified. The [isolated hosted pair](../test/hosted/README.md) is prepared; account/OAuth inputs and the User's model key are still needed. |
+| Live services | The owner's 29 October diagnostics record authenticated 0.3 calls at Cliffside Retail and Print with Poppy, with approval and checkout defects described below. Discovery-only, synthetic-demo and authenticated-production evidence remain separate. The correction itself has not been deployed. |
+
+## Live follow-up: 29 October
+
+The owner's diagnostic export records authenticated 0.3 use of Cliffside Retail and Print with Poppy on deployed commit `4c92a2d`: discovery, Direct Sign-In and refresh, plus API and conversation requests. Print's trace includes two distinct approved operation IDs and two 201 responses without an intervening user-message turn. It does not include request bodies, order IDs or the reported unusable checkout URL, so it cannot establish duplicate orders/payments or the URL's exact failure.
+
+The follow-up changes task requests to Company-driven approval, reuses pending terms and suppresses intermediate model wakeups. Local regressions cover complete results beyond 2,000 characters and direct URL delivery; they demonstrate a truncation defect, not its attribution to the live incident. [Before/after browser evidence](evidence/task-approvals/README.md) uses synthetic identities, models and Companies. It does not establish external checkout or payment behavior. The new implementation has not been deployed by this PR.
+
+Automatic retry after an uncertain approved action remains conservative: its exact approval is retained, new actions remain held, and the User can reconcile the outcome. This change does not claim complete automatic same-approval recovery under Ops §7.
 
 ## Final adversarial audit
 
