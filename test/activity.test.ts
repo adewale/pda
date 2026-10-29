@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ACTIVITY_LOG_LIMIT } from "../src/poppy/activity";
 import type { ActivityEntry, ActivityTask, PoppyServerFrame } from "../src/poppy/wire";
 import { agent, cards, company, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
+import { legacyTool } from "./legacy-approval";
 import worker from "./worker";
 
 /**
@@ -143,9 +144,6 @@ describe("poppy.activity", () => {
     const a = await agent();
     await signIn(a, c);
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
-    // Our card for the write first; approved, the Company answers with its terms, on a card of their own (Ops 4).
-    const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
     const card = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms)!;
     const entryOf = (frame: Activity) => frame.log.find((entry) => entry.id === `approval-${card.approvalId}`);
     const p = await page(a);
@@ -158,8 +156,6 @@ describe("poppy.activity", () => {
       decidedBy: null,
       result: "waiting"
     });
-    // Our own card's request went, and what it asked is now the Company's to say.
-    expect(p.latest().log.find((entry) => entry.id === `approval-${ours.approvalId}`)).toMatchObject({ quoteBy: "agent", decidedBy: "you", result: "waiting" });
 
     // The page is told as soon as it changes, without asking again.
     const before = p.frames.length;
@@ -182,7 +178,7 @@ describe("poppy.activity", () => {
     const c = await company({ operations: false });
     const a = await agent();
     await signIn(a, c);
-    await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
+    await legacyTool(a, "poppy_api_call", { domain: c.domain, ...exchange });
     const card = (await cards(a)).find((item) => item.kind === "approval")!;
     const p = await page(a);
     expect(find(p.latest().log, "approval")).toMatchObject({ how: "api", decidedBy: null, result: "waiting", quote: card.summary });

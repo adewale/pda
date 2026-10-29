@@ -15,11 +15,9 @@ import { agent, cards, company, requests, signInDirect, tool, type Agent, type C
 
 const exchange = (c: Company) => ({ domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
 
-/** Our card for the write approved; the Company's terms wait on their own card (Ops 4). */
+/** The task request returned the Company's terms, still awaiting the User (Ops 4). */
 async function terms(a: Agent, c: Company): Promise<Record<string, any>> {
   expect((await tool(a, "poppy_api_call", exchange(c))).isError).toBe(false);
-  const ours = (await cards(a)).find((card) => card.kind === "approval" && card.open)!;
-  await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
   const card = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms)!;
   expect(card).toMatchObject({ status: "pending" });
   return card;

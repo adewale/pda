@@ -4,12 +4,12 @@ import { answerOf, PoppyClient, PoppyError, scopeSet, withAnswer, withoutAnswer,
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
-import { approvalTerms, OperationOutcomeUnknown, proposeLocal, registerExecutor, TermsRequested } from "./operations";
+import { approvalTerms, dispatchTaskRequest, OperationOutcomeUnknown, proposeLocal, registerExecutor, TermsRequested } from "./operations";
 import type { Issuer } from "./issuer";
 import { randomId } from "./jwt";
 import { approvable, approvalCardId, approvalForModel, approvalHeader, approvalJson, approvalSummary, parseOperationV2, type ApprovalV2, type OperationV2 } from "./operations-v2";
 import { EndpointRequest, type RequestInit } from "./outgoing";
-import { firstTime, intent, type Sql } from "./store";
+import { intent, type Sql } from "./store";
 import type { NewApproval } from "./approvals";
 import { sameAuthority, sessionAuthority, type ApprovalAuthority } from "./authority";
 import { companyErrorCode } from "./error-codes";
@@ -877,12 +877,11 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
 
 /**
  * Call an OpenAPI operation in the Session. Every rule is checked first
- * (`CheckedApiRequest.check`), before a token request or a card. Reads go
- * straight through. Every write, and every upload, waits for the User's
- * approval on our own card first, fixed per tool call: Operations 2 gives a
- * description no way to say which writes ask for approval (decision 36),
- * and a Company that doesn't ask acts at once. When the Company then asks,
- * its terms get a card of their own (`sendApi`).
+ * (`CheckedApiRequest.check`), before a token request or a card. Task requests
+ * run normally; a Company operation waits on its exact-terms card (Ops 4–6).
+ * Uploads retain separate consent to disclose the User's files. Writes are
+ * recorded before dispatch so replay returns their outcome rather than
+ * creating another operation.
  */
 export async function callOpenApi(
   client: PoppyClient,
@@ -917,7 +916,10 @@ export async function callOpenApi(
     return { proposed: await ask(), note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
   }
   if (checked.method === "GET") return answerForModel(await sendApi(client, label, checked), company);
-  return { proposed: await ask(), note: "Waiting for the User's approval on a card; nothing has happened yet." };
+  return dispatchTaskRequest(client, company, label, checked.describe(), {
+    kind: "openapi", call: checked.call, method: checked.method, url: checked.url,
+    binding: await approvalBinding(client, company, label)
+  }, intent(client.sql, `request|${request.callKey}`, () => randomId("req_")));
 }
 
 /**
@@ -964,7 +966,7 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
   if (answer.kind === "answered" && answer.status === 202) {
     throw new OperationOutcomeUnknown(`${company.name} accepted the approved request, but its action has not been confirmed. Check with the Company before approving further writes there.`);
   }
-  return JSON.stringify(answerForModel(answer, company)).slice(0, 2_000);
+  return JSON.stringify(answerForModel(answer, company));
 });
 
 /** An approval whose revision expired before the User decided is never sent (Ops 3, "Expiry"). */
@@ -1204,14 +1206,14 @@ async function performMcp(
 /**
  * Call an MCP tool. A tool marked `readOnlyHint` goes straight through, as an
  * OpenAPI GET does: it is the Company's own server saying the call changes
- * nothing (our reading, docs/readings.md). Any other tool waits for the
- * User's approval on our own card, as an OpenAPI write does.
+ * nothing (our reading, docs/readings.md). Other task calls are recorded
+ * before dispatch; only terms the Company returns ask for confirmation.
  */
 export async function callMcpTool(
   client: PoppyClient,
   company: Company,
   label: string,
-  request: { apiUrl?: string; tool: string; args: Json }
+  request: { apiUrl?: string; tool: string; args: Json; callKey?: string }
 ): Promise<Json> {
   const api = findApi(company, "mcp", request.apiUrl);
   const tools = await listMcpTools(client, company, label, api.url);
@@ -1221,8 +1223,9 @@ export async function callMcpTool(
   const readOnly = isObject(tool.annotations) && tool.annotations.readOnlyHint === true;
   const call = { apiUrl: api.url, tool: request.tool, args: request.args };
   if (readOnly) return performMcp(client, company, label, call);
-  const id = await proposeLocal(client, company, label, `${company.name}: run ${request.tool} with ${JSON.stringify(request.args)}`, { kind: "mcp", call, binding: await approvalBinding(client, company, label, api.url) });
-  return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
+  return dispatchTaskRequest(client, company, label, `${company.name}: run ${request.tool} with ${JSON.stringify(request.args)}`, {
+    kind: "mcp", call, binding: await approvalBinding(client, company, label, api.url)
+  }, request.callKey ? intent(client.sql, `request|${request.callKey}`, () => randomId("req_")) : randomId("req_"));
 }
 
 /**
@@ -1261,7 +1264,7 @@ registerExecutor("mcp", async (client, company, approval, label, execution) => {
     }
     throw new TermsRequested(`${company.name} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`, result.proposed);
   }
-  return JSON.stringify(result).slice(0, 2_000);
+  return JSON.stringify(result);
 });
 
 

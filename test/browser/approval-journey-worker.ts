@@ -2,6 +2,7 @@
 import { createAssistantMessageEventStream, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, type AssistantMessage, type AssistantMessageEventStream, type TranscriptContext } from "@earendil-works/pi-ai";
 import type { DemoRoute, LaneModel } from "../../src/model-router";
 import { PersonalAgent as TestAgent } from "../worker";
+import type { Fetcher } from "../../src/poppy/fetch";
 
 export { default, CompanyLimiter, DomainBudget, MockCompany, StorageProbe } from "../worker";
 
@@ -47,6 +48,18 @@ function priced(stream: AssistantMessageEventStream): AssistantMessageEventStrea
 
 export class PersonalAgent extends TestAgent {
   #model: ReturnType<typeof fauxProvider> | undefined;
+
+  protected override poppyFetcher(): Fetcher {
+    const send = super.poppyFetcher();
+    return async request => {
+      const response = await send(request);
+      if (new URL(request.url).hostname.startsWith("api.copenapijourney.") && new URL(request.url).pathname.endsWith("/exchanges") && response.status === 201) {
+        const original = await response.json();
+        return Response.json({ result: original, description: "Synthetic result padding. ".repeat(120), checkout_url: "https://checkout.example/pay?session=synthetic%2Fcheckout%2Bproof&return=%2Forders#receipt" }, { status: 201 });
+      }
+      return response;
+    };
+  }
 
   protected override demoLane(_route: DemoRoute): LaneModel {
     this.#model ??= fauxProvider({ tokensPerSecond: 1000 });

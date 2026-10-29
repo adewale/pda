@@ -360,12 +360,10 @@ describe("compaction and Poppy", () => {
     const a = await agent();
     await signInDirect(a, c);
     await tool(a, "poppy_api_call", exchange(c.domain));
-    const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
-    expect(ours).toBeDefined();
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
     const card = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms)!;
     expect(card).toBeDefined();
-    await a.stub.poppyWaitForNotice("asks the User to approve its exact terms first");
+    // Earlier deployments stored this notice in the transcript. Compaction must still label it as an agent notice.
+    await a.stub.backgroundTurn(`[system] Sent as the User approved, and Mock Shop ${c.id} asks the User to approve its exact terms first`, "historical-terms-notice");
     return { a, c, card };
   }
 
@@ -401,7 +399,7 @@ describe("compaction and Poppy", () => {
 
   it("poppy_status with no domain lists everything open at every Company, and no secret", async () => {
     const { a, c, card } = await proposal();
-    const local = await company({ operations: false });
+    const local = await company();
     await signInDirect(a, local);
     await tool(a, "poppy_api_call", exchange(local.domain));
     const approval = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.domain === local.domain)!;

@@ -1,3 +1,6 @@
+/** Our task-dispatch records share recovery with approvals, but never imply a confirmation click. */
+export function isTaskRequest(id: string): boolean { return id.startsWith("req_"); }
+
 /** The original attempt and the User's later assertion are independent facts. */
 export const APPROVAL_STATUSES = ["pending", "executing", "declined", "done", "terms", "refused", "failed", "unknown"] as const;
 export type ApprovalStatus = typeof APPROVAL_STATUSES[number];

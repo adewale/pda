@@ -1,7 +1,8 @@
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { decideLocal, recoverApprovalBatches, resolveApprovalOutcome } from "../src/poppy/operations";
-import { agent, cards, company, connect, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
+import { agent, cards, company, connect, requests, signInDirect, until, type Agent, type Company } from "./agent-helpers";
+import { legacyTool as tool } from "./legacy-approval";
 import { stepDecisions } from "../src/ui/steps";
 import { serverFrame } from "../src/poppy/frames";
 

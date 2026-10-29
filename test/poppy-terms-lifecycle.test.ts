@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { decideLocal, recoverInterruptedApprovals } from "../src/poppy/operations";
 import { serverFrame } from "../src/poppy/frames";
 import { stepDecisions } from "../src/ui/steps";
-import { agent, cards, company, requests, signInDirect, tool, until } from "./agent-helpers";
+import { agent, cards, company, requests, signInDirect, until } from "./agent-helpers";
+import { legacyTool as tool } from "./legacy-approval";
 
 function decisions(value: unknown) {
   const frame = serverFrame({ type: "poppy.cards", cards: value }, "cards");

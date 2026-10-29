@@ -1,7 +1,8 @@
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { resolveApprovalOutcome } from "../src/poppy/operations";
-import { agent, cards, company, requests, signInDirect, tool } from "./agent-helpers";
+import { agent, cards, company, requests, signInDirect } from "./agent-helpers";
+import { legacyTool as tool } from "./legacy-approval";
 
 async function uncertain() {
   const c = await company();

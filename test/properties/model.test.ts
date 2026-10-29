@@ -1,9 +1,9 @@
 import { world } from "./client-fixture";
 import { describe, expect, it } from "vitest";
-import { callOpenApi } from "../../src/poppy/apis";
+import { callMcpTool, callOpenApi, CheckedApiRequest } from "../../src/poppy/apis";
 import { closeConversation, conversation, openConversations, readConversation, sendMessage } from "../../src/poppy/conversations";
 import { type Company } from "../../src/poppy/discovery";
-import { decideLocal } from "../../src/poppy/operations";
+import { decideLocal, proposeLocal } from "../../src/poppy/operations";
 import { completeDirectSignIn, signOut, startSignIn } from "../../src/poppy/signin";
 import type { Card } from "../../src/poppy/wire";
 import { MockCompany } from "../mock-company/index";
@@ -23,6 +23,32 @@ import { gs, propertyAsync, assertTransitions } from "./hegel";
 
 
 type World = Awaited<ReturnType<typeof world>>;
+
+it("task requests reuse pending Company terms across fresh model calls before one User decision", propertyAsync(async tc => {
+  const w = await world({ dpopTokens: tc.draw(gs.booleans()), requireNonce: tc.draw(gs.booleans()) });
+  const channel = tc.draw(gs.sampledFrom(["openapi", "mcp"] as const));
+  const repeats = tc.draw(gs.integers({ minValue: 1, maxValue: 10 }));
+  const approve = tc.draw(gs.booleans());
+  const signed = await startSignIn(w.client, w.company, { label: "main", scopes: ["orders:read", "orders:write"], reason: "Exchange the jacket" });
+  if (signed.status !== "waiting") throw new Error("Expected fresh sign-in");
+  const signIn = w.cards.get(`signin-${signed.signInId}`) as Extract<Card, { kind: "signin_link" }>;
+  const callback = await w.mock.approveAuthorization(signIn.url, { approve: true, account: "acct_ada" });
+  expect((await completeDirectSignIn(w.client, new URL(callback))).ok).toBe(true);
+  const ask = () => channel === "openapi" ? exchange(w, "main", crypto.randomUUID())
+    : callMcpTool(w.client, w.company, "main", { tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, callKey: crypto.randomUUID() });
+  const first = await ask() as { proposed: string };
+  expect(first.proposed).toMatch(/^apr2_/);
+  const before = (await w.mock.state()).requests.length;
+  for (let i = 0; i < repeats; i++) expect((await ask() as { proposed: string }).proposed).toBe(first.proposed);
+  expect((await w.mock.state()).requests).toHaveLength(before);
+  expect(w.notices.filter(notice => notice.operationId.startsWith("poppy-approval-"))).toEqual([]);
+  await decideLocal(w.client, first.proposed, approve ? "approve" : "decline");
+  await decideLocal(w.client, first.proposed, "approve");
+  const state = await w.mock.state();
+  expect(state.performs).toBe(approve ? 1 : 0);
+  expect(state.violations).toEqual([]);
+  expect(state.warnings).toEqual([]);
+}));
 
 /** Each generated read must consume a new remote event, not merely return. */
 async function readFresh(w: Pick<World, "client" | "company" | "sql" | "notices">, mock: MockCompany, id: string, text: string): Promise<void> {
@@ -78,11 +104,18 @@ function operationOf(sql: World["sql"], card: string): string {
   return (JSON.parse(String(row.request)) as { call: { approval: { operation_id: string } } }).call.approval.operation_id;
 }
 
-/** Our card for a write, as the API call proposed it. */
+/** A local card already stored by an older deployment; retain the generated recovery/authority histories. */
 async function propose(w: Pick<World, "client" | "company">, label: string): Promise<string> {
-  const result = (await exchange(w, label, crypto.randomUUID())) as { proposed?: string };
-  expect(result.proposed).toMatch(/^apr_/);
-  return result.proposed!;
+  const checked = await CheckedApiRequest.check(w.client, w.company, {
+    operation: "exchangeItem", params: { order_id: "ord_7Hk2" },
+    body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, idempotencyKey: crypto.randomUUID()
+  });
+  await w.client.token(w.company, { label });
+  const session = w.client.session(w.company.issuer, label)!;
+  return proposeLocal(w.client, w.company, label, checked.describe(), {
+    kind: "openapi", call: checked.call, method: checked.method, url: checked.url,
+    binding: { account: session.account, sessionId: session.session_id, authorityGeneration: session.authority_generation }
+  });
 }
 
 /**

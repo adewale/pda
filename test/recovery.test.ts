@@ -6,7 +6,8 @@
  */
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { agent, cards, chat, company, connect, fetchWorker, ORIGIN, person, requests, signInDirect, stopAgent, testEnv, tool, until, type Agent, type Company } from "./agent-helpers";
+import { agent, cards, chat, company, connect, fetchWorker, ORIGIN, person, requests, signInDirect, stopAgent, testEnv, until, type Agent, type Company } from "./agent-helpers";
+import { legacyTool as tool } from "./legacy-approval";
 
 const exchange = (c: Company) => ({ domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
 /**

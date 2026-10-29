@@ -1,7 +1,8 @@
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { decideLocal, recoverInterruptedApprovals } from "../src/poppy/operations";
-import { agent, cards, company, signInDirect, tool } from "./agent-helpers";
+import { agent, cards, company, signInDirect } from "./agent-helpers";
+import { legacyTool as tool } from "./legacy-approval";
 
 async function pending() {
   const c = await company({ operations: false });

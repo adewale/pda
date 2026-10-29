@@ -333,16 +333,16 @@ export class AgentLog extends LifecycleCapability implements Units {
       ...extension,
       tools: extension.tools.map((tool) => {
         const name = toolName(tool.name) ?? UNNAMED_TOOL;
-        return { ...tool, execute: (args, api, context) => this.tool(name, () => tool.execute(args, api, context)) };
+        return { ...tool, execute: (args, api, context) => this.tool(name, () => tool.execute(args, api, context), api.callId) };
       }) as ToolRegistration[]
     };
   }
 
   /** Run one tool call as part of the turn running now; outside any (a test calling a tool), as a turn of its own. */
-  async tool<R>(name: Safe<"tool">, run: () => Promise<R>): Promise<R> {
+  async tool<R>(name: Safe<"tool">, run: () => Promise<R>, callId?: string): Promise<R> {
     const owned = this.#turn === null;
     const turn = this.#openTurn(owned ? "tool" : "unknown");
-    const call: ToolCall = { name, outcome: literal("success"), duration_ms: 0 };
+    const call: ToolCall = { name, outcome: literal("success"), duration_ms: 0, ...(callId ? { call_id: id(callId) } : {}) };
     const started = Date.now();
     try {
       const result = await inScope(turn.event, run, call);

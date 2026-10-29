@@ -189,11 +189,9 @@ describe("0.3: Operations 2", () => {
     await signInDirect(a, c, SCOPES);
     const asked = await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
     expect(asked.isError).toBe(false);
-    // Our own card first: a write waits for the User (Safety).
-    const ours = await until(async () => (await cards(a)).find((card) => card.kind === "approval" && card.open));
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
-    // Then the Company's terms, on a card of their own.
-    const terms = await until(async () => (await cards(a)).find((card) => card.kind === "approval" && card.open && card.approvalId !== ours.approvalId));
+    // The request runs first; only the Company's exact terms need a decision (Ops 4–6).
+    const terms = await until(async () => (await cards(a)).find((card) => card.kind === "approval" && card.open));
+    expect((await cards(a)).filter(card => card.kind === "approval")).toHaveLength(1);
     expect(terms.summary).toContain("Exchange the Stormline Jacket (M)");
     expect((await c.stub.state()).performs).toBe(0);
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
@@ -211,9 +209,8 @@ describe("0.3: Operations 2", () => {
     const a = await agent();
     await signInDirect(a, c, SCOPES);
     await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
-    const ours = await until(async () => (await cards(a)).find((card) => card.kind === "approval" && card.open));
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
-    const terms = await until(async () => (await cards(a)).find((card) => card.kind === "approval" && card.open && card.approvalId !== ours.approvalId));
+    const terms = await until(async () => (await cards(a)).find((card) => card.kind === "approval" && card.open));
+    expect((await cards(a)).filter(card => card.kind === "approval")).toHaveLength(1);
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
     expect((await c.stub.state()).performs).toBe(1);
   });

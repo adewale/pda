@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Company } from "../../src/poppy/discovery";
 import { termsPreviews, termsTotal } from "../../src/poppy/operations";
+import { resultLinks } from "../../src/poppy/result-links";
 import type { Card } from "../../src/poppy/wire";
 import { redactQueries, resultFacts } from "../../src/ui/result-facts";
 import { approvalBatches } from "../../src/ui/steps";
@@ -125,6 +126,30 @@ const termsWithLinks = gs.tuples(
     { maxSize: 6 }
   )
 ).map(([base, links]) => ({ base, ...Object.fromEntries(links.map(([key, value], index) => [`${key}${index}`, value])), items: links.map(([key, value]) => ({ [key]: value })) }));
+
+describe("Company result links", () => {
+  it("preserves a returned HTTPS link exactly, including its encoded query and fragment", property(tc => {
+    const url = new URL("https://checkout.example/pay");
+    url.searchParams.set("session", tc.draw(gs.text()));
+    url.searchParams.set("return", tc.draw(gs.text()));
+    url.hash = new URLSearchParams({ receipt: tc.draw(gs.text()) }).toString();
+    const returned = url.href;
+    expect(resultLinks({ order: { checkout_url: returned } })).toEqual([{ label: "order checkout url · checkout.example", url: returned }]);
+  }));
+
+  it("accepts no non-HTTPS, private-host or credential-bearing link from arbitrary result text", property(tc => {
+    const raw = tc.draw(gs.oneOf(gs.text(), gs.urls()));
+    for (const link of resultLinks({ payment_url: raw })) {
+      const parsed = new URL(link.url);
+      expect(parsed.protocol).toBe("https:");
+      expect(parsed.username + parsed.password).toBe("");
+      expect(link.url).toBe(raw);
+    }
+    for (const unsafe of ["http://shop.example/pay", "https://127.0.0.1/pay", "https://localhost/pay", "https://user:pw@shop.example/pay", `javascript:${raw}`]) {
+      expect(resultLinks({ checkout_url: unsafe })).toEqual([]);
+    }
+  }));
+});
 
 describe("an order's previews and total (termsPreviews, termsTotal)", () => {
   it("links only HTTPS previews on the Company's own hosts, without credentials, at most twelve", property((tc) => {

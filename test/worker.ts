@@ -847,7 +847,7 @@ export class PersonalAgent extends ProductionAgent {
     if (!tool) throw new Error(`No tool ${name}`);
     const api = { conversationId: "test", taskId: "test-poppy-task", callId } as unknown as ToolExecutionApi;
     // As pi runs it: counted on a turn's wide event (src/agent-log.ts), here a turn of its own.
-    const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never));
+    const result = await this.log.tool(toolName(name)!, () => tool.execute(args as never, api, {} as never), callId);
     const text = (result.output ?? []).map((part) => ("text" in part ? part.text : "")).join("");
     return { text, isError: result.isError === true, details: JSON.stringify(result.details ?? null) };
   }

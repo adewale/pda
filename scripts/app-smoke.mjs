@@ -171,7 +171,7 @@ try {
   await page.waitForFunction(() => /echo:.*App smoke hello/s.test(document.body.innerText));
   evidence.chatSurvivesReload = true;
   if (args.includes("--approval-journey")) {
-    evidence.companyApprovalJourneys = await approvalJourneys({ runtime, page, network, agentName: await agentNameFor(identity), cookie: signedCookie.split(";", 1)[0], output });
+    evidence.companyApprovalJourneys = await approvalJourneys({ runtime, page, network, agentName: await agentNameFor(identity), cookie: signedCookie.split(";", 1)[0], output, companyDriven: args.includes("--company-driven") });
   }
   for (const route of ["/settings", "/companies", "/activity"]) {
     await page.goto(`https://agent.test${route}`, { waitUntil: "networkidle0" });

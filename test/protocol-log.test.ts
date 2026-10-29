@@ -71,10 +71,8 @@ describe("the protocol log", () => {
     await signInDirect(a, c);
     await tool(a, "poppy_message", { domain: c.domain, text: "Hello, is the sale still on?" });
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
-    // Our card first, then the Company's terms on a card of their own (Ops 4, 5).
-    const ours = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
-    const terms = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open && item.approvalId !== ours.approvalId));
+    // Only the Company's terms need a decision (Ops 4, 5).
+    const terms = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms));
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
     expect((await c.stub.state()).performs).toBe(1);
 

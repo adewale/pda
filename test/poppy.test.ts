@@ -19,6 +19,7 @@ import { isSignInPage } from "../src/poppy/browser";
 import { assertPublicHost, fetchJson, PoppyFetchError, raceAbort, type Fetcher } from "../src/poppy/fetch";
 import { agent, cards, company, compareViolations, requests, signInDirect, tool, until, wideEvents, type Agent, type Company } from "./agent-helpers";
 import type { MockConfig } from "./mock-company";
+import { legacyTool } from "./legacy-approval";
 import worker from "./worker";
 
 /**
@@ -1520,7 +1521,10 @@ describe("6 web browsing", () => {
   });
 });
 
-describe("7 APIs", () => {
+describe("7 APIs: validation and stored local-approval compatibility", () => {
+  // Old deployments already have these local cards. Keep their safety tests;
+  // current task dispatch is covered by poppy-task-requests and poppy-0.3.
+  const tool = legacyTool;
   it("lists and calls OpenAPI operations with the Session header, and signed in with a DPoP access token", async () => {
     const c = await company();
     const a = await agent();
@@ -1669,9 +1673,7 @@ describe("7 APIs", () => {
     const terms = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
     expect(terms.approvalId).toMatch(/^apr2_/);
     expect(terms).toMatchObject({ status: "pending", terms: { summary: expect.stringContaining("Exchange the Stormline Jacket (M)") } });
-    const notice = await a.stub.poppyWaitForNotice("asks the User to approve its exact terms first");
-    expect(notice).toContain("nothing has happened yet");
-    expect(notice).toContain("Don't tell the User it was done");
+    expect((await a.stub.poppyNotices()).filter(text => text.includes("asks the User to approve its exact terms first"))).toEqual([]);
     // Its Activity entry isn't done either.
     const logged = (JSON.parse(await a.stub.poppyActivity()) as { log: { id: string; result: string }[] }).log.find((entry) => entry.id === approval.id)!;
     expect(logged.result).not.toBe("done");
@@ -1775,11 +1777,11 @@ describe("7 APIs", () => {
     await signInDirect(a, c);
     await tool(a, "poppy_mcp_list", { domain: c.domain });
     const before = (await requests(c)).length;
-    const missing = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa" } });
+    const missing = await a.stub.poppyTool("poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa" } });
     expect(JSON.parse(missing.details)).toMatchObject({ error: "invalid_args" });
     expect(missing.text).toContain("replacement_sku");
     expect(missing.text).toContain("Nothing was sent.");
-    const wrong = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: 42 } });
+    const wrong = await a.stub.poppyTool("poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: 42 } });
     expect(JSON.parse(wrong.details)).toMatchObject({ error: "invalid_args" });
     expect(wrong.text).toContain("args/query");
     expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
@@ -2375,13 +2377,11 @@ describe("Operations 2", () => {
     if (configure) await c.stub.configure(configure(c));
     const a = await agent();
     await signInDirect(a, c);
-    expect((await tool(a, "poppy_api_call", exchangeCall(c))).text).toContain("Waiting for the User's approval");
-    const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
-    await approve(a, ours);
+    expect((await tool(a, "poppy_api_call", exchangeCall(c))).isError).toBe(false);
     const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
     expect(card.approvalId).toMatch(/^apr2_/);
     expect((await c.stub.state()).performs).toBe(0);
-    return { c, a, ours, card };
+    return { c, a, card };
   }
 
   /** The approval a waiting card will send (`poppy_approvals.request`), as stored. */
@@ -2399,8 +2399,8 @@ describe("Operations 2", () => {
       highlights: ["Cost (price_difference): 70.00 USD", "The company hasn't said whether this can be undone."]
     });
     expect(card.summary).toBe(`Mock Shop ${c.id} asks for your approval before it does this: ${summary} (Approval needed by ${expiresAt}.)`);
-    // The model hears that nothing has happened, and that the User decides.
-    expect(await a.stub.poppyWaitForNotice("asks the User to approve its exact terms first")).toContain("nothing has happened yet");
+    // The pending card does not start another model turn.
+    expect((await a.stub.poppyNotices()).filter(text => text.includes("asks the User to approve its exact terms first"))).toEqual([]);
     await approve(a, card);
     // The same request again, with the approval of exactly that revision (Ops 6).
     const sent = await approved(c);
@@ -2500,10 +2500,7 @@ describe("Operations 2", () => {
     const sizes = ["stormline-insulated-m", "stormline-insulated-l"];
     const waiting: Record<string, any>[] = [];
     for (const sku of sizes) {
-      expect((await tool(a, "poppy_api_call", { ...exchangeCall(c), body: { item_id: "itm_4Qa", replacement_sku: sku } })).text).toContain("Waiting for the User's approval");
-      // Ours, not the first size's terms, which wait too.
-      const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open && !item.approvalId.startsWith("apr2_"))!;
-      await approve(a, ours);
+      expect((await tool(a, "poppy_api_call", { ...exchangeCall(c), body: { item_id: "itm_4Qa", replacement_sku: sku } })).isError).toBe(false);
       waiting.push((await cards(a)).find((item) => item.kind === "approval" && item.open && item.approvalId.startsWith("apr2_") && !waiting.some((seen) => seen.approvalId === item.approvalId))!);
     }
     const [medium, large] = waiting;

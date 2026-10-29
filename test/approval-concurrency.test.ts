@@ -1,7 +1,8 @@
 import { expect, it } from "vitest";
 import { runInDurableObject } from "cloudflare:test";
 import { decideLocal } from "../src/poppy/operations";
-import { agent, cards, company, signInDirect, tool } from "./agent-helpers";
+import { agent, cards, company, signInDirect } from "./agent-helpers";
+import { legacyTool as tool } from "./legacy-approval";
 
 it("concurrent decisions of one pending write dispatch at most once after discovery expiry", async () => {
   const c = await company({ operations: false, exchangeTakesIdempotencyKey: false });

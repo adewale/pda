@@ -448,6 +448,17 @@ describe("the Company's domain (spec issue N14)", () => {
 });
 
 describe("notice card", () => {
+  it("links the Company's returned checkout without changing its signed query or sending a frame", () => {
+    const url = "https://checkout.example/pay?session=a%2Fb%2Bc&return=%2Forders%3Fpaid%3D1#receipt";
+    const { container, sent } = renderCards({ ...noticeCard, text: "Links returned by Acme", links: [{ label: "Order checkout · checkout.example", url }] });
+    const anchor = screen.getByRole("link", { name: "Order checkout · checkout.example" });
+    expect(anchor.getAttribute("href")).toBe(url);
+    expect(anchor.getAttribute("target")).toBe("_blank");
+    expect(anchor.getAttribute("rel")).toContain("noopener");
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+    expect(sent).toEqual([]);
+  });
+
   it("shows the text as text and can be dismissed", () => {
     const { container, sent } = renderCards({ ...noticeCard, text: '<a href="javascript:alert(1)">click</a>' });
     expect(screen.getByText('<a href="javascript:alert(1)">click</a>')).toBeTruthy();

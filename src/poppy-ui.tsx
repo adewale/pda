@@ -23,7 +23,7 @@ import { countdown, fullDate, RESULT } from "./ui/format";
 import { redactQueries, resultFacts } from "./ui/result-facts";
 import { Status, STATUS_STYLE } from "./ui/status";
 import { approvalBatches } from "./ui/steps";
-import { approvalResult } from "./poppy/approval-outcome";
+import { approvalResult, isTaskRequest } from "./poppy/approval-outcome";
 import type { PoppyView } from "./use-pi-session";
 
 /** A Company-supplied link, only if it is an HTTPS URL: never `javascript:`, `data:` or `http:`. */
@@ -636,16 +636,17 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
     }
     case "approval": {
       const resolution = card.outcomeResolution;
+      const task = isTaskRequest(card.approvalId);
       const result = approvalResult(card.status, resolution);
       // A checked outcome is attributed to the User; the original Company response stays separate.
       const detail = resolution ? "you checked with the Company" : card.answer
         ? `${card.answer.status}${card.answer.error ? ` ${card.answer.error}` : ""}`
         : card.status === "done"
-          ? "as you approved"
+          ? task ? "for your task" : "as you approved"
           : card.status === "terms"
             ? "sent; its terms wait on the next card"
           : card.status === "failed"
-            ? "after you approved"
+            ? task ? "during your task" : "after you approved"
             : null;
       const answered = card.answer ? `${card.answer.status}${card.answer.error ? ` (${card.answer.error})` : ""}` : "with an error";
       // What the Company answered, as a few facts; never its raw body, and never a URL (src/ui/result-facts.ts).
@@ -662,7 +663,7 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
           {facts.length ? <p className="text-kumo-subtle tabular-nums">{facts.join(" · ")}</p> : null}
           {card.status === "refused" ? (
             <p>
-              Sent as you approved, but {card.company} answered {answered}. Nothing changed unless {card.company} says otherwise.
+              {task ? "Sent for your task" : "Sent as you approved"}, but {card.company} answered {answered}. Nothing changed unless {card.company} says otherwise.
             </p>
           ) : null}
           {card.status !== "done" && card.status !== "refused" && card.result ? <p>{redactQueries(card.result)}</p> : null}

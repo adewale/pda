@@ -297,8 +297,6 @@ describe("a task's run gains no powers", () => {
       params: { order_id: "ord_7Hk2" },
       body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
     });
-    const ours = await until(async () => (await cards({ stub })).find((card) => card.kind === "approval" && card.open));
-    await stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
     const card = await until(async () => (await cards({ stub })).find((item) => item.kind === "approval" && item.open && item.terms));
     const [row] = JSON.parse(await stub.poppySql("SELECT request FROM poppy_approvals WHERE id = ?", card.approvalId)) as { request: string }[];
     const { operation_id: operationId, revision } = JSON.parse(row!.request).call.approval as { operation_id: string; revision: string };

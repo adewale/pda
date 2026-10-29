@@ -1,6 +1,7 @@
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { agent, cards, company, requests, signInDirect } from "./agent-helpers";
+import { legacyTool } from "./legacy-approval";
 
 describe("ordinary approved write outcomes", () => {
   for (const [transport, failure] of [["OpenAPI", "stream"], ["MCP", "stream"], ["MCP", "invalid-json"]] as const) {
@@ -12,7 +13,7 @@ describe("ordinary approved write outcomes", () => {
       const args = transport === "OpenAPI"
         ? { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } }
         : { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
-      const held = await a.stub.poppyTool(name, args);
+      const held = await legacyTool(a, name, args);
       expect(held.isError, held.text).toBe(false);
       const id = JSON.parse(held.text).proposed;
       let receivedStatus = 0;
@@ -48,7 +49,7 @@ describe("ordinary approved write outcomes", () => {
     const c = await company({ operations: false });
     const a = await agent();
     await signInDirect(a, c);
-    const held = await a.stub.poppyTool("poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+    const held = await legacyTool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
     const id = JSON.parse(held.text).proposed;
     await runInDurableObject(a.stub, async instance => {
       const client = instance.poppy.client;
@@ -69,7 +70,7 @@ describe("ordinary approved write outcomes", () => {
     const c = await company({ operations: false });
     const a = await agent();
     await signInDirect(a, c);
-    const held = await a.stub.poppyTool("poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+    const held = await legacyTool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
     const id = JSON.parse(held.text).proposed;
     await evictDurableObject(a.stub);
     let toolCalls = 0;
