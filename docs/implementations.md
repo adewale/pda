@@ -10,7 +10,7 @@ PDA speaks 0.3 alone since 28 October, the text upstream published on its site t
 
 | Project | Head | Poppy it speaks | In PDA's grid |
 | --- | --- | --- | --- |
-| Print with Poppy | `b340741`, 28 October | The 28 October 0.3 text, Operations 2, Mediated Sign-In 1; refuses 0.2 and the earlier 0.3 draft. printwithpoppy.com declares 0.3 and passes our validator; the Agent Sandbox still declares 0.2 | Registered again at `b340741`; image not yet built |
+| Print with Poppy | `b340741`, 28 October | The 28 October 0.3 text, Operations 2, Mediated Sign-In 1; refuses 0.2 and the earlier 0.3 draft. printwithpoppy.com declares 0.3 and passes our validator; the Agent Sandbox still declares 0.2 | Registered again at `b340741`; on 29 October our three honest agents passed its ten scenarios, and D passed live at printwithpoppy.com |
 | Datalayer SDKs and Manzanita | `a3713e3`, 27 October | The earlier 0.3 draft (Session Keys, Session Tokens) | Not pinned: no common version |
 | Poppyseed | `6393dfb`, 27 October | The earlier 0.3 draft | Not pinned |
 | everruns | `a22760a`, 28 October | 0.1; refuses 0.3 | Not pinned |

@@ -22,7 +22,8 @@ Protocol baseline: **0.3, the text upstream published on its site on 28 October 
 - Four issues found while implementing, in [poppy-0.3-issues.md](docs/poppy-0.3-issues.md#found-while-implementing).
 - The Python Hypothesis client and its five state machines speak 0.3: the Session header, refresh tokens, Operations 2, the browser join and MCP with its own token ([its README](test/hypothesis/README.md)).
 - The interop grid's first run at 0.3 (29 October): our four agent profiles against `lenient-company`, `strict-company` and `evil-company`, every failure the sloppy agent's by design ([results](docs/interop-results/README.md)).
-- print-with-poppy's adapter, back at `b340741`, the first other project on the 28 October text, and `print-with-poppy-live` for discovery at printwithpoppy.com. Its image hasn't been built here yet: the sandbox's proxy refuses the plain-HTTP apt fetches its base image needs.
+- print-with-poppy's adapter, back at `b340741`, the first other project on the 28 October text, and `print-with-poppy-live` for discovery at printwithpoppy.com. Its first run at 0.3: our three honest agents pass all ten scenarios it claims, the photo upload and its order (OU) among them, and the sloppy agent fails only its known `aud` ([results](docs/interop-results/README.md#print-with-poppy-at-03)). Its build stage starts from the full `node:22-bookworm` image, so the build installs no Debian packages.
+- The first live 0.3 run: discovery (D) at printwithpoppy.com passes from our agent's container, and the validator finds it valid ([results](docs/interop-results/README.md#live-printwithpoppycom-29-october)).
 - A trace check, `one_session`, that every resource request in a cell carries the Session header with one `sid`, and none reaches an OAuth endpoint (5.2).
 - The interop agent reads pages in Node with `html-rewriter-wasm` (lol-html, as Workers' `HTMLRewriter`), so browsing scenarios see the page the Company served.
 - An ecosystem refresh for 29 October: who implements the 28 October text, and dated public discovery results ([ecosystem.md](docs/ecosystem.md), [evidence](docs/evidence/ecosystem-2026-10-29/README.md)).
@@ -33,6 +34,7 @@ Protocol baseline: **0.3, the text upstream published on its site on 28 October 
 - Signing out withdraws its Sessions' pending approvals at once, not at the next token refresh.
 - `extension_required` names the extension the Company asks for.
 - The mock Company left out a scope a sign-in type can't grant instead of refusing it, when the issuer lists it (4.7, RFC 6749 3.3), and names the granted scope whenever it differs from the request, even where it usually omits it (RFC 6749 5.1). The Hypothesis port found both.
+- The live lane's notice without an identity named 0.1's scenarios and error: at 0.3 a Company refuses S0, CL and ML's Session header with `invalid_session`, and only a sign-in with `invalid_client`.
 - CI's interop job ran no cell at all after the move to 0.3: the mock's adapter still declared 0.1, so every cell was refused at version negotiation and the run passed. The adapter declares the version we speak, and a run in which no cell passes or fails now fails.
 - One agent's OpenAPI descriptions and task coverage were cached per process, so a second agent in the same process (the interop image, the Durable Object's isolate) could use the first one's. Each cache is now per client.
 - The interop checks require `conversation_id` on every conversation read (8.5).

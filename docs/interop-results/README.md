@@ -27,7 +27,34 @@ What running it found, each fixed before the counts above:
 - **Scenarios that sent nothing at 0.3.** A 0.3 Session starts with its first request, so `S0` and `CM` now make signed-out API calls, and `S0` checks them with the new `one_session` trace check; `N` and `XN` sign in first, since only token requests and DPoP-bound calls carry a proof. `NREP` replayed 0.2's Session request and waits for a rewrite; no Company lists it.
 - **`conversation_id` in every read** (8.5's MUST) was checked only at 0.2; the trace check now applies it.
 
-Not run: `print-with-poppy` at `b340741`, registered again on 29 October; its image couldn't be built in the session that restored it (no route to Debian's package mirrors).
+On GitHub, the Interop workflow's first run that ran anything, on `02fa5e4` (29 October, `pda` × both mocks): 70 pass, 0 fail, 18 unsupported, 0 errors.
+
+### print-with-poppy at 0.3
+
+[print-with-poppy](https://github.com/spenciefy/print-with-poppy) at `b340741` (28 October), the first other project on the 28 October text, in its demo mode behind [its adapter](../../interop/impls/print-with-poppy-company). Its build stage now starts from the full `node:22-bookworm` image, which already has git and a compiler, so the build installs no Debian packages; the session that restored the adapter couldn't reach Debian's mirrors. The honest scenarios only, since adversarial cells never run against another project's Company:
+
+```sh
+npm run interop -- --agents pda,lenient-personal-agent,strict-personal-agent,sloppy-personal-agent --companies print-with-poppy \
+  --scenarios AM,AO,AS,C,CA,CC,CI,CL,CM,CS,D,DC,DP,H,ML,N,O,OU,OX,R,RL,S0,SD,SE,SM,SMC,SO,SV,SVN,SX,SXV,W
+```
+
+| Agent | Pass | Fail | Unsupported | Error |
+| --- | --- | --- | --- | --- |
+| `pda` | 10 | 0 | 22 | 0 |
+| `lenient-personal-agent` | 10 | 0 | 22 | 0 |
+| `strict-personal-agent` | 10 | 0 | 22 | 0 |
+| `sloppy-personal-agent` | 5 | 5, all known | 22 | 0 |
+
+print-with-poppy claims ten scenarios (D, S0, OU, CM, SD, SX, SMC, SO, AO, AS), and every honest agent passes all ten, the photo upload and its order under Operations 2 (OU) among them. The sloppy agent's five failures are its token-endpoint `aud` at every sign-in, which the store refuses with `invalid_client` as our mocks do; the same known failure covers them. No check fired against the store itself: the run's 5 failures and 15 tentative results are all the sloppy agent's client assertions.
+
+### Live: printwithpoppy.com, 29 October
+
+The first live 0.3 Company our agent has run against. Discovery only: the store takes real payments, and its registry entry lists D alone.
+
+- `npm run validate -- printwithpoppy.com`: valid under the 0.3 profile, 0 errors, 0 warnings, 3 info (none of `poppy.json`, the protected resource metadata or the issuer's metadata sends `Cache-Control` or `Expires`, a SHOULD of spec 3).
+- `npm run interop -- --lane live --agents pda --companies print-with-poppy-live`: D passes, from our agent's own container.
+
+Not run live: S0, CL and ML need the live identity, whose key is only on the owner's machine (`interop/.live-identity.json`), and the store admits only agents on its allowlist.
 
 **21 October 2026:** [dual-version upgrade evidence](../poppy-0.2-upgrade.md#validation), with a [per-cell result summary](2026-10-21-poppy-0.2.json). The historical snapshots below retain their original dates and pins. CI ran the 0.2 mock and the official validator separately until 28 October.
 
