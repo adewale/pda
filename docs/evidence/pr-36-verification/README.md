@@ -14,6 +14,6 @@ Reproduce with the pinned Python dependencies and Node:
 npm run test:hypothesis
 ```
 
-`UV_CACHE_DIR` in the receipt points at a writable temporary cache for this managed environment. It does not change dependencies or test settings. Terminal color codes and trailing empty lines are removed from the text receipts for reading.
+`UV_CACHE_DIR` in the receipt points at a writable temporary cache for this managed environment. It does not change dependencies or test settings. Terminal color codes, trailing whitespace and empty lines are removed from the text receipts for reading.
 
 The Python suite remains an occasional local check, as documented in its README. It tests the Company fixture, not PDA's production client, and shares our documented interpretations of the specification. It supplies no live identity, hosted OAuth, external payment or real-model evidence.

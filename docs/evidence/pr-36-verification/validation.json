@@ -24,7 +24,7 @@
   },
   "receiptHashes": {
     "python-current.txt": "1f4e8c051ab8300357d68f07ab1cbfc1e553c60cf7392c2ab9f56699545c2411",
-    "python-oracle-before.txt": "875b701160815fa5f607a8ec407a10b4cfc1ecad15a623ab25c20523002733ad"
+    "python-oracle-before.txt": "056980cf46248d207c06d139564988c45903cfd8666020574e4fc9fe6f4cca13"
   },
   "limits": [
     "Independent implementation under our readings, not independently authored interpretation of every rule.",
