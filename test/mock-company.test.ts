@@ -2158,6 +2158,37 @@ describe("the mock Company's Operations 2 (Ops 3, 4, 6, 7)", () => {
 
 // Found by the Hypothesis stateful test (test/hypothesis), each a reading the mock got wrong.
 describe("the mock Company, as the Hypothesis model found it", () => {
+  // 4.7: `scopes_supported` holds every scope a Personal Agent can request. Device Sign-In here
+  // grants only the orders scopes; a listed scope it can't grant is left out (RFC 6749 3.3). When
+  // it, or the User, grants less than was asked, the token response names what was granted, even
+  // where the Company usually omits `scope` (RFC 6749 5.1). Only an unlisted scope, or nothing
+  // left to grant, is `invalid_scope`.
+  it.each([
+    { omitTokenScope: false, asked: "orders:read addresses", granted: "orders:read" },
+    { omitTokenScope: true, asked: "orders:read addresses", granted: "orders:read" },
+    { omitTokenScope: true, asked: "orders:read", granted: undefined },
+    { omitTokenScope: true, asked: "orders:read orders:write", approved: ["orders:read"], granted: "orders:read" }
+  ] as { omitTokenScope: boolean; asked: string; approved?: string[]; granted: string | undefined }[])("Device Sign-In asked for $asked grants $granted with omitTokenScope $omitTokenScope (4.7, RFC 6749 3.3, 5.1)", async ({ omitTokenScope, asked, approved, granted }) => {
+    const c = company();
+    await c.stub.configure({ deviceInterval: 1, omitTokenScope });
+    const started = await form(c, c.hosts.deviceEndpoint, { scope: asked }, null);
+    expect(started.status).toBe(200);
+    const device = (await started.json()) as { device_code: string; user_code: string };
+    await c.stub.approveDevice(device.user_code, approved ? { scopes: approved } : {});
+    const polled = await tokenRequest(c, { grant_type: DEVICE_CODE, device_code: device.device_code });
+    expect(polled.status).toBe(200);
+    expect(((await polled.json()) as { scope?: string }).scope).toBe(granted);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it.each(["addresses", "orders:read billing"])("refuses Device Sign-In for %s: nothing it can grant, or a scope not listed (4.7)", async (asked) => {
+    const c = company();
+    const started = await form(c, c.hosts.deviceEndpoint, { scope: asked }, null);
+    expect(started.status).toBe(400);
+    expect(((await started.json()) as { error: string }).error).toBe("invalid_scope");
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
   // A signed-in User opens a conversation, which an order-related message makes the account's
   // (8.2). Then the retry of its first message id comes from a Session that has left that account:
   // another, signed-out Session of the same User, or the same Session continuing signed out once

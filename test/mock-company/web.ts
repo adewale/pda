@@ -26,10 +26,9 @@ export class Web {
     return { ...(this.company.config.poppyJsonCacheHeaders ?? DEFAULT_CACHING) };
   }
 
-  /** The scopes this Company describes, and the hints it gives about each (4.7). */
+  /** The scopes this Company describes (4.7). */
   #scopeDescriptions(): Record<string, string> {
-    const { read, write } = this.company.orderScopes;
-    return { [read]: "See your orders and exchanges", [write]: "Exchange items on your orders", addresses: "See and change your saved shipping addresses", ...this.company.config.customScopes };
+    return this.company.scopeDescriptions();
   }
 
   /**

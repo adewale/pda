@@ -409,6 +409,12 @@ export class Company {
     this.exchanged.add(key);
   }
 
+  /** The scopes this Company describes (4.7): its `scopes_supported`, every scope a Personal Agent can request (3.2). */
+  scopeDescriptions(): Record<string, string> {
+    const { read, write } = this.orderScopes;
+    return { [read]: "See your orders and exchanges", [write]: "Exchange items on your orders", addresses: "See and change your saved shipping addresses", ...this.config.customScopes };
+  }
+
   /** What the Company calls reading and changing orders: its own scopes, since the protocol defines none (4.7). */
   get orderScopes(): { readonly read: string; readonly write: string } {
     return { read: "orders:read", write: "orders:write" };
@@ -887,14 +893,16 @@ export class Company {
     return token;
   }
 
-  tokenResponse(access: AccessToken, refresh?: AccountToken, extra: Record<string, unknown> = {}): Response {
+  /** A token response for `access`, asked for with the scopes `requested`. */
+  tokenResponse(access: AccessToken, requested: readonly string[], refresh?: AccountToken): Response {
+    // RFC 6749 5.1: `scope` may be left out only when it is what was requested.
+    const asRequested = access.scope.length === requested.length && access.scope.every((scope) => requested.includes(scope));
     const body: Record<string, unknown> = {
-      ...extra,
       access_token: access.value,
       token_type: access.kind === "dpop" ? "DPoP" : "Bearer",
       expires_in: this.config.accessTokenTtl,
       // Plain OAuth token responses (4.7); Sessions are the Session header's.
-      ...(this.config.omitTokenScope ? {} : { scope: access.scope.join(" ") })
+      ...(this.config.omitTokenScope && asRequested ? {} : { scope: access.scope.join(" ") })
     };
     if (refresh) {
       body.refresh_token = refresh.value;

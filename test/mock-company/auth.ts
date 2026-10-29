@@ -17,6 +17,8 @@ type AuthorizationRequest = {
   readonly id: string;
   readonly clientId: string;
   readonly redirectUri: string;
+  /** What the request asked for, and what of it this sign-in can grant. */
+  readonly requested: readonly string[];
   readonly scope: readonly string[];
   readonly state: string;
   readonly challenge: string;
@@ -27,6 +29,7 @@ type AuthorizationCode = {
   readonly redirectUri: string;
   readonly challenge: string;
   readonly account: string;
+  readonly requested: readonly string[];
   readonly scope: readonly string[];
   readonly expiresAt: number;
   used: boolean;
@@ -36,6 +39,7 @@ type DeviceRequest = {
   readonly deviceCode: string;
   readonly userCode: string;
   readonly clientId: string;
+  readonly requested: readonly string[];
   readonly scope: readonly string[];
   readonly expiresAt: number;
   interval: number;
@@ -51,6 +55,7 @@ type MediatedSignIn = {
   /** The client that started it, which alone can finish it (Mediated Sign-In 4). */
   readonly clientId: string;
   readonly account: string;
+  readonly requested: readonly string[];
   readonly scope: readonly string[];
   readonly code: string;
   readonly expiresAt: number;
@@ -85,18 +90,26 @@ export class AuthServer {
     return this.company.offeredScopes(type);
   }
 
-  /** Each sign-in MUST include `scope`; unknown or unavailable scopes are refused (4.7). */
-  #checkScopes(type: "direct" | "device" | "mediated", raw: string | null): string[] {
+  /**
+   * Each sign-in MUST include `scope` (4.7). A scope the issuer doesn't list
+   * in `scopes_supported` is `invalid_scope`. One it lists but this type of
+   * sign-in doesn't grant is left out, as RFC 6749 3.3 lets it, and the
+   * token response says what was granted; Mediated Sign-In's own list is the
+   * most it grants (Mediated Sign-In 2). Nothing left to grant is `invalid_scope`.
+   */
+  #checkScopes(type: "direct" | "device" | "mediated", raw: string | null): { readonly requested: string[]; readonly scope: string[] } {
     if (raw === null || raw.trim() === "") {
       this.company.violation("signin.no-scope", `${type} sign-in without scope`);
       throw oauthError(400, "invalid_scope", "scope is required");
     }
-    const scope = parseScope(raw);
+    const requested = parseScope(raw);
+    const supported = Object.keys(this.company.scopeDescriptions());
+    const unknown = requested.filter((entry) => !supported.includes(entry));
+    if (unknown.length > 0) throw oauthError(400, "invalid_scope", `unknown scope ${unknown.join(" ")}`);
     const allowed = this.#allowedScopes(type) ?? [];
-    if (!scope.every((entry) => allowed.includes(entry))) {
-      throw oauthError(400, "invalid_scope", `${type} sign-in can grant only ${allowed.join(" ")}`);
-    }
-    return scope;
+    const scope = requested.filter((entry) => allowed.includes(entry));
+    if (scope.length === 0) throw oauthError(400, "invalid_scope", `${type} sign-in can grant only ${allowed.join(" ")}`);
+    return { requested, scope };
   }
 
   // ---- Token endpoint ----
@@ -159,14 +172,14 @@ export class AuthServer {
       token.rotated = true;
       rotated = co.issueAccountToken(token, token.scope);
     }
-    return co.tokenResponse(co.issueAccess(token, binding, scope), rotated);
+    return co.tokenResponse(co.issueAccess(token, binding, scope), scope, rotated);
   }
 
   /** A completed sign-in: a refresh token for a new grant, and an access token from it. */
-  #signedIn(client: ClientInfo, account: string, scope: readonly string[], binding: { jkt: string | null; resource: string | null }): Response {
+  #signedIn(client: ClientInfo, account: string, granted: { readonly requested: readonly string[]; readonly scope: readonly string[] }, binding: { jkt: string | null; resource: string | null }): Response {
     const co = this.company;
-    const refresh = co.issueAccountToken({ clientId: client.clientId, account, grant: randomId("grt_", 8) }, scope);
-    return co.tokenResponse(co.issueAccess(refresh, binding, scope), refresh);
+    const refresh = co.issueAccountToken({ clientId: client.clientId, account, grant: randomId("grt_", 8) }, granted.scope);
+    return co.tokenResponse(co.issueAccess(refresh, binding, granted.scope), granted.requested, refresh);
   }
 
   /**
@@ -197,20 +210,20 @@ export class AuthServer {
         return this.#codeRequired(signIn);
       }
       signIn.finished = true;
-      return this.#signedIn(client, signIn.account, signIn.scope, binding);
+      return this.#signedIn(client, signIn.account, signIn, binding);
     }
-    const scope = this.#checkScopes("mediated", form.get("scope"));
+    const { requested, scope } = this.#checkScopes("mediated", form.get("scope"));
     for (const field of ["email", "password"]) {
       if (!form.has(field)) co.violation("mediated.missing-field", `mediated sign-in missing field ${field}`);
     }
     if (++this.#mediatedAttempts > 20) throw oauthError(400, "invalid_grant");
     const account = co.config.accounts.find((entry) => entry.email === form.get("email") && entry.password === form.get("password"));
     if (!account) throw oauthError(400, "invalid_grant", "sign-in didn't succeed");
-    if (!account.otp) return this.#signedIn(client, account.account, scope, binding);
+    if (!account.otp) return this.#signedIn(client, account.account, { requested, scope }, binding);
     const code = randomId("", 6).replace(/[^A-Za-z0-9]/g, "X").toUpperCase();
     co.oneTimeCodes.add(code);
     co.lastOneTimeCode = code;
-    const signIn: MediatedSignIn = { id: randomId("sgn_", 8), clientId: client.clientId, account: account.account, scope, code, expiresAt: co.now() + 5 * 60_000, attempts: 0, finished: false };
+    const signIn: MediatedSignIn = { id: randomId("sgn_", 8), clientId: client.clientId, account: account.account, requested, scope, code, expiresAt: co.now() + 5 * 60_000, attempts: 0, finished: false };
     this.#mediated.set(signIn.id, signIn);
     return this.#codeRequired(signIn);
   }
@@ -278,7 +291,7 @@ export class AuthServer {
       co.violation("code.pkce", "PKCE code_verifier doesn't match the challenge");
       throw oauthError(400, "invalid_grant");
     }
-    return this.#signedIn(client, code.account, code.scope, binding);
+    return this.#signedIn(client, code.account, code, binding);
   }
 
   async #deviceCode(
@@ -323,7 +336,7 @@ export class AuthServer {
     device.lastPoll = now;
     if (device.status === "pending") throw oauthError(400, "authorization_pending");
     device.status = "done";
-    return this.#signedIn(client, device.account!, device.granted, binding);
+    return this.#signedIn(client, device.account!, { requested: device.requested, scope: device.granted }, binding);
   }
 
   // ---- Revocation (4.6) ----
@@ -417,9 +430,10 @@ export class AuthServer {
     for (const name of ["access_token", "refresh_token", "assertion", "client_assertion"]) {
       if (params.has(name)) co.violation("authorize.secret-in-url", `${name} in the authorization URL`);
     }
+    let requested: string[];
     let scope: string[];
     try {
-      scope = this.#checkScopes("direct", params.get("scope"));
+      ({ requested, scope } = this.#checkScopes("direct", params.get("scope")));
     } catch {
       return redirectError("invalid_scope");
     }
@@ -427,6 +441,7 @@ export class AuthServer {
       id: randomId("req_", 8),
       clientId: client.clientId,
       redirectUri,
+      requested,
       scope,
       state,
       challenge: params.get("code_challenge")!
@@ -482,6 +497,7 @@ export class AuthServer {
       redirectUri: result.redirectUri,
       challenge: result.challenge,
       account: decision.account ?? co.config.accounts[0]!.account,
+      requested: result.requested,
       scope: granted,
       expiresAt: Date.now() + 60_000,
       used: false
@@ -498,7 +514,7 @@ export class AuthServer {
     if (!co.config.signIn.device) throw oauthError(400, "unsupported_grant_type");
     const form = this.#form(inbound);
     const client = await co.authenticateClient(form, co.hosts.deviceEndpoint);
-    const scope = this.#checkScopes("device", form.get("scope"));
+    const { requested, scope } = this.#checkScopes("device", form.get("scope"));
     const letters = "BCDFGHJKLMNPQRSTVWXZ";
     const pick = () =>
       Array.from(crypto.getRandomValues(new Uint8Array(4)), (byte) => letters[byte % letters.length]).join("");
@@ -506,6 +522,7 @@ export class AuthServer {
       deviceCode: randomId("dev_", 24),
       userCode: `${pick()}-${pick()}`,
       clientId: client.clientId,
+      requested,
       scope,
       expiresAt: co.now() + co.config.deviceExpiresIn * 1000,
       interval: co.config.deviceInterval,
