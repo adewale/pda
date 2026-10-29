@@ -1,0 +1,167 @@
+{
+  "signedOutPage": true,
+  "publicAboutAndEcosystem": true,
+  "publicPagesNeedNoIdentityOrSocket": true,
+  "ecosystemMobileTablesAndDeepLinks": true,
+  "ecosystemMobileLandscape": true,
+  "publicLinksAndSectionTargets": true,
+  "oldEcosystemPathHasNoPageOrRedirect": true,
+  "authenticatedWorkspaceAndWebSocket": true,
+  "chatReply": true,
+  "chatSurvivesReload": true,
+  "companyApprovalJourneys": {
+    "journeys": [
+      {
+        "transport": "OpenAPI",
+        "viewport": "desktop",
+        "domain": "copenapijourney.shop.test",
+        "localApproval": {
+          "id": "apr_CjfquNeiHJ02K6aUEQ-imA",
+          "status": "done"
+        },
+        "companyApproval": {
+          "id": "apr2_2kcjwAXGbisSEcM93cx3r-",
+          "status": "done"
+        },
+        "browserWebSocketDecisions": [
+          {
+            "approvalId": "apr_CjfquNeiHJ02K6aUEQ-imA",
+            "decision": "approve"
+          },
+          {
+            "approvalId": "apr2_2kcjwAXGbisSEcM93cx3r-",
+            "decision": "approve"
+          }
+        ],
+        "companyWire": [
+          {
+            "status": 403,
+            "companyApprovalPresent": false
+          },
+          {
+            "status": 201,
+            "companyApprovalPresent": true
+          }
+        ],
+        "companyOperation": {
+          "id": "exc_j4Ps2_kp",
+          "state": "succeeded",
+          "revision": 1,
+          "confirms": 1,
+          "approvedBy": "user"
+        },
+        "performsBeforeEitherApproval": 0,
+        "performsAfterLocalApproval": 0,
+        "performsAfterTermsApprovalAndReload": 1,
+        "originalTranscript": "done",
+        "originalTranscriptSurvivesReload": true,
+        "activityInProgress": 0,
+        "activityResults": [
+          "done",
+          "done"
+        ],
+        "strictCompanyViolations": 0,
+        "strictCompanyWarnings": 0
+      },
+      {
+        "transport": "MCP",
+        "viewport": "mobile",
+        "domain": "cmcpjourney.shop.test",
+        "localApproval": {
+          "id": "apr_7wqWLmEiD4a-32r9lyTtRQ",
+          "status": "done"
+        },
+        "companyApproval": {
+          "id": "apr2_eDRkto1QqcPptPHWjOk_9w",
+          "status": "done"
+        },
+        "browserWebSocketDecisions": [
+          {
+            "approvalId": "apr_7wqWLmEiD4a-32r9lyTtRQ",
+            "decision": "approve"
+          },
+          {
+            "approvalId": "apr2_eDRkto1QqcPptPHWjOk_9w",
+            "decision": "approve"
+          }
+        ],
+        "companyWire": null,
+        "companyOperation": {
+          "id": "exc_DmaQ-3Yq",
+          "state": "succeeded",
+          "revision": 1,
+          "confirms": 1,
+          "approvedBy": "user"
+        },
+        "performsBeforeEitherApproval": 0,
+        "performsAfterLocalApproval": 0,
+        "performsAfterTermsApprovalAndReload": 1,
+        "originalTranscript": "done",
+        "originalTranscriptSurvivesReload": true,
+        "activityInProgress": 0,
+        "activityResults": [
+          "done",
+          "done"
+        ],
+        "strictCompanyViolations": 0,
+        "strictCompanyWarnings": 0
+      }
+    ],
+    "recovery": {
+      "transport": "OpenAPI",
+      "viewport": "desktop",
+      "fault": "Company performs the action, then the response is lost",
+      "initialReceipt": "unknown",
+      "agedReceiptSurvivesReload": true,
+      "ageAtReloadHours": 2,
+      "unresolvedReceiptOffersDismiss": false,
+      "freshProposalBlocked": true,
+      "browserWebSocketResolution": {
+        "approvalId": "apr_4fHe3F1BUpScf5fWsNsymg",
+        "outcome": "performed"
+      },
+      "preservedReceiptStatus": "unknown",
+      "userReportedOutcome": "performed",
+      "resolvedReceiptExpired": true,
+      "userAttributionAfterResolvedReceiptExpiry": true,
+      "exchangeRequestsBeforeReconciliation": 1,
+      "exchangeRequestsAfterReconciliationAndReload": 1,
+      "performsBeforeReconciliation": 1,
+      "performsAfterReconciliationAndReload": 1,
+      "originalTranscriptAfterReload": "done, attributed to the User's check with the Company",
+      "activityResult": "done",
+      "activityInProgress": 0,
+      "strictCompanyViolations": 0,
+      "strictCompanyWarnings": 0
+    },
+    "companySignInSetup": "strict mock authorization decision followed by production authenticated callback",
+    "userApprovals": "actual Chromium clicks sent over the production WebSocket",
+    "liveOAuthOrExternalPaymentsVerified": false
+  },
+  "deepRoutes": true,
+  "mobileLayout": true,
+  "revokedSessionShowsRecoveryAndRetainsDraft": true,
+  "logoutAndReloadSignsOut": true,
+  "uncaughtBrowserErrors": 0,
+  "runtime": "local workerd",
+  "assets": "production Vite build",
+  "builtThisRun": true,
+  "model": "synthetic test provider",
+  "authentication": "production signed-cookie verifier with synthetic test identity",
+  "liveOAuthOrModelVerified": false,
+  "publishedScreenshots": [
+    {
+      "file": "unknown-reconciled-history-desktop.png",
+      "sha256": "fad71c1458190cbbaaf02d07b10811322535dc89acfca4b6c4322b1ede2b35ab",
+      "width": 1440,
+      "height": 1000
+    }
+  ],
+  "captureCommand": "node scripts/app-smoke.mjs --approval-journey --output /tmp/pr36-review-fixes-browser.json",
+  "selectedEvidence": "Original transcript after the User recorded the outcome, the resolved receipt aged out, and the page reloaded. This is a local current-build interaction, with synthetic identity/model/Company and production authentication verification.",
+  "captureSources": {
+    "scripts/app-smoke.mjs": "cbd35c7842e7d1aa3f70f1f220e3f7f2267dc0f372199d6b23ec682800f03713",
+    "scripts/app-approval-journey.mjs": "f83ec4ebe4e6b9cd0075386d6436973e071e9986ca2da01fbc8fee8119a3829f",
+    "test/browser/approval-journey-worker.ts": "64c969ccf33a4c4961fd3ad03432fb6e381b465670018b27348e1baaf66c8703"
+  }
+}

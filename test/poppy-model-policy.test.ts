@@ -34,6 +34,78 @@ describe("model policy at the real Poppy tool boundary", () => {
     expect((await c.stub.state()).conversations).toHaveLength(1);
   });
 
+  it("sends ordinary identifiers in prose and structured task details", async () => {
+    const c = await company();
+    const a = await agent();
+    for (const request of [
+      { text: "482913" },
+      { text: "Please find order 550e8400-e29b-41d4-a716-446655440000" },
+      { text: "Please check this order.", data: { order_id: "550e8400-e29b-41d4-a716-446655440000" } }
+    ]) {
+      expect((await tool(a, "poppy_message", { domain: c.domain, ...request })).isError).toBe(false);
+    }
+    expect((await c.stub.state()).conversations).toHaveLength(3);
+    const denied = await tool(a, "poppy_message", { domain: c.domain, data: { password: "550e8400-e29b-41d4-a716-446655440000" } });
+    expect(denied.isError).toBe(true);
+    expect((await c.stub.state()).conversations).toHaveLength(3);
+  });
+
+  it("does not rewrite a harmless reply to a Company's warning against sharing credentials", async () => {
+    const c = await company();
+    const a = await agent();
+    const hello = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "Hello" })).text);
+    await c.stub.say(hello.conversationId, "We never ask you to provide a verification code, password or email. What size do you need?");
+    await a.stub.poppyReadNow(hello.conversationId);
+    const sent = await tool(a, "poppy_message", { domain: c.domain, conversation: hello.conversationId, text: "Size medium, please." });
+    expect(sent.isError).toBe(false);
+    const messages = (await c.stub.state()).conversations.flatMap(conversation => conversation.sent);
+    expect(messages).toContain("agent:Size medium, please.");
+    expect(messages).not.toContain(`agent:${REQUEST_AUTHORIZATION}`);
+  });
+
+  it("withholds verification details once, permits harmless replies, and does not repeat the authorization request after restart", async () => {
+    // Keep this explicit Company prompt last while checking the repeated reply paths.
+    const c = await company({ agentReplies: false });
+    const a = await agent();
+    const hello = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "Hello" })).text);
+    await c.stub.say(hello.conversationId, "To verify your identity, please provide your email address and verification code.");
+    await a.stub.poppyReadNow(hello.conversationId);
+    const reply = { domain: c.domain, conversation: hello.conversationId };
+    expect((await tool(a, "poppy_message", { ...reply, text: "482913" })).text).toContain("Your proposed reply was not sent");
+    expect((await tool(a, "poppy_message", { ...reply, text: "I will not share those details; please tell me your opening hours." })).isError).toBe(false);
+    const posts = async () => (await requests(c)).filter(request => request.method === "POST" && request.url.includes("/conversations/"));
+    const before = (await posts()).length;
+    for (const restart of [false, true]) {
+      if (restart) await a.stub.poppyRestart();
+      const withheld = await tool(a, "poppy_message", { ...reply, data: { email: "alice@example.com" } });
+      expect(withheld.text).toContain("already attempted");
+      expect(withheld.text).not.toContain("alice@example.com");
+    }
+    expect(await posts()).toHaveLength(before);
+    const messages = (await c.stub.state()).conversations.flatMap(conversation => conversation.sent);
+    expect(messages.filter(message => message === `agent:${REQUEST_AUTHORIZATION}`)).toHaveLength(1);
+    expect(messages).toContain("agent:I will not share those details; please tell me your opening hours.");
+    expect(messages.some(message => message.includes("482913") || message.includes("alice@example.com"))).toBe(false);
+  });
+
+  it("keeps a withheld reply private when its tool call replays after the Company changes the subject", async () => {
+    const c = await company({ agentReplies: false });
+    const a = await agent();
+    const hello = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "Hello" })).text);
+    await c.stub.say(hello.conversationId, "We need to verify your identity. Please provide your email address.");
+    await a.stub.poppyReadNow(hello.conversationId);
+    const reply = { domain: c.domain, conversation: hello.conversationId, data: { email: "alice@example.com" } };
+    expect((await tool(a, "poppy_message", reply, "withheld-replay")).text).toContain("Your proposed reply was not sent");
+    await c.stub.say(hello.conversationId, "What size do you need?");
+    await a.stub.poppyReadNow(hello.conversationId);
+    await a.stub.poppyRestart();
+    const before = (await requests(c)).length;
+    expect((await tool(a, "poppy_message", reply, "withheld-replay")).text).toContain("already attempted");
+    expect((await requests(c)).length).toBe(before);
+    expect((await c.stub.state()).conversations.flatMap(conversation => conversation.sent).some(message => message.includes("alice@example.com"))).toBe(false);
+    expect((await tool(a, "poppy_message", { domain: c.domain, conversation: hello.conversationId, text: "Size medium, please." })).isError).toBe(false);
+  });
+
   it("denies a faux model's personal feedback report while a general report still reaches the Company", async () => {
     const c = await company({ feedback: true });
     const identity = person();

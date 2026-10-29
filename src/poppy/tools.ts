@@ -20,7 +20,9 @@ import { json } from "../decode";
 import { startSignIn, describeScopes } from "./signin";
 import { excludedTasks, sendFeedback, showExcludedTasks, type ExcludedTask } from "./coverage";
 import { pendingSignOuts, signOutForModel } from "./signout";
-import { messageHasCredential, REQUEST_AUTHORIZATION, requestsVerification } from "./model-policy";
+import { isVerificationReply, messageHasCredential, REQUEST_AUTHORIZATION } from "./model-policy";
+import { one } from "../rows";
+import { intent, messagesTable } from "./store";
 
 const PREAMBLE = `You can work with companies that support the Personal Agent Protocol (Poppy) using the poppy_* tools.
 - Start with poppy_discover(domain), and read the tasks it says the company doesn't offer before you start. Prefer a company's APIs and its agent over its website; never suggest phoning a company that publishes poppy.json.
@@ -227,13 +229,23 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
         async ({ domain, text: message, data, conversation: id, session }, callKey) => {
           const found = await company(domain);
           const details = data !== undefined ? json(data, "data") : undefined;
-          const verification = id !== undefined && requestsVerification(recentMessages(client(), id));
+          // A replay must keep withholding the original details even if the
+          // Company's latest message has changed since this tool call began.
+          const verification = intent(client().sql, `message-policy|${callKey}`, () =>
+            id !== undefined && isVerificationReply(recentMessages(client(), id), message, details) ? "authorization" : "message"
+          ) === "authorization";
           if (!verification && messageHasCredential(message, details)) {
             throw new PoppyError("invalid_request", "The message was not sent because it appears to contain a credential or verification code. Ask the Company for an authorization event instead.", 0);
           }
+          if (verification && one(client().sql, messagesTable.pick("id"),
+            "SELECT id FROM poppy_messages WHERE issuer = ? AND conversation_id = ? AND json_extract(body, '$.message.text') = ? LIMIT 1",
+            found.issuer, id!, REQUEST_AUTHORIZATION)) {
+            return { status: "not sent", note: "Your proposed reply was not sent. An authorization request was already attempted in this conversation. Wait for the Company's authorization event or continue without verification details." };
+          }
           const result = await sendMessage(client(), found, {
             label: session ?? (id ? (conversation(client(), id)?.label ?? "main") : "main"),
-            callKey,
+            // One stable message identity also deduplicates concurrent authorization requests.
+            callKey: verification ? `verification-authorization|${id}` : callKey,
             ...(id ? { conversationId: id } : {}),
             sender: "agent",
             ...(verification ? { text: REQUEST_AUTHORIZATION } : {

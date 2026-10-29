@@ -2886,8 +2886,8 @@ describe("8.13 conversation errors", () => {
     c.expectViolations(/^\[message\.id-reused\] message id msg_\S+ reused with different content$/);
     try {
       expect((await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "First version." }, "call-2")).isError).toBe(false);
-      await a.stub.poppySql("UPDATE poppy_intents SET value = replace(value, 'First version.', 'Second version.') WHERE call_key LIKE '%|call-2'");
-      const [{ message }] = JSON.parse(await a.stub.poppySql("SELECT json_extract(value, '$.message.id') AS message FROM poppy_intents WHERE call_key LIKE '%|call-2'")) as { message: string }[];
+      await a.stub.poppySql("UPDATE poppy_intents SET value = replace(value, 'First version.', 'Second version.') WHERE call_key LIKE 'message|%|call-2'");
+      const [{ message }] = JSON.parse(await a.stub.poppySql("SELECT json_extract(value, '$.message.id') AS message FROM poppy_intents WHERE call_key LIKE 'message|%|call-2'")) as { message: string }[];
       const logMark = await a.stub.poppyLogMark();
       const replayed = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "First version." }, "call-2");
       expect(replayed.isError).toBe(true);

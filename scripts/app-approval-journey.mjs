@@ -190,13 +190,22 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
   await resolvedStep.asElement().evaluate(element => element.scrollIntoView({ block: "center" }));
   await resolvedStep.dispose();
   await capture("unknown-reconciled-desktop");
+  const reconciledActivity = JSON.parse(await agent.poppyActivity());
+  const checkedOutcome = reconciledActivity.log.find(entry => entry.id === `approval-${unknownApproval.approvalId}`);
+  assert.equal(checkedOutcome.outcomeBy, "you");
+  // Once the resolved card leaves the page, the original step must keep the
+  // User's attribution through Activity rather than imply a Company answer.
+  await agent.poppySql("UPDATE poppy_cards SET updated_at = ? WHERE id = ?", Date.now() - 2 * 60 * 60 * 1000, `approval-${unknownApproval.approvalId}`);
+  await page.reload({ waitUntil: "networkidle0" });
+  await page.waitForFunction(attribution => [...document.querySelectorAll('[data-tool="poppy_api_call"][data-status="done"]')].some(step => step.innerText.includes(attribution)), {}, checkedOutcome.outcome);
+  assert.equal(await page.evaluate(() => document.body.innerText.includes("Recording this did not send another request.")), false, "The resolved receipt must have aged out of the page");
+  await capture("unknown-reconciled-history-desktop");
   const resolvedState = await unknownCompany.state();
   assert.equal(resolvedState.performs, 1);
   assert.equal(writes(resolvedState), writes(unknownState), "Recording and reloading reconciliation cannot resend the action");
   assert.deepEqual(resolutions, [{ approvalId: unknownApproval.approvalId, outcome: "performed" }], "User reconciliation must cross the real browser WebSocket once");
   assert.deepEqual(resolvedState.violations, []);
   assert.deepEqual(resolvedState.warnings, []);
-  const reconciledActivity = JSON.parse(await agent.poppyActivity());
   assert.equal(reconciledActivity.log.find(entry => entry.id === `approval-${unknownApproval.approvalId}`)?.result, "done");
   assert.deepEqual(reconciledActivity.inProgress, []);
   const recovery = {
@@ -204,6 +213,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     initialReceipt: "unknown", agedReceiptSurvivesReload: true, ageAtReloadHours: 2, unresolvedReceiptOffersDismiss: false, freshProposalBlocked: true,
     browserWebSocketResolution: resolutions[0], preservedReceiptStatus: resolved.status,
     userReportedOutcome: resolved.outcomeResolution.outcome,
+    resolvedReceiptExpired: true, userAttributionAfterResolvedReceiptExpiry: true,
     exchangeRequestsBeforeReconciliation: writes(unknownState), exchangeRequestsAfterReconciliationAndReload: writes(resolvedState),
     performsBeforeReconciliation: unknownState.performs, performsAfterReconciliationAndReload: resolvedState.performs,
     originalTranscriptAfterReload: "done, attributed to the User's check with the Company",

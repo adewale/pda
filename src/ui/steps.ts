@@ -70,7 +70,11 @@ export function stepDecisions(cards: readonly Card[], log: readonly ActivityEntr
   for (const entry of log) {
     if (entry.kind === "approval" && entry.id.startsWith("approval-")) {
       const id = entry.id.slice("approval-".length);
-      if (!approvals.has(id)) approvals.set(id, { result: fromActivity(entry.result), httpStatus: null, code: null, facts: [], attachments: [], company: entry.company });
+      if (!approvals.has(id)) approvals.set(id, {
+        result: fromActivity(entry.result), httpStatus: null, code: null,
+        facts: entry.outcomeBy === "you" && entry.outcome ? [entry.outcome] : [],
+        attachments: [], company: entry.company
+      });
     }
   }
   return { approvals };

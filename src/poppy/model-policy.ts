@@ -3,7 +3,7 @@
  * These catch recognizable credential/contact formats; they cannot decide
  * whether every name or sentence contains personal information.
  */
-import { secretProblem } from "../tools/memory-store";
+import { credentialProblem, secretProblem } from "../tools/memory-store";
 import { isObject, type Json } from "./json";
 
 /** Include field names so a structured password or verification_code is checked as a named value. */
@@ -18,19 +18,46 @@ function fields(value: Json): string {
 /** An agent message must not carry a recognizable credential, in prose or structured fields. */
 export function messageHasCredential(text: string | undefined, data: Json | undefined): boolean {
   const prose = text ?? "";
-  return /^\s*\d{4,8}\s*$/.test(prose)
-    || secretProblem(prose) !== null
-    || (data !== undefined && secretProblem(fields(data)) !== null);
+  return credentialProblem(prose) !== null
+    || (data !== undefined && credentialProblem(fields(data)) !== null);
 }
 
 /** Only the latest Company's message can request verification; ordinary delivery details aren't verification. */
 export function requestsVerification(messages: readonly Json[]): boolean {
   const latest = [...messages].reverse().find((message) => isObject(message) && message.role === "company" && typeof message.text === "string");
   if (!isObject(latest) || typeof latest.text !== "string") return false;
-  const text = latest.text;
-  return /\b(?:verif(?:y|ication)|identity|authenticate|authentication)\b/i.test(text)
-    && /\b(?:send|give|provide|enter|reply|tell|share|confirm)\b/i.test(text)
-    && /\b(?:codes?|password|passcode|pin|otp|email|e-mail|phone|date of birth|personal details|account details)\b/i.test(text);
+  // The purpose may precede the request in another sentence. Check negation
+  // beside each: a warning such as "we never ask for a code" asks for nothing.
+  const clauses = latest.text.replace(/’/g, "'").split(/[.!?;\n]+|\bbut\b/i);
+  const negation = /\b(?:no|not|never|don't|doesn't|won't|mustn't|shouldn't|cannot|can't|avoid|stop)\b/i;
+  const verification = clauses.some(clause => {
+    const purpose = /\b(?:verif(?:y|ication)|identity|authenticate|authentication)\b/i.exec(clause);
+    return purpose !== null && !negation.test(clause.slice(0, purpose.index));
+  });
+  if (!verification) return false;
+  return clauses.some(clause => {
+    const verb = /\b(?:send|give|provide|enter|reply|tell|share|confirm)\b/i.exec(clause);
+    if (!verb) return false;
+    const detail = /\b(?:codes?|passwords?|passcode|pin|otp|email|e-mail|phone|date of birth|personal details|account details)\b/i.exec(clause.slice(verb.index + verb[0].length));
+    if (!detail) return false;
+    const beforeDetail = clause.slice(0, verb.index + verb[0].length + detail.index);
+    return !negation.test(beforeDetail);
+  });
+}
+
+const EMAIL = /\b[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9.-]*[A-Z0-9])?\.[A-Z]{2,}\b/i;
+const PHONE = /(?:\+\d[\d ()-]{7,}\d|\(\d{2,4}\)\s*\d[\d -]{5,}\d)/;
+const NAMED_PHONE = /\b(?:phone|telephone|mobile|contact)(?:\s+(?:number|no\.?))?\s*[:=]?\s*(?:\+?\d[\d ()-]{6,}\d)/i;
+const PERSONAL_DETAIL = /\b(?:(?:my|customer(?:'s)?|user(?:'s)?|full|first|last)\s+name|(?:postal|home|delivery|billing)\s+address|date of birth)\s*(?:is\s+|[:=]\s*)\S/i;
+
+/** A harmless refusal or task question must not be replaced just because verification was requested. */
+export function isVerificationReply(messages: readonly Json[], text: string | undefined, data: Json | undefined): boolean {
+  if (!requestsVerification(messages)) return false;
+  const proposed = `${text ?? ""}\n${data === undefined ? "" : fields(data)}`;
+  return messageHasCredential(text, data)
+    || /^\s*\d{4,8}\s*$/.test(text ?? "")
+    || EMAIL.test(proposed) || PHONE.test(proposed) || NAMED_PHONE.test(proposed) || PERSONAL_DETAIL.test(proposed)
+    || (data !== undefined && /(?:^|\n)(?:name|email|email address|phone|phone number|dob|personal details|account details):\s*\S/i.test(fields(data)));
 }
 
 /** Sent instead of an unsafe verification reply. It contains no part of the attempted text or fields. */
@@ -40,10 +67,8 @@ export const REQUEST_AUTHORIZATION = "Please send an authorization event with th
 export function feedbackHasPersonalData(task: string, description: string): boolean {
   const text = `${task}\n${description}`;
   if (secretProblem(text) !== null) return true;
-  if (/\b[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9.-]*[A-Z0-9])?\.[A-Z]{2,}\b/i.test(text)) return true;
-  if (/(?:\+\d[\d ()-]{7,}\d|\(\d{2,4}\)\s*\d[\d -]{5,}\d)/.test(text)) return true;
-  if (/\b(?:phone|telephone|mobile|contact)(?:\s+(?:number|no\.?))?\s*[:=]?\s*(?:\+?\d[\d ()-]{6,}\d)/i.test(text)) return true;
+  if (EMAIL.test(text) || PHONE.test(text) || NAMED_PHONE.test(text)) return true;
   if (/\b(?:ord|order|acct|account|customer|booking|reservation|invoice|tracking)_[A-Z0-9_-]{3,}\b/i.test(text)) return true;
   if (/\b(?:order|account|customer|booking|reservation|invoice|tracking|membership)(?:\s+(?:id|number|no\.?|reference))?\s*(?:[:#=]\s*|is\s+)(?=[A-Z0-9_-]*\d)[A-Z0-9_-]{3,}/i.test(text)) return true;
-  return /\b(?:(?:my|customer(?:'s)?|user(?:'s)?|full|first|last)\s+name|(?:postal|home|delivery|billing)\s+address|date of birth)\s*(?:is\s+|[:=]\s*)\S/i.test(text);
+  return PERSONAL_DETAIL.test(text);
 }

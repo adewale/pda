@@ -31,7 +31,17 @@ The default run builds production assets. `--skip-build` is only for local debug
 
 Independent checks include Worker approval/recovery tests, API/MCP lifecycle regressions and the page tests in `test/ui/outcome-resolution.test.tsx`. The Docker security lanes separately check mutated credentials, consumed authorization codes and actual action counts.
 
-## Verification results
+## Follow-up: message filtering and aged outcomes
+
+The reply guard now leaves warnings and harmless task replies intact, withholds recognizable verification details, and attempts one stable authorization message per conversation. Its decision persists across tool replay and restart. Ordinary numeric, UUID and tracking identifiers remain usable; named credentials and recognizable secret formats are still refused. Worker tests assert the actual messages and request counts, including a replay after the Company changes the subject.
+
+The transcript also retains the User's attribution when a reconciled receipt expires or is dismissed. The page tests render both checked outcomes with no receipt present. The fresh-build browser journey records the User's checked outcome, ages the resolved receipt out, reloads the page and checks the original request. The Company still has one request and one effect.
+
+![The original request retains the User's checked outcome after its resolved receipt ages out and the page reloads](unknown-reconciled-history-desktop.png)
+
+[Browser assertions and capture hashes](review-fixes-browser.json). This is a raw current-build interaction capture with synthetic identity, model and Company; it does not establish live OAuth or arbitrary model behavior. The new regression cases failed on the previous code. One replay-conflict fixture now selects only message intents, preserving its denial, logging and side-effect assertions alongside the new saved policy decision.
+
+## Initial verification results
 
 On 29 October 2026, Node 24.19.0:
 
