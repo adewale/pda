@@ -1,0 +1,76 @@
+RUN  v4.1.12 /workspace/pda-pr36-audit
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+ ❯ |personal-agent| test/audit-withdrawal.test.ts (4 tests | 1 failed | 3 skipped) 138ms
+     × reports changing local authority rather than a Company refusal when preparation exhausts its attempts 135ms
+NOSENTRY SQLite alarm overdue, running despite AlarmManager mismatch; scheduledTime = 1793284642.607s; localAlarmTime = 1793284642.65s; currentTime = 1793284642.657620696s; actorId = 3f22f4bd7e1d30bfb45abe4897c32c4b67a890e06d88ed2c44425518250a901d
+ ❯ |personal-agent| test/poppy-approval-migration.test.ts (1 test | 1 failed) 195ms
+   × finishes legacy approval identity inspection once, including unreadable rows, across proposals, decisions and restart 193ms
+ ❯ |personal-agent| test/poppy-model-policy.test.ts (15 tests | 1 failed | 14 skipped) 269ms
+     × requests authorization again for a later verification prompt without replaying the earlier handoff 267ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |personal-agent| test/audit-withdrawal.test.ts > approval authorization and withdrawal > reports changing local authority rather than a Company refusal when preparation exhausts its attempts
+AssertionError: expected PoppyError: Mock Shop c940a2ce0064b kept … { …(3) } to match object { code: 'approval_changed', …(1) }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+- {
+-   "code": "approval_changed",
+-   "message": StringContaining "Session",
++ PoppyError {
++   "code": "server_error",
+  }
+
+ ❯ test/audit-withdrawal.test.ts:47:13
+     45|         await expect(client.resource(C, EndpointRequest.to(C, {
+     46|           method: "POST", url: C.conversations!.endpoint, body: { mess…
+     47|         }))).rejects.toMatchObject({ code: "approval_changed", message…
+       |             ^
+     48|         expect(token).toHaveBeenCalledTimes(4);
+     49|         expect(remote).not.toHaveBeenCalled();
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |personal-agent| test/poppy-approval-migration.test.ts > finishes legacy approval identity inspection once, including unreadable rows, across proposals, decisions and restart
+AssertionError: expected 814 to be less than or equal to 4
+ ❯ test/poppy-approval-migration.test.ts:51:69
+     49|     await proposeLocal(restarted, C, "main", "After restart", approval…
+     50|     // An empty partial-index lookup can count one row; it must not re…
+     51|     expect(scans.reduce((sum, cursor) => sum + cursor.rowsRead, 0)).to…
+       |                                                                     ^
+     52|     expect(sql.exec("SELECT action_key, action_owner FROM poppy_approv…
+     53|     expect(sql.exec("SELECT action_key FROM poppy_approvals WHERE id =…
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |personal-agent| test/poppy-model-policy.test.ts > model policy at the real Poppy tool boundary > requests authorization again for a later verification prompt without replaying the earlier handoff
+AssertionError: expected 'withheld' to be 'authorization_requested' // Object.is equality
+
+Expected: "authorization_requested"
+Received: "withheld"
+
+ ❯ test/poppy-model-policy.test.ts:141:98
+    139|     expect(JSON.parse((await tool(a, "poppy_message", reply, "first-ve…
+    140|     expect(await messagePosts(c)).toHaveLength(before);
+    141|     expect(JSON.parse((await tool(a, "poppy_message", reply, "second-v…
+       |                                                                                                  ^
+    142|     expect(JSON.parse((await tool(a, "poppy_message", reply)).text).ki…
+    143|     const sent = (await c.stub.state()).conversations.flatMap(conversa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  3 failed | 17 skipped (20)
+   Start at  14:37:12
+   Duration  10.73s (transform 10.63s, setup 0ms, import 26.30s, tests 602ms, environment 2ms)

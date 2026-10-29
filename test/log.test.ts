@@ -283,19 +283,23 @@ describe("a Company's words", () => {
     await signInDirect(a, c);
     await tool(a, "poppy_message", { domain: c.domain, text: "Where is my order?" });
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
-    const operation = (await cards(a)).find((item) => item.kind === "operation")!;
-    expect(operation).toBeDefined();
-    // Then its token endpoint refuses this agent (401 invalid_client), and every Session Token has expired.
+    // A write waits for the User's approval on our card.
+    const approval = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(approval).toBeDefined();
+    // Then its token endpoint refuses this agent (401 invalid_client), and every access token has expired.
     await c.stub.configure({ requireRegistration: ["someone-else"] });
-    await c.stub.expireSessionTokens();
+    await c.stub.expireAccessTokens();
     // A tool call: the model is told what the Company said.
     const refused = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" });
     expect(refused.isError).toBe(true);
     expect(refused.text).toContain("hunter2");
-    // Frames of the User's that need a token (approving the operation) or the revocation endpoint (signing out).
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: operation.operationId, revision: operation.revision, decision: "approve" });
-    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
+    // Frames of the User's that need a token (approving the write) or the revocation endpoint (signing out).
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
     // The background jobs, due now: the conversation's read fails on the refused token, and its job's event records why.
+    await a.stub.poppySql("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0", Date.now());
+    await runDurableObjectAlarm(a.stub);
+    // Signing out reaches the revocation endpoint, which refuses too; its job runs now.
+    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
     await a.stub.poppySql("UPDATE cf_agents_jobs SET time = ? WHERE capability = 'poppy' AND running = 0", Date.now());
     await runDurableObjectAlarm(a.stub);
 

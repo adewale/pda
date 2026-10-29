@@ -9,8 +9,8 @@ import { newestRows, one, rows, type RowOf } from "../rows";
 import { signOutsTable } from "./store";
 
 /**
- * Signing out of an account (spec 4.9). The agent stops using the account at
- * once: that is what the User asked for. Its Account Token moves, still
+ * Signing out of an account (5.5, 4.6). The agent stops using the account at
+ * once: that is what the User asked for. Its refresh token moves, still
  * sealed, from `poppy_accounts` to `poppy_signouts`, and is revoked from
  * there. A Company that refuses the revocation keeps the token live, so the
  * row keeps it and the agent tries again, a bounded number of times; the
@@ -23,7 +23,7 @@ import { signOutsTable } from "./store";
  *              pending … ─▶ stopped ─▶ revoked   (Try again)
  *                                    └▶ expired  (the token ran out first)
  *
- * A step-up (4.4) replaces an account's Account Token with one for more
+ * A step-up (4.7) replaces an account's refresh token with one for more
  * scopes, and the old token is revoked the same way, from a `step_up` row.
  * The account stays signed in with the new token, so no Session is left.
  * The User didn't ask for this revocation, so they hear of it only when the
@@ -83,7 +83,7 @@ export function signOutRecords(client: PoppyClient, limit: number): SignOutRecor
   return rows(client.sql, recordRow, ...newestRows("poppy_signouts", RECORD_COLUMNS, "created_at", limit));
 }
 
-/** Keep an account's Account Token, still sealed, to revoke. */
+/** Keep an account's refresh token, still sealed, to revoke. */
 function keep(client: PoppyClient, row: AccountRow, reason: SignOutRow["reason"]): string {
   const id = randomId("so_");
   const now = Date.now();
@@ -104,7 +104,7 @@ function keep(client: PoppyClient, row: AccountRow, reason: SignOutRow["reason"]
 }
 
 /**
- * Stop using the account now: move its sealed Account Token to
+ * Stop using the account now: move its sealed refresh token to
  * `poppy_signouts` and delete the account, so Sessions signed in to it
  * continue signed out. Null when the agent holds no such account.
  */
@@ -216,19 +216,14 @@ async function attempt(client: PoppyClient, id: string): Promise<{ outcome: Sign
 }
 
 /**
- * The Company hasn't signed out the Sessions signed in with this token: it
- * didn't accept the revocation, or the token expired with no revocation
- * sent. Those Sessions may still be signed in there, and a signed-in Session
- * renews only with its Account Token (4.2), which the agent no longer uses,
- * never with the assertion (spec-issues S5). So they are left, and the next
- * request starts a new, signed-out Session. Only on the first try: by a
- * retry, a Session signed in to that account may be a new sign-in's. Never
- * after a step-up: the account is still signed in, with the new token.
+ * After a sign-out, the Sessions that used the account continue signed out
+ * (5.5): the same `sid`, no access token, their carts and conversations
+ * kept. A step-up keeps them signed in, with the new refresh token.
  */
 function leaveSessions(client: PoppyClient, row: Pick<SignOutRow, "issuer" | "account" | "reason">): void {
   if (row.reason === "step_up") return;
   for (const session of client.sessions(row.issuer)) {
-    if (session.signed_in && session.account === row.account) client.abandonSession(row.issuer, session.label);
+    if (session.signed_in && session.account === row.account) client.signOutSession(row.issuer, session.label);
   }
 }
 
@@ -249,7 +244,7 @@ async function tryNow(client: PoppyClient, ids: readonly string[]): Promise<Sign
 }
 
 /**
- * Sign out of one account (spec 4.9), from the User's "Sign out" on the
+ * Sign out of one account (5.5, 4.6), from the User's "Sign out" on the
  * Companies page. With no such account, it tries again each revocation of
  * that account's the Company hasn't accepted. Returns how the last one went;
  * null when there was nothing to sign out. No renewal for the Company runs
@@ -290,7 +285,7 @@ export async function retryRevocation(client: PoppyClient, id: string): Promise<
 }
 
 /**
- * After a step-up (4.4): keep the Account Token the new one replaced, to
+ * After a step-up (4.7): keep the refresh token the new one replaced, to
  * revoke. Called as soon as the new token is stored, with nothing awaited
  * between, so the old one is never held nowhere. Null when nothing was
  * replaced.

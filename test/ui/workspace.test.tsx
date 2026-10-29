@@ -34,7 +34,7 @@ const signIn: Card = {
   open: true,
   signInId: "s1",
   url: "https://auth.globex.example/authorize",
-  scopes: [{ scope: "poppy:read", description: "View account information" }],
+  scopes: [{ scope: "orders:read", description: "View your orders" }],
   reason: "To see your orders"
 };
 
@@ -54,7 +54,7 @@ function session(patch: Partial<PiSession> = {}, poppy: Partial<PoppyView> = {})
     error: null,
     status: "open",
     catalog: [],
-    poppy: { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
+    poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
     outbox: [],
     submit: (text: string) => void submitted.push(text),
     resend: () => undefined,
@@ -261,17 +261,22 @@ describe("needs-you panel", () => {
     expect(page.sent).toEqual([]);
   });
 
-  it("opens when a request arrives during chat and again for changed operation terms", async () => {
+  it("opens when a request arrives during chat and again for a new revision of a Company's terms", async () => {
     const fixture = session();
     const page = open("/", fixture);
     const update = (cards: Card[]) => page.rerender(<Workspace identity={IDENTITY} session={{ ...fixture.value, poppy: { ...fixture.value.poppy, cards } }} />);
     expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull();
-    const operation: Card = { id: "op-1", kind: "operation", company: "Acme", open: true, issuer: toIssuer("https://acme.example"), operationId: "o1", revision: 1, state: "proposed", summary: "Print 2 photos", account: null, highlights: [], userApprovalRequired: true };
-    update([operation]);
+    // One card per revision (operations-v2.ts `approvalCardId`): new terms come as a new card.
+    const terms = (revision: string, summary: string): Card => ({
+      id: `approval-apr2_${revision}`, kind: "approval", company: "Acme", open: true, approvalId: `apr2_${revision}`, status: "pending",
+      summary: `Acme asks for your approval before it does this: ${summary}`,
+      terms: { summary, expiresAt: "2026-10-28T12:00:00Z", highlights: [] }
+    });
+    update([terms("r1", "Print 2 photos")]);
     expect(screen.getByRole("region", { name: /Needs you/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Collapse requests" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull());
-    update([{ ...operation, revision: 2, summary: "Print 3 photos" }]);
+    update([terms("r2", "Print 3 photos")]);
     expect(within(screen.getByRole("region", { name: "Needs you" })).getByText("Print 3 photos")).toBeTruthy();
     expect(page.sent).toEqual([]);
   });
@@ -487,18 +492,18 @@ describe("activity page", () => {
     ];
     const log: ActivityEntry[] = [
       {
-        id: "op-1",
+        id: "approval-apr2_1",
         at: now - 5_000,
-        kind: "operation",
+        kind: "approval",
         issuer: toIssuer("https://auth.acme.example"),
         company: "Acme",
         account: "a***@example.com",
-        what: "Acme proposed",
+        what: "Acme asked for your approval",
         quote: "Exchange the blue jumper for size L.",
         quoteBy: "company",
         how: "api",
         access: "view_and_change",
-        decidedBy: "standing_permission",
+        decidedBy: "you",
         result: "done",
         outcome: "Exchange booked.",
         outcomeBy: "company"
@@ -517,11 +522,10 @@ describe("activity page", () => {
     ]);
 
     const row = within(screen.getByRole("table")).getAllByRole("row")[1]!;
-    expect(within(row).getByText("Acme proposed “Exchange the blue jumper for size L.”")).toBeTruthy();
+    expect(within(row).getByText("Acme asked for your approval “Exchange the blue jumper for size L.”")).toBeTruthy();
     expect(within(row).getByText("Acme says: Exchange booked.")).toBeTruthy();
     expect(within(row).getByText("view and change access")).toBeTruthy();
-    expect(within(row).getByText(/^API · view and change access · Decided by: Standing permission$/)).toBeTruthy();
-    expect(within(row).getByText("Standing permission")).toBeTruthy();
+    expect(within(row).getByText(/^API · view and change access · Decided by: You$/)).toBeTruthy();
     expect(within(row).getByText("Done")).toBeTruthy();
   });
 
@@ -593,7 +597,7 @@ describe("activity page", () => {
 });
 
 describe("companies page", () => {
-  const accounts = [{ issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***@example.com", scope: "poppy:read poppy:write", expiresAt: null }];
+  const accounts = [{ issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***@example.com", scope: "orders:read orders:write", expiresAt: null }];
 
   it("opens a Company from the table, with its own address, and ends an open conversation", () => {
     const activity = {

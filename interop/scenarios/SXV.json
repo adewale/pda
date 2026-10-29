@@ -1,7 +1,7 @@
 {
   "id": "SXV",
   "title": "Device Sign-In denied",
-  "requirements": ["4.6"],
+  "requirements": ["4.3"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["deny_device"] },
   "steps": [
     { "agent": "discover" },

@@ -1,0 +1,11 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+
+ Test Files  3 passed (3)
+      Tests  22 passed (22)
+   Start at  17:12:38
+   Duration  14.30s (transform 8.99s, setup 0ms, import 23.64s, tests 2.77s, environment 0ms)

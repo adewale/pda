@@ -33,9 +33,11 @@ function script(file: string, ...args: string[]): { stdout: string } {
   return { stdout };
 }
 
-const registry = loadRegistry();
+const loaded = loadRegistry();
+/** Every third-party agent retired with 0.1 and 0.2 (docs/interop-spec.md), so the one these tests keep from the key is made up. */
+const thirdPartyAgent: RegistryEntry = { name: "someone-elses-agent", role: "agent", source: "https://example.com/agent", commit: "abc", build: "interop/impls/pda-agent" };
+const registry = { ...loaded, implementations: [...loaded.implementations, thirdPartyAgent] };
 const entry = (role: string, name: string) => registry.implementations.find((item) => item.role === role && item.name === name)!;
-const thirdPartyAgent = registry.implementations.find((item) => item.role === "agent" && item.owner !== "self" && item.build)!;
 
 describe("scripts/interop-live-identity.mjs", () => {
   it("writes the private key to its file (mode 600) and prints only the public key set", () => {
@@ -103,7 +105,7 @@ describe("the runner's live identity", () => {
     const none = { public: {}, secret: {} };
     expect(liveIdentityEnv("local", pda, identity)).toEqual(none);
     expect(liveIdentityEnv("live", pda, null)).toEqual(none);
-    expect(liveIdentityEnv("live", entry("agent", "evil-personal-agent"), identity)).toEqual(none);
+    expect(liveIdentityEnv("live", { ...pda, name: "evil-personal-agent", adversarial: true }, identity)).toEqual(none);
     expect(liveIdentityEnv("live", { ...pda, name: "sloppy-personal-agent", live: false }, identity)).toEqual(none);
     expect(liveIdentityEnv("live", { ...pda, name: "strict-personal-agent", fake: true }, identity).public).toEqual({ [LIVE_CLIENT_ID_VAR]: identity.clientId });
     expect(liveIdentityEnv("live", thirdPartyAgent, identity)).toEqual(none);
@@ -130,8 +132,8 @@ describe("the runner's live identity", () => {
     expect(env).not.toHaveProperty(LIVE_KEY_VAR);
   });
 
-  it("says why S0, N and C will fail when there's no identity", () => {
-    expect(liveIdentityNotice(null)).toMatch(/S0, N and C.*invalid_client/);
+  it("says why S0, CL and ML will fail when there's no identity", () => {
+    expect(liveIdentityNotice(null)).toMatch(/S0, CL and ML with invalid_session.*invalid_client/);
     expect(liveIdentityNotice(null)).toContain("scripts/interop-live-identity.mjs");
     expect(liveIdentityNotice(identity)).toContain(identity.clientId);
     expect(liveIdentityNotice(identity)).not.toContain(identity.key.d!);
@@ -186,7 +188,7 @@ describe("the agent adapter under the live identity", () => {
     const audience = "https://auth.company.example/token";
     const company: Company = {
       issuer: toIssuer("https://auth.company.example"), domain: "company.example", name: "Fixture",
-      protocolVersion: "0.1", endpoints: { token: audience, revocation: "https://auth.company.example/revoke" },
+      protocolVersion: "0.3", endpoints: { token: audience, revocation: "https://auth.company.example/revoke" },
       signIn: {}, customScopes: {}, apis: [], extensions: {}
     };
     expect((await client.oauthRequest(company, audience, async () => ({ grant_type: "fixture" }), { dpop: false })).status).toBe(200);
@@ -197,7 +199,8 @@ describe("the agent adapter under the live identity", () => {
     const assertion = form.get("client_assertion")!;
     const [published] = readInteropKeys({ INTEROP_LIVE_JWKS: printed })!;
     expect(decodeProtectedHeader(assertion).kid).toBe(published!.kid);
-    const { payload } = await jwtVerify(assertion, await importJWK(published!, "ES256"), { audience });
+    // 4.1: the client assertion names the issuer, whichever endpoint it goes to.
+    const { payload } = await jwtVerify(assertion, await importJWK(published!, "ES256"), { audience: company.issuer });
     expect(payload.iss).toBe(identity.clientId);
     expect(payload.sub).toBe(identity.clientId);
   });

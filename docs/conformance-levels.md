@@ -4,7 +4,7 @@ What a finding rests on decides how much it counts, in all three places that jud
 
 ## What the draft says about its own words
 
-- **BCP 14, capitals only.** Poppy Draft 0.1 says: "The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as described in BCP 14 ([RFC 2119], [RFC 8174]) when they appear in capitals, as shown here." (spec section 1, [snapshot](../spec/draft-0.1-2026-10-12/pages/spec.md)). RFC 8174 adds: "When these words are not capitalized, they have their normal English meanings."
+- **BCP 14, capitals only.** Poppy 0.3 says, as every draft before it did: "The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as described in BCP 14 ([RFC 2119], [RFC 8174]) when they appear in capitals, as shown here." (spec section 1, [snapshot](../spec/draft-0.1-2026-10-12/pages/spec.md)). RFC 8174 adds: "When these words are not capitalized, they have their normal English meanings."
 - **Normative text without key words.** RFC 8174 also says: "Specifically, normative text does not require the use of these key words. … a lot of normative text does not use them and is still normative." The draft states most of the protocol that way: "the Personal Agent sends `session_id` when it exchanges the code" (4.5); "Each has a `type` …, a `url`, and a short `description`" (3.1).
 - **What is non-normative.** The draft doesn't say which of its sections are non-normative. The Guides say it about themselves: "Following the guides is not required to comply with the protocol. Each item is a recommendation, in the sense of SHOULD: do it unless you have a good reason not to. Where a guide repeats something the specification requires, it says MUST and links to the section that requires it."
 
@@ -93,6 +93,7 @@ A refusal made for safety stays in the behaviour, but its level comes from its b
     - `api-type-unknown`: section 6 says agents SHOULD skip unknown API types;
     - `api-description-missing`;
     - `organization-name-missing`: we show the domain instead.
+  - Since the validator checks 0.3 alone (28 October 2026), the definitions carry 0.3's basis, with no promotion at report time: `http-non-public-host` and `http-non-public-address` are MUSTs (3), and `http-redirect-not-allowed` a Rule (5.3), so they are errors; 0.3 allows other API types, so `api-type-unknown` is info; our client refuses `organization-name-missing`, as it did for 0.2. Every URL is HTTPS by 0.3's MUST (3), so `not-https-url-unstated` is gone, and so are the messages only 0.1 and 0.2 rules gave (`auth-required`, `signed-out-only`, `scope-reserved`, `scope-unoffered`, `resource-invalid`, `mcp-resource-mismatch`, `metadata-domain-missing`, `metadata-auth-method`, `metadata-signing-alg`, `metadata-grant-type`). The warnings our client refuses are now the Guides' other fetch limits, `json-duplicate-member`, `url-has-fragment-unstated` and `mediated-fields-empty`; the errors it tolerates, `json-bom` and `api-description-missing`.
 - **The grid** reports security-relevant departures at the level of their basis:
   - `token.unlisted-host` (N10) is a warning;
   - `redirect.credentials-followed` (Guides) is a warning.

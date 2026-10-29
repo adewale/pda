@@ -21,7 +21,7 @@ from hypothesis import strategies as st
 CONFIGS = st.fixed_dictionaries(
     {
         "strictAssertions": st.booleans(),
-        "clientAssertionAud": st.sampled_from(["lenient", "exact"]),
+        "dpopTokens": st.booleans(),
         "rotateRefreshTokens": st.booleans(),
         "reuseDetection": st.booleans(),
         "requireNonce": st.booleans(),
@@ -29,7 +29,6 @@ CONFIGS = st.fixed_dictionaries(
         "omitTokenScope": st.booleans(),
         "issuerTrailingSlash": st.booleans(),
         "endSessionsOnSignOut": st.booleans(),
-        "endedSessionError": st.sampled_from(["invalid_token", "invalid_session"]),
         "streaming": st.booleans(),
         "textDeltas": st.booleans(),
         "sseKeepAlive": st.booleans(),
@@ -37,7 +36,7 @@ CONFIGS = st.fixed_dictionaries(
     }
 )
 
-# ---- ids (7.2: 1 to 256 characters of the URL-safe base64 alphabet) ----
+# ---- ids (8.2: 1 to 256 characters of the URL-safe base64 alphabet) ----
 
 ID_ALPHABET = string.ascii_letters + string.digits + "-_"
 MESSAGE_IDS = st.one_of(
@@ -87,7 +86,7 @@ _TRIMMED = "".join(chr(c) for c in range(0x110000) if chr(c).isspace()) + "﻿"
 
 def honest_text(text: str) -> str:
     """
-    7.4: JSON belongs in `data`, never in `text`. Text that could read as
+    8.4: JSON belongs in `data`, never in `text`. Text that could read as
     JSON (its first non-blank character opens an object or array) gets a
     prose prefix, so the Personal Agent never sends JSON as text.
     """
@@ -96,9 +95,9 @@ def honest_text(text: str) -> str:
 
 @st.composite
 def messages(draw: st.DrawFn, prompts: list[str]) -> dict[str, Any]:
-    """A message as a Personal Agent may send it (7.3, 7.4): at least one of text, data and context."""
+    """A message as a Personal Agent may send it (8.3, 8.4): who wrote it in `author.type`, and at least one of text, data and context."""
     parts = draw(st.sets(st.sampled_from(["text", "data", "context"]), min_size=1))
-    message: dict[str, Any] = {"sender": draw(st.sampled_from(["agent", "human"]))}
+    message: dict[str, Any] = {"author": {"type": draw(st.sampled_from(["agent", "human"]))}}
     if "text" in parts:
         message["text"] = honest_text(draw(st.one_of(st.text(), st.sampled_from(prompts))))
     if "data" in parts:
@@ -130,12 +129,14 @@ def serialisations(draw: st.DrawFn, message: dict[str, Any]) -> str:
         shaped["data"] = reorder(shaped["data"])
     if isinstance(shaped.get("context"), dict):
         shaped["context"] = reorder(shaped["context"])
+    if isinstance(shaped.get("author"), dict):
+        shaped["author"] = reorder(shaped["author"])
     separators = draw(st.sampled_from([(",", ":"), (", ", ": ")]))
     return json.dumps(shaped, ensure_ascii=draw(st.booleans()), separators=separators, allow_nan=False)
 
 
 def canonical(value: Any) -> str:
-    """A JSON value's identity, ignoring member order, for "the same content" (7.3)."""
+    """A JSON value's identity, ignoring member order, for "the same content" (8.3)."""
 
     def norm(item: Any) -> Any:
         if isinstance(item, bool) or item is None or isinstance(item, str):

@@ -1,0 +1,12 @@
+ Test Files  52 passed (52)
+      Tests  1220 passed | 1 skipped (1221)
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+ Test Files  15 passed (15)
+      Tests  256 passed (256)
+ Test Files  33 passed (33)
+      Tests  415 passed (415)
+ Test Files  13 passed (13)
+      Tests  190 passed (190)
+2085 tests in 114 files; 381 test names in Appendix A; 9 scenarios and 4 tests named in docs/adversarial-interop.md.
+Documented test and scenario references exist (this does not establish behavioral coverage).

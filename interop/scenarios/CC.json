@@ -1,15 +1,15 @@
 {
   "id": "CC",
   "title": "Conversation left open, then closed by the Company",
-  "requirements": ["7.5", "7.12", "7.13"],
+  "requirements": ["8.5", "8.12", "8.13"],
   "needs": { "agent": ["discover", "send", "read"], "company": ["company_close"] },
   "steps": [
     { "agent": "discover", "save": "d" },
     { "expect": { "${d.conversations}": true } },
     { "agent": "send", "params": { "text": "${fixture.prompts.hello}", "wait": 2 }, "save": "m", "note": "The agent leaves the conversation open." },
     { "expect": { "${m.conversation}": { "$exists": true } } },
-    { "company": "company_close", "params": { "conversation": "${m.conversation}" }, "note": "As a Company may after a period of inactivity (7.12)." },
-    { "agent": "read", "params": { "conversation": "${m.conversation}" }, "save": "r", "note": "The Company's state event says it closed (7.12)." },
+    { "company": "company_close", "params": { "conversation": "${m.conversation}" }, "note": "As a Company may after a period of inactivity (8.12)." },
+    { "agent": "read", "params": { "conversation": "${m.conversation}" }, "save": "r", "note": "The Company's state event says it closed (8.12)." },
     { "expect": { "${r.status}": "closed" } },
     { "agent": "send", "params": { "conversation": "${m.conversation}", "text": "Are you still there?" }, "save": "late" },
     { "expect": { "step": "late", "poppy_error": "conversation_closed" }, "note": "7.13: a message to a closed conversation." },

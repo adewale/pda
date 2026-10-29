@@ -1,0 +1,12 @@
+{
+  "isolatedRoot": "/tmp/pda-kit-old-helper-audit-tzs72ahg",
+  "testSource": "current interop/test/company-kit-dpop-patch.test.ts copied unchanged",
+  "patchSource": "3f46ac5047e4a0f0a892787846c3ab41acdb2519:test/company-kit/dpop-probes.patch",
+  "command": [
+    "node",
+    "/workspace/pda-pr36-audit/node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "/tmp/pda-kit-old-helper-audit-tzs72ahg/interop/vitest.config.ts"
+  ]
+}

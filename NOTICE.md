@@ -7,7 +7,7 @@ Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE)). The excepti
 
 ## Stored copies of the Personal Agent Protocol draft
 
-`spec/draft-0.1-*/` holds snapshots of [personalagentprotocol.org](https://personalagentprotocol.org/), whose specification and documentation are licensed under the Apache License 2.0 (each snapshot's `pages/license.md`). That licence doesn't cover the names Personal Agent Protocol and Poppy, the logo, or the site's design; this project uses the names only to say what it implements.
+`spec/draft-*/` holds snapshots of [personalagentprotocol.org](https://personalagentprotocol.org/), whose specification and documentation are licensed under the Apache License 2.0 (each snapshot's `pages/license.md`). That licence doesn't cover the names Personal Agent Protocol and Poppy, the logo, or the site's design; this project uses the names only to say what it implements.
 
 ## Third-party code
 

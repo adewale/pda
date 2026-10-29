@@ -14,7 +14,6 @@ export const AGENT_ERROR_CODES = [
   "browser_join_failed",
   "conversation_not_found",
   "extension_required",
-  "interrupted",
   "invalid_args",
   "invalid_body",
   "invalid_params",
@@ -26,10 +25,9 @@ export const AGENT_ERROR_CODES = [
   "no_api",
   "no_attachment",
   "no_company_agent",
+  "no_feedback",
   "no_operation",
-  "no_operations",
   "no_tool",
-  "operation_open",
   "outside_poppy_session",
   "protocol_endpoint",
   "rate_limited",
@@ -44,13 +42,14 @@ export const AGENT_ERROR_CODES = [
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[number];
 
 /**
- * Codes the draft, the Operations extension and the OAuth RFCs it builds on
- * define for a Company to answer (spec 4.2, 4.3, 6, 7.13; Ops 9; RFC 6749,
- * 8628, 9449).
+ * Codes 0.3, its extensions and the OAuth RFCs they build on define for a
+ * Company to answer (spec 5.3, 7, 8.13; Operations 2 4; Mediated Sign-In 5;
+ * RFC 6749, 8628, 8707, 9449). A Company's code outside the list is still
+ * read, as a short token (`companyErrorCode`).
  */
 export const PROTOCOL_ERROR_CODES = [
   "access_denied",
-  "account_mismatch",
+  "approval_required",
   "authorization_pending",
   "code_required",
   "conversation_closed",
@@ -67,19 +66,15 @@ export const PROTOCOL_ERROR_CODES = [
   "invalid_request",
   "invalid_scope",
   "invalid_session",
+  "invalid_target",
   "invalid_token",
   "message_id_conflict",
-  "operation_not_found",
-  "rate_limited",
   "server_error",
-  "sign_in_required",
   "slow_down",
   "temporarily_unavailable",
-  "terms_changed",
   "unauthorized_client",
   "unsupported_grant_type",
-  "use_dpop_nonce",
-  "user_approval_required"
+  "use_dpop_nonce"
 ] as const;
 export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
 

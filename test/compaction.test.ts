@@ -350,15 +350,22 @@ describe("compaction and Poppy", () => {
     body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
   });
 
-  /** An agent with an operation waiting for the User at a Company. */
+  /**
+   * An agent with an operation waiting for the User at a Company: the User
+   * approved our card for the write, and the Company's terms wait on their
+   * own card (Ops 4).
+   */
   async function proposal(): Promise<{ a: Agent; c: Awaited<ReturnType<typeof company>>; card: Record<string, any> }> {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
     await tool(a, "poppy_api_call", exchange(c.domain));
-    const card = (await cards(a)).find((item) => item.kind === "operation" && item.open)!;
+    const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(ours).toBeDefined();
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms)!;
     expect(card).toBeDefined();
-    await a.stub.poppyWaitForNotice("proposed operation");
+    await a.stub.poppyWaitForNotice("asks the User to approve its exact terms first");
     return { a, c, card };
   }
 
@@ -371,21 +378,21 @@ describe("compaction and Poppy", () => {
     await send(connection, "what's open?");
     expect((await a.stub.activeEntries())[0]!.kind).toBe("pi.compaction");
 
-    // The proposal's notice was summarised as the agent's record, not as the User's words.
+    // The notice that terms wait was summarised as the agent's record, not as the User's words.
     const summary = (await a.stub.demoRequests()).find((request) => request.summary)!;
-    expect(summary.last).toContain(`{"role":"agent notice","text":"Mock Shop ${c.id} proposed operation ${card.operationId}`);
+    expect(summary.last).toContain(`{"role":"agent notice","text":"Sent as the User approved, and Mock Shop ${c.id} asks the User to approve its exact terms first`);
     expect(summary.last).not.toMatch(/"role":"user","text":"\[(system|company message)\]/);
 
     // Nothing about the operation changed: its card is open, Activity is as it was.
-    expect((await cards(a)).find((item) => item.id === card.id)).toMatchObject({ open: true, revision: card.revision });
+    expect((await cards(a)).find((item) => item.id === card.id)).toMatchObject({ open: true, status: "pending", terms: card.terms });
     expect(await a.stub.poppyActivity()).toBe(activity);
     const status = JSON.parse((await tool(a, "poppy_status", {})).text);
-    expect(status.operations).toEqual([
-      expect.objectContaining({ domain: c.domain, operation: card.operationId, decision: "waiting for the User, on a card on their page" })
+    expect(status.approvals).toEqual([
+      expect.objectContaining({ domain: c.domain, approval: card.approvalId, state: "waiting for the User, on a card on their page" })
     ]);
 
     // Only the page approves it, and it's done once.
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
     const state = await c.stub.state();
     expect(state.performs).toBe(1);
     expect(state.operations[0]).toMatchObject({ state: "succeeded", approvedBy: "user" });
@@ -397,21 +404,20 @@ describe("compaction and Poppy", () => {
     const local = await company({ operations: false });
     await signInDirect(a, local);
     await tool(a, "poppy_api_call", exchange(local.domain));
-    const approval = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    const approval = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.domain === local.domain)!;
     const pending = await company();
-    await tool(a, "poppy_sign_in", { domain: pending.domain, scopes: ["poppy:read"], reason: "To look at your orders" });
+    await tool(a, "poppy_sign_in", { domain: pending.domain, scopes: ["orders:read"], reason: "To look at your orders" });
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
 
     const result = await tool(a, "poppy_status", {});
     expect(result.isError).toBe(false);
     const status = JSON.parse(result.text);
-    expect(status.operations).toEqual([
-      expect.objectContaining({ domain: c.domain, operation: card.operationId, state: "proposed", companySays: card.summary })
-    ]);
+    // Newest first: our card for the write at the Company without Operations, then the Company's terms, in its words.
     expect(status.approvals).toEqual([
-      expect.objectContaining({ domain: local.domain, approval: approval.approvalId, action: approval.summary, state: "waiting for the User, on a card on their page" })
+      expect.objectContaining({ domain: local.domain, approval: approval.approvalId, action: approval.summary, state: "waiting for the User, on a card on their page" }),
+      expect.objectContaining({ domain: c.domain, approval: card.approvalId, action: card.summary, state: "waiting for the User, on a card on their page" })
     ]);
-    expect(status.signIns).toEqual([expect.objectContaining({ domain: pending.domain, scopes: "poppy:read", state: "waiting for the User" })]);
+    expect(status.signIns).toEqual([expect.objectContaining({ domain: pending.domain, scopes: "orders:read", state: "waiting for the User" })]);
     expect(status.conversations).toEqual([expect.objectContaining({ domain: c.domain, direct: false })]);
     expect(status.accounts.map((account: { domain: string }) => account.domain).sort()).toEqual([c.domain, local.domain].sort());
 

@@ -1,0 +1,71 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+ ❯ |personal-agent| test/poppy-feedback-race.test.ts (4 tests | 2 failed) 476ms
+   × sends one acknowledged report for concurrent attempts at the same normalized task 152ms
+   × keeps the same task's feedback independent for two concurrent Users 111ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |personal-agent| test/poppy-feedback-race.test.ts > sends one acknowledged report for concurrent attempts at the same normalized task
+AssertionError: expected [ 'accepted', 'accepted' ] to deeply equal [ 'accepted', 'already_sent' ]
+
+- Expected
++ Received
+
+  [
+    "accepted",
+-   "already_sent",
++   "accepted",
+  ]
+
+ ❯ test/poppy-feedback-race.test.ts:19:55
+     17|       sendFeedback(client, C, "main", "  pay with a gift card!  ", des…
+     18|     ]);
+     19|     expect(results.map(result => result.kind).sort()).toEqual(["accept…
+       |                                                       ^
+     20|   });
+     21|   expect((await c.stub.state()).feedback).toHaveLength(1);
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |personal-agent| test/poppy-feedback-race.test.ts > keeps the same task's feedback independent for two concurrent Users
+AssertionError: violations and warnings at mock Company c9486788760e3: expected { …(2) } to deeply equal { unexpected: [], missing: [] }
+
+- Expected
++ Received
+
+  {
+    "missing": [],
+-   "unexpected": [],
++   "unexpected": [
++     "[feedback.repeated] a second feedback report about \"Pay with a gift card\"",
++   ],
+  }
+
+ ❯ test/agent-helpers.ts:198:106
+    196|     for (const { company: c, expected, instanceId } of mocks) {
+    197|       const violations = (await companyEvidence(c.stub, instanceId)).r…
+    198|       expect(compareViolations(violations, expected), `violations and …
+       |                                                                                                          ^
+    199|     }
+    200|   } finally {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  17:11:32
+   Duration  13.32s (transform 4.98s, setup 0ms, import 11.14s, tests 476ms, environment 1ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

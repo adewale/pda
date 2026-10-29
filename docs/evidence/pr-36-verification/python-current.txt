@@ -1,0 +1,128 @@
+
+> pda@0.0.0 test:hypothesis
+> uv run --directory test/hypothesis --frozen pytest
+
+============================= test session starts ==============================
+platform linux -- Python 3.13.5, pytest-9.1.1, pluggy-1.6.0
+rootdir: /workspace/pda-pr36-audit/test/hypothesis
+configfile: pytest.ini
+testpaths: .
+plugins: hypothesis-6.169.0, anyio-4.15.1
+collected 21 items
+
+test_handoff_direct.py .                                                 [  4%]
+test_limits_device.py .                                                  [  9%]
+test_mcp_browsing.py .                                                   [ 14%]
+test_mock_company.py .                                                   [ 19%]
+test_operations.py .                                                     [ 23%]
+test_oracles.py ................                                         [100%]
+======== what the state machine reached (rule: expected outcome, count) ========
+
+     40  agent_words_into_direct: 202
+   1182  another_request_inside_retry_after: 429
+     17  approval_that_cannot_be_used: 200
+     84  approval_that_cannot_be_used: 403 approval_required
+      6  approval_that_cannot_be_used: mcp: changed request
+     11  approval_that_cannot_be_used: mcp: unknown revision
+     84  approval_that_cannot_be_used: prints: unknown revision
+      6  approve: conversation: performed
+      5  approve: prints: performed
+      6  approve_on_channel: 202
+    116  ask_about_an_order: 201
+      3  browse: orders seen
+     18  browse: signed in
+     22  browse: signed out
+    300  call_api: 200
+    111  call_api: 401 challenge
+     49  call_api: 403 insufficient_scope
+      5  client_assertion_aud: 200
+    204  client_assertion_aud: 401 invalid_client
+    138  close: 200
+     61  company_asks_for_the_user: user_requested
+     43  company_closes: closed by the Company
+      4  company_closes: closed by the Company, with an open Direct Conversation
+    109  company_limits: other limited
+    101  company_limits: token limited
+    239  conflicting_message_id: 409 message_id_conflict
+     68  default_token_at_the_mcp_server: 401 invalid_token
+     32  delegated_key_for_two_users: 200
+     11  device_poll: 400 access_denied
+     18  device_poll: 400 authorization_pending
+      1  device_poll: 400 expired_token
+    109  device_start: 200
+     17  device_start: 400 invalid_scope
+     25  ended_session: 400 invalid_session
+     63  expect_refusal: 401 challenge
+     19  expect_refusal: 404 conversation_not_found
+     48  extension_required: 403 extension_required
+    111  flawed_join: 204
+     58  flawed_join: 400 invalid_request
+     67  hand_off: 202
+     51  hand_off_closed: 409 conversation_closed
+    176  invalid_cursor: 400 invalid_cursor
+     76  join: 303 signed in
+    100  join: 303 signed out
+    176  join_browser: 204
+      2  malformed_mcp_approval: 200
+      6  malformed_message_approval: 202
+    172  mcp_call: 200
+    299  mcp_metadata: 200
+     62  mcp_token_at_the_api: 401 invalid_token
+    336  mcp_tools: 200
+     37  mcp_write: 200
+     14  mcp_write: 401 challenge
+      9  mcp_write: 403 insufficient_scope
+     29  no_one_available: staff_unavailable
+     19  open_direct: 201
+      9  open_direct: 404 conversation_not_found
+     18  open_direct: 409 conversation_closed
+     16  open_direct: 409 direct_conversation_open
+     40  open_direct_with_agent_words: 201
+     63  order_prints: 403 approval_required
+     25  parent_while_direct_is_open: 409 direct_conversation_open
+     50  person_joins: staff_join
+      7  poll_after_the_end: 400 access_denied
+      1  poll_too_soon: 400 slow_down
+     26  prints_without_a_key: 400 idempotency_key_required
+     15  propose_by_api: 201
+     55  propose_by_api: 401 challenge
+     59  propose_by_api: 403 approval_required
+     23  propose_by_api: 403 insufficient_scope
+     57  propose_by_mcp: 200
+    121  read_as: 200
+     22  refresh_token_other_agent: 400 invalid_grant
+    137  refused: 400
+     73  replayed_jti: 200
+      2  replayed_jti: 400 invalid_dpop_proof
+      2  replayed_jti: 400 invalid_grant
+     51  replayed_jti: 400 invalid_session
+     22  replayed_jti: 401 invalid_client
+    154  resend_message: 201
+     38  resend_message: 202
+    129  resend_too_soon: 200
+    258  resend_too_soon: 429
+      5  returned: api: new operation
+     20  returned: conversation: new operation
+     14  returned: mcp: new operation
+     57  returned: prints: new operation
+     20  revoked_refresh_token: 400 invalid_grant
+    131  send_message: 202
+     89  send_to_closed: 409 conversation_closed
+    175  session_header_at_an_oauth_endpoint: 200
+    422  sign_in: 200
+     12  sign_in: 400 invalid_scope
+    124  sign_in_without_an_offered_scope: 400 invalid_scope
+     25  sign_in_without_an_offered_scope: direct invalid_scope
+    329  sign_out: 200
+    433  start_conversation: 201
+     10  stolen_access_token: 401 invalid_dpop_proof
+    287  tampered_session_jwt: 400 invalid_session
+   2150  token_body: 200
+     51  token_from_another_agent: 400 invalid_session
+    166  upload_photo: 201
+======================== 21 passed in 93.74s (0:01:33) =========================
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

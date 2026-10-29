@@ -1,0 +1,80 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+ ❯ |personal-agent| test/mock-company.test.ts (221 tests | 3 failed | 218 skipped) 50ms
+     × challenges unidentified MCP clients without creating a Session, and still requires one with issued tokens (7, 5.3) 16ms
+     × rejects query credentials before token lookup, for invented and issued values (5.6) 18ms
+     × preserves message context in events, including context-only messages (8.4, 8.5) 14ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |personal-agent| test/mock-company.test.ts > the mock Company > challenges unidentified MCP clients without creating a Session, and still requires one with issued tokens (7, 5.3)
+AssertionError: expected 400 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 400
+
+ ❯ test/mock-company.test.ts:2000:31
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |personal-agent| test/mock-company.test.ts > the mock Company > rejects query credentials before token lookup, for invented and issued values (5.6)
+AssertionError: expected 401 to be 400 // Object.is equality
+
+- Expected
++ Received
+
+- 400
++ 401
+
+ ❯ test/mock-company.test.ts:2021:31
+    2019|     for (const token of ["invented", s.token!]) {
+    2020|       const response = await c.call(`${products(c)}?access_token=${tok…
+    2021|       expect(response.status).toBe(400);
+       |                               ^
+    2022|       expect(await response.json()).toEqual({ error: "invalid_request"…
+    2023|     }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |personal-agent| test/mock-company.test.ts > the mock Company, as the Hypothesis model found it > preserves message context in events, including context-only messages (8.4, 8.5)
+AssertionError: expected { …(4) } to deeply equal { …(5) }
+
+- Expected
++ Received
+
+  {
+    "author": {
+      "type": "agent",
+    },
+-   "context": {
+-     "locale": "en-GB",
+-     "user_available": false,
+-   },
+    "id": "msg_VRQtHTTXgEkseQBWtJVIpg",
+    "role": "user",
+    "text": "Hello",
+  }
+
+ ❯ test/mock-company.test.ts:2283:131
+    2281|       const { conversation_id } = await response.json() as { conversat…
+    2282|       const body = await (await call(c, s, "GET", `${c.hosts.conversat…
+    2283|       expect(body.events.find(event => event.type === "message" && (ev…
+       |                                                                                                                                   ^
+    2284|     }
+    2285|     expect((await c.stub.state()).recorded).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 218 skipped (221)
+   Start at  13:31:16
+   Duration  9.41s (transform 3.64s, setup 0ms, import 8.16s, tests 50ms, environment 0ms)

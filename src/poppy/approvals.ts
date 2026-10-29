@@ -23,6 +23,9 @@ const attachment = object({
   size: integer
 });
 
+/** 0.3: the operation revision the User approved, sent with the request that returned it (Ops 6). */
+const approvalV2 = object({ operation_id: string, revision: string, expires_at: string });
+
 /** An OpenAPI call (apis.ts `OpenApiCall`), as the model asked for it. */
 const openApiCall = object({
   apiUrl: string,
@@ -30,11 +33,13 @@ const openApiCall = object({
   params: record(scalar),
   body: optional(json),
   files: optional(record(string)),
-  idempotencyKey: optional(string)
+  idempotencyKey: optional(string),
+  approval: optional(approvalV2)
 });
 
-const mcpCall = object({ apiUrl: string, tool: string, args: json });
-const binding = object({ account: nullable(string), sessionId: string });
+const mcpCall = object({ apiUrl: string, tool: string, args: json, approval: optional(approvalV2) });
+// Older bindings precede the first withdrawal generation and are interpreted as generation zero.
+const binding = object({ account: nullable(string), sessionId: string, authorityGeneration: optional(integer) });
 
 /** Exactly what a website form sends (browser.ts `FormSubmission`). */
 const submission = object({
@@ -49,7 +54,9 @@ const approval = tagged("kind", {
   /** `method` and `url` are what the card showed; the call is checked again and must still make exactly them. */
   openapi: object({ v: literal(APPROVAL_VERSION), kind: literal("openapi"), call: openApiCall, method: string, url: string, binding: optional(binding), attachments: optional(array(attachment)) }),
   mcp: object({ v: literal(APPROVAL_VERSION), kind: literal("mcp"), call: mcpCall, binding: optional(binding) }),
-  "browse-submit": object({ v: literal(APPROVAL_VERSION), kind: literal("browse-submit"), submission, binding: optional(object({ account: nullable(string), sessionId: nullable(string), contextId: string })) })
+  "browse-submit": object({ v: literal(APPROVAL_VERSION), kind: literal("browse-submit"), submission, binding: optional(object({ account: nullable(string), sessionId: nullable(string), contextId: string, authorityGeneration: optional(integer) })) }),
+  /** 0.3: an operation a Company Agent returned in a conversation; approved, it goes back in a message's `approval` (Ops 6). */
+  "message-approval": object({ v: literal(APPROVAL_VERSION), kind: literal("message-approval"), conversationId: string, approval: approvalV2, binding })
 });
 
 export type StoredApproval = Decoded<typeof approval>;

@@ -1,11 +1,12 @@
 import { env } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
+import { decodeJwt } from "jose";
 import { describe, expect, it, vi } from "vitest";
-import { checkParams, dpopSchemes, mcpToolProposes, openApi, outsidePoppySession, proposesOperation, type OpenApiOperation } from "../src/poppy/apis";
+import { checkParams, openApi, outsidePoppySession, tokenSchemes, type OpenApiOperation } from "../src/poppy/apis";
 import { tokenResponse } from "../src/poppy/client";
-import { parseOperation } from "../src/poppy/operation-value";
+import { parseOperationV2 } from "../src/poppy/operations-v2";
 import { clientFrame, serverFrame } from "../src/poppy/frames";
 import type { Json } from "../src/poppy/json";
-import { summaryStartsWithAction, termsCovered } from "../src/poppy/operations";
 import { BUSY_WINDOW_MS, nextRead } from "../src/poppy/conversations";
 import { backoff } from "../src/poppy/pace";
 import { PoppyError, type PoppyClient } from "../src/poppy/client";
@@ -22,24 +23,25 @@ import worker from "./worker";
 
 /**
  * Conformance tests: the Personal Agent against a strict mock Company. Each
- * `describe` is a section of Personal Agent Protocol Draft 0.1 or the
- * Operations extension. After every test, every mock it created must have
+ * `describe` is a section of Personal Agent Protocol draft 0.3 (as rewritten
+ * on 28 October 2026, spec/draft-0.3-retrieved-2026-10-28) or its Operations
+ * extension, version 2. After every test, every mock it created must have
  * recorded no violations, unless the test said which it expects
- * (`company()` and the check are in agent-helpers.ts).
+ * (`company()` and the check are in agent-helpers.ts). test/poppy-0.3.test.ts
+ * has the end-to-end 0.3 tests these build on.
  */
 
 const ORIGIN = "https://agent.test";
-
 
 /**
  * Readings of questions the draft leaves open (docs/spec-issues.md). Sign-in,
  * Sessions and DPoP, and signing out run under each. This exercises our
  * declared readings; independent Python and third-party clients provide
- * additional checks on assumptions our client and mock could share.
+ * additional checks on assumptions our client and mock could share. (0.3's
+ * 4.1 makes a client assertion's `aud` the issuer, so S1's profile is gone.)
  */
 const PROFILES: readonly { name: string; config: Partial<MockConfig> }[] = [
-  { name: "lenient aud, no nonces", config: {} },
-  { name: "client assertion aud exactly the endpoint called (S1)", config: { clientAssertionAud: "exact" } },
+  { name: "the defaults, no nonces", config: {} },
   { name: "a DPoP nonce per origin (S23)", config: { requireNonce: true, nonceScope: "origin" } },
   { name: "one DPoP nonce per Company (S23)", config: { requireNonce: true, nonceScope: "company" } },
   { name: "lenient assertions: no typ or kid needed, 300 s (S2)", config: { strictAssertions: false } },
@@ -59,7 +61,7 @@ describe("the violation check after each test", () => {
     const c = await company();
     c.expectViolations(/^\[secret\.token-in-url\] token sent in URL /);
     const response = await c.stub.fetch(new Request(`${c.hosts.api}/products?access_token=at_not_a_token`));
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(400);
   });
 });
 
@@ -71,7 +73,7 @@ describe("4.1 agent identity", () => {
     expect(doc.jwks_uri).toBe(`${ORIGIN}/poppy/jwks.json`);
     expect(doc.redirect_uris).toEqual([`${ORIGIN}/poppy/callback`]);
     expect(doc.token_endpoint_auth_method).toBe("private_key_jwt");
-    expect(doc.extensions).toEqual({ operations: { version: "1" } });
+    expect(doc.extensions).toEqual({ operations: { version: "2" } });
   });
 
   it("publishes only public keys, each with a kid", async () => {
@@ -102,15 +104,19 @@ describe("3 discovery", () => {
     expect(found.agent).toContain("available");
   });
 
-  it("follows an HTTPS redirect of the well-known URL", async () => {
+  it("follows an HTTPS redirect of the well-known URL, but uses a document only from the well-known path of the domain it speaks for (3)", async () => {
+    // The mock redirects to a CDN's /poppy.json?for=…: anyone who can serve a file somewhere could speak for the domain so.
     const c = await company({ wellKnownRedirect: "https" });
     const a = await agent();
     const result = await tool(a, "poppy_discover", { domain: c.domain });
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.text).signIn).toEqual(["direct", "device", "mediated"]);
+    expect(result.isError).toBe(true);
+    expect(result.text).toContain(`but the document was served by cdn.${c.domain}`);
+    expect(result.text).toContain("with a query, not /.well-known/poppy.json");
     const seen = (await requests(c)).map((request) => `${request.status} ${request.method} ${request.url}`);
     expect(seen).toContain(`302 GET https://${c.domain}/.well-known/poppy.json`);
     expect(seen).toContain(`200 GET https://cdn.${c.domain}/poppy.json?for=${c.domain}`);
+    // No Session at the Company: nothing went to its resources.
+    expect((await requests(c)).filter((request) => request.headers["poppy-session"])).toEqual([]);
   });
 
   it("refuses a redirect to http", async () => {
@@ -141,11 +147,13 @@ describe("3 discovery", () => {
     expect(result.text).toMatch(/issuer/);
   });
 
-  it("refuses an issuer whose poppy_domains leaves the domain out", async () => {
-    const c = await company({ poppyDomainsOverride: ["someone-else.test"] });
+  it("refuses an issuer whose protected_resources leaves the domain out (3.2)", async () => {
+    const c = await company({ protectedResourcesOverride: ["https://someone-else.test"] });
     const result = await tool(await agent(), "poppy_discover", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect(result.text).toMatch(/poppy_domains/);
+    expect(result.text).toMatch(/protected_resources/);
+    // Nothing went to the Company's resources: no Session was started there.
+    expect((await requests(c)).filter((request) => request.headers["poppy-session"])).toEqual([]);
   });
 
   it("finds an issuer's metadata before its path (RFC 8414 3.1, S3), and signs in there", async () => {
@@ -153,7 +161,7 @@ describe("3 discovery", () => {
     expect(c.hosts.issuer).toBe(`https://auth.${c.domain}/tenant`);
     const a = await agent();
     expect((await tool(a, "poppy_discover", { domain: c.domain })).isError).toBe(false);
-    const result = await signInDirect(a, c, ["poppy:read"]);
+    const result = await signInDirect(a, c, ["orders:read"]);
     expect(result!.callback.status).toBe(200);
     expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).sessions[0]).toMatchObject({ signedIn: true });
     const metadata = (await requests(c)).filter((request) => request.url.includes("/.well-known/oauth-authorization-server"));
@@ -266,6 +274,24 @@ describe("Guides: fetching metadata safely", () => {
     }
   });
 
+  // The interop grid found this on 29 October: its agent runs a new PoppyClient per cell in one process, and a
+  // description an adversarial Company served in one cell answered the next cell, which never fetched its own.
+  it("keeps each agent's OpenAPI descriptions to itself", async () => {
+    const fetched: string[] = [];
+    const fetcher: Fetcher = async (request) => {
+      fetched.push(request.url);
+      return Response.json({ openapi: "3.1.0", paths: {} }, { headers: { "Cache-Control": "max-age=600" } });
+    };
+    const api = { type: "openapi", url: `https://api.${crypto.randomUUID()}.example/openapi.json`, description: "" } as const;
+    const first = { host: { fetcher } } as unknown as PoppyClient;
+    const second = { host: { fetcher } } as unknown as PoppyClient;
+    await openApi(first, api);
+    await openApi(first, api);
+    expect(fetched).toHaveLength(1);
+    await openApi(second, api);
+    expect(fetched).toHaveLength(2);
+  });
+
   it.each([
     { what: "no caching headers: a minute, as for poppy.json", headers: {}, fresh: 59, stale: 61 },
     { what: "max-age=600", headers: { "Cache-Control": "max-age=600" }, fresh: 599, stale: 601 },
@@ -308,7 +334,7 @@ describe("Guides: fetching metadata safely", () => {
   });
 });
 
-describe.each(PROFILES)("4.2–4.3 sessions, tokens and DPoP ($name)", ({ config: profile }) => {
+describe.each(PROFILES)("4.5, 5 Sessions, access tokens and DPoP ($name)", ({ config: profile }) => {
   const companyHere = (config: Partial<MockConfig> = {}) => company({ ...profile, ...config });
 
   it("starts a signed-out Session with a random User ID", async () => {
@@ -355,8 +381,11 @@ describe.each(PROFILES)("4.2–4.3 sessions, tokens and DPoP ($name)", ({ config
   it("supports DPoP nonces", async () => {
     const c = await companyHere({ requireNonce: true });
     const a = await agent();
-    const result = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
-    expect(result.isError).toBe(false);
+    // Signed out there are no tokens or proofs; signed in, the token endpoint and the API each ask for a nonce.
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
+    expect((await requests(c)).filter((request) => request.headers.dpop)).toEqual([]);
+    await signInDirect(a, c);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).text).toContain("ord_7Hk2");
     const seen = await requests(c);
     // Each server asked for a nonce, and the very next request there carried it.
     for (const origin of [new URL(c.hosts.tokenEndpoint).origin, c.hosts.api]) {
@@ -375,16 +404,24 @@ describe.each(PROFILES)("4.2–4.3 sessions, tokens and DPoP ($name)", ({ config
   });
 
   it("waits out Retry-After on 429 before retrying", async () => {
-    const c = await companyHere({ rateLimit: { tokenRequests429: 1, requests429: 1, retryAfterSeconds: 1 } });
+    const c = await companyHere();
     const a = await agent();
-    const result = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
-    expect(result.isError).toBe(false);
+    await signInDirect(a, c);
+    // The next token request and the next request elsewhere are refused once each, for a second.
+    await c.stub.limitNext("token", 1, 1);
+    await c.stub.limitNext("other", 1, 1);
+    const before = (await requests(c)).length;
+    const sleeps = (await a.stub.poppyClock()).sleeps.length;
+    // Its access token forgotten, the call refreshes first.
+    await a.stub.poppyForgetMemory();
+    const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" });
+    expect(result.isError, result.text).toBe(false);
     // The client waited at least a second, twice, on the fake clock...
-    expect((await a.stub.poppyClock()).sleeps.filter((ms) => ms >= 1000)).toHaveLength(2);
+    expect((await a.stub.poppyClock()).sleeps.slice(sleeps).filter((ms) => ms >= 1000)).toHaveLength(2);
     // ...and the Company saw each retry at least a second after its 429.
-    const seen = (await requests(c)).filter((request) => request.method === "POST");
+    const seen = (await requests(c)).slice(before).filter((request) => request.error !== "use_dpop_nonce");
     const limited = seen.filter((request) => request.status === 429);
-    expect(limited).toHaveLength(2);
+    expect(limited.map((request) => new URL(request.url).pathname).sort()).toEqual(["/oauth/token", "/orders"]);
     for (const refused of limited) {
       const path = new URL(refused.url).pathname;
       const retry = seen.find((request) => request.at > refused.at && new URL(request.url).pathname === path)!;
@@ -392,26 +429,44 @@ describe.each(PROFILES)("4.2–4.3 sessions, tokens and DPoP ($name)", ({ config
     }
   });
 
-  it("reports a Company that hasn't registered this agent", async () => {
+  it("reports a Company that doesn't accept this agent: invalid_session at a resource, invalid_client at sign-in (4.1)", async () => {
     const c = await companyHere({ requireRegistration: ["https://someone-else.test/client.json"] });
-    const result = await tool(await agent(), "poppy_message", { domain: c.domain, text: "hello" });
+    const a = await agent();
+    const result = await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
     expect(result.isError).toBe(true);
-    expect(result.text).toMatch(/invalid_client/);
+    expect(result.text).toMatch(/invalid_session/);
+    // A new Session once, then no more: the Company refuses the agent, not the Session.
+    const sids = (await requests(c)).filter((request) => request.error === "invalid_session").map((request) => decodeJwt(request.headers["poppy-session"]!).sid);
+    expect(sids).toHaveLength(2);
+    expect(new Set(sids).size).toBe(2);
+    expect((await c.stub.state()).conversations).toEqual([]);
+    const signIn = await signInDirect(a, c);
+    expect(signIn!.callback.status).toBe(400);
+    expect((await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint).map((request) => request.error)).toContain("invalid_client");
+    expect((await c.stub.state()).accountTokens).toBe(0);
   });
 
-  it("gets new tokens with a new DPoP key after an eviction", async () => {
+  it("gets a new access token after an eviction, with a DPoP proof, in the same Session", async () => {
     const c = await companyHere();
     const a = await agent();
-    await tool(a, "poppy_message", { domain: c.domain, text: "hello" });
+    await signInDirect(a, c);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).isError).toBe(false);
     await a.stub.poppyForgetMemory();
-    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello again" })).isError).toBe(false);
+    const before = (await requests(c)).length;
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).isError).toBe(false);
+    // The tokens in memory are gone with it: a refresh, with a proof from the key the agent holds now.
+    const refreshes = (await requests(c)).slice(before).filter((request) => request.grant === "refresh_token" && request.status === 200);
+    expect(refreshes.length).toBeGreaterThan(0);
+    for (const request of refreshes) expect(request.headers.dpop).toBe("<present>");
+    // One Session throughout: the eviction lost the client's memory, not the Session.
     expect((await c.stub.state()).sessions.filter((s) => !s.ended)).toHaveLength(1);
   });
 });
 
-describe.each(PROFILES)("4.4–4.5 Direct Sign-In ($name)", ({ config: profile }) => {
+describe.each(PROFILES)("4.2 Direct Sign-In ($name)", ({ config: profile }) => {
   const companyHere = (config: Partial<MockConfig> = {}) => company({ ...profile, ...config });
-  const codeExchanges = async (c: Company) => (await requests(c)).filter((request) => request.grant === "authorization_code");
+  /** Code exchanges, leaving out a DPoP nonce challenge's (RFC 9449 8): signed out, nothing has fetched a nonce first. */
+  const codeExchanges = async (c: Company) => (await requests(c)).filter((request) => request.grant === "authorization_code" && request.error !== "use_dpop_nonce");
 
   it("signs in through the Company's page and checks state and iss", async () => {
     const c = await companyHere();
@@ -419,7 +474,7 @@ describe.each(PROFILES)("4.4–4.5 Direct Sign-In ($name)", ({ config: profile }
     const result = await signInDirect(a, c);
     expect(result!.callback.status).toBe(200);
     const status = JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text);
-    expect(status.sessions[0]).toMatchObject({ signedIn: true, scope: "poppy:read poppy:write" });
+    expect(status.sessions[0]).toMatchObject({ signedIn: true, scope: "orders:read orders:write" });
     expect((await c.stub.state()).accountTokens).toBe(1);
     expect((await a.stub.poppyNotices()).some((n) => n.includes(`Signed in to Mock Shop ${c.id}`))).toBe(true);
   });
@@ -440,7 +495,7 @@ describe.each(PROFILES)("4.4–4.5 Direct Sign-In ($name)", ({ config: profile }
   it("rejects a response whose iss isn't the Company's issuer", async () => {
     const c = await companyHere();
     const a = await agent();
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_link")!;
     const location = new URL(await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_ada" }));
     location.searchParams.set("iss", "https://auth.evil.shop.test");
@@ -454,7 +509,7 @@ describe.each(PROFILES)("4.4–4.5 Direct Sign-In ($name)", ({ config: profile }
   it("closes a Direct Sign-In nobody finishes when its ten minutes are up, rather than leaving it in Needs you (live, 13 Oct)", async () => {
     const c = await companyHere();
     const a = await agent();
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_link")!;
     await a.stub.poppyAdvance(10 * 60_000 - 1_000);
     expect((await cards(a)).find((item) => item.id === `signin-${card.signInId}`)).toMatchObject({ kind: "signin_link", open: true });
@@ -472,7 +527,7 @@ describe.each(PROFILES)("4.4–4.5 Direct Sign-In ($name)", ({ config: profile }
   it("needs the person's own app session for the callback", async () => {
     const c = await companyHere();
     const a = await agent();
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_link")!;
     const location = await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_ada" });
     const callback = await worker.fetch(new Request(location), env);
@@ -483,50 +538,51 @@ describe.each(PROFILES)("4.4–4.5 Direct Sign-In ($name)", ({ config: profile }
   it("notices when the User approves fewer scopes", async () => {
     const c = await companyHere();
     const a = await agent();
-    await signInDirect(a, c, ["poppy:read", "poppy:write"], { scopes: ["poppy:read"] });
+    await signInDirect(a, c, ["orders:read", "orders:write"], { scopes: ["orders:read"] });
     // The model is told about "the User"; the User's own card says "you".
-    expect((await a.stub.poppyNotices()).some((n) => n.includes('the User approved fewer scopes than requested: granted "poppy:read", not granted "poppy:write"'))).toBe(true);
-    const notice = (await cards(a)).find((item) => item.kind === "notice" && item.text.includes('not granted "poppy:write"'))!;
+    expect((await a.stub.poppyNotices()).some((n) => n.includes('the User approved fewer scopes than requested: granted "orders:read", not granted "orders:write"'))).toBe(true);
+    const notice = (await cards(a)).find((item) => item.kind === "notice" && item.text.includes('not granted "orders:write"'))!;
     expect(notice.text).toContain("but you approved fewer scopes than requested");
   });
 
   it("handles a declined sign-in", async () => {
     const c = await companyHere();
     const a = await agent();
-    const result = await signInDirect(a, c, ["poppy:read"], { approve: false });
+    const result = await signInDirect(a, c, ["orders:read"], { approve: false });
     expect(result!.callback.status).toBe(400);
     expect((await a.stub.poppyNotices()).some((n) => n.includes("the User declined"))).toBe(true);
     expect(await codeExchanges(c)).toHaveLength(0);
   });
 
-  it("reuses an Account Token that covers the task instead of asking again", async () => {
+  it("reuses a refresh token that covers the task instead of asking again", async () => {
     const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c);
-    const again = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "again", session: "second" });
+    const again = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "again", session: "second" });
     expect(again.text).toContain("signed in with access the User granted earlier");
   });
 
-  it("steps up: signs in again for more scopes and revokes the old Account Token", async () => {
+  it("steps up: signs in again for more scopes and revokes the old refresh token", async () => {
     const c = await companyHere();
     const a = await agent();
-    await signInDirect(a, c, ["poppy:read"]);
-    await signInDirect(a, c, ["poppy:read", "poppy:write"]);
+    await signInDirect(a, c, ["orders:read"]);
+    await signInDirect(a, c, ["orders:read", "orders:write"]);
     const state = await c.stub.state();
     expect(state.accountTokens).toBe(1);
     expect(state.revocationHints).toEqual(["refresh_token"]);
   });
 });
 
-describe.each(PROFILES)("4.6 Device Sign-In ($name)", ({ config: profile }) => {
+describe.each(PROFILES)("4.3 Device Sign-In ($name)", ({ config: profile }) => {
   const companyHere = (config: Partial<MockConfig> = {}) => company({ ...profile, ...config });
+  /** Device polls, leaving out a DPoP nonce challenge's (RFC 9449 8). */
   const polls = async (c: Company) =>
-    (await requests(c)).filter((request) => request.grant === "urn:ietf:params:oauth:grant-type:device_code");
+    (await requests(c)).filter((request) => request.grant === "urn:ietf:params:oauth:grant-type:device_code" && request.error !== "use_dpop_nonce");
 
   it("shows the code, polls at the interval and signs in when the User approves", async () => {
-    const c = await companyHere({ signIn: { direct: null, device: ["poppy:read", "poppy:write"], mediated: null } });
+    const c = await companyHere({ signIn: { direct: null, device: ["orders:read", "orders:write"], mediated: null } });
     const a = await agent();
-    const started = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    const started = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     expect(started.text).toContain("device");
     const card = (await cards(a)).find((item) => item.kind === "signin_device")!;
     expect(card.userCode).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
@@ -545,9 +601,9 @@ describe.each(PROFILES)("4.6 Device Sign-In ($name)", ({ config: profile }) => {
   });
 
   it("stops when the User declines", async () => {
-    const c = await companyHere({ signIn: { direct: null, device: ["poppy:read"], mediated: null } });
+    const c = await companyHere({ signIn: { direct: null, device: ["orders:read"], mediated: null } });
     const a = await agent();
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_device")!;
     await c.stub.denyDevice(card.userCode);
     await a.stub.poppyAdvance(1000);
@@ -558,14 +614,17 @@ describe.each(PROFILES)("4.6 Device Sign-In ($name)", ({ config: profile }) => {
   });
 });
 
-describe.each(PROFILES)("4.7 Mediated Sign-In ($name)", ({ config: profile }) => {
-  const mediatedOnly = { ...profile, signIn: { direct: null, device: null, mediated: ["poppy:read"] } };
+describe.each(PROFILES)("Mediated Sign-In ($name)", ({ config: profile }) => {
+  const mediatedOnly = { ...profile, signIn: { direct: null, device: null, mediated: ["orders:read"] } };
+  /** Mediated Sign-In's grant at the token endpoint (Mediated Sign-In 3, 4), leaving out a DPoP nonce challenge's (RFC 9449 8). */
+  const grants = async (c: Company) =>
+    (await requests(c)).filter((request) => request.grant === "https://personalagentprotocol.org/grant/mediated-sign-in" && request.error !== "use_dpop_nonce");
 
-  it("sends the credentials only to the endpoint, never to the model, logs or storage", async () => {
+  it("sends the credentials only to the token endpoint, never to the model, logs or storage", async () => {
     const c = await company(mediatedOnly);
     const a = await agent();
     const logMark = await a.stub.poppyLogMark();
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_credentials")!;
     expect(card.fields.find((field: { name: string }) => field.name === "password").secret).toBe(true);
     await a.stub.poppyFrame({ type: "poppy.credentials", signInId: card.signInId, values: { email: "ada@example.com", password: "correct horse" } });
@@ -580,15 +639,17 @@ describe.each(PROFILES)("4.7 Mediated Sign-In ($name)", ({ config: profile }) =>
     const logs = (await a.stub.poppyLogsSince(logMark)).join("\n");
     expect(logs).toContain("poppy log capture probe");
     expect(logs).not.toContain("correct horse");
-    // The mock saw the password once, in the body of the mediated endpoint (and nowhere else, or it would be a violation).
-    const sent = (await requests(c)).filter((request) => request.bodyKeys.includes("credentials"));
-    expect(sent.map((request) => request.url)).toEqual([c.hosts.mediatedEndpoint]);
+    // The mock saw the password only in the grant's body at the token endpoint (anywhere else would be a violation),
+    // accepted once; a DPoP nonce challenge's retry sends the same request again (RFC 9449 8).
+    const sent = (await requests(c)).filter((request) => request.bodyKeys.includes("password"));
+    expect(new Set(sent.map((request) => `${request.url} ${request.grant}`))).toEqual(new Set([`${c.hosts.tokenEndpoint} https://personalagentprotocol.org/grant/mediated-sign-in`]));
+    expect(sent.filter((request) => request.error !== "use_dpop_nonce").map((request) => request.status)).toEqual([200]);
   });
 
   it("submits only the one-time code when the Company asks for one", async () => {
     const c = await company(mediatedOnly);
     const a = await agent();
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const credentials = (await cards(a)).find((item) => item.kind === "signin_credentials")!;
     await a.stub.poppyFrame({ type: "poppy.credentials", signInId: credentials.signInId, values: { email: "grace@example.com", password: "battery staple" } });
     const codeCard = (await cards(a)).find((item) => item.kind === "signin_code")!;
@@ -597,28 +658,28 @@ describe.each(PROFILES)("4.7 Mediated Sign-In ($name)", ({ config: profile }) =>
     const status = JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text);
     expect(status.sessions[0].signedIn).toBe(true);
     expect(await a.stub.poppyDumpStorage()).not.toContain("battery staple");
-    const submitted = (await requests(c)).filter((request) => request.url.startsWith(`${c.hosts.mediatedEndpoint}/`));
-    expect(submitted.map((request) => request.bodyKeys)).toEqual([["code"]]);
+    // The second request names the sign-in and its code alone: no credentials, no scope (Mediated Sign-In 4).
+    const submitted = (await grants(c)).slice(1).map((request) => request.bodyKeys.filter((key) => !key.startsWith("client_")).sort());
+    expect(submitted).toEqual([["grant_type", "one_time_code", "sign_in_id"]]);
   });
 
   it("reports a wrong password without retrying", async () => {
     const c = await company(mediatedOnly);
     const a = await agent();
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_credentials")!;
     await a.stub.poppyFrame({ type: "poppy.credentials", signInId: card.signInId, values: { email: "ada@example.com", password: "wrong" } });
     expect((await a.stub.poppyNotices()).some((n) => n.includes("didn't complete"))).toBe(true);
-    expect((await requests(c)).filter((request) => request.url === c.hosts.mediatedEndpoint)).toHaveLength(1);
+    expect(await grants(c)).toHaveLength(1);
   });
 
   it("ends a sign-in the Company says has expired, never tries it again, and lets the User start again", async () => {
     const c = await company(mediatedOnly);
     const a = await agent();
+    // Each grant request, by what it sent, and what the Company answered: code_required, then expired_token.
     const sent = async () =>
-      (await requests(c))
-        .filter((request) => request.url.startsWith(c.hosts.mediatedEndpoint))
-        .map((request) => `${request.url === c.hosts.mediatedEndpoint ? "credentials" : "code"} ${request.status}`);
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+      (await grants(c)).map((request) => `${request.bodyKeys.includes("password") ? "credentials" : "code"} ${request.status} ${request.error}`);
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const credentials = (await cards(a)).find((item) => item.kind === "signin_credentials")!;
     const grace = { email: "grace@example.com", password: "battery staple" };
     await a.stub.poppyFrame({ type: "poppy.credentials", signInId: credentials.signInId, values: grace });
@@ -627,7 +688,7 @@ describe.each(PROFILES)("4.7 Mediated Sign-In ($name)", ({ config: profile }) =>
     // The User takes longer than the Company's five minutes (on the agent's clock, which the Company keeps).
     await a.stub.poppyAdvance(5 * 60_000 + 1_000);
     await a.stub.poppyFrame({ type: "poppy.code", signInId: credentials.signInId, code });
-    expect(await sent()).toEqual(["credentials 200", "code 200"]);
+    expect(await sent()).toEqual(["credentials 400 code_required", "code 400 expired_token"]);
 
     // The code card becomes a closed notice, and the model is told once, saying why.
     const ended = `Sign-in to Mock Shop ${c.id} didn't complete: the sign-in took too long`;
@@ -638,7 +699,7 @@ describe.each(PROFILES)("4.7 Mediated Sign-In ($name)", ({ config: profile }) =>
     // That flow is over: its code and its credentials go nowhere, and nothing is signed in.
     await a.stub.poppyFrame({ type: "poppy.code", signInId: credentials.signInId, code });
     await a.stub.poppyFrame({ type: "poppy.credentials", signInId: credentials.signInId, values: grace });
-    expect(await sent()).toEqual(["credentials 200", "code 200"]);
+    expect(await sent()).toEqual(["credentials 400 code_required", "code 400 expired_token"]);
     expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).sessions[0].signedIn).toBe(false);
     // The Activity log keeps it, as expired.
     const logged = async () => JSON.parse(await a.stub.poppyActivity()).log as Array<Record<string, unknown>>;
@@ -650,21 +711,21 @@ describe.each(PROFILES)("4.7 Mediated Sign-In ($name)", ({ config: profile }) =>
     });
 
     // The User starts again, with a new card, and signs in.
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const again = (await cards(a)).find((item) => item.kind === "signin_credentials" && item.open)!;
     expect(again.signInId).not.toBe(credentials.signInId);
     await a.stub.poppyFrame({ type: "poppy.credentials", signInId: again.signInId, values: grace });
     await a.stub.poppyFrame({ type: "poppy.code", signInId: again.signInId, code: (await c.stub.lastOneTimeCode())! });
-    expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).sessions[0]).toMatchObject({ signedIn: true, scope: "poppy:read" });
-    expect(await sent()).toEqual(["credentials 200", "code 200", "credentials 200", "code 200"]);
+    expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).sessions[0]).toMatchObject({ signedIn: true, scope: "orders:read" });
+    expect(await sent()).toEqual(["credentials 400 code_required", "code 400 expired_token", "credentials 400 code_required", "code 200 null"]);
     expect((await logged()).find((entry) => entry.id === `signin-${again.signInId}`)).toMatchObject({ result: "done", decidedBy: "you" });
   });
 });
 
-describe.each(PROFILES)("4.8–4.9 Account Tokens and signing out ($name)", ({ config: profile }) => {
+describe.each(PROFILES)("4.4, 4.6, 5.5 refresh tokens and signing out ($name)", ({ config: profile }) => {
   const companyHere = (config: Partial<MockConfig> = {}) => company({ ...profile, ...config });
 
-  it("uses a rotated Account Token from then on", async () => {
+  it("uses a rotated refresh token from then on", async () => {
     const c = await companyHere({ rotateRefreshTokens: true });
     const a = await agent();
     await signInDirect(a, c);
@@ -675,7 +736,7 @@ describe.each(PROFILES)("4.8–4.9 Account Tokens and signing out ($name)", ({ c
     expect((await requests(c)).filter((request) => request.grant === "refresh_token" && request.status === 200).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("signs out by revoking the Account Token; the Session continues signed out", async () => {
+  it("signs out by revoking the refresh token; the Session continues signed out", async () => {
     const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c);
@@ -688,16 +749,6 @@ describe.each(PROFILES)("4.8–4.9 Account Tokens and signing out ($name)", ({ c
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "still there?" })).isError).toBe(false);
     const status = JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text);
     expect(status.sessions[0].signedIn).toBe(false);
-  });
-
-  it("revokes at a Company that wants the token endpoint as aud, trying it after the endpoint's invalid_client (S1; Alpine Retail, 13 Oct)", async () => {
-    const c = await company({ clientAssertionAud: "token-endpoint" });
-    const a = await agent();
-    await signInDirect(a, c);
-    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
-    expect((await c.stub.state()).accountTokens).toBe(0);
-    const revokes = (await requests(c)).filter((request) => request.url === c.hosts.revocationEndpoint);
-    expect(revokes.map((request) => request.status)).toEqual([401, 200]);
   });
 
   it("tells the model when access ends, as a date, and that the User signs out on the Companies page", async () => {
@@ -722,7 +773,7 @@ describe.each(PROFILES)("4.8–4.9 Account Tokens and signing out ($name)", ({ c
     expect(await a.stub.poppySql("SELECT * FROM poppy_accounts")).toBe("[]");
   });
 
-  it("stores Account Tokens encrypted", async () => {
+  it("stores refresh tokens encrypted", async () => {
     const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c);
@@ -744,7 +795,7 @@ describe.each(PROFILES)("4.8–4.9 Account Tokens and signing out ($name)", ({ c
   });
 });
 
-describe("4.9 a sign-out the Company doesn't accept", () => {
+describe("4.6, 5.5 a sign-out the Company doesn't accept", () => {
   type SignOutRow = { id: string; reason: string; status: string; attempts: number; last_error: string | null; held: number; next_at: number | null };
   const signOuts = async (a: Agent): Promise<SignOutRow[]> =>
     JSON.parse(await a.stub.poppySql("SELECT id, reason, status, attempts, last_error, token IS NOT NULL AS held, next_at FROM poppy_signouts ORDER BY created_at"));
@@ -755,18 +806,18 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
   const activity = async (a: Agent) => JSON.parse(await a.stub.poppyActivity()) as { inProgress: Record<string, any>[]; log: Record<string, any>[] };
   const retryJobs = async (a: Agent) => JSON.parse(await a.stub.poppySql("SELECT id FROM cf_agents_jobs WHERE id LIKE 'signout-%'")) as unknown[];
   const status = async (a: Agent, domain?: string) => JSON.parse((await tool(a, "poppy_status", domain ? { domain } : {})).text);
-  // Each refused try is two requests: the revocation endpoint as aud, then the token endpoint (S1).
-  const refused = (tries: number) => Array.from({ length: tries * 2 }, () => "401 invalid_client");
+  // Each refused try is one request: the client assertion's aud is the issuer, whatever the endpoint (4.1).
+  const refused = (tries: number) => Array.from({ length: tries }, () => "401 invalid_client");
   const signOut = (a: Agent, c: Company) => a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
   /** The Companies page's Try again: one frame naming the revocation. */
   const tryAgain = (a: Agent, id: string) => a.stub.poppyFrame({ type: "poppy.revoke.retry", id });
 
   it("stops using the account at once, keeps the token sealed, says the access is still live, and revokes it on the retry", async () => {
-    const c = await company({ refuseRevocations: 2 });
+    const c = await company({ refuseRevocations: 1 });
     const a = await agent();
     await signInDirect(a, c);
     const [{ token: sealed }] = JSON.parse(await a.stub.poppySql("SELECT token FROM poppy_accounts")) as { token: string }[];
-    // An Account Token the Company gave no expiry.
+    // A refresh token the Company gave no expiry.
     await a.stub.poppySql("UPDATE poppy_accounts SET expires_at = NULL");
     await signOut(a, c);
     const shop = `Mock Shop ${c.id}`;
@@ -803,7 +854,7 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
     await a.stub.poppyAdvance(60_000);
     expect(await revocations(c)).toEqual([...refused(1), "200"]);
     expect((await c.stub.state()).accountTokens).toBe(0);
-    expect((await c.stub.state()).revocationHints).toEqual(["refresh_token", "refresh_token", "refresh_token"]);
+    expect((await c.stub.state()).revocationHints).toEqual(["refresh_token", "refresh_token"]);
     expect(await signOuts(a)).toEqual([expect.objectContaining({ status: "revoked", attempts: 2, held: 0, next_at: null })]);
     expect(await notices(a)).toEqual([expect.objectContaining({ open: false, text: `Signed out of ${shop}. Open tasks there continue signed out.` })]);
     const after = await activity(a);
@@ -826,9 +877,9 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
     for (const [index, wait] of waits.entries()) {
       // Not before its time.
       await a.stub.poppyAdvance(wait - 1_000);
-      expect(await revocations(c)).toHaveLength(2 * (index + 1));
+      expect(await revocations(c)).toHaveLength(index + 1);
       await a.stub.poppyAdvance(1_000);
-      expect(await revocations(c)).toHaveLength(2 * (index + 2));
+      expect(await revocations(c)).toHaveLength(index + 2);
       if (said[index]) expect((await notices(a))[0]!.text).toContain(`Your agent will try again ${said[index]}.`);
     }
     // Five tries, then it stops: the token is kept for Try again, and nothing more is scheduled.
@@ -841,7 +892,7 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
       })
     ]);
     await a.stub.poppyAdvance(48 * 60 * 60_000);
-    expect(await revocations(c)).toHaveLength(10);
+    expect(await revocations(c)).toHaveLength(5);
     expect((await c.stub.state()).accountTokens).toBe(1);
     const log = (await activity(a)).log.find((entry) => entry.kind === "sign_out");
     expect(log).toMatchObject({ result: "failed", outcome: `${shop} didn't accept it (invalid_client) after 5 tries, and your agent has stopped trying. The access it granted stays live there until it expires or you revoke it at ${shop}.` });
@@ -850,7 +901,7 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
 
     // Try again, from the Companies page. Refused once more, it stays stopped.
     await tryAgain(a, (await signOuts(a))[0]!.id);
-    expect(await revocations(c)).toHaveLength(12);
+    expect(await revocations(c)).toHaveLength(6);
     expect(await signOuts(a)).toEqual([expect.objectContaining({ status: "stopped", attempts: 6, held: 1 })]);
     expect(await retryJobs(a)).toEqual([]);
     // Accepted the next time: signing out again of an account no longer held tries it too.
@@ -863,7 +914,7 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
   });
 
   it("Try again before the scheduled retry revokes at once, and the retry then sends nothing", async () => {
-    const c = await company({ refuseRevocations: 2 });
+    const c = await company({ refuseRevocations: 1 });
     const a = await agent();
     await signInDirect(a, c);
     await signOut(a, c);
@@ -872,10 +923,10 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
     expect(await revocations(c)).toEqual([...refused(1), "200"]);
     expect(await signOuts(a)).toEqual([expect.objectContaining({ status: "revoked", attempts: 2, held: 0 })]);
     await a.stub.poppyAdvance(60_000);
-    expect(await revocations(c)).toHaveLength(3);
+    expect(await revocations(c)).toHaveLength(2);
     // With nothing pending and no account, signing out again sends nothing.
     await signOut(a, c);
-    expect(await revocations(c)).toHaveLength(3);
+    expect(await revocations(c)).toHaveLength(2);
   });
 
   it("waits out a rate limit's Retry-After before trying again", async () => {
@@ -907,12 +958,13 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
     expect(await retryJobs(a)).toEqual([]);
     expect(await notices(a)).toEqual([expect.objectContaining({ open: false, text: `Signed out of Mock Shop ${c.id}. Open tasks there continue signed out.` })]);
     const log = (await activity(a)).log.find((entry) => entry.kind === "sign_out");
-    expect(log).toMatchObject({ result: "done", access: "view_and_change" });
+    // 0.3 defines no scopes (4.7), so the log can't say whether the account could view or change: it says neither.
+    expect(log).toMatchObject({ result: "done", access: null });
     expect(log!.outcome).toBeUndefined();
   });
 
-  it("sends nothing for an Account Token that has expired, at sign-out or before a retry", async () => {
-    const c = await company({ refuseRevocations: 2 });
+  it("sends nothing for a refresh token that has expired, at sign-out or before a retry", async () => {
+    const c = await company({ refuseRevocations: 1 });
     const a = await agent();
     const expired = `Signed out of Mock Shop ${c.id}. The access it granted had already ended, so there was nothing to revoke. Open tasks there continue signed out.`;
     // Expired before the User signs out.
@@ -934,18 +986,18 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
   });
 
   it("puts a pending revocation whose job is missing back on the queue at start, sign-outs and step-ups alike", async () => {
-    const c = await company({ refuseRevocations: 2 });
+    const c = await company({ refuseRevocations: 1 });
     const a = await agent();
-    await signInDirect(a, c, ["poppy:read"]);
-    await signInDirect(a, c, ["poppy:read", "poppy:write"]);
-    await c.stub.configure({ refuseRevocations: 4 });
+    await signInDirect(a, c, ["orders:read"]);
+    await signInDirect(a, c, ["orders:read", "orders:write"]);
+    await c.stub.configure({ refuseRevocations: 2 });
     await signOut(a, c);
     expect(await revocations(c)).toEqual(refused(2));
     expect((await signOuts(a)).map((row) => [row.reason, row.status])).toEqual([["step_up", "pending"], ["sign_out", "pending"]]);
     // Scheduling the retries failed, or the jobs were lost: the notices promise a try nothing will run.
     await a.stub.poppySql("DELETE FROM cf_agents_jobs WHERE id LIKE 'signout-%'");
     await a.stub.poppyAdvance(60_000);
-    expect(await revocations(c)).toHaveLength(4);
+    expect(await revocations(c)).toHaveLength(2);
     // A restart puts each back, due at once since its time has passed, and the next alarm runs them.
     await a.stub.poppyRestart();
     expect(await retryJobs(a)).toHaveLength(2);
@@ -954,7 +1006,7 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
     // Wait for both outcomes, preserving the exact request count and final state.
     expect(await until(async () => {
       const seen = await revocations(c);
-      return seen.length >= 6 && seen;
+      return seen.length >= 4 && seen;
     })).toEqual([...refused(2), "200", "200"]);
     expect(await until(async () => {
       const rows = (await signOuts(a)).map((row) => [row.status, row.held]);
@@ -966,7 +1018,7 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
   });
 
   it("puts a missing job back at its next try, not before", async () => {
-    const c = await company({ refuseRevocations: 2 });
+    const c = await company({ refuseRevocations: 1 });
     const a = await agent();
     await signInDirect(a, c);
     await signOut(a, c);
@@ -982,32 +1034,32 @@ describe("4.9 a sign-out the Company doesn't accept", () => {
   });
 });
 
-describe("4.4 a step-up's replaced Account Token the Company doesn't revoke", () => {
+describe("4.7 a step-up's replaced refresh token the Company doesn't revoke", () => {
   type Row = { id: string; reason: string; status: string; attempts: number; last_error: string | null; held: number; next_at: number | null };
   const revocationRows = async (a: Agent): Promise<Row[]> =>
     JSON.parse(await a.stub.poppySql("SELECT id, reason, status, attempts, last_error, token IS NOT NULL AS held, next_at FROM poppy_signouts ORDER BY created_at"));
   const revocations = async (c: Company) =>
     (await requests(c)).filter((request) => request.url === c.hosts.revocationEndpoint).map((request) => `${request.status}${request.error ? ` ${request.error}` : ""}`);
-  // Each refused try is two requests: the revocation endpoint as aud, then the token endpoint (S1).
-  const refused = (tries: number) => Array.from({ length: tries * 2 }, () => "401 invalid_client");
+  // Each refused try is one request: the client assertion's aud is the issuer, whatever the endpoint (4.1).
+  const refused = (tries: number) => Array.from({ length: tries }, () => "401 invalid_client");
   const notices = async (a: Agent) => (await cards(a)).filter((card) => card.kind === "notice" && card.id.startsWith("signout-"));
   const activity = async (a: Agent) => JSON.parse(await a.stub.poppyActivity()) as { inProgress: Record<string, any>[]; log: Record<string, any>[] };
   const status = async (a: Agent, domain?: string) => JSON.parse((await tool(a, "poppy_status", domain ? { domain } : {})).text);
-  /** Signed in with read access, then stepped up to read and write; the first Account Token's access ends at a known time. */
+  /** Signed in with read access, then stepped up to read and write; the first refresh token's access ends at a known time. */
   const steppedUp = async (config: Partial<MockConfig>) => {
     const c = await company(config);
     const a = await agent();
-    await signInDirect(a, c, ["poppy:read"]);
+    await signInDirect(a, c, ["orders:read"]);
     await a.stub.poppySql("UPDATE poppy_accounts SET expires_at = ?", Date.UTC(2099, 0, 2, 3, 4));
-    await signInDirect(a, c, ["poppy:read", "poppy:write"]);
+    await signInDirect(a, c, ["orders:read", "orders:write"]);
     return { a, c, shop: `Mock Shop ${c.id}` };
   };
   /** Still signed in, with the new scopes: the step-up stands whatever became of the old token. */
   const signedInWithMore = async (a: Agent, c: Company) => {
-    expect(JSON.parse(await a.stub.poppySql("SELECT account, scope FROM poppy_accounts"))).toEqual([{ account: "default", scope: "poppy:read poppy:write" }]);
+    expect(JSON.parse(await a.stub.poppySql("SELECT account, scope FROM poppy_accounts"))).toEqual([{ account: "default", scope: "orders:read orders:write" }]);
     await a.stub.poppyForgetMemory();
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "still there?" })).isError).toBe(false);
-    expect((await status(a, c.domain)).sessions[0]).toMatchObject({ signedIn: true, scope: "poppy:read poppy:write" });
+    expect((await status(a, c.domain)).sessions[0]).toMatchObject({ signedIn: true, scope: "orders:read orders:write" });
   };
 
   it("revokes it at once when the Company accepts, and tells the User nothing more", async () => {
@@ -1026,7 +1078,7 @@ describe("4.4 a step-up's replaced Account Token the Company doesn't revoke", ()
   });
 
   it("keeps the old token sealed when the Company refuses, says its access is still live, and revokes it on the retry", async () => {
-    const { a, c, shop } = await steppedUp({ refuseRevocations: 2 });
+    const { a, c, shop } = await steppedUp({ refuseRevocations: 1 });
     expect(await revocations(c)).toEqual(refused(1));
     // The old token is still live at the Company; the agent holds it, sealed, to try again.
     expect((await c.stub.state()).accountTokens).toBe(2);
@@ -1084,7 +1136,7 @@ describe("4.4 a step-up's replaced Account Token the Company doesn't revoke", ()
       outcome: `${shop} didn't accept it (invalid_client) after 5 tries, and your agent has stopped trying. The access it replaced stays live there until it expires or you revoke it at ${shop}.`
     });
     await a.stub.poppyAdvance(48 * 60 * 60_000);
-    expect(await revocations(c)).toHaveLength(10);
+    expect(await revocations(c)).toHaveLength(5);
     await signedInWithMore(a, c);
 
     // Try again, from the Companies page, names the revocation: the account stays signed in.
@@ -1098,66 +1150,39 @@ describe("4.4 a step-up's replaced Account Token the Company doesn't revoke", ()
   });
 });
 
-describe("4.4, 4.8 token responses without scope (spec issue N6)", () => {
+describe("4.7 token responses without scope (spec issue N6)", () => {
   const status = async (a: Agent, c: Company) => JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text);
 
-  it("takes an omitted scope as the scope asked for, at sign-in, renewal and refresh", async () => {
+  it("takes an omitted scope as the scope asked for, at sign-in and at a whole or narrowed refresh", async () => {
     const c = await company({ omitTokenScope: true });
     const a = await agent();
     // Sign-in: what was asked for was granted, so nothing is reported missing.
     await signInDirect(a, c);
-    expect(await a.stub.poppyWaitForNotice("Signed in to")).toContain('with "poppy:read poppy:write"');
-    expect(JSON.parse(await a.stub.poppySql("SELECT scope FROM poppy_accounts"))).toEqual([{ scope: "poppy:read poppy:write" }]);
-    // Renewal after an eviction: a refresh grant that asks for no scope keeps the Account Token's.
+    expect(await a.stub.poppyWaitForNotice("Signed in to")).toContain('with "orders:read orders:write"');
+    expect(JSON.parse(await a.stub.poppySql("SELECT scope FROM poppy_accounts"))).toEqual([{ scope: "orders:read orders:write" }]);
+    // After an eviction: a refresh grant that asks for no scope keeps the refresh token's.
     await a.stub.poppyForgetMemory();
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
-    expect((await status(a, c)).sessions[0]).toMatchObject({ signedIn: true, scope: "poppy:read poppy:write" });
+    expect((await status(a, c)).sessions[0]).toMatchObject({ signedIn: true, scope: "orders:read orders:write" });
     // A second Session: the stored scope covers the task, so the User isn't asked again.
-    const again = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "again", session: "second" });
+    const again = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "again", session: "second" });
     expect(again.text).toContain("signed in with access the User granted earlier");
     // A narrowed read-only refresh gets the scope it asked for.
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders", session: "second" })).text).toContain("ord_7Hk2");
     const refreshes = (await requests(c)).filter((request) => request.grant === "refresh_token");
     expect(refreshes.some((request) => request.bodyKeys.includes("scope") && request.status === 200)).toBe(true);
   });
-
-  it("keeps a signed-out Session's empty scope when the response leaves it out", async () => {
-    const c = await company({ omitTokenScope: true });
-    const a = await agent();
-    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } })).isError).toBe(false);
-    expect((await status(a, c)).sessions[0]).toMatchObject({ signedIn: false, scope: "" });
-  });
 });
 
-describe("4.4 one account per Session", () => {
-  it("starts a new Session when the Company says it belongs to another account (account_mismatch)", async () => {
-    const c = await company();
-    const a = await agent();
-    // Ada signs in on the main Session, Grace on another.
-    await signInDirect(a, c, ["poppy:read"], { account: "acct_ada" });
-    await signInDirect(a, c, ["poppy:read"], { account: "acct_grace" }, { session: "other", account: "grace" });
-    // Ada signs out; the main Session continues signed out, but the Company keeps it bound to Ada.
-    await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
-    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } })).isError).toBe(false);
-    const [main] = JSON.parse(await a.stub.poppySql("SELECT session_id FROM poppy_sessions WHERE label = 'main'")) as { session_id: string }[];
-    // The main Session now needs Grace's account: the Company refuses to switch it, so a new one starts.
-    const signedIn = await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "Grace's orders", account: "grace" });
-    expect(signedIn.text).toContain("signed in with access the User granted earlier");
-    expect((await requests(c)).filter((request) => request.error === "account_mismatch")).toHaveLength(1);
-    const [after] = JSON.parse(await a.stub.poppySql("SELECT session_id, account FROM poppy_sessions WHERE label = 'main'")) as { session_id: string; account: string }[];
-    expect(after!.session_id).not.toBe(main!.session_id);
-    expect(after!.account).toBe("grace");
-    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).text).toContain("acct_grace");
-  });
-
+describe("5.4 one account per Session", () => {
   /** Signs `account` in on the main Session with one sign-in type, the test playing the User; returns the sign-in's id. */
   const SIGN_INS = {
     async direct(a: Agent, c: Company, account: string, label: string) {
-      await signInDirect(a, c, ["poppy:read"], { account }, label === "default" ? {} : { account: label });
+      await signInDirect(a, c, ["orders:read"], { account }, label === "default" ? {} : { account: label });
       return (JSON.parse(await a.stub.poppySql("SELECT id FROM poppy_signins ORDER BY created_at DESC, rowid DESC LIMIT 1")) as { id: string }[])[0]!.id;
     },
     async device(a: Agent, c: Company, account: string, label: string) {
-      await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test", ...(label === "default" ? {} : { account: label }) });
+      await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test", ...(label === "default" ? {} : { account: label }) });
       const card = (await cards(a)).find((item) => item.kind === "signin_device" && item.open)!;
       await c.stub.approveDevice(card.userCode, { account });
       await a.stub.poppyAdvance(1_000);
@@ -1165,7 +1190,7 @@ describe("4.4 one account per Session", () => {
       return card.signInId as string;
     },
     async mediated(a: Agent, c: Company, account: string, label: string) {
-      await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test", ...(label === "default" ? {} : { account: label }) });
+      await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test", ...(label === "default" ? {} : { account: label }) });
       const card = (await cards(a)).find((item) => item.kind === "signin_credentials" && item.open)!;
       const values = account === "acct_ada" ? { email: "ada@example.com", password: "correct horse" } : { email: "grace@example.com", password: "battery staple" };
       await a.stub.poppyFrame({ type: "poppy.credentials", signInId: card.signInId, values });
@@ -1177,58 +1202,51 @@ describe("4.4 one account per Session", () => {
     }
   } as const;
 
-  it.each([
-    { type: "direct", step: "code exchange" },
-    { type: "device", step: "device poll" },
-    { type: "mediated", step: "one-time code" }
-  ] as const)("starts a new Session when the Company refuses the $step for another account (account_mismatch), and the User can sign in", async ({ type }) => {
-    const only = { direct: null, device: null, mediated: null, [type]: ["poppy:read"] };
+  it.each(["direct", "device", "mediated"] as const)("signs a second account in on a new Session after the first signed out, by %s sign-in, and never mixes them", async (type) => {
+    const only = { direct: null, device: null, mediated: null, [type]: ["orders:read"] };
     const c = await company({ signIn: only });
     const a = await agent();
     const signIn = SIGN_INS[type];
     const mainSession = async () =>
       (JSON.parse(await a.stub.poppySql("SELECT session_id, account, signed_in FROM poppy_sessions WHERE label = 'main'")) as { session_id: string; account: string | null; signed_in: number }[])[0];
-    // Ada signs in, then out: the Session continues signed out, but the Company keeps it bound to her.
+    /** The `sid` of each Session header the Company's API saw, in order, with the access it carried. */
+    const sids = async () =>
+      (await requests(c))
+        .filter((request) => request.url.startsWith(c.hosts.api) && request.headers["poppy-session"])
+        .map((request) => `${decodeJwt(request.headers["poppy-session"]!).sid} ${request.headers.authorization ? "token" : "none"}`);
+    // Ada signs in, then out: the Session continues signed out, in the same sid (5.5).
     await signIn(a, c, "acct_ada", "default");
     expect(await mainSession()).toMatchObject({ signed_in: 1, account: "default" });
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).text).toContain("acct_ada");
     await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } })).isError).toBe(false);
     const bound = (await mainSession())!;
     expect(bound.signed_in).toBe(0);
+    const [ada, signedOut] = await sids();
+    expect(signedOut).toBe(`${ada!.split(" ")[0]} none`);
 
-    // Grace signs in on that Session: the Company refuses to switch its account.
-    const refused = await signIn(a, c, "acct_grace", "grace");
-    const mismatches = (await requests(c)).filter((request) => request.error === "account_mismatch");
-    expect(mismatches).toHaveLength(1);
-    const text = `Sign-in to Mock Shop ${c.id} didn't complete: the Session belongs to another account (account_mismatch), so the agent continues in a new Session. Ask the User to sign in again.`;
-    expect((await cards(a)).find((item) => item.id === `signin-${refused}`)).toEqual(expect.objectContaining({ kind: "notice", open: false, text }));
-    expect((await a.stub.poppyNotices()).filter((notice) => notice.includes("account_mismatch"))).toEqual([`[system] ${text}`]);
-    // Nothing is retried, and the bound Session is left: no Session at all until the next use.
-    expect(await mainSession()).toBeUndefined();
-    await a.stub.poppyAdvance(60_000);
-    expect((await requests(c)).filter((request) => request.error === "account_mismatch")).toHaveLength(1);
-
-    // Grace signs in again, on a new Session, and it completes.
+    // Grace signs in on that Session: a new sid, never Ada's (5.4).
     const completed = await signIn(a, c, "acct_grace", "grace");
-    expect(completed).not.toBe(refused);
     const after = (await mainSession())!;
     expect(after).toMatchObject({ signed_in: 1, account: "grace" });
     expect(after.session_id).not.toBe(bound.session_id);
     expect((await cards(a)).find((item) => item.id === `signin-${completed}`)).toEqual(
-      expect.objectContaining({ kind: "notice", open: false, text: `Signed in to Mock Shop ${c.id} with "poppy:read".` })
+      expect.objectContaining({ kind: "notice", open: false, text: `Signed in to Mock Shop ${c.id} with "orders:read".` })
     );
-    expect((await requests(c)).filter((request) => request.error === "account_mismatch")).toHaveLength(1);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).text).toContain("acct_grace");
+    const seen = await sids();
+    expect(new Set(seen.map((entry) => entry.split(" ")[0])).size).toBe(2);
+    expect(seen.at(-1)!.split(" ")[0]).not.toBe(ada!.split(" ")[0]);
   });
 });
 
-describe("4.8 rotation with reuse detection", () => {
-  it("never uses a rotated Account Token twice, even when renewals run in parallel", async () => {
+describe("4.4 rotation with reuse detection", () => {
+  it("never uses a rotated refresh token twice, even when renewals run in parallel", async () => {
     const c = await company({ rotateRefreshTokens: true, reuseDetection: true });
     const a = await agent();
     await signInDirect(a, c);
     await a.stub.poppyForgetMemory();
-    // Three calls at once, each needing its own token from the one Account Token.
+    // Three calls at once, each needing its own token from the one refresh token.
     const results = await Promise.all([
       tool(a, "poppy_message", { domain: c.domain, text: "hello" }),
       tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" }),
@@ -1244,7 +1262,7 @@ describe("4.8 rotation with reuse detection", () => {
   });
 });
 
-describe("5 web browsing", () => {
+describe("6 web browsing", () => {
   it("joins the browser to the Session before browsing, and sees the account", async () => {
     const c = await company();
     const a = await agent();
@@ -1256,16 +1274,23 @@ describe("5 web browsing", () => {
     const browsed = (await requests(c)).filter(
       (request) => request.url.startsWith(`https://${c.domain}/`) && !request.url.includes("/.well-known/")
     );
+    // The join (6): the browser fetches the form, the agent authorizes its code, the browser posts it and is sent on.
     expect(browsed.map((request) => `${request.method} ${new URL(request.url).pathname} ${request.status}`)).toEqual([
+      "GET /poppy/browser-session 200",
+      "POST /poppy/browser-session/authorize 204",
       "POST /poppy/browser-session 303",
-      "GET /orders 200",
+      "GET / 200",
       "GET /orders 200"
     ]);
-    // The Session's cookie goes to its website; no token or proof of ours does.
-    expect(browsed.slice(1).map((request) => request.headers.cookie)).toEqual(["<present>", "<present>"]);
-    for (const request of browsed) {
+    // Only the agent's own authorize carries the Session header and the token; the browser's requests carry its cookies.
+    const [form, authorize, ...browser] = browsed;
+    expect(authorize!.headers["poppy-session"]).toBeDefined();
+    expect(authorize!.headers.authorization).toBe("DPoP <redacted>");
+    expect(browser.map((request) => request.headers.cookie)).toEqual(["<present>", "<present>", "<present>"]);
+    for (const request of [form!, ...browser]) {
       expect(request.headers).not.toHaveProperty("authorization");
       expect(request.headers).not.toHaveProperty("dpop");
+      expect(request.headers).not.toHaveProperty("poppy-session");
     }
   });
 
@@ -1447,14 +1472,15 @@ describe("5 web browsing", () => {
         domain: "shop.example",
         issuer,
         endpoints: { token: `${auth}/oauth/token`, revocation: `${auth}/oauth/revoke`, authorization: `${auth}/oauth/authorize`, deviceAuthorization: `${auth}/oauth/device` },
-        signIn: { mediated: { endpoint: `${auth}/poppy/sign-in`, fields: [], scopes: [] } }
+        // Mediated Sign-In's credentials go to the token endpoint (Mediated Sign-In 3).
+        signIn: { mediated: { endpoint: `${auth}/oauth/token`, fields: [], scopes: [] } }
       }) as unknown as PoppyCompany;
     const onSite = at("https://shop.example/poppy", "https://shop.example");
     expect(isSignInPage(onSite, new URL("https://shop.example/"))).toBe(false);
     expect(isSignInPage(onSite, new URL("https://shop.example/orders"))).toBe(false);
     expect(isSignInPage(onSite, new URL("https://shop.example/oauth/authorize?client_id=x"))).toBe(true);
     expect(isSignInPage(onSite, new URL("https://shop.example/oauth/device"))).toBe(true);
-    expect(isSignInPage(onSite, new URL("https://shop.example/poppy/sign-in/abc"))).toBe(true);
+    expect(isSignInPage(onSite, new URL("https://shop.example/oauth/token"))).toBe(true);
     const ownHost = at("https://auth.shop.example", "https://auth.shop.example");
     expect(isSignInPage(ownHost, new URL("https://auth.shop.example/account"))).toBe(true);
     expect(isSignInPage(ownHost, new URL("https://shop.example/"))).toBe(false);
@@ -1469,7 +1495,7 @@ describe("5 web browsing", () => {
     expect(result.text).toContain("never types credentials");
   });
 
-  it("waits out Retry-After on a website page, then loads it again (4.3)", async () => {
+  it("waits out Retry-After on a website page, then loads it again (5.6)", async () => {
     const c = await company({ rateLimit: { tokenRequests429: 0, requests429: 0, pages429: 1, retryAfterSeconds: 2 } });
     const a = await agent();
     const page = await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/" });
@@ -1489,13 +1515,13 @@ describe("5 web browsing", () => {
     expect(JSON.parse(page.details)).toMatchObject({ error: "rate_limited" });
     // Nor does the next page go before the 30 seconds are up.
     expect(JSON.parse((await tool(a, "poppy_browse", { domain: c.domain, action: "open", url: "/orders" })).details)).toMatchObject({ error: "rate_limited" });
-    const loads = (await requests(c)).filter((request) => request.method === "GET" && request.url.startsWith(`https://${c.domain}/`) && !request.url.includes("/.well-known/"));
+    const loads = (await requests(c)).filter((request) => request.method === "GET" && request.url.startsWith(`https://${c.domain}/`) && !request.url.includes("/.well-known/") && !request.url.includes("/poppy/browser-session"));
     expect(loads.map((request) => request.status)).toEqual([429]);
   });
 });
 
-describe("6 APIs", () => {
-  it("lists and calls OpenAPI operations with DPoP", async () => {
+describe("7 APIs", () => {
+  it("lists and calls OpenAPI operations with the Session header, and signed in with a DPoP access token", async () => {
     const c = await company();
     const a = await agent();
     const described = JSON.parse((await tool(a, "poppy_api_describe", { domain: c.domain })).text);
@@ -1513,8 +1539,17 @@ describe("6 APIs", () => {
     expect(products.text).not.toContain('"stormline-m"');
     const call = (await requests(c)).find((request) => request.url.startsWith(`${c.hosts.api}/products`))!;
     expect(call.url).toBe(`${c.hosts.api}/products?q=insulated`);
-    expect(call.headers.authorization).toBe("DPoP <redacted>");
-    expect(call.headers.dpop).toBe("<present>");
+    // Signed out: the Session header alone, no token and no proof (5.2).
+    expect(call.headers["poppy-session"]).toBeDefined();
+    expect(call.headers.authorization).toBeUndefined();
+    expect(call.headers.dpop).toBeUndefined();
+    // Signed in at a Company that binds its tokens: a DPoP access token, its proof, and the Session header with ath (4.5).
+    await signInDirect(a, c);
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).text).toContain("ord_7Hk2");
+    const orders = (await requests(c)).find((request) => request.url === `${c.hosts.api}/orders`)!;
+    expect(orders.headers.authorization).toBe("DPoP <redacted>");
+    expect(orders.headers.dpop).toBe("<present>");
+    expect(typeof decodeJwt(orders.headers["poppy-session"]!).ath).toBe("string");
   });
 
   it("fills a path template the description doesn't declare as a parameter, by name", async () => {
@@ -1548,27 +1583,26 @@ describe("6 APIs", () => {
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
   });
 
-  it("starts a new Session when the Company says the old one ended", async () => {
-    for (const endedSessionError of ["invalid_token", "invalid_session"] as const) {
-      const c = await company({ endedSessionError });
+  it("starts a new Session when the Company says the old one ended (invalid_session), and sends the call again in it", async () => {
+    for (const signedIn of [false, true]) {
+      const c = await company();
       const a = await agent();
-      const call = () => tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
+      if (signedIn) await signInDirect(a, c);
+      const operation = signedIn ? "GET /orders" : "GET /products";
+      const call = () => tool(a, "poppy_api_call", { domain: c.domain, operation, ...(signedIn ? {} : { params: { q: "jacket" } }) });
       expect((await call()).isError).toBe(false);
-      expect(await c.stub.endAllSessions()).toBe(1);
-      expect((await call()).isError).toBe(false);
-      const state = await c.stub.state();
-      expect(state.sessions.filter((session) => !session.ended)).toHaveLength(1);
+      expect(await c.stub.endAllSessions()).toBeGreaterThan(0);
+      const again = await call();
+      expect(again.isError, again.text).toBe(false);
+      const sent = (await requests(c)).filter((request) => request.url.startsWith(`${c.hosts.api}/${signedIn ? "orders" : "products"}`));
+      expect(sent.map((request) => `${request.status}${request.error ? ` ${request.error}` : ""}`)).toEqual(["200", "400 invalid_session", "200"]);
+      const [first, refused, retried] = sent.map((request) => decodeJwt(request.headers["poppy-session"]!).sid);
+      expect(refused).toBe(first);
+      expect(retried).not.toBe(first);
     }
   });
 
-  it("asks for sign-in when an API needs the account", async () => {
-    const c = await company();
-    const a = await agent();
-    const orders = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" });
-    expect(orders.text).toMatch(/sign_in_required/);
-  });
-
-  it("gets a proposal, not an action, from a write at a Company with operations", async () => {
+  it("gets the User's approval on our own card before any write, and sends nothing until then", async () => {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
@@ -1578,8 +1612,12 @@ describe("6 APIs", () => {
       params: { order_id: "ord_7Hk2" },
       body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
     });
-    expect(result.text).toContain("proposed");
-    expect(JSON.parse(result.text)).toMatchObject({ proposed: { issuer: c.hosts.issuer } });
+    // Operations 2 gives a description no way to say a write asks for approval (decision 36): every write waits for the User.
+    expect(result.text).toContain("Waiting for the User's approval");
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(card.summary).toContain("POST /orders/ord_7Hk2/exchanges");
+    expect(card.terms).toBeUndefined();
+    expect((await requests(c)).filter((request) => request.url.endsWith("/exchanges"))).toEqual([]);
     expect((await c.stub.state()).performs).toBe(0);
   });
 
@@ -1609,8 +1647,8 @@ describe("6 APIs", () => {
   });
   const exchangeRequests = async (c: Company) => (await requests(c)).filter((request) => request.url === `${c.hosts.api}/orders/ord_7Hk2/exchanges`);
 
-  it("asks the User on its own card before a write at a Company with operations whose description doesn't say it proposes", async () => {
-    const c = await company({ documentsProposals: false });
+  it("leaves our card as terms, with nothing performed, when the Company answers the approved write with its terms (Ops 4)", async () => {
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c);
     const result = await tool(a, "poppy_api_call", exchangeWrite(c));
@@ -1618,13 +1656,25 @@ describe("6 APIs", () => {
     expect(await exchangeRequests(c)).toEqual([]);
     const approval = (await cards(a)).find((item) => item.kind === "approval")!;
     expect(approval.summary).toContain("POST /orders/ord_7Hk2/exchanges");
-    // Approved, the write goes out once; this Company proposes all the same, so its terms get their own card.
+    // Approved, the write goes out once, without an approval; the Company refuses it with its terms, which get their own card.
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: approval.approvalId, decision: "approve" });
-    expect(await exchangeRequests(c)).toHaveLength(1);
+    expect((await exchangeRequests(c)).map((request) => `${request.status} ${request.error}`)).toEqual(["403 approval_required"]);
+    expect((await exchangeRequests(c))[0]!.headers["poppy-approval"]).toBeUndefined();
     const state = await c.stub.state();
     expect(state.performs).toBe(0);
-    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-    expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
+    expect(state.operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
+    // Ours says what happened, never "done"; the Company's waits for the User.
+    const ours = (await cards(a)).find((item) => item.approvalId === approval.approvalId)!;
+    expect(ours).toMatchObject({ open: false, status: "terms", result: `Mock Shop ${c.id} asks you to approve its exact terms first, on the next card. Nothing has happened yet.` });
+    const terms = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(terms.approvalId).toMatch(/^apr2_/);
+    expect(terms).toMatchObject({ status: "pending", terms: { summary: expect.stringContaining("Exchange the Stormline Jacket (M)") } });
+    const notice = await a.stub.poppyWaitForNotice("asks the User to approve its exact terms first");
+    expect(notice).toContain("nothing has happened yet");
+    expect(notice).toContain("Don't tell the User it was done");
+    // Its Activity entry isn't done either.
+    const logged = (JSON.parse(await a.stub.poppyActivity()) as { log: { id: string; result: string }[] }).log.find((entry) => entry.id === approval.id)!;
+    expect(logged.result).not.toBe("done");
   });
 
   it("checks a write's server before its card: one on another host, or over plain HTTP, is refused and no card is shown", async () => {
@@ -1643,115 +1693,49 @@ describe("6 APIs", () => {
     }
   });
 
-  it("never calls an approved write done when the Company answers with a proposal the agent can't use", async () => {
-    const c = await company({ documentsProposals: false, operationIdPrefix: "ord\u0007" });
+  it("never calls an approved write done when the Company answers with an operation the agent can't show", async () => {
+    // A summary longer than the card shows (Ops 3): the User couldn't read what they would approve.
+    const c = await company({ exchangeOperation: { summary: `Exchange the jacket. ${"Small print. ".repeat(400)}` } });
     const a = await agent();
     await signInDirect(a, c);
     expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text).toContain("Waiting for the User's approval");
     const card = (await cards(a)).find((item) => item.kind === "approval")!;
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
-    const after = (await cards(a)).find((item) => item.kind === "approval")!;
-    expect(after).toMatchObject({ status: "refused", answer: { status: 202, error: "unusable_proposal" } });
-    expect(after.result).toBe(`Sent as you approved, but Mock Shop ${c.id} answered 202 (unusable_proposal). Nothing changed unless Mock Shop ${c.id} says otherwise.`);
-    expect((await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("op-unreadable-"))).toBeDefined();
+    const after = (await cards(a)).find((item) => item.approvalId === card.approvalId)!;
+    expect(after).toMatchObject({ status: "refused", answer: { status: 403, error: "unusable_proposal" } });
+    expect(after.result).toBe(`Sent as you approved, but Mock Shop ${c.id} answered 403 (unusable_proposal). Nothing changed unless Mock Shop ${c.id} says otherwise.`);
+    const notice = (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("approval-unusable-"))!;
+    expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval, but its terms couldn't be used (its summary is too long to show), so nothing was done.`);
+    // No card to approve the Company's operation, and nothing performed.
+    expect((await cards(a)).filter((item) => item.kind === "approval" && item.open)).toEqual([]);
+    expect((await c.stub.state()).performs).toBe(0);
   });
 
-  it("sends a write that proposes straight to a Company with operations, and reads only a 202 that requires an operation, with no other success, as saying so", async () => {
-    const c = await company();
-    const a = await agent();
-    await signInDirect(a, c);
-    expect(JSON.parse((await tool(a, "poppy_api_call", exchangeWrite(c))).text)).toMatchObject({ status: 202, proposed: { revision: 1 } });
-    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
-    const operation = { $ref: "#/components/schemas/Operation" };
-    const required = { type: "object", required: ["operation"], properties: { operation } };
-    const root = {
-      components: {
-        schemas: { Operation: { type: "object" }, Proposal: required, Job: { type: "object", required: ["job_id"] } },
-        responses: { Proposed: { content: { "application/json": { schema: { $ref: "#/components/schemas/Proposal" } } } } }
-      }
-    };
-    const json = (schema: Json) => ({ content: { "application/json": { schema } } });
-    expect(proposesOperation(root, { responses: { "202": { $ref: "#/components/responses/Proposed" } } })).toBe(true);
-    expect(proposesOperation(root, { responses: { "202": json(required), "403": { description: "extension_required" } } })).toBe(true);
-    // Each part of allOf counts; every branch of oneOf or anyOf must require it.
-    expect(proposesOperation(root, { responses: { "202": json({ allOf: [{ $ref: "#/components/schemas/Proposal" }, { properties: { note: { type: "string" } } }] }) } })).toBe(true);
-    expect(proposesOperation(root, { responses: { "202": json({ oneOf: [required, { allOf: [required, { required: ["note"] }] }] }) } })).toBe(true);
-    // poppyseed's marker says so too.
-    expect(proposesOperation(root, { "x-poppy-operation": true, responses: { "200": { description: "OK" } } })).toBe(true);
-    // "Accepted" alone may be a job that acts without asking.
-    expect(proposesOperation(root, { responses: { "202": { description: "Accepted" } } })).toBe(false);
-    expect(proposesOperation(root, { responses: { "202": json({ properties: { job_id: { type: "string" } } }) } })).toBe(false);
-    // An optional operation, or another success beside the 202, lets the Company act at once and answer as usual.
-    expect(proposesOperation(root, { responses: { "202": json({ type: "object", properties: { operation } }) } })).toBe(false);
-    expect(proposesOperation(root, { responses: { "200": json({ type: "object" }), "202": json(required) } })).toBe(false);
-    expect(proposesOperation(root, { responses: { "201": { description: "Done" }, "202": { $ref: "#/components/responses/Proposed" } } })).toBe(false);
-    expect(proposesOperation(root, { responses: { "2XX": json(required), "202": json(required) } })).toBe(false);
-    expect(proposesOperation(root, { responses: { "201": json(required) } })).toBe(false);
-    expect(proposesOperation(root, { responses: { "202": json({ oneOf: [required, { $ref: "#/components/schemas/Job" }] }) } })).toBe(false);
-    expect(proposesOperation(root, { responses: { "202": json({ anyOf: [required, { type: "object" }] }) } })).toBe(false);
-    expect(proposesOperation(root, { responses: { "202": { content: { "application/json": { schema: required }, "text/plain": { schema: { type: "string" } } } } } })).toBe(false);
-    expect(proposesOperation(root, { "x-poppy-operation": "yes", responses: {} })).toBe(false);
-    expect(proposesOperation(root, {})).toBe(false);
-    // MCP: the output schema must require operation.
-    expect(mcpToolProposes({ outputSchema: required })).toBe(true);
-    expect(mcpToolProposes({ outputSchema: { type: "object", properties: { operation: { type: "object" } } } })).toBe(false);
-    expect(mcpToolProposes({ outputSchema: { anyOf: [{ required: ["operation"] }, { required: ["exchange"] }] } })).toBe(false);
-    expect(mcpToolProposes({ outputSchema: { $defs: { P: { required: ["operation"] } }, $ref: "#/$defs/P" } })).toBe(true);
-  });
-
-  it("asks the User on its own card before a write whose description doesn't say every success is a proposal", async () => {
-    for (const proposalDescription of ["optional", "mixed", "oneOf"] as const) {
-      const c = await company({ proposalDescription });
-      const a = await agent();
-      await signInDirect(a, c);
-      expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text, proposalDescription).toContain("Waiting for the User's approval");
-      expect(await exchangeRequests(c), proposalDescription).toEqual([]);
-      const call = { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
-      expect((await tool(a, "poppy_mcp_call", call)).text, proposalDescription).toContain("Waiting for the User's approval");
-      const state = await c.stub.state();
-      expect(state.operations, proposalDescription).toEqual([]);
-      expect(state.performs, proposalDescription).toBe(0);
-      expect((await cards(a)).filter((item) => item.kind === "approval"), proposalDescription).toHaveLength(2);
-    }
-  });
-
-  it("tells the User and the model when a write its description says proposes comes back done without a proposal", async () => {
-    const c = await company({ actsWithoutProposing: true });
-    const a = await agent();
-    await signInDirect(a, c);
-    const answer = JSON.parse((await tool(a, "poppy_api_call", exchangeWrite(c))).text);
-    expect(answer).toMatchObject({ status: 201, unproposed: true });
-    expect(answer.note).toContain("may have been done without the User's approval");
-    expect(answer.proposed).toBeUndefined();
-    const notice = (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("op-unproposed-"));
-    expect(notice?.text).toBe(
-      `Mock Shop ${c.id} says POST /orders/ord_7Hk2/exchanges only proposes an action for you to approve, but it answered 201 with no proposal, so it may have done it without asking you. Check with Mock Shop ${c.id} before asking again.`
-    );
-    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
-    // The same through MCP, at another Company (each exchanges the jacket once).
-    const m = await company({ actsWithoutProposing: true });
-    await signInDirect(a, m);
-    const call = { domain: m.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
-    expect(JSON.parse((await tool(a, "poppy_mcp_call", call)).text)).toMatchObject({ unproposed: true });
-    const mcpNotice = (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("op-unproposed-") && item.domain === m.domain);
-    expect(mcpNotice?.text).toContain(`Mock Shop ${m.id} says its tool exchange_item only proposes an action for you to approve`);
-    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
-  });
-
-  it("never sends a write that takes no Idempotency-Key twice when its tool call is replayed", async () => {
-    const c = await company({ exchangeTakesIdempotencyKey: false });
+  it("never sends a write that takes no Idempotency-Key twice: a replayed tool call shows the same card, and its approval sends it once", async () => {
+    const c = await company({ operations: false, exchangeTakesIdempotencyKey: false });
     const a = await agent();
     await signInDirect(a, c);
     const first = await tool(a, "poppy_api_call", exchangeWrite(c), "call-write");
-    expect(first.text).toContain("proposed");
-    expect((await exchangeRequests(c))[0]!.headers["idempotency-key"]).toBeUndefined();
+    expect(first.text).toContain("Waiting for the User's approval");
     const replay = await tool(a, "poppy_api_call", exchangeWrite(c), "call-write");
-    expect(replay.isError).toBe(true);
-    expect(JSON.parse(replay.details)).toMatchObject({ error: "interrupted" });
+    expect(JSON.parse(replay.details)).toEqual(JSON.parse(first.details));
+    const [card] = (await cards(a)).filter((item) => item.kind === "approval");
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toHaveLength(1);
+    expect(await exchangeRequests(c)).toEqual([]);
+    // Approved twice, as a double click would: sent once, with no Idempotency-Key, and done once.
+    await Promise.all([
+      a.stub.poppyFrame({ type: "poppy.approval", approvalId: card!.approvalId, decision: "approve" }),
+      a.stub.poppyFrame({ type: "poppy.approval", approvalId: card!.approvalId, decision: "approve" })
+    ]);
     expect(await exchangeRequests(c)).toHaveLength(1);
-    // A new call is a new request.
-    expect((await tool(a, "poppy_api_call", exchangeWrite(c), "call-again")).isError).toBe(false);
-    expect(await exchangeRequests(c)).toHaveLength(2);
+    expect((await exchangeRequests(c))[0]!.headers["idempotency-key"]).toBeUndefined();
+    expect((await c.stub.state()).performs).toBe(1);
+    // The replayed call after the approval is still that one card, and sends nothing more.
+    await tool(a, "poppy_api_call", exchangeWrite(c), "call-write");
+    expect(await exchangeRequests(c)).toHaveLength(1);
+    // A new call is a new request, with a card of its own.
+    expect((await tool(a, "poppy_api_call", exchangeWrite(c), "call-again")).text).toContain("Waiting for the User's approval");
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toHaveLength(2);
   });
 
   it("shows one card for a replayed write that waits for the User's approval", async () => {
@@ -1765,13 +1749,13 @@ describe("6 APIs", () => {
     expect(await exchangeRequests(c)).toEqual([]);
   });
 
-  it("asks the User before an MCP tool at a Company with operations unless its output schema says it proposes", async () => {
-    const c = await company({ documentsProposals: false });
+  it("asks the User before an MCP tool that isn't read-only, and the Company's terms get a card of their own", async () => {
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c);
     const call = { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
     expect((await tool(a, "poppy_mcp_call", call)).text).toContain("Waiting for the User's approval");
-    // The tool wasn't called: the Company has proposed nothing.
+    // The tool wasn't called: the Company has returned no operation.
     expect((await c.stub.state()).operations).toEqual([]);
     // A tool the server marks read-only goes straight through, as an OpenAPI GET does.
     const search = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
@@ -1781,7 +1765,8 @@ describe("6 APIs", () => {
     const state = await c.stub.state();
     expect(state.operations).toEqual([expect.objectContaining({ state: "proposed", confirms: 0 })]);
     expect(state.performs).toBe(0);
-    expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
+    expect((await cards(a)).find((item) => item.approvalId === approval.approvalId)).toMatchObject({ status: "terms", open: false });
+    expect((await cards(a)).find((item) => item.kind === "approval" && item.open)!.approvalId).toMatch(/^apr2_/);
   });
 
   it("checks an MCP tool's args against its inputSchema before a card or a call", async () => {
@@ -1805,7 +1790,7 @@ describe("6 APIs", () => {
   it("says which error refused an approved write", async () => {
     const c = await company({ operations: false });
     const a = await agent();
-    await signInDirect(a, c, ["poppy:read"]);
+    await signInDirect(a, c, ["orders:read"]);
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
     expect(result.text).toContain("Waiting for the User's approval");
     const card = (await cards(a)).find((item) => item.kind === "approval")!;
@@ -1847,7 +1832,7 @@ describe("6 APIs", () => {
         kind: "openapi",
         method: "POST",
         url: `${c.hosts.api}/orders/ord_7Hk2/exchanges`,
-        binding: { account: "default", sessionId: expect.any(String) },
+        binding: { account: "default", sessionId: expect.any(String), authorityGeneration: 0 },
         call: expect.objectContaining({ operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: exchangeWrite(c).body })
       });
     });
@@ -1892,7 +1877,7 @@ describe("6 APIs", () => {
     const refused = await tool(a, "poppy_api_call", { domain: c.domain, operation: "startGuestAgentSession", body: {} });
     expect(refused.isError).toBe(true);
     expect(refused.text).toBe(
-      `POST /agent-sessions (startGuestAgentSession) at Mock Shop ${c.id} isn't protected by its Poppy Session: its description lists no DPoP security for it, so it is a way in that isn't Poppy, such as a sign-in, session, token or compatibility endpoint. The agent can't use it: its only access to Mock Shop ${c.id} is the Poppy Session it already has, which every other call uses by itself (signed out, or signed in through poppy_sign_in). Nothing was sent. [outside_poppy_session]`
+      `POST /agent-sessions (startGuestAgentSession) at Mock Shop ${c.id} isn't protected by its Poppy Session: its description lists no OAuth, Bearer or DPoP security for it, so it is a way in that isn't Poppy, such as a sign-in, session, token or compatibility endpoint. The agent can't use it: its only access to Mock Shop ${c.id} is the Poppy Session it already has, which every other call uses by itself (signed out, or signed in through poppy_sign_in). Nothing was sent. [outside_poppy_session]`
     );
     // No card, no token request, nothing sent to the endpoint.
     expect((await cards(a)).filter((card) => card.kind === "approval")).toEqual([]);
@@ -1902,9 +1887,9 @@ describe("6 APIs", () => {
     const catalog = await tool(a, "poppy_api_call", { domain: c.domain, operation: "getCatalog" });
     expect(catalog.isError, catalog.text).toBe(false);
     expect(JSON.parse(catalog.text)).toMatchObject({ status: 200, body: { products: [expect.objectContaining({ sku: "print-6x4" })] } });
-    // A write the Poppy Session protects proposes as before.
+    // A write the Poppy Session protects waits for the User's approval, as every write does.
     await signInDirect(a, c);
-    expect(JSON.parse((await tool(a, "poppy_api_call", exchangeWrite(c))).text)).toMatchObject({ status: 202, proposed: { revision: 1 } });
+    expect((await tool(a, "poppy_api_call", exchangeWrite(c))).text).toContain("Waiting for the User's approval");
   });
 
   it("calls every operation as before when the description declares no security", async () => {
@@ -1921,13 +1906,21 @@ describe("6 APIs", () => {
     expect((await cards(a)).find((item) => item.kind === "approval")).toMatchObject({ status: "refused", answer: { status: 404, error: "not_available" } });
   });
 
-  it("reads a DPoP scheme's name in any case, a requirement naming it among others, and the document's own security", () => {
+  it("reads a token scheme's name in any case, a requirement naming it among others, and the document's own security", () => {
     const root = (schemes: Record<string, Json>) => ({ components: { securitySchemes: schemes } }) as Json;
-    expect([...dpopSchemes(root({ a: { type: "http", scheme: "dpop" }, b: { type: "http", scheme: "DPoP" }, c: { type: "http", scheme: "bearer" }, d: { type: "apiKey", in: "header", name: "DPoP" } }))]).toEqual(["a", "b"]);
-    expect(dpopSchemes({ openapi: "3.1.0" }).size).toBe(0);
+    // The schemes that take the Company's access token (7): OAuth 2.0, and HTTP Bearer or DPoP in any case.
+    expect([...tokenSchemes(root({
+      a: { type: "http", scheme: "dpop" },
+      b: { type: "http", scheme: "DPoP" },
+      c: { type: "http", scheme: "Bearer" },
+      d: { type: "apiKey", in: "header", name: "DPoP" },
+      e: { type: "oauth2", flows: {} },
+      f: { type: "http", scheme: "basic" }
+    }))]).toEqual(["a", "b", "c", "e"]);
+    expect(tokenSchemes({ openapi: "3.1.0" }).size).toBe(0);
     const dpop = new Set(["session"]);
     expect(outsidePoppySession(dpop, "POST", [{ session: [] }, { guest: [] }])).toBe(false);
-    expect(outsidePoppySession(dpop, "POST", [{ session: ["poppy:write"], key: [] }])).toBe(false);
+    expect(outsidePoppySession(dpop, "POST", [{ session: ["orders:write"], key: [] }])).toBe(false);
     expect(outsidePoppySession(dpop, "POST", [{ guest: [] }])).toBe(true);
     expect(outsidePoppySession(dpop, "POST", [{}])).toBe(true);
     expect(outsidePoppySession(dpop, "DELETE", [])).toBe(true);
@@ -1952,19 +1945,29 @@ describe("6 APIs", () => {
     return { c, a, after, logged: activity.log.find((entry) => entry.id === card.id)! };
   }
 
-  it("says a 500 to an approved write wasn't done: sent as approved, the status and code, nothing changed", async () => {
+  it("keeps a server failure to an approved write uncertain and holds further writes until checked", async () => {
     const { c, a, after, logged } = await approvedWrite("error");
-    const said = `Sent as you approved, but Mock Shop ${c.id} answered 500 (server_error). Nothing changed unless Mock Shop ${c.id} says otherwise.`;
-    expect(after).toMatchObject({ status: "refused", answer: { status: 500, error: "server_error" }, result: said });
-    expect(logged).toMatchObject({ result: "failed", outcome: said });
-    const notice = await a.stub.poppyWaitForNotice(`answered 500 (server_error)`);
-    expect(notice).toContain("Don't tell the User it was done");
+    // A 5xx does not prove the write had no effect; Ops §7 permits one while work is still in progress.
+    const said = `Sent as you approved; Mock Shop ${c.id} answered HTTP 500, which does not establish whether the action took effect. Check with Mock Shop ${c.id} before approving further writes there.`;
+    expect(after).toMatchObject({ status: "unknown", answer: { status: 500 }, result: said });
+    expect(logged).toMatchObject({ result: "unknown", outcome: said });
+    const notice = await a.stub.poppyWaitForNotice("answered HTTP 500");
+    expect(notice).toContain("does not establish whether the action took effect");
     expect(notice).not.toContain("Done, as the User approved");
-    // A status with no error code says only the status.
     const gateway = await approvedWrite("gateway");
-    expect(gateway.after).toMatchObject({ status: "refused", answer: { status: 504 } });
+    expect(gateway.after).toMatchObject({ status: "unknown", answer: { status: 504 } });
     expect(gateway.after.answer.error).toBeUndefined();
-    expect(gateway.after.result).toBe(`Sent as you approved, but Mock Shop ${gateway.c.id} answered 504. Nothing changed unless Mock Shop ${gateway.c.id} says otherwise.`);
+    expect(gateway.after.result).toBe(`Sent as you approved; Mock Shop ${gateway.c.id} answered HTTP 504, which does not establish whether the action took effect. Check with Mock Shop ${gateway.c.id} before approving further writes there.`);
+    for (const context of [{ c, a, after }, gateway]) {
+      const before = await exchangeRequests(context.c);
+      const performs = (await context.c.stub.state()).performs;
+      const repeat = await tool(context.a, "poppy_api_call", exchangeWrite(context.c));
+      expect(repeat.isError).toBe(true);
+      expect(repeat.text).toContain("unknown outcome");
+      await context.a.stub.poppyFrame({ type: "poppy.approval", approvalId: context.after.approvalId, decision: "approve" });
+      expect(await exchangeRequests(context.c)).toEqual(before);
+      expect((await context.c.stub.state()).performs).toBe(performs);
+    }
   });
 
   it("says an approved write that got no answer may or may not have reached the Company, and never sends it again", async () => {
@@ -1978,36 +1981,50 @@ describe("6 APIs", () => {
     expect(await exchangeRequests(c)).toHaveLength(1);
   });
 
-  it("calls MCP tools with a Bearer token issued for that server only", async () => {
-    const c = await company();
+  it.each([
+    { dpopTokens: true, mcpDpop: true, scheme: "DPoP" },
+    { dpopTokens: true, mcpDpop: false, scheme: "Bearer" },
+    { dpopTokens: false, mcpDpop: false, scheme: "Bearer" }
+  ])("calls MCP tools signed out with the Session header, and signed in with a token issued for that server only, used as its token_type says ($scheme)", async ({ dpopTokens, mcpDpop, scheme }) => {
+    const c = await company({ dpopTokens, mcpDpop });
     const a = await agent();
     const tools = JSON.parse((await tool(a, "poppy_mcp_list", { domain: c.domain })).text);
     expect(tools.tools.map((t: { name: string }) => t.name)).toContain("search_products");
-    const result = await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
+    const search = () => tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
+    const result = await search();
     expect(result.isError).toBe(false);
     expect(result.text).toContain("Stormline Jacket (M), Stormline Insulated Jacket (M)");
+    const mcp = async () => (await requests(c)).filter((request) => request.url === c.hosts.mcpUrl);
+    // Signed out: no token asked for, and the Session header alone (5.2).
+    expect((await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
+    expect((await mcp()).every((request) => request.headers["poppy-session"] && !request.headers.authorization)).toBe(true);
+    const before = (await mcp()).length;
+    await signInDirect(a, c);
+    expect((await search()).isError).toBe(false);
     const seen = await requests(c);
-    // A Bearer token asked for the MCP server by name, without DPoP...
-    const tokenRequests = seen.filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"));
-    expect(tokenRequests.length).toBeGreaterThan(0);
-    for (const request of tokenRequests) expect(request.headers.dpop).toBeUndefined();
+    // A token asked for the MCP server by name (RFC 8707), with a proof only where the issuer binds tokens (4.5)...
+    const forMcp = seen.filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"));
+    expect(forMcp.length).toBeGreaterThan(0);
+    for (const request of forMcp) expect(request.headers.dpop === "<present>").toBe(dpopTokens);
     // ...and used only there.
-    const mcp = seen.filter((request) => request.url === c.hosts.mcpUrl);
-    expect(mcp.length).toBeGreaterThan(0);
-    for (const request of mcp) expect(request.headers.authorization).toBe("Bearer <redacted>");
-    for (const request of seen.filter((request) => request.url.startsWith(c.hosts.api))) {
-      expect(request.headers.authorization ?? "DPoP").toMatch(/^DPoP/);
-    }
+    const signedIn = (await mcp()).slice(before);
+    expect(signedIn.length).toBeGreaterThan(0);
+    // The Company chose the token's type (4.5): a Bearer token for this server even where it could bind it.
+    for (const request of signedIn) expect(request.headers.authorization).toBe(`${scheme} <redacted>`);
+    for (const request of seen.filter((request) => request.url.startsWith(c.hosts.api))) expect(request.headers.authorization).toBeUndefined();
   });
 
-  it("refuses an MCP server whose metadata doesn't name the issuer", async () => {
+  it("refuses an MCP server whose metadata doesn't name the issuer, sending it neither the Session header nor a token", async () => {
     const c = await company({ mcpPrmOmitIssuer: true });
-    const result = await tool(await agent(), "poppy_mcp_list", { domain: c.domain });
+    const a = await agent();
+    await signInDirect(a, c);
+    const result = await tool(a, "poppy_mcp_list", { domain: c.domain });
     expect(result.isError).toBe(true);
-    expect((await requests(c)).filter((request) => request.url === c.hosts.mcpUrl && request.headers.authorization)).toHaveLength(0);
+    expect(result.text).toContain(`doesn't name ${c.hosts.issuer} as its authorization server`);
+    expect((await requests(c)).filter((request) => request.url === c.hosts.mcpUrl)).toEqual([]);
   });
 
-  it("never sends a Session Token to a server on another host that an OpenAPI description names (N10)", async () => {
+  it("never sends the Session header or a token to a server on another host that an OpenAPI description names (N10)", async () => {
     const elsewhere = await company();
     const c = await company({ openapiServerOverride: elsewhere.hosts.api });
     const a = await agent();
@@ -2019,7 +2036,7 @@ describe("6 APIs", () => {
     expect((await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint)).toEqual([]);
   });
 
-  it("never calls an OpenAPI server over plain HTTP, even on the Company's own host, before any request (4.3)", async () => {
+  it("never calls an OpenAPI server over plain HTTP, even on the Company's own host, before any request (3)", async () => {
     const c = await company();
     const server = c.hosts.api.replace(/^https:/, "http:");
     await c.stub.configure({ openapiServerOverride: server });
@@ -2037,7 +2054,7 @@ describe("6 APIs", () => {
     expect(after.every((request) => request.url.endsWith("/openapi.json"))).toBe(true);
   });
 
-  it("calls a server on a domain the issuer lists in poppy_domains", async () => {
+  it("calls a server on a domain the issuer lists in protected_resources (3.2)", async () => {
     const c = await company();
     const server = `https://api.${c.hosts.altDomain}`;
     await c.stub.configure({ openapiServerOverride: server });
@@ -2045,10 +2062,10 @@ describe("6 APIs", () => {
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
     expect(result.isError).toBe(false);
     const call = (await requests(c)).find((request) => request.url.startsWith(`${server}/products`))!;
-    expect(call.headers.authorization).toBe("DPoP <redacted>");
+    expect(call.headers["poppy-session"]).toBeDefined();
   });
 
-  it("decides which hosts may get Session Tokens from poppy.json alone", () => {
+  it("decides which hosts may get the Session header and tokens from poppy.json and protected_resources alone", () => {
     const company = {
       domain: "shop.example",
       poppyDomains: ["shop.example", "shop-uk.example"],
@@ -2069,18 +2086,19 @@ describe("6 APIs", () => {
   it("keeps the custom scope a read-only lookup needs when it narrows the token", async () => {
     const c = await company();
     const a = await agent();
-    await signInDirect(a, c, ["poppy:read", "addresses"]);
+    await signInDirect(a, c, ["orders:read", "addresses"]);
     const result = await tool(a, "poppy_api_call", { domain: c.domain, operation: "listAddresses" });
     expect(result.isError, result.text).toBe(false);
     expect(result.text).toContain("Portland");
     const narrowed = (await requests(c)).filter((request) => request.grant === "refresh_token" && request.bodyKeys.includes("scope"));
     expect(narrowed.map((request) => request.status)).toEqual([200]);
     // The token was narrowed for the lookup; the Session wasn't.
-    expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).sessions[0].scope).toBe("poppy:read addresses");
+    expect(JSON.parse((await tool(a, "poppy_status", { domain: c.domain })).text).sessions[0].scope).toBe("orders:read addresses");
   });
 
-  it("narrows read-only lookups at a Company that has only custom scopes", async () => {
-    const c = await company({ customScopesOnly: true });
+  it("narrows a read-only lookup to the scopes it declares, and a write keeps the Session's", async () => {
+    // 0.3 defines no scopes (4.7): every scope is the Company's own.
+    const c = await company();
     const a = await agent();
     await signInDirect(a, c, ["orders:read", "orders:write"]);
     const orders = await tool(a, "poppy_api_call", { domain: c.domain, operation: "listOrders" });
@@ -2088,24 +2106,28 @@ describe("6 APIs", () => {
     expect(orders.text).toContain("ord_7Hk2");
     const narrowed = (await requests(c)).filter((request) => request.grant === "refresh_token" && request.bodyKeys.includes("scope"));
     expect(narrowed.map((request) => request.status)).toEqual([200]);
-    // A write still gets the whole Session's scope.
-    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } })).text).toContain("proposed");
+    // A write still gets the whole Session's scope: the Company takes it, and asks for approval of its terms.
+    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } })).text).toContain("Waiting for the User's approval");
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    expect((await requests(c)).filter((request) => request.url.endsWith("/exchanges")).map((request) => request.error)).toEqual(["approval_required"]);
   });
 
   it("asks for tokens for an API entry's resource, and sends them there (RFC 8707)", async () => {
     const c = await company({ apiResource: true });
     const a = await agent();
-    expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } })).isError).toBe(false);
+    const products = await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
+    expect(products.isError, products.text).toBe(false);
     await signInDirect(a, c);
     expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" })).text).toContain("ord_7Hk2");
     // Conversations name no resource, so theirs is a token for the Company in general.
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
     const forResource = (await requests(c)).filter((request) => request.url === c.hosts.tokenEndpoint && request.bodyKeys.includes("resource"));
-    expect(forResource.map((request) => request.grant)).toEqual(expect.arrayContaining(["urn:ietf:params:oauth:grant-type:jwt-bearer", "refresh_token"]));
+    expect(forResource.map((request) => request.grant)).toEqual(expect.arrayContaining(["refresh_token"]));
     for (const request of forResource) expect(request.headers.dpop).toBe("<present>");
   });
 
-  it("tells the model which extension a Company requires (extension_required)", async () => {
+  it("tells the User and the model which extension a Company requires (extension_required)", async () => {
     const c = await company({ requiredExtension: "mock.test/gift-wrap" });
     const a = await agent();
     await signInDirect(a, c);
@@ -2115,15 +2137,17 @@ describe("6 APIs", () => {
       params: { order_id: "ord_7Hk2" },
       body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
     });
-    expect(result.isError).toBe(true);
-    expect(result.text).toContain("requires the extension mock.test/gift-wrap, which this agent doesn't support [extension_required]");
-    // The extension is a field of its own, not only words in the message.
-    expect(JSON.parse(result.details)).toEqual({ error: "extension_required", extension: "mock.test/gift-wrap" });
+    expect(result.text).toContain("Waiting for the User's approval");
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    // Sent as approved and refused: the receipt names the code, never "done".
+    expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({ status: "refused", answer: { status: 403, error: "extension_required" } });
+    expect(await a.stub.poppyWaitForNotice("[extension_required]")).toContain("requires the extension mock.test/gift-wrap, which this agent doesn't support");
     expect((await c.stub.state()).performs).toBe(0);
   });
 });
 
-describe("7 conversations", () => {
+describe("8 conversations", () => {
   it("starts a conversation with context and gets the reply", async () => {
     const c = await company();
     const a = await agent();
@@ -2170,7 +2194,11 @@ describe("7 conversations", () => {
     await a.stub.poppyWaitForNotice("needs the User signed in");
     await signInDirect(a, c);
     await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "I'm signed in now; please exchange it for the insulated one." });
-    await until(async () => (await cards(a)).find((card) => card.kind === "operation" && card.open));
+    // Signed in, the Company Agent asks for approval of the exchange's terms (Ops 4), on a card of their own.
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
+    expect(card.approvalId).toMatch(/^apr2_/);
+    expect(card.terms.summary).toContain("Exchange the Stormline Jacket (M)");
+    expect((await c.stub.state()).performs).toBe(0);
   });
 
   it("hands off to a person after a summary", async () => {
@@ -2201,7 +2229,7 @@ describe("7 conversations", () => {
     await a.stub.poppyFrame({ type: "poppy.direct.close", conversationId: direct.id });
   });
 
-  it("keeps the model's own words out of the User's Direct Conversation (7.10)", async () => {
+  it("keeps the model's own words out of the User's Direct Conversation (8.10)", async () => {
     const c = await company();
     const a = await agent();
     const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
@@ -2221,14 +2249,21 @@ describe("7 conversations", () => {
   it("tells the User when part of a conversation has expired", async () => {
     const c = await company();
     const a = await agent();
-    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
-    await c.stub.say(first.conversationId, "Are you still there?");
-    // The agent last read up to an event the Company then stops keeping.
-    const [oldest] = JSON.parse(await a.stub.poppySql("SELECT event_id FROM poppy_events WHERE conversation_id = ? ORDER BY rowid LIMIT 1", first.conversationId));
-    await c.stub.expireEvents(first.conversationId);
-    await a.stub.poppySql("UPDATE poppy_conversations SET cursor = ? WHERE id = ?", oldest.event_id, first.conversationId);
-    await a.stub.poppyReadNow(first.conversationId);
-    expect((await cards(a)).find((card) => card.kind === "notice" && card.text.includes("no longer has part"))).toBeDefined();
+    let restoreSchedule = () => {};
+    await runInDurableObject(a.stub, instance => {
+      // An alarm must not replace the deliberately expired cursor during setup.
+      const scheduled = vi.spyOn(instance.poppy.client.host, "schedule").mockResolvedValue(undefined);
+      restoreSchedule = () => scheduled.mockRestore();
+    });
+    try {
+      const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+      await c.stub.say(first.conversationId, "Are you still there?");
+      const [oldest] = JSON.parse(await a.stub.poppySql("SELECT event_id FROM poppy_events WHERE conversation_id = ? ORDER BY rowid LIMIT 1", first.conversationId));
+      await c.stub.expireEvents(first.conversationId);
+      await a.stub.poppySql("UPDATE poppy_conversations SET cursor = ? WHERE id = ?", oldest.event_id, first.conversationId);
+      await a.stub.poppyReadNow(first.conversationId);
+      expect((await cards(a)).find((card) => card.kind === "notice" && card.text.includes("no longer has part"))).toBeDefined();
+    } finally { await runInDurableObject(a.stub, () => restoreSchedule()); }
   });
 
   it("skips event types it doesn't know", async () => {
@@ -2311,481 +2346,242 @@ describe("7 conversations", () => {
   });
 });
 
-describe("Operations extension", () => {
-  const exchangeCall = (c: Company) => ({
-    domain: c.domain,
-    operation: "POST /orders/{order_id}/exchanges",
-    params: { order_id: "ord_7Hk2" },
-    body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
-  });
-
-  async function proposal(config: Partial<MockConfig> = {}) {
-    const c = await company(config);
-    const a = await agent();
-    await signInDirect(a, c);
-    await tool(a, "poppy_api_call", exchangeCall(c));
-    const card = (await cards(a)).find((item) => item.kind === "operation")!;
-    return { c, a, card };
-  }
-
-  it("ignores a page frame that names a Company by anything but an issuer", async () => {
-    const { c, a, card } = await proposal();
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.domain, operationId: card.operationId, revision: card.revision, decision: "approve" } as never);
-    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: card.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    expect((await c.stub.state()).operations[0]).toMatchObject({ confirms: 1 });
-  });
-
-  it("shows the Company's summary verbatim and confirms once after the User approves", async () => {
-    const { c, a, card } = await proposal();
-    expect(card.summary).toBe("Exchange the Stormline Jacket (M) on order ord_7Hk2 for the Stormline Insulated Jacket (M), for $70.00 more, charged to the card used for the order.");
-    expect(card.highlights.join(" ")).toMatch(/Cost/);
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    const state = await c.stub.state();
-    expect(state.performs).toBe(1);
-    expect(state.operations[0]).toMatchObject({ state: "succeeded", approvedBy: "user" });
-    expect((await a.stub.poppyNotices()).some((n) => n.includes("is succeeded"))).toBe(true);
-  });
-
-  it("needs a new approval when the terms change", async () => {
-    const { c, a, card } = await proposal();
-    await c.stub.reviseOperation(card.operationId, "Exchange for size L instead, for $70.00 more.", { size: "L", price_difference: { amount: "70.00", currency: "USD" } });
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    const updated = (await cards(a)).find((item) => item.kind === "operation" && item.revision === 2)!;
-    expect(updated.open).toBe(true);
-    expect(updated.previousSummary).toBe(card.summary);
-    expect((await c.stub.state()).performs).toBe(0);
-  });
-
-  it("requires explicit approval even when a stored standing permission is within its limits", async () => {
-    const c = await company();
-    const a = await agent();
-    await signInDirect(a, c);
-    await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD", maxUses: 1 });
-    await tool(a, "poppy_api_call", exchangeCall(c));
-    const state = await c.stub.state();
-    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-    const card = (await cards(a)).find((item) => item.kind === "operation")!;
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "succeeded", approvedBy: "user" });
-  });
-
-  it("requires a separate approval for each operation despite a stored standing permission", async () => {
-    const c = await company();
-    const a = await agent();
-    await signInDirect(a, c);
-    await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD", maxUses: 1 });
-    await tool(a, "poppy_api_call", exchangeCall(c));
-    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-    const firstCard = (await cards(a)).find((item) => item.kind === "operation")!;
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: firstCard.operationId, revision: firstCard.revision, decision: "approve" });
-    // A second exchange requires a new per-revision User approval.
-    await tool(a, "poppy_api_call", exchangeCall(c));
-    const state = await c.stub.state();
-    expect(state.operations).toHaveLength(2);
-    expect(state.operations[1]).toMatchObject({ state: "proposed", confirms: 0 });
-    expect(state.performs).toBe(1);
-    expect((await cards(a)).find((item) => item.kind === "operation" && item.operationId === state.operations[1]!.id)!.open).toBe(true);
-  });
-
-  it("asks the User when a standing permission's limit is exceeded", async () => {
-    const c = await company();
-    const a = await agent();
-    await signInDirect(a, c);
-    await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "10", currency: "USD" });
-    await tool(a, "poppy_api_call", exchangeCall(c));
-    expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
-    expect((await c.stub.state()).performs).toBe(0);
-  });
-
-  it("asks the User when a standing permission's currency differs", async () => {
-    const c = await company({ exchangePrice: { amount: "70.00", currency: "EUR" } });
-    const a = await agent();
-    await signInDirect(a, c);
-    await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD" });
-    await tool(a, "poppy_api_call", exchangeCall(c));
-    expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
-    const state = await c.stub.state();
-    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-    expect(state.performs).toBe(0);
-  });
-
-  it("never uses a standing permission when the Company requires the User's approval", async () => {
-    const c = await company({ userApprovalRequired: true });
-    const a = await agent();
-    await signInDirect(a, c);
-    await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange" });
-    await tool(a, "poppy_api_call", exchangeCall(c));
-    const state = await c.stub.state();
-    expect(state.performs).toBe(0);
-    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-  });
-
-  it("tracks a slow operation to its final state", async () => {
-    const { c, a, card } = await proposal({ slowConfirm: true });
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");
-    // The Company said Retry-After: 1; nothing is read before then.
-    await a.stub.poppyAdvance(999);
-    expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");
-    await a.stub.poppyAdvance(1);
-    await a.stub.poppyWaitForNotice("is succeeded");
-    const state = await c.stub.state();
-    expect(state.operations[0]?.state).toBe("succeeded");
-    expect(state.performs).toBe(1);
-    const operationUrl = `${c.hosts.operationsEndpoint}/${card.operationId}`;
-    const confirmed = state.requests.find((request) => request.url === `${operationUrl}/confirm`)!;
-    const read = state.requests.find((request) => request.method === "GET" && request.url === operationUrl)!;
-    expect(read.at - confirmed.at).toBeGreaterThanOrEqual(1000);
-  });
-
-  it("polls an operation the Company keeps in progress less and less often, never sooner than Retry-After (interop XT)", async () => {
-    const { c, a, card } = await proposal({ stuckInProgress: true });
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    // Ten minutes of the fake clock, ten seconds at a time; every read says "in progress, come back in a second".
-    for (let i = 0; i < 60; i++) await a.stub.poppyAdvance(10_000);
-    const operationUrl = `${c.hosts.operationsEndpoint}/${card.operationId}`;
-    const reads = (await c.stub.state()).requests.filter((request) => request.method === "GET" && request.url === operationUrl);
-    expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");
-    // At one a second it would be 600; backing off with the time since anything changed, it is a handful.
-    expect(reads.length).toBeGreaterThan(3);
-    expect(reads.length).toBeLessThanOrEqual(15);
-    const gaps = reads.slice(1).map((read, i) => read.at - reads[i]!.at);
-    expect(gaps.every((gap) => gap >= 1000)).toBe(true);
-    expect(gaps.at(-1)!).toBeGreaterThanOrEqual(60_000);
-  });
-
-  it("doesn't count members in a new order as progress, so the reads still slow down", async () => {
-    const { c, a, card } = await proposal({ stuckInProgress: true, reorderMembers: true });
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    for (let i = 0; i < 60; i++) await a.stub.poppyAdvance(10_000);
-    const operationUrl = `${c.hosts.operationsEndpoint}/${card.operationId}`;
-    const reads = (await c.stub.state()).requests.filter((request) => request.method === "GET" && request.url === operationUrl);
-    expect(reads.length).toBeLessThanOrEqual(15);
-    expect(reads.at(-1)!.at - reads.at(-2)!.at).toBeGreaterThanOrEqual(60_000);
-  });
-
-  it("never confirms a revision the Company changed in place after a lost confirm answer, and keeps the terms the User approved (Ops 3.1)", async () => {
-    const { c, a, card } = await proposal({ alterInPlace: true });
-    // The Company gets the confirm, changes the price under the same revision, and the answer is lost.
-    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "throw" });
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    expect(await a.stub.poppyFaultsLeft()).toBe(0);
-    // The check on the lost answer reads revision 1 with the new price, and confirms nothing more.
-    await a.stub.poppyAdvance(5_000);
-    await a.stub.poppyAdvance(60_000);
-    await a.stub.poppyWaitForNotice("without a new revision");
-    const state = await c.stub.state();
-    expect(state.operations[0]).toMatchObject({ state: "proposed", revision: 1, confirms: 1 });
-    expect(state.performs).toBe(0);
-    const shown = (await cards(a)).find((item) => item.kind === "operation")!;
-    expect(shown.open).toBe(false);
-    expect(shown.summary).toBe(card.summary);
-    expect(shown.summary).not.toContain("999");
-    expect(shown.alteredSummary).toContain("999.00");
-    // The card can't be approved again, and a later sign-in doesn't confirm it either.
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    await signInDirect(a, c, ["poppy:read", "poppy:write"], { account: "acct_bob" }, { account: "second", session: "second" });
-    await a.stub.poppyAdvance(60_000);
-    expect((await c.stub.state()).operations[0]).toMatchObject({ confirms: 1 });
-  });
-
-  it("never confirms again when the confirm's own answer carries changed terms under the same revision (Ops 3.1)", async () => {
-    const { c, a, card } = await proposal({ alterInPlace: true });
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    await a.stub.poppyWaitForNotice("without a new revision");
-    await a.stub.poppyAdvance(60_000);
-    const state = await c.stub.state();
-    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 1 });
-    expect(state.performs).toBe(0);
-    expect((await cards(a)).find((item) => item.kind === "operation")).toMatchObject({ open: false, summary: card.summary });
-  });
-
-  it("doesn't ask for a new proposal while a confirmed operation isn't final (Ops 6)", async () => {
-    const { c, a, card } = await proposal({ slowConfirm: true });
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");
-    const requests = (await c.stub.state()).requests.length;
-    const again = await tool(a, "poppy_api_call", exchangeCall(c));
-    expect(again.isError).toBe(true);
-    expect(again.text).toContain(card.operationId);
-    expect((await c.stub.state()).requests.length).toBe(requests);
-    // Once it is final, the same request may propose again.
-    await a.stub.poppyAdvance(1000);
-    await a.stub.poppyWaitForNotice("is succeeded");
-    expect((await tool(a, "poppy_api_call", exchangeCall(c))).isError).toBe(false);
-    expect((await c.stub.state()).operations).toHaveLength(2);
-  });
-
-  it("doesn't ask an MCP tool for a new proposal while a confirmed operation isn't final (Ops 6)", async () => {
-    const c = await company({ slowConfirm: true });
-    const a = await agent();
-    await signInDirect(a, c);
-    const call = { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
-    const proposed = await tool(a, "poppy_mcp_call", call);
-    expect(proposed.isError).toBe(false);
-    expect(JSON.parse(proposed.text)).toMatchObject({ proposed: { issuer: c.hosts.issuer } });
-    const card = (await cards(a)).find((item) => item.kind === "operation")!;
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    expect((await c.stub.state()).operations[0]?.state).toBe("in_progress");
-    const again = await tool(a, "poppy_mcp_call", call);
-    expect(again.isError).toBe(true);
-    expect(again.text).toContain(card.operationId);
-  });
-
-  /** A signed-in agent with a standing permission, and the exchange the Company proposes with these summary and terms. */
-  async function underPermission(
-    operation: { summary: string; terms?: Record<string, unknown> },
-    permission: { action: string; maxAmount?: string; currency?: string }
-  ) {
-    const c = await company({ exchangeOperation: operation });
-    const a = await agent();
-    await signInDirect(a, c);
-    await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", ...permission });
-    expect((await tool(a, "poppy_api_call", exchangeCall(c))).isError).toBe(false);
-    return { c, a };
-  }
-
-  const ids = { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" };
-
-  // Ops 5.1: a standing permission MUST cover "the action, and every term of the revision".
-  it.each([
-    ["the action's word, after a negation", { summary: "Not an exchange: delete all saved addresses.", terms: { order_id: "ord_7Hk2" } }, { action: "exchange" }],
-    ["the action's word, not at the start", { summary: "Delete all saved addresses, then exchange nothing.", terms: { order_id: "ord_7Hk2" } }, { action: "exchange" }],
-    ["the action's word, followed by a negation", { summary: "Exchange nothing: delete all saved addresses.", terms: { order_id: "ord_7Hk2" } }, { action: "exchange" }],
-    ["a recurrence", { summary: "Exchange the jacket for 20.00 GBP more.", terms: { ...ids, price_difference: { amount: "20.00", currency: "GBP" }, recurrence: "monthly, forever" } }, { action: "exchange", maxAmount: "50", currency: "GBP" }],
-    ["a renewal flag", { summary: "Exchange the jacket for 20.00 GBP more.", terms: { ...ids, price_difference: { amount: "20.00", currency: "GBP" }, auto_renew: true } }, { action: "exchange", maxAmount: "50", currency: "GBP" }],
-    ["a flag, with no limit set", { summary: "Exchange the jacket.", terms: { ...ids, close_account: true } }, { action: "exchange" }],
-    ["a charge with no currency", { summary: "Exchange the jacket for 20.00 GBP more.", terms: { ...ids, price_difference: { amount: "20.00", currency: "GBP" }, extra_charge_gbp: 5000 } }, { action: "exchange", maxAmount: "50", currency: "GBP" }],
-    ["a money term with more than an amount and currency", { summary: "Exchange the jacket for 20.00 GBP a month.", terms: { ...ids, price_difference: { amount: "20.00", currency: "GBP", per: "month" } } }, { action: "exchange", maxAmount: "50", currency: "GBP" }],
-    ["money nested in an unknown term", { summary: "Exchange the jacket.", terms: { ...ids, fees: { restocking: { amount: "20.00", currency: "GBP" } } } }, { action: "exchange" }],
-    ["a date term that is a renewal", { summary: "Exchange the jacket.", terms: { ...ids, renews_at: "2026-11-12" } }, { action: "exchange" }],
-    ["no terms at all", { summary: "Exchange the jacket." }, { action: "exchange" }]
-  ] as const)("asks the User when a standing permission doesn't cover %s", async (_, operation, permission) => {
-    const { c, a } = await underPermission(operation, permission);
-    const state = await c.stub.state();
-    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-    expect(state.performs).toBe(0);
-    expect((await cards(a)).find((item) => item.kind === "operation")!.open).toBe(true);
-  });
-
-  it("asks the User even when legacy numeric, date and record heuristics would cover a standing permission", async () => {
-    const { c } = await underPermission(
-      {
-        summary: "Exchange the Stormline Jacket (M) for the Insulated Jacket (M) for 20.00 GBP more, with a 10.00 GBP fee if cancelled, delivered on 20 October.",
-        terms: { ...ids, price_difference: { amount: "20.00", currency: "GBP" }, cancellation_fee: { amount: 10, currency: "GBP" }, delivery_date: "2026-10-20" }
-      },
-      { action: "exchange", maxAmount: "50", currency: "GBP" }
-    );
-    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-  });
-
-  it("asks the User when a legacy standing permission has no amount limit", async () => {
-    const { c } = await underPermission(
-      { summary: "Exchange the jacket for 900.00 GBP more.", terms: { ...ids, price_difference: { amount: "900.00", currency: "GBP" } } },
-      { action: "Exchange the jacket" }
-    );
-    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-  });
-
-  it("matches a standing permission's action only at the start of the summary, word for word, and checks only the terms it can", () => {
-    expect(summaryStartsWithAction("Exchange the Stormline Jacket (M)…", "exchange")).toBe(true);
-    expect(summaryStartsWithAction("  exchange: the jacket", "Exchange")).toBe(true);
-    expect(summaryStartsWithAction("Exchanges are free", "exchange")).toBe(false);
-    expect(summaryStartsWithAction("Non-exchange: delete all saved addresses", "exchange")).toBe(false);
-    expect(summaryStartsWithAction("Exchange no items; close the account", "exchange")).toBe(false);
-    expect(summaryStartsWithAction("Book a table for two", "book a table")).toBe(true);
-    expect(summaryStartsWithAction("Book a room", "book a table")).toBe(false);
-    expect(summaryStartsWithAction("Exchange", "")).toBe(false);
-    const limit = { maxAmount: "50", currency: "GBP" };
-    expect(termsCovered({ price_difference: { amount: "50.00", currency: "GBP" } }, limit)).toBe(true);
-    expect(termsCovered({ price_difference: { amount: "50.01", currency: "GBP" } }, limit)).toBe(false);
-    expect(termsCovered({ price_difference: { amount: "20.00", currency: "USD" } }, limit)).toBe(false);
-    expect(termsCovered({ price_difference: { amount: "twenty", currency: "GBP" } }, limit)).toBe(false);
-    // The maximum is what the operation costs in all, not each line: two terms of 30 pass neither half of a 50 limit.
-    expect(termsCovered({ price: { amount: "30.00", currency: "GBP" }, delivery: { amount: "30.00", currency: "GBP" } }, limit)).toBe(false);
-    expect(termsCovered({ price: { amount: "30.00", currency: "GBP" }, delivery: { amount: "20.00", currency: "GBP" } }, limit)).toBe(true);
-    // A credit counts as much as a charge: the limit bounds every amount that moves.
-    expect(termsCovered({ price: { amount: "30.00", currency: "GBP" }, refund: { amount: "-30.00", currency: "GBP" } }, limit)).toBe(false);
-    expect(termsCovered({ price: { amount: "8.00", currency: "USD" }, fee: { amount: "8.00", currency: "USD" } }, { maxAmount: "10.00", currency: "USD" })).toBe(false);
-    // Exact, not floating point: 0.1 + 0.2 is 0.3, and a value one past a float's integers isn't equal to it.
-    const usd = (amount: string | number) => ({ amount, currency: "USD" });
-    expect(termsCovered({ a: usd("0.1"), b: usd("0.2") }, { maxAmount: "0.3", currency: "USD" })).toBe(true);
-    expect(termsCovered({ a: usd("999999999999999.000001") }, { maxAmount: "999999999999999", currency: "USD" })).toBe(false);
-    expect(termsCovered({ a: usd("999999999999999") }, { maxAmount: "999999999999999", currency: "USD" })).toBe(true);
-    // Beyond 15 digits before the point or 6 after, or not a plain decimal, an amount can't be checked, and the User decides.
-    expect(termsCovered({ a: usd("9007199254740993") }, { maxAmount: "9007199254740992", currency: "USD" })).toBe(false);
-    expect(termsCovered({ a: usd("1".repeat(400)), b: usd("1".repeat(400)) }, { maxAmount: "10", currency: "USD" })).toBe(false);
-    expect(termsCovered({ a: usd(1e308) }, { maxAmount: "10", currency: "USD" })).toBe(false);
-    expect(termsCovered({ a: usd("1e2") }, { maxAmount: "1000", currency: "USD" })).toBe(false);
-    expect(termsCovered({ a: usd("0.0000001") }, { maxAmount: "10", currency: "USD" })).toBe(false);
-    expect(termsCovered({ a: usd(7.5) }, { maxAmount: "10", currency: "USD" })).toBe(true);
-    // A maximum that isn't a bounded decimal covers nothing.
-    expect(termsCovered({ a: usd("1") }, { maxAmount: "Infinity", currency: "USD" })).toBe(false);
-    expect(termsCovered({ a: usd("1") }, { maxAmount: "1".repeat(400), currency: "USD" })).toBe(false);
-    expect(termsCovered({ order_id: "ord_1" }, limit)).toBe(false);
-    expect(termsCovered({ order_id: "ord_1" }, { maxAmount: null, currency: null })).toBe(true);
-    expect(termsCovered({ order_id: 7 }, { maxAmount: null, currency: null })).toBe(false);
-    expect(termsCovered({ pickup_at: "2026-10-20T10:00:00Z" }, { maxAmount: null, currency: null })).toBe(true);
-    expect(termsCovered({ pickup_at: "next Tuesday" }, { maxAmount: null, currency: null })).toBe(false);
-    expect(termsCovered({ items: [{ amount: "1", currency: "GBP" }] }, { maxAmount: null, currency: null })).toBe(false);
-    expect(termsCovered({}, { maxAmount: null, currency: null })).toBe(false);
-  });
-
-  // Ops 3: operation_id "MAY be the ID of the Company's own record for the action".
-  it.each(["booking:", "booking/", "BK.2026.", "ord#"])("takes an operation id like %s…, the Company's own record's, and confirms it percent-encoded", async (prefix) => {
-    const { c, a, card } = await proposal({ operationIdPrefix: prefix });
-    expect(card.operationId.startsWith(prefix)).toBe(true);
-    expect(card.open).toBe(true);
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    const state = await c.stub.state();
-    expect(state.operations[0]).toMatchObject({ id: card.operationId, state: "succeeded", confirms: 1 });
-    expect(state.performs).toBe(1);
-    expect(state.requests.filter((request) => request.url.endsWith("/confirm")).map((request) => request.url)).toEqual([
-      `${c.hosts.operationsEndpoint}/${encodeURIComponent(card.operationId)}/confirm`
-    ]);
-    expect(await a.stub.poppyWaitForNotice(`Operation ${card.operationId} at`)).toContain("is succeeded");
-  });
-
-  it.each([
-    ["a control character", "ord\u0007", "control character"],
-    ["a leading space", " ord", "starts or ends with a space"],
-    ["more than 256 characters", "x".repeat(257), "isn't 1 to 256 characters"]
-  ])("tells the User and the model when a proposal's id has %s, and does nothing", async (_, prefix, problem) => {
-    const c = await company({ operationIdPrefix: prefix });
-    const a = await agent();
-    await signInDirect(a, c);
-    const result = await tool(a, "poppy_api_call", exchangeCall(c));
-    expect(result.isError).toBe(false);
-    expect(JSON.parse(result.text)).toMatchObject({ status: 202, unusable: true });
-    expect(result.text).toContain("nothing was done");
-    const notice = (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("op-unreadable-"))!;
-    expect(notice.text).toContain(problem);
-    expect(notice.text).toContain("nothing was done");
-    expect((await cards(a)).filter((item) => item.kind === "operation")).toEqual([]);
-    expect(await a.stub.poppyWaitForNotice("proposed an operation the agent can't use")).toContain(problem);
-    const state = await c.stub.state();
-    expect(state.operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-    expect(state.requests.filter((request) => request.url.startsWith(c.hosts.operationsEndpoint))).toEqual([]);
-  });
-
-  it("declines a proposal by cancelling it", async () => {
-    const { c, a, card } = await proposal();
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "decline" });
-    expect((await c.stub.state()).operations[0]!.state).toBe("cancelled");
-    expect((await c.stub.state()).performs).toBe(0);
-  });
-
-  it("treats an operation confirmed on the website as the same operation, made once (Ops 4.4)", async () => {
-    const { c, a, card } = await proposal();
-    expect(card.url).toBe(`https://${c.domain}/orders/ord_7Hk2/exchanges/${card.operationId}`);
-    // Its url shows it on the website, in the Session's own browser.
-    const open = () => tool(a, "poppy_browse", { domain: c.domain, action: "open", url: card.url });
-    const before = await open();
-    expect(before.text).toContain(card.summary);
-    expect(before.text).toContain("Status: proposed");
-    // The User confirms it there instead.
-    await c.stub.confirmOnWebsite(card.operationId);
-    expect((await open()).text).toContain("Status: succeeded");
-    // Approving the card later confirms the same operation, which the Company doesn't make again.
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    const state = await c.stub.state();
-    expect(state.performs).toBe(1);
-    expect(state.operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
-    const closed = (await cards(a)).find((item) => item.kind === "operation")!;
-    expect(closed).toMatchObject({ open: false, state: "succeeded" });
-    expect(closed.result).toContain("Exchange placed");
-    await a.stub.poppyWaitForNotice("is succeeded");
-  });
-});
-
 /**
- * A step that fails partway, without a restart: a fetcher wrapper lets the
- * Company handle a request and then loses its answer (or a notice to the
- * model fails), and the test calls the same entry points again, as the next
- * alarm or step would. `hold` keeps an answer back while the test forgets
- * the client's memory, which is what a restart leaves behind.
+ * Operations, version 2 (spec/draft-0.3-retrieved-2026-10-28/pages/0.3-operations.md):
+ * no endpoints, no confirm or cancel, no tracking and no standing
+ * permissions. A write that needs the User's approval is refused with the
+ * operation; the User approves that revision on its card; and the same
+ * request goes again with `Poppy-Approval`, which the Company performs at
+ * most once. test/poppy-0.3.test.ts has the round trip by API, MCP and
+ * conversation; these are the properties around it.
  */
-describe("Ops 6 a confirm whose answer never arrives", () => {
+describe("Operations 2", () => {
   const exchangeCall = (c: Company) => ({
     domain: c.domain,
     operation: "POST /orders/{order_id}/exchanges",
     params: { order_id: "ord_7Hk2" },
     body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }
   });
+  const exchangeRequests = async (c: Company) => (await requests(c)).filter((request) => request.url === `${c.hosts.api}/orders/ord_7Hk2/exchanges`);
+  /** The exchange requests that carried the User's approval. */
+  const approved = async (c: Company) => (await exchangeRequests(c)).filter((request) => request.headers["poppy-approval"]);
+  const approve = (a: Agent, card: Record<string, any>, decision: "approve" | "decline" = "approve") =>
+    a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision });
+  const cardOf = async (a: Agent, approvalId: string) => (await cards(a)).find((item) => item.approvalId === approvalId)!;
 
-  async function proposal() {
+  /** A signed-in agent's exchange, approved on our card, answered with the Company's terms: their card, waiting for the User. */
+  async function terms(config: Partial<MockConfig> = {}, configure?: (c: Company) => Partial<MockConfig>) {
+    const c = await company(config);
+    if (configure) await c.stub.configure(configure(c));
+    const a = await agent();
+    await signInDirect(a, c);
+    expect((await tool(a, "poppy_api_call", exchangeCall(c))).text).toContain("Waiting for the User's approval");
+    const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await approve(a, ours);
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(card.approvalId).toMatch(/^apr2_/);
+    expect((await c.stub.state()).performs).toBe(0);
+    return { c, a, ours, card };
+  }
+
+  /** The approval a waiting card will send (`poppy_approvals.request`), as stored. */
+  const storedApproval = async (a: Agent, approvalId: string) =>
+    (JSON.parse(await a.stub.poppySql("SELECT json_extract(request, '$.call.approval') AS approval FROM poppy_approvals WHERE id = ?", approvalId)) as { approval: string }[])
+      .map((row) => JSON.parse(row.approval) as { operation_id: string; revision: string; expires_at: string })[0]!;
+
+  it("shows the Company's summary verbatim, with its expiry and highlights, and performs once the User approves (Ops 5, 6)", async () => {
+    const { c, a, card } = await terms();
+    const summary = "Exchange the Stormline Jacket (M) on order ord_7Hk2 for the Stormline Insulated Jacket (M), for $70.00 more, charged to the card used for the order.";
+    const { operation_id: operationId, revision, expires_at: expiresAt } = await storedApproval(a, card.approvalId);
+    expect(card.terms).toEqual({
+      summary,
+      expiresAt,
+      highlights: ["Cost (price_difference): 70.00 USD", "The company hasn't said whether this can be undone."]
+    });
+    expect(card.summary).toBe(`Mock Shop ${c.id} asks for your approval before it does this: ${summary} (Approval needed by ${expiresAt}.)`);
+    // The model hears that nothing has happened, and that the User decides.
+    expect(await a.stub.poppyWaitForNotice("asks the User to approve its exact terms first")).toContain("nothing has happened yet");
+    await approve(a, card);
+    // The same request again, with the approval of exactly that revision (Ops 6).
+    const sent = await approved(c);
+    expect(sent.map((request) => [request.status, request.headers["poppy-approval"]])).toEqual([[201, `operation_id="${operationId}", revision="${revision}"`]]);
+    expect((await c.stub.state()).performs).toBe(1);
+    expect(await cardOf(a, card.approvalId)).toMatchObject({ open: false, status: "done", result: expect.stringContaining(`"exchange_id":"${operationId}"`) });
+    expect(await a.stub.poppyWaitForNotice(`Done, as the User approved: Mock Shop ${c.id} asks for your approval`)).toContain("Result:");
+  });
+
+  it("shows the terms' total, highlights and previews on the card, and where the terms disagree with the summary or the request (Ops 5)", async () => {
+    const summary = "Exchange the jacket for the insulated one, for $70.00 more.";
+    const { c, card } = await terms({}, (c) => ({
+      exchangeOperation: {
+        summary,
+        terms: {
+          order_id: "ord_7Hk2",
+          item_id: "itm_4Qa",
+          // Not the size the request asked for, and a total the summary doesn't name.
+          replacement_sku: "stormline-insulated-l",
+          price_difference: { amount: "70.00", currency: "USD" },
+          total: { amount: "75.00", currency: "USD" },
+          delivery_date: "2026-11-02",
+          refundable: false,
+          preview_url: `https://${c.domain}/previews/exchange.png`,
+          // A preview on another host is never linked: the card points only at the Company's own.
+          label: { preview: "https://elsewhere.test/label.png" }
+        }
+      }
+    }));
+    expect(card.terms).toEqual({
+      summary,
+      expiresAt: expect.any(String),
+      total: { amount: "75.00", currency: "USD" },
+      highlights: ["Cost (price_difference): 70.00 USD", "Cost (total): 75.00 USD", "Date (delivery_date): 2026-11-02", "The company says this can't be undone."],
+      previews: [{ label: "preview url", url: `https://${c.domain}/previews/exchange.png` }],
+      differences: [
+        "The terms say replacement_sku is stormline-insulated-l, but the request asked for stormline-insulated-m.",
+        "The terms name 75.00 USD (total), which the summary doesn't mention."
+      ]
+    });
+    // Shown, not decided: nothing is sent until the User approves what the card shows.
+    expect(await approved(c)).toEqual([]);
+  });
+
+  it("needs a new approval for a new revision: an approval the Company answers with new terms performs nothing, and they get a card of their own (Ops 6)", async () => {
+    const { c, a, card } = await terms();
+    // As if the Company no longer had the revision the User approved (Ops 6, check 3): it answers the approval with a new one.
+    await a.stub.poppySql("UPDATE poppy_approvals SET request = json_set(request, '$.call.approval.revision', 'r-the-company-dropped') WHERE id = ?", card.approvalId);
+    await approve(a, card);
+    expect((await approved(c)).map((request) => `${request.status} ${request.error}`)).toEqual(["403 approval_required"]);
+    expect((await c.stub.state()).performs).toBe(0);
+    // The approved card says so, never "done"; the new revision waits on its own card.
+    expect(await cardOf(a, card.approvalId)).toMatchObject({ open: false, status: "terms" });
+    const revised = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    expect(revised.approvalId).toMatch(/^apr2_/);
+    expect(revised.approvalId).not.toBe(card.approvalId);
+    expect(revised.terms.summary).toBe(card.terms.summary);
+    expect((await storedApproval(a, revised.approvalId)).revision).not.toBe("r-the-company-dropped");
+    // Only the User's approval of the new revision performs it.
+    await approve(a, revised);
+    expect((await approved(c)).map((request) => request.status)).toEqual([403, 201]);
+    expect((await c.stub.state()).performs).toBe(1);
+    expect(await cardOf(a, card.approvalId)).toMatchObject({ open: false, status: "done" });
+  });
+
+  it("sends an approval once, even when the User approves twice at once (Ops 7)", async () => {
+    const { c, a, card } = await terms();
+    await Promise.all([approve(a, card), approve(a, card)]);
+    // And once more, and a decline, after it was done: the card is decided.
+    await approve(a, card);
+    await approve(a, card, "decline");
+    expect(await approved(c)).toHaveLength(1);
+    expect((await c.stub.state()).performs).toBe(1);
+    expect(await cardOf(a, card.approvalId)).toMatchObject({ status: "done" });
+  });
+
+  it("never sends an approval whose revision has expired (Ops 3, \"Expiry\")", async () => {
+    const { c, a, card } = await terms();
+    // As if the User had come back after the revision's expires_at.
+    await a.stub.poppySql("UPDATE poppy_approvals SET request = json_set(request, '$.call.approval.expires_at', '2000-01-01T00:00:00Z') WHERE id = ?", card.approvalId);
+    await approve(a, card);
+    expect(await approved(c)).toEqual([]);
+    expect((await c.stub.state()).performs).toBe(0);
+    expect(await cardOf(a, card.approvalId)).toMatchObject({
+      open: false,
+      status: "failed",
+      result: `Not sent: Mock Shop ${c.id}'s terms expired before they were approved. Ask Mock Shop ${c.id} again for current terms. [approval_changed]`
+    });
+    expect(await a.stub.poppyWaitForNotice("The approved action failed")).toContain("terms expired");
+  });
+
+  it("asks the User for each operation: approving one approves no other", async () => {
     const c = await company();
     const a = await agent();
     await signInDirect(a, c);
-    await tool(a, "poppy_api_call", exchangeCall(c));
-    const card = (await cards(a)).find((item) => item.kind === "operation")!;
-    return { c, a, card };
-  }
-
-  const approve = (a: Agent, c: Company, card: Record<string, any>) =>
-    a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-  const reads = async (c: Company, id: string) =>
-    (await requests(c)).filter((request) => request.method === "GET" && request.url === `${c.hosts.operationsEndpoint}/${id}`).length;
-
-  it.each(["throw", "gateway"] as const)("reads an operation whose confirm answer was lost (%s), and never confirms it again once final", async (mode) => {
-    const { c, a, card } = await proposal();
-    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode });
-    await approve(a, c, card);
-    expect(await a.stub.poppyFaultsLeft()).toBe(0);
-    // The Company made the exchange; the agent never heard.
+    // Two exchanges of the jacket, for two sizes: two requests, so two operations, each with its own terms.
+    const sizes = ["stormline-insulated-m", "stormline-insulated-l"];
+    const waiting: Record<string, any>[] = [];
+    for (const sku of sizes) {
+      expect((await tool(a, "poppy_api_call", { ...exchangeCall(c), body: { item_id: "itm_4Qa", replacement_sku: sku } })).text).toContain("Waiting for the User's approval");
+      // Ours, not the first size's terms, which wait too.
+      const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open && !item.approvalId.startsWith("apr2_"))!;
+      await approve(a, ours);
+      waiting.push((await cards(a)).find((item) => item.kind === "approval" && item.open && item.approvalId.startsWith("apr2_") && !waiting.some((seen) => seen.approvalId === item.approvalId))!);
+    }
+    const [medium, large] = waiting;
+    expect(medium!.approvalId).not.toBe(large!.approvalId);
+    expect(large!.terms.summary).toContain("stormline-insulated-l");
+    await approve(a, medium!);
+    // One performed, the other still waiting for the User, its card open.
     expect((await c.stub.state()).performs).toBe(1);
-    await a.stub.poppyAdvance(5_000);
-    await a.stub.poppyWaitForNotice("is succeeded");
-    expect((await cards(a)).find((item) => item.kind === "operation")).toMatchObject({ open: false, state: "succeeded" });
-    // A later sign-in retries approved operations waiting on one: this one is final, so it isn't confirmed again.
-    await signInDirect(a, c, ["poppy:read"], { account: "acct_bob" }, { account: "second", session: "second" });
-    // Nor is it read again: the check scheduled before the confirm finds it final.
-    await a.stub.poppyAdvance(60_000);
-    const state = await c.stub.state();
-    expect(state.performs).toBe(1);
-    expect(state.operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
-    expect(await reads(c, card.operationId)).toBe(1);
+    expect((await c.stub.state()).operations.map((operation) => operation.state)).toEqual(["succeeded", "proposed"]);
+    expect(await approved(c)).toHaveLength(1);
+    expect(await cardOf(a, large!.approvalId)).toMatchObject({ open: true, status: "pending" });
   });
 
-  it("checks on a confirm that a restart interrupted, then confirms nothing more", async () => {
-    const { c, a, card } = await proposal();
-    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "hold" });
-    const approving = approve(a, c, card);
+  it("sends nothing more when the User declines the Company's terms", async () => {
+    const { c, a, card } = await terms();
+    await approve(a, card, "decline");
+    await approve(a, card);
+    expect(await approved(c)).toEqual([]);
+    expect((await c.stub.state()).performs).toBe(0);
+    expect(await cardOf(a, card.approvalId)).toMatchObject({ open: false, status: "declined" });
+    expect(await a.stub.poppyWaitForNotice("The User declined")).toContain(`Mock Shop ${c.id} asks for your approval`);
+  });
+
+  it.each([
+    ["a colon in its id, as a Company's own record's might have", { operation_id: "booking:1" }, "its operation_id isn't 1 to 256 URL-safe characters"],
+    ["a space in its id", { operation_id: "exc 1" }, "its operation_id isn't 1 to 256 URL-safe characters"],
+    ["an id of more than 256 characters", { operation_id: "x".repeat(257) }, "its operation_id isn't 1 to 256 URL-safe characters"],
+    ["0.2's integer revision", { revision: 2 }, "its revision isn't 1 to 256 URL-safe characters"],
+    ["no expiry", { expires_at: null }, "its expires_at isn't an RFC 3339 time"]
+  ] as const)("tells the User when a Company Agent's operation has %s, and offers nothing to approve", async (_, change, problem) => {
+    const c = await company();
+    const a = await agent();
+    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+    const operation = { operation_id: "exc_1", revision: "r1", summary: "Exchange the jacket for $70.00 more.", expires_at: new Date(Date.now() + 600_000).toISOString(), ...change };
+    await c.stub.say(first.conversationId, "Shall I go ahead?", { operation });
+    const notice = await until(async () => (await cards(a)).find((item) => item.kind === "notice" && item.id.startsWith("approval-unusable-")));
+    expect(notice.text).toBe(`Mock Shop ${c.id} asked for your approval in a conversation, but its terms couldn't be used (${problem}), so nothing was done.`);
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([]);
+    expect(await a.stub.poppySql("SELECT id FROM poppy_approvals")).toBe("[]");
+  });
+
+  it("says an approval whose answer never came may have been done, and never sends it again (Ops 7)", async () => {
+    const { c, a, card } = await terms();
+    // The Company performs it; its answer is lost.
+    await a.stub.poppyFault({ method: "POST", url: "/exchanges", mode: "throw" });
+    await approve(a, card);
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    expect((await c.stub.state()).performs).toBe(1);
+    expect(await cardOf(a, card.approvalId)).toMatchObject({ open: false, status: "unknown", result: expect.stringContaining("may or may not have reached them") });
+    expect(await a.stub.poppyWaitForNotice("may or may not have happened")).toContain("it won't be retried automatically");
+    // Nothing sends it again: not time, not another approval.
+    await a.stub.poppyAdvance(60 * 60_000);
+    await approve(a, card);
+    expect(await approved(c)).toHaveLength(1);
+    expect((await c.stub.state()).performs).toBe(1);
+  });
+
+  it("reads an approval a restart interrupted as unknown, and never sends it again", async () => {
+    const { c, a, card } = await terms();
+    await a.stub.poppyFault({ method: "POST", url: "/exchanges", mode: "hold" });
+    const approving = approve(a, card);
     await until(async () => (await c.stub.state()).performs === 1);
     expect(await a.stub.poppyFaultsLeft()).toBe(0);
-    // A restart: the client's memory is gone, and the interrupted step never hears back.
-    await a.stub.poppyForgetMemory();
-    await a.stub.poppyAdvance(60_000);
-    await a.stub.poppyWaitForNotice("is succeeded");
-    // The old connection finally fails; what it schedules finds the operation final.
+    // A restart: memory is gone, and the approval in flight never hears back.
+    await a.stub.poppyRestart();
+    expect(await cardOf(a, card.approvalId)).toMatchObject({ open: false, status: "unknown" });
+    expect(await a.stub.poppyWaitForNotice("was interrupted and its outcome is unknown")).toContain(`check with Mock Shop ${c.id}`);
+    // The old connection finally fails; it changes nothing.
     expect(await a.stub.poppyReleaseHeld()).toBe(1);
     await approving;
-    await a.stub.poppyAdvance(60_000);
-    const state = await c.stub.state();
-    expect(state.performs).toBe(1);
-    expect(state.operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
-    expect(await reads(c, card.operationId)).toBe(1);
-  });
-
-  it("confirms the same revision again when the confirm never reached the Company", async () => {
-    const { c, a, card } = await proposal();
-    await a.stub.poppyFault({ method: "POST", url: "/confirm", mode: "lose" });
-    await approve(a, c, card);
-    expect(await a.stub.poppyFaultsLeft()).toBe(0);
-    expect((await c.stub.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-    // Read first: still proposed, so the approved revision is confirmed, under the same id.
-    await a.stub.poppyAdvance(5_000);
-    await a.stub.poppyWaitForNotice("is succeeded");
-    const state = await c.stub.state();
-    expect(state.performs).toBe(1);
-    expect(state.operations[0]).toMatchObject({ state: "succeeded", confirms: 1, approvedBy: "user" });
-    expect(await reads(c, card.operationId)).toBe(1);
+    await approve(a, card);
+    expect(await approved(c)).toHaveLength(1);
+    expect((await c.stub.state()).performs).toBe(1);
+    expect(await cardOf(a, card.approvalId)).toMatchObject({ status: "unknown" });
   });
 });
 
-describe("7.5 an event whose handling fails", () => {
+describe("8.5 an event whose handling fails", () => {
   const inboxFor = async (a: Agent, conversationId: string) =>
     JSON.parse(
       await a.stub.poppySql(
@@ -2837,7 +2633,7 @@ describe("7.5 an event whose handling fails", () => {
     await a.stub.poppyWaitForNotice("needs the User signed in");
     await signInDirect(a, c);
     await tool(a, "poppy_message", { domain: c.domain, conversation: first.conversationId, text: "I'm signed in now; please exchange it for the insulated one." });
-    const card = await until(async () => (await cards(a)).find((item) => item.kind === "operation" && item.open));
+    const card = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
     const [proposing] = JSON.parse(
       await a.stub.poppySql("SELECT json_extract(event, '$.id') AS id FROM poppy_inbox WHERE conversation_id = ? AND instr(event, '\"operation\"') > 0", first.conversationId)
     ) as { id: string }[];
@@ -2847,8 +2643,9 @@ describe("7.5 an event whose handling fails", () => {
     await a.stub.poppyReadNow(first.conversationId);
     expect(JSON.parse(await a.stub.poppySql("SELECT 1 FROM poppy_events WHERE conversation_id = ? AND event_id = ?", first.conversationId, proposing!.id))).toHaveLength(1);
     expect((await inboxFor(a, first.conversationId)).filter((entry) => entry.id === proposing!.id)).toHaveLength(1);
-    expect(JSON.parse(await a.stub.poppySql("SELECT operation_id FROM poppy_operations"))).toHaveLength(1);
-    expect((await cards(a)).filter((item) => item.kind === "operation")).toEqual([expect.objectContaining({ operationId: card.operationId, open: true })]);
+    // One approval waiting, on one card: the event's operation wasn't asked about twice.
+    expect(JSON.parse(await a.stub.poppySql("SELECT id, status FROM poppy_approvals"))).toEqual([{ id: card.approvalId, status: "pending" }]);
+    expect((await cards(a)).filter((item) => item.kind === "approval")).toEqual([expect.objectContaining({ approvalId: card.approvalId, open: true })]);
     expect((await c.stub.state()).operations).toHaveLength(1);
   });
 });
@@ -2933,7 +2730,7 @@ describe("Guides: reading a conversation no more often than it needs", () => {
   });
 });
 
-describe("7.5 reading again while has_more", () => {
+describe("8.5 reading again while has_more", () => {
   it("reads page after page at once while has_more is true, handling each event once and in order, saving the cursor only after", async () => {
     const c = await company({ streaming: false, eventPageSize: 2 });
     const a = await agent();
@@ -2983,7 +2780,7 @@ describe("7.5 reading again while has_more", () => {
   });
 });
 
-describe("7.13 conversation errors", () => {
+describe("8.13 conversation errors", () => {
   /** A conversation the agent started, with its background reader held (`holdBackgroundReads`). */
   async function started(config: Partial<MockConfig> = {}) {
     const c = await company({ streaming: false, ...config });
@@ -3097,8 +2894,8 @@ describe("7.13 conversation errors", () => {
     c.expectViolations(/^\[message\.id-reused\] message id msg_\S+ reused with different content$/);
     try {
       expect((await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "First version." }, "call-2")).isError).toBe(false);
-      await a.stub.poppySql("UPDATE poppy_intents SET value = replace(value, 'First version.', 'Second version.') WHERE call_key LIKE '%|call-2'");
-      const [{ message }] = JSON.parse(await a.stub.poppySql("SELECT json_extract(value, '$.message.id') AS message FROM poppy_intents WHERE call_key LIKE '%|call-2'")) as { message: string }[];
+      await a.stub.poppySql("UPDATE poppy_intents SET value = replace(value, 'First version.', 'Second version.') WHERE call_key LIKE 'message|%|call-2'");
+      const [{ message }] = JSON.parse(await a.stub.poppySql("SELECT json_extract(value, '$.message.id') AS message FROM poppy_intents WHERE call_key LIKE 'message|%|call-2'")) as { message: string }[];
       const logMark = await a.stub.poppyLogMark();
       const replayed = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "First version." }, "call-2");
       expect(replayed.isError).toBe(true);
@@ -3175,7 +2972,7 @@ describe("7.13 conversation errors", () => {
     }
   });
 
-  it("tells the model the User must sign in again when a conversation that used the account is read or continued signed out (sign_in_required)", async () => {
+  it("tells the model the User must sign in again when a conversation that used the account is read or continued signed out (insufficient_scope, 8.11)", async () => {
     const c = await company({ streaming: false });
     const a = await agent();
     const reads = await holdBackgroundReads(a);
@@ -3191,11 +2988,11 @@ describe("7.13 conversation errors", () => {
       // Read again in five minutes, not at once, and nothing closed.
       expect(next - before).toBeGreaterThanOrEqual(5 * 60_000 - 1_000);
       expect(next - Date.now()).toBeLessThanOrEqual(5 * 60_000);
-      expect(await a.stub.poppyWaitForNotice(`Conversation ${id} with Mock Shop ${c.id} needs the User signed in again (sign_in_required).`)).toBeTruthy();
+      expect(await a.stub.poppyWaitForNotice(`Conversation ${id} with Mock Shop ${c.id} needs the User signed in again (insufficient_scope).`)).toBeTruthy();
       expect((await conversationRow(a, id)).status).not.toBe("closed");
       const said = await tool(a, "poppy_message", { domain: c.domain, conversation: id, text: "Are you there?" });
       expect(said.isError).toBe(true);
-      expect(said.text).toBe(`Mock Shop ${c.id}: sign_in_required [sign_in_required]`);
+      expect(said.text).toBe(`Mock Shop ${c.id}: insufficient_scope [insufficient_scope]`);
       expect((await conversationRow(a, id)).status).not.toBe("closed");
       expect((await posts(c, id)).started).toBe(1);
       // Signed in again, the same conversation goes on.
@@ -3208,32 +3005,33 @@ describe("7.13 conversation errors", () => {
   });
 });
 
-describe("4.5 a Direct Sign-In interrupted mid-exchange", () => {
+describe("4.2 a Direct Sign-In interrupted mid-exchange", () => {
   const exchange = { method: "POST", url: "/oauth/token", grant: "authorization_code" } as const;
   const signInRows = async (a: Agent) =>
     JSON.parse(await a.stub.poppySql("SELECT id, issuer, status, secret FROM poppy_signins")) as { id: string; issuer: string; status: string; secret: string }[];
   const ourSession = async (a: Agent) =>
     (JSON.parse(await a.stub.poppySql("SELECT session_id, signed_in FROM poppy_sessions WHERE label = 'main'")) as { session_id: string; signed_in: number }[])[0];
 
-  it.each(["throw", "gateway"] as const)("starts a new Session when a code exchange's answer is lost (%s), and the User can sign in again", async (mode) => {
+  it.each(["throw", "gateway"] as const)("keeps the Session when a code exchange's answer is lost (%s), and the User can sign in again", async (mode) => {
     const c = await company();
     const a = await agent();
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
+    const before = (await ourSession(a))!;
     await a.stub.poppyFault({ ...exchange, mode });
     const result = await signInDirect(a, c);
     expect(await a.stub.poppyFaultsLeft()).toBe(0);
     expect(result!.callback.status).toBe(400);
     expect(result!.text).toContain("interrupted");
-    // The Company signed the Session in; the agent never got its tokens, so it leaves that Session.
-    const signedIn = (await c.stub.state()).sessions.find((session) => session.signedIn)!;
-    expect(signedIn).toBeDefined();
-    expect(await ourSession(a)).toBeUndefined();
+    // The Company issued a refresh token the agent never got (N45); sign-in names no Session (5.4), so ours is as it was.
+    expect((await requests(c)).filter((request) => request.grant === "authorization_code").map((request) => request.status)).toEqual([200]);
+    expect(await ourSession(a)).toEqual(before);
+    expect(await a.stub.poppySql("SELECT * FROM poppy_accounts")).toBe("[]");
     expect((await signInRows(a))[0]!.status).toBe("failed");
     expect((await cards(a)).find((item) => item.id.startsWith("signin-"))).toMatchObject({ kind: "notice", open: false });
     await a.stub.poppyWaitForNotice("was interrupted");
-    // The next use starts a new Session, signed out, instead of renewing that one with the assertion.
-    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
-    expect(await ourSession(a)).toMatchObject({ signed_in: 0 });
-    expect((await ourSession(a))!.session_id).not.toBe(signedIn.id);
+    // The next use continues signed out in the same Session.
+    expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello again" })).isError).toBe(false);
+    expect(await ourSession(a)).toEqual(before);
     // Signing in again works.
     expect((await signInDirect(a, c))!.callback.status).toBe(200);
     expect(await ourSession(a)).toMatchObject({ signed_in: 1 });
@@ -3242,7 +3040,7 @@ describe("4.5 a Direct Sign-In interrupted mid-exchange", () => {
   it("resolves a code exchange a restart interrupted, on the next use", async () => {
     const c = await company();
     const a = await agent();
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "test" });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "test" });
     const card = (await cards(a)).find((item) => item.kind === "signin_link")!;
     const location = await c.stub.approveAuthorization(card.url, { approve: true, account: "acct_ada" });
     await a.stub.poppyFault({ ...exchange, mode: "hold" });
@@ -3252,7 +3050,7 @@ describe("4.5 a Direct Sign-In interrupted mid-exchange", () => {
     // A restart: memory is gone, and the exchange never hears back.
     await a.stub.poppyForgetMemory();
     expect((await signInRows(a))[0]!.status).toBe("exchanging");
-    // The next use of the Company finds it and starts a new Session.
+    // The next use of the Company finds it, and continues signed out.
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
     expect((await signInRows(a))[0]!.status).toBe("failed");
     expect(await ourSession(a)).toMatchObject({ signed_in: 0 });
@@ -3272,13 +3070,13 @@ describe("4.5 a Direct Sign-In interrupted mid-exchange", () => {
     expect(await a.stub.poppyFaultsLeft()).toBe(0);
     expect(result!.callback.status).toBe(400);
     expect(result!.text).toContain("finish here");
-    // The tokens are stored; the next use finishes the rest, renewing with the Account Token.
+    // The tokens are stored; the next use finishes the rest, refreshing with the refresh token.
     expect((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).isError).toBe(false);
     await a.stub.poppyWaitForNotice("Signed in to");
     expect(await ourSession(a)).toMatchObject({ signed_in: 1 });
     const [row] = await signInRows(a);
     expect(row!.status).toBe("done");
-    expect(JSON.parse((await a.stub.poppyOpenSealed(row!.secret, `signin|${row!.id}|${row!.issuer}`))!)).toEqual({ scope: "poppy:read poppy:write" });
+    expect(JSON.parse((await a.stub.poppyOpenSealed(row!.secret, `signin|${row!.id}|${row!.issuer}`))!)).toEqual({ scope: "orders:read orders:write" });
     expect((await cards(a)).find((item) => item.id === `signin-${row!.id}`)).toMatchObject({ kind: "notice", open: false });
   });
 });
@@ -3308,10 +3106,12 @@ describe("Guides: a Company that stops answering", () => {
   it("gives up on a token response whose body stalls", async () => {
     const c = await company();
     const a = await agent();
+    await signInDirect(a, c);
     await a.stub.poppySetTimeouts({ oauthMs: 300 });
-    // The first use of a Company starts a Session at its token endpoint.
+    // Its access token forgotten, the next call refreshes at the token endpoint first.
+    await a.stub.poppyForgetMemory();
     await a.stub.poppyFault({ method: "POST", url: "/oauth/token", mode: "stall" });
-    const result = await within(tool(a, "poppy_message", { domain: c.domain, text: "hello" }));
+    const result = await within(tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" }));
     expect(await a.stub.poppyFaultsLeft()).toBe(0);
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/timed out after 0\.3 seconds/);
@@ -3382,7 +3182,6 @@ describe("parsed once at the edge", () => {
     summary: "",
     parameters: [{ name: "n", in: "query", required: false, schema }],
     acceptsIdempotencyKey: false,
-    proposes: false,
     scopes: [],
     outsidePoppy: false,
     schemaDraft: "2020-12"
@@ -3424,30 +3223,37 @@ describe("parsed once at the edge", () => {
     expect((await requests(c)).filter((request) => request.url.startsWith(`${c.hosts.api}/products`))).toHaveLength(1);
   });
 
-  it("decodes a token response whole: a member of the wrong type is malformed, an absent signed_in or scope is allowed", () => {
-    const good = { access_token: "at", token_type: "DPoP", expires_in: 3600, session_id: "ses_1" };
+  it("decodes a token response whole: a member of the wrong type is malformed, an absent scope or refresh token is allowed", () => {
+    const good = { access_token: "at", token_type: "DPoP", expires_in: 3600 };
     expect(tryDecode(tokenResponse, good, "token response").ok).toBe(true);
-    expect(tryDecode(tokenResponse, { ...good, signed_in: true, scope: "poppy:read", refresh_token: "rt", refresh_token_expires_in: 60 }, "token response").ok).toBe(true);
-    for (const bad of [{ ...good, refresh_token_expires_in: "3600" }, { ...good, signed_in: "true" }, { ...good, session_id: 7 }, { ...good, expires_in: "3600" }]) {
+    expect(tryDecode(tokenResponse, { ...good, scope: "orders:read", refresh_token: "rt", refresh_token_expires_in: 60 }, "token response").ok).toBe(true);
+    for (const bad of [{ ...good, refresh_token_expires_in: "3600" }, { ...good, scope: ["orders:read"] }, { ...good, refresh_token: 7 }, { ...good, expires_in: "3600" }, { ...good, access_token: undefined }]) {
       expect(tryDecode(tokenResponse, bad, "token response").ok, JSON.stringify(bad)).toBe(false);
     }
   });
 
-  it("decodes an operation: its four required members checked, an optional one of the wrong type left out", () => {
-    const base = { operation_id: "op_1", revision: 2, state: "proposed", summary: "Exchange the jacket" };
-    expect(parseOperation({ ...base, url: 5, user_approval_required: "yes", expires_at: "2026-10-20T00:00:00Z", result: { summary: 3 }, extra: 1 })).toEqual({
-      operation: { ...base, expires_at: "2026-10-20T00:00:00Z" }
-    });
-    expect(parseOperation({ ...base, result: { summary: "Done", data: { order: "ord_1" } } })).toEqual({ operation: { ...base, result: { summary: "Done", data: { order: "ord_1" } } } });
-    expect(parseOperation({ ...base, state: "done" })).toEqual({ problem: "its state isn't one the Operations extension defines" });
+  it("decodes an operation (Ops 3): ids of URL-safe characters, a summary, terms an object, and an RFC 3339 expires_at", () => {
+    const base = { operation_id: "exc_1", revision: "r-2", summary: "Exchange the jacket", expires_at: "2026-10-20T00:00:00Z" };
+    // Members it doesn't know are left out.
+    expect(parseOperationV2({ ...base, terms: { total: { amount: "1.00", currency: "USD" } }, state: "proposed", extra: 1 })).toEqual({ ...base, terms: { total: { amount: "1.00", currency: "USD" } } });
+    expect(parseOperationV2(base)).toEqual(base);
+    expect(parseOperationV2({ ...base, operation_id: "booking:1" })).toEqual({ problem: "its operation_id isn't 1 to 256 URL-safe characters" });
+    expect(parseOperationV2({ ...base, operation_id: "x".repeat(257) })).toEqual({ problem: "its operation_id isn't 1 to 256 URL-safe characters" });
+    // 0.2's integer revisions aren't 0.3's.
+    expect(parseOperationV2({ ...base, revision: 2 })).toEqual({ problem: "its revision isn't 1 to 256 URL-safe characters" });
+    expect(parseOperationV2({ ...base, summary: "  " })).toEqual({ problem: "it has no summary" });
+    expect(parseOperationV2({ ...base, summary: "x".repeat(4_001) })).toEqual({ problem: "its summary is too long to show" });
+    expect(parseOperationV2({ ...base, terms: ["70.00"] })).toEqual({ problem: "its terms aren't an object" });
+    expect(parseOperationV2({ ...base, expires_at: "tomorrow" })).toEqual({ problem: "its expires_at isn't an RFC 3339 time" });
+    expect(parseOperationV2([base])).toEqual({ problem: "it isn't an object" });
   });
 
   it("decodes the page's frames to the agent member by member, and the agent's to the page by type", () => {
-    const issuer = "https://auth.shop.example";
-    expect(tryDecode(clientFrame, { type: "poppy.operation", issuer, operationId: "op_1", revision: 1, decision: "approve" }, "frame").ok).toBe(true);
+    expect(tryDecode(clientFrame, { type: "poppy.approval", approvalId: "apr2_1", decision: "approve" }, "frame").ok).toBe(true);
     for (const bad of [
-      { type: "poppy.operation", issuer, operationId: "op_1", revision: 1, decision: "yes" },
-      { type: "poppy.operation", issuer, operationId: "op_1", revision: "1", decision: "approve" },
+      { type: "poppy.approval", approvalId: "apr2_1", decision: "yes" },
+      // Operations 1's frame is gone: an approval names our card, never a Company's operation.
+      { type: "poppy.operation", issuer: "https://auth.shop.example", operationId: "op_1", revision: 1, decision: "approve" },
       { type: "poppy.approval", approvalId: 7, decision: "approve" },
       { type: "poppy.credentials", signInId: "si_1", values: { password: 1 } },
       { type: "poppy.unknown" }

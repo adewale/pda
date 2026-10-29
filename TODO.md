@@ -15,7 +15,7 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 
 ## Operations
 
-- [ ] **Owner. Back up `TOKEN_ENC_KEY`** (for example in a password manager). Losing it loses every sealed Account Token and model key ([setup](docs/setup.md)).
+- [ ] **Owner. Back up `TOKEN_ENC_KEY`** (for example in a password manager). Losing it loses every sealed refresh token and model key ([setup](docs/setup.md)).
 - [ ] **Code. A runbook for rotating `POPPY_SIGNING_JWKS`**, and for a leaked signing key: add the new key, publish both, switch the signer, retire the old `kid` after Companies' caches expire, and give every new key a new `kid`.
 - [ ] **Owner. Spending alerts:** a Cloudflare billing notification, and provider-side limits and alerts on any funded key. Done so far: credits and a spend limit on `dpa-gateway`.
 - [ ] **Owner. Check `dpa-gateway`'s settings in the dashboard:** Authenticated Gateway on with no tokens, logging off or short retention, caching off, auto top-up off. Wrangler's login token can't read AI Gateway settings, so this can't be checked from here.
@@ -27,7 +27,7 @@ Everything left open. **Owner** items need a decision or an account; **Code** it
 ## Product
 
 - [x] **Code. Give compaction a budget.** Done: a summary from 150k tokens, a hard limit at 184k, our summarizer keeping Company text apart, `poppy_status` listing everything open, the summary shown as a notice ([decisions §23](docs/decisions.md#23-compaction-a-budget-our-summarizer-the-page)). What's left is the live check of a demo-lane turn after a compaction (preserved thinking), in [deployment-tasks §2](docs/deployment-tasks.md#2-live-checks).
-- [ ] **Code. "Delete my agent" and data export.** Now owed: `/privacy` (12 October) promises deletion within 30 days of a request, and today only the operator could do it, by hand. Build it before the policy is tested: revoke every Account Token at its Company, then delete the Durable Object's storage (memories, photos and keys included).
+- [ ] **Code. "Delete my agent" and data export.** Now owed: `/privacy` (12 October) promises deletion within 30 days of a request, and today only the operator could do it, by hand. Build it before the policy is tested: revoke every refresh token at its Company, then delete the Durable Object's storage (memories, photos and keys included).
 - [x] **Code. Memory, and the other general tools.** Built: `read_url`, `remember`, `recall`, `forget`, `now`, `date_math`, `calculate`, with Settings' Memory section ([decisions §27](docs/decisions.md#27-general-tools-beside-poppy-read_url-memory-time-and-maths)).
 - [ ] **Code. Skills and the rest of milestone 2** ([spec, Build plan](pda-spec.md#build-plan)).
 - [x] **Code. Reminders and scheduled tasks**, on the Durable Object's alarm, with Web Push notifications ([decisions §29](docs/decisions.md#29-reminders-and-scheduled-tasks-on-the-durable-objects-alarm-and-web-push)).

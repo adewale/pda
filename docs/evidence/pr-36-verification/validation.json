@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-29",
+  "runtimeCompanySource": "2a369f589e03398e31208022aae235a2ed07260c",
+  "scope": "Same PDA and Company runtime source; corrected Python message oracle and three focused counterexamples.",
+  "command": "UV_CACHE_DIR=/tmp/pda-03-verification-uv npm run test:hypothesis",
+  "profile": {
+    "name": "default",
+    "maxExamples": 100,
+    "statefulStepCount": 30
+  },
+  "tests": {
+    "passed": 21,
+    "failed": 0,
+    "durationSeconds": 93.74
+  },
+  "beforeFix": {
+    "command": "uv run --directory test/hypothesis --frozen pytest test_oracles.py -k message_oracle",
+    "targetedCasesFailed": 3
+  },
+  "generatorAndOtherInvariantsChanged": false,
+  "sourceHashes": {
+    "test/hypothesis/machine.py": "67d2a953ce6ee15c6b746372884ff83df6c5b72e09009ae404cdbb72de90bb6c",
+    "test/hypothesis/test_oracles.py": "1c0845460175a124ae8e292390d5f0443567718b3b91bab52b00739ff99d33ed"
+  },
+  "receiptHashes": {
+    "python-current.txt": "1f4e8c051ab8300357d68f07ab1cbfc1e553c60cf7392c2ab9f56699545c2411",
+    "python-oracle-before.txt": "056980cf46248d207c06d139564988c45903cfd8666020574e4fc9fe6f4cca13"
+  },
+  "limits": [
+    "Independent implementation under our readings, not independently authored interpretation of every rule.",
+    "Checks our mock Company; it does not execute src/poppy.",
+    "No live OAuth/model/payment evidence.",
+    "Remaining verification priorities are recorded in docs/poppy-0.3-conformance.md."
+  ]
+}

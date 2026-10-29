@@ -21,9 +21,8 @@
  * sloppy agent may not (registry `"live": false`).
  * - `sloppy`: what real agents get wrong, declared honestly in its
  *   readings: assertions without `typ` that live 300 s (S2
- *   `lenient-300s`), a client and Session assertion `aud` of the token
- *   endpoint everywhere (S1 `token-endpoint`), and `scope=poppy:read` on a
- *   signed-out Session request (S4 `poppy-read`).
+ *   `lenient-300s`), and a client assertion `aud` of the token endpoint
+ *   everywhere (S1 `token-endpoint`), where 4.1 says the issuer.
  *
  * Interop-only; never in src/.
  */
@@ -45,15 +44,14 @@ export function profileFrom(value: string | undefined): AgentProfile | null {
 
 /** Each profile's declared readings (spec §7). `pda`'s are the strict profile's. */
 export const PROFILE_READINGS: Readonly<Record<AgentProfile, Readonly<Record<string, string>>>> = {
-  lenient: { S1: "endpoint", S2: "jwt-60s", S3: "either", S4: "omit", S23: "per-origin" },
-  strict: { S1: "endpoint", S2: "jwt-60s", S3: "insertion", S4: "omit", S23: "per-origin" },
-  sloppy: { S1: "token-endpoint", S2: "lenient-300s", S3: "insertion", S4: "poppy-read", S23: "per-origin" }
+  lenient: { S1: "issuer", S2: "jwt-60s", S3: "either", S23: "per-origin" },
+  strict: { S1: "issuer", S2: "jwt-60s", S3: "insertion", S23: "per-origin" },
+  sloppy: { S1: "token-endpoint", S2: "lenient-300s", S3: "insertion", S23: "per-origin" }
 };
 
 /** How long the sloppy agent's assertions live: the longest the lenient readings accept. */
 export const SLOPPY_LIFETIME = 300;
 
-const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const METADATA_INSERTED = /^\/\.well-known\/oauth-authorization-server(\/.+)$/;
 const ASSERTION_ENDPOINTS = ["token_endpoint", "device_authorization_endpoint", "revocation_endpoint", "pushed_authorization_request_endpoint"] as const;
 
@@ -90,24 +88,16 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 const isForm = (request: Request) => request.method === "POST" && (request.headers.get("content-type") ?? "").startsWith("application/x-www-form-urlencoded");
 const isJwt = (value: string | null): value is string => !!value && value.split(".").length === 3;
 
-/** The sloppy agent's request: the same request with its assertions and grant made sloppy. */
+/** The sloppy agent's request: the same request with its client assertion made sloppy. */
 export async function sloppyRequest(request: Request, endpoints: Endpoints, resign: Resign): Promise<Request> {
   if (!isForm(request)) return request;
   const target = endpoints.of(request.url);
   if (!target) return request;
   const fields = new URLSearchParams(await request.clone().text());
-  let changed = false;
-  for (const name of ["client_assertion", "assertion"]) {
-    const value = fields.get(name);
-    if (!isJwt(value)) continue;
-    fields.set(name, await resign(value, { dropTyp: true, aud: target.token, lifetime: SLOPPY_LIFETIME }));
-    changed = true;
-  }
-  if (fields.get("grant_type") === JWT_BEARER && !fields.has("scope")) {
-    fields.set("scope", "poppy:read");
-    changed = true;
-  }
-  return changed ? new Request(request, { body: fields.toString() }) : request;
+  const value = fields.get("client_assertion");
+  if (!isJwt(value)) return request;
+  fields.set("client_assertion", await resign(value, { dropTyp: true, aud: target.token, lifetime: SLOPPY_LIFETIME }));
+  return new Request(request, { body: fields.toString() });
 }
 
 /** An OAuth error code from a response, without consuming it. */
@@ -182,7 +172,7 @@ export class StrictObserver {
   readonly recorded: Recorded[] = [];
   /** Set by a finding, read and cleared by the step that was running. */
   refusal: StrictRefusal | null = null;
-  #version = "0.1";
+  #version = "0.3";
 
   /**
    * `ownHost` is the agent's own host. In the local lane every host is a `*.interop.test` name
@@ -228,7 +218,7 @@ export class StrictObserver {
       responseHeaders: headerMap(response.headers),
       responseBody
     });
-    const checks = traceChecks(this.#exchanges, [], this.#version).filter((check) => check.side === "company");
+    const checks = traceChecks(this.#exchanges, []).filter((check) => check.side === "company");
     if (request.method === "GET") checks.push(...(await documentChecks(this.#exchanges, this.#version)).filter((check) => check.side === "company"));
     const fresh = checks.filter((check) => {
       const key = `${check.id}|${check.detail}`;

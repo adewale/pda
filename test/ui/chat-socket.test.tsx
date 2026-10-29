@@ -328,24 +328,21 @@ const approval: Card = {
 
 const signIn: Card = { id: "signin-4", kind: "signin_code", company: "Acme", open: true, signInId: "s4", sentTo: "a***@example.com" };
 
-const operation: Card = {
-  id: "op-1",
-  kind: "operation",
+/** A Company's terms waiting for the User (Ops 5): an approval card of its own. */
+const terms: Card = {
+  id: "approval-apr2_7Hq",
+  kind: "approval",
   company: "Globex",
   open: true,
-  issuer: toIssuer("https://auth.globex.example"),
-  operationId: "op_7Hq",
-  revision: 3,
-  state: "proposed",
-  summary: "Exchange the blue jumper (size M) for size L. No charge.",
-  account: "a***@example.com",
-  highlights: ["Cost: 0.00 GBP"],
-  userApprovalRequired: false
+  approvalId: "apr2_7Hq",
+  summary: "Globex asks for your approval before it does this: Exchange the blue jumper (size M) for size L. No charge.",
+  status: "pending",
+  terms: { summary: "Exchange the blue jumper (size M) for size L. No charge.", expiresAt: "2026-10-28T12:00:00Z", highlights: ["Cost (price_difference): 0.00 GBP"] }
 };
 
 const CARD_ACTIONS = {
   "Approve on an approval": () => fireEvent.click(within(card("Approve this at Acme?")).getByRole("button", { name: "Approve" })),
-  "Decline on an operation": () => fireEvent.click(within(card("Approve this at Globex?")).getByRole("button", { name: "Decline" })),
+  "Decline on a Company's terms": () => fireEvent.click(within(card("Approve this at Globex?")).getByRole("button", { name: "Decline" })),
   "a one-time code": () => {
     fireEvent.change(screen.getByRole("textbox", { name: "One-time code" }), { target: { value: "482913" } });
     fireEvent.click(screen.getByRole("button", { name: "Submit code" }));
@@ -354,13 +351,13 @@ const CARD_ACTIONS = {
 
 const CARD_OF: Record<keyof typeof CARD_ACTIONS, string> = {
   "Approve on an approval": "Approve this at Acme?",
-  "Decline on an operation": "Approve this at Globex?",
+  "Decline on a Company's terms": "Approve this at Globex?",
   "a one-time code": "Enter the code from Acme"
 };
 
 const FRAME_OF: Record<keyof typeof CARD_ACTIONS, Frame> = {
   "Approve on an approval": { type: "poppy.approval", approvalId: "ap_42", decision: "approve" },
-  "Decline on an operation": { type: "poppy.operation", issuer: "https://auth.globex.example", operationId: "op_7Hq", revision: 3, decision: "decline" },
+  "Decline on a Company's terms": { type: "poppy.approval", approvalId: "apr2_7Hq", decision: "decline" },
   "a one-time code": { type: "poppy.code", signInId: "s4", code: "482913" }
 };
 
@@ -381,7 +378,7 @@ function decisions() {
 function pageWithCards() {
   render(<Page />);
   socket.open();
-  socket.receive({ type: "poppy.cards", cards: [approval, signIn, operation] });
+  socket.receive({ type: "poppy.cards", cards: [approval, signIn, terms] });
 }
 
 describe("card actions while the socket isn't open", () => {
@@ -448,7 +445,7 @@ describe("settings actions and the socket", () => {
     window.history.replaceState(null, "", `/companies?company=${encodeURIComponent(issuer)}`);
     render(<Page />);
     socket.open();
-    socket.receive({ type: "poppy.settings", accounts: [{ issuer, company: "Acme", account: "a***@example.com", scope: "poppy:read", expiresAt: null }], permissions: [], signOuts: [] });
+    socket.receive({ type: "poppy.settings", accounts: [{ issuer, company: "Acme", account: "a***@example.com", scope: "orders:read", expiresAt: null }], signOuts: [] });
     const signOut = () => screen.getByRole("button", { name: "Sign out of Acme" }) as HTMLButtonElement;
 
     socket.close();

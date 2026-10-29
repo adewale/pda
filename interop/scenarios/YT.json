@@ -1,13 +1,53 @@
 {
   "id": "YT",
-  "title": "Adversarial agent: a token with a proof from another key",
-  "requirements": ["4.3"],
+  "title": "Adversarial agent: A stolen access token with a different DPoP key",
+  "requirements": [
+    "4.5"
+  ],
   "adversary": "agent",
-  "needs": { "agent": ["arm", "attack"] },
+  "needs": {
+    "agent": [
+      "arm",
+      "attack"
+    ],
+    "company": [
+      "mediated_answers"
+    ]
+  },
   "steps": [
-    { "agent": "arm", "params": { "attack": "YT" } },
-    { "agent": "attack", "save": "r" },
-    { "expect": { "step": "r", "poppy_error": { "$exists": true } } },
-    { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "/products" } }
+    {
+      "company": "mediated_answers",
+      "params": {
+        "account": "${fixture.accounts.0}"
+      },
+      "save": "answers"
+    },
+    {
+      "agent": "arm",
+      "params": {
+        "attack": "YT",
+        "fields": "${answers.fields}",
+        "read_scopes": "${fixture.scopes.read}",
+        "write_scopes": "${fixture.scopes.write}"
+      }
+    },
+    {
+      "agent": "attack",
+      "save": "r"
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "attack_observed",
+        "agent_attack": "YT"
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "agent_attack_rejected",
+        "agent_attack": "YT"
+      }
+    }
   ]
 }

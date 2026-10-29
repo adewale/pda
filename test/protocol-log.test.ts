@@ -69,25 +69,30 @@ describe("the protocol log", () => {
     const a = await agent();
     await tool(a, "poppy_discover", { domain: c.domain });
     await signInDirect(a, c);
-    await tool(a, "poppy_message", { domain: c.domain, text: "Where is my order?" });
+    await tool(a, "poppy_message", { domain: c.domain, text: "Hello, is the sale still on?" });
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
-    const card = (await cards(a)).find((item) => item.kind === "operation")!;
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
+    // Our card first, then the Company's terms on a card of their own (Ops 4, 5).
+    const ours = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open));
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
+    const terms = await until(async () => (await cards(a)).find((item) => item.kind === "approval" && item.open && item.approvalId !== ours.approvalId));
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: terms.approvalId, decision: "approve" });
+    expect((await c.stub.state()).performs).toBe(1);
 
     const log = await a.stub.poppyProtocol(c.hosts.issuer);
     const expected: [string, string][] = [
       ["discovery.poppy", "§3"],
+      ["discovery.resource", "§3.2"],
       ["discovery.metadata", "§3.2"],
       ["discovery.verdict", "§3"],
-      ["session.start", "§4.2"],
-      ["signin.direct.state", "§4.5"],
-      ["signin.direct.exchange", "§4.5"],
-      ["conversation.start", "§7.3"],
-      ["conversation.opened", "§7.3"],
-      ["api.call", "§6"],
-      ["operation.approved", "Ops §5.1"],
-      ["operation.confirm", "Ops §5.2"],
-      ["operation.state", "Ops §6"]
+      ["signin.direct.state", "§4.2"],
+      ["signin.direct.exchange", "§4.2"],
+      ["token.refresh", "§4.4"],
+      ["conversation.start", "§8.3"],
+      ["conversation.opened", "§8.3"],
+      ["api.call", "§7"],
+      ["operation.approval_required", "Ops §4"],
+      ["operation.decided", "Ops §5"],
+      ["operation.sent", "Ops §6"]
     ];
     const positions = expected.map(([step]) => firstOf(log, step));
     expect(positions.every((position) => position >= 0), JSON.stringify(log.map((entry) => entry.step))).toBe(true);
@@ -99,21 +104,26 @@ describe("the protocol log", () => {
 
     const at = (step: string) => log[firstOf(log, step)]!;
     expect(at("discovery.poppy")).toMatchObject({ method: "GET", url: `https://${c.domain}/.well-known/poppy.json`, status: 200, outcome: "ok" });
+    expect(at("discovery.resource")).toMatchObject({ method: "GET", url: `https://${c.domain}/.well-known/oauth-protected-resource`, status: 200 });
     expect(at("discovery.verdict").result).toMatch(/^(valid|invalid): \d+ errors?, \d+ warnings?, \d+ info · used by our client/);
-    expect(at("session.start")).toMatchObject({ method: "POST", url: c.hosts.tokenEndpoint, status: 200, outcome: "ok" });
-    expect(at("session.start").summary).toBe("Start a Session: jwt-bearer grant with a Session assertion, no session_id, client assertion, DPoP proof");
-    expect(at("session.start").result).toContain("session_id returned, signed out");
-    expect(at("signin.direct.exchange").summary).toContain("authorization_code grant with the PKCE verifier and redirect_uri, session_id sent");
-    expect(at("signin.direct.exchange").result).toContain("signed in");
-    expect(at("signin.direct.exchange").result).toContain("Account Token issued");
+    // No Session request: the agent makes its Sessions itself (5.2).
+    expect(log.some((entry) => entry.step.startsWith("session."))).toBe(false);
+    expect(at("signin.direct.exchange")).toMatchObject({ method: "POST", url: c.hosts.tokenEndpoint, status: 200, outcome: "ok" });
+    expect(at("signin.direct.exchange").summary).toBe("Exchange the authorization code: authorization_code grant with the PKCE verifier and redirect_uri, client assertion, DPoP proof");
+    expect(at("signin.direct.exchange").result).toContain("refresh token issued");
     expect(log.filter((entry) => entry.step === "signin.direct.state").map((entry) => entry.result).at(-1)).toBe("stored → done");
-    expect(at("conversation.start").summary).toMatch(/^Start a conversation, message msg_[\w-]+ sender agent with text, context, wait \d+ s · DPoP$/);
+    expect(at("token.refresh").summary).toBe("Get an access token: refresh_token grant, client assertion, DPoP proof");
+    expect(at("conversation.start").summary).toMatch(/^Start a conversation, message msg_[\w-]+ author agent with text, context, wait \d+ s · Session header and DPoP token$/);
     // An API call is named by its operation and path template, not the values filled in.
-    expect(at("api.call")).toMatchObject({ method: "POST", url: `${c.hosts.api}/orders/{order_id}/exchanges`, status: 202 });
-    expect(at("api.call").summary).toContain("(POST /orders/{order_id}/exchanges), Idempotency-Key · DPoP");
-    expect(at("operation.approved").result).toBe("Approved by the User, on their card");
-    expect(at("operation.confirm").summary).toBe(`Confirm ${card.operationId}, revision ${card.revision}, approved_by user · DPoP`);
-    expect(at("operation.state").result).toMatch(/→ succeeded$/);
+    expect(at("api.call")).toMatchObject({ method: "POST", url: `${c.hosts.api}/orders/{order_id}/exchanges`, status: 403 });
+    expect(at("api.call").summary).toBe("exchangeItem (POST /orders/{order_id}/exchanges), Idempotency-Key · Session header and DPoP token");
+    expect(at("api.call").result).toBe("403 approval_required");
+    expect(at("operation.approval_required").result).toBe("Shown to the User on an approval card");
+    expect(at("operation.decided").result).toBe("Approved by the User, on their card: sending the approval");
+    // The same request again, with the approval of the revision the User saw (Ops 6).
+    const operationId = /Operation (\S+) revision (\S+)/.exec(at("operation.approval_required").summary)!;
+    expect(at("operation.sent")).toMatchObject({ method: "POST", url: `${c.hosts.api}/orders/{order_id}/exchanges`, status: 201 });
+    expect(at("operation.sent").summary).toBe(`exchangeItem (POST /orders/{order_id}/exchanges), Idempotency-Key, approval of ${operationId[1]} revision ${operationId[2]} · Session header and DPoP token`);
     // URLs are origin and path only.
     for (const entry of log) if (entry.url) expect(entry.url).not.toMatch(/[?#]/);
 
@@ -131,9 +141,9 @@ describe("the protocol log", () => {
     expect(index.map((entry) => entry.key)).toEqual([`https://${c.domain}`]);
     expect(index[0]).toMatchObject({ issuer: null, company: c.domain, domain: c.domain });
     const log = await a.stub.poppyProtocol(`https://${c.domain}`);
-    expect(log.map((entry) => entry.step)).toEqual(["discovery.poppy", "discovery.metadata", "discovery.verdict"]);
-    expect(log[2]).toMatchObject({ outcome: "refused", section: "§3", title: "Validator" });
-    expect(log[2]!.result).toMatch(/^invalid: [1-9]\d* errors?, .* · refused by our client \([\w.-]+/);
+    expect(log.map((entry) => entry.step)).toEqual(["discovery.poppy", "discovery.resource", "discovery.metadata", "discovery.verdict"]);
+    expect(log[3]).toMatchObject({ outcome: "refused", section: "§3", title: "Validator" });
+    expect(log[3]!.result).toMatch(/^invalid: [1-9]\d* errors?, .* · refused by our client \([\w.-]+/);
   });
 
   it("says why discovery got no answer, under the domain's https origin", async () => {
@@ -146,8 +156,10 @@ describe("the protocol log", () => {
   });
 
   it("records DPoP nonce retries, Retry-After waits and Session restarts as their own exchanges", async () => {
-    const c = await company({ requireNonce: true, nonceScope: "origin", rateLimit: { tokenRequests429: 0, requests429: 1, retryAfterSeconds: 1 }, endedSessionError: "invalid_session" });
+    const c = await company({ requireNonce: true, nonceScope: "origin", rateLimit: { tokenRequests429: 0, requests429: 1, retryAfterSeconds: 1 } });
     const a = await agent();
+    // Signed in, so the token endpoint and the API both take DPoP proofs, and ask for nonces (4.5).
+    await signInDirect(a, c);
     const call = () => tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /products", params: { q: "jacket" } });
     expect((await call()).isError).toBe(false);
     expect(await c.stub.endAllSessions()).toBe(1);
@@ -156,25 +168,25 @@ describe("the protocol log", () => {
     const retries = log.filter((entry) => entry.outcome === "retry");
 
     // The first token request is told to use a nonce, and sent again with one.
-    const nonce = retries.find((entry) => entry.step === "session.start" && entry.error === "use_dpop_nonce")!;
+    const nonce = retries.find((entry) => entry.step === "signin.direct.exchange" && entry.error === "use_dpop_nonce")!;
     expect(nonce.result).toBe("400 use_dpop_nonce: sending again with the Company's DPoP-Nonce and a new proof");
-    expect(log[log.indexOf(nonce) + 1]).toMatchObject({ step: "session.start", outcome: "ok" });
+    expect(log[log.indexOf(nonce) + 1]).toMatchObject({ step: "signin.direct.exchange", outcome: "ok" });
     expect(log[log.indexOf(nonce) + 1]!.summary).toContain("DPoP proof with nonce");
 
-    // A 429 with Retry-After: the wait, then the request again.
+    // A 429 with Retry-After: the wait, then the request again, with a new Session JWT (5.2: each jti once).
     const limited = retries.find((entry) => entry.status === 429)!;
-    expect(limited.result).toBe("429: Retry-After 1 s: waiting, then sending again with a new proof");
+    expect(limited.result).toBe("429: Retry-After 1 s: waiting, then sending again with a new Session JWT");
     // Then the API's own nonce, and the answer.
     expect(log.slice(log.indexOf(limited) + 1).map((entry) => `${entry.step} ${entry.status} ${entry.error ?? ""}`.trim()).slice(0, 2)).toEqual([
       "api.call 401 use_dpop_nonce",
       "api.call 200"
     ]);
 
-    // The Company ended the Session: a new Session, then the call again.
+    // The Company ended the Session: a new Session, then the call again, once (5.5).
     const restart = retries.find((entry) => entry.error === "invalid_session")!;
-    expect(restart).toMatchObject({ step: "api.call", section: "§6" });
-    expect(restart.result).toMatch(/invalid_session: starting a new Session, then sending again once$/);
-    expect(log.slice(log.indexOf(restart) + 1).some((entry) => entry.step === "session.start" && entry.outcome === "ok")).toBe(true);
+    expect(restart).toMatchObject({ step: "api.call", section: "§7" });
+    expect(restart.result).toBe("400 invalid_session: starting a new Session, then sending again once");
+    expect(log.slice(log.indexOf(restart) + 1).find((entry) => entry.step === "api.call")).toMatchObject({ status: 200, outcome: "ok" });
   });
 
   it("keeps the newest rows of each Company, pruning the oldest", async () => {
@@ -234,10 +246,15 @@ describe("secrets and the protocol log", () => {
     const signedIn = (await signInDirect(a, c))!;
     const location = new URL(signedIn.location);
     extra.push(location.searchParams.get("code")!, location.searchParams.get("state")!);
-    await tool(a, "poppy_message", { domain: c.domain, text: "Where is my order?" });
+    await tool(a, "poppy_message", { domain: c.domain, text: "Hello, is the sale still on?" });
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
-    const operation = (await cards(a)).find((item) => item.kind === "operation")!;
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: operation.operationId, revision: operation.revision, decision: "approve" });
+    // Our card, then the Company's terms (Ops 4, 5, 6).
+    for (let decided = 0; decided < 2; decided++) {
+      const open = (await cards(a)).find((item) => item.kind === "approval" && item.open);
+      if (!open) break;
+      await a.stub.poppyFrame({ type: "poppy.approval", approvalId: open.approvalId, decision: "approve" });
+    }
+    expect((await c.stub.state()).performs).toBe(1);
     await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "search_products", args: { query: "jacket" } });
     await a.stub.poppyFrame({ type: "poppy.signout", issuer: c.hosts.issuer, account: "default" });
     return extra;
@@ -247,14 +264,14 @@ describe("secrets and the protocol log", () => {
     const extra: string[] = [];
     // One Company for Direct Sign-In and the rest, one for Device, one for Mediated with a one-time code.
     const direct = await company({ requireNonce: true, nonceScope: "origin" });
-    const device = await company({ signIn: { direct: null, device: ["poppy:read"], mediated: null } });
-    const mediated = await company({ signIn: { direct: null, device: null, mediated: ["poppy:read"] } });
+    const device = await company({ signIn: { direct: null, device: ["orders:read"], mediated: null } });
+    const mediated = await company({ signIn: { direct: null, device: null, mediated: ["orders:read"] } });
     const a = await agent();
     // Everything written to the console from here: every wide event the flows make (src/log.ts).
     const logMark = await a.stub.poppyLogMark();
     extra.push(...(await flows(direct, a)));
 
-    await tool(a, "poppy_sign_in", { domain: device.domain, scopes: ["poppy:read"], reason: "To see your orders" });
+    await tool(a, "poppy_sign_in", { domain: device.domain, scopes: ["orders:read"], reason: "To see your orders" });
     const code = (await cards(a)).find((item) => item.kind === "signin_device")!;
     extra.push(code.userCode);
     await a.stub.poppyAdvance(1000);
@@ -262,7 +279,7 @@ describe("secrets and the protocol log", () => {
     await a.stub.poppyAdvance(1000);
     await a.stub.poppyWaitForNotice(`Signed in to Mock Shop ${device.id}`);
 
-    await tool(a, "poppy_sign_in", { domain: mediated.domain, scopes: ["poppy:read"], reason: "test" });
+    await tool(a, "poppy_sign_in", { domain: mediated.domain, scopes: ["orders:read"], reason: "test" });
     const form = (await cards(a)).find((item) => item.kind === "signin_credentials")!;
     const values = { email: "grace@example.com", password: "battery staple" };
     extra.push(values.email, values.password);
@@ -282,15 +299,16 @@ describe("secrets and the protocol log", () => {
     const rows = await a.stub.poppySql("SELECT * FROM poppy_protocol_log");
     expect(JSON.parse(rows).length).toBeGreaterThan(30);
     expect(leaks(rows, secrets)).toEqual([]);
-    // The mediated sign-in's code went to a path holding its sign_in_id: logged as a template.
+    // The mediated sign-in's code went to the token endpoint, as a grant (MSI §4): its URL holds nothing to hide.
     const log = await a.stub.poppyProtocol(mediated.hosts.issuer);
-    expect(log.find((entry) => entry.step === "signin.mediated.code")!.url).toBe(`${mediated.hosts.mediatedEndpoint}/{sign_in_id}`);
-    expect(log.find((entry) => entry.step === "signin.mediated.credentials")!.summary).toBe("Send the sign-in form: 2 fields, values never recorded · DPoP");
+    expect(log.find((entry) => entry.step === "signin.mediated.code")!.url).toBe(mediated.hosts.tokenEndpoint);
+    expect(log.find((entry) => entry.step === "signin.mediated.credentials")!.summary).toBe("Send the sign-in form: 2 fields, values never recorded, scope orders:read, client assertion, DPoP proof");
     for (const step of ["signin.device.start", "signin.device.poll"]) {
       expect((await a.stub.poppyProtocol(device.hosts.issuer)).some((entry) => entry.step === step)).toBe(true);
     }
-    expect((await a.stub.poppyProtocol(direct.hosts.issuer)).some((entry) => entry.step === "account.revoke" && entry.section === "§4.9")).toBe(true);
-    expect((await a.stub.poppyProtocol(direct.hosts.issuer)).some((entry) => entry.step === "mcp.call" && entry.summary.includes("Bearer"))).toBe(true);
+    expect((await a.stub.poppyProtocol(direct.hosts.issuer)).some((entry) => entry.step === "account.revoke" && entry.section === "§4.6")).toBe(true);
+    const mcpCalls = (await a.stub.poppyProtocol(direct.hosts.issuer)).filter((entry) => entry.step === "mcp.call").map((entry) => entry.summary);
+    expect(mcpCalls.some((summary) => summary.endsWith("Session header and Bearer token")), JSON.stringify(mcpCalls)).toBe(true);
 
     // The frames the page gets: the index on connect, and each Company's log when asked.
     const p = await page(a);

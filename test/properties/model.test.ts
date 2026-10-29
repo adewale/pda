@@ -1,19 +1,18 @@
 import { world } from "./client-fixture";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { callOpenApi } from "../../src/poppy/apis";
-import { PoppyClient } from "../../src/poppy/client";
 import { closeConversation, conversation, openConversations, readConversation, sendMessage } from "../../src/poppy/conversations";
 import { type Company } from "../../src/poppy/discovery";
-import { approveAndConfirm, cancelOperation, operation, recoverOperations, trackOperation } from "../../src/poppy/operations";
+import { decideLocal } from "../../src/poppy/operations";
 import { completeDirectSignIn, signOut, startSignIn } from "../../src/poppy/signin";
 import type { Card } from "../../src/poppy/wire";
-import type { Json } from "../../src/poppy/json";
 import { MockCompany } from "../mock-company/index";
 import { gs, propertyAsync, assertTransitions } from "./hegel";
 
 /**
  * A model-based property: any sequence of honest things a User and their
- * agent do (sign in, talk, renew, propose, approve or decline, sign out) runs
+ * agent do (sign in, talk, refresh, ask for a write, approve or decline our
+ * card and then the Company's terms, sign out) runs
  * our client (src/poppy, in Node) against the strict mock Company in
  * process, through a fetcher, with no sockets. After every step the mock has
  * recorded no violation, and the client and the Company agree with a small
@@ -36,7 +35,7 @@ async function readFresh(w: Pick<World, "client" | "company" | "sql" | "notices"
   const inbox = w.sql.exec("SELECT event FROM poppy_inbox WHERE conversation_id = ? AND json_extract(event, '$.id') = ?", id, cursor).toArray();
   expect(inbox).toHaveLength(1);
   const event = JSON.parse(String(inbox[0]!.event));
-  expect(event).toMatchObject({ id: cursor, type: "message", message: { role: "company", sender: "agent", text } });
+  expect(event).toMatchObject({ id: cursor, type: "message", message: { role: "company", author: { type: "agent" }, text } });
   // Earlier sends may also have queued unread replies. Identify the new
   // event exactly instead of assuming the read delivers only this message.
   expect(w.notices.slice(mark).filter((notice) => notice.operationId === `poppy-event-${id}-${cursor}`)).toEqual([{
@@ -48,42 +47,138 @@ async function readFresh(w: Pick<World, "client" | "company" | "sql" | "notices"
 /** What should be true: the model. */
 type Model = {
   signedIn: boolean;
-  /** Operation id → its state, as the Company should hold it. */
+  /** Operation id → its state, as the Company should hold it (Ops 2: proposed until an approved request performs it). */
   operations: Map<string, string>;
+  /** Our approval cards still waiting on the User, and the Company's terms cards (`apr2_`). */
+  ours: Set<string>;
+  terms: Map<string, string>;
   /** Exchanges actually made. */
   performs: number;
   conversations: Set<string>;
 };
 
-/** The exchange the mock's API proposes as an operation. */
-const exchange = (w: World, callKey: string) =>
-  callOpenApi(w.client, w.company, "main", {
+const newModel = (): Model => ({ signedIn: false, operations: new Map(), ours: new Set(), terms: new Map(), performs: 0, conversations: new Set() });
+
+/** The exchange the mock's API refuses with an operation until the User approves its terms. */
+const exchange = (w: Pick<World, "client" | "company">, label: string, callKey: string) =>
+  callOpenApi(w.client, w.company, label, {
     operation: "exchangeItem",
     params: { order_id: "ord_7Hk2" },
     body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" },
     callKey
   });
 
-type Command = "signIn" | "signOut" | "message" | "read" | "close" | "renew" | "propose" | "approve" | "decline";
+/** Every approval the client holds: id → status. */
+const approvals = (w: Pick<World, "sql">) =>
+  new Map(w.sql.exec("SELECT id, status FROM poppy_approvals").toArray().map((row) => [String(row.id), String(row.status)]));
+
+/** The operation a terms card approves, from the call it would send. */
+function operationOf(sql: World["sql"], card: string): string {
+  const row = sql.exec("SELECT request FROM poppy_approvals WHERE id = ?", card).toArray()[0]!;
+  return (JSON.parse(String(row.request)) as { call: { approval: { operation_id: string } } }).call.approval.operation_id;
+}
+
+/** Our card for a write, as the API call proposed it. */
+async function propose(w: Pick<World, "client" | "company">, label: string): Promise<string> {
+  const result = (await exchange(w, label, crypto.randomUUID())) as { proposed?: string };
+  expect(result.proposed).toMatch(/^apr_/);
+  return result.proposed!;
+}
+
+/**
+ * Approve our card: the request goes without an approval, the Company
+ * refuses it with an operation, and its terms wait on a card of their own.
+ * Returns that card's id and the operation's.
+ */
+async function approveOurs(w: Pick<World, "client" | "sql" | "mock">, id: string): Promise<{ terms: string; operation: string }> {
+  const before = approvals(w);
+  await decideLocal(w.client, id, "approve");
+  const after = approvals(w);
+  expect(after.get(id), String(w.sql.exec("SELECT result FROM poppy_approvals WHERE id = ?", id).toArray()[0]?.result)).toBe("terms");
+  // The same request is the same operation until it is performed (Ops 3): one open at a time.
+  const open = (await w.mock.state()).operations.filter((op) => op.state === "proposed");
+  expect(open).toHaveLength(1);
+  const operation = open[0]!.id;
+  // A new card, or one declined before and asked again; else the revision already has a card waiting.
+  const waiting = [...after].filter(([key, status]) => key.startsWith("apr2_") && status === "pending").map(([key]) => key);
+  const asked = waiting.filter((key) => before.get(key) !== "pending");
+  expect(asked.length).toBeLessThanOrEqual(1);
+  const terms = asked[0] ?? waiting.find((key) => operationOf(w.sql, key) === operation);
+  expect(terms).toBeDefined();
+  expect(operationOf(w.sql, terms!)).toBe(operation);
+  return { terms: terms!, operation };
+}
+
+/** Terms cards the User may approve: any before the jacket is exchanged; after, only those of the operation that exchanged it, which the Company answers with its first response (Ops 7). */
+const approvableTerms = (model: Model) =>
+  [...model.terms].filter(([, operation]) => !model.performs || model.operations.get(operation) === "succeeded").map(([id]) => id);
+
+type Command = "signIn" | "signOut" | "message" | "read" | "close" | "refresh" | "propose" | "approveOurs" | "approveTerms" | "decline";
+/**
+ * Select every live object in creation order. Sorting random opaque IDs
+ * changes which binding a generated index selects between replay attempts,
+ * making shrinking non-deterministic. Sort only for set comparisons below.
+ */
+const waitingCards = (model: Model) => [...model.ours, ...model.terms.keys()];
 function enabled(model: Model): Command[] {
-  const commands: Command[] = ["signIn", "message", "renew"];
+  const commands: Command[] = ["signIn", "message", "refresh"];
   if (model.conversations.size) commands.push("read", "close");
-  if (model.signedIn) commands.push("signOut");
-  // A completed exchange cannot be proposed again. A signed-out proposal is
-  // an intentional refusal, checked and counted separately below.
-  if (!model.performs) commands.push("propose");
-  if (model.signedIn && [...model.operations.values()].includes("proposed")) {
-    commands.push("decline");
-    if (!model.performs) commands.push("approve");
+  if (model.signedIn) {
+    commands.push("signOut");
+    // The jacket can be exchanged once: no new write is asked for after it is.
+    if (!model.performs) commands.push("propose");
+    if (model.ours.size) commands.push("approveOurs");
+    if (approvableTerms(model).length) commands.push("approveTerms");
   }
+  if (waitingCards(model).length) commands.push("decline");
   return commands;
 }
 
+/**
+ * Whether approving this card must fail without anything done: its request
+ * is bound to the Session it was proposed on, so it fails when the agent
+ * now has another, or when the Company ended that one (5.5) and the agent
+ * would have to start another to send it (approval_changed). Read from the
+ * stored binding and the Company's own state, not predicted. Local sign-out
+ * also withdraws authority permanently, even if the same account and sid return.
+ */
+async function bindingGone(w: Pick<World, "client" | "company" | "sql">, mock: World["mock"], id: string): Promise<boolean> {
+  const row = w.sql.exec("SELECT label, request FROM poppy_approvals WHERE id = ?", id).toArray()[0]!;
+  const bound = (JSON.parse(String(row.request)) as { binding?: { sessionId: string; account: string | null; authorityGeneration?: number } }).binding;
+  const session = w.client.session(w.company.issuer, String(row.label));
+  const current = session?.session_id;
+  const userId = w.client.userId(w.company.issuer);
+  const remote = (await mock.state()).sessions.find((session) => session.sid === current && session.userId === userId);
+  return bound?.sessionId !== current || bound?.account !== session?.account ||
+    (bound?.authorityGeneration ?? 0) !== session?.authority_generation || remote?.ended === true;
+}
+
+/** Approve a card whose Session is gone: it fails, and the Company does nothing. False, and nothing sent, when its Session is live. */
+async function refusedWhenGone(w: Pick<World, "client" | "company" | "sql">, mock: World["mock"], id: string): Promise<boolean> {
+  if (!(await bindingGone(w, mock, id))) return false;
+  const before = await mock.state();
+  await decideLocal(w.client, id, "approve");
+  const row = w.sql.exec("SELECT status, result FROM poppy_approvals WHERE id = ?", id).toArray()[0]!;
+  expect(row.status, String(row.result)).toBe("failed");
+  expect(String(row.result)).toContain("approval_changed");
+  const after = await mock.state();
+  expect(after.operations).toEqual(before.operations);
+  expect(after.performs).toBe(before.performs);
+  return true;
+}
+
+/** `refusedWhenGone` for the single-client model, which then forgets the card. */
+async function refusedAsChanged(w: Pick<World, "client" | "company" | "sql" | "mock">, model: Model, id: string): Promise<boolean> {
+  if (!(await refusedWhenGone(w, w.mock, id))) return false;
+  model.ours.delete(id);
+  model.terms.delete(id);
+  return true;
+}
+
 async function run(w: World, model: Model, command: Command, tc: Parameters<Parameters<typeof propertyAsync>[0]>[0]): Promise<void> {
-  const open = () => [...model.operations].filter(([, state]) => state === "proposed").map(([id]) => id);
   switch (command) {
     case "signIn": {
-      const started = await startSignIn(w.client, w.company, { label: "main", scopes: ["poppy:read", "poppy:write"], reason: "model" });
+      const started = await startSignIn(w.client, w.company, { label: "main", scopes: ["orders:read", "orders:write"], reason: "model" });
       if (started.status === "waiting") {
         const card = w.cards.get(`signin-${started.signInId}`) as Extract<Card, { kind: "signin_link" }>;
         const location = await w.mock.approveAuthorization(card.url, { approve: true, account: "acct_ada" });
@@ -98,7 +193,7 @@ async function run(w: World, model: Model, command: Command, tc: Parameters<Para
       model.signedIn = false;
       return;
     case "message": {
-      const id = model.conversations.size ? tc.draw(gs.optional(gs.sampledFrom([...model.conversations].sort()))) : null;
+      const id = model.conversations.size ? tc.draw(gs.optional(gs.sampledFrom([...model.conversations]))) : null;
       const text = tc.draw(gs.sampledFrom(["hello", "Is the sale still on?", "Can a person help?"]));
       const sent = await sendMessage(w.client, w.company, { label: "main", callKey: crypto.randomUUID(), sender: "agent", text, ...(id ? { conversationId: id } : {}) });
       model.conversations.add(sent.conversationId);
@@ -106,51 +201,57 @@ async function run(w: World, model: Model, command: Command, tc: Parameters<Para
     }
     case "read": {
       expect(model.conversations.size).toBeGreaterThan(0);
-      await readFresh(w, w.mock, tc.draw(gs.sampledFrom([...model.conversations].sort())), `Update: ${tc.draw(gs.text({ maxSize: 100 }))}`);
+      await readFresh(w, w.mock, tc.draw(gs.sampledFrom([...model.conversations])), `Update: ${tc.draw(gs.text({ maxSize: 100 }))}`);
       return;
     }
     case "close": {
       expect(model.conversations.size).toBeGreaterThan(0);
-      const id = tc.draw(gs.sampledFrom([...model.conversations].sort()));
+      const id = tc.draw(gs.sampledFrom([...model.conversations]));
       await closeConversation(w.client, w.company, id);
       model.conversations.delete(id);
       expect(conversation(w.client, id)?.status).toBe("closed");
       return;
     }
-    case "renew":
-      // Complete a real renewal now, rather than just invalidating a cache.
-      w.client.dropToken(w.company);
-      await w.client.token(w.company);
+    case "refresh":
+      // A real refresh now (4.4), rather than just invalidating a cache.
+      w.client.dropToken(w.company, { label: "main" });
+      expect((await w.client.token(w.company, { label: "main" })) !== null).toBe(model.signedIn);
       return;
     case "propose": {
-      if (!model.signedIn) {
-        const before = await w.mock.state();
-        await expect(exchange(w, crypto.randomUUID())).rejects.toMatchObject({ name: "PoppyError", code: "sign_in_required", status: 403 });
-        expect((await w.mock.state()).operations).toEqual(before.operations);
-        expect((await w.mock.state()).performs).toBe(before.performs);
-        return;
-      }
-      const result = (await exchange(w, crypto.randomUUID())) as { proposed?: { operation_id: string } };
-      const id = result.proposed!.operation_id;
-      // One open operation for the same action: the Company returns it again (Ops 4).
-      if (open().length > 0) expect(open()).toContain(id);
-      model.operations.set(id, "proposed");
+      const before = await w.mock.state();
+      model.ours.add(await propose(w, "main"));
+      // Our card first: nothing reaches the Company until the User approves it.
+      expect((await w.mock.state()).operations).toEqual(before.operations);
       return;
     }
-    case "approve": {
-      // The jacket can be exchanged once, so the User approves only the first.
-      expect(model.signedIn && open().length > 0 && model.performs === 0).toBe(true);
-      const id = tc.draw(gs.sampledFrom(open()));
-      await approveAndConfirm(w.client, w.company.issuer, id, operation(w.client, w.company.issuer, id)!.revision, "user");
-      model.operations.set(id, "succeeded");
-      model.performs += 1;
+    case "approveOurs": {
+      const id = tc.draw(gs.sampledFrom([...model.ours]));
+      if (await refusedAsChanged(w, model, id)) return;
+      const { terms, operation } = await approveOurs(w, id);
+      model.ours.delete(id);
+      // The same request again is the same operation (Ops 3); its latest revision gets one card.
+      model.terms.set(terms, operation);
+      model.operations.set(operation, "proposed");
+      return;
+    }
+    case "approveTerms": {
+      const id = tc.draw(gs.sampledFrom(approvableTerms(model)));
+      const operation = model.terms.get(id)!;
+      const again = model.operations.get(operation) === "succeeded";
+      if (await refusedAsChanged(w, model, id)) return;
+      await decideLocal(w.client, id, "approve");
+      expect(approvals(w).get(id)).toBe("done");
+      model.terms.delete(id);
+      model.operations.set(operation, "succeeded");
+      if (!again) model.performs += 1;
       return;
     }
     case "decline": {
-      expect(model.signedIn && open().length > 0).toBe(true);
-      const id = tc.draw(gs.sampledFrom(open()));
-      await cancelOperation(w.client, w.company.issuer, id);
-      model.operations.set(id, "cancelled");
+      const id = tc.draw(gs.sampledFrom(waitingCards(model)));
+      await decideLocal(w.client, id, "decline");
+      expect(approvals(w).get(id)).toBe("declined");
+      model.ours.delete(id);
+      model.terms.delete(id);
       return;
     }
   }
@@ -161,7 +262,10 @@ async function agrees(w: World, model: Model): Promise<void> {
   expect(state.recorded).toEqual([]);
   expect(state.performs).toBe(model.performs);
   expect(new Map(state.operations.map((op) => [op.id, op.state]))).toEqual(model.operations);
-  for (const [id, expected] of model.operations) expect(operation(w.client, w.company.issuer, id)?.state, id).toBe(expected);
+  // A performed operation was approved once: at most once (Ops 7).
+  for (const op of state.operations) if (op.state === "succeeded") expect(op.confirms, op.id).toBe(1);
+  const held = approvals(w);
+  expect([...held].filter(([, status]) => status === "pending").map(([id]) => id).sort()).toEqual(waitingCards(model).sort());
   expect(w.client.accounts(w.company.issuer).length).toBe(model.signedIn ? 1 : 0);
   expect(state.accountTokens).toBe(model.signedIn ? 1 : 0);
   expect(new Set(openConversations(w.client).map((row) => row.id))).toEqual(model.conversations);
@@ -175,25 +279,24 @@ describe("our client against the mock Company, any honest sequence (model-based)
       const config = {
         rotateRefreshTokens: tc.draw(gs.booleans()),
         reuseDetection: tc.draw(gs.booleans()),
+        dpopTokens: tc.draw(gs.booleans()),
         requireNonce: tc.draw(gs.booleans()),
         nonceScope: tc.draw(gs.sampledFrom(["company", "origin"])),
-        clientAssertionAud: tc.draw(gs.sampledFrom(["lenient", "exact"])),
         strictAssertions: tc.draw(gs.booleans()),
         endSessionsOnSignOut: tc.draw(gs.booleans()),
         omitTokenScope: tc.draw(gs.booleans()),
         streaming: tc.draw(gs.booleans())
       };
       const w = await world(config);
-      const model: Model = { signedIn: false, operations: new Map(), performs: 0, conversations: new Set() };
+      const model = newModel();
       const counts: Record<string, number> = {};
       const steps = tc.draw(gs.integers({ minValue: 1, maxValue: 30 }));
       await agrees(w, model);
       for (let index = 0; index < steps; index++) {
         const command = tc.draw(gs.sampledFrom(enabled(model)));
-        const outcome = command === "propose" && !model.signedIn ? "propose.refused-signed-out" : command;
-        tc.note(`step ${index}: ${outcome}; completed=${JSON.stringify(counts)}`);
+        tc.note(`step ${index}: ${command}; completed=${JSON.stringify(counts)}`);
         await run(w, model, command, tc);
-        counts[outcome] = (counts[outcome] ?? 0) + 1;
+        counts[command] = (counts[command] ?? 0) + 1;
         await agrees(w, model);
       }
       assertTransitions("Poppy", counts, steps);
@@ -202,8 +305,8 @@ describe("our client against the mock Company, any honest sequence (model-based)
   );
 });
 
-async function signInto(client: Awaited<ReturnType<World["createClient"]>>, mock: World["mock"], label: string, account: string) {
-  const started = await startSignIn(client.client, client.company, { label, account: label, scopes: ["poppy:read", "poppy:write"], reason: "isolation model", type: "direct" });
+async function signInto(client: Pick<World, "client" | "company" | "cards">, mock: World["mock"], label: string, account: string) {
+  const started = await startSignIn(client.client, client.company, { label, account: label, scopes: ["orders:read", "orders:write"], reason: "isolation model", type: "direct" });
   if (started.status === "waiting") {
     const card = client.cards.get(`signin-${started.signInId}`) as Extract<Card, { kind: "signin_link" }>;
     const location = await mock.approveAuthorization(card.url, { approve: true, account });
@@ -213,7 +316,7 @@ async function signInto(client: Awaited<ReturnType<World["createClient"]>>, mock
 
 // Fixed negative controls run once each. Changing protocol configurations in
 // every generated history does not add coverage of the encryption context.
-describe("sealed Account Token ownership controls", () => {
+describe("sealed refresh token ownership controls", () => {
   it.each(["user", "account"] as const)("refuses a token copied across %s context, with accepted baselines", async (context) => {
     const w = await world({});
     const target = context === "user" ? await w.createClient() : w;
@@ -232,165 +335,67 @@ describe("sealed Account Token ownership controls", () => {
       target.sql.exec("UPDATE poppy_accounts SET token = ? WHERE issuer = ? AND account = ?", original, target.company.issuer, label);
     }
     // Restoration succeeds, ruling out an always-refusing client.
-    expect((await target.client.token(target.company, { label })).value).toBeTruthy();
+    expect((await target.client.token(target.company, { label }))?.value).toBeTruthy();
     expect((await w.mock.state()).recorded).toEqual([]);
   });
 });
 
-async function proposedOperation(config: Record<string, unknown>, callKey: string) {
-  const w = await world(config);
+it("performs an operation once when the User approves its terms twice at once", async () => {
+  const w = await world({});
   await signInto(w, w.mock, "main", "acct_ada");
-  const proposed = await exchange(w, callKey) as { proposed: { operation_id: string } };
-  const id = proposed.proposed.operation_id;
-  const revision = operation(w.client, w.company.issuer, id)!.revision;
-  return { w, id, revision };
-}
-
-it("does not send two concurrent confirms while persisting the recovery job", async () => {
-  const { w, id, revision } = await proposedOperation({}, "concurrent-confirm");
-  await Promise.all([0, 1].map(() => approveAndConfirm(w.client, w.company.issuer, id, revision, "user")));
+  const { terms, operation } = await approveOurs(w, await propose(w, "main"));
+  await Promise.all([0, 1].map(() => decideLocal(w.client, terms, "approve")));
   const state = await w.mock.state();
-  expect(state.operations).toEqual([expect.objectContaining({ id, state: "succeeded", confirms: 1 })]);
+  expect(state.operations).toEqual([expect.objectContaining({ id: operation, state: "succeeded", confirms: 1 })]);
   expect(state.performs).toBe(1);
+  expect(approvals(w).get(terms)).toBe("done");
   expect(state.recorded).toEqual([]);
 });
-
-it("releases the confirmation guard when persisting its recovery job fails", async () => {
-  const { w, id, revision } = await proposedOperation({}, "failed-recovery-job");
-  const schedule = vi.spyOn(w.client.host, "schedule").mockRejectedValueOnce(new Error("recovery job unavailable"));
-  try {
-    await expect(approveAndConfirm(w.client, w.company.issuer, id, revision, "user")).rejects.toThrow("recovery job unavailable");
-    expect((await w.mock.state()).operations[0]).toMatchObject({ state: "proposed", confirms: 0 });
-    const generation = w.sql.exec("SELECT approval_generation FROM poppy_operations WHERE issuer = ? AND operation_id = ?", w.company.issuer, id).toArray()[0]!.approval_generation;
-    await approveAndConfirm(w.client, w.company.issuer, id, revision, "user");
-    expect(w.sql.exec("SELECT approval_generation FROM poppy_operations WHERE issuer = ? AND operation_id = ?", w.company.issuer, id).toArray()[0]!.approval_generation).toBe(generation);
-    expect((await w.mock.state()).operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
-    expect((await w.mock.state()).performs).toBe(1);
-    expect((await w.mock.state()).recorded).toEqual([]);
-  } finally { schedule.mockRestore(); }
-});
-
-it("restores a missing operation job after persistence fails, without another approval", async () => {
-  const { w, id, revision } = await proposedOperation({}, "missing-operation-job");
-  const priorJobs = new Map(w.jobs);
-  const jobId = `op-${w.company.issuer}-${id}`;
-  const schedule = vi.spyOn(w.client.host, "schedule").mockRejectedValueOnce(new Error("job write failed"));
-  await expect(approveAndConfirm(w.client, w.company.issuer, id, revision, "user")).rejects.toThrow("job write failed");
-  expect(w.jobs).toEqual(priorJobs);
-  expect(w.jobs.has(jobId)).toBe(false);
-  expect((await w.mock.state()).operations[0]).toMatchObject({ confirms: 0, state: "proposed" });
-  const restarted = new PoppyClient(w.client.host);
-  await recoverOperations(restarted);
-  expect([...w.jobs.keys()]).toEqual([...priorJobs.keys(), jobId]);
-  const job = w.jobs.get(jobId);
-  await recoverOperations(restarted);
-  expect(w.jobs.get(jobId)).toBe(job);
-  await trackOperation(restarted, w.company.issuer, id);
-  expect((await w.mock.state()).operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
-  expect((await w.mock.state()).performs).toBe(1);
-  schedule.mockRestore();
-});
-
-it("restores tracking for an in-progress operation but never rearms a final one", async () => {
-  const { w, id, revision } = await proposedOperation({ slowConfirm: true }, "missing-progress-job");
-  await approveAndConfirm(w.client, w.company.issuer, id, revision, "user");
-  expect(operation(w.client, w.company.issuer, id)!.state).toBe("in_progress");
-  const jobId = `op-${w.company.issuer}-${id}`;
-  w.jobs.delete(jobId);
-  await recoverOperations(w.client);
-  expect(w.jobs.has(jobId)).toBe(true);
-  await trackOperation(w.client, w.company.issuer, id);
-  expect(operation(w.client, w.company.issuer, id)!.state).toBe("succeeded");
-  expect((await w.mock.state()).performs).toBe(1);
-  w.jobs.delete(jobId);
-  await recoverOperations(w.client);
-  expect(w.jobs.has(jobId)).toBe(false);
-});
-
-for (const action of ["confirm", "read", "cancel"] as const) {
-  it.each(["null", "missing fields", "different id", ...(action === "confirm" ? ["different revision", "still proposed"] : [])])(`keeps ${action} recoverable when its JSON answer has %s`, async (fault) => {
-    const { w, id, revision } = await proposedOperation({ slowConfirm: true }, `invalid-${action}`);
-    if (action === "read") await approveAndConfirm(w.client, w.company.issuer, id, revision, "user");
-    const original = w.client.resourceJson.bind(w.client);
-    let corrupted = false;
-    const response = vi.spyOn(w.client, "resourceJson").mockImplementation(async (...args) => {
-      const answer = await original(...args); // peer handles the real, accepted request first
-      const request = args[1].init();
-      if (!corrupted && (action === "read" ? request.method === "GET" && request.url.endsWith(`/${id}`) : request.url.endsWith(`/${action}`))) {
-        corrupted = true;
-        let body: Json;
-        if (fault === "null") body = null;
-        else if (fault === "missing fields") body = {};
-        else body = { ...answer.body as object, ...(fault === "different id" ? { operation_id: "op-unrelated" }
-          : fault === "different revision" ? { revision: revision + 1 } : { state: "proposed" }) };
-        return { ...answer, body };
-      }
-      return answer;
-    });
-    try {
-      if (action === "cancel") {
-        await expect(cancelOperation(w.client, w.company.issuer, id)).rejects.toMatchObject({ code: "invalid_response" });
-        expect(operation(w.client, w.company.issuer, id)!.state).toBe("proposed");
-        await cancelOperation(w.client, w.company.issuer, id);
-        expect(operation(w.client, w.company.issuer, id)!.state).toBe("cancelled");
-        expect((await w.mock.state()).performs).toBe(0);
-      } else {
-        if (action === "confirm") {
-          await approveAndConfirm(w.client, w.company.issuer, id, revision, "user");
-          // The untrusted response must not replace the approved revision or
-          // be mistaken for a confirmed local state, even if a later GET repairs it.
-          expect(operation(w.client, w.company.issuer, id)).toMatchObject({ revision, state: "proposed" });
-        }
-        else expect(await trackOperation(w.client, w.company.issuer, id)).toBeGreaterThan(w.client.host.now());
-        await trackOperation(w.client, w.company.issuer, id);
-        expect(operation(w.client, w.company.issuer, id)!.state).toBe("succeeded");
-        const state = await w.mock.state();
-        expect(state.operations[0]).toMatchObject({ state: "succeeded", confirms: 1 });
-        expect(state.performs).toBe(1);
-      }
-      expect(corrupted).toBe(true);
-      expect((await w.mock.state()).recorded).toEqual([]);
-    } finally { response.mockRestore(); }
-  });
-}
 
 it("replaces cached scope and resource variants when a Session gets a new token", async () => {
   const w = await world({});
   await signInto(w, w.mock, "main", "acct_ada");
-  const other = await w.client.token(w.company, { label: "other" });
-  const broad = await w.client.token(w.company);
+  await signInto(w, w.mock, "other", "acct_grace");
+  const other = (await w.client.token(w.company, { label: "other" }))!;
+  const broad = (await w.client.token(w.company, { label: "main" }))!;
   const session = w.client.session(w.company.issuer, "main")!;
-  const narrow = await w.client.token(w.company, { scope: "poppy:read" });
-  expect(narrow.scope).toBe("poppy:read");
+  const narrow = (await w.client.token(w.company, { label: "main", scope: "orders:read" }))!;
+  expect(narrow.scope).toBe("orders:read");
   expect(narrow.value).not.toBe(broad.value);
-  const renewed = await w.client.token(w.company);
+  const renewed = (await w.client.token(w.company, { label: "main" }))!;
   expect(renewed.value).not.toBe(broad.value);
   expect(renewed.value).not.toBe(narrow.value);
-  expect(new Set(renewed.scope.split(" "))).toEqual(new Set(["poppy:read", "poppy:write"]));
-  expect((await w.client.token(w.company)).value).toBe(renewed.value);
-  expect((await w.client.token(w.company, { label: "other" })).value).toBe(other.value);
+  expect(new Set(renewed.scope.split(" "))).toEqual(new Set(["orders:read", "orders:write"]));
+  expect((await w.client.token(w.company, { label: "main" }))!.value).toBe(renewed.value);
+  expect((await w.client.token(w.company, { label: "other" }))!.value).toBe(other.value);
 
-  const mcp = await w.client.token(w.company, { bearer: true, resource: w.hosts.mcpUrl });
-  expect(mcp.type).toBe("Bearer");
-  const afterMcp = await w.client.token(w.company);
-  expect(afterMcp.type).toBe("DPoP");
+  const mcp = (await w.client.token(w.company, { label: "main", resource: w.hosts.mcpUrl }))!;
+  expect(mcp.value).not.toBe(renewed.value);
+  const afterMcp = (await w.client.token(w.company, { label: "main" }))!;
   expect(afterMcp.value).not.toBe(renewed.value);
+  expect(afterMcp.value).not.toBe(mcp.value);
+  // New tokens, the same Session (5.2: a token never names a Session).
   expect(w.client.session(w.company.issuer, "main")!.session_id).toBe(session.session_id);
   expect((await w.mock.state()).recorded).toEqual([]);
 });
 
-type IsolationCommand = Command | "orders";
 type IsolatedClient = Awaited<ReturnType<World["createClient"]>>;
 type IsolatedModel = {
   signedIn: Set<number>;
   conversations: Map<string, { label: number; texts: string[]; closed: boolean }>;
+  /** Operation id → the label whose request it is, and its state at the Company. */
   operations: Map<string, { label: number; state: string }>;
+  /** Our cards and the Company's terms cards (→ their operation), each with its label. */
+  ours: Map<string, number>;
+  terms: Map<string, { label: number; operation: string }>;
 };
+type IsolationCommand = "signIn" | "signOut" | "refresh" | "orders" | "message" | "read" | "close" | "propose" | "approveOurs" | "approveTerms" | "decline";
 
 describe("two PDA clients and two accounts in one generated world", () => {
-  it("keeps identities, sessions, Account Tokens, conversations and operations isolated after every action", propertyAsync(async (tc) => {
+  it("keeps identities, sessions, refresh tokens, conversations and operations isolated after every action", propertyAsync(async (tc) => {
     const config = {
       rotateRefreshTokens: tc.draw(gs.booleans()), reuseDetection: tc.draw(gs.booleans()),
+      dpopTokens: tc.draw(gs.booleans()),
       requireNonce: tc.draw(gs.booleans()), strictAssertions: tc.draw(gs.booleans()),
       nonceScope: tc.draw(gs.sampledFrom(["company", "origin"])),
       endSessionsOnSignOut: tc.draw(gs.booleans()), streaming: false
@@ -399,7 +404,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
     const clients: IsolatedClient[] = [w, await w.createClient()];
     const labels = [...tc.draw(gs.sets(gs.fromRegex("[a-z]{1,8}", { fullmatch: true }), { minSize: 2, maxSize: 2 }))];
     const accounts = tc.draw(gs.booleans()) ? ["acct_ada", "acct_grace"] : ["acct_grace", "acct_ada"];
-    const models: IsolatedModel[] = clients.map(() => ({ signedIn: new Set(), conversations: new Map(), operations: new Map() }));
+    const models: IsolatedModel[] = clients.map(() => ({ signedIn: new Set(), conversations: new Map(), operations: new Map(), ours: new Map(), terms: new Map() }));
     const performed = new Set<string>();
     const userIds = clients.map(({ client, company }) => client.userId(company.issuer));
     expect(new Set(userIds).size).toBe(2);
@@ -408,13 +413,18 @@ describe("two PDA clients and two accounts in one generated world", () => {
       await signInto(clients[who]!, w.mock, labels[label]!, accounts[label]!);
       models[who]!.signedIn.add(label);
     };
+    /** Terms cards the User may approve: before the account's jacket is exchanged; after, only the operation that exchanged it (Ops 7). */
+    const approvable = (model: IsolatedModel, label: number) => [...model.terms].filter(([, card]) => card.label === label &&
+      (!performed.has(accounts[label]!) || model.operations.get(card.operation)?.state === "succeeded")).map(([id]) => id);
 
     const agrees = async () => {
       const tokenOwners = new Map<string, string>();
       for (const [who, { client, company }] of clients.entries()) {
         for (const label of [0, 1]) {
           const token = await client.token(company, { label: labels[label]! });
-          // Every active Session has its own token. Neither a cache nor a
+          expect(token !== null, `${who}/${label}`).toBe(models[who]!.signedIn.has(label));
+          if (!token) continue;
+          // Every signed-in Session has its own token. Neither a cache nor a
           // refresh may hand one client's/label's token to another.
           expect(tokenOwners.has(token.value)).toBe(false);
           tokenOwners.set(token.value, `${who}/${label}`);
@@ -424,9 +434,11 @@ describe("two PDA clients and two accounts in one generated world", () => {
       expect(state.recorded).toEqual([]);
       expect(state.accountTokens).toBe(models.reduce((count, model) => count + model.signedIn.size, 0));
       expect(state.performs).toBe(performed.size);
-      expect(new Set(state.userIds)).toEqual(new Set(userIds));
+      // The Company has seen only our two User IDs, once each has sent a Session JWT (5.2).
+      for (const id of state.userIds) expect(userIds).toContain(id);
       const allOperations = new Map(models.flatMap((model) => [...model.operations].map(([id, op]) => [id, op.state] as const)));
       expect(new Map(state.operations.map((op) => [op.id, op.state]))).toEqual(allOperations);
+      for (const op of state.operations) if (op.state === "succeeded") expect(op.confirms, op.id).toBe(1);
       for (const [who, { client, company, sql }] of clients.entries()) {
         const model = models[who]!;
         expect(new Set(client.accounts(company.issuer).map((row) => row.account))).toEqual(new Set([...model.signedIn].map((label) => labels[label])));
@@ -434,15 +446,19 @@ describe("two PDA clients and two accounts in one generated world", () => {
           const session = client.session(company.issuer, labels[label]!)!;
           expect(session.signed_in).toBe(model.signedIn.has(label) ? 1 : 0);
           expect(session.account).toBe(model.signedIn.has(label) ? labels[label] : null);
-          const remote = state.sessions.find((row) => row.id === session.session_id)!;
-          expect(remote).toMatchObject({ userId: userIds[who], account: model.signedIn.has(label) ? accounts[label] : null, ended: false });
+          // A Session the Company hasn't seen yet is the agent's alone; one it has seen is this User's, and
+          // signed in to this label's account or to none (a sign-in names no Session; its first token does, 5.4).
+          const remote = state.sessions.filter((row) => row.sid === session.session_id);
+          expect(remote.length).toBeLessThanOrEqual(1);
+          if (remote[0]) {
+            expect(remote[0].userId).toBe(userIds[who]);
+            expect([accounts[label], null]).toContain(remote[0].account);
+          }
         }
         expect(new Set(openConversations(client).map((row) => row.id))).toEqual(new Set([...model.conversations].filter(([, entry]) => !entry.closed).map(([id]) => id)));
-        expect(new Set(sql.exec("SELECT operation_id FROM poppy_operations").toArray().map((row) => row.operation_id))).toEqual(new Set(model.operations.keys()));
-        for (const [id, op] of model.operations) {
-          expect(operation(client, company.issuer, id)?.state).toBe(op.state);
-          expect(operation(clients[1 - who]!.client, company.issuer, id)).toBeUndefined();
-        }
+        const pending = sql.exec("SELECT id FROM poppy_approvals WHERE status = 'pending'").toArray().map((row) => String(row.id)).sort();
+        expect(pending).toEqual([...model.ours.keys(), ...model.terms.keys()].sort());
+        for (const id of pending) expect(clients[1 - who]!.sql.exec("SELECT id FROM poppy_approvals WHERE id = ?", id).toArray()).toEqual([]);
         for (const [id, expected] of model.conversations) {
           const remote = state.conversations.find((row) => row.id === id)!;
           expect(remote.userId).toBe(userIds[who]);
@@ -462,29 +478,28 @@ describe("two PDA clients and two accounts in one generated world", () => {
       const choices: Array<readonly [number, number, IsolationCommand]> = [];
       for (const who of [0, 1]) for (const label of [0, 1]) {
         const model = models[who]!;
-        const actions: IsolationCommand[] = ["signIn", "renew", "message"];
+        const actions: IsolationCommand[] = ["signIn", "refresh", "message"];
         if (model.signedIn.has(label)) {
           actions.push("signOut", "orders");
           if (!performed.has(accounts[label]!)) actions.push("propose");
-          if ([...model.operations.values()].some((op) => op.label === label && op.state === "proposed")) {
-            actions.push("decline");
-            if (!performed.has(accounts[label]!)) actions.push("approve");
-          }
+          if ([...model.ours.values()].includes(label)) actions.push("approveOurs");
+          if (approvable(model, label).length) actions.push("approveTerms");
+          if ([...model.ours.values()].includes(label) || [...model.terms.values()].some((card) => card.label === label)) actions.push("decline");
         }
         if ([...model.conversations.values()].some((item) => item.label === label && !item.closed)) actions.push("read", "close");
         choices.push(...actions.map((action) => [who, label, action] as const));
       }
       const [who, label, action] = tc.draw(gs.sampledFrom(choices));
       tc.note(`${step}: client=${who} label=${labels[label]} ${action}; completed=${JSON.stringify(counts)}`);
-      const { client, company } = clients[who]!;
+      const actor = clients[who]!;
+      const { client, company } = actor;
       const model = models[who]!;
-      const open = [...model.operations].filter(([, op]) => op.label === label && op.state === "proposed");
       if (action === "signIn") await signIn(who, label);
       else if (action === "signOut") {
         expect(model.signedIn.has(label)).toBe(true);
         await signOut(client, company.issuer, labels[label]!);
         model.signedIn.delete(label);
-      } else if (action === "renew") {
+      } else if (action === "refresh") {
         client.dropToken(company, { label: labels[label]! });
         await client.token(company, { label: labels[label]! });
       } else if (action === "orders") {
@@ -503,23 +518,34 @@ describe("two PDA clients and two accounts in one generated world", () => {
         const existing = [...model.conversations].filter(([, item]) => item.label === label && !item.closed);
         expect(existing.length).toBeGreaterThan(0);
         const [id, entry] = tc.draw(gs.sampledFrom(existing));
-        if (action === "read") await readFresh(clients[who]!, w.mock, id, `Update: ${tc.draw(gs.text({ maxSize: 100 }))}`);
+        if (action === "read") await readFresh(actor, w.mock, id, `Update: ${tc.draw(gs.text({ maxSize: 100 }))}`);
         else { await closeConversation(client, company, id); entry.closed = true; }
       } else if (action === "propose") {
-        expect(model.signedIn.has(label) && !performed.has(accounts[label]!)).toBe(true);
-        const result = await callOpenApi(client, company, labels[label]!, { operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, callKey: crypto.randomUUID() }) as { proposed: { operation_id: string } };
-        const id = result.proposed.operation_id;
-        if (open.length) expect(open.map(([key]) => key)).toContain(id);
-        model.operations.set(id, { label, state: "proposed" });
-      } else if (action === "approve" || action === "decline") {
-        expect(model.signedIn.has(label) && open.length > 0).toBe(true);
-        const [id, op] = tc.draw(gs.sampledFrom(open));
-        if (action === "approve") {
-          expect(performed.has(accounts[label]!)).toBe(false);
-          await approveAndConfirm(client, company.issuer, id, operation(client, company.issuer, id)!.revision, "user");
-          op.state = "succeeded";
-          performed.add(accounts[label]!);
-        } else { await cancelOperation(client, company.issuer, id); op.state = "cancelled"; }
+        model.ours.set(await propose(actor, labels[label]!), label);
+      } else if (action === "approveOurs") {
+        const id = tc.draw(gs.sampledFrom([...model.ours].filter(([, owner]) => owner === label).map(([key]) => key)));
+        const known = new Set(state0(models));
+        if (await refusedWhenGone(actor, w.mock, id)) { model.ours.delete(id); counts[action] = (counts[action] ?? 0) + 1; await agrees(); continue; }
+        const { terms, operation } = await approveOursAmong(actor, w.mock, id, known);
+        model.ours.delete(id);
+        model.terms.set(terms, { label, operation });
+        model.operations.set(operation, { label, state: "proposed" });
+      } else if (action === "approveTerms") {
+        const id = tc.draw(gs.sampledFrom(approvable(model, label)));
+        const card = model.terms.get(id)!;
+        const op = model.operations.get(card.operation)!;
+        if (await refusedWhenGone(actor, w.mock, id)) { model.terms.delete(id); counts[action] = (counts[action] ?? 0) + 1; await agrees(); continue; }
+        await decideLocal(client, id, "approve");
+        expect(approvals(actor).get(id)).toBe("done");
+        model.terms.delete(id);
+        if (op.state !== "succeeded") performed.add(accounts[label]!);
+        op.state = "succeeded";
+      } else if (action === "decline") {
+        const id = tc.draw(gs.sampledFrom([...[...model.ours].filter(([, owner]) => owner === label).map(([key]) => key), ...[...model.terms].filter(([, card]) => card.label === label).map(([key]) => key)]));
+        await decideLocal(client, id, "decline");
+        expect(approvals(actor).get(id)).toBe("declined");
+        model.ours.delete(id);
+        model.terms.delete(id);
       } else throw new Error(`Unexecuted command: ${action}`);
       counts[action] = (counts[action] ?? 0) + 1;
       await agrees();
@@ -529,24 +555,48 @@ describe("two PDA clients and two accounts in one generated world", () => {
   }), Number(process.env.HEGEL_CASES ?? "0") > 0 ? 0 : 120_000);
 });
 
-describe("PDA audience fallback with real token renewal and revocation", () => {
-  it("renews and revokes under each audience reading, including token-endpoint-only S1", propertyAsync(async (tc) => {
-    const reading = tc.draw(gs.sampledFrom(["lenient", "exact", "token-endpoint"] as const));
-    const w = await world({ clientAssertionAud: reading, requireNonce: tc.draw(gs.booleans()),
+/** Every operation either client's model knows. */
+function state0(models: readonly IsolatedModel[]): string[] {
+  return models.flatMap((model) => [...model.operations.keys()]);
+}
+
+/**
+ * `approveOurs` in a world with other Users' and accounts' operations: the
+ * operation is the one open operation that is new or this card's label's.
+ */
+async function approveOursAmong(w: Pick<World, "client" | "sql">, mock: World["mock"], id: string, known: ReadonlySet<string>): Promise<{ terms: string; operation: string }> {
+  const before = approvals(w);
+  await decideLocal(w.client, id, "approve");
+  const after = approvals(w);
+  expect(after.get(id)).toBe("terms");
+  const waiting = [...after].filter(([key, status]) => key.startsWith("apr2_") && status === "pending").map(([key]) => key);
+  const asked = waiting.filter((key) => before.get(key) !== "pending");
+  expect(asked.length).toBeLessThanOrEqual(1);
+  const label = String(w.sql.exec("SELECT label FROM poppy_approvals WHERE id = ?", id).toArray()[0]!.label);
+  const mine = waiting.filter((key) => String(w.sql.exec("SELECT label FROM poppy_approvals WHERE id = ?", key).toArray()[0]!.label) === label);
+  const terms = asked[0] ?? mine.find((key) => known.has(operationOf(w.sql, key)));
+  expect(terms).toBeDefined();
+  const operation = operationOf(w.sql, terms!);
+  expect((await mock.state()).operations.find((op) => op.id === operation)?.state).toBe("proposed");
+  return { terms: terms!, operation };
+}
+
+describe("refresh and revocation with real tokens", () => {
+  it("refreshes, then revokes once at sign-out, under any token and nonce behaviour", propertyAsync(async (tc) => {
+    const w = await world({ requireNonce: tc.draw(gs.booleans()), dpopTokens: tc.draw(gs.booleans()),
       nonceScope: tc.draw(gs.sampledFrom(["company", "origin"] as const)),
       strictAssertions: tc.draw(gs.booleans()), rotateRefreshTokens: tc.draw(gs.booleans()),
       endSessionsOnSignOut: tc.draw(gs.booleans()) });
-    const model: Model = { signedIn: false, operations: new Map(), performs: 0, conversations: new Set() };
+    const model = newModel();
     await run(w, model, "signIn", tc);
     await agrees(w, model);
-    w.client.dropToken(w.company);
-    await w.client.token(w.company);
+    await run(w, model, "refresh", tc);
     await agrees(w, model);
     await run(w, model, "signOut", tc);
     await agrees(w, model);
-    const revocations = (await w.mock.state()).requests.filter((request) => request.url === w.hosts.revocationEndpoint);
-    expect(revocations.map((request) => request.status)).toEqual(reading === "token-endpoint" ? [401, 200] : [200]);
-    if (reading === "token-endpoint") expect(revocations[0]!.error).toBe("invalid_client");
+    const revocations = (await w.mock.state()).requests.filter((request) => request.url === w.hosts.revocationEndpoint && request.error !== "use_dpop_nonce");
+    // One revocation, accepted: the client assertion names the issuer, the one audience 4.1 allows.
+    expect(revocations.map((request) => request.status)).toEqual([200]);
   }));
 });
 

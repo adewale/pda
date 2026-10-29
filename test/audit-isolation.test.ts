@@ -29,12 +29,12 @@ it("isolates equal remote IDs, rejects cross-company handles, and validates resp
       sendMessage(client, target, { label: "main", callKey: key, sender: "agent", text: "Hello", ...extra });
     try {
       answer = { conversation_id: "cnv_shared", status: "working", responder: "agent", events: [
-        { id: "evt_same", type: "message", message: { id: "msg_A", role: "company", sender: "agent", text: "A message" } }
+        { id: "evt_same", type: "message", message: { id: "msg_A", role: "company", author: { type: "agent" }, text: "A message" } }
       ] };
       const first = await send(A, "audit-a");
       client.sql.exec("UPDATE poppy_conversations SET cursor = ? WHERE id = ?", "cursor_for_A", first.conversationId);
       answer = { conversation_id: "cnv_shared", status: "working", responder: "human", events: [
-        { id: "evt_same", type: "message", message: { id: "msg_B", role: "company", sender: "agent", text: "B message" } }
+        { id: "evt_same", type: "message", message: { id: "msg_B", role: "company", author: { type: "agent" }, text: "B message" } }
       ] };
       const second = await send(B, "audit-b-collision");
       expect(second.conversationId).not.toBe(first.conversationId);
@@ -76,7 +76,10 @@ it("isolates equal remote IDs, rejects cross-company handles, and validates resp
       let child = "cnv_shared"; // Exists at B, but is not a Direct child.
       const resource = vi.spyOn(client, "resource").mockImplementation(async (_target, request) => {
         expect(new URL(request.init().url).pathname).toBe(`${new URL(B.conversations!.endpoint).pathname}/cnv_shared/events`);
-        return new Response(JSON.stringify({ events: [{ id: `evt_close_${++eventId}`, type: "direct_closed", conversation_id: child }], has_more: false }), { headers: { "Content-Type": "application/json" } });
+        // A whole events answer (8.5): B's conversation, by the Company's own ID.
+        ++eventId;
+        const events = [{ id: `evt_close_${eventId}`, type: "direct_closed", conversation_id: child }];
+        return new Response(JSON.stringify({ conversation_id: "cnv_shared", events, cursor: `cur_${eventId}`, has_more: false, status: "working", responder: "human" }), { headers: { "Content-Type": "application/json" } });
       });
       restoreResource = () => resource.mockRestore();
       await readConversation(client, second.conversationId, 0);

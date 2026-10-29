@@ -1,4 +1,5 @@
 import type { Issuer } from "./issuer";
+import type { ApprovalCardStatus, ApprovalDecision, ApprovalResult, OutcomeResolution } from "./approval-outcome";
 /**
  * Poppy's messages on the chat WebSocket, beside the Pi protocol in
  * `protocol.ts` (which stays an unchanged copy). Frames whose `type` starts
@@ -55,54 +56,22 @@ export type Card =
       readonly expiresAt?: string;
     })
   | (CardBase & {
-      readonly kind: "operation";
-      readonly issuer: Issuer;
-      readonly operationId: string;
-      readonly revision: number;
-      readonly state: string;
-      /** The Company's own summary, shown verbatim (Ops 5.1). */
-      readonly summary: string;
-      readonly account: string | null;
-      readonly terms?: unknown;
-      readonly highlights: readonly string[];
-      readonly previousSummary?: string;
-      readonly expiresAt?: string;
-      readonly userApprovalRequired: boolean;
-      readonly url?: string;
-      readonly result?: string;
-      /** HTTPS links on the Company's hosts from a final operation's `result.data`, such as a checkout. */
-      readonly links?: readonly { readonly label: string; readonly url: string }[];
-      /**
-       * The Company no longer has it (`operation_not_found`), so nothing more
-       * can be done with it (N19): whether it may have happened (`unknown`, a
-       * confirm's answer never came) or wasn't done.
-       */
-      readonly lost?: "unknown" | "not_done";
-      /**
-       * The Company changed this revision's terms after it was shown (Ops 3.1
-       * forbids it): what it then said. The card keeps the terms the User saw,
-       * and the revision is never confirmed again.
-       */
-      readonly alteredSummary?: string;
-      readonly approvedBy?: string;
-      /** The total from `terms`, where they name one (`{ amount, currency }` under a key with "total" in it), shown large on the card. */
-      readonly total?: { readonly amount: string; readonly currency: string };
-      /** HTTPS links on the Company's own hosts that `terms` names under a key with "preview" in it, such as a print's crop. */
-      readonly previews?: readonly { readonly label: string; readonly url: string }[];
-    })
-  | (CardBase & {
       readonly kind: "approval";
       readonly approvalId: string;
       readonly summary: string;
       /**
-       * `done`: the Company answered 2xx. `refused`: sent as approved, and
+       * `done`: the Company returned a confirmed result. `terms`: sent as approved, and the
+       * Company answered with an operation, whose terms wait on a card of
+       * their own (Ops 4), so nothing is done yet. `refused`: sent as approved, and
        * the Company answered with another status (`answer`). `unknown`: no
-       * answer came, or the agent restarted mid-call, so it may or may not
-       * have reached the Company. `failed`: it wasn't sent, or its answer
-       * couldn't be read.
+       * confirmed result came (including 5xx, unreadable responses, asynchronous
+       * acceptance or an interrupted call). `failed`: no action was sent.
+       * A User reconciliation remains a separate assertion below.
        */
-      readonly status: "pending" | "approved" | "declined" | "done" | "refused" | "failed" | "unknown";
+      readonly status: ApprovalCardStatus;
       readonly result?: string;
+      /** The User checked the original outcome with the Company; the original receipt remains in history. */
+      readonly outcomeResolution?: OutcomeResolution;
       /** What the Company answered a `refused` write: its HTTP status and error code, if it gave one. */
       readonly answer?: { readonly status: number; readonly error?: string };
       /** The User's photos the request sends: names, types and sizes, which the page shows with the photo itself. */
@@ -113,21 +82,44 @@ export type Card =
        * Company's same method and URL. Absent on every other approval.
        */
       readonly batchKey?: string;
+      /** An operation a Company returned: its own summary and what its terms name (Ops 5). */
+      readonly terms?: ApprovalTerms;
     })
   | (CardBase & {
       readonly kind: "direct_invite";
       readonly conversationId: string;
       readonly reason: string;
     })
-  | (CardBase & { readonly kind: "notice"; readonly text: string });
+  | (CardBase & { readonly kind: "notice"; readonly text: string; readonly links?: readonly { readonly label: string; readonly url: string }[] });
 
-export type ScopeInfo = { readonly scope: string; readonly description: string };
+/**
+ * What an approval card shows of an operation a Company returned (Ops 5):
+ * the Company's own summary, quoted as theirs, when the approval stops being
+ * accepted, what its terms name, and where the terms disagree with the
+ * summary or with the request (Ops 5's SHOULD).
+ */
+export type ApprovalTerms = {
+  readonly summary: string;
+  readonly expiresAt: string;
+  /** Costs, dates and conditions in the terms, and whether the Company says it can be undone. */
+  readonly highlights: readonly string[];
+  /** The total the terms name, shown large and on the button. */
+  readonly total?: { readonly amount: string; readonly currency: string };
+  /** HTTPS links on the Company's own hosts under a key with "preview" in it, such as a print's crop. */
+  readonly previews?: readonly { readonly label: string; readonly url: string }[];
+  readonly differences?: readonly string[];
+};
+
+/** A scope as a sign-in card shows it: the Company's description, and its hint in plain words when it gives one (3.1). */
+export type ScopeInfo = { readonly scope: string; readonly description: string; readonly hint?: string };
 
 /** One message in a Direct Conversation, for the page. */
 export type DirectMessage = {
   readonly id: string;
   readonly role: "user" | "company";
   readonly sender: "agent" | "human";
+  /** The name a Company message's author gives (spec 8.4), shown as text. */
+  readonly authorName?: string;
   readonly text?: string;
   readonly data?: unknown;
 };
@@ -138,7 +130,7 @@ export type DirectUpdate = {
   readonly status: string;
   readonly responder: string;
   readonly messages?: readonly DirectMessage[];
-  /** Text pieces of a Company message still being written: display only (spec 7.6). */
+  /** Text pieces of a Company message still being written: display only (spec 8.6). */
   readonly partial?: { readonly messageId: string; readonly text: string } | null;
   readonly closed?: boolean;
 };
@@ -151,22 +143,9 @@ export type ConnectedAccount = {
   readonly expiresAt: number | null;
 };
 
-export type Permission = {
-  readonly id: string;
-  readonly issuer: Issuer;
-  readonly company: string;
-  readonly account: string;
-  readonly action: string;
-  readonly maxAmount: string | null;
-  readonly currency: string | null;
-  readonly maxUses: number | null;
-  readonly uses: number;
-  readonly expiresAt: number | null;
-};
-
 /**
- * A sign-out the Company hasn't accepted yet (spec 4.9): the agent no longer
- * uses the account, but the Account Token it held is still live there.
+ * A sign-out the Company hasn't accepted yet (spec 4.6): the agent no longer
+ * uses the account, but the refresh token it held is still live there.
  */
 export type PendingSignOut = {
   readonly id: string;
@@ -190,26 +169,17 @@ export type ActivityChannel = "api" | "company_agent" | "website" | "sign_in" | 
 /** What an action could do with the account: read it, or read and change it. */
 export type ActivityAccess = "view" | "view_and_change";
 
-export type ActivityResult =
-  | "waiting"
-  | "in_progress"
-  | "done"
-  | "declined"
-  | "cancelled"
-  | "expired"
-  | "failed"
-  | "unknown";
+export type ActivityResult = ApprovalResult | "cancelled" | "expired";
 
 /**
- * One line of the activity log, built from the agent's own records (operations,
- * approvals, sign-ins, conversations, messages), so it outlives the cards.
+ * One line of the activity log, built from the agent's own records (approvals, sign-ins, conversations, messages), so it outlives the cards.
  * It never carries a token, key, code, credential or sign-in secret.
  */
 export type ActivityEntry = {
   readonly id: string;
   readonly at: number;
   /** `scheduled`: a reminder or scheduled task ran (src/schedules.ts); its issuer is empty. */
-  readonly kind: "operation" | "approval" | "sign_in" | "sign_out" | "conversation" | "message" | "scheduled";
+  readonly kind: "approval" | "sign_in" | "sign_out" | "conversation" | "message" | "scheduled";
   readonly issuer: Issuer | "";
   readonly company: string;
   readonly account: string | null;
@@ -220,18 +190,18 @@ export type ActivityEntry = {
   readonly quoteBy?: "company" | "agent" | "you";
   readonly how: ActivityChannel | null;
   readonly access: ActivityAccess | null;
-  /** Who decided: the User, or a standing permission they set. Null when no decision was needed. */
-  readonly decidedBy: "you" | "standing_permission" | null;
+  /** Who decided: the User. Null when no decision was needed. */
+  readonly decidedBy: "you" | null;
   readonly result: ActivityResult;
   /** The outcome in words: the Company's account of it, or why it failed. */
   readonly outcome?: string;
-  readonly outcomeBy?: "company" | "agent";
+  readonly outcomeBy?: "company" | "agent" | "you";
 };
 
 /** Work running in the background now. */
 export type ActivityTask = {
   readonly id: string;
-  readonly kind: "conversation" | "device_sign_in" | "sign_out" | "operation" | "approval";
+  readonly kind: "conversation" | "device_sign_in" | "sign_out" | "approval";
   readonly issuer: Issuer;
   readonly company: string;
   readonly what: string;
@@ -299,11 +269,11 @@ export type ProtocolCompany = {
 /** Server → page. */
 export type PoppyServerFrame =
   | { readonly type: "poppy.cards"; readonly cards: readonly Card[] }
+  | { readonly type: "poppy.approvals.state"; readonly ids: readonly string[]; readonly decisions: readonly ApprovalDecision[] }
   | { readonly type: "poppy.direct"; readonly update: DirectUpdate }
   | {
       readonly type: "poppy.settings";
       readonly accounts: readonly ConnectedAccount[];
-      readonly permissions: readonly Permission[];
       /** Sign-outs the Company hasn't accepted yet. */
       readonly signOuts: readonly PendingSignOut[];
     }
@@ -333,7 +303,8 @@ export type PoppyServerFrame =
 /** Page → server. */
 export type PoppyClientFrame =
   | { readonly type: "poppy.context"; readonly locale?: string; readonly time_zone?: string }
-  /** The User is using the page, so they count as available (spec 7.4). Not the server's `poppy.activity`. */
+  | { readonly type: "poppy.approvals.read"; readonly ids: readonly string[] }
+  /** The User is using the page, so they count as available (spec 8.10). Not the server's `poppy.activity`. */
   | { readonly type: "poppy.activity" }
   | {
       readonly type: "poppy.credentials";
@@ -342,14 +313,9 @@ export type PoppyClientFrame =
     }
   | { readonly type: "poppy.code"; readonly signInId: string; readonly code: string }
   | { readonly type: "poppy.signin.cancel"; readonly signInId: string }
-  | {
-      readonly type: "poppy.operation";
-      readonly issuer: Issuer;
-      readonly operationId: string;
-      readonly revision: number;
-      readonly decision: "approve" | "decline" | "cancel";
-    }
   | { readonly type: "poppy.approval"; readonly approvalId: string; readonly decision: "approve" | "decline" }
+  /** Only the User's page can record a checked outcome; this never sends or retries an action. */
+  | { readonly type: "poppy.approval.resolve"; readonly approvalId: string; readonly outcome: "performed" | "not_performed" }
   /**
    * Several approvals decided on one card. The agent checks again that they
    * share one `batchKey`, sends them one at a time, and tells the model once.
@@ -365,17 +331,6 @@ export type PoppyClientFrame =
   | { readonly type: "poppy.signout"; readonly issuer: Issuer; readonly account: string }
   /** Try again: one revocation the Company hasn't accepted (`PendingSignOut.id`), never an account still in use. */
   | { readonly type: "poppy.revoke.retry"; readonly id: string }
-  | {
-      readonly type: "poppy.permission.add";
-      readonly issuer: Issuer;
-      readonly account: string;
-      readonly action: string;
-      readonly maxAmount?: string;
-      readonly currency?: string;
-      readonly maxUses?: number;
-      readonly expiresAt?: number;
-    }
-  | { readonly type: "poppy.permission.remove"; readonly id: string }
   | { readonly type: "poppy.card.dismiss"; readonly id: string }
   /** Ask for one Company's protocol log; the answer goes to this page only. */
   | { readonly type: "poppy.protocol"; readonly key: string }

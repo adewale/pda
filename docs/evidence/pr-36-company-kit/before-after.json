@@ -1,0 +1,245 @@
+{
+  "baselineCompanySource": "c98ebf64f8209cf651a855c714fdd4874e0f546f",
+  "archiveSha256": "8b795dd6eb8dd04e6f6ccfdcf6abc63c4a522a8a4292f0ba9b759e8c6ac38e0a",
+  "before": {
+    "lenient": [
+      {
+        "id": "token.in-url",
+        "status": "fail",
+        "quote": "Personal Agents MUST NOT send tokens or Session JWTs in a URL, and Companies MUST NOT accept them from one.",
+        "got": "401 Unauthorized, error invalid_token",
+        "expected": "The access_token query parameter ignored or refused, not checked as a token",
+        "cause": "The endpoint read an access token from the URL and checked it. URLs end up in logs and browser history, so tokens are taken only from the Authorization header (5.6, RFC 6750 \u00a72.3)."
+      },
+      {
+        "id": "mcp.no-token",
+        "status": "fail",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL",
+        "got": "400 Bad Request, error invalid_session",
+        "expected": "An initialize result, or 401 with WWW-Authenticate: Bearer resource_metadata=\"\u2026\"",
+        "cause": "An MCP server answers initialize, or refuses a request without a token with a challenge that names its protected resource metadata."
+      },
+      {
+        "id": "mcp.invalid-token",
+        "status": "fail",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL",
+        "got": "400 Bad Request, error invalid_session",
+        "expected": "401 with WWW-Authenticate: Bearer error=\"invalid_token\", resource_metadata=\"\u2026\"",
+        "cause": "An invalid access token gets 401 with invalid_token in the WWW-Authenticate header (RFC 6750 \u00a73.1)."
+      },
+      {
+        "id": "conversations.events-schema",
+        "status": "fail",
+        "quote": "Every event has an id, a type, and a created_at time",
+        "got": "/events/8/message must include at least one of: text, data, context, operation, approval",
+        "expected": "Events as section 8.5 describes (kit/company/schemas/events-response.schema.json)"
+      },
+      {
+        "id": "conversations.message-preserved",
+        "status": "fail",
+        "quote": "a message from either side, as it was sent, with role set by the Company to user or company for the side it came from",
+        "got": "message {\"id\":\"msg_11FF8t7mxt9oWXPZ_7111w\",\"author\":{\"type\":\"agent\"},\"text\":\"Validator test message. Please ignore.\",\"data\":{\"validator_test\":true,\"items\":[1,2]},\"role\":\"user\"}",
+        "expected": "message {\"id\":\"msg_11FF8t7mxt9oWXPZ_7111w\",\"author\":{\"type\":\"agent\"},\"text\":\"Validator test message. Please ignore.\",\"data\":{\"validator_test\":true,\"items\":[1,2]},\"context\":{\"user_available\":false},\"role\":\"user\"}",
+        "cause": "A message event holds the message as it was sent, with its author, text, data, and context, plus role (8.5)."
+      }
+    ],
+    "strict": [
+      {
+        "id": "token.in-url",
+        "status": "fail",
+        "quote": "Personal Agents MUST NOT send tokens or Session JWTs in a URL, and Companies MUST NOT accept them from one.",
+        "got": "401 Unauthorized, error invalid_token",
+        "expected": "The access_token query parameter ignored or refused, not checked as a token",
+        "cause": "The endpoint read an access token from the URL and checked it. URLs end up in logs and browser history, so tokens are taken only from the Authorization header (5.6, RFC 6750 \u00a72.3)."
+      },
+      {
+        "id": "mcp.no-token",
+        "status": "fail",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL",
+        "got": "400 Bad Request, error invalid_session",
+        "expected": "An initialize result, or 401 with WWW-Authenticate: Bearer resource_metadata=\"\u2026\"",
+        "cause": "An MCP server answers initialize, or refuses a request without a token with a challenge that names its protected resource metadata."
+      },
+      {
+        "id": "mcp.invalid-token",
+        "status": "fail",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL",
+        "got": "400 Bad Request, error invalid_session",
+        "expected": "401 with WWW-Authenticate: Bearer error=\"invalid_token\", resource_metadata=\"\u2026\"",
+        "cause": "An invalid access token gets 401 with invalid_token in the WWW-Authenticate header (RFC 6750 \u00a73.1)."
+      },
+      {
+        "id": "conversations.events-schema",
+        "status": "fail",
+        "quote": "Every event has an id, a type, and a created_at time",
+        "got": "/events/8/message must include at least one of: text, data, context, operation, approval",
+        "expected": "Events as section 8.5 describes (kit/company/schemas/events-response.schema.json)"
+      },
+      {
+        "id": "conversations.message-preserved",
+        "status": "fail",
+        "quote": "a message from either side, as it was sent, with role set by the Company to user or company for the side it came from",
+        "got": "message {\"id\":\"msg_wkcAYxmAr13xSsdNufukRA\",\"author\":{\"type\":\"agent\"},\"text\":\"Validator test message. Please ignore.\",\"data\":{\"validator_test\":true,\"items\":[1,2]},\"role\":\"user\"}",
+        "expected": "message {\"id\":\"msg_wkcAYxmAr13xSsdNufukRA\",\"author\":{\"type\":\"agent\"},\"text\":\"Validator test message. Please ignore.\",\"data\":{\"validator_test\":true,\"items\":[1,2]},\"context\":{\"user_available\":false},\"role\":\"user\"}",
+        "cause": "A message event holds the message as it was sent, with its author, text, data, and context, plus role (8.5)."
+      }
+    ],
+    "hosted": [
+      {
+        "id": "token.in-url",
+        "status": "fail",
+        "quote": "Personal Agents MUST NOT send tokens or Session JWTs in a URL, and Companies MUST NOT accept them from one.",
+        "got": "401 Unauthorized, error invalid_token",
+        "expected": "The access_token query parameter ignored or refused, not checked as a token",
+        "cause": "The endpoint read an access token from the URL and checked it. URLs end up in logs and browser history, so tokens are taken only from the Authorization header (5.6, RFC 6750 \u00a72.3)."
+      },
+      {
+        "id": "mcp.no-token",
+        "status": "fail",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL",
+        "got": "400 Bad Request, error invalid_session",
+        "expected": "An initialize result, or 401 with WWW-Authenticate: Bearer resource_metadata=\"\u2026\"",
+        "cause": "An MCP server answers initialize, or refuses a request without a token with a challenge that names its protected resource metadata."
+      },
+      {
+        "id": "mcp.invalid-token",
+        "status": "fail",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL",
+        "got": "400 Bad Request, error invalid_session",
+        "expected": "401 with WWW-Authenticate: Bearer error=\"invalid_token\", resource_metadata=\"\u2026\"",
+        "cause": "An invalid access token gets 401 with invalid_token in the WWW-Authenticate header (RFC 6750 \u00a73.1)."
+      },
+      {
+        "id": "conversations.events-schema",
+        "status": "skip",
+        "quote": "Every event has an id, a type, and a created_at time",
+        "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+      },
+      {
+        "id": "conversations.message-preserved",
+        "status": "skip",
+        "quote": "a message from either side, as it was sent, with role set by the Company to user or company for the side it came from",
+        "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+      }
+    ]
+  },
+  "after": {
+    "lenient": [
+      {
+        "id": "token.in-url",
+        "status": "pass",
+        "quote": "Personal Agents MUST NOT send tokens or Session JWTs in a URL, and Companies MUST NOT accept them from one."
+      },
+      {
+        "id": "mcp.no-token",
+        "status": "pass",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL"
+      },
+      {
+        "id": "mcp.invalid-token",
+        "status": "pass",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL"
+      },
+      {
+        "id": "conversations.events-schema",
+        "status": "pass",
+        "quote": "Every event has an id, a type, and a created_at time"
+      },
+      {
+        "id": "conversations.message-preserved",
+        "status": "pass",
+        "quote": "a message from either side, as it was sent, with role set by the Company to user or company for the side it came from"
+      }
+    ],
+    "strict": [
+      {
+        "id": "token.in-url",
+        "status": "pass",
+        "quote": "Personal Agents MUST NOT send tokens or Session JWTs in a URL, and Companies MUST NOT accept them from one."
+      },
+      {
+        "id": "mcp.no-token",
+        "status": "pass",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL"
+      },
+      {
+        "id": "mcp.invalid-token",
+        "status": "pass",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL"
+      },
+      {
+        "id": "conversations.events-schema",
+        "status": "pass",
+        "quote": "Every event has an id, a type, and a created_at time"
+      },
+      {
+        "id": "conversations.message-preserved",
+        "status": "pass",
+        "quote": "a message from either side, as it was sent, with role set by the Company to user or company for the side it came from"
+      }
+    ],
+    "bearer": [
+      {
+        "id": "token.in-url",
+        "status": "pass",
+        "quote": "Personal Agents MUST NOT send tokens or Session JWTs in a URL, and Companies MUST NOT accept them from one."
+      },
+      {
+        "id": "mcp.no-token",
+        "status": "pass",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL"
+      },
+      {
+        "id": "mcp.invalid-token",
+        "status": "pass",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL"
+      },
+      {
+        "id": "conversations.events-schema",
+        "status": "pass",
+        "quote": "Every event has an id, a type, and a created_at time"
+      },
+      {
+        "id": "conversations.message-preserved",
+        "status": "pass",
+        "quote": "a message from either side, as it was sent, with role set by the Company to user or company for the side it came from"
+      }
+    ],
+    "hosted": [
+      {
+        "id": "token.in-url",
+        "status": "pass",
+        "quote": "Personal Agents MUST NOT send tokens or Session JWTs in a URL, and Companies MUST NOT accept them from one."
+      },
+      {
+        "id": "mcp.no-token",
+        "status": "pass",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL"
+      },
+      {
+        "id": "mcp.invalid-token",
+        "status": "pass",
+        "quote": "An MCP server's challenges include resource_metadata with the server's protected resource metadata URL"
+      },
+      {
+        "id": "conversations.events-schema",
+        "status": "skip",
+        "quote": "Every event has an id, a type, and a created_at time",
+        "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+      },
+      {
+        "id": "conversations.message-preserved",
+        "status": "skip",
+        "quote": "a message from either side, as it was sent, with role set by the Company to user or company for the side it came from",
+        "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+      }
+    ]
+  },
+  "notes": "Selected unmodified upstream verdicts. Both use the same pinned CLI on local HTTPS and workerd. The after run additionally enables the mock feedback interface and a Bearer control profile. No hosted conversations are offered. Random test identities/IDs differ between runs.",
+  "regressions": {
+    "command": "node node_modules/vitest/vitest.mjs run --config test/vitest.config.ts test/mock-company.test.ts --testNamePattern \"preserves message context|challenges unidentified MCP|rejects query credentials\"",
+    "baselineFailed": 3,
+    "fixedPassed": 3,
+    "generatorAndAssertionsPreserved": true
+  }
+}

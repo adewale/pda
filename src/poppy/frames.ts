@@ -1,4 +1,5 @@
-import { array, boolean, integer, literal, nullable, number, object, optional, record, string, tagged, type Decoder } from "../decode";
+import { array, boolean, DecodeError, integer, literal, nullable, number, object, optional, record, string, tagged, type Decoder } from "../decode";
+import { APPROVAL_READ_LIMIT, isApprovalId } from "./approval-outcome";
 import type { HistoryFrame } from "../history";
 import { issuerDecoder } from "./issuer";
 import type { PoppyClientFrame, PoppyServerFrame } from "./wire";
@@ -10,22 +11,23 @@ import type { PoppyClientFrame, PoppyServerFrame } from "./wire";
  */
 
 const decision = literal("approve", "decline");
+const approvalIds: Decoder<readonly string[]> = (value, at) => {
+  if (!Array.isArray(value) || value.length > APPROVAL_READ_LIMIT) throw new DecodeError("Invalid approval lookup");
+  const ids = array(string)(value, at);
+  if (ids.some(id => !isApprovalId(id))) throw new DecodeError("Invalid approval lookup");
+  return ids;
+};
 
 /** Page → agent. */
 export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
   "poppy.context": object({ type: literal("poppy.context"), locale: optional(string), time_zone: optional(string) }),
   "poppy.activity": object({ type: literal("poppy.activity") }),
+  "poppy.approvals.read": object({ type: literal("poppy.approvals.read"), ids: approvalIds }),
   "poppy.credentials": object({ type: literal("poppy.credentials"), signInId: string, values: record(string) }),
   "poppy.code": object({ type: literal("poppy.code"), signInId: string, code: string }),
   "poppy.signin.cancel": object({ type: literal("poppy.signin.cancel"), signInId: string }),
-  "poppy.operation": object({
-    type: literal("poppy.operation"),
-    issuer: issuerDecoder,
-    operationId: string,
-    revision: integer,
-    decision: literal("approve", "decline", "cancel")
-  }),
   "poppy.approval": object({ type: literal("poppy.approval"), approvalId: string, decision }),
+  "poppy.approval.resolve": object({ type: literal("poppy.approval.resolve"), approvalId: string, outcome: literal("performed", "not_performed") }),
   "poppy.approvals": object({ type: literal("poppy.approvals"), decisions: array(object({ approvalId: string, decision })) }),
   "poppy.direct.start": object({ type: literal("poppy.direct.start"), conversationId: string, text: string }),
   "poppy.direct.decline": object({ type: literal("poppy.direct.decline"), conversationId: string }),
@@ -33,17 +35,6 @@ export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
   "poppy.direct.close": object({ type: literal("poppy.direct.close"), conversationId: string }),
   "poppy.signout": object({ type: literal("poppy.signout"), issuer: issuerDecoder, account: string }),
   "poppy.revoke.retry": object({ type: literal("poppy.revoke.retry"), id: string }),
-  "poppy.permission.add": object({
-    type: literal("poppy.permission.add"),
-    issuer: issuerDecoder,
-    account: string,
-    action: string,
-    maxAmount: optional(string),
-    currency: optional(string),
-    maxUses: optional(integer),
-    expiresAt: optional(number)
-  }),
-  "poppy.permission.remove": object({ type: literal("poppy.permission.remove"), id: string }),
   "poppy.card.dismiss": object({ type: literal("poppy.card.dismiss"), id: string }),
   "poppy.protocol": object({ type: literal("poppy.protocol"), key: string }),
   "poppy.diagnostics": object({ type: literal("poppy.diagnostics") })
@@ -66,11 +57,11 @@ function built<T>(): Decoder<T> {
 /** Agent → page. */
 export const serverFrame: Decoder<PoppyServerFrame> = tagged("type", {
   "poppy.cards": object({ type: literal("poppy.cards"), cards: array(built<Extract<PoppyServerFrame, { type: "poppy.cards" }>["cards"][number]>()) }),
+  "poppy.approvals.state": object({ type: literal("poppy.approvals.state"), ids: array(string), decisions: array(built<Extract<PoppyServerFrame, { type: "poppy.approvals.state" }>["decisions"][number]>()) }),
   "poppy.direct": object({ type: literal("poppy.direct"), update: built<Extract<PoppyServerFrame, { type: "poppy.direct" }>["update"]>() }),
   "poppy.settings": object({
     type: literal("poppy.settings"),
     accounts: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["accounts"][number]>()),
-    permissions: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["permissions"][number]>()),
     signOuts: array(built<Extract<PoppyServerFrame, { type: "poppy.settings" }>["signOuts"][number]>())
   }),
   "poppy.activity": object({

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DirectConversations, needsYou, PoppyCards } from "../../src/poppy-ui";
 import { gs, property } from "../properties/hegel";
 import { CompaniesPage } from "../../src/ui/companies";
-import type { Card, ConnectedAccount, DirectUpdate, Permission, PoppyClientFrame } from "../../src/poppy/wire";
+import type { ApprovalTerms, Card, ConnectedAccount, DirectUpdate, PoppyClientFrame } from "../../src/poppy/wire";
 import type { PoppyView } from "../../src/use-pi-session";
 import { toIssuer } from "../../src/poppy/issuer";
 
@@ -15,7 +15,7 @@ import { toIssuer } from "../../src/poppy/issuer";
  * Company supplies becomes a dangerous link.
  */
 
-const EMPTY: PoppyView = { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
+const EMPTY: PoppyView = { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
 
 function view(patch: Partial<PoppyView>): PoppyView {
   return { ...EMPTY, ...patch };
@@ -28,7 +28,7 @@ function renderCards(...cards: Card[]) {
   return { ...result, sent, send };
 }
 
-const SCOPES = [{ scope: "poppy:read", description: "View account information, such as orders and bookings" }];
+const SCOPES = [{ scope: "orders:read", description: "View your orders" }];
 
 const linkCard = (url: string): Card => ({
   id: "signin-1",
@@ -71,19 +71,23 @@ const credentialsCard: Card = {
 
 const codeCard: Card = { id: "signin-4", kind: "signin_code", company: "Acme", open: true, signInId: "s4", sentTo: "a***@example.com" };
 
-const operationCard = (patch: Partial<Extract<Card, { kind: "operation" }>> = {}): Card => ({
-  id: "op-1",
-  kind: "operation",
+const TERMS: ApprovalTerms = {
+  summary: "Exchange the blue jumper (size M) on order ord_7Hk2 for size L, for £5.00 more.",
+  expiresAt: "2026-10-28T12:00:00Z",
+  highlights: ["Cost (price_difference): 5.00 GBP", "Condition (cancellation): Free until dispatch", "The company says this can be undone."],
+  total: { amount: "5.00", currency: "GBP" }
+};
+
+/** The card for an operation a Company returned (Ops 4, 5): our id for its revision, its terms, and the Company's own summary. */
+const termsCard = (patch: Partial<Extract<Card, { kind: "approval" }>> = {}, terms: Partial<ApprovalTerms> = {}): Card => ({
+  id: "approval-apr2_7Hq",
+  kind: "approval",
   company: "Acme",
   open: true,
-  issuer: toIssuer("https://auth.acme.example"),
-  operationId: "op_7Hq",
-  revision: 3,
-  state: "proposed",
-  summary: "Exchange the blue jumper (size M) for size L. No charge.",
-  account: "a***@example.com",
-  highlights: ["Cost: 0.00 GBP"],
-  userApprovalRequired: false,
+  approvalId: "apr2_7Hq",
+  summary: `Acme asks for your approval before it does this: ${TERMS.summary} (Approval needed by ${TERMS.expiresAt}.)`,
+  status: "pending",
+  terms: { ...TERMS, ...terms },
   ...patch
 });
 
@@ -114,7 +118,7 @@ describe("sign-in cards", () => {
     expect(link.getAttribute("href")).toBe(url);
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toContain("noopener");
-    expect(screen.getByText("poppy:read")).toBeTruthy();
+    expect(screen.getByText("orders:read")).toBeTruthy();
     expect(sent).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: "Cancel sign-in" }));
     expect(sent).toEqual([{ type: "poppy.signin.cancel", signInId: "s1" }]);
@@ -246,52 +250,96 @@ describe("one-time code card", () => {
   });
 });
 
-describe("operation card (Operations extension 5.1)", () => {
-  it("shows the Company's summary verbatim, and sends nothing until a click", () => {
-    const { sent } = renderCards(operationCard({ previousSummary: "Exchange for size S." }));
-    expect(screen.getByText("Exchange the blue jumper (size M) for size L. No charge.")).toBeTruthy();
-    expect(screen.getByText("Exchange for size S.")).toBeTruthy();
-    // Each term lined up as a label and its value.
-    expect(screen.getByText("Cost").nextElementSibling?.textContent).toBe("0.00 GBP");
-    expect(screen.getByText(/a\*\*\*@example\.com/)).toBeTruthy();
+describe("the terms of an operation a Company returned (Operations 5)", () => {
+  it("shows the total large and on the button, the Company's summary quoted as theirs, and each term lined up", () => {
+    const { container, sent } = renderCards(termsCard());
+    expect(container.querySelector("[data-total]")!.textContent).toContain("£5.00");
+    const quote = screen.getByText(TERMS.summary);
+    expect(quote.tagName).toBe("BLOCKQUOTE");
+    expect(quote.closest("figure")!.querySelector("figcaption")!.textContent).toBe("Acme says:");
+    expect(screen.getByText("Cost (price_difference)").nextElementSibling!.textContent).toBe("5.00 GBP");
+    expect(screen.getByText("Condition (cancellation)").nextElementSibling!.textContent).toBe("Free until dispatch");
+    expect(screen.getByText("The company says this can be undone.")).toBeTruthy();
+    expect(screen.getByText("Approve before")).toBeTruthy();
+    // No differences found, so no warning.
+    expect(container.querySelector("[data-terms-differences]")).toBeNull();
     expect(sent).toEqual([]);
-  });
-
-  it("approves exactly this operation and revision", () => {
-    const { sent } = renderCards(operationCard());
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    expect(sent).toEqual([
-      { type: "poppy.operation", issuer: toIssuer("https://auth.acme.example"), operationId: "op_7Hq", revision: 3, decision: "approve" }
-    ]);
-  });
-
-  it("declines with decline", () => {
-    const { sent } = renderCards(operationCard());
+    fireEvent.click(screen.getByRole("button", { name: "Approve £5.00" }));
     fireEvent.click(screen.getByRole("button", { name: "Decline" }));
     expect(sent).toEqual([
-      { type: "poppy.operation", issuer: toIssuer("https://auth.acme.example"), operationId: "op_7Hq", revision: 3, decision: "decline" }
+      { type: "poppy.approval", approvalId: "apr2_7Hq", decision: "approve" },
+      { type: "poppy.approval", approvalId: "apr2_7Hq", decision: "decline" }
     ]);
   });
 
-  it("offers only to stop an operation in progress", () => {
-    const { sent } = renderCards(operationCard({ open: false, state: "in_progress" }));
-    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Ask Acme to stop" }));
-    expect(sent).toEqual([
-      { type: "poppy.operation", issuer: toIssuer("https://auth.acme.example"), operationId: "op_7Hq", revision: 3, decision: "cancel" }
-    ]);
+  it("says Approve, with no figure, when the terms name no total", () => {
+    const { container } = renderCards(termsCard({}, { total: undefined }));
+    expect(container.querySelector("[data-total]")).toBeNull();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
   });
 
-  it("shows a finished operation's outcome without buttons", () => {
-    renderCards(operationCard({ open: false, state: "succeeded", result: "Exchange booked.", approvedBy: "standing_permission" }));
-    expect(screen.queryByRole("button")).toBeNull();
-    expect(screen.getByText(/Exchange booked\./)).toBeTruthy();
-    expect(screen.getByText(/by standing permission/)).toBeTruthy();
+  it("points out where the terms disagree with the summary or the request, before the User approves", () => {
+    const differences = [
+      "The terms name 50.00 GBP (price_difference), which the summary doesn't mention.",
+      "The terms say size is XL, but the request asked for L."
+    ];
+    const { container } = renderCards(termsCard({}, { differences }));
+    const warning = container.querySelector("[data-terms-differences]") as HTMLElement;
+    expect(warning.textContent).toContain("Check before you approve: Acme's terms and summary don't agree");
+    expect(within(warning).getAllByRole("listitem").map((item) => item.textContent)).toEqual(differences);
+    // Said before the button, which still works: the User decides.
+    expect(warning.compareDocumentPosition(screen.getByRole("button", { name: "Approve £5.00" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("never links the Company's operation url", () => {
-    const { container } = renderCards(operationCard({ url: "https://auth.acme.example/poppy/operations/op_7Hq" }));
+  it("links previews on the Company's hosts in a new tab, never loads one, and links nothing that isn't HTTPS", () => {
+    const previews = [
+      { label: "items 1 preview", url: "https://acme.example/previews/1" },
+      { label: "items 2 preview", url: "javascript:alert(1)" },
+      { label: "items 3 preview", url: "http://acme.example/previews/3" }
+    ];
+    const { container } = renderCards(termsCard({}, { previews }));
+    const link = screen.getByRole("link", { name: "items 1 preview" });
+    expect(link.getAttribute("href")).toBe("https://acme.example/previews/1");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+    expect(screen.queryByRole("link", { name: /items [23] preview/ })).toBeNull();
+    // Linked, never loaded: nothing on the card has a src, and every href is that one preview.
+    expect(container.querySelector("[src]")).toBeNull();
+    expect(links(container)).toEqual(["https://acme.example/previews/1"]);
+  });
+
+  it("shows a link, image or HTML in the Company's summary as text, never rendered (Ops 3, Formatting)", () => {
+    const summary = 'Print 2 photos. [Read our terms](https://evil.example/terms) ![seal](https://evil.example/seal.png) <a href="https://evil.example/">here</a> <img src="https://evil.example/pixel.gif">';
+    const { container } = renderCards(termsCard({}, { summary }));
+    expect(screen.getByText(summary).tagName).toBe("BLOCKQUOTE");
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("img")).toBeNull();
     expect(links(container)).toEqual([]);
+    expect(container.querySelector("a, img, [href], [src]")).toBeNull();
+  });
+
+  it("quotes the Company's terms on the receipt once decided, with their total", () => {
+    const { container } = renderCards(termsCard({ open: false, status: "done", result: '{"status":200}' }));
+    expect(screen.queryByRole("button", { name: /Approve/ })).toBeNull();
+    const quote = screen.getByText(`£5.00 · ${TERMS.summary}`);
+    expect(quote.tagName).toBe("BLOCKQUOTE");
+    expect(quote.closest("figure")!.querySelector("figcaption")!.textContent).toBe("Acme says:");
+    expect(container.textContent).toContain("Done · as you approved · Acme");
+    // The card's own wording, which repeats the summary, isn't shown again.
+    expect(container.textContent).not.toContain("asks for your approval before it does this");
+  });
+
+  it("says our card that the Company answered with its terms was sent, and that nothing is done yet", () => {
+    const { container } = renderCards({
+      ...approvalCard,
+      open: false,
+      status: "terms",
+      result: "Acme asks you to approve its exact terms first, on the next card. Nothing has happened yet."
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("Waiting for you · sent; its terms wait on the next card · Acme");
+    expect(text).toContain("Nothing has happened yet.");
+    expect(text).not.toContain("Done");
   });
 });
 
@@ -384,7 +432,7 @@ describe("Direct Conversation invitation", () => {
 
 describe("the Company's domain (spec issue N14)", () => {
   it("shows the verified domain under the name the Company chose, on every request card, as text", () => {
-    const requests = [linkCard("https://auth.acme.example/a"), deviceCard("https://auth.acme.example/device"), credentialsCard, codeCard, operationCard(), approvalCard, inviteCard];
+    const requests = [linkCard("https://auth.acme.example/a"), deviceCard("https://auth.acme.example/device"), credentialsCard, codeCard, termsCard(), approvalCard, inviteCard];
     const { container } = renderCards(...requests.map((card) => ({ ...card, id: `${card.id}-d`, domain: "acme.example" })));
     const articles = [...container.querySelectorAll("article")];
     expect(articles).toHaveLength(requests.length);
@@ -415,7 +463,7 @@ it("renders nothing without cards, and sends nothing on render", () => {
   expect(container.innerHTML).toBe("");
   expect(send).not.toHaveBeenCalled();
   // Every kind of card, rendered: still nothing sent until the User acts.
-  const all = renderCards(linkCard("https://a.example/"), deviceCard("https://a.example/d"), credentialsCard, codeCard, operationCard(), approvalCard, inviteCard, noticeCard);
+  const all = renderCards(linkCard("https://a.example/"), deviceCard("https://a.example/d"), credentialsCard, codeCard, termsCard(), approvalCard, inviteCard, noticeCard);
   // The seven open cards; the closed notice is not one of them.
   expect(all.container.querySelectorAll("article")).toHaveLength(7);
   expect(all.send).not.toHaveBeenCalled();
@@ -474,22 +522,8 @@ describe("DirectConversations", () => {
 
 describe("Companies page", () => {
   const accounts: ConnectedAccount[] = [
-    { issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***@example.com", scope: "poppy:read poppy:write", expiresAt: null },
-    { issuer: toIssuer("https://auth.globex.example"), company: "Globex", account: "g***@example.com", scope: "poppy:read", expiresAt: null }
-  ];
-  const permissions: Permission[] = [
-    {
-      id: "perm_1",
-      issuer: toIssuer("https://auth.acme.example"),
-      company: "Acme",
-      account: "a***@example.com",
-      action: "exchange",
-      maxAmount: "20.00",
-      currency: "GBP",
-      maxUses: 3,
-      uses: 1,
-      expiresAt: null
-    }
+    { issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***@example.com", scope: "orders:read orders:write", expiresAt: null },
+    { issuer: toIssuer("https://auth.globex.example"), company: "Globex", account: "g***@example.com", scope: "orders:read", expiresAt: null }
   ];
 
   function Page({ patch, sent }: { patch: Partial<PoppyView>; sent: PoppyClientFrame[] }) {
@@ -503,42 +537,32 @@ describe("Companies page", () => {
     return { ...result, sent };
   }
 
-  it("lists each Company's account and access, signs out and removes on a click", () => {
-    const { sent } = renderCompanies({ accounts, permissions });
+  it("lists each Company's account and the scopes it granted, as the Company's own, and signs out on a click", () => {
+    const { sent } = renderCompanies({ accounts });
     const table = screen.getByRole("table");
     expect(within(table).getByRole("button", { name: "Globex" })).toBeTruthy();
-    // Access in plain words, with the scope it comes from.
-    expect(within(table).getByText("View and change")).toBeTruthy();
-    expect(within(table).getByText("poppy:read poppy:write")).toBeTruthy();
+    // Each Company defines its own scopes (spec 4.7): shown as granted, never read as "View" or "View and change", even one named like 0.2's.
+    expect(within(table).getByText("orders:read orders:write")).toBeTruthy();
+    expect(within(table).getByText("orders:read")).toBeTruthy();
+    expect(within(table).queryByText(/^View/)).toBeNull();
     expect(sent).toEqual([]);
 
     fireEvent.click(within(table).getByRole("button", { name: "Globex" }));
     expect(screen.getByRole("heading", { level: 1, name: "Globex" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sign out of Globex" }));
-    fireEvent.click(screen.getByRole("button", { name: "All Companies" }));
-    fireEvent.click(within(screen.getByRole("table")).getByRole("button", { name: "Acme" }));
-    expect(screen.getByText(/1 of 3 uses, 2 left/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Remove standing permission" }));
-    expect(sent).toEqual([
-      { type: "poppy.signout", issuer: toIssuer("https://auth.globex.example"), account: "g***@example.com" },
-      { type: "poppy.permission.remove", id: "perm_1" }
-    ]);
+    expect(sent).toEqual([{ type: "poppy.signout", issuer: toIssuer("https://auth.globex.example"), account: "g***@example.com" }]);
   });
 
-  it("pauses existing standing permissions and offers no new automatic approval grants", () => {
-    const { sent } = renderCompanies({ accounts, permissions });
+  it("has no standing permissions: every change asks the User", () => {
+    renderCompanies({ accounts });
     fireEvent.click(screen.getByRole("button", { name: "Acme" }));
-    expect(screen.getByText(/Automatic approval is paused/)).toBeTruthy();
-    expect(screen.getByText(/Paused: proposals that say/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Add standing permission" })).toBeNull();
-    expect(sent).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Remove standing permission" }));
-    expect(sent).toEqual([{ type: "poppy.permission.remove", id: "perm_1" }]);
+    expect(screen.queryByText(/standing permission/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /permission/i })).toBeNull();
   });
 
-  it("offers no permission form before an account is connected", () => {
+  it("shows an empty page before any Company is used", () => {
     renderCompanies({});
     expect(screen.getByText("No Companies yet")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Add standing permission" })).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
   });
 });

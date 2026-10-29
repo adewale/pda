@@ -1,14 +1,75 @@
 {
   "id": "YD",
-  "title": "Adversarial agent: replay a DPoP proof",
-  "requirements": ["4.3"],
+  "title": "Adversarial agent: Replay a DPoP proof at a different URL",
+  "requirements": [
+    "4.5",
+    "5.3"
+  ],
   "adversary": "agent",
-  "needs": {"agent": ["arm", "attack"]},
+  "needs": {
+    "agent": [
+      "arm",
+      "attack"
+    ],
+    "company": [
+      "mediated_answers"
+    ]
+  },
   "steps": [
-    {"agent": "arm", "params": {"attack": "YD"}},
-    {"agent": "attack", "save": "r"},
-    {"runner": "assert_trace", "params": {"check": "attack_observed", "path": "/oauth/token", "method": "POST", "replay": "dpop"}},
-    {"runner": "assert_trace", "params": {"check": "replay_rejected", "path": "/oauth/token", "method": "POST", "replay": "dpop"}},
-    {"expect": {"step": "r", "poppy_error": {"$exists": true}}}
+    {
+      "company": "mediated_answers",
+      "params": {
+        "account": "${fixture.accounts.0}"
+      },
+      "save": "answers"
+    },
+    {
+      "agent": "arm",
+      "params": {
+        "attack": "YD",
+        "fields": "${answers.fields}",
+        "read_scopes": "${fixture.scopes.read}",
+        "write_scopes": "${fixture.scopes.write}"
+      }
+    },
+    {
+      "agent": "attack",
+      "save": "r"
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "attack_observed",
+        "agent_attack": "YD"
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "agent_attack_rejected",
+        "agent_attack": "YD"
+      }
+    },
+    {
+      "agent": "attack",
+      "params": {
+        "phase": "fresh"
+      },
+      "save": "fresh"
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "attack_observed",
+        "agent_attack": "YD-fresh"
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "agent_attack_rejected",
+        "agent_attack": "YD-fresh"
+      }
+    }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "id": "RL",
   "title": "429 with Retry-After",
-  "requirements": ["4.3", "Guides: rate limits"],
+  "requirements": ["5.6", "Guides: rate limits"],
   "needs": { "agent": ["discover", "session", "api"], "company": ["rate_limit"] },
   "steps": [
     { "agent": "discover" },

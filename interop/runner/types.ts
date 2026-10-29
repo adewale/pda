@@ -30,7 +30,7 @@ export type RegistryEntry = {
    * anything is sent. Absent: every live scenario.
    */
   readonly liveScenarios?: readonly string[];
-  /** Expected declared version of a live Company; old entries default to 0.1. */
+  /** The version a live Company declares; absent, the one we speak. */
   readonly protocolVersion?: string;
   /**
    * A live Company's fixture (spec §10): it has no adapter, so no `fixture`

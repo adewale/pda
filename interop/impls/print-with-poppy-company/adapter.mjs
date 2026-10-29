@@ -1,14 +1,15 @@
 // Interop adapter (docs/interop-spec.md 5.1, 5.3) for print-with-poppy, an agent-first
-// photo-print store (spenciefy/print-with-poppy), pinned at 3360d8b (24 Oct), draft 0.2.
+// photo-print store (spenciefy/print-with-poppy), pinned at b340741 (28 Oct), Poppy 0.3.
 //
 // Starts the store (server/index.ts under tsx) on PORT (8080) in its demo mode and serves
-// the control API on ADAPTER_PORT (8081). The store offers signed-out Sessions and, since
-// upstream 260dbb4, accounts: Direct Sign-In (a browser page asks for an email, then for the
-// six-digit code sent to it, then for consent) and Mediated Sign-In (the email, then the
-// code). No conversations, no staff. Its OpenAPI API and the Operations v1 extension need a
-// native Poppy Session whose agent is on its allowlist (AGENT_CLIENT_IDS). Demo mode stores
-// each code email in the store's SQLite instead of sending it; the sign-in hooks read the
-// code from there. Hooks the store has no counterpart for answer 501.
+// the control API on ADAPTER_PORT (8081). The store takes the Session header on every API
+// request, signed-out or with an access token, and offers accounts by Direct Sign-In (a
+// browser page asks for an email, then for the six-digit code sent to it, then for consent),
+// Device Sign-In and Mediated Sign-In (the email, then the code). Orders need Operations 2:
+// 403 approval_required, then the same request with Poppy-Approval. No conversations, no
+// staff, no browser join, no DPoP. Its agents must be on its allowlist (AGENT_CLIENT_IDS).
+// Demo mode stores each code email in the store's SQLite instead of sending it; the sign-in
+// hooks read the code from there. Hooks the store has no counterpart for answer 501.
 //
 // No dependencies of its own: it opens the store's SQLite with the store's better-sqlite3.
 // Node 22.
@@ -22,28 +23,20 @@ const ADAPTER_PORT = Number(process.env.ADAPTER_PORT ?? 8081);
 // The runner sets INTEROP_ORIGIN (spec section 3); the default is for running by hand.
 const ORIGIN = (process.env.INTEROP_ORIGIN ?? 'https://print-with-poppy.company.interop.test').replace(/\/+$/, '');
 const SECRET = process.env.INTEROP_SECRET ?? '';
-const COMMIT = process.env.INTEROP_COMMIT ?? '3360d8bbbadbfe5c0553b9fbf68849fc78ad0eb9';
+const COMMIT = process.env.INTEROP_COMMIT ?? 'b340741d696d867ff3190c10c1f1d1e0c368e846';
 const APP_DIR = '/opt/pwp';
 const DATA = '/data/pwp';
 const INNER = `http://127.0.0.1:${PORT}`;
 
 // The store admits only the agents its operator lists, by exact client_id. These are the
 // grid's honest agents, each at the client metadata URL its adapter publishes under
-// <name>.agent.interop.test. AGENT_CLIENT_IDS (comma-separated) replaces the list.
+// <name>.agent.interop.test: ours alone, since every other agent spoke 0.1 or 0.2
+// (docs/interop-spec.md §14). AGENT_CLIENT_IDS (comma-separated) replaces the list.
 const GRID_AGENTS = [
   'https://pda.agent.interop.test/poppy/client.json',
   'https://lenient-personal-agent.agent.interop.test/poppy/client.json',
   'https://strict-personal-agent.agent.interop.test/poppy/client.json',
-  'https://sloppy-personal-agent.agent.interop.test/poppy/client.json',
-  'https://datalayer-ts.agent.interop.test/agent.json',
-  'https://datalayer-py.agent.interop.test/agent.json',
-  'https://datalayer-ts-v02.agent.interop.test/agent.json',
-  'https://datalayer-py-v02.agent.interop.test/agent.json',
-  'https://pi-poppy.agent.interop.test/agent.json',
-  'https://poppy-demo.agent.interop.test/agent.json',
-  'https://adonis-agora.agent.interop.test/agent.json',
-  'https://everruns.agent.interop.test/api/v1/poppy/agent.json',
-  'https://tipping-co.agent.interop.test/agent.json'
+  'https://sloppy-personal-agent.agent.interop.test/poppy/client.json'
 ];
 const AGENT_CLIENT_IDS = process.env.AGENT_CLIENT_IDS || GRID_AGENTS.join(',');
 
@@ -52,30 +45,29 @@ const MANIFEST = {
   name: 'print-with-poppy',
   role: 'company',
   commit: COMMIT,
-  // Since its 0.2 migration the store speaks only 0.2: a 0.1 assertion addressed to an endpoint is refused.
-  poppy: ['0.2'],
-  extensions: ['operations'],
-  // OU is the store's own path: a multipart photo upload, then POST /api/orders proposes an
-  // operation in the signed-out Session, which the agent confirms once its User approves.
-  // Sign-in: Direct (SD, SX, SO, AO, AS, R) and Mediated with a code (SMC). Not SM: its
-  // Mediated Sign-In always asks for a code. Not O, OX: no conversation in which the Company
-  // proposes. No conversations (C, CI, CS, SE), Device Sign-In (SV, SXV) or nonces (N).
-  scenarios: ['D', 'S0', 'OU', 'CM', 'SD', 'SX', 'SMC', 'SO', 'AO', 'AS', 'R'],
+  // Since b340741 the store speaks only 0.3 (docs/POPPY-0.3.md): 0.2 and the earlier
+  // delegated-keys draft are refused.
+  poppy: ['0.3'],
+  extensions: ['operations', 'mediated-sign-in'],
+  // OU is the store's own path: a multipart photo upload, then POST /api/orders answers 403
+  // approval_required with the order's terms, and the same order with Poppy-Approval places it.
+  // Sign-in: Direct (SD, SX, SO, AO, AS) and Mediated with a code (SMC). Not SM: its Mediated
+  // Sign-In always asks for a code. Not R: it doesn't rotate refresh tokens. Not O, OX: no
+  // conversation in which the Company proposes. No conversations (C, CI, CS, SE), browser join
+  // (W) or DPoP (N).
+  scenarios: ['D', 'S0', 'OU', 'CM', 'SD', 'SX', 'SMC', 'SO', 'AO', 'AS'],
   readings: {
-    // A client or Session assertion's aud must be exactly the issuer, its origin (0.2).
+    // A client assertion's aud must be exactly the issuer (4.1).
     S1: 'issuer',
-    // Any typ (only poppy-browser+jwt is refused), at most 300 s (exp - iat <= 300), 0.2's maximum.
+    // Any typ, at most 300 s (exp - iat <= 300).
     S2: 'lenient-300s',
     // The issuer is the bare origin, so both metadata locations are the same URL.
-    S3: 'either',
-    // A signed-out Session request carrying a scope is refused, 400 invalid_scope ("Account
-    // scopes require sign-in"); a signed-out Session Token comes back with scope "".
-    S4: 'omit'
+    S3: 'either'
   },
   relaxations: [
     'APP_MODE=demo, upstream\'s local mode: payments, print orders and email are simulated in process, prices are illustrative, and no Stripe, Prodigi or Resend client is configured. Demo mode also serves the store\'s own browser demo (/api/demo/*, the Demo authorization scheme, its built-in demo agent), which no grid agent uses.',
     'ALLOW_INTEROP_TEST_HOSTS=true, upstream\'s own setting for this grid (since 3360d8b): its private-address check lets an agent\'s client metadata and keys be fetched from a private address only when the host name ends in .interop.test. Off by default, and the store refuses to start with it outside demo mode, on a non-.interop.test origin, on Cloudflare or with provider credentials.',
-    'Sign-in codes: demo mode stores each code email in the store\'s SQLite (kind demo-signin-email) instead of sending it, and the adapter reads the code from there for the person signing in (approve_authorization, deny_authorization, last_one_time_code). expire_tokens rewrites the expiry of the store\'s Session Token records.'
+    'Sign-in codes: demo mode stores each code email in the store\'s SQLite (kind demo-signin-email) instead of sending it, and the adapter reads the code from there for the person signing in (approve_authorization, deny_authorization, last_one_time_code). expire_tokens rewrites the expiry of the store\'s access token records.'
   ]
 };
 
@@ -220,18 +212,17 @@ const HOOKS = {
   // Mediated Sign-In asks for the email; the store then emails a code (last_one_time_code).
   mediated_answers: p => ({ fields: { email: p.account ?? ACCOUNT } }),
   last_one_time_code: () => ({ code: lastCode() }),
-  // Session Tokens live an hour; this expires every one issued so far.
+  // Access tokens live an hour; this expires every one issued so far.
   expire_tokens: () => ({
     expired: withDb(db => db.prepare("UPDATE records SET body = json_set(body, '$.expires', 0) WHERE kind = 'token'").run().changes, { write: true })
   }),
   async fixture() {
     // One account, an email address (the store creates it when its code is first verified),
-    // with Poppy's scopes, and no prompts (no conversations). getCatalog answers without a
-    // Session; getAccount needs poppy:read. Signed in, proposeOrder needs poppy:write and is
-    // refused with insufficient_scope before the store reads the order (scenario AS).
+    // with the store's own scopes, and no prompts (no conversations). getCatalog answers
+    // signed out; getAccount needs any account scope; listAccountAddresses needs addresses, so
+    // signed in with orders:read alone it is insufficient_scope (scenario AS).
     // OU: the photo goes up as multipart/form-data in the field `photo` (uploadPhoto), then
-    // proposeOrder (with the Idempotency-Key its description requires) names it by the id the
-    // upload answered, which the scenario saves as upload_id.
+    // proposeOrder names it by the id the upload answered, which the scenario saves as upload_id.
     const order = photoId => ({
       email: ACCOUNT,
       address: { name: 'Ada Lovelace', line1: '123 Market Street', city: 'San Francisco', state: 'CA', postalCode: '94103', country: 'US' },
@@ -239,9 +230,9 @@ const HOOKS = {
     });
     return {
       accounts: [ACCOUNT],
-      scopes: { read: ['poppy:read'], write: ['poppy:read', 'poppy:write'] },
+      scopes: { read: ['orders:read'], write: ['orders:read', 'orders:write'] },
       openapi: { api: 'openapi', operation: 'getAccount', args: {} },
-      openapi_write: { api: 'openapi', operation: 'proposeOrder', args: { body: order('photo_none') } },
+      openapi_write: { api: 'openapi', operation: 'listAccountAddresses', args: {} },
       openapi_public: { api: 'openapi', operation: 'getCatalog', args: {} },
       openapi_upload: { api: 'openapi', operation: 'uploadPhoto', args: { files: { photo: 'lake.jpg' } } },
       openapi_propose: { api: 'openapi', operation: 'proposeOrder', args: { body: order('${upload_id}') } },
@@ -250,9 +241,9 @@ const HOOKS = {
     };
   }
   // require_nonce, rate_limit, issuer_path, end_sessions and the device, staff and operation
-  // hooks: 501. The store never asks for a DPoP nonce, its rate limits are fixed (30 a minute
-  // at /oauth), its issuer is its origin, and it has no way to end a Session, no Device
-  // Sign-In, no conversations and no Company Agent to propose an operation.
+  // hooks: 501. The store uses no DPoP, its rate limits are fixed (30 a minute at /oauth),
+  // its issuer is its origin, and it has no hook to end a Session, approve a device code,
+  // staff a conversation or have a Company Agent propose.
 };
 
 // --- HTTP ----------------------------------------------------------------------------
@@ -297,7 +288,7 @@ http.createServer(async (req, res) => {
     const m = /^\/hooks\/([a-z_]+)$/.exec(path);
     if (req.method === 'POST' && m) {
       const hook = HOOKS[m[1]];
-      if (!hook) return send(res, 501, { error: 'unsupported', detail: `print-with-poppy has no ${m[1]}: the store has no Device Sign-In, conversations, staff, nonces or way to end a Session` });
+      if (!hook) return send(res, 501, { error: 'unsupported', detail: `print-with-poppy has no ${m[1]}: the store has no conversations, staff, nonces, device hook or way to end a Session` });
       // Bare params in, bare result out (spec 5.3).
       return send(res, 200, await hook(await readJson(req)));
     }

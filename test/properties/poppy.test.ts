@@ -4,8 +4,8 @@ import { covers, grantedScope, parseRateLimit, parseWwwAuthenticate, PoppyError,
 import { boundedCacheSeconds, protocolEndpoint, type Company } from "../../src/poppy/discovery";
 import { assertPublicHost, cacheSeconds, PoppyFetchError, readLimited } from "../../src/poppy/fetch";
 import { htu } from "../../src/poppy/jwt";
-import { highlights } from "../../src/poppy/operations";
-import { chooseSignInType, deviceLink } from "../../src/poppy/signin";
+import { highlights, termsDifferences } from "../../src/poppy/operations";
+import { chooseSignInType, describeScopes, deviceLink } from "../../src/poppy/signin";
 import { cacheSeconds as validatorCacheSeconds, isPublicHost, metadataUrl } from "../../src/validator/fetch";
 import { hosts, SCOPE_ALPHABET } from "./companies";
 import { gs, jsonValues, property, propertyAsync, type Json } from "./hegel";
@@ -40,25 +40,24 @@ describe("scopes (4.4, 4.8)", () => {
   );
 
   it(
-    "grantedScope takes a given scope as it is, an omitted one as what was asked, and none for a signed-out token (N6)",
+    "grantedScope takes a given scope as it is, and an omitted one as what was asked (RFC 6749 5.1, 4.7)",
     property((tc) => {
       const scope = tc.draw(gs.oneOf(gs.text(), jsonValues(1)));
-      const signedIn = tc.draw(jsonValues(0));
       const requested = tc.draw(gs.text());
-      const expected = typeof scope === "string" ? scope : signedIn === false ? "" : requested;
-      expect(grantedScope({ scope, signed_in: signedIn }, requested)).toBe(expected);
+      expect(grantedScope({ scope }, requested)).toBe(typeof scope === "string" ? scope : requested);
     })
   );
 
   it(
-    "a read-only lookup narrows to the scopes it declares (poppy:read if none) only when the Session holds them and more (Guides)",
+    "a read-only lookup narrows to the scopes it declares only when the Session holds them and more, and one declaring none keeps the Session's (Guides, 4.7)",
     property((tc) => {
-      const held = tc.draw(gs.arrays(gs.oneOf(gs.sampledFrom(["poppy:read", "poppy:write"]), scopeTokens), { maxSize: 5 }));
-      const declared = tc.draw(gs.arrays(gs.oneOf(gs.sampledFrom(held.length ? held : ["poppy:read"]), scopeTokens), { maxSize: 4 }));
-      const op = { operationId: "x", method: "GET", path: "/x", summary: "", parameters: [], acceptsIdempotencyKey: false, proposes: false, scopes: declared, outsidePoppy: false, schemaDraft: "2020-12" } satisfies OpenApiOperation;
-      const wanted = new Set(declared.length ? declared : ["poppy:read"]);
+      // 0.3 defines no scopes (4.7), so 0.2's names are any Company's, drawn among the rest.
+      const held = tc.draw(gs.arrays(gs.oneOf(gs.sampledFrom(["orders:read", "orders:write", "poppy:read"]), scopeTokens), { maxSize: 5 }));
+      const declared = tc.draw(gs.arrays(gs.oneOf(gs.sampledFrom(held.length ? held : ["orders:read"]), scopeTokens), { maxSize: 4 }));
+      const op = { operationId: "x", method: "GET", path: "/x", summary: "", parameters: [], acceptsIdempotencyKey: false, scopes: declared, outsidePoppy: false, schemaDraft: "2020-12" } satisfies OpenApiOperation;
+      const wanted = new Set(declared);
       const have = new Set(held);
-      const narrows = [...wanted].every((scope) => have.has(scope)) && wanted.size < have.size;
+      const narrows = wanted.size > 0 && [...wanted].every((scope) => have.has(scope)) && wanted.size < have.size;
       const result = readOnlyScope(joined(tc, held), op);
       expect(result === null ? null : scopeSet(result)).toEqual(narrows ? wanted : null);
     })
@@ -69,11 +68,11 @@ describe("scopes (4.4, 4.8)", () => {
     property((tc) => {
       const signIn = Object.fromEntries(
         (["direct", "device", "mediated"] as const).flatMap((type) => {
-          const scopes = tc.draw(gs.optional(gs.arrays(gs.sampledFrom(["poppy:read", "poppy:write", "addresses"]), { maxSize: 3 })));
-          return scopes ? [[type, type === "mediated" ? { endpoint: "https://a.example/m", fields: [], scopes } : { scopes }]] : [];
+          const scopes = tc.draw(gs.optional(gs.arrays(gs.sampledFrom(["orders:read", "orders:write", "addresses"]), { maxSize: 3 })));
+          return scopes ? [[type, type === "mediated" ? { endpoint: "https://a.example/oauth/token", fields: [], scopes } : { scopes }]] : [];
         })
       ) as Company["signIn"];
-      const needed = tc.draw(gs.arrays(gs.sampledFrom(["poppy:read", "poppy:write", "addresses"]), { maxSize: 3 }));
+      const needed = tc.draw(gs.arrays(gs.sampledFrom(["orders:read", "orders:write", "addresses"]), { maxSize: 3 }));
       const expected = (["direct", "device", "mediated"] as const).find((type) => signIn[type] && needed.every((scope) => signIn[type]!.scopes.includes(scope))) ?? null;
       expect(chooseSignInType({ signIn } as Company, needed)).toBe(expected);
     })
@@ -216,7 +215,6 @@ function operation(path: string, declared: readonly string[] = []): OpenApiOpera
     summary: "",
     parameters: declared.map((name) => ({ name, in: "path", required: true })),
     acceptsIdempotencyKey: false,
-    proposes: false,
     scopes: [],
     outsidePoppy: false,
     schemaDraft: "2020-12"
@@ -402,48 +400,61 @@ describe("DPoP htu (spec 4.3)", () => {
   );
 });
 
-/** A Company with the hosts device links and endpoints are checked against. */
-function companyAt(domain: string): Company {
+/**
+ * A Company with the hosts device links and endpoints are checked against:
+ * its issuer on `issuerHost`, its protected resource on `domain`, and a
+ * device endpoint on a host that is neither.
+ */
+function companyAt(domain: string, issuerHost = `auth.${domain}`): Company {
+  const issuer = `https://${issuerHost}`;
   return {
-    issuer: toIssuer(`https://auth.${domain}`),
+    issuer: toIssuer(issuer),
     name: "Shop",
     domain,
-    protocolVersion: "0.1",
+    poppyDomains: [domain],
+    protocolVersion: "0.3",
     endpoints: {
-      token: `https://auth.${domain}/oauth/token`,
-      revocation: `https://auth.${domain}/oauth/revoke`,
-      authorization: `https://auth.${domain}/oauth/authorize`,
-      deviceAuthorization: `https://login.${domain}/device`
+      token: `${issuer}/oauth/token`,
+      revocation: `${issuer}/oauth/revoke`,
+      authorization: `${issuer}/oauth/authorize`,
+      // `.invalid` is reserved (RFC 6761), so no drawn domain is or contains it.
+      deviceAuthorization: "https://device.sign-in.invalid/device_authorization"
     },
-    signIn: { mediated: { endpoint: `https://auth.${domain}/poppy/sign-in`, fields: [], scopes: [] } },
+    // Mediated Sign-In's credentials go to the token endpoint (Mediated Sign-In 3).
+    signIn: { mediated: { endpoint: `${issuer}/oauth/token`, fields: [], scopes: [] } },
     customScopes: {},
+    feedback: { endpoint: `https://api.${domain}/poppy/feedback` },
     conversations: { endpoint: `https://api.${domain}/poppy/conversations` },
     apis: [],
     web: { browserSessionEndpoint: `https://${domain}/poppy/browser-session` },
-    extensions: { operations: { endpoint: `https://api.${domain}/poppy/operations` } }
+    extensions: { operations: true }
   };
 }
 
-describe("device sign-in links (4.6)", () => {
+describe("device sign-in links (4.3)", () => {
   it(
-    "shows an HTTPS link on the Company's domain, its issuer or its device endpoint's host",
+    "shows an HTTPS link on the host of the Company's issuer or of its protected resource, or a subdomain of either",
     property((tc) => {
       const domain = tc.draw(hosts).toLowerCase();
-      const host = tc.draw(gs.sampledFrom([domain, `www.${domain}`, `auth.${domain}`, `login.${domain}`, `a.b.${domain}`]));
+      const issuerHost = tc.draw(gs.oneOf(gs.just(`auth.${domain}`), hosts.map((host) => host.toLowerCase())));
+      const host = tc.draw(gs.sampledFrom([domain, `www.${domain}`, `login.${domain}`, `a.b.${domain}`, issuerHost, `eu.${issuerHost}`]));
       const link = `https://${host}${tc.draw(gs.fromRegex("(/[a-z0-9]{1,6}){0,2}", { fullmatch: true }))}?user_code=${tc.draw(gs.fromRegex("[A-Z0-9]{4}-[A-Z0-9]{4}", { fullmatch: true }))}`;
-      expect(deviceLink(companyAt(domain), link)).toBe(new URL(link).href);
+      tc.assume(URL.canParse(link));
+      expect(deviceLink(companyAt(domain, issuerHost), link)).toBe(new URL(link).href);
     })
   );
 
   it(
-    "shows nothing else: other hosts, other schemes, user info, or text that isn't a URL",
+    "shows nothing else: other hosts, the device endpoint's own host, other schemes, user info, or text that isn't a URL",
     property((tc) => {
       const domain = tc.draw(hosts).toLowerCase();
       const other = tc.draw(hosts).toLowerCase();
       tc.assume(other !== domain && !other.endsWith(`.${domain}`));
+      const company = companyAt(domain);
       const value = tc.draw(
         gs.oneOf<unknown>(
           gs.just(`https://${other}/device`),
+          gs.just(`https://${new URL(company.endpoints.deviceAuthorization!).host}/device`),
           gs.just(`http://${domain}/device`),
           gs.just(`javascript:alert(1)//${domain}`),
           gs.just(`https://user:pass@${domain}/device`),
@@ -452,7 +463,7 @@ describe("device sign-in links (4.6)", () => {
           jsonValues(1)
         )
       );
-      expect(deviceLink(companyAt(domain), value)).toBeNull();
+      expect(deviceLink(company, value)).toBeNull();
     })
   );
 });
@@ -469,9 +480,8 @@ describe("Poppy endpoints never reached through an API tool (Ops 5.1, 7.8)", () 
           company.endpoints.revocation,
           company.endpoints.authorization!,
           company.endpoints.deviceAuthorization!,
-          company.signIn.mediated!.endpoint,
+          company.feedback!.endpoint,
           company.conversations!.endpoint,
-          company.extensions.operations!.endpoint,
           company.web!.browserSessionEndpoint!
         ])
       );
@@ -595,6 +605,143 @@ describe("operation highlights (Guides, Operations)", () => {
   );
 });
 
+/** A finite number written out in plain decimal, as a summary would: `1e-7` as `0.0000001`, `1e+21` as `1000000000000000000000`, exactly. */
+function plain(value: number): string {
+  const text = String(value);
+  const match = /^(-?)(\d)(?:\.(\d+))?e([+-]\d+)$/.exec(text);
+  if (!match) return text;
+  const [, sign, lead, fraction = "", exponent] = match;
+  const digits = `${lead}${fraction}`;
+  const point = 1 + Number(exponent);
+  if (point <= 0) return `${sign}0.${"0".repeat(-point)}${digits}`;
+  return point >= digits.length ? `${sign}${digits}${"0".repeat(point - digits.length)}` : `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
+/** Money whose amount is a number, written as decimal text or as JSON's number: what a summary can write. */
+const decimalMoney = gs.composite((tc) => {
+  const value: Record<string, Json> = {
+    amount: tc.draw(gs.oneOf<Json>(gs.fromRegex("-?[0-9]{1,300}(\\.[0-9]{1,30})?", { fullmatch: true }), gs.floats({ allowNan: false, allowInfinity: false }), gs.integers({ minValue: Number.MIN_SAFE_INTEGER, maxValue: Number.MAX_SAFE_INTEGER })))
+  };
+  if (tc.draw(gs.booleans())) value.currency = tc.draw(gs.oneOf<Json>(gs.sampledFrom(["GBP", "EUR", "USD"]), gs.text()));
+  for (const [key, item] of tc.draw(gs.maps(termKeys, jsonValues(1), { maxSize: 2 }))) if (key !== "amount" && key !== "currency") value[key] = item;
+  return value as Json;
+});
+
+/** Keys of anything but money: `amount` makes the object holding it money. */
+const plainKeys = termKeys.filter((key) => key !== "amount");
+
+/** Terms like `termsOf`, every amount in them one a summary can write; `depth` bounds the value where it is built. */
+function decimalTerms(depth = 4): gs.Generator<Json> {
+  const leaf = gs.oneOf<Json>(jsonValues(0), decimalMoney);
+  if (depth === 0) return leaf;
+  const inner = decimalTerms(depth - 1);
+  return gs.oneOf<Json>(leaf, gs.arrays(inner, { maxSize: 4 }), gs.maps(plainKeys, inner, { maxSize: 4 }).map((map) => Object.fromEntries(map)));
+}
+
+/** Every amount the terms name, as `highlights` and `termsDifferences` document it: an object's `amount`, nothing inside it. */
+function amountsIn(value: Json): Json[] {
+  if (Array.isArray(value)) return value.flatMap(amountsIn);
+  if (value === null || typeof value !== "object") return [];
+  if (typeof value.amount === "number" || typeof value.amount === "string") return [value.amount];
+  return Object.values(value).flatMap(amountsIn);
+}
+
+/** Every scalar the request check compares: a string, number or boolean member of an object that isn't money, with where it sits. */
+function comparedIn(value: Json, path: (string | number)[] = []): { path: (string | number)[]; value: string | number | boolean }[] {
+  if (Array.isArray(value)) return value.flatMap((item, index) => comparedIn(item, [...path, index]));
+  if (value === null || typeof value !== "object") return [];
+  if (typeof value.amount === "number" || typeof value.amount === "string") return [];
+  return Object.entries(value).flatMap(([key, item]) =>
+    typeof item === "string" || typeof item === "number" || typeof item === "boolean" ? [{ path: [...path, key], value: item }] : comparedIn(item, [...path, key])
+  );
+}
+
+/** A summary that writes every amount the terms name, as a person would (thousands separators, a currency sign, or no minus sign for a refund), among any other text. */
+function summaryWriting(tc: Parameters<Parameters<typeof property>[0]>[0], terms: Json): string {
+  const written = amountsIn(terms).map((amount) => {
+    let text = typeof amount === "number" ? plain(amount) : String(amount);
+    if (tc.draw(gs.booleans())) text = text.replace(/^-/, "");
+    if (tc.draw(gs.booleans())) text = text.replace(/^(-?)(\d+)/, (_, sign: string, whole: string) => `${sign}${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`);
+    return `${tc.draw(gs.sampledFrom(["", "$", "£", "€", "USD "]))}${text}`;
+  });
+  const parts = [...written, ...tc.draw(gs.arrays(gs.text({ maxSize: 20 }), { maxSize: 4 }))];
+  const order = tc.draw(gs.arrays(gs.integers({ minValue: 0, maxValue: 1000 }), { minSize: parts.length, maxSize: parts.length }));
+  // Spaces between the parts, so no text runs into an amount's digits.
+  return parts.map((part, index) => [order[index]!, part] as const).sort((a, b) => a[0] - b[0]).map(([, part]) => part).join(" ");
+}
+
+/** A copy of `value` with the scalar at `path` replaced. */
+function replacedAt(value: Json, path: readonly (string | number)[], next: Json): Json {
+  if (path.length === 0) return next;
+  const [head, ...rest] = path;
+  if (Array.isArray(value)) return value.map((item, index) => (index === head ? replacedAt(item, rest, next) : item));
+  const record = value as Record<string, Json>;
+  return Object.fromEntries(Object.entries(record).map(([key, item]) => [key, key === head ? replacedAt(item, rest, next) : item]));
+}
+
+/** How a difference names where a value sits: `a.b[0].c`. */
+const pathText = (path: readonly (string | number)[]) => path.reduce<string>((at, segment) => (typeof segment === "number" ? `${at}[${segment}]` : at ? `${at}.${segment}` : segment), "");
+
+/** How a difference quotes a value: at most 80 characters, then an ellipsis. */
+const quote = (value: string | number | boolean) => (String(value).length > 80 ? `${String(value).slice(0, 80)}…` : String(value));
+
+describe("where an operation's terms disagree with its summary or the request (termsDifferences, Ops 5)", () => {
+  it(
+    "finds no difference in terms whose summary writes every amount they name",
+    property((tc) => {
+      const terms = tc.draw(decimalTerms());
+      expect(termsDifferences({ summary: summaryWriting(tc, terms), terms }, undefined)).toEqual([]);
+    })
+  );
+
+  it(
+    "names an amount, wherever it sits, that a summary with no numbers leaves out",
+    property((tc) => {
+      const path = tc.draw(termPaths);
+      const money = tc.draw(decimalMoney) as Record<string, Json>;
+      const summary = tc.draw(gs.text({ maxSize: 60 }).filter((text) => !/\d/.test(text)));
+      const currency = typeof money.currency === "string" ? ` ${money.currency}` : "";
+      expect(termsDifferences({ summary, terms: placed(path, money) }, undefined)).toEqual([
+        `The terms name ${quote(money.amount as string | number)}${quote(currency)} (${where(path)}), which the summary doesn't mention.`
+      ]);
+    })
+  );
+
+  it(
+    "names an amount that isn't a number, whatever the summary says",
+    property((tc) => {
+      const path = tc.draw(termPaths);
+      const amount = tc.draw(gs.text().filter((text) => !Number.isFinite(Number(text))));
+      const summary = tc.draw(gs.oneOf(gs.text(), gs.just(amount)));
+      expect(termsDifferences({ summary, terms: placed(path, { amount }) }, undefined)).toEqual([`The terms name ${quote(amount)} (${where(path)}), which the summary doesn't mention.`]);
+    })
+  );
+
+  it(
+    "finds no difference when the request asked for exactly what the terms say",
+    property((tc) => {
+      const terms = tc.draw(decimalTerms());
+      const asked = JSON.parse(JSON.stringify(terms)) as Json;
+      expect(termsDifferences({ summary: summaryWriting(tc, terms), terms }, asked)).toEqual([]);
+    })
+  );
+
+  it(
+    "names exactly the one value the request asked for differently",
+    property((tc) => {
+      const base = Object.fromEntries(tc.draw(gs.maps(plainKeys, decimalTerms(3), { maxSize: 4 })));
+      const terms = { ...base, [tc.draw(plainKeys)]: tc.draw(gs.oneOf<string | number | boolean>(gs.text(), gs.integers(), gs.booleans())) } as Json;
+      const compared = comparedIn(terms);
+      const changed = compared[tc.draw(gs.integers({ minValue: 0, maxValue: compared.length - 1 }))]!;
+      const next = tc.draw(gs.oneOf<string | number | boolean>(gs.text(), gs.integers(), gs.floats({ allowNan: false, allowInfinity: false }), gs.booleans()).filter((value) => String(value) !== String(changed.value)));
+      const asked = replacedAt(JSON.parse(JSON.stringify(terms)) as Json, changed.path, next);
+      expect(termsDifferences({ summary: summaryWriting(tc, terms), terms }, asked)).toEqual([
+        `The terms say ${pathText(changed.path)} is ${quote(changed.value)}, but the request asked for ${quote(next)}.`
+      ]);
+    })
+  );
+});
+
 describe("what these properties found, as examples", () => {
   it("reads a Retry-After that is neither delay-seconds nor an HTTP-date as none, not as a date long past", () => {
     for (const junk of [":0", "1/1/2000", "soon 5", "-1", "1.5"]) {
@@ -603,7 +750,7 @@ describe("what these properties found, as examples", () => {
   });
 
   it("reads error and scope after a description holding an escaped quote and something like a parameter", () => {
-    expect(parseWwwAuthenticate('DPoP error="invalid_token", error_description="\\"error=", scope="poppy:read"')).toEqual({ error: "invalid_token", scope: "poppy:read" });
+    expect(parseWwwAuthenticate('DPoP error="invalid_token", error_description="\\"error=", scope="orders:read"')).toEqual({ error: "invalid_token", scope: "orders:read" });
   });
 
   it("refuses a call that leaves out a parameter named like a member every object inherits", () => {
@@ -618,6 +765,27 @@ describe("what these properties found, as examples", () => {
       expect(clientRefuses(new URL(`https://${host}/`)), host).toBe(true);
       expect(isPublicHost(new URL(`https://${host}/`)), host).toBe(false);
     }
+  });
+
+  it("reads an amount the summary writes with or without its minus sign as mentioned, as a refund is written", () => {
+    const terms = { refund: { amount: "-20.00", currency: "USD" } };
+    expect(termsDifferences({ summary: "Return the jacket for a refund of $20.00.", terms }, undefined)).toEqual([]);
+    expect(termsDifferences({ summary: "Return the jacket: -20.00 USD.", terms }, undefined)).toEqual([]);
+    expect(termsDifferences({ summary: "Return the jacket.", terms }, undefined)).toEqual(["The terms name -20.00 USD (refund), which the summary doesn't mention."]);
+  });
+
+  it("finds an order of several items, each with its own sku, in agreement with the same request, and names the one sku changed", () => {
+    const terms = { items: [{ sku: "print-4x6", quantity: 3 }, { sku: "print-5x7", quantity: 1 }] };
+    expect(termsDifferences({ summary: "Print 4 photos.", terms }, structuredClone(terms))).toEqual([]);
+    const asked = { items: [{ sku: "print-4x6", quantity: 3 }, { sku: "print-8x10", quantity: 1 }] };
+    expect(termsDifferences({ summary: "Print 4 photos.", terms }, asked)).toEqual(["The terms say items[1].sku is print-5x7, but the request asked for print-8x10."]);
+  });
+
+  it("describes a scope named like a member every object inherits by its name, never by that member", () => {
+    const company = { ...companyAt("shop.example"), scopeHints: {} };
+    expect(describeScopes(company, ["constructor", "toString", "__proto__"])).toEqual(["constructor", "toString", "__proto__"].map((scope) => ({
+      scope, description: scope, hint: "Can make changes that can't be undone · Uses your personal data"
+    })));
   });
 
   it("refuses a body that isn't UTF-8 with a PoppyFetchError", async () => {

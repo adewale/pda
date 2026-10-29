@@ -4,6 +4,7 @@ import type { TranscriptMessage } from "../../src/protocol";
 import type { ActivityEntry, Card, PoppyClientFrame, ProtocolCompany } from "../../src/poppy/wire";
 import { Workspace } from "../../src/ui/shell";
 import type { PiSession, PoppyView } from "../../src/use-pi-session";
+import { reducePoppy } from "../../src/use-pi-session";
 import { toIssuer } from "../../src/poppy/issuer";
 
 /**
@@ -35,7 +36,7 @@ function session(patch: Partial<PiSession> = {}, poppy: Partial<PoppyView> = {})
     error: null,
     status: "open",
     catalog: [],
-    poppy: { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
+    poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
     outbox: [],
     submit: (text: string) => void submitted.push(text),
     resend: () => undefined,
@@ -104,6 +105,21 @@ function uploadMessages(count: number, after = "All three are waiting for you.")
     { id: "a2", role: "assistant", parts: [{ type: "text", text: after }], timestamp: 4_000 }
   ];
 }
+
+it("keeps a durable checked outcome after Activity expires without looping on lookup responses", () => {
+  const fixture = session({ messages: uploadMessages(1) }, {
+    decisions: { apr_0: { approvalId: "apr_0", company: SHOP, result: "done", outcomeResolution: { outcome: "performed", at: 1000 } } },
+    activity: { inProgress: [], log: [] }
+  });
+  const { container, sent, rerender } = open("/", fixture);
+  expect(container.querySelector('[data-tool="poppy_api_call"]')?.getAttribute("data-status")).toBe("done");
+  expect(container.textContent).toContain(`You checked with ${SHOP}: this action happened`);
+  const reads = () => sent.filter(frame => frame.type === "poppy.approvals.read");
+  expect(reads()).toEqual([{ type: "poppy.approvals.read", ids: ["apr_0"] }]);
+  const poppy = reducePoppy(fixture.value.poppy, { type: "poppy.approvals.state", ids: ["apr_0"], decisions: Object.values(fixture.value.poppy.decisions) });
+  rerender(<Workspace identity={IDENTITY} session={{ ...fixture.value, poppy }} />);
+  expect(reads()).toHaveLength(1);
+});
 
 function approval(index: number, patch: Partial<Extract<Card, { kind: "approval" }>> = {}): Extract<Card, { kind: "approval" }> {
   const photo = PHOTOS[index]!;
@@ -230,22 +246,23 @@ describe("what the agent's code told the model", () => {
   });
 });
 
-const order = (patch: Partial<Extract<Card, { kind: "operation" }>> = {}): Extract<Card, { kind: "operation" }> => ({
-  id: `op-${ISSUER}-op_1`,
-  kind: "operation",
+/** The print shop's terms for an order (Ops 4, 5): the card for that revision, with what the terms name. */
+const order = (patch: Partial<Extract<Card, { kind: "approval" }>> = {}): Extract<Card, { kind: "approval" }> => ({
+  id: "approval-apr2_order1",
+  kind: "approval",
   company: SHOP,
   domain: DOMAIN,
   open: true,
-  issuer: ISSUER,
-  operationId: "op_1",
-  revision: 1,
-  state: "proposed",
-  summary: "Print 3 photos as 4×6 lustre prints. Prints $10.00 + shipping $5.00 = $15.00 USD.",
-  account: null,
-  highlights: ["Cost (total): 15.00 USD", "The company says this can be undone."],
-  userApprovalRequired: true,
-  total: { amount: "15.00", currency: "USD" },
-  previews: [{ label: "items 1 preview", url: "https://prints.example/previews/1" }],
+  approvalId: "apr2_order1",
+  summary: `${SHOP} asks for your approval before it does this: Print 3 photos as 4×6 lustre prints. Prints $10.00 + shipping $5.00 = $15.00 USD. (Approval needed by 2026-10-28T12:00:00Z.)`,
+  status: "pending",
+  terms: {
+    summary: "Print 3 photos as 4×6 lustre prints. Prints $10.00 + shipping $5.00 = $15.00 USD.",
+    expiresAt: "2026-10-28T12:00:00Z",
+    highlights: ["Cost (total): 15.00 USD", "The company says this can be undone."],
+    total: { amount: "15.00", currency: "USD" },
+    previews: [{ label: "items 1 preview", url: "https://prints.example/previews/1" }]
+  },
   at: 5_000,
   ...patch
 });
@@ -255,35 +272,37 @@ describe("the order", () => {
     const { sent } = open("/", session({}, { cards: [order()] }));
     expect(document.querySelector("[data-total]")!.textContent).toContain("$15.00");
     expect(screen.getByText("Cost (total)").nextElementSibling!.textContent).toBe("15.00 USD");
-    expect(screen.getByText(/Print 3 photos as 4×6 lustre prints/)).toBeTruthy();
+    expect(screen.getByText(/Print 3 photos as 4×6 lustre prints/).closest("figure")!.textContent).toContain(`${SHOP} says:`);
     const preview = screen.getByRole("link", { name: "items 1 preview" });
     expect(preview.getAttribute("target")).toBe("_blank");
     fireEvent.click(screen.getByRole("button", { name: "Approve $15.00" }));
-    expect(sent).toEqual([{ type: "poppy.operation", issuer: ISSUER, operationId: "op_1", revision: 1, decision: "approve" }]);
+    expect(sent).toEqual([{ type: "poppy.approval", approvalId: "apr2_order1", decision: "approve" }]);
   });
 
-  it("puts a finished order in the conversation by its time, links checkout in a new tab, and can ask the agent to check on it", () => {
+  it("puts a finished order in the conversation by its time, quoting the Company's terms, and opens a link the model writes in a new tab", () => {
     const messages: TranscriptMessage[] = [
       { id: "u1", role: "user", parts: [{ type: "text", text: "Order them" }], timestamp: 1_000 },
-      { id: "a1", role: "assistant", parts: [{ type: "text", text: "The order is proposed." }], timestamp: 2_000 },
+      { id: "a1", role: "assistant", parts: [{ type: "text", text: "The order waits for your approval." }], timestamp: 2_000 },
       { id: "u2", role: "user", parts: [{ type: "text", text: "Thanks, and the tracking?" }], timestamp: 9_000 },
       { id: "a2", role: "assistant", parts: [{ type: "text", text: "[Pay at checkout](https://prints.example/checkout/ord_1)" }], timestamp: 9_500 }
     ];
-    const card = order({ open: false, state: "succeeded", approvedBy: "user", result: "Order ord_1 placed.", links: [{ label: "checkout", url: "https://prints.example/checkout/ord_1" }], at: 5_000 });
-    const { container, submitted } = open("/", session({ messages }, { cards: [card] }));
+    const card = order({ open: false, status: "done", result: JSON.stringify({ status: 201, body: { id: "ord_1" } }), at: 5_000 });
+    const { container } = open("/", session({ messages }, { cards: [card] }));
     const text = container.textContent!;
+    const receipt = container.querySelector('[data-receipt="done"]')!;
+    expect(receipt.textContent).toContain(`$15.00 · Print 3 photos as 4×6 lustre prints.`);
+    expect(receipt.querySelector("figcaption")!.textContent).toBe(`${SHOP} says:`);
     // After the message before it, before the one after it.
-    expect(text.indexOf("The order is proposed.")).toBeLessThan(text.indexOf("Order ord_1 placed."));
-    expect(text.indexOf("Order ord_1 placed.")).toBeLessThan(text.indexOf("Thanks, and the tracking?"));
-    expect(screen.getByRole("link", { name: `Open checkout at ${SHOP}` }).getAttribute("target")).toBe("_blank");
-    // A link the model writes opens in a new tab too, after Streamdown asks, so a checkout never replaces the conversation.
+    expect(text.indexOf("The order waits for your approval.")).toBeLessThan(text.indexOf("Print 3 photos as 4×6"));
+    expect(text.indexOf("Print 3 photos as 4×6")).toBeLessThan(text.indexOf("Thanks, and the tracking?"));
+    // The receipt links nothing: a preview was for deciding, and the Company's answer is facts, never a link.
+    expect(receipt.querySelector("a")).toBeNull();
+    // A link the model writes opens in a new tab, after Streamdown asks, so a checkout never replaces the conversation.
     const opened = vi.fn();
     vi.stubGlobal("open", opened);
     fireEvent.click(screen.getByRole("button", { name: "Pay at checkout" }));
     fireEvent.click(screen.getByRole("button", { name: "Open link" }));
     expect(opened).toHaveBeenCalledWith("https://prints.example/checkout/ord_1", "_blank", "noreferrer");
-    fireEvent.click(screen.getByRole("button", { name: "Ask your agent to check on it" }));
-    expect(submitted[0]).toContain(`Check the status of this at ${SHOP}`);
   });
 });
 

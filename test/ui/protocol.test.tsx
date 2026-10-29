@@ -36,29 +36,29 @@ const entries: ProtocolEntry[] = [
   {
     seq: 2,
     at: AT + 1000,
-    section: "§4.2",
-    title: "Session",
-    step: "session.start",
+    section: "§4.4",
+    title: "Refresh tokens",
+    step: "token.refresh",
     method: "POST",
     url: "https://auth.print.example/oauth/token",
     status: 400,
     error: "use_dpop_nonce",
     outcome: "retry",
-    summary: "Start a Session: jwt-bearer grant with a Session assertion, no session_id, client assertion, DPoP proof",
+    summary: "Get an access token: refresh_token grant, client assertion, DPoP proof",
     result: "400 use_dpop_nonce: sending again with the Company's DPoP-Nonce and a new proof"
   },
   {
     seq: 3,
     at: AT + 2000,
-    section: "Ops §5.2",
-    title: "Confirming",
-    step: "operation.confirm",
+    section: "Ops §6",
+    title: "Sending the approval",
+    step: "operation.sent",
     method: "POST",
-    url: "https://api.print.example/poppy/operations/op_1/confirm",
+    url: "https://api.print.example/orders",
     status: 200,
     error: null,
     outcome: "ok",
-    summary: "Confirm op_1, revision 2, approved_by user · DPoP",
+    summary: "POST /orders, Poppy-Approval op_1 revision 2 · Session header and DPoP token",
     result: "200"
   }
 ];
@@ -105,12 +105,12 @@ describe("protocol view", () => {
     const items = within(list).getAllByRole("listitem");
     expect(items).toHaveLength(3);
     // Each exchange: time with seconds, spec section, what was sent, where, what came back, the outcome.
-    expect(items[1]!.textContent).toContain("§4.2 Session");
-    expect(items[1]!.textContent).toContain("Start a Session: jwt-bearer grant");
+    expect(items[1]!.textContent).toContain("§4.4 Refresh tokens");
+    expect(items[1]!.textContent).toContain("Get an access token: refresh_token grant");
     expect(items[1]!.textContent).toContain("POST https://auth.print.example/oauth/token");
     expect(items[1]!.textContent).toContain("→ 400 use_dpop_nonce: sending again");
     expect(items[1]!.textContent).toContain("Sent again");
-    expect(items[2]!.textContent).toContain("Ops §5.2 Confirming");
+    expect(items[2]!.textContent).toContain("Ops §6 Sending the approval");
     expect(within(items[0]!).getByText(/\d\d:\d\d:\d\d\.120/).getAttribute("datetime")).toBe(new Date(AT).toISOString());
 
     // Closing it stops asking; it shows no entries.
@@ -146,8 +146,8 @@ describe("protocol view", () => {
     expect(text).toContain("Never recorded: headers, bodies, tokens");
     expect(lines.slice(-3)).toEqual([
       `${new Date(AT).toISOString()} | §3 Discovery | GET https://print.example/.well-known/poppy.json | Fetch poppy.json, without credentials | -> 200 · application/json [ok]`,
-      `${new Date(AT + 1000).toISOString()} | §4.2 Session | POST https://auth.print.example/oauth/token | Start a Session: jwt-bearer grant with a Session assertion, no session_id, client assertion, DPoP proof | -> 400 use_dpop_nonce: sending again with the Company's DPoP-Nonce and a new proof [retry]`,
-      `${new Date(AT + 2000).toISOString()} | Ops §5.2 Confirming | POST https://api.print.example/poppy/operations/op_1/confirm | Confirm op_1, revision 2, approved_by user · DPoP | -> 200 [ok]`
+      `${new Date(AT + 1000).toISOString()} | §4.4 Refresh tokens | POST https://auth.print.example/oauth/token | Get an access token: refresh_token grant, client assertion, DPoP proof | -> 400 use_dpop_nonce: sending again with the Company's DPoP-Nonce and a new proof [retry]`,
+      `${new Date(AT + 2000).toISOString()} | Ops §6 Sending the approval | POST https://api.print.example/orders | POST /orders, Poppy-Approval op_1 revision 2 · Session header and DPoP token | -> 200 [ok]`
     ]);
     expect(screen.getByText("Copied as text.").getAttribute("role")).toBe("status");
   });
@@ -176,7 +176,7 @@ describe("protocol view", () => {
   });
 
   it("folds the index and each log into the page's view", () => {
-    const empty: PoppyView = { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
+    const empty: PoppyView = { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
     const indexed = reducePoppy(empty, { type: "poppy.protocol.index", companies: [company] });
     expect(indexed.protocol).toEqual({ companies: [company], logs: {} });
     const loaded = reducePoppy(indexed, log);
@@ -225,7 +225,7 @@ describe("diagnostics", () => {
   });
 
   it("folds the agent's frame into the page's view", () => {
-    const empty: PoppyView = { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: [company], logs: {} } };
+    const empty: PoppyView = { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: [company], logs: {} } };
     const folded = reducePoppy(empty, { type: "poppy.diagnostics", text, at: AT });
     expect(folded.protocol).toEqual({ companies: [company], logs: {}, diagnostics: { text, at: AT } });
   });

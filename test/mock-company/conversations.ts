@@ -38,6 +38,10 @@ type Conversation = {
 type IncomingMessage = {
   id?: unknown;
   sender?: unknown;
+  /** 0.3: who wrote it (8.4). */
+  author?: unknown;
+  /** 0.3, Operations 2: the User's approval of an operation (Ops 6). */
+  approval?: unknown;
   text?: unknown;
   data?: unknown;
   context?: unknown;
@@ -89,16 +93,22 @@ export function canonicalJson(value: unknown): string {
 }
 
 
-/** Personal Agent Protocol conversations, Company side (spec section 7). */
+/** Personal Agent Protocol conversations, Company side (spec section 8). */
 export class Conversations {
   readonly #conversations = new Map<string, Conversation>();
-  /** Message idempotency per User: id → content hash and conversation (7.3). */
+  /** Message idempotency per User: id → content hash and conversation (8.3). */
   readonly #messageIds = new Map<string, { hash: string; conversationId: string }>();
   /** Long polls waiting for the next event in any conversation. */
   #waiters: (() => void)[] = [];
   operations: Operations | undefined;
 
   constructor(readonly company: Company) {}
+
+  /** Who wrote a message the agent sent: its `author.type` (8.4, 8.8). */
+  #writer(message: IncomingMessage): unknown {
+    const author = message.author;
+    return typeof author === "object" && author !== null && !Array.isArray(author) ? (author as { type?: unknown }).type : undefined;
+  }
 
   summary(): {
     id: string;
@@ -139,25 +149,27 @@ export class Conversations {
   }
 
   #say(conversation: Conversation, text: string, extra: Record<string, unknown> = {}): void {
+    // `author`, naming the person when one writes (8.4, 8.7).
+    const writer = { author: conversation.responder === "human" ? { type: "human", id: "aut_alex", name: "Alex" } : { type: "agent" } };
     this.#add(conversation, {
       type: "message",
       message: {
         id: randomId("msg_", 8),
         role: "company",
-        sender: conversation.responder,
+        ...writer,
         text,
         ...extra
       }
     });
   }
 
-  /** The conversation, if this token's owner may use it (7.2, 7.11). */
+  /** The conversation, if this token's owner may use it (8.2, 8.11). */
   #owned(context: ResourceContext, id: string): Conversation {
     const conversation = this.#conversations.get(id);
     const notFound = () =>
       new HttpError(json({ error: "conversation_not_found" }, 404));
     // A different User of the same agent reaching for this conversation is a cross-User breach
-    // (7.2; S17): record it, then answer conversation_not_found (7.13) so nothing of User A leaks.
+    // (8.2; S17): record it, then answer conversation_not_found (8.13) so nothing of User A leaks.
     const crossUser = () => {
       this.company.violation("conversation.cross-user", `User ${context.session.userId} reached conversation ${id} of User ${conversation!.owner.userId}`);
       return notFound();
@@ -166,7 +178,8 @@ export class Conversations {
     if (conversation.owner.account) {
       if (context.signedIn && context.account === conversation.owner.account) return conversation;
       if (conversation.owner.userId === context.session.userId) {
-        throw resourceError("DPoP", 403, "sign_in_required");
+        // A challenge for the account, as an account action gets (8.11, 7).
+        this.company.requireScopes({ ...context, signedIn: false }, [this.company.orderScopes.read]);
       }
       throw crossUser();
     }
@@ -184,8 +197,12 @@ export class Conversations {
     if (typeof message.id !== "string" || !ID.test(message.id)) {
       throw bad("message.id", "id must be 1-256 base64url characters");
     }
-    if (message.sender !== "agent" && message.sender !== "human") throw bad("message.sender", "sender must be agent or human");
-    if (message.text === undefined && message.data === undefined && message.context === undefined) {
+    if ("sender" in message) co.violation("message.sender-field", "conversation message: sender is 0.2's; 0.3 says author.type (8.4)");
+    const type = this.#writer(message);
+    if (type !== "agent" && type !== "human") throw bad("message.author", "author.type must be agent or human");
+    const author = message.author as Record<string, unknown>;
+    if (Object.keys(author).some((key) => key !== "type")) co.violation("message.author", "conversation message: only Company messages name an author's id, name or image (8.4)");
+    if (message.text === undefined && message.data === undefined && message.context === undefined && message.approval === undefined) {
       throw bad("message.empty", "needs at least one of text, data or context");
     }
     if (message.text !== undefined) {
@@ -194,7 +211,7 @@ export class Conversations {
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
         try {
           JSON.parse(trimmed);
-          co.violation("message.json-in-text", "conversation message: JSON in text; use data (7.4)");
+          co.violation("message.json-in-text", "conversation message: JSON in text; use data (8.4)");
         } catch {
           // Prose that starts with a bracket.
         }
@@ -221,7 +238,7 @@ export class Conversations {
 
   /**
    * Same id and content: the original response. Different content: conflict
-   * (7.3). The same content is the same JSON value, whatever its members'
+   * (8.3). The same content is the same JSON value, whatever its members'
    * order (RFC 8259 4: an object is an unordered collection).
    */
   #idempotent(context: ResourceContext, message: IncomingMessage, parent: string | null): Conversation | null {
@@ -242,26 +259,46 @@ export class Conversations {
   }
 
   #accept(context: ResourceContext, conversation: Conversation, message: IncomingMessage): void {
-    conversation.sent.push(`${message.sender as string}:${typeof message.text === "string" ? message.text : ""}`);
+    conversation.sent.push(`${String(this.#writer(message))}:${typeof message.text === "string" ? message.text : ""}`);
     if (message.context) {
       conversation.context = { ...conversation.context, ...(message.context as Record<string, unknown>) };
     }
-    const { context: _context, ...withoutContext } = message;
-    const shown = this.company.config.protocolVersion === "0.2" ? message : withoutContext;
-    this.#add(conversation, { type: "message", message: { ...shown, role: "user" } });
-    if (message.text !== undefined || message.data !== undefined) this.#reply(context, conversation, message);
+    this.#add(conversation, { type: "message", message: { ...message, role: "user" } });
+    if (message.approval !== undefined) this.#approved(context, conversation, message.approval);
+    else if (message.text !== undefined || message.data !== undefined) this.#reply(context, conversation, message);
+  }
+
+  /**
+   * A message's `approval` (Ops 6). Only the field
+   * approves, whatever the text says; the operation must be this
+   * conversation's. The Company Agent says how it went in a later message.
+   */
+  #approved(context: ResourceContext, conversation: Conversation, approval: unknown): void {
+    const co = this.company;
+    const given = typeof approval === "object" && approval !== null && !Array.isArray(approval) ? (approval as Record<string, unknown>) : null;
+    if (!given || typeof given.operation_id !== "string" || typeof given.revision !== "string") {
+      co.violation("approval.message", "a message's approval isn't an object with operation_id and revision strings");
+      return;
+    }
+    if (!this.operations) return;
+    const result = this.operations.exchange(context, `conversation ${conversation.id}`, {}, given as Record<string, string>);
+    if ("operation" in result) {
+      this.#say(conversation, "Those terms have changed. Here are the current ones.", { operation: result.operation });
+      return;
+    }
+    this.#say(conversation, "Done. The insulated jacket ships today, and a return label for the original was emailed.");
   }
 
   /** The scripted Company Agent. Deterministic, so tests can predict it. */
   #reply(context: ResourceContext, conversation: Conversation, message: IncomingMessage): void {
     const co = this.company;
     // Interop XE: the Company forges a `role: "user"` message, passing off its
-    // own words as the User's (7.5). A correct agent never treats a message
+    // own words as the User's (8.5). A correct agent never treats a message
     // the Company sent as the User speaking, so it has no effect.
     if (co.config.spoofUserText) {
       this.#add(conversation, {
         type: "message",
-        message: { id: randomId("msg_", 8), role: "user", sender: "human", text: co.config.spoofUserText }
+        message: { id: randomId("msg_", 8), role: "user", author: { type: "human" }, text: co.config.spoofUserText }
       });
     }
     if (!co.config.agentReplies || conversation.responder === "human" || conversation.status === "queued") {
@@ -275,7 +312,8 @@ export class Conversations {
     }
     if (/order|exchange|return/.test(text)) {
       if (!context.signedIn) {
-        this.#add(conversation, { type: "authorization", error: "sign_in_required" });
+        // `insufficient_scope`, with the scopes, whether or not the request had a token (8.11).
+        this.#add(conversation, { type: "authorization", error: "insufficient_scope", scope: `${co.orderScopes.read} ${co.orderScopes.write}` });
         this.#say(conversation, "Please sign in so I can look up your order.");
         return;
       }
@@ -289,16 +327,14 @@ export class Conversations {
         this.#say(conversation, "I need permission to view and change your orders to do that.");
         return;
       }
-      // The conversation now uses the User's account, so it belongs to it (7.2).
+      // The conversation now uses the User's account, so it belongs to it (8.2).
       conversation.owner.account = context.account;
       if (co.config.operations && context.client.listsOperations && this.operations) {
-        const operation = this.operations.proposeExchange(context);
-        this.#say(
-          conversation,
-          "I can exchange it for the insulated version for $70 more. Confirm whenever you're ready.",
-          { operation }
-        );
-        return;
+        const result = this.operations.exchange(context, `conversation ${conversation.id}`, {}, null);
+        if ("operation" in result) {
+          this.#say(conversation, "I can exchange it for the insulated version in medium for $70 more. I'll do it once you approve.", { operation: result.operation });
+          return;
+        }
       }
       this.#say(conversation, "I can exchange it for the insulated version for $70 more.", {
         data: { replacement_sku: "stormline-insulated-m", price_difference: 70 }
@@ -313,7 +349,8 @@ export class Conversations {
       inbound.request.headers.get("Last-Event-ID") ?? inbound.url.searchParams.get("cursor");
     const rawWait = inbound.url.searchParams.get("wait") ?? "0";
     const wait = Number(rawWait);
-    if (this.company.config.protocolVersion === "0.2" && (!/^\d+$/.test(rawWait) || !Number.isSafeInteger(wait))) {
+    // 8.5: "a whole number of seconds, 0 or more"; anything else is invalid_request (8.13).
+    if (!/^\d+$/.test(rawWait) || !Number.isSafeInteger(wait)) {
       throw new HttpError(json({ error: "invalid_request" }, 400));
     }
     return { cursor, wait: Number.isFinite(wait) && wait > 0 ? wait : 0 };
@@ -353,7 +390,7 @@ export class Conversations {
     };
   }
 
-  /** A POST's reply: plain, or a read when `wait` is given (7.3). */
+  /** A POST's reply: plain, or a read when `wait` is given (8.3). */
   async #answer(inbound: Inbound, conversation: Conversation, status: number): Promise<Response> {
     const { cursor, wait } = this.#params(inbound);
     if (inbound.url.searchParams.has("wait") && !this.company.config.ignoreWait) {
@@ -377,7 +414,7 @@ export class Conversations {
     throw new HttpError(json({ error: "invalid_request", error_description: "expected a JSON object" }, 400));
   }
 
-  /** `POST {endpoint}`: a new conversation, or a Direct Conversation (7.3, 7.10). */
+  /** `POST {endpoint}`: a new conversation, or a Direct Conversation (8.3, 8.10). */
   async start(inbound: Inbound, context: ResourceContext): Promise<Response> {
     const body = this.#body(inbound);
     const message = this.#validate(body.message as IncomingMessage | undefined);
@@ -385,7 +422,7 @@ export class Conversations {
     // A flawed Company (retry-new-conversation) forgets first messages, so a retry starts another conversation.
     const existing = this.company.flawed("retry-new-conversation") ? null : this.#idempotent(context, message, parentId);
     // A retry gets the original response only if it may still read the
-    // conversation: once it used the account, 7.11 wins (S8), as in message().
+    // conversation: once it used the account, 8.11 wins (S8), as in message().
     if (existing) return this.#answer(inbound, this.#owned(context, existing.id), 201);
     let parent: Conversation | null = null;
     if (parentId) {
@@ -397,8 +434,8 @@ export class Conversations {
           json({ error: "direct_conversation_open", conversation_id: parent.directChild }, 409)
         );
       }
-      // In a Direct Conversation the User talks; their words go as `human` (7.10).
-      if (message.sender !== "human" && message.text !== undefined) {
+      // In a Direct Conversation the User talks; their words go as `human` (8.10).
+      if (this.#writer(message) !== "human" && message.text !== undefined) {
         this.company.violation(
           "direct.agent-words",
           "Direct Conversation opened with words not marked as the User's (sender agent)"
@@ -448,10 +485,10 @@ export class Conversations {
       );
     }
     // In a Direct Conversation the agent relays the User's words as written,
-    // as `human` (7.10). It may still send context, such as user_available
-    // (7.4); its own words have no place there (our reading of S12), so they
+    // as `human` (8.10). It may still send context, such as user_available
+    // (8.4); its own words have no place there (our reading of S12), so they
     // are recorded, though the draft gives the Company no error to return.
-    if (conversation.direct && message.sender !== "human" && (message.text !== undefined || message.data !== undefined)) {
+    if (conversation.direct && this.#writer(message) !== "human" && (message.text !== undefined || message.data !== undefined)) {
       this.company.violation("direct.agent-words-later", `agent's own words sent into Direct Conversation ${conversation.id}`);
     }
     this.#remember(context, message, null, conversation);
@@ -459,7 +496,7 @@ export class Conversations {
     return this.#answer(inbound, conversation, 202);
   }
 
-  /** `GET {endpoint}/{id}/events`, as JSON or SSE (7.5, 7.6). */
+  /** `GET {endpoint}/{id}/events`, as JSON or SSE (8.5, 8.6). */
   async events(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
     const { cursor, wait } = this.#params(inbound);
@@ -478,7 +515,7 @@ export class Conversations {
     const page = await this.#read(conversation, cursor, wait);
     const wantsStream = (inbound.request.headers.get("Accept") ?? "").includes("text/event-stream");
     if (!wantsStream || !this.company.config.streaming) return json(page);
-    // SSE comments, which keep idle connections open, carry no event (7.6).
+    // SSE comments, which keep idle connections open, carry no event (8.6).
     const keepAlive = this.company.config.sseKeepAlive ? ": keep-alive\n\n" : "";
     let body = keepAlive;
     for (const event of page.events) {
@@ -491,7 +528,7 @@ export class Conversations {
       }
       body += `id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n${keepAlive}`;
     }
-    // The Company may close a stream at any time (7.6); this one closes after one page.
+    // The Company may close a stream at any time (8.6); this one closes after one page.
     return new Response(body, {
       headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-store" }
     });
@@ -504,7 +541,7 @@ export class Conversations {
     }
   }
 
-  /** `POST {endpoint}/{id}/handoff` (7.9). */
+  /** `POST {endpoint}/{id}/handoff` (8.9). */
   async handoff(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
     this.#emptyBody(inbound, "handoff.body");
@@ -515,14 +552,14 @@ export class Conversations {
       );
     }
     // A person already handles it: there's no one to find, and while queued
-    // `responder` stays `agent` (7.7), so nothing changes.
+    // `responder` stays `agent` (8.7), so nothing changes.
     if (conversation.responder !== "human") {
       this.#setState(conversation, this.company.config.neverQueued ? "working" : "queued");
     }
     return json({ status: conversation.status, responder: conversation.responder }, 202);
   }
 
-  /** `POST {endpoint}/{id}/close` (7.12). */
+  /** `POST {endpoint}/{id}/close` (8.12). */
   async close(inbound: Inbound, context: ResourceContext, id: string): Promise<Response> {
     const conversation = this.#owned(context, id);
     this.#emptyBody(inbound, "close.body");
@@ -533,7 +570,7 @@ export class Conversations {
   #closeConversation(conversation: Conversation): void {
     if (conversation.status === "closed") return;
     // Closing the parent closes its open Direct Conversation, whose closing
-    // adds `direct_closed` to the parent (7.10). It goes first, so the parent
+    // adds `direct_closed` to the parent (8.10). It goes first, so the parent
     // takes that event while it's still open and nothing after `closed`.
     if (conversation.directChild) {
       const child = this.#conversations.get(conversation.directChild);
@@ -566,7 +603,7 @@ export class Conversations {
   }
 
   /**
-   * No person is available for a queued handoff (7.9): the status goes back
+   * No person is available for a queued handoff (8.9): the status goes back
    * to `idle` with `responder` still `agent`, and the Company Agent says why.
    */
   staffUnavailable(id: string, text: string): void {
@@ -586,14 +623,14 @@ export class Conversations {
     conversation.events = kept;
   }
 
-  /** The Company closes a conversation itself, as when it is done or has timed out (7.12). */
+  /** The Company closes a conversation itself, as when it is done or has timed out (8.12). */
   closeByCompany(id: string): void {
     const conversation = this.#conversations.get(id);
     if (!conversation) throw new Error(`no conversation ${id}`);
     this.#closeConversation(conversation);
   }
 
-  /** The Company no longer has a conversation, so it is `conversation_not_found` (7.13). */
+  /** The Company no longer has a conversation, so it is `conversation_not_found` (8.13). */
   forget(id: string): void {
     if (!this.#conversations.delete(id)) throw new Error(`no conversation ${id}`);
   }

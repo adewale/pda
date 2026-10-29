@@ -27,7 +27,7 @@ export function placeInteropCompanies(): void {
 }
 
 /**
- * Settings every host starts from: rotating Account Tokens (scenario R),
+ * Settings every host starts from: rotating refresh tokens (scenario R),
  * devices polled every second so Device Sign-In doesn't wait five, no API
  * of an unknown type (the conformance tests list one on purpose to check
  * agents skip it, but it breaks 6's MUST, and a reference Company keeps to
@@ -71,7 +71,7 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
     async fixture() {
       return {
         accounts: DEFAULT_CONFIG.accounts.map((item) => item.account),
-        scopes: { read: ["poppy:read"], write: ["poppy:read", "poppy:write"] },
+        scopes: { read: ["orders:read"], write: ["orders:read", "orders:write"] },
         openapi_public: { api: "openapi", operation: "searchProducts", args: { params: { q: "jacket" } } },
         openapi: { api: "openapi", operation: "listOrders", args: {} },
         openapi_write: {
@@ -135,6 +135,10 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
       if (!code) throw new HookError(409, "no_code", "No one-time code has been sent");
       return { code };
     },
+    /** Effects only, for adversarial Operations 2 tests; no account or request data. */
+    async performed_count() {
+      return { performed: (await current().state()).performs };
+    },
     async end_sessions() {
       return { ended: await current().endAllSessions() };
     },
@@ -158,20 +162,6 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
         throw new HookError(409, "no_operation", "Nothing proposed: send fixture.prompts.operation in a signed-in conversation first");
       }
       return { operation: proposed.id };
-    },
-    /** The Company issues a new revision of a proposed operation, with new terms (Ops 3.1). */
-    async revise_operation(params) {
-      const terms = params.terms;
-      if (typeof terms !== "object" || terms === null || Array.isArray(terms)) {
-        throw new HookError(400, "invalid_params", "terms must be a JSON object");
-      }
-      const revision = await current().reviseOperation(str(params.operation, "operation"), str(params.summary, "summary"), terms as Record<string, unknown>);
-      return { revision };
-    },
-    /** The User confirms a proposed operation on the Company's website, in its Session (Ops 4.4). */
-    async confirm_on_website(params) {
-      await current().confirmOnWebsite(str(params.operation, "operation"));
-      return {};
     },
     /** No person is available for a queued handoff: back to `idle` with the Company Agent, which says why (7.9). */
     async staff_unavailable(params) {
@@ -199,7 +189,7 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
       return {};
     },
     async expire_tokens() {
-      return { expired: await current().expireSessionTokens() };
+      return { expired: await current().expireAccessTokens() };
     },
     /** From now until reset, the issuer has a path, its metadata inserted before it (RFC 8414 3.1, S3). */
     async issuer_path(params) {

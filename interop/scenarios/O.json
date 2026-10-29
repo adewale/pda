@@ -1,18 +1,22 @@
 {
   "id": "O",
-  "title": "Operation: propose, approve, confirm",
+  "title": "Operation: approval message accepted; action outcome checked independently",
   "requirements": ["Operations 4", "Operations 5", "Operations 6"],
-  "needs": { "agent": ["discover", "session", "signin", "signin_continue", "send", "read", "approve_op"], "company": ["approve_authorization", "propose_operation"] },
+  "needs": {"agent": ["discover", "session", "signin", "signin_continue", "send", "read", "approve_op"], "company": ["approve_authorization", "propose_operation", "performed_count"]},
   "steps": [
-    { "agent": "discover" },
-    { "agent": "session" },
-    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.write}" }, "save": "pending" },
-    { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
-    { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" } },
-    { "agent": "send", "params": { "text": "${fixture.prompts.operation}", "wait": 2 }, "save": "m" },
-    { "company": "propose_operation", "params": { "conversation": "${m.conversation}" }, "save": "p" },
-    { "agent": "read", "params": { "conversation": "${m.conversation}" } },
-    { "agent": "approve_op", "params": { "operation": "${p.operation}", "decision": "approve" }, "save": "a" },
-    { "expect": { "${a.status}": { "$in": ["succeeded", "in_progress"] } } }
+    {"agent": "discover"},
+    {"agent": "session"},
+    {"agent": "signin", "params": {"method": "direct", "scopes": "${fixture.scopes.write}"}, "save": "pending"},
+    {"company": "approve_authorization", "params": {"url": "${pending.pending.url}", "account": "${fixture.accounts.0}"}, "save": "consent"},
+    {"agent": "signin_continue", "params": {"callback_url": "${consent.redirect}"}},
+    {"agent": "send", "params": {"text": "${fixture.prompts.operation}", "wait": 2}, "save": "m"},
+    {"company": "propose_operation", "params": {"conversation": "${m.conversation}"}, "save": "p"},
+    {"agent": "read", "params": {"conversation": "${m.conversation}"}},
+    {"company": "performed_count", "save": "before_approval"},
+    {"expect": {"${before_approval.performed}": 0}},
+    {"agent": "approve_op", "params": {"operation": "${p.operation}", "decision": "approve"}, "save": "a"},
+    {"expect": {"${a.status}": "sent", "${a.outcome}": "unknown"}},
+    {"company": "performed_count", "save": "after_approval"},
+    {"expect": {"${after_approval.performed}": 1}}
   ]
 }

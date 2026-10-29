@@ -1,0 +1,87 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+ ❯ |interop| interop/test/account-refresh-races.test.ts (8 tests | 5 failed) 151ms
+     × rejects a stale rotated response after a successful same-account sign-in 79ms
+     × rejects a stale unchanged response after a successful same-account sign-in 10ms
+     × rejects a stale invalid_grant response after a successful same-account sign-in 11ms
+     × does not resurrect an account when sign-out wins during sign-in token sealing 8ms
+     × does not dispatch an old access token when same-account sign-in finishes during Session signing 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |interop| interop/test/account-refresh-races.test.ts > refresh responses cannot replace a newer account family > rejects a stale rotated response after a successful same-account sign-in
+ FAIL  |interop| interop/test/account-refresh-races.test.ts > refresh responses cannot replace a newer account family > rejects a stale unchanged response after a successful same-account sign-in
+ FAIL  |interop| interop/test/account-refresh-races.test.ts > refresh responses cannot replace a newer account family > rejects a stale invalid_grant response after a successful same-account sign-in
+AssertionError: promise resolved "Response { status: 200, statusText: '', headers: Headers { 'content-type': 'application/json' }, body: ReadableStream { locked: false, state: 'readable', supportsBYOB: true }, bodyUsed: false, ok: true, redirected: false, type: 'default', url: '' }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
+- }
++ Response {}
+
+ ❯ interop/test/account-refresh-races.test.ts:67:37
+     65|     const before = f.client.session(f.company.issuer, "main")!;
+     66|     const pending = f.client.resource(f.company, f.outgoing);
+     67|     const rejected = expect(pending).rejects.toMatchObject({ code: "ap…
+       |                                     ^
+     68|     await ready.promise;
+     69|     await f.stepUp();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |interop| interop/test/account-refresh-races.test.ts > refresh responses cannot replace a newer account family > does not resurrect an account when sign-out wins during sign-in token sealing
+AssertionError: promise resolved "{ …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "account": "default",
++   "expires_at": null,
++   "issuer": "https://auth.shop.example",
++   "scope": "orders:read",
++   "token": "v1.0H_hio985xtGb4Uyim-ID8hJW1XmT3tlNCWXwQTpOOiJVP7Wv6sO",
+  }
+
+ ❯ interop/test/account-refresh-races.test.ts:107:37
+    105|     });
+    106|     const pending = f.stepUp();
+    107|     const rejected = expect(pending).rejects.toMatchObject({ code: "ap…
+       |                                     ^
+    108|     await ready.promise;
+    109|     const before = f.client.session(f.company.issuer, "main")!;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |interop| interop/test/account-refresh-races.test.ts > refresh responses cannot replace a newer account family > does not dispatch an old access token when same-account sign-in finishes during Session signing
+AssertionError: promise resolved "Response { status: 200, statusText: '', headers: Headers { 'content-type': 'application/json' }, body: ReadableStream { locked: false, state: 'readable', supportsBYOB: true }, bodyUsed: false, ok: true, redirected: false, type: 'default', url: '' }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
+- }
++ Response {}
+
+ ❯ interop/test/account-refresh-races.test.ts:129:37
+    127|     });
+    128|     const pending = f.client.resource(f.company, f.outgoing);
+    129|     const rejected = expect(pending).rejects.toMatchObject({ code: "ap…
+       |                                     ^
+    130|     await ready.promise;
+    131|     await f.stepUp();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 3 passed (8)
+   Start at  17:06:16
+   Duration  587ms (transform 239ms, setup 0ms, import 318ms, tests 151ms, environment 0ms)

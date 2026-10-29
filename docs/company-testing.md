@@ -19,7 +19,7 @@ Four checks stand between a bug in the mock and a test that passes for the wrong
 1. **Tamper rows.** `TAMPERS` in [`test/mock-company.test.ts`](../test/mock-company.test.ts) drives the mock with hand-made requests, never our client. Each row breaks one thing in an otherwise correct request and expects exactly one violation id. A check that stops firing fails a named row.
 2. **The catalogue test.** The same file checks that every id in `violations.ts` appears in the mock's source and has a tamper row. An id nobody tests can't be added quietly.
 3. **A second client.** Our client and our mock were written by the same people, so a misreading they share passes every test. [`test/hypothesis/`](../test/hypothesis) holds an independent Poppy client in Python, written from the draft rather than ported from `src/poppy`, and five stateful, model-based Hypothesis tests that drive it against the mock. It runs locally, after a change to the draft or a large change to the mock, and not in CI.
-4. **The maintainers' validator.** The official Company validator, from the draft's own Company implementation kit, acts as a test Personal Agent against our 0.2 mock: pinned in [`spec/`](../spec/upstream.json), unmodified, in Docker with no route to the internet (`npm run interop:official`). CI's Interop workflow runs it whenever the mock, the harness or `spec/` changes. Our mock passes its 69 available checks and fails none; the five it skips need a Company that requires DPoP nonces or serves MCP with Bearer tokens, and two honest settings of the mock reach them. It doesn't automate sign-in or Operations ([its lanes](../interop/vectors/official/README.md)).
+4. **The maintainers' validator.** The [pinned website kit for 0.3](company-kit-review.md) now runs unchanged over local HTTPS against both mock profiles, a strict Bearer profile and the hosted dummy Company's workerd handlers. CI preserves the raw results and checks the documented DPoP prerequisite findings, accepted controls and absent-feature skips. The old 0.2 Docker lanes remain historical.
 
 A new check therefore lands with three things: the check in the mock, its id with a basis in `violations.ts`, and a tamper row. The catalogue test fails until all three are there.
 
@@ -29,18 +29,17 @@ Every Poppy test in the Workers suite runs against the mock, and the `afterEach`
 
 That strictness is for our own code only. In the interop grid a warning never fails a cell.
 
-## One mock, four profiles
+## One mock, three profiles
 
-The interop grid runs the mock under four names, all built from one image in [`interop/impls/pda-mock`](../interop/impls/pda-mock) and told apart by environment variables in [`interop/registry.json`](../interop/registry.json).
+The interop grid runs the mock under three names, all built from one image in [`interop/impls/pda-mock`](../interop/impls/pda-mock) and told apart by environment variables in [`interop/registry.json`](../interop/registry.json).
 
 | Name | What changes | What it is for |
 | --- | --- | --- |
 | `lenient-company` | Nothing: assertions need no `typ` or `kid` and may live 300 seconds | The reference Company. Attribution compares other cells against it |
 | `strict-company` | `INTEROP_MOCK_PROFILE=strict`: `typ: "JWT"`, a published `kid` and 60-second assertions | The strictest reading live Companies take, so an agent learns where it would be refused |
-| `lenient-company-v02` | `INTEROP_POPPY_VERSION=0.2` | The lenient mock speaking draft 0.2 |
 | `evil-company` | `INTEROP_ADVERSARY=company`, then one attack armed per cell | Checking that an agent refuses a Company that misbehaves on purpose |
 
-Two more settings exist for one lane only and never appear in the registry. `INTEROP_MOCK_VARIANT` turns on honest options the profiles leave off (required DPoP nonces, Bearer MCP at 0.2), and `INTEROP_MOCK_FLAWS` turns one of the Company's own protections off (below).
+Every profile speaks the version our client speaks: the adapter takes it from `src/poppy/protocol-version.ts`, so our two sides can't drift apart. Until 29 October the adapter still declared 0.1, and CI's grid ran no cell for a day while passing; the runner now fails such a run. The two settings the retired official-validator lanes used (`INTEROP_MOCK_VARIANT`, `INTEROP_MOCK_FLAWS`) went with them.
 
 Because the code is the same, a difference between two profiles' results comes from the profile and nothing else. Every profile reports every check it recorded at `GET /violations` with its basis and level, and the runner turns failures into errors and everything else into warnings.
 
@@ -52,7 +51,6 @@ The grid judges a Company two ways:
 
 - **From the recording.** A proxy records every exchange, and the runner's Company-side checks, prefixed `company.` in [`interop/runner/checks.ts`](../interop/runner/checks.ts), read it: `WWW-Authenticate` on a 401, `Retry-After` on a 429, OAuth error bodies, `iss` on authorization responses, the shape of event reads and more. The validator reads the Company's documents.
 - **From a strict agent.** `strict-personal-agent` runs those same checks and the validator over everything it receives, refuses at the first finding of any level, and reports what it found at `GET /violations`.
-- **From the maintainers' validator.** `npm run interop:official` runs the official Company validator against the grid's 0.2 Companies, Datalayer's two SDK Companies as well as our mock, outside the M×N grid.
 
 A failure that belongs to upstream or to the draft goes in [`interop/known-failures.json`](../interop/known-failures.json) with a reason. It doesn't fail the run, but an entry that stops matching any failure does.
 
@@ -70,14 +68,14 @@ The attacks, what each expects of an agent, and which are not built yet are in [
 
 ## Checking our checks
 
-Tamper rows prove the mock notices an agent's mistakes. Nothing proved that our checks notice a Company's, until the flawed-Company lane (`npm run interop:flaws`). It gives our 0.2 mock one known flaw at a time, from `COMPANY_FLAWS` in [`test/mock-company/types.ts`](../test/mock-company/types.ts): it accepts a replayed assertion or DPoP proof, a proof from another key or for another URL, a token in the query string, a token-endpoint audience at 0.2, or a rotated Account Token; it drops `Cache-Control: no-store`; or it starts a second conversation for a retried message. The official validator, our adversarial agent's attacks and the strict agent each check the flawed mock. A test in `test/mock-company.test.ts` proves each flaw changes what the mock does, and the honest mock must pass every one of those checks first, so a catch means something.
+Tamper rows prove the mock notices an agent's mistakes. Nothing proved that our checks notice a Company's, until the flawed-Company lane (`npm run interop:flaws`), which ran at 0.2 and was retired with it on 28 October, since its main checker was the official 0.2 validator. It gave our 0.2 mock one known flaw at a time, from `COMPANY_FLAWS` in [`test/mock-company/types.ts`](../test/mock-company/types.ts), which remain, with the test that each changes what the mock does: it accepts a replayed assertion or DPoP proof, a proof from another key or for another URL, a token in the query string, a token-endpoint audience at 0.2, or a rotated Account Token; it drops `Cache-Control: no-store`; or it starts a second conversation for a retried message. The official validator, our adversarial agent's attacks and the strict agent each check the flawed mock. A test in `test/mock-company.test.ts` proves each flaw changes what the mock does, and the honest mock must pass every one of those checks first, so a catch means something.
 
-On 24 October the official validator caught nine of the ten flaws and our checks six. Ours missed four the validator caught: the 0.2 audience and `no-store`, which they claim to check, and a proof for another URL and a token in the query, which nothing of ours probes. Only ours caught the rotated Account Token. Since 26 October the runner checks every token response for `Cache-Control: no-store` (`company.token-no-store`), so ours catches seven. The other three would need an attack of ours to provoke them; for those, the official validator, which CI runs against our mock, is our only check. The same lane found that our adversarial agent had never reached a 0.2 Company, since fixed. [Results](../interop/vectors/official/README.md#the-flawed-company-lane-npm-run-interopflaws).
+On 24 October the official validator caught nine of ten deliberate flaws and our checks six. That comparison prompted the missing token-response `Cache-Control: no-store` check; its other findings and counts are [historical 0.2 results](interop-results/2026-10-24-official-and-flaws.json). The [current 0.3 review](company-kit-review.md) records the independent checks, the mock defects they found, and the remaining manual requirements. It does not treat the old flaw experiment as a current 0.3 result.
 
 ## What this approach can't show
 
 - **A misreading the draft allows.** Where the draft is ambiguous, the mock takes a reading, recorded in [readings.md](readings.md). A Company that reads it the other way isn't wrong, and the grid attributes such a failure to the draft.
 - **Behaviour no scenario exercises.** A cell covers only what both sides list in their manifests. A Company's untested paths stay untested.
-- **A requirement nothing of ours checks.** [`spec/official-checks-0.2.json`](../spec/official-checks-0.2.json) maps each of the official validator's 74 checks to ours: 25 have nothing behind them, mostly a Company's refusals of malformed conversation requests and of DPoP misuse no agent of ours attempts.
+- **A requirement nothing of ours checks.** The retired 0.2 comparison found 25 of the official validator's 74 checks had no counterpart in our checks. At 0.3 the independent kit reports its own verdicts, and the [manual checklist review](company-kit-review.md#manual-checklist-review) records gaps in production Company behavior. Neither count is a conformance percentage.
 - **What a deployment does.** The local grid runs code. Hosting, redirects and a live allowlist show up only in the live lane, which mostly runs signed out.
 - **A real model.** The harness drives protocol code with no model, so whether a model obeys text a Company sends is tested separately, in [`test/prompt-injection.test.ts`](../test/prompt-injection.test.ts), with a fake model that obeys everything.

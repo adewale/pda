@@ -9,7 +9,7 @@ interface SignInSecrets {
   GITHUB_CLIENT_SECRET: string;
   /** JSON array of private ES256 JWKs, each with `kid`; the first signs. */
   POPPY_SIGNING_JWKS: string;
-  /** Base64 of 32 random bytes: AES-GCM key for Account Tokens at rest. */
+  /** Base64 of 32 random bytes: AES-GCM key for refresh tokens and other secrets at rest. */
   TOKEN_ENC_KEY: string;
   /** Only while rotating `TOKEN_ENC_KEY`: the old key, so values it sealed still open (and are sealed again). */
   TOKEN_ENC_KEY_PREVIOUS?: string;

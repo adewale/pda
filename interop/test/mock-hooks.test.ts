@@ -25,6 +25,11 @@ describe("the shared mock hooks", () => {
     expect([...used].filter((hook) => !SHARED.includes(hook))).toEqual([]);
   });
 
+  it("exposes only the performed-effect count for Operations 2 harm checks", async () => {
+    const hooks = mockHooks(() => ({ state: async () => ({ performs: 2, accounts: ["private-account"] }) }) as unknown as MockCompany);
+    expect(await hooks.performed_count!({})).toEqual({ performed: 2 });
+  });
+
   it("serve every recorded check by id, in order, with its basis, its level and the detail after it", () => {
     const state = {
       recorded: [
@@ -37,17 +42,17 @@ describe("the shared mock hooks", () => {
     };
     expect(violationsBody(state)).toEqual({
       violations: [
-        { id: "message.json-in-text", basis: "SHOULD", level: "warning", detail: "conversation message: JSON in text; use data (7.4)" },
-        { id: "dpop.htu", basis: "MUST", level: "failure", detail: "DPoP: htu https://a.example/x != https://a.example/y" },
+        { id: "message.json-in-text", basis: "Guides", level: "warning", detail: "conversation message: JSON in text; use data (7.4)" },
+        { id: "dpop.htu", basis: "RFC", level: "failure", detail: "DPoP: htu https://a.example/x != https://a.example/y" },
         { id: "exchange.performed-twice", basis: "Guides", level: "warning", detail: "itm_4Qa on ord_7Hk2 exchanged again for acct_ada (confirm)" },
-        { id: "client-assertion.aud-array", basis: "Reading", level: "tentative", detail: "aud is an array" },
+        { id: "client-assertion.aud-array", basis: "MUST", level: "failure", detail: "aud is an array" },
         // An id the catalog doesn't know counts as a failure, so it can't slip through as a warning.
         { id: "made-up.check", basis: null, level: "failure", detail: "something" }
       ]
     });
   });
 
-  it("rotate Account Tokens, poll devices every second, list no API of an unknown type and open the print shop (OU), for every host", () => {
+  it("rotate refresh tokens, poll devices every second, list no API of an unknown type and open the print shop (OU), for every host", () => {
     expect(MOCK_BASE).toEqual({ rotateRefreshTokens: true, deviceInterval: 1, unknownApi: false, printShop: true });
   });
 

@@ -1,6 +1,6 @@
 # The Poppy ecosystem
 
-A map of known projects around [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/), updated **28 October 2026**. Each observation and test result keeps its own date. The historical full grid was run on **17 October** at **13 October** pins. It is meant to be kept up to date: each row says where it comes from and when it was last checked, and [the last section](#how-to-update-this-map) says how to check again.
+A map of known projects around [Poppy, the Personal Agent Protocol](https://personalagentprotocol.org/), updated **29 October 2026**. Each observation and test result keeps its own date. The historical full grid was run on **17 October** at **13 October** pins. It is meant to be kept up to date: each row says where it comes from and when it was last checked, and [the last section](#how-to-update-this-map) says how to check again.
 
 The detail lives elsewhere. Every implementation, with licences and maturity, is in [implementations.md](implementations.md); what we found in their code is in [poppy-issues.md](poppy-issues.md); the spec's problems are in [spec-issues.md](spec-issues.md), with our chosen readings in [readings.md](readings.md); how our harness pairs them is in [interop-testing.md](interop-testing.md), and its last run in [interop-results/](interop-results/README.md). This page is the index.
 
@@ -10,8 +10,43 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 
 <a id="current-ecosystem"></a>
 <a id="current-ecosystem--21-october-2026"></a>
+<a id="current-ecosystem--28-october-2026"></a>
 
-## Current ecosystem — 28 October 2026
+## Current ecosystem — 29 October 2026
+
+PDA speaks **Poppy 0.3 alone**, the reviewed 29 October text ([local 0.3 copy](../spec/draft-0.3-retrieved-2026-10-29/README.md)), and refuses a Company that declares 0.1 or 0.2 ([decision 37](decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)). "0.3" names more than one text: Datalayer's SDKs, poppyseed and several public Companies follow an earlier 0.3 draft, with Session Keys and Session Tokens, that the 28 October rewrite replaced with the Session header and delegated keys. An agent built for one can't use a Company built for the other.
+
+### Who implements the 28 October text — 29 October 2026
+
+We read the head of each project the grid used to pin (read only; nothing of theirs ran outside Docker).
+
+| Project | Head | What its 0.3 is |
+| --- | --- | --- |
+| [print-with-poppy](https://github.com/spenciefy/print-with-poppy/tree/b340741d696d867ff3190c10c1f1d1e0c368e846) | `b340741`, 28 October | The 28 October text: the Session header on every API request, plain OAuth tokens, Operations 2 and Mediated Sign-In 1. It refuses agents built for 0.2 or the earlier draft. Its rebuilt isolated demo passes all ten supported scenarios ([fresh evidence](evidence/pr-36-interop-completion/README.md)); no live paid action was run |
+| [Datalayer](https://github.com/datalayer/personal-agent-protocol/tree/a3713e3) | `a3713e3`, 27 October | The earlier 0.3 draft: Session Keys and Session Tokens |
+| [poppyseed](https://github.com/akshay5995/poppyseed/tree/6393dfb) | `6393dfb`, 27 October | The earlier 0.3 draft; no protected resource metadata |
+| [everruns](https://github.com/everruns/everruns/tree/a22760a) | `a22760a`, 28 October | 0.1; refuses 0.3 |
+| [PoppyKit server](https://github.com/LMol-4/poppykit-server/tree/945d0cfa18a74a2e439abe9de06ddc98d179b338) / [client](https://github.com/LMol-4/poppykit-client/tree/053fe1c8c93a9519660122715583b75497ea0183) | `945d0cf` / `053fe1c`, read 29 October | Earlier 0.3 wire: their authentication/integration docs require Session Tokens and Session Keys. The README's version label alone does not establish compatibility |
+| [Specification source](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/3e9bada9ec8f66777b43e429d49574131dc2f67e) | `3e9bada`, 29 October | Contains the 28 October rewrite. The site adds the restored browser-ownership MUST; that sentence is not in this commit, so our exact pin remains the site snapshot |
+| pi-poppy, poppy-demo, Ilmer, adonis-agora, tipping-co | read on 29 October | No code for either 0.3 text found |
+
+### Public discovery — 29 October 2026
+
+The same 33 hosts as on 28 October, checked one at a time with our validator's 0.3 profile ([receipt](evidence/ecosystem-2026-10-29/discovery.json)): **1 valid, 23 refused for their version, 9 indeterminate.**
+
+| Hosts | Declared | Result | Why |
+| --- | --- | --- | --- |
+| printwithpoppy.com | 0.3 | Valid | 0 errors, 0 warnings; three notes that its documents send no caching headers |
+| sandbox.printwithpoppy.com, archon.technology, crosswalk.to, stacktr.ee, www.planmyvisit.to, planmyvisit.to, saferate.com, www.alpine-retail.com | 0.2 | Refused | A version we no longer speak; not a failure against its own rules |
+| 15 hosts, among them poppy.ilmer.org, tilopay.shop and getvibe.dev | 0.1 | Refused | As above |
+| flowers, food and stays.papsandbox.com; withpoppyseed.dev; poppy.lukemolony.com; bank.notjustabank.com; notjustabank.com | 0.3 | Indeterminate | No protected resource metadata at `/.well-known/oauth-protected-resource`, which the 28 October text requires for discovery: these follow the earlier draft. notjustabank.com also names its subdomain as `organization.domain` |
+| ax-air.com; intercom.io | not read | Indeterminate | `poppy.json` answered 403 and 404 |
+
+Seven hosts that declare 0.3 can't be used by an agent that implements the 28 October text, though nothing here says they are wrong by the draft they follow. On 28 October we counted six declaring 0.3; printwithpoppy.com is the one that moved since.
+
+## Earlier observations — 28 October 2026
+
+These observations were made before PDA dropped 0.1 and 0.2 later that day ([decision 37](decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)), so they judged documents by 0.2's rules.
 
 ### Source and discovery observations — 28 October 2026
 
@@ -124,7 +159,7 @@ Datalayer (Python and TypeScript, published as `personal-agent-protocol` on PyPI
 | Tool | What it checks | Open? | Source | Checked |
 | --- | --- | --- | --- | --- |
 | Our validator | `poppy.json`, the issuer's metadata, client metadata and JWKS, against Draft 0.1 and Draft 0.2 (a profile for each, chosen by the document's `protocol_version`); 78 messages, each with an explanation, a fix and a reference | Yes (in this repo); live at [/validator](https://poppydemoagent.dev/validator) | [`src/validator/`](../src/validator) | 24 Oct |
-| The official Company kit's validator | A test Personal Agent against a live Company, or a `poppy.json` file offline; JSON Schemas for every message; each finding quotes its MUST or SHOULD. 74 checks for Draft 0.2; sign-in and Operations left to a person | Yes: TypeScript, Apache-2.0 (Node 22.18+) | [`kit/company/validate`](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d/kit/company/validate), pinned at `39b35bd` and copied into [`spec/`](../spec/draft-0.2-2026-10-19/kit/company/validate/README.md) | 24 Oct: run unmodified against three 0.2 Companies and our flawed mock ([its lanes](../interop/vectors/official/README.md)), and in file mode in the cross-check |
+| The official Company kit's validator | A test Personal Agent against a live Company, or a `poppy.json` file offline; JSON Schemas for every message; each finding quotes its MUST or SHOULD. 74 checks for Draft 0.2; sign-in and Operations left to a person | Yes: TypeScript, Apache-2.0 (Node 22.18+) | [`kit/company/validate`](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d/kit/company/validate), pinned at `39b35bd` and copied into [`spec/`](../spec/draft-0.2-2026-10-19/kit/company/validate/README.md) | 24 Oct: run unmodified against three 0.2 Companies and our flawed mock ([its lanes](interop-spec.md#14-retired-with-01-and-02)), and in file mode in the cross-check |
 | poppy-validator | A linter for `poppy.json` and the issuer's metadata: 64 rules, each with a spec section and a basis (MUST, field table, advisory, context), a JSON Schema, `--json` and `--strict` | Yes: Python, MIT, not on PyPI | [tusharck/poppy-validator](https://github.com/tusharck/poppy-validator); the cross-check pins `d2220bf`, head `ef7544f` (13 Oct, README only: no longer "unofficial") | 18 Oct |
 | poppy-sidecar | A `poppy.json` generator, a 25-check validator, and a "testbed" that checks an agent's self-reported action trace against granted scopes | Yes: Python, MIT; its README's PyPI badge points at a package that doesn't exist | [habib-analyst/poppy-sidecar](https://github.com/habib-analyst/poppy-sidecar) at `858db66` (still its head on 18 Oct) | 18 Oct |
 | Poppy Check (new) | A zero-dependency `poppy.json` checker and generator, as a CLI, a library and a [web checker](https://poppy-check.geosuite.workers.dev) | Yes: JavaScript, MIT; its npm badge names `@geosuite/poppy-json`, which isn't published | [TryGeoSuite/poppy-json](https://github.com/TryGeoSuite/poppy-json) at `2af8f3a` (14 Oct) | 18 Oct. A candidate for the cross-check |
@@ -134,9 +169,9 @@ Datalayer (Python and TypeScript, published as `personal-agent-protocol` on PyPI
 | Ora's poppy.ax and `ax` CLI | A guide and a domain checker; `ax generate-files` writes a starter `poppy.json` (`organization` and `web: {}` only) that Ora's API decides. 0.10.0 and 0.10.1 (13 Oct) also write `llms.txt`, a `robots.txt` edit, an RFC 9727 API catalog and MCP server cards; poppy.ax's home page was rewritten for businesses | Front end and CLI open (MIT); checks in Ora's closed API | [ora/poppy-ax](https://github.com/ora/poppy-ax) (`466ee69`), [ora/ax](https://github.com/ora/ax) (`3d3a691`) | 18 Oct |
 | Flow's checker | Readiness levels 0–3, plus a compliance checklist | No | [flow.engineer/poppy](https://flow.engineer/poppy) | 11 Oct |
 | poppyseed's check command; Datalayer's `pap company verify`; poppy-gateway's conformance suite | Each project's conformance runner for a Company | Yes | the projects above | 18 Oct |
-| Datalayer's conformance cases | 124 language-neutral JSON cases, unchanged from 0.6.0 to 0.24.0; we run them against our client and validator (13 Oct, at 0.17.0: 24 pass, 2 fail on readings, 98 n/a) | Yes, BSD-3-Clause | [interop/vectors/datalayer](../interop/vectors/datalayer) | 18 Oct |
+| Datalayer's conformance cases | 124 language-neutral JSON cases, unchanged from 0.6.0 to 0.24.0; we run them against our client and validator (13 Oct, at 0.17.0: 24 pass, 2 fail on readings, 98 n/a) | Yes, BSD-3-Clause | [interop/vectors/datalayer](interop-spec.md#14-retired-with-01-and-02) | 18 Oct |
 
-A committed script, [`interop/vectors/validators/`](../interop/vectors/validators/README.md), runs the two open validators and ours over the same 107 Draft 0.1 `poppy.json` documents, and ours and the official validator over 99 that declare 0.2 (rerun on 24 October: the 0.1 counts are unchanged since 12 October); the results are in [interop-testing.md](interop-testing.md#validator-cross-check).
+A committed script, [`interop/vectors/validators/`](interop-spec.md#14-retired-with-01-and-02), runs the two open validators and ours over the same 107 Draft 0.1 `poppy.json` documents, and ours and the official validator over 99 that declare 0.2 (rerun on 24 October: the 0.1 counts are unchanged since 12 October); the results are in [interop-testing.md](interop-testing.md#validator-cross-check).
 
 ## Companies you can reach
 

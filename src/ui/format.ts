@@ -16,8 +16,7 @@ export const ACCESS: Record<ActivityAccess, string> = {
 };
 
 export const DECIDED: Record<NonNullable<ActivityEntry["decidedBy"]>, string> = {
-  you: "You",
-  standing_permission: "Standing permission"
+  you: "You"
 };
 
 export const RESULT: Record<ActivityResult, string> = {
@@ -30,14 +29,6 @@ export const RESULT: Record<ActivityResult, string> = {
   failed: "Failed",
   unknown: "Outcome unknown"
 };
-
-/** What a scope string lets the agent do, in plain words; null when only Company-defined scopes say. */
-export function accessOfScope(scope: string): ActivityAccess | null {
-  const scopes = new Set(scope.split(" ").filter(Boolean));
-  if (scopes.has("poppy:write")) return "view_and_change";
-  if (scopes.has("poppy:read")) return "view";
-  return null;
-}
 
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
 

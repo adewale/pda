@@ -1,247 +1,172 @@
 /**
- * The adversarial Personal Agent's attacks (docs/adversarial-interop.md, Part B).
- * Interop-only: this file is bundled into the pda-agent image but runs only
- * when the adapter is armed (the `evil-personal-agent` registry entry sets
- * `INTEROP_ADVERSARY=agent`). None of it is in `src/poppy`; it crafts raw
- * OAuth and resource requests with jose, over the recording proxy, to turn
- * the mock Company's `TAMPERS` checks (test/mock-company.test.ts) into wire
- * attacks against any honest Company.
- *
- * Each attack returns what the Company answered; the scenario's `expect`
- * asserts the Company refused (an OAuth error or 4xx), and harm oracles
- * (spec §8) confirm nothing harmful happened. Attribution rule 0 passes the
- * cell when the honest Company refuses, and blames it otherwise.
+ * Raw, deliberately invalid Poppy 0.3 requests. Only the local adversarial
+ * adapter imports this; no production client relaxation or live identity.
+ * Every probe first establishes an accepted, otherwise equivalent request.
  */
-import { base64url, calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT, type JWK } from "jose";
 import type { Company } from "../../../src/poppy/discovery.ts";
-import type { Fetcher } from "../../../src/poppy/fetch.ts";
-import { isDraft2 } from "../../../src/poppy/protocol-version.ts";
+import { MEDIATED_GRANT } from "../../../src/poppy/discovery.ts";
+import { clientAssertion, delegate, dpopProof, newDpopKey, randomId, sessionJwt, type Delegated, type DpopKey } from "../../../src/poppy/jwt.ts";
+import { currentKey } from "../../../src/poppy/keys.ts";
 
-const JWT_BEARER = "urn:ietf:params:oauth:grant-type:jwt-bearer";
-const ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
-
-const now = () => Math.floor(Date.now() / 1000);
-const jti = () => base64url.encode(crypto.getRandomValues(new Uint8Array(16)));
-const sha256 = async (text: string) => base64url.encode(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))));
-
-export type AttackContext = {
-  readonly clientId: string;
-  readonly signingJwks: string;
-  readonly fetcher: Fetcher;
-};
-
-/** Failure to establish the honest preconditions is a harness error, never a refusal. */
-export class AttackSetupError extends Error {}
-
-export type AttackResult = { readonly status: number; readonly body: unknown; readonly poppy_error?: string; readonly detail?: string };
-
-/** The armed attack ids this adapter supports (manifest `attacks`, spec §4). */
 export const ATTACKS = ["YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM"] as const;
-export type AttackId = (typeof ATTACKS)[number];
+export type AttackId = typeof ATTACKS[number];
+export class AttackSetupError extends Error {}
+export class AttackUnsupported extends Error {}
+export type AttackContext = {
+  clientId: string;
+  signingJwks: string;
+  fetcher: (request: Request) => Promise<Response>;
+};
+export type AttackResult = { status: number; body: unknown };
+export type AttackPlan = { run(phase?: string): Promise<AttackResult> };
+type Params = Record<string, unknown>;
+type Tokens = { access: string; refresh: string; type: string };
+type User = { sid: string; id: string; delegated: Delegated; dpop: DpopKey; tokens?: Tokens };
 
-type Signer = { kid: string; key: CryptoKey };
-
-async function signer(signingJwks: string): Promise<Signer> {
-  const [first] = JSON.parse(signingJwks) as JWK[];
-  if (!first?.kid) throw new Error("no published signing key");
-  return { kid: first.kid, key: (await importJWK(first, "ES256")) as CryptoKey };
+function record(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
-
-async function dpopKey() {
-  const { privateKey, publicKey } = await generateKeyPair("ES256", { extractable: true });
-  const jwk = await exportJWK(publicKey);
-  return { privateKey, jwk, jkt: await calculateJwkThumbprint(jwk), nonce: undefined as string | undefined };
-}
-type DpopKey = Awaited<ReturnType<typeof dpopKey>>;
-
-/** Both assertions' `aud`: the issuer from 0.2 on, the token endpoint before it (as `src/poppy/client.ts`). */
-const audienceOf = (company: Company): string => (isDraft2(company) ? company.issuer : company.endpoints.token);
-
-async function clientAssertion(ctx: AttackContext, s: Signer, aud: string, id = jti()): Promise<string> {
-  const issuedAt = now();
-  return new SignJWT({ iss: ctx.clientId, sub: ctx.clientId, aud, iat: issuedAt, exp: issuedAt + 60, jti: id })
-    .setProtectedHeader({ alg: "ES256", typ: "JWT", kid: s.kid })
-    .sign(s.key);
-}
-
-async function sessionAssertion(ctx: AttackContext, s: Signer, aud: string, sub = "usr_Q7c1vKx9TzLw3NdR5mHa2B", id = jti()): Promise<string> {
-  const issuedAt = now();
-  return new SignJWT({ iss: ctx.clientId, sub, aud, iat: issuedAt, exp: issuedAt + 60, jti: id })
-    .setProtectedHeader({ alg: "ES256", typ: "JWT", kid: s.kid })
-    .sign(s.key);
-}
-
-async function proof(key: DpopKey, method: string, url: string, token?: string, id = jti()): Promise<string> {
-  const claims: Record<string, unknown> = { htm: method, htu: url.split("?")[0], iat: now(), jti: id };
-  if (key.nonce) claims.nonce = key.nonce;
-  if (token) claims.ath = await sha256(token);
-  return new SignJWT(claims).setProtectedHeader({ alg: "ES256", typ: "dpop+jwt", jwk: key.jwk }).sign(key.privateKey);
-}
-
-async function post(ctx: AttackContext, url: string, fields: Record<string, string>, headers: Record<string, string>): Promise<Response> {
-  return ctx.fetcher(new Request(url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...headers }, body: new URLSearchParams(fields).toString() }));
-}
-
-async function bodyOf(response: Response): Promise<unknown> {
+async function result(response: Response): Promise<AttackResult> {
   const text = await response.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
+  let body: unknown = text;
+  try { body = JSON.parse(text); } catch { /* Preserve a non-JSON refusal as evidence. */ }
+  return { status: response.status, body };
+}
+function accepted(answer: AttackResult, description: string): void {
+  if (answer.status < 200 || answer.status >= 300) throw new AttackSetupError(`${description}: HTTP ${answer.status}`);
+}
+function requiredString(value: unknown, description: string): string {
+  if (typeof value !== "string" || !value) throw new AttackSetupError(`Missing ${description}`);
+  return value;
+}
+
+export async function prepareAttack(ctx: AttackContext, company: Company, attack: AttackId, params: Params): Promise<AttackPlan> {
+  const signing = await currentKey({ POPPY_SIGNING_JWKS: ctx.signingJwks });
+  const newUser = async (): Promise<User> => ({ sid: randomId("ses_"), id: randomId("usr_"), delegated: await delegate(signing, ctx.clientId, await newDpopKey()), dpop: await newDpopKey() });
+  const user = await newUser();
+  // This adapter only targets our mock's declared API. Find its server in
+  // its actual document instead of guessing hosts from an issuer's spelling.
+  const api = company.apis.find((item) => item.type === "openapi");
+  if (!api) throw new AttackUnsupported("The attack needs the mock's OpenAPI API");
+  const description = await result(await ctx.fetcher(new Request(api.url)));
+  accepted(description, "OpenAPI description");
+  const server = record((record(description.body).servers as unknown[] | undefined)?.[0]).url;
+  const base = requiredString(server, "OpenAPI server").replace(/\/$/, "");
+  const orders = `${base}/orders`, order = `${base}/orders/ord_7Hk2`, products = `${base}/products`;
+  const write = `${order}/exchanges`;
+  const writeBody = JSON.stringify({ item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" });
+
+  async function session(who: User, method: string, url: string, audience: string = company.issuer): Promise<string> {
+    return sessionJwt(who.delegated, { clientId: ctx.clientId, issuer: audience, sid: who.sid, userId: who.id, method, url, ...(who.tokens ? { accessToken: who.tokens.access } : {}) });
   }
-}
-
-function errorOf(status: number, body: unknown): Pick<AttackResult, "poppy_error" | "detail"> {
-  const record = body !== null && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  if (typeof record.error === "string") return { poppy_error: record.error, detail: typeof record.error_description === "string" ? record.error_description : undefined };
-  if (status >= 400) return { poppy_error: "http_error", detail: `HTTP ${status}` };
-  return {};
-}
-
-/** Establish an honest Session, regenerating one-shot credentials on bounded nonce retries.
- * Keep the accepted request's bytes: the attack must replay those, not a challenged request.
- */
-async function startSession(ctx: AttackContext, company: Company, key: DpopKey, sub = "usr_Q7c1vKx9TzLw3NdR5mHa2B") {
-  const endpoint = company.endpoints.token;
-  const aud = audienceOf(company);
-  const s = await signer(ctx.signingJwks);
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const assertion = await sessionAssertion(ctx, s, aud, sub);
-    const dpop = await proof(key, "POST", endpoint);
-    const response = await post(ctx, endpoint,
-      { grant_type: JWT_BEARER, assertion, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, aud) },
-      { DPoP: dpop });
-    const parsed = await bodyOf(response);
-    const body = (parsed !== null && typeof parsed === "object" ? parsed : {}) as { error?: string; access_token?: string; session_id?: string };
-    const nonce = response.headers.get("dpop-nonce");
-    if (nonce) key.nonce = nonce;
-    if (response.status === 400 && body.error === "use_dpop_nonce" && nonce) continue;
-    if (response.status !== 200 || typeof body.access_token !== "string" || !body.access_token || typeof body.session_id !== "string" || !body.session_id) {
-      throw new AttackSetupError(`Session setup failed: HTTP ${response.status} (${body.error ?? "invalid token response"})`);
+  async function resource(who: User, url: string, options: { method?: string; body?: string; session?: string; proof?: string; proofKey?: DpopKey; audience?: string; marker?: string; approval?: string } = {}): Promise<AttackResult> {
+    const method = options.method ?? "GET";
+    const headers = new Headers({ "Poppy-Session": options.session ?? await session(who, method, url, options.audience) });
+    if (who.tokens) {
+      headers.set("Authorization", `${who.tokens.type} ${who.tokens.access}`);
+      if (who.tokens.type.toLowerCase() === "dpop") headers.set("DPoP", options.proof ?? await dpopProof(options.proofKey ?? who.dpop, { method, url, accessToken: who.tokens.access }));
     }
-    return { token: body.access_token, sessionId: body.session_id, key, assertion, dpop };
+    if (options.body) headers.set("Content-Type", "application/json");
+    if (options.marker) headers.set("X-Interop-Attack", options.marker);
+    if (options.approval) headers.set("Poppy-Approval", options.approval);
+    return result(await ctx.fetcher(new Request(url, { method, headers, ...(options.body ? { body: options.body } : {}) })));
   }
-  throw new AttackSetupError("Session setup exhausted its nonce retries; no attack was sent");
-}
-
-async function finish(response: Response): Promise<AttackResult> {
-  const body = await bodyOf(response);
-  return { status: response.status, body, ...errorOf(response.status, body) };
-}
-
-/**
- * Run an armed attack against `company`. Each performs its own flow and
- * returns the Company's answer; the honest Company is expected to refuse.
- */
-export async function runAttack(ctx: AttackContext, company: Company, attack: string, params: Record<string, unknown>): Promise<AttackResult> {
-  const endpoint = company.endpoints.token;
-  const aud = audienceOf(company);
-  const s = await signer(ctx.signingJwks);
-  switch (attack) {
-    case "YR": {
-      // Replay only the accepted Session assertion; the client assertion and proof are fresh.
-      const session = await startSession(ctx, company, await dpopKey());
-      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: session.assertion, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, aud) }, { DPoP: await proof(session.key, "POST", endpoint) }));
-    }
-    case "YD": {
-      // Replay the exact accepted proof; both other assertions are fresh. Never retry the attack.
-      const session = await startSession(ctx, company, await dpopKey());
-      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, aud), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, aud) }, { DPoP: session.dpop }));
-    }
-    case "YA": {
-      // aud confusion: a client assertion minted for another Company presented here (4.1; client-assertion.aud).
-      const foreign = typeof params.aud === "string" ? params.aud : "https://auth.other.company.interop.test/oauth/token";
-      if (foreign === aud) throw new AttackSetupError("Audience attack needs an audience other than this Company's own");
-      const session = await startSession(ctx, company, await dpopKey());
-      // The accepted baseline supplies the current nonce and proves the other
-      // claims/key work. Fresh one-shot credentials isolate the wrong audience.
-      return finish(await post(ctx, endpoint, { grant_type: JWT_BEARER, assertion: await sessionAssertion(ctx, s, aud), client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, foreign) }, { DPoP: await proof(session.key, "POST", endpoint) }));
-    }
-    case "YT": {
-      // Stolen token, another key: a Session Token with a proof from a different key (4.3; dpop.key-mismatch).
-      const session = await startSession(ctx, company, await dpopKey());
-      const target = resourceUrl(company, params);
-      const otherKey = await dpopKey();
-      return finish(await ctx.fetcher(new Request(target, { headers: { Authorization: `DPoP ${session.token}`, DPoP: await proof(otherKey, "GET", target, session.token) } })));
-    }
-    case "YS": {
-      // Scope/scheme: a Session Token presented with the Bearer scheme outside MCP (6; resource.bearer-scheme).
-      const session = await startSession(ctx, company, await dpopKey());
-      const target = resourceUrl(company, params);
-      return finish(await ctx.fetcher(new Request(target, { headers: { Authorization: `Bearer ${session.token}`, DPoP: await proof(session.key, "GET", target, session.token) } })));
-    }
-    case "YK": {
-      // Rotation abuse: an Account Token reused after the Company rotated it (4.8; account-token.rotated-reused).
-      const mediated = company.signIn.mediated?.endpoint;
-      if (!mediated) return { status: 0, body: null, poppy_error: "unsupported", detail: "no Mediated Sign-In" };
-      const session = await startSession(ctx, company, await dpopKey());
-      const credentials = (params.credentials as Record<string, string>) ?? { email: "ada@example.com", password: "correct horse" };
-      const signedIn = (await bodyOf(
-        await ctx.fetcher(new Request(mediated, { method: "POST", headers: { "content-type": "application/json", Authorization: `DPoP ${session.token}`, DPoP: await proof(session.key, "POST", mediated, session.token) }, body: JSON.stringify({ scope: "poppy:read poppy:write", credentials }) }))
-      )) as { refresh_token?: string };
-      if (!signedIn.refresh_token) throw new AttackSetupError("Sign-in setup issued no Account Token");
-      const refresh = async () =>
-        post(ctx, endpoint, { grant_type: "refresh_token", refresh_token: signedIn.refresh_token!, session_id: session.sessionId, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, aud) }, { DPoP: await proof(session.key, "POST", endpoint) });
-      const first = await refresh();
-      if (first.status !== 200) throw new AttackSetupError(`Refresh setup failed: HTTP ${first.status}`);
-      return finish(await refresh());
-    }
-    case "YU": {
-      // Cross-User conversation: User B of the same agent reads User A's conversation id (7.13; conversation.cross-user).
-      const conversations = company.conversations?.endpoint;
-      if (!conversations) return { status: 0, body: null, poppy_error: "unsupported", detail: "no conversations" };
-      // User A signs in and opens a conversation.
-      const a = await startSession(ctx, company, await dpopKey());
-      const opened = (await bodyOf(
-        await ctx.fetcher(new Request(conversations, { method: "POST", headers: { "content-type": "application/json", Authorization: `DPoP ${a.token}`, DPoP: await proof(a.key, "POST", conversations, a.token) }, body: JSON.stringify({ message: { id: `msg_${jti()}`, sender: "agent", text: "Where is my order?" } }) }))
-      )) as { conversation_id?: string };
-      if (!opened.conversation_id) throw new AttackSetupError("User A could not open the setup conversation");
-      // User B of the same agent (a different User ID) reads User A's conversation.
-      const b = await startSession(ctx, company, await dpopKey(), "usr_Hd8pW2zQ5nVb7LtK3xRc9F");
-      const target = `${conversations.replace(/\/+$/, "")}/${encodeURIComponent(opened.conversation_id)}`;
-      return finish(await ctx.fetcher(new Request(target, { headers: { Authorization: `DPoP ${b.token}`, DPoP: await proof(b.key, "GET", target, b.token) } })));
-    }
-    case "YM": {
-      // Confirm an operation without the User's approval (Ops 5.1; confirm.approved-by).
-      // Sign in with write, propose the exchange, then POST /confirm with no approved_by.
-      const mediated = company.signIn.mediated?.endpoint;
-      const operations = company.extensions.operations?.endpoint;
-      const openapi = company.apis.find((entry) => entry.type === "openapi");
-      if (!mediated || !operations || !openapi) {
-        return { status: 0, body: null, poppy_error: "unsupported", detail: "YM needs Mediated Sign-In, the Operations extension and an OpenAPI" };
-      }
-      const session = await startSession(ctx, company, await dpopKey());
-      const credentials = (params.credentials as Record<string, string>) ?? { email: "ada@example.com", password: "correct horse" };
-      const signedIn = (await bodyOf(
-        await ctx.fetcher(new Request(mediated, { method: "POST", headers: { "content-type": "application/json", Authorization: `DPoP ${session.token}`, DPoP: await proof(session.key, "POST", mediated, session.token) }, body: JSON.stringify({ scope: "poppy:read poppy:write", credentials }) }))
-      )) as { refresh_token?: string };
-      if (!signedIn.refresh_token) throw new AttackSetupError("Sign-in setup issued no Account Token");
-      // A write Session Token from the Account Token.
-      const refreshed = (await bodyOf(
-        await post(ctx, endpoint, { grant_type: "refresh_token", refresh_token: signedIn.refresh_token, session_id: session.sessionId, client_id: ctx.clientId, client_assertion_type: ASSERTION_TYPE, client_assertion: await clientAssertion(ctx, s, aud) }, { DPoP: await proof(session.key, "POST", endpoint) })
-      )) as { access_token?: string };
-      if (!refreshed.access_token) throw new AttackSetupError("Refresh setup issued no write Session Token");
-      const writeToken = refreshed.access_token;
-      // Propose the jacket exchange (202 with an operation).
-      const exchangeUrl = `${new URL(openapi.url).origin}/orders/ord_7Hk2/exchanges`;
-      const proposed = (await bodyOf(
-        await ctx.fetcher(new Request(exchangeUrl, { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": `${jti()}${jti()}`, Authorization: `DPoP ${writeToken}`, DPoP: await proof(session.key, "POST", exchangeUrl, writeToken) }, body: JSON.stringify({ item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }) }))
-      )) as { operation?: { operation_id?: string; revision?: number } };
-      const op = proposed.operation;
-      if (!op?.operation_id) throw new AttackSetupError("The setup exchange did not propose an operation");
-      // Confirm it without saying the User approved: approved_by omitted.
-      const confirmUrl = `${operations.replace(/\/+$/, "")}/${encodeURIComponent(op.operation_id)}/confirm`;
-      return finish(await ctx.fetcher(new Request(confirmUrl, { method: "POST", headers: { "content-type": "application/json", Authorization: `DPoP ${writeToken}`, DPoP: await proof(session.key, "POST", confirmUrl, writeToken) }, body: JSON.stringify({ revision: op.revision ?? 1 }) })));
-    }
-    default:
-      return { status: 501, body: null, poppy_error: "unsupported", detail: `unknown attack ${attack}` };
+  async function grant(who: User, fields: Record<string, string>, marker?: string): Promise<AttackResult> {
+    const form = new URLSearchParams({ ...fields, client_id: ctx.clientId, client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer", client_assertion: await clientAssertion(signing, ctx.clientId, company.issuer) });
+    const headers = new Headers({ "Content-Type": "application/x-www-form-urlencoded" });
+    if (company.dpop) headers.set("DPoP", await dpopProof(who.dpop, { method: "POST", url: company.endpoints.token }));
+    if (marker) headers.set("X-Interop-Attack", marker);
+    return result(await ctx.fetcher(new Request(company.endpoints.token, { method: "POST", headers, body: form.toString() })));
   }
+  function tokens(answer: AttackResult): Tokens {
+    const body = record(answer.body);
+    return { access: requiredString(body.access_token, "access token"), refresh: requiredString(body.refresh_token, "refresh token"), type: requiredString(body.token_type, "token type") };
+  }
+  async function signin(scopes: string[]): Promise<void> {
+    if (!company.signIn.mediated) throw new AttackUnsupported("The attack needs Mediated Sign-In 1");
+    const fields = record(params.fields);
+    const answer = await grant(user, { grant_type: MEDIATED_GRANT, scope: scopes.join(" "), email: requiredString(fields.email, "fixture email"), password: requiredString(fields.password, "fixture password") });
+    accepted(answer, "Honest mediated sign-in");
+    user.tokens = tokens(answer);
+    accepted(await resource(user, orders), "Honest account read");
+  }
+  const readScopes = Array.isArray(params.read_scopes) ? params.read_scopes.filter((item): item is string => typeof item === "string") : [];
+  const writeScopes = Array.isArray(params.write_scopes) ? params.write_scopes.filter((item): item is string => typeof item === "string") : [];
+
+  if (attack === "YA") {
+    accepted(await resource(user, products), "Honest signed-out request");
+    return { run: () => resource(user, products, { audience: "https://foreign.company.interop.test", marker: attack }) };
+  }
+  if (attack === "YU") {
+    if (!company.conversations) throw new AttackUnsupported("The attack needs conversations");
+    const endpoint = company.conversations.endpoint;
+    const message = (text: string) => JSON.stringify({ message: { id: randomId("msg_"), author: { type: "agent" }, text } });
+    const started = await resource(user, endpoint, { method: "POST", body: message("Hello") });
+    accepted(started, "User A's new conversation");
+    const id = requiredString(record(started.body).conversation_id, "conversation id");
+    const url = `${endpoint}/${encodeURIComponent(id)}/events`;
+    accepted(await resource(user, url), "User A's own conversation read");
+    const other = await newUser();
+    accepted(await resource(other, endpoint, { method: "POST", body: message("Hello from User B") }), "User B's own conversation");
+    return { run: () => resource(other, url, { marker: attack }) };
+  }
+
+  await signin(attack === "YM" ? writeScopes : readScopes);
+  if (attack === "YR" || attack === "YD") {
+    if (attack === "YD" && user.tokens!.type.toLowerCase() !== "dpop") throw new AttackUnsupported("The Company doesn't issue DPoP-bound tokens");
+    // Both URLs must work honestly; a 404 or different scope cannot explain
+    // rejection. Then replay just one credential across the URL boundary.
+    accepted(await resource(user, order), "Honest target account read");
+    const capturedSession = await session(user, "GET", orders);
+    const capturedProof = await dpopProof(user.dpop, { method: "GET", url: orders, accessToken: user.tokens!.access });
+    accepted(await resource(user, orders, { session: capturedSession, proof: capturedProof }), "Captured honest request");
+    return { run: async (phase = "probe") => {
+      if (phase !== "probe" && phase !== "fresh") throw new AttackSetupError(`Unknown URL-binding phase ${phase}`);
+      const fresh = phase === "fresh";
+      const wrongSession = fresh ? await session(user, "GET", orders) : capturedSession;
+      const wrongProof = fresh ? await dpopProof(user.dpop, { method: "GET", url: orders, accessToken: user.tokens!.access }) : capturedProof;
+      return resource(user, order, { ...(attack === "YR" ? { session: wrongSession } : { proof: wrongProof }), marker: fresh ? `${attack}-fresh` : attack });
+    } };
+  }
+  if (attack === "YT") {
+    if (user.tokens!.type.toLowerCase() !== "dpop") throw new AttackUnsupported("The Company doesn't issue DPoP-bound tokens");
+    const thiefKey = await newDpopKey();
+    return { run: () => resource(user, orders, { proofKey: thiefKey, marker: attack }) };
+  }
+  if (attack === "YS") {
+    if (!readScopes.length || !writeScopes.some((scope) => !readScopes.includes(scope))) throw new AttackUnsupported("The fixture needs distinct read and write scopes");
+    return { run: () => resource(user, write, { method: "POST", body: writeBody, marker: attack }) };
+  }
+  if (attack === "YK") {
+    const original = user.tokens!.refresh;
+    const rotated = await grant(user, { grant_type: "refresh_token", refresh_token: original });
+    accepted(rotated, "First refresh-token use");
+    if (tokens(rotated).refresh === original) throw new AttackUnsupported("This Company doesn't rotate refresh tokens");
+    return { run: () => grant(user, { grant_type: "refresh_token", refresh_token: original }, attack) };
+  }
+  // Operations 2: obtain real terms; an invented revision must not approve
+  // them. Separate phases let the runner inspect effects between requests.
+  const proposed = await resource(user, write, { method: "POST", body: writeBody });
+  const operation = record(record(proposed.body).operation);
+  if (proposed.status !== 403 || record(proposed.body).error !== "approval_required") throw new AttackSetupError("An honest write didn't return 403 approval_required");
+  const operationId = requiredString(operation.operation_id, "operation_id");
+  const revision = requiredString(operation.revision, "revision");
+  const header = (value: string) => `operation_id=${JSON.stringify(operationId)}, revision=${JSON.stringify(value)}`;
+  return { run: (phase = "probe") => {
+    if (!["probe", "approve", "replay"].includes(phase)) throw new AttackSetupError(`Unknown Operations 2 attack phase ${phase}`);
+    return resource(user, write, { method: "POST", body: writeBody, approval: header(phase === "probe" ? `invented-${randomId()}` : revision), marker: phase === "probe" ? attack : `${attack}-${phase}` });
+  } };
 }
 
-/** The resource a token attack hits: an OpenAPI read, by default the Company's own API `/products`. */
-function resourceUrl(company: Company, params: Record<string, unknown>): string {
-  if (typeof params.url === "string") return params.url;
-  const api = company.apis.find((entry) => entry.type === "openapi");
-  const base = api ? new URL(api.url) : new URL(company.endpoints.token);
-  return `${base.origin}/products`;
+/** Reuse a consumed code with fresh independent credentials, isolating code single-use from optional JWT replay policy. */
+export async function freshCodeReplay(ctx: AttackContext, company: Company, original: Request, key: DpopKey, nonce?: string): Promise<Request> {
+  const fields = new URLSearchParams(await original.clone().text());
+  if (original.url !== company.endpoints.token || fields.get("grant_type") !== "authorization_code" || !fields.get("code") || fields.get("client_id") !== ctx.clientId) throw new AttackSetupError("No successful code exchange for this Company and client");
+  const signing = await currentKey({ POPPY_SIGNING_JWKS: ctx.signingJwks });
+  fields.set("client_assertion", await clientAssertion(signing, ctx.clientId, company.issuer));
+  const headers = new Headers(original.headers);
+  headers.delete("content-length");
+  headers.set("X-Interop-Attack", "NREP-fresh");
+  if (company.dpop) headers.set("DPoP", await dpopProof(key, { method: "POST", url: company.endpoints.token, ...(nonce ? { nonce } : {}) }));
+  return new Request(original.url, { method: "POST", headers, body: fields.toString() });
 }

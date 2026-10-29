@@ -7,21 +7,10 @@ import type { TranscriptMessage } from "../protocol";
 import type { ActivityEntry, ActivityResult, Card } from "../poppy/wire";
 import { resultFacts } from "./result-facts";
 import { proposedBy, type ToolDecision } from "./tool-line";
+import { approvalResult, checkedOutcomeText, type ApprovalDecision } from "../poppy/approval-outcome";
 
 type ApprovalCard = Extract<Card, { kind: "approval" }>;
-type OperationCard = Extract<Card, { kind: "operation" }>;
 type Photo = NonNullable<ApprovalCard["attachments"]>[number];
-
-/** A local approval's state in the shared words: sent but refused by the Company reads failed, with its code beside it. */
-export const APPROVAL_RESULT: Record<ApprovalCard["status"], ToolDecision["result"]> = {
-  pending: "waiting",
-  approved: "in_progress",
-  declined: "declined",
-  done: "done",
-  refused: "failed",
-  failed: "failed",
-  unknown: "unknown"
-};
 
 /** One approval's outcome, for the step that asked for it. */
 export type ApprovalStep = ToolDecision & {
@@ -46,82 +35,42 @@ function fromActivity(result: ActivityResult): ToolDecision["result"] {
   }
 }
 
-/** An operation's state on its card, in the shared words. */
-export function operationResult(card: OperationCard): ToolDecision["result"] {
-  if (card.lost) return card.lost === "unknown" ? "unknown" : "failed";
-  if (card.alteredSummary !== undefined) return "failed";
-  switch (card.state) {
-    case "proposed":
-      return card.open ? "waiting" : "in_progress";
-    case "in_progress":
-      return "in_progress";
-    case "succeeded":
-      return "done";
-    case "cancelled":
-      return "declined";
-    default:
-      return "failed";
-  }
-}
-
 /**
- * Every decided or waiting request the page knows of, by approval id and by
- * issuer and operation id: from the cards (the last hour, with photos and
- * what the Company answered), then Activity's log, which outlives them.
+ * Fresh cards and Activity entries take precedence while present. Requested
+ * durable decisions retain older outcomes after both presentation lists expire.
  */
-export function stepDecisions(
-  cards: readonly Card[],
-  log: readonly ActivityEntry[] = []
-): { approvals: ReadonlyMap<string, ApprovalStep>; operation: (operationId: string, issuer: string | undefined, domain: string | null) => ToolDecision | undefined } {
+export function stepDecisions(cards: readonly Card[], log: readonly ActivityEntry[] = [], durable: Readonly<Record<string, ApprovalDecision>> = {}): { approvals: ReadonlyMap<string, ApprovalStep> } {
   const approvals = new Map<string, ApprovalStep>();
-  const operations = new Map<string, ToolDecision>();
-  const issuersByDomain = new Map<string, Set<string>>();
-  const key = (issuer: string, operationId: string) => JSON.stringify([issuer, operationId]);
   for (const card of cards) {
-    if (card.kind === "approval") {
-      const { status: httpStatus, facts } = card.status === "done" ? resultFacts(card.result) : { status: card.answer?.status ?? null, facts: [] };
-      approvals.set(card.approvalId, {
-        result: APPROVAL_RESULT[card.status],
-        photos: (card.attachments ?? []).map((photo) => photo.name),
-        httpStatus,
-        code: card.answer?.error ?? null,
-        facts,
-        attachments: card.attachments ?? [],
-        company: card.company
-      });
-    } else if (card.kind === "operation") {
-      operations.set(key(card.issuer, card.operationId), { result: operationResult(card) });
-      if (card.domain) {
-        const domain = card.domain.toLowerCase();
-        const issuers = issuersByDomain.get(domain) ?? new Set<string>();
-        issuers.add(card.issuer);
-        issuersByDomain.set(domain, issuers);
-      }
-    }
+    if (card.kind !== "approval") continue;
+    const { status: httpStatus, facts } = card.status === "done" ? resultFacts(card.result) : { status: card.answer?.status ?? null, facts: [] };
+    approvals.set(card.approvalId, {
+      result: approvalResult(card.status, card.outcomeResolution),
+      photos: (card.attachments ?? []).map((photo) => photo.name),
+      httpStatus,
+      code: card.answer?.error ?? null,
+      facts: card.outcomeResolution ? [checkedOutcomeText(card.company, card.outcomeResolution.outcome)] : facts,
+      attachments: card.attachments ?? [],
+      company: card.company
+    });
   }
   for (const entry of log) {
     if (entry.kind === "approval" && entry.id.startsWith("approval-")) {
       const id = entry.id.slice("approval-".length);
-      if (!approvals.has(id)) approvals.set(id, { result: fromActivity(entry.result), httpStatus: null, code: null, facts: [], attachments: [], company: entry.company });
-    } else if (entry.kind === "operation") {
-      // Use the exact issuer prefix; suffix matching confuses IDs such as 42 and order-42.
-      const prefix = `op-${entry.issuer}-`;
-      if (entry.issuer && entry.id.startsWith(prefix)) {
-        const id = key(entry.issuer, entry.id.slice(prefix.length));
-        if (!operations.has(id)) operations.set(id, { result: fromActivity(entry.result) });
-      }
+      if (!approvals.has(id)) approvals.set(id, {
+        result: fromActivity(entry.result), httpStatus: null, code: null,
+        facts: entry.outcomeBy === "you" && entry.outcome ? [entry.outcome] : [],
+        attachments: [], company: entry.company
+      });
     }
   }
-  return {
-    approvals,
-    operation: (operationId, issuer, domain) => {
-      // Old transcripts can use a card's verified domain, but never guess a
-      // Company from an operation ID or an ambiguous domain.
-      const candidates = domain ? issuersByDomain.get(domain.toLowerCase()) : undefined;
-      const scopedIssuer = issuer ?? (candidates?.size === 1 ? [...candidates][0] : undefined);
-      return scopedIssuer ? operations.get(key(scopedIssuer, operationId)) : undefined;
-    }
-  };
+  for (const item of Object.values(durable)) {
+    if (!approvals.has(item.approvalId)) approvals.set(item.approvalId, {
+      result: item.result, httpStatus: null, code: null, attachments: [], company: item.company,
+      facts: item.outcomeResolution ? [checkedOutcomeText(item.company, item.outcomeResolution.outcome)] : []
+    });
+  }
+  return { approvals };
 }
 
 /** The approvals a step in the conversation asked for: their outcome shows on that step, so they need no line of their own. */
@@ -131,7 +80,7 @@ export function approvalsOnSteps(messages: readonly TranscriptMessage[]): Set<st
     for (const part of message.parts) {
       if (part.type !== "tool-result") continue;
       const proposed = proposedBy({ error: part.error, ...(part.details !== undefined ? { details: part.details } : {}) });
-      if (proposed && "approvalId" in proposed) ids.add(proposed.approvalId);
+      if (proposed) ids.add(proposed.approvalId);
     }
   }
   return ids;

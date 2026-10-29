@@ -1,0 +1,62 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+ ❯ |interop| interop/test/legacy-conversation-migration.test.ts (6 tests | 4 failed) 117ms
+     × stops 0.1 conversations locally, preserves evidence, and lets current presence updates continue 59ms
+     × stops 0.2 conversations locally, preserves evidence, and lets current presence updates continue 11ms
+     × stops older 0.3 revision conversations locally, preserves evidence, and lets current presence updates continue 11ms
+     × uses a legacy cached Company only when an immutable conversation context is missing 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |interop| interop/test/legacy-conversation-migration.test.ts > retiring conversations that cannot survive the protocol upgrade > stops 0.1 conversations locally, preserves evidence, and lets current presence updates continue
+ FAIL  |interop| interop/test/legacy-conversation-migration.test.ts > retiring conversations that cannot survive the protocol upgrade > stops 0.2 conversations locally, preserves evidence, and lets current presence updates continue
+ FAIL  |interop| interop/test/legacy-conversation-migration.test.ts > retiring conversations that cannot survive the protocol upgrade > stops older 0.3 revision conversations locally, preserves evidence, and lets current presence updates continue
+AssertionError: expected { status: 'idle', …(2) } to deeply equal { status: 'closed', …(2) }
+
+- Expected
++ Received
+
+  {
+    "context": "{\"user_available\":false}",
+    "cursor": "kept-cursor",
+-   "status": "closed",
++   "status": "idle",
+  }
+
+ ❯ interop/test/legacy-conversation-migration.test.ts:78:10
+     76|     for (const id of ["cnv_legacy", "cnv_direct"]) {
+     77|       expect(f.sql.exec("SELECT status, cursor, context FROM poppy_con…
+     78|         .toEqual({ status: "closed", cursor: "kept-cursor", context: '…
+       |          ^
+     79|       expect(f.sql.exec("SELECT retired_at FROM poppy_conversations WH…
+     80|       expect(await readConversation(f.client, id, 0)).toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |interop| interop/test/legacy-conversation-migration.test.ts > retiring conversations that cannot survive the protocol upgrade > uses a legacy cached Company only when an immutable conversation context is missing
+AssertionError: expected { status: 'idle' } to deeply equal { status: 'closed' }
+
+- Expected
++ Received
+
+  {
+-   "status": "closed",
++   "status": "idle",
+  }
+
+ ❯ interop/test/legacy-conversation-migration.test.ts:122:96
+    120|     f.sql.exec("UPDATE poppy_domains SET company = ?", JSON.stringify(…
+    121|     migrate(f.sql);
+    122|     expect(f.sql.exec("SELECT status FROM poppy_conversations WHERE id…
+       |                                                                                                ^
+    123|     expect(f.sql.exec("SELECT status FROM poppy_conversations WHERE id…
+    124|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed (6)
+   Start at  17:12:25
+   Duration  665ms (transform 306ms, setup 0ms, import 421ms, tests 117ms, environment 0ms)

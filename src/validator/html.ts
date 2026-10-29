@@ -58,7 +58,8 @@ const DOCUMENT_NAMES = {
   poppy: "poppy.json",
   "oauth-metadata": "OAuth server metadata",
   "client-metadata": "Client metadata",
-  jwks: "Key set (jwks_uri)"
+  jwks: "Key set (jwks_uri)",
+  "protected-resource": "Protected resource metadata"
 } as const;
 
 function forms(values: { url?: string; document?: string; kind?: string; domain?: string; fetchedFrom?: string } = {}): string {
@@ -69,7 +70,7 @@ function forms(values: { url?: string; document?: string; kind?: string; domain?
 <form method="get" action="/validator">
   <label for="url">Domain or URL</label>
   <input type="text" id="url" name="url" value="${escape(values.url ?? "")}" placeholder="example.com" autocapitalize="off" spellcheck="false">
-  <p class="hint">A Company's domain checks its poppy.json and OAuth server metadata. A Personal Agent's client_id URL checks its client metadata and keys.</p>
+  <p class="hint">A Company's domain checks its poppy.json, the domain's protected resource metadata and the issuer's OAuth server metadata. A Personal Agent's client_id URL checks its client metadata and keys.</p>
   <button type="submit">Check</button>
 </form>
 <form method="post" action="/validator">

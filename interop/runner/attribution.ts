@@ -4,7 +4,7 @@
  *
  * 1. violation: error checks on one side only. An error that is exactly a
  *    declared reading difference (a check of a section 7 question, such as
- *    a strict Company's `session-assertion.typ`, between sides whose
+ *    a strict Company's `client-assertion.typ`, between sides whose
  *    readings of it are incompatible) is not a violation: when every error
  *    is one, the cell goes to rule 3 at once. So does a cell with no
  *    one-sided errors whose trace shows a refusal the Company's declared
@@ -32,6 +32,10 @@
 import { isBasis, levelOf, type Level } from "../../src/validator/levels.ts";
 import { compatible, questionOf, REFUSED_READING } from "./readings.ts";
 import type { Blame, Cell, Check, KnownFailure, Rule, Scenario } from "./types.ts";
+import { PROTOCOL_VERSIONS } from "../../src/poppy/protocol-version.ts";
+
+/** The version we speak, which a known failure or cell without one is at. */
+const CURRENT: string = PROTOCOL_VERSIONS.at(-1)!;
 
 export const REFERENCE_COMPANY = "lenient-company";
 /** The reference agent: the fake Personal Agent that accepts every reading giving no more access (spec §9, rule 2). */
@@ -262,7 +266,8 @@ const FIELDS = ["agent", "company", "scenario"] as const;
 
 /** Where a known failure may happen: its `agent`, `company` and `scenario` each name the cell's, or are `"*"` for any. */
 export function knownCovers(entry: KnownFailure, cell: Pick<Cell, "agent" | "company" | "scenario" | "protocolVersion">): boolean {
-  if ((entry.protocolVersion ?? "0.1") !== (cell.protocolVersion ?? "0.1")) return false;
+  // An entry or cell with no version is at the version we speak: entries for retired versions say theirs.
+  if ((entry.protocolVersion ?? CURRENT) !== (cell.protocolVersion ?? CURRENT)) return false;
   return FIELDS.every((field) => entry[field] === "*" || entry[field] === cell[field]);
 }
 

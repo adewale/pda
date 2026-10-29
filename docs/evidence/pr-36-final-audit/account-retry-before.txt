@@ -1,0 +1,34 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+ ❯ |interop| interop/test/account-refresh-races.test.ts (13 tests | 1 failed) 172ms
+     × does not restart a new account's Session because an older request returned invalid_session 17ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |interop| interop/test/account-refresh-races.test.ts > refresh responses cannot replace a newer account family > does not restart a new account's Session because an older request returned invalid_session
+AssertionError: promise resolved "Response { status: 200, statusText: '', headers: Headers { 'content-type': 'application/json' }, body: ReadableStream { locked: false, state: 'readable', supportsBYOB: true }, bodyUsed: false, ok: true, redirected: false, type: 'default', url: '' }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
+- }
++ Response {}
+
+ ❯ interop/test/account-refresh-races.test.ts:231:37
+    229|     });
+    230|     const pending = f.client.resource(f.company, f.outgoing);
+    231|     const rejected = expect(pending).rejects.toMatchObject({ code: "ap…
+       |                                     ^
+    232|     await ready.promise;
+    233|     await f.client.completeSignIn(f.company, "main", "work", { access_…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
+   Start at  17:10:30
+   Duration  666ms (transform 271ms, setup 0ms, import 357ms, tests 172ms, environment 0ms)

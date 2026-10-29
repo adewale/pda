@@ -11,7 +11,6 @@ export const QUESTIONS = {
   S1: { question: "Client assertion aud", values: ["issuer", "token-endpoint", "endpoint", "either"] },
   S2: { question: "Assertion typ and lifetime", values: ["jwt-60s", "lenient-120s", "lenient-300s", "any"] },
   S3: { question: "Metadata location for an issuer with a path", values: ["insertion", "append", "either"] },
-  S4: { question: "scope on a signed-out Session request", values: ["omit", "poppy-read", "either"] },
   S23: { question: "DPoP nonce scope", values: ["per-origin", "per-company"] }
 } as const;
 
@@ -26,9 +25,6 @@ const CHECK_QUESTIONS: Readonly<Record<string, QuestionId>> = {
   "client-assertion.typ": "S2",
   "client-assertion.kid": "S2",
   "client-assertion.lifetime": "S2",
-  "session-assertion.typ": "S2",
-  "session-assertion.kid": "S2",
-  "session-assertion.lifetime": "S2",
   "client-assertion.aud": "S1"
 };
 
@@ -118,15 +114,14 @@ function assertionFault(reading: string | undefined, jwt: DecodedJwt): string | 
   return null;
 }
 
-/** The assertions an OAuth request carries: the client assertion and, on the jwt-bearer grant, the Session assertion. */
+/** The client assertion an OAuth request carries, as a list. */
 function assertionsOf(fields: URLSearchParams): DecodedJwt[] {
-  return [fields.get("client_assertion"), fields.get("assertion")]
-    .map((jwt) => decodeJwt(jwt ?? ""))
-    .filter((jwt): jwt is DecodedJwt => jwt !== null);
+  const client = decodeJwt(fields.get("client_assertion") ?? "");
+  return client ? [client] : [];
 }
 
 /**
- * The agent's declared readings against its OAuth requests (S1, S2, S4).
+ * The agent's declared readings against its OAuth requests (S1, S2).
  * S1 is checked wherever a client assertion goes: `issuer` wants the
  * issuer as `aud`, `token-endpoint` the token endpoint even at the device
  * and revocation endpoints, `endpoint` the endpoint the assertion is sent to.
@@ -149,11 +144,6 @@ export function readingChecks(all: readonly Exchange[], readings: Readonly<Recor
     for (const decoded of assertionsOf(fields)) {
       const fault = assertionFault(readings.S2, decoded);
       if (fault) found.push(warning("S2", x, `declared ${readings.S2}, sent ${fault}`));
-    }
-    if (fields.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer" && readings.S4 && readings.S4 !== "either") {
-      const scope = fields.get("scope");
-      const ok = readings.S4 === "omit" ? scope === null : scope === "poppy:read";
-      if (!ok) found.push(warning("S4", x, `declared ${readings.S4}, sent scope ${JSON.stringify(scope)}`));
     }
   }
   return found;

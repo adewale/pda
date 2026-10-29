@@ -12,11 +12,15 @@
  *
  * What our own client refuses is a separate decision, `refuses`: every error
  * by default, and also the warnings that guard against a hostile document
- * (the Guides' fetch limits, duplicate member names, HTTPS where the draft
- * doesn't ask for it, spec-issues N9). A few errors it tolerates, because the
- * draft or the RFC tells a reader to (a byte order mark, an API type it
- * doesn't know). Each says so in `explain`, so a report never presents our
- * policy as the draft's requirement.
+ * (the Guides' fetch limits, duplicate member names, a fragment where no rule
+ * forbids one, spec-issues N9). A few errors it tolerates, because the RFC
+ * tells a reader to (a byte order mark) or it has a safe fallback (an API
+ * without a description). Each says so in `explain`, so a report never
+ * presents our policy as the draft's requirement.
+ *
+ * The draft is 0.3 (spec/draft-0.3-retrieved-2026-10-29), and the links go
+ * to its pages. Where 0.3 changed a rule a Company may still follow, the
+ * explanation says what replaced it.
  */
 import { levelOf, severityOf, type Basis, type Severity } from "./levels.ts";
 
@@ -24,7 +28,8 @@ export type { Basis, Severity };
 
 export type Ref = { readonly label: string; readonly url: string };
 
-const SITE = "https://personalagentprotocol.org/docs";
+/** The pages of the version this validator checks, 0.3. */
+const SITE = "https://personalagentprotocol.org/docs/0.3";
 
 export const spec = (section: string, anchor: string): Ref => ({
   label: `Spec ${section}`,
@@ -37,6 +42,10 @@ export const guides = (title: string, anchor: string): Ref => ({
 export const operationsExt = (section: string, anchor: string): Ref => ({
   label: `Operations ${section}`,
   url: `${SITE}/extensions/operations#${anchor}`
+});
+export const mediatedExt = (section: string, anchor: string): Ref => ({
+  label: `Mediated Sign-In ${section}`,
+  url: `${SITE}/extensions/mediated-sign-in#${anchor}`
 });
 export const rfc = (number: number, section?: string): Ref => ({
   label: `RFC ${number}${section ? ` §${section}` : ""}`,
@@ -82,22 +91,20 @@ export const MESSAGES = define({
     ref: spec("3", "discovery")
   },
   "http-non-public-host": {
-    basis: "Guides",
-    refuses: true,
+    basis: "MUST",
     title: "Not a public host",
     explain:
-      "The Guides ask Personal Agents and Companies to refuse loopback, private and link-local addresses unless configured on purpose (a recommendation, not a requirement of the draft). By name alone, this validator, like our client, never fetches IP literals, single-label hosts, or special-use and private-use names such as localhost, .local, .internal and .home.arpa, so it can't check a document there. A name can still resolve to a private address: on Cloudflare Workers the platform refuses those connections, and the command-line validator checks each address a name resolves to (http-non-public-address). Used as a library elsewhere, it checks names only, so the caller must supply a fetcher that checks addresses.",
+      "Personal Agents and Companies MUST NOT connect to a loopback, private or link-local address for a URL the other party gave them, unless they were configured to on purpose (3). By name alone, this validator, like our client, never fetches IP literals, single-label hosts, or special-use and private-use names such as localhost, .local, .internal and .home.arpa, so it can't check a document there. A name can still resolve to a private address: on Cloudflare Workers the platform refuses those connections, and the command-line validator checks each address a name resolves to (http-non-public-address). Used as a library elsewhere, it checks names only, so the caller must supply a fetcher that checks addresses.",
     fix: "Publish the document on a public DNS name.",
-    ref: guides("Fetching metadata safely", "both-fetching")
+    ref: spec("3", "discovery")
   },
   "http-non-public-address": {
-    basis: "Guides",
-    refuses: true,
+    basis: "MUST",
     title: "Resolves to a private address",
     explain:
-      "The Guides ask Personal Agents and Companies to refuse loopback, private and link-local addresses, judged by the address actually connected to (a recommendation, not a requirement of the draft). The host name is public, but it resolves to such an address (loopback, RFC 1918, link-local, carrier-grade NAT, unique local, unspecified, multicast or another range that isn't globally reachable), so nothing was checked there. The command-line validator resolves each name itself, refuses these, and connects only to the address it checked.",
+      "Personal Agents and Companies MUST NOT connect to a loopback, private or link-local address for a URL the other party gave them (3), and the Guides say to judge by the address actually connected to. The host name is public, but it resolves to such an address (loopback, RFC 1918, link-local, carrier-grade NAT, unique local, unspecified, multicast or another range that isn't globally reachable), so nothing was checked there. The command-line validator resolves each name itself, refuses these, and connects only to the address it checked.",
     fix: "Point the name at a public address.",
-    ref: guides("Fetching metadata safely", "both-fetching")
+    ref: spec("3", "discovery")
   },
   "http-redirect-not-https": {
     basis: "MUST",
@@ -116,13 +123,12 @@ export const MESSAGES = define({
     ref: guides("Fetching metadata safely", "both-fetching")
   },
   "http-redirect-not-allowed": {
-    basis: "Guides",
-    refuses: true,
+    basis: "Rule",
     title: "Client metadata is served by a redirect",
     explain:
-      "client_id MUST equal the URL the document was fetched from (4.1), and the Guides tell Companies to fetch it without following redirects, so a redirect there fails verification at Companies that do, and this validator, like our client with any document, doesn't follow it. Only the Guides say not to follow redirects here, and the Guides are recommendations, so this is a warning.",
+      "A Company fetches the client metadata at client_id without following redirects, as the CIMD draft (§5) requires (5.3), and client_id MUST equal the URL the document was fetched from (4.1). A redirect there fails verification at every Company, so this validator doesn't follow it either.",
     fix: "Serve the client metadata document directly at its client_id URL.",
-    ref: guides("Verifying personal agents", "company-agents")
+    ref: spec("5.3", "session-verification")
   },
   "http-status": {
     basis: "MUST",
@@ -242,18 +248,9 @@ export const MESSAGES = define({
     basis: "MUST",
     title: "URL isn't HTTPS",
     explain:
-      "The draft requires HTTPS for auth.issuer, conversation endpoints, client_id, jwks_uri and redirect_uris, and OAuth requires it for the authorization server's endpoints.",
+      "Every URL the protocol defines or exchanges MUST be an HTTPS URL (3): in poppy.json, in authorization server and protected resource metadata, in client metadata and in extensions. The one exception is a loopback redirect URI in a Personal Agent's redirect_uris (4.1), such as http://127.0.0.1/callback.",
     fix: "Use an https:// URL.",
-    ref: spec("3.1", "fields")
-  },
-  "not-https-url-unstated": {
-    basis: "Reading",
-    refuses: true,
-    title: "URL isn't HTTPS (where the draft doesn't say)",
-    explain:
-      "The draft doesn't require HTTPS for apis[].url, auth.mediated.endpoint (which receives passwords), web.browser_session_endpoint, extension endpoints or logo_uri (spec-issues N9). Our reading is that it does, since each of them receives tokens or credentials or is shown to the User, so this is a warning, and our client refuses a poppy.json that doesn't use HTTPS there.",
-    fix: "Use an https:// URL.",
-    ref: spec("3.1", "fields")
+    ref: spec("3", "discovery")
   },
   "url-has-fragment": {
     basis: "RFC",
@@ -286,8 +283,8 @@ export const MESSAGES = define({
   "version-format": {
     basis: "Rule",
     title: "protocol_version isn't major.minor",
-    explain: 'protocol_version is a string of two numbers, such as "0.1".',
-    fix: 'Set protocol_version to "0.1".',
+    explain: 'protocol_version is a string of two numbers, such as "0.3".',
+    fix: 'Set protocol_version to "0.3".',
     ref: spec("3.1", "fields")
   },
   "version-unsupported-major": {
@@ -317,24 +314,16 @@ export const MESSAGES = define({
     basis: "MUST",
     title: "organization.domain doesn't match the requested domain",
     explain:
-      "organization.domain must match the host of the well-known URL the agent requested, ignoring a leading www. The host it was redirected to doesn't count. Otherwise one domain could speak for another.",
-    fix: "Set organization.domain to the domain whose /.well-known/poppy.json serves this document.",
+      "organization.domain MUST be the host that serves the document, after any redirects, compared ignoring case and nothing else, so www.example.com and example.com differ. Otherwise a document copied to another domain could speak for the Company.",
+    fix: "Set organization.domain to the host whose /.well-known/poppy.json serves this document.",
     ref: spec("3.1", "fields")
   },
   "organization-name-missing": {
     basis: "Rule",
-    refuses: false,
     title: "No display name",
     explain:
-      "organization is required and is the Company's \"Display name and domain\" (3.1): a normative statement without a key word, so a missing or blank name is an error. Our client tolerates it and shows the domain to the User instead (spec-issues S18).",
+      "organization is required and is the Company's \"Display name and domain\" (3.1): a normative statement without a key word, so a missing or blank name is an error. Personal Agents show organization.name to the User, such as next to a Device Sign-In link (4.3), so our client refuses a Company without one.",
     fix: "Add organization.name, such as \"Example Company\".",
-    ref: spec("3.1", "fields")
-  },
-  "auth-required": {
-    basis: "MUST",
-    title: "auth is required",
-    explain: "auth is required when agent, apis, or web.browser_session_endpoint is present, because all of them need Sessions.",
-    fix: "Add auth with the Company's issuer, or remove the members that need Sessions.",
     ref: spec("3.1", "fields")
   },
   "nothing-offered": {
@@ -348,17 +337,9 @@ export const MESSAGES = define({
     basis: "Rule",
     note: true,
     title: "Website only",
-    explain: "Without auth, agents can't start Sessions, so they browse the site as ordinary signed-out visitors.",
-    fix: "Add auth to offer Sessions, APIs or conversations.",
-    ref: spec("3.1", "fields")
-  },
-  "signed-out-only": {
-    basis: "Rule",
-    note: true,
-    title: "No sign-in types",
-    explain: "auth lists none of direct, device or mediated, so Sessions can only be signed out.",
-    fix: "Add a sign-in type if agents should act on Users' accounts.",
-    ref: spec("4.4", "sign-in")
+    explain: "poppy.json lists nothing that needs an issuer (agent, apis, feedback, web.browser_session_endpoint or an extension that uses one), so agents browse the site as ordinary signed-out visitors (3.2).",
+    fix: "To offer Sessions, APIs or conversations, list them and publish the domain's protected resource metadata naming an issuer.",
+    ref: spec("3.2", "oauth-server")
   },
   "issuer-query": {
     basis: "RFC",
@@ -374,57 +355,43 @@ export const MESSAGES = define({
     fix: "Rename the scope.",
     ref: rfc(6749, "3.3")
   },
-  "scope-reserved": {
-    basis: "Rule",
-    title: "Reserved scope name",
-    explain: "Names starting with poppy: are reserved for the protocol, which defines only poppy:read and poppy:write.",
-    fix: "Rename the scope so it doesn't start with poppy:.",
-    ref: spec("4.4", "sign-in")
-  },
   "scope-undescribed": {
-    basis: "Reading",
-    title: "Custom scope has no description",
-    explain: "A Company describes each scope it defines in auth.custom_scopes, so agents can explain to the User what they're granting.",
-    fix: "Add the scope to auth.custom_scopes with a short description.",
-    ref: spec("4.4", "sign-in")
-  },
-  "scope-unoffered": {
-    basis: "Reading",
-    note: true,
-    title: "Described scope isn't offered",
-    explain: "auth.custom_scopes describes a scope that no sign-in type lists, so agents can never request it.",
-    fix: "Add it to a sign-in type's scopes, or remove the description.",
-    ref: spec("4.4", "sign-in")
+    basis: "MUST",
+    title: "Supported scope has no description",
+    explain:
+      "The Company MUST describe each scope in scopes_supported, so agents can choose the ones a task needs and explain them to the User: in an OAuth security scheme of an OpenAPI description poppy.json lists, or otherwise in auth.scopes (4.7). poppy.json lists no OpenAPI description, so auth.scopes has to describe every one. (0.3 replaced 0.2's auth.custom_scopes with auth.scopes.)",
+    fix: "Add the scope to auth.scopes with a short description, or leave it out of scopes_supported.",
+    ref: spec("4.7", "scopes")
   },
   "scopes-empty": {
     basis: "Reading",
-    title: "Sign-in type grants no scopes",
-    explain: "A sign-in type with an empty scopes list can't grant anything, so agents can't usefully use it.",
-    fix: "List the scopes the type can grant.",
-    ref: spec("4.4", "sign-in")
+    title: "Mediated Sign-In grants no scopes",
+    explain: "The Mediated Sign-In extension's scopes list is empty, so it can't grant anything and agents can't usefully use it.",
+    fix: "List the scopes Mediated Sign-In can grant.",
+    ref: mediatedExt("2", "support")
   },
   "scope-duplicate": {
     basis: "Reading",
     title: "Scope listed twice",
     explain: "The same scope appears twice in one list.",
     fix: "Remove the duplicate.",
-    ref: spec("4.4", "sign-in")
+    ref: mediatedExt("2", "support")
   },
   "mediated-fields-empty": {
     basis: "Reading",
     refuses: true,
     title: "Mediated Sign-In lists no fields",
     explain:
-      "auth.mediated.fields lists the credentials the agent sends. The draft doesn't say it can't be empty, but without any, agents have nothing to send and can't sign in. Our reading, so a warning; our client refuses it.",
+      "The Mediated Sign-In extension's fields list the credentials the agent sends. The extension doesn't say the list can't be empty, but without any, agents have nothing to send and can't sign in. Our reading, so a warning; our client refuses it.",
     fix: "List each credential with name, label and secret.",
-    ref: spec("4.7", "mediated-sign-in")
+    ref: mediatedExt("2", "support")
   },
   "mediated-field-duplicate": {
     basis: "Rule",
     title: "Credential field named twice",
-    explain: "Each field's name is the key in credentials, so names must be unique.",
+    explain: "Each field's name is the parameter the agent sends it in, so names must be unique.",
     fix: "Give each field a different name.",
-    ref: spec("4.7", "mediated-sign-in")
+    ref: mediatedExt("2", "support")
   },
   "mediated-secret-missing": {
     basis: "Reading",
@@ -432,21 +399,14 @@ export const MESSAGES = define({
     explain:
       "secret marks a value the agent must protect: never shown back, logged, or sent elsewhere. Without it, agents treat the value as not secret.",
     fix: "Add secret: true or secret: false.",
-    ref: spec("4.7", "mediated-sign-in")
+    ref: mediatedExt("2", "support")
   },
   "mediated-looks-secret": {
     basis: "Reading",
     title: "Credential looks secret but isn't marked",
     explain: "The field's name or label looks like a password, PIN or code, but secret is false, so agents may show or log it.",
     fix: "Set secret: true.",
-    ref: spec("4.7", "mediated-sign-in")
-  },
-  "resource-invalid": {
-    basis: "RFC",
-    title: "Invalid resource",
-    explain: "resource is a resource indicator: an absolute URI with no fragment.",
-    fix: "Use the URL of the service, without a #fragment.",
-    ref: rfc(8707, "2")
+    ref: mediatedExt("2", "support")
   },
   "no-poppy-protocol": {
     basis: "Reading",
@@ -454,7 +414,7 @@ export const MESSAGES = define({
     explain:
       "agent.protocols has no entry of type poppy, the only conversation protocol the draft defines, so most agents can't talk to the Company Agent.",
     fix: 'Add { "type": "poppy", "endpoint": "https://…" }.',
-    ref: spec("7.1", "conversation-protocols")
+    ref: spec("8.1", "conversation-protocols")
   },
   "protocol-type-unknown": {
     basis: "Rule",
@@ -462,41 +422,34 @@ export const MESSAGES = define({
     title: "Conversation protocol agents may not know",
     explain: "Agents skip conversation protocol types they don't support.",
     fix: "Nothing to do, as long as a poppy entry is listed too.",
-    ref: spec("7.1", "conversation-protocols")
+    ref: spec("8.1", "conversation-protocols")
   },
   "api-type-unknown": {
-    basis: "MUST",
-    refuses: false,
+    basis: "SHOULD",
+    note: true,
     title: "API type not defined in this version",
     explain:
-      "Drafts 0.1 and 0.2 both say each API's type MUST be openapi or mcp (section 6), so another type is an error in any document this validator checks: it refuses documents from versions it doesn't know. The draft also says agents SHOULD skip types they don't recognise, and ours does: it skips the API and still uses the Company.",
-    fix: "Use openapi or mcp, or leave the API out until a version of the protocol defines its type.",
-    ref: spec("6", "apis")
+      "This version defines the API types openapi and mcp (7). A Company may list others, and Personal Agents SHOULD skip types they don't recognize, as ours does: it skips the API and still uses the Company. (Before 0.3 another type broke a MUST.)",
+    fix: "Nothing to do, unless agents should use this API: then also list it as openapi or mcp.",
+    ref: spec("7", "apis")
   },
   "api-type-newer": {
     basis: "MUST",
     note: true,
     title: "Historical unknown-API-type diagnostic",
     explain:
-      "Retained for older saved reports. It was information for a document from a version newer than this validator knew; the 0.2 profile kept it for 0.2 documents until 26 October 2026. Every version this validator checks makes another API type an error, api-type-unknown, so this diagnostic is no longer emitted.",
+      "Retained for older saved reports. It was information for a document from a version newer than this validator knew; the 0.2 profile kept it for 0.2 documents until 26 October 2026. 0.3 lets a Company list other API types, which api-type-unknown notes, so this diagnostic is no longer emitted.",
     fix: "Nothing to do, unless agents should use this API.",
-    ref: spec("6", "apis")
+    ref: spec("7", "apis")
   },
   "api-description-missing": {
     basis: "Rule",
     refuses: false,
     title: "API has no description",
     explain:
-      "\"Each has a type …, a url, and a short description\" (3.1): a normative statement without a key word, so this is an error. Our client still uses the API.",
+      "\"Each has a type …, a url, and a short description that helps the Personal Agent pick the right one\" (3.1): a normative statement without a key word, so this is an error. Our client still uses the API.",
     fix: "Add a description, such as \"Orders, returns, and exchanges\".",
-    ref: spec("6", "apis")
-  },
-  "mcp-resource-mismatch": {
-    basis: "Reading",
-    title: "MCP resource differs from its url",
-    explain: "An MCP server accepts only tokens issued for its url, and agents request Bearer tokens with resource set to that url. A different resource here is ambiguous.",
-    fix: "Leave out resource for MCP entries, or set it to the url.",
-    ref: spec("4.3", "sending-tokens")
+    ref: spec("3.1", "fields")
   },
   "extension-name": {
     basis: "MUST",
@@ -534,60 +487,120 @@ export const MESSAGES = define({
   // OAuth authorization server metadata
   "metadata-issuer-mismatch": {
     basis: "MUST",
-    title: "Metadata issuer doesn't match auth.issuer",
+    title: "Metadata issuer doesn't match the Company's issuer",
     explain:
-      "The metadata's issuer must exactly equal auth.issuer, character for character. Otherwise any domain could claim another Company's issuer and receive its tokens.",
+      "The metadata's issuer must exactly equal the issuer the domain's protected resource metadata names (and auth.issuer, when poppy.json chooses one), character for character. Otherwise any domain could claim another Company's issuer and receive its tokens.",
     fix: "Make the two strings identical, including any trailing slash.",
     ref: spec("3.2", "oauth-server")
   },
-  "metadata-domain-missing": {
-    basis: "MUST",
-    title: "poppy_domains doesn't include the domain",
-    explain: "poppy_domains must list every domain whose poppy.json names the issuer. Agents refuse a domain that isn't listed.",
-    fix: "Add organization.domain to poppy_domains.",
-    ref: spec("3.2", "oauth-server")
-  },
-  "metadata-auth-method": {
-    basis: "Reading",
-    title: "private_key_jwt not advertised",
-    explain: "Personal Agents authenticate at the token endpoint with private_key_jwt. The metadata lists other methods only.",
-    fix: "Add private_key_jwt to token_endpoint_auth_methods_supported.",
-    ref: spec("4.1", "agent-identity")
-  },
-  "metadata-signing-alg": {
-    basis: "Guides",
-    title: "No supported algorithm for client assertions",
-    explain: "Agents sign client assertions with ES256 or RS256. token_endpoint_auth_signing_alg_values_supported lists neither.",
-    fix: "Add ES256, and RS256 if you can.",
-    ref: rfc(8414, "2")
-  },
-  "metadata-grant-type": {
-    basis: "Reading",
-    title: "Grant type not advertised",
-    explain: "grant_types_supported leaves out a grant this Company needs for the sign-in types its poppy.json lists.",
-    fix: "Add the grant type named in the message.",
-    ref: spec("4.2", "starting-sessions")
-  },
   "metadata-dpop-alg": {
-    basis: "Guides",
+    basis: "Rule",
+    note: true,
     title: "ES256 not advertised for DPoP",
-    explain: "Agents sign DPoP proofs with ES256 when they can, and dpop_signing_alg_values_supported doesn't list it.",
-    fix: "Add ES256.",
-    ref: rfc(9449, "5.1")
+    explain:
+      "Binding access tokens with DPoP is the Company's choice, and the protocol names no algorithm for DPoP proofs (4.5). A Personal Agent sends a proof when it shares an algorithm in dpop_signing_alg_values_supported; ours signs proofs with ES256 only, so here it sends none, and a Company that requires DPoP refuses its token requests.",
+    fix: "Add ES256, if the Company binds tokens with DPoP.",
+    ref: spec("4.5", "access-tokens")
   },
   "metadata-pkce": {
     basis: "Guides",
     title: "S256 not advertised for PKCE",
     explain: "Direct Sign-In uses PKCE with S256, and code_challenge_methods_supported doesn't list it.",
     fix: "Add S256.",
-    ref: spec("4.5", "direct-sign-in")
+    ref: spec("4.2", "direct-sign-in")
+  },
+  // 0.3 (spec/draft-0.3-retrieved-2026-10-29)
+  "poppy-redirect-path": {
+    basis: "MUST",
+    title: "Redirected away from the well-known path",
+    explain: "A redirect may move poppy.json to another host, but agents use it only when the last URL's path is exactly /.well-known/poppy.json, with no query. Otherwise anyone who can serve a file from some path on a domain could have it speak for that domain.",
+    fix: "Redirect to /.well-known/poppy.json on the other host, without a query.",
+    ref: spec("3", "discovery")
+  },
+  "prm-resource-mismatch": {
+    basis: "MUST",
+    title: "Protected resource metadata names another resource",
+    explain: "The domain's protected resource metadata is how agents find the issuer. Its resource must be exactly https:// and the domain.",
+    fix: "Set resource to https://{organization.domain}.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "prm-no-issuer": {
+    basis: "MUST",
+    title: "No authorization server",
+    explain: "authorization_servers in the domain's protected resource metadata names the Company's issuer. Empty, there is none, and agents can only browse the website.",
+    fix: "List the Company's issuer in authorization_servers.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "issuer-not-listed": {
+    basis: "MUST",
+    title: "auth.issuer isn't an authorization server of the domain",
+    explain: "auth.issuer only chooses among the domain's authorization_servers, so it must be one of them.",
+    fix: "Make auth.issuer one of the domain's authorization_servers, or leave it out when there is one.",
+    ref: spec("3.1", "fields")
+  },
+  "issuer-ambiguous": {
+    basis: "MUST",
+    title: "Several authorization servers and no auth.issuer",
+    explain: "User IDs and refresh tokens belong to one issuer, so every agent has to choose the same one. With more than one authorization server, auth.issuer says which.",
+    fix: "Add auth.issuer, naming the server agents use.",
+    ref: spec("3.1", "fields")
+  },
+  "metadata-protected-resources": {
+    basis: "MUST",
+    title: "protected_resources doesn't include the domain",
+    explain: "The issuer confirms the domain from its side by listing https://{domain} in protected_resources. Agents refuse a domain it doesn't list, so a domain can't claim another Company's issuer.",
+    fix: "Add https:// and organization.domain to protected_resources, with no path, port or trailing slash.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "metadata-refresh-grant": {
+    basis: "MUST",
+    title: "No refresh_token grant",
+    explain: "grant_types_supported must include refresh_token: every sign-in returns a refresh token, which agents use to get access tokens later.",
+    fix: "Add refresh_token to grant_types_supported.",
+    ref: spec("3.2", "oauth-server")
+  },
+  "scope-hint-invalid": {
+    basis: "MUST",
+    title: "Scope hint without changes and personal_data",
+    explain: "Each entry in auth.scope_hints must have both fields: changes, a string, and personal_data, a boolean.",
+    fix: "Give the scope's hint both fields, or leave the scope out of scope_hints.",
+    ref: spec("4.7", "scopes")
+  },
+  "scope-hint-changes-unknown": {
+    basis: "MUST",
+    note: true,
+    title: "changes value this version doesn't define",
+    explain: "This version defines none, reversible and irreversible. Agents treat any other value as irreversible, so later versions can add values.",
+    fix: "Use none, reversible or irreversible, unless a later version defines the value.",
+    ref: spec("4.7", "scopes")
+  },
+  "mediated-field-reserved": {
+    basis: "MUST",
+    title: "Mediated Sign-In field with a reserved name",
+    explain: "A field's name is a parameter of the token request, so it can't be grant_type, scope, resource, a client authentication parameter, or one the extension defines.",
+    fix: "Rename the field.",
+    ref: mediatedExt("2", "support")
+  },
+  "mediated-grant-missing": {
+    basis: "MUST",
+    title: "Mediated Sign-In's grant isn't advertised",
+    explain: "A Company that offers Mediated Sign-In lists its grant type in the issuer's grant_types_supported.",
+    fix: "Add https://personalagentprotocol.org/grant/mediated-sign-in to grant_types_supported.",
+    ref: mediatedExt("2", "support")
+  },
+  "mediated-scope-unsupported": {
+    basis: "MUST",
+    title: "Mediated Sign-In offers a scope the issuer doesn't support",
+    explain: "Every scope the extension lists must be in the issuer's scopes_supported.",
+    fix: "Add the scope to scopes_supported, or remove it from the extension's scopes.",
+    ref: mediatedExt("2", "support")
   },
   "metadata-iss-parameter": {
     basis: "Rule",
     note: true,
     title: "Authorization responses may not carry iss",
     explain:
-      "authorization_response_iss_parameter_supported isn't true. Agents that check iss on the redirect (RFC 9207), as ours does, can then tell Companies apart only by state.",
+      "authorization_response_iss_parameter_supported isn't true. The redirect back from Direct Sign-In carries the issuer in iss (4.2, RFC 9207), and agents check it, as ours does; the metadata doesn't say this issuer sends it.",
     fix: "Return iss in authorization responses and set the flag to true.",
     ref: rfc(9207, "3")
   },
@@ -603,7 +616,7 @@ export const MESSAGES = define({
   "client-other-domain": {
     basis: "MUST",
     title: "URL on a different domain from client_id",
-    explain: "jwks_uri and every redirect URI must be HTTPS URLs on the same domain as client_id.",
+    explain: "jwks_uri, and every redirect URI that isn't a loopback redirect URI (RFC 8252 §7.3), must be an HTTPS URL on the same domain as client_id.",
     fix: "Host them on client_id's domain.",
     ref: spec("4.1", "agent-identity")
   },
@@ -611,7 +624,7 @@ export const MESSAGES = define({
     basis: "Rule",
     title: "Token endpoint auth method isn't private_key_jwt",
     explain:
-      "Personal Agents authenticate with private_key_jwt (4.1), and the draft's example declares it. The draft has no MUST for the member, but without it OAuth's default (client_secret_basic, RFC 7591 §2) applies, which doesn't fit.",
+      "Personal Agents authenticate with private_key_jwt (4.1, 4.8), and the draft's example declares it. The draft has no MUST for the member, but without it OAuth's default (client_secret_basic, RFC 7591 §2) applies, which doesn't fit.",
     fix: 'Set "token_endpoint_auth_method": "private_key_jwt".',
     ref: spec("4.1", "agent-identity")
   },
@@ -641,22 +654,23 @@ export const MESSAGES = define({
     basis: "Guides",
     title: "Unsupported key",
     explain:
-      "The Guides say to support ES256 and RS256, so Companies may accept only EC P-256 and RSA keys. The draft doesn't restrict key types, so this is a warning.",
-    fix: "Use an EC P-256 key, or an RSA key of at least 2048 bits.",
+      "Companies MUST accept client assertions and delegations signed with ES256 and with PS384 (4.1, 5.2), and the Guides say to sign with one of them, so Companies may accept only EC P-256 and RSA keys. The draft doesn't restrict key types, so this is a warning.",
+    fix: "Use an EC P-256 key, or an RSA key of at least 2048 bits for PS384.",
     ref: guides("Signing and verifying JWTs", "both-signing")
   },
   "jwks-rsa-small": {
     basis: "RFC",
     title: "RSA key too small",
-    explain: "RS256 MUST use a key of 2048 bits or larger (RFC 7518 §3.3); the Guides say the same.",
+    explain: "RSA signatures, PS384 included, MUST use a key of 2048 bits or larger (RFC 7518 §3.3, §3.5); the Guides say the same.",
     fix: "Generate a 2048-bit or larger key, or use EC P-256.",
     ref: rfc(7518, "3.3")
   },
   "jwks-alg": {
     basis: "Guides",
-    title: "Key algorithm isn't ES256 or RS256",
-    explain: "Companies support ES256 and RS256. A key marked with another alg may be ignored.",
-    fix: "Use ES256 or RS256.",
+    title: "Key algorithm isn't ES256 or PS384",
+    explain:
+      "The keys in jwks_uri sign client assertions and delegations. Companies MUST accept both signed with ES256 and with PS384 (4.1), a delegation's alg is one of the two (5.2), and the Guides say to sign with ES256, or PS384 when signing blindly. A key marked with another alg may be ignored. One marked RS256 can sign client assertions only, which the Guides ask Companies to accept too, and never delegations, so it can't make Session JWTs.",
+    fix: "Use ES256, or PS384 for blind signing.",
     ref: guides("Signing and verifying JWTs", "both-signing")
   },
   "jwks-no-kid": {

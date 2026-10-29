@@ -6,7 +6,7 @@ import { protocolRevision, PROTOCOL_REVISION, PROTOCOL_VERSIONS } from "../../sr
  *   npm run interop -- [--agents a,b] [--companies x,y] [--scenarios D,SD]
  *                      [--lane local|live] [--no-build] [--keep] [--no-retry]
  *                      [--min-free-gb n] [--set name:KEY=VALUE]... [--out dir]
- *                      [--image-tag tag]
+ *                      [--image-tag tag] [--require-supported]
  *
  * Local lane: builds every selected implementation's image, makes a CA and
  * certificate for the run, starts an --internal Docker network (no way out,
@@ -76,9 +76,9 @@ function harnessFile(name: string): Uint8Array | null {
 export const LIVE_GREETING = "Interoperability test from the Poppy Demo Agent. No reply or action is needed; this conversation will be closed.";
 
 export const SCENARIO_ORDER = [
-  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "O2", "OX", "OU", "RL", "DP", "CM", "ML",
+  "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "OX", "OU", "RL", "DP", "CM", "ML",
   // Adversarial (docs/adversarial-interop.md): network faults, then malicious agent and Company.
-  "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "XH", "XI", "BX", "XB", "XN", "XO", "XP", "XE", "XR", "XT"
+  "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "XH", "XI", "BX", "XB", "XN", "XP", "XE", "XR"
 ];
 
 export type Options = {
@@ -92,6 +92,8 @@ export type Options = {
   readonly keep: boolean;
   /** Run a failed or errored cell once more (`--no-retry` turns it off). */
   readonly retry: boolean;
+  /** CI contract: fail if any selected cell is unsupported. */
+  readonly requireSupported: boolean;
   /** Refuse to start with less free space than this on Docker's data disk. */
   readonly minFreeGb: number;
   /** Extra container environment, by implementation name. */
@@ -116,6 +118,7 @@ export function parseOptions(argv: readonly string[]): Options {
       "build-jobs": { type: "string", default: "2" },
       keep: { type: "boolean", default: false },
       "no-retry": { type: "boolean", default: false },
+      "require-supported": { type: "boolean", default: false },
       "min-free-gb": { type: "string", default: "2" },
       set: { type: "string", multiple: true },
       out: { type: "string" },
@@ -144,6 +147,7 @@ export function parseOptions(argv: readonly string[]): Options {
     buildJobs,
     keep: values.keep,
     retry: !values["no-retry"],
+    requireSupported: values["require-supported"] ?? false,
     minFreeGb,
     set,
     out: values.out ?? null,
@@ -171,7 +175,7 @@ export function loadRegistry(file = path.join(INTEROP, "registry.json")): Regist
 /** Live peers have no adapter manifest. Their declared version must be explicit. */
 export function liveCompanyManifest(entry: RegistryEntry, scenarios: readonly Scenario[]): Manifest {
   const ids = scenarios.map((s) => s.id);
-  return { interop: 1, name: entry.name, role: "company", commit: entry.commit, poppy: [entry.protocolVersion ?? "0.1"], scenarios: entry.liveScenarios ? ids.filter((id) => entry.liveScenarios!.includes(id)) : ids };
+  return { interop: 1, name: entry.name, role: "company", commit: entry.commit, poppy: [entry.protocolVersion ?? PROTOCOL_VERSIONS.at(-1)!], scenarios: entry.liveScenarios ? ids.filter((id) => entry.liveScenarios!.includes(id)) : ids };
 }
 
 export function loadScenarios(dir = path.join(INTEROP, "scenarios")): Scenario[] {
@@ -324,6 +328,31 @@ export function adversarialRefusal(
   return null;
 }
 
+/**
+ * The Poppy version a cell runs at: the newest both sides list. None in
+ * common is unsupported for a peer, but an error blamed on the harness when
+ * both sides are our own builds, which always speak the same version: an
+ * adapter that declares another is out of date, and its cells would
+ * otherwise pass a run without running.
+ */
+export function negotiateVersion(
+  agent: Pick<Implementation, "entry" | "manifest">,
+  company: Pick<Implementation, "entry" | "manifest">
+): { readonly version: string } | { readonly reason: string; readonly harness: boolean } {
+  const versions = company.manifest!.poppy.filter((version) => agent.manifest!.poppy.includes(version));
+  if (versions.length) return { version: versions.at(-1)! };
+  return {
+    reason: `No common Poppy protocol version (${agent.entry.name} ${agent.manifest!.poppy.join(", ")}; ${company.entry.name} ${company.manifest!.poppy.join(", ")})`,
+    harness: agent.entry.owner === "self" && company.entry.owner === "self"
+  };
+}
+
+/** The run's exit code: 1 for an unexpected failure or error, a stale known failure, or a run in which no cell ran. */
+export function runExitCode(cells: readonly Cell[], bad: readonly Cell[], stale: readonly unknown[], requireSupported = false): number {
+  const ran = cells.some((cell) => cell.outcome === "pass" || cell.outcome === "fail");
+  return bad.length > 0 || stale.length > 0 || (cells.length > 0 && !ran) || (requireSupported && cells.some((cell) => cell.outcome === "unsupported")) ? 1 : 0;
+}
+
 async function runCells(options: {
   scenarios: readonly Scenario[];
   agents: readonly Implementation[];
@@ -355,12 +384,17 @@ async function runCells(options: {
           cell.reason = broken;
           continue;
         }
-        const versions = company.manifest!.poppy.filter((version) => agent.manifest!.poppy.includes(version));
-        if (!versions.length) {
-          cell.reason = "No common Poppy protocol version";
+        const negotiated = negotiateVersion(agent, company);
+        if ("reason" in negotiated) {
+          cell.reason = negotiated.reason;
+          if (negotiated.harness) {
+            cell.outcome = "error";
+            cell.blame = "harness";
+            options.log(`${scenario.id.padEnd(4)} ${cell.agent} × ${cell.company}: error — ${cell.reason}`);
+          }
           continue;
         }
-        cell.protocolVersion = versions.at(-1);
+        cell.protocolVersion = negotiated.version;
         cell.specificationRevision = protocolRevision(cell.protocolVersion!);
         const missing = [agent, company].filter((impl) => !impl.manifest!.scenarios.includes(scenario.id)).map((impl) => impl.entry.name);
         const hooks = (scenario.needs?.company ?? []).filter((hook) => !company.hooks.includes(hook));
@@ -464,12 +498,10 @@ export async function runOne(
     writeFileSync(path.join(options.resultsDir, file), `${JSON.stringify(har, null, 1)}\n`);
     cell.har = file;
     const recorded = exchanges(har);
-    checks.push(...traceChecks(recorded, callbacks, cell.protocolVersion));
+    checks.push(...traceChecks(recorded, callbacks));
     checks.push(...(await documentChecks(recorded, cell.protocolVersion)));
-    if (cell.protocolVersion !== "0.2") {
-      checks.push(...readingChecks(recorded, agent.manifest?.readings ?? {}));
-      checks.push(...refusedReadingChecks(recorded, company.manifest?.readings ?? {}));
-    }
+    checks.push(...readingChecks(recorded, agent.manifest?.readings ?? {}));
+    checks.push(...refusedReadingChecks(recorded, company.manifest?.readings ?? {}));
   }
   // What each side recorded of the other: the mock Company of the agent, the strict fake agent of the Company (spec §5.3).
   const isSecurity = !!scenario.adversary || !!scenario.faults?.length || !!agent.entry.adversarial || !!company.entry.adversarial;
@@ -880,7 +912,12 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
   if (stale.length) log(`\nStale known failures (matched no failed cell; fixed, or the entry is wrong), which fail the run:`);
   for (const entry of stale) log(`  ${entry.agent} × ${entry.company} ${entry.scenario}: ${entry.issue}`);
   log(`Results: ${path.join(runDir, "index.html")}`);
-  return bad.length > 0 || stale.length > 0 ? 1 : 0;
+  // A run in which no cell ran proves nothing, so it fails rather than passing empty.
+  if (cells.length && !cells.some((cell) => cell.outcome === "pass" || cell.outcome === "fail")) {
+    log(`\nNo cell ran: every one was unsupported or refused, which fails the run.`);
+  }
+  if (options.requireSupported && cells.some((cell) => cell.outcome === "unsupported")) log("\n--require-supported: selected cells were skipped as unsupported, which fails the run.");
+  return runExitCode(cells, bad, stale, options.requireSupported);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === import.meta.filename) {

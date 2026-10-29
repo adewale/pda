@@ -1,10 +1,11 @@
+import { writtenBy } from "./message-author";
 import type { PoppyClient } from "./client";
-import { lostOutcome } from "./operations";
 import { object } from "../decode";
 import { integer, newestRows, nullable, one, rows, text } from "../rows";
-import { accountsTable, approvalsTable, conversationsTable, messagesTable, operationsTable, signInsTable, type Sql } from "./store";
-import type { ActivityAccess, ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
+import { accountsTable, approvalsTable, conversationsTable, messagesTable, signInsTable, type Sql } from "./store";
+import type { ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
 import type { Issuer } from "./issuer";
+import { approvalResult, checkedOutcomeText, storedResolution } from "./approval-outcome";
 import { pendingSignOuts, signOutForModel, signOutRecords, type SignOutRecord } from "./signout";
 
 /**
@@ -25,26 +26,6 @@ function clip(text: string, limit = QUOTE_LIMIT): string {
   return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
 }
 
-/** View, or view and change, from Poppy's built-in scopes; null when only custom scopes say. */
-export function accessOf(scope: string): ActivityAccess | null {
-  const scopes = new Set(scope.split(" ").filter(Boolean));
-  if (scopes.has("poppy:write")) return "view_and_change";
-  if (scopes.has("poppy:read")) return "view";
-  return null;
-}
-
-const operationRow = operationsTable.pick("issuer", "operation_id", "account", "operation", "approved_revision", "approved_by", "confirmed", "updated_at");
-
-/** Operations not final as far as the Company last said, newest first, through the index on their state: never the whole history. */
-function openOperations(sql: Sql) {
-  return rows(
-    sql,
-    operationRow,
-    `SELECT issuer, operation_id, account, operation, approved_revision, approved_by, confirmed, updated_at FROM poppy_operations
-     WHERE json_extract(operation, '$.state') IN ('proposed', 'in_progress') ORDER BY updated_at DESC`
-  );
-}
-
 /** `kind` is read out of the stored request (`json_extract`); the request itself never is. */
 const approvalColumns = approvalsTable.columns;
 const approvalRow = object({
@@ -54,12 +35,15 @@ const approvalRow = object({
   status: approvalColumns.status,
   result: approvalColumns.result,
   created_at: approvalColumns.created_at,
+  terms: approvalColumns.terms,
+  outcome_resolution: approvalColumns.outcome_resolution,
+  outcome_resolved_at: approvalColumns.outcome_resolved_at,
   kind: nullable(text)
 });
 
 const signInRow = signInsTable.pick("id", "type", "issuer", "account", "scopes", "status", "expires_at", "created_at");
 
-const conversationRow = conversationsTable.pick("id", "issuer", "quarantined", "direct", "status", "responder", "last_event_at", "created_at");
+const conversationRow = conversationsTable.pick("id", "issuer", "quarantined", "retired_at", "direct", "status", "responder", "last_event_at", "created_at");
 
 /** A reminder or task that ran (src/tools/schedule-store.ts `schedule_runs`). */
 const scheduleRunRow = object({ id: integer, kind: text, text, ran_at: integer, outcome: text, detail: nullable(text) });
@@ -74,25 +58,6 @@ const messageRow = object({
   created_at: messageColumns.created_at,
   in_direct: nullable(integer)
 });
-
-const OPERATION_RESULT: Record<string, ActivityResult> = {
-  proposed: "waiting",
-  in_progress: "in_progress",
-  succeeded: "done",
-  failed: "failed",
-  cancelled: "cancelled",
-  expired: "expired"
-};
-
-const APPROVAL_RESULT: Record<string, ActivityResult> = {
-  pending: "waiting",
-  executing: "in_progress",
-  done: "done",
-  declined: "declined",
-  refused: "failed",
-  failed: "failed",
-  unknown: "unknown"
-};
 
 const SIGN_IN_RESULT: Record<string, ActivityResult> = {
   pending: "waiting",
@@ -116,7 +81,7 @@ const SIGN_IN_WAY: Record<string, string> = {
 
 /**
  * Everything still open at every Company, for the model (`poppy_status` with
- * no domain): operations not final, approvals not decided or not finished,
+ * no domain): approvals not decided or not finished,
  * sign-ins under way, open conversations, the accounts signed in, and
  * sign-outs the Company hasn't accepted (its access still live there). From
  * the same tables as the Activity view, naming only the columns it shows, so
@@ -140,37 +105,17 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
     return found;
   };
 
-  const operations = openOperations(sql).flatMap((row) => {
-    const operation = row.operation;
-    // One the Company no longer has (N19) is final for us, whatever its last state said.
-    if (lostOutcome(row.confirmed) || (operation.state !== "proposed" && operation.state !== "in_progress")) return [];
-    const approved = row.approved_revision !== null && row.approved_revision === operation.revision;
-    return [
-      {
-        ...where(row.issuer),
-        operation: row.operation_id,
-        revision: operation.revision,
-        state: operation.state,
-        companySays: operation.summary,
-        decision:
-          operation.state === "in_progress"
-            ? "approved; the company is carrying it out"
-            : approved
-              ? "approved by the User; confirming"
-              : "waiting for the User, on a card on their page"
-      }
-    ];
-  });
-
   const approvals = rows(
     sql,
     approvalsTable.pick("id", "issuer", "summary", "status", "created_at"),
-    "SELECT id, issuer, summary, status, created_at FROM poppy_approvals WHERE status IN ('pending', 'executing') ORDER BY created_at DESC"
+    "SELECT id, issuer, summary, status, created_at FROM poppy_approvals WHERE status IN ('pending', 'executing') OR (status = 'unknown' AND outcome_resolution IS NULL) ORDER BY created_at DESC"
   ).map((row) => ({
     ...where(row.issuer),
     approval: row.id,
     action: row.summary,
-    state: row.status === "pending" ? "waiting for the User, on a card on their page" : "approved by the User; being carried out"
+    state: row.status === "pending" ? "waiting for the User, on a card on their page"
+      : row.status === "unknown" ? "outcome unknown; further writes at this Company are held until the User checks and records the outcome on the receipt"
+      : "approved by the User; being carried out"
   }));
 
   const signIns = rows(
@@ -215,7 +160,7 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
   // Signed out here, but the Company hasn't accepted revoking the token: its access is still live there.
   const signOutsNotAccepted = pendingSignOuts(client).map((row) => ({ ...where(row.issuer), ...signOutForModel(row) }));
 
-  return { operations, approvals, signIns, conversations, accounts, signOutsNotAccepted };
+  return { approvals, signIns, conversations, accounts, signOutsNotAccepted };
 }
 
 export function buildActivity(client: PoppyClient, now = Date.now()): Extract<PoppyServerFrame, { type: "poppy.activity" }> {
@@ -240,106 +185,19 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   // bounds what is read however long the history; what is still under way comes from its own query, small and whole.
   const newest = (table: string, columns: string, time: string) => newestRows(table, columns, time, ACTIVITY_LOG_LIMIT);
 
-  // Operations (Ops): the Company's summary and result, verbatim.
-  const operationColumns = "issuer, operation_id, account, operation, approved_revision, approved_by, confirmed, updated_at";
-  const recentOperations = rows(sql, operationRow, ...newest("poppy_operations", operationColumns, "updated_at"));
-  // Which of them reached us through the Company's agent: looked up by id (an index on the inbox), not by reading the inbox.
-  const operationsFromAgent = new Set(
-    recentOperations.length === 0
-      ? []
-      : rows(
-          sql,
-          object({ id: text, issuer: conversationsTable.columns.issuer }),
-          `SELECT DISTINCT json_extract(i.event, '$.message.operation.operation_id') AS id, c.issuer AS issuer FROM poppy_inbox i
-           JOIN poppy_conversations c ON c.id = i.conversation_id AND c.quarantined = 0
-           WHERE json_extract(i.event, '$.message.operation.operation_id') IN (SELECT value FROM json_each(?))`,
-          JSON.stringify(recentOperations.map((row) => row.operation_id))
-        ).map((row) => JSON.stringify([row.issuer, row.id]))
-  );
-  for (const row of recentOperations) {
-    const operation = row.operation;
-    const company = name(row.issuer);
-    const approved = row.approved_revision !== null && row.approved_revision === operation.revision;
-    // The Company no longer has it (N19): final for us, done or not as far as we know.
-    const lost = lostOutcome(row.confirmed);
-    const result: ActivityResult = lost
-      ? lost === "unknown"
-        ? "unknown"
-        : "expired"
-      : operation.state === "proposed" && approved
-        ? "in_progress"
-        : (OPERATION_RESULT[operation.state] ?? "unknown");
-    log.push({
-      id: `op-${row.issuer}-${row.operation_id}`,
-      at: row.updated_at,
-      kind: "operation",
-      issuer: row.issuer,
-      company,
-      account: row.account,
-      what: `${company} proposed`,
-      quote: operation.summary,
-      quoteBy: "company",
-      how: operationsFromAgent.has(JSON.stringify([row.issuer, row.operation_id])) ? "company_agent" : "api",
-      access: "view_and_change",
-      decidedBy: row.approved_by === "user" ? "you" : row.approved_by === "standing_permission" ? "standing_permission" : null,
-      result,
-      ...(lost
-        ? {
-            outcome:
-              lost === "unknown"
-                ? `${company} no longer has it, and it may have happened: check with ${company}.`
-                : `${company} no longer has it, and it wasn't done.`,
-            outcomeBy: "agent" as const
-          }
-        : operation.result?.summary
-          ? { outcome: clip(operation.result.summary), outcomeBy: "company" as const }
-          : {})
-    });
-  }
-  for (const row of openOperations(sql)) {
-    const operation = row.operation;
-    if (lostOutcome(row.confirmed)) continue;
-    const company = name(row.issuer);
-    const approved = row.approved_revision !== null && row.approved_revision === operation.revision;
-    if (operation.state === "in_progress") {
-      inProgress.push({
-        id: `op-${row.issuer}-${row.operation_id}`,
-        kind: "operation",
-        issuer: row.issuer,
-        company,
-        what: `${company} is carrying out`,
-        quote: operation.summary,
-        quoteBy: "company",
-        since: row.updated_at,
-        stop: { type: "poppy.operation", issuer: row.issuer, operationId: row.operation_id, revision: operation.revision, decision: "cancel" }
-      });
-    } else if (operation.state === "proposed" && approved && !row.confirmed) {
-      inProgress.push({
-        id: `op-${row.issuer}-${row.operation_id}`,
-        kind: "operation",
-        issuer: row.issuer,
-        company,
-        what: `Confirming with ${company}`,
-        quote: operation.summary,
-        quoteBy: "company",
-        note: "Approved. It's confirmed as soon as the account is signed in.",
-        since: row.updated_at
-      });
-    }
-  }
-
-  // Local approvals: writes no operation covers, uploads and website submits.
+  // Approvals: writes, operations a Company returned, uploads and website submits.
   for (const row of rows(
     sql,
     approvalRow,
-    ...newest("poppy_approvals", "id, issuer, summary, json_extract(request, '$.kind') AS kind, status, result, created_at", "created_at")
+    ...newest("poppy_approvals", "id, issuer, summary, terms, json_extract(request, '$.kind') AS kind, status, result, created_at, outcome_resolution, outcome_resolved_at", "created_at")
   )) {
     const company = name(row.issuer);
-    const result = APPROVAL_RESULT[row.status] ?? "unknown";
+    const resolution = storedResolution(row);
+    const result = approvalResult(row.status, resolution);
     // What an approved API call returned stays out of the log; what the website showed, and why something failed, go in.
     // A failure can carry a Company's arbitrary error_description. Keep those
     // words on its approval card and out of the Activity/diagnostics surface.
-    const outcome = row.status === "failed"
+    const outcome = resolution ? checkedOutcomeText(company, resolution.outcome) : row.status === "failed"
       ? "The approved request could not be completed. See its approval card for details."
       : row.result && (result !== "done" || row.kind === "browse-submit") ? clip(row.result) : undefined;
     log.push({
@@ -349,14 +207,15 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       issuer: row.issuer,
       company,
       account: null,
-      what: "Asked you to approve",
-      quote: row.summary,
-      quoteBy: "agent",
-      how: row.kind === "browse-submit" ? "website" : "api",
+      // An operation the Company returned is quoted in its own words (Ops 5); anything else in ours.
+      what: row.terms ? `${company} asked for your approval` : "Asked you to approve",
+      quote: row.terms ? row.terms.summary : row.summary,
+      quoteBy: row.terms ? "company" : "agent",
+      how: row.kind === "browse-submit" ? "website" : row.kind === "message-approval" ? "company_agent" : "api",
       access: "view_and_change",
       decidedBy: row.status === "pending" ? null : "you",
       result,
-      ...(outcome ? { outcome, outcomeBy: "agent" as const } : {})
+      ...(outcome ? { outcome, outcomeBy: resolution ? "you" as const : "agent" as const } : {})
     });
   }
   for (const row of rows(
@@ -392,7 +251,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       account: row.account === "default" ? null : row.account,
       what: `Sign-in at ${company} ${SIGN_IN_WAY[row.type] ?? ""}`.trim(),
       how: "sign_in",
-      access: accessOf(row.scopes),
+      access: null,
       decidedBy: result === "done" ? "you" : null,
       result
     });
@@ -444,7 +303,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       account: row.account === "default" ? null : row.account,
       what: stepUp ? `Revoking the access at ${company} that more access replaced` : `Signed out of ${company}`,
       how: "sign_in",
-      access: accessOf(row.scope),
+      access: null,
       // The User asked for a sign-out; a step-up's revocation is the agent's own.
       decidedBy: stepUp ? null : "you",
       result: row.status === "pending" ? "in_progress" : row.status === "stopped" ? "failed" : "done",
@@ -470,7 +329,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   }
 
   // Conversations with the Company's agent, and Direct Conversations.
-  const conversationColumns = "id, issuer, quarantined, direct, status, responder, last_event_at, created_at";
+  const conversationColumns = "id, issuer, quarantined, retired_at, direct, status, responder, last_event_at, created_at";
   for (const row of rows(sql, conversationRow, ...newest("poppy_conversations", conversationColumns, "created_at"))) {
     if (row.quarantined) continue;
     const company = name(row.issuer);
@@ -485,7 +344,8 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       how: row.direct ? "direct" : "company_agent",
       access: null,
       decidedBy: row.direct ? "you" : null,
-      result: row.status !== "closed" ? "in_progress" : "done"
+      result: row.retired_at !== null ? "unknown" : row.status !== "closed" ? "in_progress" : "done",
+      ...(row.retired_at !== null ? { outcome: "This conversation was stopped locally after a protocol update. Nothing was cancelled or confirmed at the Company; earlier messages were retained.", outcomeBy: "agent" as const } : {})
     });
   }
   for (const row of rows(sql, conversationRow, `SELECT ${conversationColumns} FROM poppy_conversations WHERE status != 'closed' AND quarantined = 0`)) {
@@ -516,7 +376,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
      ORDER BY m.created_at DESC LIMIT ?`,
     ACTIVITY_LOG_LIMIT
   )) {
-    let body: { parent_conversation_id?: string; message?: { sender?: string; text?: unknown; data?: unknown } };
+    let body: { parent_conversation_id?: string; message?: { sender?: string; author?: unknown; text?: unknown; data?: unknown } };
     try {
       body = JSON.parse(row.body);
     } catch {
@@ -525,7 +385,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
     const message = body.message;
     if (!message || (typeof message.text !== "string" && message.data === undefined)) continue;
     const company = name(row.issuer);
-    const human = message.sender === "human";
+    const human = writtenBy(message) === "human";
     const isDirect = human || !!body.parent_conversation_id || row.in_direct === 1;
     log.push({
       id: `message-${row.id}`,

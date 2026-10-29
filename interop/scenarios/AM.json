@@ -1,7 +1,7 @@
 {
   "id": "AM",
   "title": "MCP tool call",
-  "requirements": ["4.3", "6"],
+  "requirements": ["4.5", "7"],
   "needs": { "agent": ["discover", "api"] },
   "steps": [
     { "agent": "discover", "save": "d" },

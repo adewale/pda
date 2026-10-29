@@ -55,6 +55,20 @@ export const json: Decoder<Json> = (value, at) => {
   return fail(at, "JSON", value);
 };
 
+/** A JSON text, as a TEXT column holds one, whose parsed value passes `decoder`. */
+export function jsonText<T>(decoder: Decoder<T>): Decoder<T> {
+  return (value, at) => {
+    if (typeof value !== "string") return fail(at, "JSON text", value);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return fail(at, "JSON text", value);
+    }
+    return decoder(parsed, at);
+  };
+}
+
 export function literal<const T extends readonly (string | number | boolean | null)[]>(...values: T): Decoder<T[number]> {
   return (value, at) => (values.includes(value as T[number]) ? (value as T[number]) : fail(at, values.map((item) => JSON.stringify(item)).join(" or "), value));
 }

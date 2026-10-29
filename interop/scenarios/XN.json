@@ -1,13 +1,16 @@
 {
   "id": "XN",
   "title": "Adversarial Company: a DPoP nonce loop",
-  "requirements": ["4.3"],
+  "requirements": ["4.5"],
   "adversary": "company",
-  "needs": { "agent": ["discover", "session"], "company": ["arm"] },
+  "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["arm", "approve_authorization"] },
   "steps": [
     { "company": "arm", "params": { "attack": "XN" } },
     { "agent": "discover" },
-    { "agent": "session", "save": "r" },
+    { "agent": "session" },
+    { "agent": "signin", "params": { "method": "direct", "scopes": "${fixture.scopes.read}" }, "save": "pending", "note": "At 0.3 the first DPoP proof goes with a token request (4.5), so the loop starts at the code exchange." },
+    { "company": "approve_authorization", "params": { "url": "${pending.pending.url}", "account": "${fixture.accounts.0}" }, "save": "consent" },
+    { "agent": "signin_continue", "params": { "callback_url": "${consent.redirect}" }, "save": "r" },
     { "expect": { "step": "r", "poppy_error": "use_dpop_nonce" } },
     { "runner": "assert_trace", "params": { "check": "attack_observed", "path": "/oauth/token", "status": 400 } },
     { "runner": "assert_trace", "params": { "check": "bounded_requests", "path": "/oauth/token", "method": "POST", "max": 3 } }

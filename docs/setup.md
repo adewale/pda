@@ -46,7 +46,7 @@ node scripts/poppy-secrets.mjs vapid-key    | npx wrangler secret put WEB_PUSH_V
 
 `WEB_PUSH_VAPID_JWK` is optional: it turns on notifications for reminders and scheduled tasks (Web Push). It is a P-256 private key as a JWK; the Worker derives the public key browsers subscribe with, and the VAPID contact is your `PRIVACY_CONTACT`. Without it, Settings doesn't offer notifications and everything else works. Replacing it ends every device's subscription, so each person turns notifications on again; there is nothing to rotate on a schedule.
 
-`TOKEN_ENC_KEY` seals Account Tokens and people's model keys. To rotate it, put the old value in `TOKEN_ENC_KEY_PREVIOUS` and a new one in `TOKEN_ENC_KEY`; values are sealed again under the new key as they are used. Rotating without the previous key means everyone pastes their model key again and signs in to Companies again.
+`TOKEN_ENC_KEY` seals refresh tokens and people's model keys. To rotate it, put the old value in `TOKEN_ENC_KEY_PREVIOUS` and a new one in `TOKEN_ENC_KEY`; values are sealed again under the new key as they are used. Rotating without the previous key means everyone pastes their model key again and signs in to Companies again.
 
 Secrets take effect immediately; no redeploy is needed.
 

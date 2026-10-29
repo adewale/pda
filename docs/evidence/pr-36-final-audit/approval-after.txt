@@ -1,0 +1,18 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+NOSENTRY SQLite alarm overdue, running despite AlarmManager mismatch; scheduledTime = 1793294706.279s; localAlarmTime = 1793294706.285s; currentTime = 1793294706.290169299s; actorId = 577743d8cf51761a09e5dd8475b82582f4febb732acf54ada707e39997653c06
+
+ Test Files  6 passed (6)
+      Tests  22 passed (22)
+   Start at  17:24:55
+   Duration  18.32s (transform 10.73s, setup 0ms, import 41.56s, tests 5.35s, environment 1ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

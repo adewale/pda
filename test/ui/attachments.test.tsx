@@ -7,7 +7,6 @@ import type { TranscriptMessage } from "../../src/protocol";
 import { ChatPage } from "../../src/ui/chat";
 import { Transcript } from "../../src/ui/transcript";
 import type { PiSession, PoppyView } from "../../src/use-pi-session";
-import { toIssuer } from "../../src/poppy/issuer";
 
 /**
  * Photos on the page (src/ui/attachments.tsx): attaching one in the
@@ -32,7 +31,7 @@ function session(patch: Partial<PiSession> = {}) {
     status: "open",
     catalog: [],
     summaries: new Set<string>(),
-    poppy: { cards: [], accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } },
+    poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } },
     outbox: [],
     submit: (text: string) => void submitted.push(text),
     resend: () => undefined,
@@ -193,8 +192,8 @@ describe("a sent photo", () => {
   });
 });
 
-describe("cards about photos and orders", () => {
-  const view = (cards: Card[]): PoppyView => ({ cards, accounts: [], permissions: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } });
+describe("cards about photos", () => {
+  const view = (cards: Card[]): PoppyView => ({ cards, decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } });
 
   it("asks before a photo is sent to a Company, showing the photo, and sends a frame only on a click", () => {
     const sent: PoppyClientFrame[] = [];
@@ -216,51 +215,5 @@ describe("cards about photos and orders", () => {
     expect(sent).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(sent).toEqual([{ type: "poppy.approval", approvalId: "apr_1", decision: "approve" }]);
-  });
-
-  const order = (patch: Partial<Extract<Card, { kind: "operation" }>>): Card => ({
-    id: "op-1",
-    kind: "operation",
-    company: "Print with Poppy",
-    domain: "print-with-poppy.example",
-    open: false,
-    issuer: toIssuer("https://print-with-poppy.example"),
-    operationId: "op_1",
-    revision: 1,
-    state: "succeeded",
-    summary: "Prepare checkout for 1 4×6 Prints (lustre)",
-    account: null,
-    highlights: [],
-    userApprovalRequired: true,
-    approvedBy: "user",
-    ...patch
-  });
-
-  it("links a finished order's checkout on the receipt, only over HTTPS", () => {
-    render(
-      <PoppyCards
-        view={view([order({ result: "Approved order prepared.", links: [{ label: "checkout", url: "https://print-with-poppy.example/checkout/ord_1" }, { label: "status", url: "javascript:alert(1)" }] })])}
-        send={() => true}
-      />
-    );
-    const links = screen.getAllByRole("link");
-    expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
-      ["Open checkout at Print with Poppy", "https://print-with-poppy.example/checkout/ord_1"]
-    ]);
-    expect(links[0]!.getAttribute("rel")).toBe("noopener noreferrer");
-  });
-
-  it("says when the Company no longer has an order, and whether it may have happened (N19)", () => {
-    const { rerender } = render(<PoppyCards view={view([order({ state: "proposed", lost: "not_done" })])} send={() => true} />);
-    expect(screen.getByText(/It wasn't done/)).toBeTruthy();
-    rerender(<PoppyCards view={view([order({ state: "in_progress", lost: "unknown" })])} send={() => true} />);
-    expect(screen.getByText(/It may have happened: check with Print with Poppy before asking again\./)).toBeTruthy();
-  });
-
-  it("keeps the terms you saw when the Company changes them under the same revision, and offers no Approve (Ops 3.1)", () => {
-    render(<PoppyCards view={view([order({ state: "proposed", open: false, alteredSummary: "Print 1 copy for $999.00" })])} send={() => true} />);
-    expect(screen.getByText(/changed these terms after you saw them, without a new revision, so your agent won't confirm them/)).toBeTruthy();
-    expect(screen.getByText(/It now says: “Print 1 copy for \$999\.00”/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
   });
 });

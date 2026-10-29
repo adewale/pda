@@ -1,3 +1,4 @@
+import { writtenBy } from "./message-author";
 import { code, literal, recordPoppyExchange, reportError } from "../log";
 import type { CompanyReport } from "../validator/index.ts";
 import type { Company } from "./discovery";
@@ -11,12 +12,12 @@ import { integer, nullable, rows, table, text, textOf, type RowOf } from "../row
  * in order, with the spec section it follows, for the people who write the
  * spec and other implementations. Rows are written by the one Poppy HTTP
  * client (`client.ts`) and discovery, and by triggers on the sign-in,
- * conversation and operation tables for state changes no request makes.
+ * conversation and approval tables for state changes no request makes.
  *
  * Every value is built here, from an allowlist: a step, a method, a URL's
  * origin and path, a status, an error code, and one-line summaries put
- * together from fields named below. Headers, bodies, tokens, assertions,
- * DPoP proofs, keys, codes, `state`, PKCE verifiers, device codes, sign-in
+ * together from fields named below. Headers, bodies, tokens, Session JWTs,
+ * delegations, DPoP proofs, keys, codes, `state`, PKCE verifiers, device codes, sign-in
  * field values, cursors and query strings never reach a row. The log is
  * bounded: the newest `PROTOCOL_LOG_LIMIT` rows per Company.
  */
@@ -25,46 +26,41 @@ type Sql = SqlStorage;
 
 export { PROTOCOL_LOG_LIMIT };
 
-/** Each step's section of Draft 0.1 ("§") or the Operations extension ("Ops §"), and its subject. */
+/** Each step's section of 0.3 ("§"), the Operations extension ("Ops §") or the Mediated Sign-In extension ("MSI §"), and its subject. */
 export const PROTOCOL_STEPS = {
   "discovery.poppy": { section: "§3", title: "Discovery" },
+  "discovery.resource": { section: "§3.2", title: "Protected resource" },
   "discovery.metadata": { section: "§3.2", title: "OAuth server" },
   "discovery.verdict": { section: "§3", title: "Validator" },
-  "session.start": { section: "§4.2", title: "Session" },
-  "session.renew": { section: "§4.2", title: "Session" },
-  "token.other": { section: "§4.2", title: "Token endpoint" },
-  "ratelimit.wait": { section: "§4.3", title: "Rate limits" },
-  "signin.direct.state": { section: "§4.5", title: "Direct Sign-In" },
-  "signin.direct.exchange": { section: "§4.5", title: "Direct Sign-In" },
-  "signin.device.state": { section: "§4.6", title: "Device Sign-In" },
-  "signin.device.start": { section: "§4.6", title: "Device Sign-In" },
-  "signin.device.poll": { section: "§4.6", title: "Device Sign-In" },
-  "signin.mediated.state": { section: "§4.7", title: "Mediated Sign-In" },
-  "signin.mediated.credentials": { section: "§4.7", title: "Mediated Sign-In" },
-  "signin.mediated.code": { section: "§4.7", title: "Mediated Sign-In" },
-  "account.renew": { section: "§4.8", title: "Account Token" },
-  "account.signin": { section: "§4.8", title: "Account Token" },
-  "account.revoke": { section: "§4.9", title: "Signing out" },
-  "website.ratelimit": { section: "§5", title: "Web browsing" },
-  "api.call": { section: "§6", title: "API" },
-  "mcp.call": { section: "§6", title: "MCP" },
-  "conversation.request": { section: "§7.2", title: "Conversation" },
-  "conversation.start": { section: "§7.3", title: "Conversation" },
-  "conversation.opened": { section: "§7.3", title: "Conversation" },
-  "conversation.send": { section: "§7.3", title: "Conversation" },
-  "conversation.read": { section: "§7.5", title: "Reading events" },
-  "conversation.status": { section: "§7.7", title: "Status and responder" },
-  "conversation.handoff": { section: "§7.9", title: "Handoff" },
-  "conversation.direct": { section: "§7.10", title: "Direct Conversation" },
-  "conversation.close": { section: "§7.12", title: "Closing" },
-  "operation.proposed": { section: "Ops §4", title: "Proposal" },
-  "operation.revision": { section: "Ops §3.1", title: "Revision" },
-  "operation.approved": { section: "Ops §5.1", title: "Approval" },
-  "operation.confirm": { section: "Ops §5.2", title: "Confirming" },
-  "operation.read": { section: "Ops §6", title: "Tracking" },
-  "operation.state": { section: "Ops §6", title: "Tracking" },
-  "operation.cancel": { section: "Ops §7", title: "Cancelling" },
-  "operation.request": { section: "Ops §3", title: "Operations" }
+  "token.other": { section: "§4.7", title: "Token endpoint" },
+  "token.refresh": { section: "§4.4", title: "Refresh tokens" },
+  "ratelimit.wait": { section: "§5.6", title: "Rate limits" },
+  "signin.direct.state": { section: "§4.2", title: "Direct Sign-In" },
+  "signin.direct.exchange": { section: "§4.2", title: "Direct Sign-In" },
+  "signin.device.state": { section: "§4.3", title: "Device Sign-In" },
+  "signin.device.start": { section: "§4.3", title: "Device Sign-In" },
+  "signin.device.poll": { section: "§4.3", title: "Device Sign-In" },
+  "signin.mediated.state": { section: "MSI §3", title: "Mediated Sign-In" },
+  "signin.mediated.credentials": { section: "MSI §3", title: "Mediated Sign-In" },
+  "signin.mediated.code": { section: "MSI §4", title: "Mediated Sign-In" },
+  "account.revoke": { section: "§4.6", title: "Revocation" },
+  "website.ratelimit": { section: "§6", title: "Web browsing" },
+  "website.join": { section: "§6", title: "Joining a browser" },
+  "api.call": { section: "§7", title: "API" },
+  "mcp.call": { section: "§7", title: "MCP" },
+  "conversation.request": { section: "§8.2", title: "Conversation" },
+  "conversation.start": { section: "§8.3", title: "Conversation" },
+  "conversation.opened": { section: "§8.3", title: "Conversation" },
+  "conversation.send": { section: "§8.3", title: "Conversation" },
+  "conversation.read": { section: "§8.5", title: "Reading events" },
+  "conversation.status": { section: "§8.7", title: "Status and responder" },
+  "conversation.handoff": { section: "§8.9", title: "Handoff" },
+  "conversation.direct": { section: "§8.10", title: "Direct Conversation" },
+  "conversation.close": { section: "§8.12", title: "Closing" },
+  "feedback.send": { section: "§9.3", title: "Feedback" },
+  "operation.approval_required": { section: "Ops §4", title: "Asking for approval" },
+  "operation.decided": { section: "Ops §5", title: "The User's approval" },
+  "operation.sent": { section: "Ops §6", title: "Sending the approval" }
 } as const satisfies Record<string, { section: string; title: string }>;
 
 export type ProtocolStep = keyof typeof PROTOCOL_STEPS;
@@ -132,31 +128,24 @@ export function migrateProtocolLog(sql: Sql): void {
         'status ' || substr(old.status, 1, 32) || ' → ' || substr(new.status, 1, 32)
           || ', responder ' || substr(old.responder, 1, 32) || ' → ' || substr(new.responder, 1, 32));
     END`,
-    // Operations, wherever they were proposed (Ops 4): revision and state, never the summary or terms.
-    poppy_protocol_operation_new: `AFTER INSERT ON poppy_operations BEGIN
+    // Operations a Company returned, wherever (Ops 4), and the User's answer (Ops 5): ids and revision, never the summary or terms.
+    poppy_protocol_operation_new: `AFTER INSERT ON poppy_approvals WHEN new.terms IS NOT NULL BEGIN
       INSERT INTO poppy_protocol_log (key, issuer, at, step, outcome, summary, result)
-      VALUES (new.issuer, new.issuer, ${SQL_NOW}, 'operation.proposed', 'info',
-        'Operation ' || substr(new.operation_id, 1, 64) || ' revision ' || CAST(json_extract(new.operation, '$.revision') AS TEXT),
-        'state ' || substr(CAST(json_extract(new.operation, '$.state') AS TEXT), 1, 32));
+      VALUES (new.issuer, new.issuer, ${SQL_NOW}, 'operation.approval_required', 'info',
+        'Operation ' || substr(CAST(coalesce(json_extract(new.request, '$.call.approval.operation_id'), json_extract(new.request, '$.approval.operation_id')) AS TEXT), 1, 64)
+          || ' revision ' || substr(CAST(coalesce(json_extract(new.request, '$.call.approval.revision'), json_extract(new.request, '$.approval.revision')) AS TEXT), 1, 64),
+        'Shown to the User on an approval card');
     END`,
-    poppy_protocol_operation_change: `AFTER UPDATE OF operation ON poppy_operations
-      WHEN json_extract(old.operation, '$.revision') IS NOT json_extract(new.operation, '$.revision')
-        OR json_extract(old.operation, '$.state') IS NOT json_extract(new.operation, '$.state') BEGIN
+    poppy_protocol_operation_decided: `AFTER UPDATE OF status ON poppy_approvals
+      WHEN new.terms IS NOT NULL AND old.status = 'pending' AND new.status IN ('declined', 'executing') BEGIN
       INSERT INTO poppy_protocol_log (key, issuer, at, step, outcome, summary, result)
-      VALUES (new.issuer, new.issuer, ${SQL_NOW},
-        CASE WHEN json_extract(old.operation, '$.revision') IS NOT json_extract(new.operation, '$.revision') THEN 'operation.revision' ELSE 'operation.state' END,
-        'info',
-        'Operation ' || substr(new.operation_id, 1, 64) || ' revision ' || CAST(json_extract(new.operation, '$.revision') AS TEXT),
-        'state ' || substr(CAST(json_extract(old.operation, '$.state') AS TEXT), 1, 32) || ' → ' || substr(CAST(json_extract(new.operation, '$.state') AS TEXT), 1, 32));
-    END`,
-    poppy_protocol_operation_approved: `AFTER UPDATE OF approved_revision ON poppy_operations
-      WHEN new.approved_revision IS NOT NULL AND old.approved_revision IS NOT new.approved_revision BEGIN
-      INSERT INTO poppy_protocol_log (key, issuer, at, step, outcome, summary, result)
-      VALUES (new.issuer, new.issuer, ${SQL_NOW}, 'operation.approved', 'info',
-        'Operation ' || substr(new.operation_id, 1, 64) || ' revision ' || CAST(new.approved_revision AS TEXT),
-        'Approved by ' || CASE new.approved_by WHEN 'user' THEN 'the User, on their card' WHEN 'standing_permission' THEN 'a standing permission the User set' ELSE 'someone else' END);
+      VALUES (new.issuer, new.issuer, ${SQL_NOW}, 'operation.decided', 'info',
+        'Operation ' || substr(CAST(coalesce(json_extract(new.request, '$.call.approval.operation_id'), json_extract(new.request, '$.approval.operation_id')) AS TEXT), 1, 64),
+        CASE new.status WHEN 'declined' THEN 'Declined by the User, on their card: never sent' ELSE 'Approved by the User, on their card: sending the approval' END);
     END`
   };
+  // Operations 1's (0.1, 0.2), on tables store.ts drops: gone with them, and by name.
+  for (const name of ["poppy_protocol_operation_change", "poppy_protocol_operation_approved"]) sql.exec(`DROP TRIGGER IF EXISTS ${name}`);
   for (const [name, body] of Object.entries(triggers)) {
     sql.exec(`DROP TRIGGER IF EXISTS ${name}`);
     sql.exec(`CREATE TRIGGER ${name} ${body}`);
@@ -302,18 +291,24 @@ export function recordDiscovery(sql: Sql, domain: string, report: CompanyReport 
     }
     for (const document of report.documents) {
       const metadata = document.kind === "oauth-metadata";
+      // The domain's protected resource metadata names the issuer (3.2, RFC 9728).
+      const resource = document.kind === "protected-resource";
       const url = bareUrl(document.url);
       const final = bareUrl(document.finalUrl);
       const status = typeof document.status === "number" ? document.status : null;
       insert(sql, {
         key,
         issuer,
-        step: metadata ? "discovery.metadata" : "discovery.poppy",
+        step: metadata ? "discovery.metadata" : resource ? "discovery.resource" : "discovery.poppy",
         method: "GET",
         url,
         status,
         outcome: status === null ? "failed" : status >= 200 && status < 300 ? "ok" : "error",
-        summary: metadata ? "Fetch the issuer's OAuth server metadata (RFC 8414)" : "Fetch poppy.json, without credentials",
+        summary: metadata
+          ? "Fetch the issuer's OAuth server metadata (RFC 8414)"
+          : resource
+            ? "Fetch the domain's protected resource metadata (RFC 9728), for its issuer"
+            : "Fetch poppy.json, without credentials",
         result: [
           status === null ? unanswered(report, document.kind) : String(status),
           final && final !== url ? `from ${final}` : null,
@@ -334,7 +329,7 @@ export function recordDiscovery(sql: Sql, domain: string, report: CompanyReport 
       issuer,
       step: "discovery.verdict",
       outcome: report.refused ? "refused" : "ok",
-      // `checkedAgainst` is the validator's own name for the profile, such as "Draft 0.1".
+      // `checkedAgainst` is the validator's own name for the profile, such as "Draft 0.3".
       summary: `Validated against ${report.checkedAgainst}`,
       result: [
         `${VERDICT[report.outcome] ?? "unknown"}: ${error} error${error === 1 ? "" : "s"}, ${warning} warning${warning === 1 ? "" : "s"}, ${info} info`,
@@ -349,15 +344,15 @@ export function recordDiscovery(sql: Sql, domain: string, report: CompanyReport 
 // ---------------------------------------------------------------- Token, device and revocation endpoints (§4)
 
 const GRANTS: Record<string, string> = {
-  "urn:ietf:params:oauth:grant-type:jwt-bearer": "jwt-bearer",
   refresh_token: "refresh_token",
   authorization_code: "authorization_code",
-  "urn:ietf:params:oauth:grant-type:device_code": "device_code"
+  "urn:ietf:params:oauth:grant-type:device_code": "device_code",
+  "https://personalagentprotocol.org/grant/mediated-sign-in": "mediated"
 };
 
 export type OauthAttempt = {
   readonly endpoint: string;
-  /** The form we sent, read only for the fields named here: never a token, code, verifier or assertion. */
+  /** The form we sent, read only for the fields named here: never a token, code, verifier, credential or assertion. */
   readonly form: Readonly<Record<string, string>>;
   readonly dpop: boolean;
   /** Whether the proof carried the server's nonce. */
@@ -368,7 +363,7 @@ export type OauthAttempt = {
 export type Followup =
   | { readonly kind: "nonce" }
   | { readonly kind: "wait"; readonly ms: number; readonly retrying: boolean }
-  | { readonly kind: "renew" }
+  | { readonly kind: "refresh" }
   | { readonly kind: "restart" };
 
 function followup(next: Followup | undefined): string | null {
@@ -378,10 +373,10 @@ function followup(next: Followup | undefined): string | null {
       return "sending again with the Company's DPoP-Nonce and a new proof";
     case "wait": {
       const wait = `Retry-After ${Math.ceil(next.ms / 1000)} s`;
-      return next.retrying ? `${wait}: waiting, then sending again with a new proof` : `${wait}: too long to wait inline; the job tries again later`;
+      return next.retrying ? `${wait}: waiting, then sending again with a new Session JWT` : `${wait}: too long to wait inline; the job tries again later`;
     }
-    case "renew":
-      return "getting a new Session Token, then sending again once";
+    case "refresh":
+      return "getting a new access token with the refresh token, then sending again once";
     case "restart":
       return "starting a new Session, then sending again once";
   }
@@ -389,34 +384,35 @@ function followup(next: Followup | undefined): string | null {
 
 function oauthStep(company: Company, attempt: OauthAttempt): { step: ProtocolStep; summary: string } {
   const form = attempt.form;
-  const session = "session_id" in form ? "session_id sent" : null;
   const scope = scopeText(form.scope);
   const resource = bareUrl(form.resource);
-  const proof = attempt.dpop ? `DPoP proof${attempt.nonce ? " with nonce" : ""}` : "no DPoP (Bearer)";
+  const proof = attempt.dpop ? `DPoP proof${attempt.nonce ? " with nonce" : ""}` : null;
   const extras = [scope ? `scope ${scope}` : null, resource ? `resource ${resource}` : null];
   const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(", ");
+  // Every request to the issuer carries our client assertion (4.1); never the Session header, which 5.2 keeps off OAuth endpoints.
+  const session = "client assertion";
   if (attempt.endpoint === company.endpoints.deviceAuthorization) {
-    return { step: "signin.device.start", summary: join("Device authorization request", ...extras, "client assertion") };
+    return { step: "signin.device.start", summary: join("Device authorization request", ...extras, session) };
   }
   if (attempt.endpoint === company.endpoints.revocation) {
-    return { step: "account.revoke", summary: join("Revoke the Account Token", token(form.token_type_hint) ? `token_type_hint ${form.token_type_hint}` : null, "client assertion") };
+    return { step: "account.revoke", summary: join("Revoke the refresh token", token(form.token_type_hint) ? `token_type_hint ${form.token_type_hint}` : null, session) };
   }
   const grant = GRANTS[form.grant_type ?? ""] ?? null;
   switch (grant) {
-    case "jwt-bearer":
-      return session
-        ? { step: "session.renew", summary: join("Renew the Session: jwt-bearer grant with a Session assertion", session, ...extras, "client assertion", proof) }
-        : { step: "session.start", summary: join("Start a Session: jwt-bearer grant with a Session assertion, no session_id", ...extras, "client assertion", proof) };
     case "refresh_token":
-      return session
-        ? { step: "account.renew", summary: join("Renew a signed-in Session: refresh_token grant with the Account Token", session, ...extras, "client assertion", proof) }
-        : { step: "account.signin", summary: join("Sign a new Session in: refresh_token grant with a stored Account Token", ...extras, "client assertion", proof) };
+      return { step: "token.refresh", summary: join("Get an access token: refresh_token grant", ...extras, session, proof) };
     case "authorization_code":
-      return { step: "signin.direct.exchange", summary: join("Exchange the authorization code: authorization_code grant with the PKCE verifier and redirect_uri", session, "client assertion", proof) };
+      return { step: "signin.direct.exchange", summary: join("Exchange the authorization code: authorization_code grant with the PKCE verifier and redirect_uri", session, proof) };
     case "device_code":
-      return { step: "signin.device.poll", summary: join("Poll: device_code grant", session, "client assertion", proof) };
+      return { step: "signin.device.poll", summary: join("Poll: device_code grant", session, proof) };
+    case "mediated": {
+      if ("one_time_code" in form) return { step: "signin.mediated.code", summary: join("Send the one-time code, never recorded, with its sign_in_id", session, proof) };
+      // The credential fields are the Company's; their names are counted, their values never read.
+      const fields = Object.keys(form).filter((name) => !["grant_type", "client_id", "scope", "resource", "sign_in_id", "one_time_code"].includes(name)).length;
+      return { step: "signin.mediated.credentials", summary: join(`Send the sign-in form: ${fields} field${fields === 1 ? "" : "s"}, values never recorded`, ...extras, session, proof) };
+    }
     default:
-      return { step: "token.other", summary: join(`Token request${token(form.grant_type, 100) ? `: ${form.grant_type}` : ""}`, session, "client assertion", proof) };
+      return { step: "token.other", summary: join(`Token request${token(form.grant_type, 100) ? `: ${form.grant_type}` : ""}`, session, proof) };
   }
 }
 
@@ -430,16 +426,13 @@ function oauthAnswer(step: ProtocolStep, status: number, body: unknown, error: s
   }
   if (step === "account.revoke") return `${status}: revoked`;
   const parts = [String(status)];
-  if (typeof body.session_id === "string") parts.push("session_id returned");
-  if (body.signed_in === true) parts.push("signed in");
-  else if (body.signed_in === false) parts.push("signed out");
   const type = token(body.token_type);
   if (type) parts.push(`${type} token`);
   const expires = seconds(body.expires_in);
   if (expires !== null) parts.push(`expires in ${expires} s`);
   // RFC 6749 §5.1: a missing `scope` means the scope requested (N6).
   parts.push(typeof body.scope !== "string" ? "no scope in the answer" : scopeText(body.scope) ? `scope ${scopeText(body.scope)}` : "no scopes");
-  if (typeof body.refresh_token === "string") parts.push(step === "account.renew" || step === "account.signin" ? "Account Token rotated" : "Account Token issued");
+  if (typeof body.refresh_token === "string") parts.push(step === "token.refresh" ? "refresh token rotated" : "refresh token issued");
   return parts.join(", ");
 }
 
@@ -475,7 +468,7 @@ export function recordOauth(
   });
 }
 
-// ---------------------------------------------------------------- APIs, conversations, operations, Mediated Sign-In
+// ---------------------------------------------------------------- APIs, MCP, conversations, the browser join, feedback
 
 /**
  * How an OpenAPI call is named in the log: its operation and path template,
@@ -514,29 +507,35 @@ function waitOf(url: URL): string | null {
   return wait && /^\d{1,4}$/.test(wait) ? `wait ${wait} s` : null;
 }
 
-/** A message we send: its id, sender and which fields it has, never their contents. */
+/** A message we send: its id, author and which fields it has, never their contents. */
 function messageFields(body: unknown): string | null {
   if (!isObj(body) || !isObj(body.message)) return null;
   const message = body.message;
-  const fields = ["text", "data", "context"].filter((field) => message[field] !== undefined);
+  const fields = ["text", "data", "context", "approval"].filter((field) => message[field] !== undefined);
   const id = label(message.id);
-  const sender = message.sender === "human" || message.sender === "agent" ? message.sender : null;
-  return [id ? `message ${id}` : "message", sender ? `sender ${sender}` : null, fields.length ? `with ${fields.join(", ")}` : null].filter(Boolean).join(" ");
+  const author = writtenBy(message);
+  return [id ? `message ${id}` : "message", author ? `author ${author}` : null, fields.length ? `with ${fields.join(", ")}` : null].filter(Boolean).join(" ");
 }
 
-function classify(company: Company, request: ResourceRequest, url: URL, bearer: boolean): { step: ProtocolStep; summary: string; url: string | null } {
+/** The approval a request carries (Ops 6): `Poppy-Approval`, MCP's `_meta`, or a message's `approval`; ids only. */
+function approvalOf(request: ResourceRequest): string | null {
+  const header = Object.entries(request.headers ?? {}).find(([name]) => name.toLowerCase() === "poppy-approval")?.[1];
+  const fromHeader = header ? { operation: /operation_id="([^"]*)"/.exec(header)?.[1], revision: /revision="([^"]*)"/.exec(header)?.[1] } : null;
+  const body = isObj(request.body) ? request.body : {};
+  const meta = isObj(body.params) && isObj(body.params._meta) ? body.params._meta["personalagentprotocol.org/approval"] : undefined;
+  const message = isObj(body.message) ? body.message.approval : undefined;
+  const json = isObj(meta) ? meta : isObj(message) ? message : null;
+  const found = fromHeader ?? (json ? { operation: json.operation_id, revision: json.revision } : null);
+  if (!found) return null;
+  const operation = label(found.operation);
+  const revision = label(found.revision);
+  return operation ? `approval of ${operation}${revision ? ` revision ${revision}` : ""}` : "an approval";
+}
+
+function classify(company: Company, request: ResourceRequest, url: URL): { step: ProtocolStep; summary: string; url: string | null } {
   const at = bareUrl(url);
   const join = (...parts: (string | null)[]) => parts.filter(Boolean).join(", ");
-  const mediated = company.signIn.mediated?.endpoint;
-  const signIn = below(mediated, url);
-  if (signIn) {
-    if (signIn.length === 0) {
-      const count = isObj(request.body) && isObj(request.body.credentials) ? Object.keys(request.body.credentials).length : 0;
-      return { step: "signin.mediated.credentials", summary: `Send the sign-in form: ${count} field${count === 1 ? "" : "s"}, values never recorded`, url: at };
-    }
-    // The path holds sign_in_id, a secret we keep sealed.
-    return { step: "signin.mediated.code", summary: "Send the one-time code, never recorded, from the same Session", url: `${bareUrl(mediated)!.replace(/\/+$/, "")}/{sign_in_id}` };
-  }
+  const approval = approvalOf(request);
   const conversation = below(company.conversations?.endpoint, url);
   if (conversation) {
     const id = label(conversation[0] ?? "");
@@ -547,7 +546,9 @@ function classify(company: Company, request: ResourceRequest, url: URL, bearer: 
         ? { step: "conversation.direct", summary: join(`Open a Direct Conversation under ${parent}`, messageFields(request.body), waitOf(url)), url: at }
         : { step: "conversation.start", summary: join("Start a conversation", messageFields(request.body), waitOf(url)), url: at };
     }
-    if (conversation.length === 2 && action === "messages") return { step: "conversation.send", summary: join(`Send to ${id ?? "a conversation"}`, messageFields(request.body), waitOf(url), url.searchParams.has("cursor") ? "from the saved cursor" : null), url: at };
+    if (conversation.length === 2 && action === "messages") {
+      return { step: approval ? "operation.sent" : "conversation.send", summary: join(`Send to ${id ?? "a conversation"}`, messageFields(request.body), waitOf(url), url.searchParams.has("cursor") ? "from the saved cursor" : null), url: at };
+    }
     if (conversation.length === 2 && action === "events") {
       const stream = (request.accept ?? "").includes("text/event-stream");
       return { step: "conversation.read", summary: join(`Read events of ${id ?? "a conversation"}`, url.searchParams.has("cursor") ? "from the saved cursor" : "from the start", waitOf(url), stream ? "stream or JSON" : null), url: at };
@@ -556,24 +557,20 @@ function classify(company: Company, request: ResourceRequest, url: URL, bearer: 
     if (conversation.length === 2 && action === "close") return { step: "conversation.close", summary: `Close ${id ?? "the conversation"}, with {}`, url: at };
     return { step: "conversation.request", summary: `${request.method} a conversation endpoint`, url: at };
   }
-  const operation = below(company.extensions.operations?.endpoint, url);
-  if (operation) {
-    const id = label(operation[0] ?? "") ?? "an operation";
-    if (operation.length === 1 && request.method === "GET") return { step: "operation.read", summary: `Read ${id}`, url: at };
-    if (operation.length === 2 && operation[1] === "confirm") {
-      const body = isObj(request.body) ? request.body : {};
-      const revision = typeof body.revision === "number" ? body.revision : null;
-      const by = token(body.approved_by);
-      return { step: "operation.confirm", summary: join(`Confirm ${id}`, revision !== null ? `revision ${revision}` : null, by ? `approved_by ${by}` : null), url: at };
-    }
-    if (operation.length === 2 && operation[1] === "cancel") return { step: "operation.cancel", summary: `Cancel ${id}`, url: at };
-    return { step: "operation.request", summary: `${request.method} an operations endpoint`, url: at };
+  const join_ = below(company.web?.browserSessionEndpoint, url);
+  if (join_ && join_.length === 1 && join_[0] === "authorize") {
+    return { step: "website.join", summary: "Authorize the browser's one-time code, never recorded, for this Session", url: at };
   }
-  if (bearer) {
+  if (below(company.feedback?.endpoint, url)?.length === 0) {
+    const kind = isObj(request.body) ? token(request.body.type) : null;
+    return { step: "feedback.send", summary: join("Send feedback", kind ? `type ${kind}` : null), url: at };
+  }
+  const mcp = company.apis.find((api) => api.type === "mcp" && bareUrl(api.url) === at);
+  if (mcp) {
     const body = isObj(request.body) ? request.body : {};
     const method = label(body.method, 100);
     const tool = method === "tools/call" && isObj(body.params) ? label(body.params.name, 100) : null;
-    return { step: "mcp.call", summary: join(`JSON-RPC ${method ?? "request"}${tool ? ` ${tool}` : ""}`, "Bearer token for this server"), url: at };
+    return { step: approval ? "operation.sent" : "mcp.call", summary: join(`JSON-RPC ${method ?? "request"}${tool ? ` ${tool}` : ""}`, approval), url: at };
   }
   const named = apiNamer?.(request.method, url) ?? null;
   const operationId = named ? label(named.operation, 100) : null;
@@ -581,26 +578,29 @@ function classify(company: Company, request: ResourceRequest, url: URL, bearer: 
   const template = named && path && bareUrl(named.base) ? `${bareUrl(named.base)!.replace(/\/+$/, "")}${path}` : at;
   const idempotent = Object.keys(request.headers ?? {}).some((name) => name.toLowerCase() === "idempotency-key");
   return {
-    step: "api.call",
-    summary: join(operationId && path && operationId !== `${request.method} ${path}` ? `${operationId} (${request.method} ${path})` : `${request.method} ${path ?? url.pathname}`, idempotent ? "Idempotency-Key" : null),
+    step: approval ? "operation.sent" : "api.call",
+    summary: join(operationId && path && operationId !== `${request.method} ${path}` ? `${operationId} (${request.method} ${path})` : `${request.method} ${path ?? url.pathname}`, idempotent ? "Idempotency-Key" : null, approval),
     url: template
   };
 }
 
-/** One request to a Company resource (API, MCP, conversation, operations, Mediated Sign-In) and its answer. */
+/** How a request was authorized: the Session header alone, or with a Bearer or DPoP access token (5.2, 4.5). */
+export type ResourceAuth = { readonly token: "none" | "Bearer" | "DPoP"; readonly nonce: boolean };
+
+/** One request to a Company resource (API, MCP, conversation, browser join, feedback) and its answer. */
 export function recordResource(
   sql: Sql,
   company: Company,
   request: ResourceRequest,
-  auth: { readonly bearer: boolean; readonly nonce: boolean },
+  auth: ResourceAuth,
   answer: { readonly status: number; readonly error: string | null } | { readonly failed: string } | { readonly refused: string },
   next?: Followup
 ): void {
   safely(() => {
     const url = URL.canParse(request.url) ? new URL(request.url) : null;
     if (!url) return;
-    const { step, summary, url: shown } = classify(company, request, url, auth.bearer);
-    const how = auth.bearer ? "Bearer" : `DPoP${auth.nonce ? " with nonce" : ""}`;
+    const { step, summary, url: shown } = classify(company, request, url);
+    const how = auth.token === "none" ? "Session header, signed out" : auth.token === "Bearer" ? "Session header and Bearer token" : `Session header and DPoP token${auth.nonce ? ", nonce" : ""}`;
     const base = { key: company.issuer, issuer: company.issuer, step, method: request.method.toUpperCase(), summary: `${summary} · ${how}` };
     if ("refused" in answer) {
       // Not sent. The URL is left out: it may be the one that held a token.
@@ -624,7 +624,7 @@ export function recordResource(
   });
 }
 
-/** A wait on the Company's shared limit before a request (4.3): every agent's `Retry-After`, through `CompanyLimiter`. */
+/** A wait on the Company's shared limit before a request (5.6): every agent's `Retry-After`, through `CompanyLimiter`. */
 export function recordLimitWait(sql: Sql, issuer: Issuer, ms: number, waited: boolean): void {
   safely(() =>
     insert(sql, {

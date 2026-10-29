@@ -1,0 +1,25 @@
+{
+  "fixture": "fixture.tsx",
+  "fixtureSha256": "c522b587aeb2617fbe84e07457a5c7ed2067f3b5fcd2a21c5b809b29a556f03f",
+  "browser": "Chrome/154.0.8037.57",
+  "observedAt": "2026-10-29T08:12:31.819Z",
+  "pageErrors": [],
+  "files": {
+    "before.png": {
+      "sha256": "b8cf97867568240a70515728777f2e37d7ca3bcddf006295ace234ae4a980480",
+      "width": 960,
+      "status": "waiting"
+    },
+    "after.png": {
+      "sha256": "aed0a35bb798641f102afa019e548d9a6dd3b40d8e5d12d7f481ff641747af37",
+      "width": 960,
+      "status": "done"
+    },
+    "after-mobile.png": {
+      "sha256": "1fde7c62aee1a737e92c58cc26ca25f9218fab39675bd8755dcb10bebe706e7e",
+      "width": 375,
+      "status": "done"
+    }
+  },
+  "limitation": "Production components with controlled before/after card data. Worker and migration regression tests establish the state transitions; these images do not show a live Company or OAuth flow."
+}

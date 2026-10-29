@@ -162,12 +162,8 @@ function namedSecret(text: string): boolean {
 /** A code: "code 482913", "the code was 4829", but not a postcode or area code. */
 const CODE = /(?<!\b(?:zip|post|postal|area|country|dial(?:l)?ing|sort|promo|discount|voucher|coupon|bar|qr|source|dress|colou?r|error|status|tax|product|style)\s?)\bcode\b\D{0,12}\d{4,8}\b/i;
 
-/**
- * Why `text` isn't kept, or null. Errs on refusing: the agent says why, and
- * the User can say the fact without the secret. The reason never repeats
- * the text.
- */
-export function secretProblem(text: string): string | null {
+/** Recognizable credentials, without treating every opaque business identifier as a secret. */
+export function credentialProblem(text: string): string | null {
   for (const [pattern, what] of KEY_PATTERNS) if (pattern.test(text)) return `It looks like ${what}`;
   if (namedSecret(text)) return "It looks like a password, code, key or token";
   if (CODE.test(text)) return "It looks like a one-time or security code";
@@ -175,6 +171,16 @@ export function secretProblem(text: string): string | null {
     const digits = match[0].replace(/[ -]/g, "");
     if (digits.length >= 13 && digits.length <= 19 && luhn(digits)) return "It looks like a payment card number";
   }
+  return null;
+}
+
+/**
+ * Why `text` isn't kept, or null. Memory also refuses unlabelled opaque values;
+ * an outbound message may need those same shapes as ordinary business IDs.
+ */
+export function secretProblem(text: string): string | null {
+  const credential = credentialProblem(text);
+  if (credential !== null) return credential;
   for (const match of text.matchAll(/[A-Za-z0-9+/_-]{32,}={0,2}/g)) {
     const run = match[0];
     if (/[0-9]/.test(run) && /[A-Za-z]/.test(run)) return "It looks like a key, token or encoded secret";

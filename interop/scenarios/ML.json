@@ -1,10 +1,7 @@
 {
   "id": "ML",
   "title": "MCP tool listing without calling a tool",
-  "requirements": [
-    "4.3",
-    "6"
-  ],
+  "requirements": ["7"],
   "live": true,
   "needs": {
     "agent": [

@@ -37,13 +37,13 @@ export type CellRun = {
   readonly reason?: string;
 };
 
-/** The scopes scenarios sign in with when a Company's fixture names none (spec section 5.3). */
-export const DEFAULT_SCOPES = { read: ["poppy:read"], write: ["poppy:read", "poppy:write"] } as const;
+/** The scopes scenarios sign in with when a Company's fixture names none: none, since 0.3 defines no scopes (4.7), so a sign-in step fails rather than guess (spec section 5.3). */
+export const DEFAULT_SCOPES = { read: [], write: [] } as const;
 
 /**
  * The `fixture` hook's result with `scopes.read` and `scopes.write` filled
  * in: a Company that names its own scopes (`orders:read`) is signed in with
- * those, and one that doesn't with Poppy's. The version 1 form, `scopes` as
+ * those, and one that doesn't asks for none. The version 1 form, `scopes` as
  * a list of everything offered, is kept as `scopes.all`.
  */
 export function withScopes(fixture: unknown): Record<string, unknown> {

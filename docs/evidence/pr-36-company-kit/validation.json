@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-29",
+  "baseline": "c98ebf64f8209cf651a855c714fdd4874e0f546f",
+  "archiveSha256": "8b795dd6eb8dd04e6f6ccfdcf6abc63c4a522a8a4292f0ba9b759e8c6ac38e0a",
+  "upstreamFiles": 79,
+  "catalogueEntriesPerRun": 120,
+  "manualReview": {
+    "groups": 52,
+    "checkboxEntries": 229,
+    "meaning": "All entries reviewed for scope, local evidence and remaining limits; not a claim that all requirements pass."
+  },
+  "repositoryTests": {
+    "passed": 2004,
+    "skipped": 1,
+    "total": 2005,
+    "files": 100,
+    "workersPassed": 1169,
+    "durabilityPassed": 3,
+    "uiPassed": 256,
+    "interopPassed": 386,
+    "propertiesPassed": 190
+  },
+  "typecheck": "passed",
+  "specCheck": {
+    "dispositions": 42,
+    "pinnedPages": 13
+  },
+  "hostedSecurity": "passed locally; no strict violations or warnings",
+  "companyEffects": {
+    "mock": 0,
+    "hosted": 0
+  },
+  "referenceComparison": "Specification, Operations and Mediated Sign-In match the pinned 28 October snapshot after making site links relative.",
+  "regressions": {
+    "baselineFailed": 3,
+    "fixedPassed": 3
+  },
+  "resultSha256": "b7309b100854be05f97eb9b16c3b7177155bf45a390a31e778d0d09b9860894c"
+}

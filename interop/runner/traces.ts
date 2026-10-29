@@ -10,13 +10,14 @@ import {
   browserJoins,
   browserSessionResponseChecks,
   clientDocuments,
-  confirmRepeatChecks,
-  confirmsByOperation,
   issuedTokens,
   retryAfterChecks,
+  sessionHeaderAtListedHost,
+  sessionJwts,
   setCookies
 } from "./checks.ts";
 import type { RunnerReply } from "./cell.ts";
+import { agentAttackEvidence, agentAttackRejected, authorizationCodeReplay, authorizationCodeReplayRejected, authorizationCodeFreshReplay, authorizationCodeFreshReplayRejected } from "./agent-attacks.ts";
 
 const agentRequests = (all: readonly Exchange[]) => all.filter((x) => x.direction === "to-company" && !x.probe && !x.injected);
 
@@ -57,7 +58,7 @@ export function revoked(all: readonly Exchange[]): RunnerReply {
   return { kind: "ok", result: { revocations: calls.length } };
 }
 
-/** After the Company rotates an Account Token, the agent uses the new one, never the old (spec 4.8). */
+/** After the Company rotates a refresh token, the agent uses the new one, never the old (spec 4.4). */
 export function refreshRotated(all: readonly Exchange[]): RunnerReply {
   const grants = agentRequests(all).filter((x) => form(x)?.get("grant_type") === "refresh_token");
   if (grants.length < 2) return { kind: "inapplicable", detail: `${grants.length} refresh_token grant(s); the scenario needs two` };
@@ -66,7 +67,7 @@ export function refreshRotated(all: readonly Exchange[]): RunnerReply {
   for (const grant of grants) {
     const sent = form(grant)!.get("refresh_token");
     if (current !== null && sent !== current) {
-      return { kind: "failed", detail: `exchange ${grant.index} sent an Account Token the Company had replaced` };
+      return { kind: "failed", detail: `exchange ${grant.index} sent a refresh token the Company had replaced` };
     }
     const body = jsonBody(grant.responseBody) as { refresh_token?: unknown } | undefined;
     if (grant.status === 200 && typeof body?.refresh_token === "string") {
@@ -74,7 +75,7 @@ export function refreshRotated(all: readonly Exchange[]): RunnerReply {
       current = body.refresh_token;
     }
   }
-  if (rotations === 0) return { kind: "inapplicable", detail: "the Company never rotated the Account Token" };
+  if (rotations === 0) return { kind: "inapplicable", detail: "the Company never rotated the refresh token" };
   return { kind: "ok", result: { grants: grants.length, rotations } };
 }
 
@@ -104,8 +105,8 @@ export function requestSeen(all: readonly Exchange[], params: Record<string, unk
 }
 
 /**
- * Scenario W (spec 5): the agent's browser posted a browser assertion, and
- * the Company answered 303 to `return_to` with a cookie. `followed` says
+ * Scenario W (spec 6): the agent's browser loaded the join page and posted
+ * its form, and the Company answered with a redirect and the Session's cookie. `followed` says
  * whether the browser then carried that cookie to where it was sent.
  * Inapplicable when the Company lists no browser-session endpoint; failed
  * when no join was accepted.
@@ -118,7 +119,7 @@ export function browserJoined(all: readonly Exchange[]): RunnerReply {
       ? { kind: "failed", detail: "no browser join was sent to the Company's browser_session_endpoint" }
       : { kind: "inapplicable", detail: "the Company lists no web.browser_session_endpoint" };
   }
-  const accepted = joins.find((x) => x.status === 303 && x.responseHeaders.has("location") && setCookies(x).length > 0);
+  const accepted = joins.find((x) => x.method === "POST" && x.status >= 300 && x.status < 400 && x.responseHeaders.has("location") && setCookies(x).length > 0);
   if (!accepted) {
     const problems = browserSessionResponseChecks(all).map((item) => item.detail);
     return { kind: "failed", detail: `no join answered 303 with a cookie (${joins.map((x) => `HTTP ${x.status}`).join(", ")}${problems.length ? `; ${problems.join("; ")}` : ""})` };
@@ -137,51 +138,40 @@ export function browserJoined(all: readonly Exchange[]): RunnerReply {
 }
 
 /**
- * Scenario O2 (Operations 5.2, 6): an operation confirmed, then confirmed
- * again, every answer a success carrying the same confirmation, so it was
- * performed once. Inapplicable without a second confirm.
- */
-export function confirmRepeated(all: readonly Exchange[]): RunnerReply {
-  const repeated = [...confirmsByOperation(all)].filter(([, confirms]) => confirms.length >= 2);
-  if (repeated.length === 0) return { kind: "inapplicable", detail: "no operation was confirmed twice" };
-  const problems = confirmRepeatChecks(all);
-  if (problems.length > 0) return { kind: "failed", detail: problems.map((item) => item.detail).join("; ") };
-  const answered = repeated.filter(([, confirms]) => confirms.every((x) => x.status >= 200 && x.status < 300));
-  if (answered.length === 0) {
-    return { kind: "failed", detail: `the confirms were answered ${repeated.flatMap(([, confirms]) => confirms.map((x) => x.status)).join(", ")}` };
-  }
-  return { kind: "ok", result: { operations: answered.map(([id]) => decodeURIComponent(id)), confirms: answered[0]![1].length } };
-}
-
-/**
- * Scenario CM (4.1): the Company fetched the agent's client_id document,
- * and the jwks_uri it names with the key that signed the agent's first
- * granted Session assertion, before it granted that Session. Agents' keys
- * are new in every cell (interop spec 5.1), so a Session granted without
- * that fetch was granted on keys the Company never saw. Inapplicable when
+ * Scenario CM (4.1, 5.3): the Company fetched the agent's client_id
+ * document, and the jwks_uri it names with the key that signed the
+ * delegation (or client assertion) of the first request it accepted, before
+ * accepting it. Agents' keys are new in every cell (interop spec 5.1), so a
+ * request accepted without that fetch was accepted on keys the Company never
+ * saw. Inapplicable when
  * the Company fetched nothing of the agent's (registered ahead of time, 4.1's MAY).
  */
 export function clientFetched(all: readonly Exchange[]): RunnerReply {
   const fetches = all.filter((x) => x.direction === "to-agent" && !x.probe && x.method === "GET");
   if (fetches.length === 0) return { kind: "inapplicable", detail: "the Company fetched none of the agent's documents (registered ahead of time?)" };
+  // The first request the Company accepted that needed the agent's keys: one with the Session header,
+  // whose delegation a key in jwks_uri signed (5.3, step 1), or a token request with a client assertion (4.1).
   const grant = agentRequests(all)
-    .filter((x) => form(x)?.get("grant_type") === "urn:ietf:params:oauth:grant-type:jwt-bearer" && x.status === 200)
+    .filter((x) => x.status >= 200 && x.status < 300 && (x.requestHeaders.has("poppy-session") || form(x)?.has("client_assertion")))
     .sort((a, b) => a.ended - b.ended)[0];
-  if (!grant) return { kind: "failed", detail: "no Session was granted" };
-  const fields = form(grant)!;
-  const assertion = decodeJwt(fields.get("assertion") ?? "");
-  const clientId = fields.get("client_id") ?? (typeof assertion?.payload.iss === "string" ? assertion.payload.iss : null);
-  const kid = assertion?.header.kid;
+  if (!grant) return { kind: "failed", detail: "no request that needs the agent's keys was accepted" };
+  const header = grant.requestHeaders.get("poppy-session");
+  const session = header ? decodeJwt(header) : null;
+  const delegation = typeof session?.header.pap_dlg === "string" ? decodeJwt(session.header.pap_dlg) : null;
+  const assertion = header ? null : decodeJwt(form(grant)?.get("client_assertion") ?? "");
+  const signed = delegation ?? assertion;
+  const clientId = (header ? null : form(grant)?.get("client_id")) ?? (typeof signed?.payload.iss === "string" ? signed.payload.iss : null);
+  const kid = signed?.header.kid;
   const before = fetches.filter((x) => x.status === 200 && x.ended <= grant.ended);
   const metadata = before.find((x) => x.url.href === clientId);
-  if (!metadata) return { kind: "failed", detail: `the Session was granted (exchange ${grant.index}) without a fetch of ${clientId} in this cell` };
+  if (!metadata) return { kind: "failed", detail: `exchange ${grant.index} was accepted without a fetch of ${clientId} in this cell` };
   const { jwksUris } = clientDocuments(all);
   const jwks = before.find((x) => {
     if (!jwksUris.has(x.url.href)) return false;
     const keys = (jsonBody(x.responseBody) as { keys?: unknown } | undefined)?.keys;
     return Array.isArray(keys) && (typeof kid !== "string" || keys.some((key) => (key as { kid?: unknown } | null)?.kid === kid));
   });
-  if (!jwks) return { kind: "failed", detail: `the Session was granted (exchange ${grant.index}) without a fetch of the jwks_uri holding kid ${JSON.stringify(kid)}` };
+  if (!jwks) return { kind: "failed", detail: `exchange ${grant.index} was accepted without a fetch of the jwks_uri holding kid ${JSON.stringify(kid)}` };
   return { kind: "ok", result: { client_id: clientId, metadata: metadata.index, jwks: jwks.index } };
 }
 
@@ -205,20 +195,19 @@ export function noRequestTo(all: readonly Exchange[], params: Record<string, unk
   return hit ? { kind: "failed", detail: `a request to ${host} (exchange ${hit.index})` } : { kind: "ok", result: { host } };
 }
 
-/** The strings that carry a token, so a leak can be spotted: every issued access and refresh token, plus any `nonce` secret the scenario planted. */
+/** OAuth tokens, observed Session JWTs and any secret the scenario planted. */
 function secrets(all: readonly Exchange[], extra: readonly string[] = []): string[] {
-  return [...issuedTokens(all).keys(), ...extra].filter((value) => typeof value === "string" && value.length >= 8);
+  return [...issuedTokens(all).keys(), ...sessionJwts(all).keys(), ...extra].filter((value) => typeof value === "string" && value.length >= 8);
 }
 
-/** No token the Company issued was sent to `host`: a token-theft sink (XH, XM, XS). */
+/** No OAuth token or Session JWT reached `host`: a credential-theft sink (XH, XM, XS). */
 export function tokenNotSentTo(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
   const host = String(params.host ?? "");
   if (!host) return { kind: "failed", detail: "token_not_sent_to needs a host" };
   const tokens = secrets(all);
   for (const x of anyRequest(all)) {
     if (x.injected || !hostMatches(x.url, host)) continue;
-    const auth = authorization(x);
-    const haystack = `${x.url.href} ${x.requestBody} ${auth?.token ?? ""}`;
+    const haystack = [x.url.href, ...x.url.searchParams.values(), x.requestBody, ...x.requestHeaders.values()].join(" ");
     const leaked = tokens.find((token) => haystack.includes(token));
     if (leaked) return { kind: "failed", detail: `a token reached ${host} (exchange ${x.index})` };
   }
@@ -254,7 +243,11 @@ export function noSecretIn(all: readonly Exchange[], params: Record<string, unkn
   if (tokens.length === 0) return { kind: "inapplicable", detail: "no secret to look for" };
   for (const x of anyRequest(all)) {
     if (x.injected) continue;
-    const haystack = `${x.url.href} ${x.requestBody} ${authorization(x)?.token ?? ""}`;
+    // A fresh request-bound Session header on its Company's listed host is its
+    // intended use. The same JWT in a URL/body, another header or another host leaks.
+    const ownSession = sessionHeaderAtListedHost(all, x);
+    const headers = [...x.requestHeaders].filter(([name]) => name !== "poppy-session" || !ownSession).map(([, value]) => value);
+    const haystack = [x.url.href, ...x.url.searchParams.values(), x.requestBody, ...headers].join(" ");
     const leaked = tokens.find((secret) => haystack.includes(secret));
     if (leaked) return { kind: "failed", detail: `a secret appeared in a request to ${x.url.host} (exchange ${x.index})` };
   }
@@ -280,6 +273,18 @@ export function boundedRequests(all: readonly Exchange[], params: Record<string,
  * injected, counts; `injected: true` requires the proxy to have injected one.
  */
 export function attackObserved(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  if (params.authorization_code_fresh_replay === true) {
+    const pair = authorizationCodeFreshReplay(all);
+    return pair ? { kind: "ok", result: { original: pair[0].index, replay: pair[1].index } } : { kind: "failed", detail: "No accepted code exchange and consumed-code replay with fresh credentials observed" };
+  }
+  if (params.authorization_code_replay === true) {
+    const pair = authorizationCodeReplay(all);
+    return pair ? { kind: "ok", result: { original: pair[0].index, replay: pair[1].index } } : { kind: "failed", detail: "No accepted authorization-code exchange and its exact injected replay observed" };
+  }
+  if (typeof params.agent_attack === "string") {
+    const pair = agentAttackEvidence(all, params.agent_attack);
+    return pair ? { kind: "ok", result: { baseline: pair[0].index, attack: pair[1].index } } : { kind: "failed", detail: `No accepted control and isolated ${params.agent_attack} mutation observed` };
+  }
   if (params.mutation === "client_audience") {
     const pair = audiencePair(all);
     return pair ? { kind: "ok", result: { baseline: pair[0].index, attack: pair[1].index } }
@@ -424,6 +429,29 @@ export function replayRejected(all: readonly Exchange[], params: Record<string, 
     : { kind: "failed", detail: `replay answered HTTP ${replay.status}, expected 400 ${expected}` };
 }
 
+/**
+ * Scenario S0 (5.2): every request to the Company's resources carried the
+ * Session header, all with one `sid`, and none went to an OAuth endpoint.
+ * Resources here are what isn't an OAuth endpoint, a well-known document,
+ * a description fetched as JSON or a page a browser loaded. Inapplicable
+ * when the agent made no such request.
+ */
+export function oneSession(all: readonly Exchange[]): RunnerReply {
+  const requests = agentRequests(all).filter((x) => !x.url.pathname.startsWith("/.well-known/") && !isServerMetadata(x));
+  const oauth = requests.filter((x) => /\/oauth\//.test(x.url.pathname) || !!form(x)?.has("client_assertion"));
+  const resources = requests.filter(
+    (x) => !oauth.includes(x) && !(x.method === "GET" && x.url.pathname.endsWith(".json")) && !(x.requestHeaders.get("accept") ?? "").includes("text/html")
+  );
+  if (resources.length === 0) return { kind: "inapplicable", detail: "the agent sent no request to the Company's resources" };
+  const leaked = oauth.filter((x) => x.requestHeaders.has("poppy-session"));
+  if (leaked.length) return { kind: "failed", detail: `the Session header went to an OAuth endpoint: exchange ${leaked.map((x) => x.index).join(", ")}` };
+  const missing = resources.filter((x) => !x.requestHeaders.has("poppy-session"));
+  if (missing.length) return { kind: "failed", detail: `no Session header on exchange ${missing.map((x) => x.index).join(", ")}` };
+  const sids = new Set(resources.map((x) => decodeJwt(x.requestHeaders.get("poppy-session")!)?.payload.sid));
+  if (sids.size !== 1 || sids.has(undefined)) return { kind: "failed", detail: `${sids.size} sids across ${resources.length} requests` };
+  return { kind: "ok", result: { requests: resources.length } };
+}
+
 export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params: Record<string, unknown>) => RunnerReply> = {
   nonce_retry: (all) => nonceRetry(all),
   revoked: (all) => revoked(all),
@@ -431,7 +459,6 @@ export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params:
   retry_after_respected: (all) => retryAfterRespected(all),
   request_seen: requestSeen,
   browser_joined: (all) => browserJoined(all),
-  confirm_repeated: (all) => confirmRepeated(all),
   client_fetched: (all) => clientFetched(all),
   no_request_to: noRequestTo,
   token_not_sent_to: tokenNotSentTo,
@@ -441,7 +468,11 @@ export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params:
   bounded_requests: boundedRequests,
   attack_observed: attackObserved,
   replay_rejected: replayRejected,
-  audience_rejected: (all) => audienceRejected(all)
+  audience_rejected: (all) => audienceRejected(all),
+  authorization_code_fresh_replay_rejected: (all) => authorizationCodeFreshReplayRejected(all),
+  authorization_code_replay_rejected: (all) => authorizationCodeReplayRejected(all),
+  agent_attack_rejected: (all, params) => agentAttackRejected(all, String(params.agent_attack)),
+  one_session: (all) => oneSession(all)
 };
 
 export function assertTrace(all: readonly Exchange[], params: unknown): RunnerReply {

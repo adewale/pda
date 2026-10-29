@@ -1,4 +1,5 @@
 import {
+  boundedCacheSeconds,
   discover,
   isCompany,
   tokenHostAllowed,
@@ -6,19 +7,23 @@ import {
   type Company,
   type WebsiteOnly
 } from "./discovery";
-import { POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type Fetcher, type PoppyTimeouts } from "./fetch";
+import { assertPublicHost, fetchJson, POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type Fetcher, type PoppyTimeouts } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
-import { boolean, number, object, optional, string, tryDecode, type Decoded } from "../decode";
+import { sameAuthority, sessionAuthority } from "./authority";
+import { number, object, optional, string, tryDecode, type Decoded } from "../decode";
 import {
   clientAssertion,
+  delegate,
+  delegationUsable,
   dpopProof,
   newDpopKey,
   randomId,
-  sessionAssertion,
+  sessionJwt,
+  type Delegated,
   type DpopKey
 } from "./jwt";
 import { currentKey, readIdentity, type AgentIdentity } from "./keys";
-import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup } from "./protocol-log";
+import { recordDiscovery, recordLimitWait, recordOauth, recordPageLimit, recordResource, type Followup, type ResourceAuth } from "./protocol-log";
 import { found, one, rows, type RowOf } from "../rows";
 import { accountsTable, domainsTable, taskContextsTable, Sealer, sessionsTable, userIdsTable, type Sql } from "./store";
 import type { Card, DirectUpdate } from "./wire";
@@ -28,7 +33,7 @@ import type { EndpointRequest } from "./outgoing";
 import type { Issuer } from "./issuer";
 import { FOREIGN_TEXT, type ForeignText } from "../log";
 import { domainFromInput } from "../domain";
-import { isDraft2, protocolRevision, supportsProtocol } from "./protocol-version";
+import { assertSupported, protocolRevision, supportsProtocol } from "./protocol-version";
 
 /** What the Poppy client needs from the Durable Object it runs in. */
 export type PoppyHost = {
@@ -36,7 +41,7 @@ export type PoppyHost = {
   readonly sql: Sql;
   readonly fetcher: Fetcher;
   /** Show or update a card in the person's chat page. */
-  readonly showCard: (card: Card) => Promise<void>;
+  readonly showCard: (card: Card, options?: import("./cards").CardWriteOptions) => Promise<void>;
   /** Tell the model something happened, at most once per `operationId`. */
   readonly notifyModel: (text: string, operationId: string) => Promise<void>;
   /** Run a durable job later; the same `id` replaces an earlier one. */
@@ -62,10 +67,10 @@ export type PoppyHost = {
   readonly timeouts?: PoppyTimeouts;
 };
 
-export type JobName = "poppy-read" | "poppy-device" | "poppy-operation" | "poppy-revoke" | "poppy-signin-expiry";
+export type JobName = "poppy-read" | "poppy-device" | "poppy-revoke" | "poppy-signin-expiry";
 
 /**
- * An OAuth or Poppy error from a Company, with its code (spec 4.2, 6, 7.13).
+ * An OAuth or Poppy error from a Company, with its code (4.7, 7, 8.13).
  * Its message is for the model and the User, and is often built from what
  * the Company sent (its `error_description`, its body), so a wide event
  * records only its class and code (`ForeignText`, src/log.ts).
@@ -159,36 +164,35 @@ export function registerSignInRecovery(recover: (client: PoppyClient, issuer: Is
 
 /** Longest `Retry-After` we wait out inline; longer ones fail the call. */
 const INLINE_WAIT_MS = 5_000;
-/** Renew a Session Token this long before it expires. */
+/** Refresh an access token this long before it expires. */
 const RENEW_EARLY_MS = 30_000;
 
 /**
- * A token response (spec 4.2, RFC 6749 5.1), decoded whole: a member of the
- * wrong type is a malformed response, not a value to coerce. `signed_in`
- * and `scope` may be absent (the draft doesn't mark them required, N6):
- * absent `signed_in` is a signed-out Session.
+ * A token response (4.7, RFC 6749 5.1), decoded whole: a member of the
+ * wrong type is a malformed response, not a value to coerce. Plain OAuth's:
+ * it names no Session. `scope` may be absent when it is what was asked for.
  */
 export const tokenResponse = object({
   access_token: string,
   token_type: optional(string),
   expires_in: number,
   scope: optional(string),
-  session_id: string,
-  signed_in: optional(boolean),
   refresh_token: optional(string),
   refresh_token_expires_in: optional(number)
 });
 type TokenResponse = Decoded<typeof tokenResponse>;
 
-const sessionRow = sessionsTable.pick("issuer", "label", "session_id", "account", "signed_in", "scope");
+const sessionRow = sessionsTable.pick("issuer", "label", "session_id", "account", "signed_in", "scope", "authority_generation");
 type SessionRow = RowOf<typeof sessionRow>;
 
 const accountRow = accountsTable.pick("issuer", "account", "token", "scope", "expires_at");
 export type AccountRow = RowOf<typeof accountRow>;
 
-/** A Session Token in memory, bound to the DPoP key that was current when issued. */
+/** An access token in memory, bound to the DPoP key that was current when issued if it is DPoP-bound. */
 type HeldToken = {
   readonly value: string;
+  readonly account: string;
+  readonly accountGeneration: number;
   readonly type: "DPoP" | "Bearer";
   readonly expiresAt: number;
   readonly scope: string;
@@ -200,14 +204,19 @@ type HeldToken = {
 export type TokenOptions = {
   /** Which Session: tasks running in parallel use different labels. */
   readonly label?: string;
-  /** RFC 8707 `resource`, for an entry that names one (spec 4.3). */
+  /** RFC 8707 `resource`: a token for one service, such as an MCP server's `url` (4.5, 7). */
   readonly resource?: string;
-  /** Ask for fewer scopes than the Session has, e.g. read-only lookups. */
+  /** Ask for fewer scopes than the account has, e.g. read-only lookups. */
   readonly scope?: string;
-  /** A Bearer token for one MCP server; `resource` is its URL (spec 4.3). */
-  readonly bearer?: boolean;
   /** Internal authority check, after every asynchronous preparation and before each transport attempt. */
   readonly beforeDispatch?: () => void;
+  /**
+   * The service a signed-in request goes to (an OpenAPI description's
+   * server, a conversation endpoint), whose protected resource metadata
+   * says whether it takes only its own tokens (4.5). Ignored when
+   * `resource` is set.
+   */
+  readonly service?: string;
 };
 
 export function scopeSet(scope: string | undefined | null): Set<string> {
@@ -221,15 +230,12 @@ export function covers(granted: string | null | undefined, needed: Iterable<stri
 }
 
 /**
- * The scope a token response granted. Stock OAuth servers leave `scope` out
- * when it is what was asked for, which RFC 6749 §5.1 allows, so an omitted
- * `scope` means `requested` (docs/spec-issues.md, N6). A grant that asked for
- * none passes what the Session or Account Token already held; a signed-out
- * token has no scopes (4.2).
+ * The scope a token response granted: RFC 6749 5.1 leaves `scope` out when
+ * it is exactly what was asked for (4.7), so an omitted one means
+ * `requested`. A refresh that asked for none keeps the refresh token's.
  */
-export function grantedScope(response: { readonly scope?: unknown; readonly signed_in?: unknown }, requested: string): string {
-  if (typeof response.scope === "string") return response.scope;
-  return response.signed_in === false ? "" : requested;
+export function grantedScope(response: { readonly scope?: unknown }, requested: string): string {
+  return typeof response.scope === "string" ? response.scope : requested;
 }
 
 function withScope<T extends TokenResponse>(response: T, requested: string): T {
@@ -237,15 +243,45 @@ function withScope<T extends TokenResponse>(response: T, requested: string): T {
 }
 
 /** `WWW-Authenticate: DPoP error="…", scope="…"` (RFC 6750, RFC 9449). */
-export function parseWwwAuthenticate(header: string | null): { error?: string; scope?: string } {
+export function parseWwwAuthenticate(header: string | null): { error?: string; scope?: string; extension?: string; resourceMetadata?: string; resourceMetadataAmbiguous?: true } {
   if (!header) return {};
   const params: Record<string, string> = {};
+  const metadata: string[] = [], errors: string[] = [];
   // A quoted-string may hold quoted-pairs (RFC 9110 §5.6.4), such as `\"` in a description.
-  for (const match of header.matchAll(/(\w+)="((?:[^"\\]|\\.)*)"/g)) params[match[1]!] = match[2]!.replace(/\\(.)/g, "$1");
+  for (const match of header.matchAll(/(?:^|[,\s])([\w-]+)\s*=\s*"((?:[^"\\]|\\.)*)"/g)) {
+    const name = match[1]!.toLowerCase(), value = match[2]!.replace(/\\(.)/g, "$1");
+    params[name] ??= value;
+    if (name === "resource_metadata") metadata.push(value);
+    if (name === "error") errors.push(value);
+  }
+  // Parameter-like text inside a URI or description is not another challenge.
+  const outsideValues = header.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  const metadataCount = (outsideValues.match(/(?:^|[,\s])resource_metadata\s*=/gi) ?? []).length;
+  const ambiguous = metadataCount !== metadata.length || new Set(metadata).size > 1 ||
+    (metadataCount > 0 && errors.includes("invalid_token") && errors.some((value) => value !== "invalid_token"));
   return {
     ...(params.error ? { error: params.error } : {}),
-    ...(params.scope ? { scope: params.scope } : {})
+    ...(params.scope ? { scope: params.scope } : {}),
+    // 3.3: an API's extension_required names the extension in the challenge.
+    ...(params.extension ? { extension: params.extension } : {}),
+    ...(params.resource_metadata ? { resourceMetadata: params.resource_metadata } : {}),
+    ...(ambiguous ? { resourceMetadataAmbiguous: true as const } : {})
   };
+}
+
+/** Public HTTPS URLs on hosts the Company has already vouched for; metadata never carries credentials. */
+function serviceMetadataUrl(company: Company, value: string): URL | undefined {
+  if (!URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || !tokenHostAllowed(company, url)) return undefined;
+  try { assertPublicHost(url); } catch { return undefined; }
+  return url;
+}
+
+/** A metadata response is trusted only for this issuer and one of this Company's resources. */
+function metadataResource(company: Company, value: Json): string | undefined {
+  if (!isObject(value) || typeof value.resource !== "string" || !Array.isArray(value.authorization_servers) || !value.authorization_servers.includes(company.issuer)) return undefined;
+  return serviceMetadataUrl(company, value.resource) ? value.resource : undefined;
 }
 
 /** RFC 9110 §5.6.7 HTTP-date: IMF-fixdate, and the obsolete RFC 850 and asctime forms recipients must also read. */
@@ -306,14 +342,20 @@ export class PoppyClient {
   readonly sealer: Sealer;
   /** Per-Company DPoP keys, generated on first use and never stored. */
   readonly #dpopKeys = new Map<string, Promise<DpopKey>>();
-  /** Session Tokens by issuer, label, resource, scope and kind. */
+  /** Access tokens by issuer, Session label, resource and scope. */
   readonly #tokens = new Map<string, HeldToken>();
+  /** New sign-ins and withdrawals invalidate held access; ordinary refresh rotation does not. */
+  readonly #accountGenerations = new Map<string, number>();
   /** The latest `DPoP-Nonce` from each server origin. */
   readonly #nonces = new Map<string, string>();
+  /** The delegated key and delegation each Company's User ID signs with (5.2), memory only. */
+  readonly #delegated = new Map<Issuer, Promise<Delegated>>();
+  /** Cache public service metadata by URL; its issuer and host checks are specific to each Company (4.5). */
+  readonly #serviceResources = new Map<string, { readonly metadata: Json | null; readonly expiresAt: number }>();
   /**
-   * One token-endpoint exchange at a time per Company. Account Tokens can
+   * One token-endpoint exchange at a time per Company. Refresh tokens can
    * rotate on use, so two parallel renewals (say, a send and a background
-   * read) would use one twice (spec 4.8).
+   * read) would use one twice (4.4).
    */
   readonly #locks = new Map<string, Promise<unknown>>();
   /**
@@ -332,7 +374,7 @@ export class PoppyClient {
 
   /**
    * Run `work` with no other token-endpoint exchange for this Company beside
-   * it: renewals and sign-ins with an Account Token wait until it is done.
+   * it: refreshes and sign-ins with a refresh token wait until it is done.
    * Signing out (signout.ts) runs so, so no renewal uses the account, or
    * renews its Sessions, while the revocation is under way. `work` must not
    * itself ask for a token.
@@ -350,6 +392,7 @@ export class PoppyClient {
   get sql(): Sql {
     return this.host.sql;
   }
+
 
   get timeouts(): PoppyTimeouts {
     return this.host.timeouts ?? POPPY_TIMEOUTS;
@@ -412,14 +455,14 @@ export class PoppyClient {
       throw error;
     }
     const { result, cacheSeconds } = discovered;
-    if (isCompany(result) && isDraft2(result)) {
+    if (isCompany(result)) {
       const aliases = rows(this.sql, domainsTable.pick("company"), "SELECT company FROM poppy_domains WHERE issuer = ? AND domain != ? AND expires_at > ?", result.issuer, key, this.host.now());
       if (aliases.some((row) => {
         const alias = JSON.parse(row.company) as Company;
         return alias.authFingerprint && alias.authFingerprint !== result.authFingerprint;
       })) throw new DiscoveryError("Domains sharing an issuer have different auth declarations");
     }
-    if (isCompany(result) && isDraft2(result) && result.domain.toLowerCase() !== key) {
+    if (isCompany(result) && result.domain.toLowerCase() !== key) {
       await this.host.showCard({ id: `company-redirect-${key}`, kind: "notice", company: result.name, domain: result.domain, open: false, text: `You asked for ${key}. Its discovery leads to ${result.name} at ${result.domain}; this is the Company your agent will use.` });
     }
     recordDiscovery(this.sql, key, discovered.report, isCompany(result) ? result : null);
@@ -462,7 +505,7 @@ export class PoppyClient {
     if (!context) throw new DiscoveryError("No discovery context for this task");
     const original = JSON.parse(context.company) as Company;
     const current = await this.company(original.domain);
-    const interfaces = (company: Company) => JSON.stringify([company.endpoints, company.signIn, company.web, company.conversations, company.extensions, company.apis.map((api) => [api.type, api.url, api.resource])]);
+    const interfaces = (company: Company) => JSON.stringify([company.endpoints, company.signIn, company.web, company.conversations, company.extensions, company.apis.map((api) => [api.type, api.url])]);
     if (current.issuer !== issuer || current.protocolVersion !== original.protocolVersion || (original.authFingerprint && current.authFingerprint !== original.authFingerprint) || interfaces(current) !== interfaces(original) ||
         (original.specificationRevision && current.specificationRevision !== original.specificationRevision)) {
       await this.host.showCard({ id: `company-changed-${kind}-${id}`, kind: "notice", company: original.name, domain: original.domain, open: false, text: "This Company changed its protocol or interfaces while work was pending. Review its current status before starting a new task; an uncertain action must not be repeated." });
@@ -473,7 +516,7 @@ export class PoppyClient {
   }
 
   /**
-   * The User ID for this person at one Company (spec 4.2): random, stored,
+   * The User ID for this person at one Company (5.1): random, stored,
    * never derived from who they are. Domains that share an issuer share it.
    */
   userId(issuer: Issuer): string {
@@ -506,7 +549,7 @@ export class PoppyClient {
     return this.host.env.CompanyLimiter.getByName(issuer);
   }
 
-  /** Wait for the Company's shared limit, inline if short, else fail (spec 4.3). */
+  /** Wait for the Company's shared limit, inline if short, else fail (5.6). */
   async #respectLimit(issuer: Issuer): Promise<void> {
     const delay = await this.#limiter(issuer).delay(this.host.now());
     if (delay <= 0) return;
@@ -533,7 +576,7 @@ export class PoppyClient {
   }
 
   /**
-   * A website page answered (spec 4.3): on 429 or 503, record its
+   * A website page answered (5.6): on 429 or 503, record its
    * `Retry-After` for every User's agent and wait it out inline when short,
    * returning true so the caller loads the page again. A longer wait throws
    * `RateLimitedError`; any other status returns false.
@@ -553,33 +596,35 @@ export class PoppyClient {
 
   /**
    * One request to the Company's token, device or revocation endpoint, with
-   * our client assertion and (unless `dpop` is false) a DPoP proof. Nonces,
-   * short `Retry-After` waits and fresh assertions on every attempt are
-   * handled here. The client assertion's `aud` is the endpoint called; the
-   * draft doesn't say (S1), and Companies differ, so at the device or
-   * revocation endpoint an `invalid_client` gets one more try with the token
-   * endpoint as `aud`, as RFC 7523 3 allows. Both name this Company, so
-   * neither can be replayed at another.
+   * our client assertion and, when the issuer asks for DPoP and `dpop` isn't
+   * false, a DPoP proof. Nonces, short `Retry-After` waits and fresh
+   * assertions on every attempt are handled here. The client assertion's
+   * `aud` is the issuer at every endpoint (4.1), so it can't be replayed at
+   * another Company. Never the Session header (5.2).
    */
   async oauthRequest(
     company: Company,
     endpoint: string,
     params: () => Promise<Record<string, string>>,
-    options: { dpop: boolean }
+    options: { dpop: boolean; beforeDispatch?: () => void }
   ): Promise<{ status: number; body: Json; headers: Headers }> {
     const signing = await currentKey(this.host.env);
+    const clientId = this.identity.clientId;
+    // A proof only when the issuer lists dpop_signing_alg_values_supported (4.5).
+    const dpop = options.dpop && company.dpop === true;
     // One retry for a new DPoP nonce, whenever it comes: after a 429 too.
     let nonceRetried = false;
-    let audience = isDraft2(company) ? company.issuer : endpoint;
+    // The issuer, as a single string, whatever endpoint is called (4.1).
+    const audience = company.issuer;
     for (let attempt = 0; attempt < 3; attempt++) {
       await this.#respectLimit(company.issuer);
       // Each attempt gets new assertions and a new proof: Companies reject a reused jti.
       const fields = await params();
       const form = new URLSearchParams({
         ...fields,
-        client_id: this.identity.clientId,
+        client_id: clientId,
         client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-        client_assertion: await clientAssertion(signing, this.identity.clientId, audience)
+        client_assertion: await clientAssertion(signing, clientId, audience)
       });
       const headers = new Headers({
         "Content-Type": "application/x-www-form-urlencoded",
@@ -587,8 +632,8 @@ export class PoppyClient {
       });
       const origin = new URL(endpoint).origin;
       // For the protocol log, which reads only the fields it names (never a token, code, verifier or assertion).
-      const logged = { endpoint, form: fields, dpop: options.dpop, nonce: options.dpop && this.#nonces.has(origin) };
-      if (options.dpop) {
+      const logged = { endpoint, form: fields, dpop, nonce: dpop && this.#nonces.has(origin) };
+      if (dpop) {
         const nonce = this.#nonces.get(origin);
         headers.set(
           "DPoP",
@@ -599,6 +644,8 @@ export class PoppyClient {
           })
         );
       }
+      // Account access may have changed while assertions and proofs were signed.
+      options.beforeDispatch?.();
       // One deadline for the answer and its body.
       const { response, body } = await withDeadline(this.timeouts.oauthMs, async (signal) => {
         const response = await raceAbort(
@@ -620,11 +667,6 @@ export class PoppyClient {
         nonceRetried = true;
         continue;
       }
-      if (!isDraft2(company) && error === "invalid_client" && response.status === 401 && audience !== company.endpoints.token) {
-        recordOauth(this.sql, company, logged, answer);
-        audience = company.endpoints.token;
-        continue;
-      }
       if (wait !== null) {
         const retrying = wait <= INLINE_WAIT_MS && attempt < 2;
         recordOauth(this.sql, company, logged, answer, { kind: "wait", ms: wait, retrying });
@@ -642,7 +684,7 @@ export class PoppyClient {
   async tokenRequest(
     company: Company,
     params: () => Promise<Record<string, string>>,
-    options: { dpop: boolean } = { dpop: true }
+    options: { dpop: boolean; beforeDispatch?: () => void } = { dpop: true }
   ): Promise<TokenResponse> {
     const { status, body } = await this.oauthRequest(company, company.endpoints.token, params, options);
     if (status === 200 && isObject(body) && typeof body.access_token === "string") {
@@ -666,7 +708,7 @@ export class PoppyClient {
     return one(
       this.sql,
       sessionRow,
-      "SELECT issuer, label, session_id, account, signed_in, scope FROM poppy_sessions WHERE issuer = ? AND label = ?",
+      "SELECT issuer, label, session_id, account, signed_in, scope, authority_generation FROM poppy_sessions WHERE issuer = ? AND label = ?",
       issuer,
       label
     );
@@ -678,35 +720,15 @@ export class PoppyClient {
       : rows(this.sql, sessionRow, "SELECT * FROM poppy_sessions");
   }
 
-  #saveSession(issuer: Issuer, label: string, response: TokenResponse, account: string | null): void {
-    this.sql.exec(
-      `INSERT OR REPLACE INTO poppy_sessions (issuer, label, session_id, account, signed_in, scope, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      issuer,
-      label,
-      response.session_id,
-      response.signed_in ? account : null,
-      response.signed_in ? 1 : 0,
-      response.scope ?? "",
-      Date.now()
-    );
-  }
-
-  /**
-   * Stop using a Session, and drop its tokens: the next request starts a new
-   * one. For a Session the Company may have signed in without our knowing,
-   * which we never renew with the Session assertion: 4.2 renews a signed-in
-   * Session with the Account Token, and an assertion's answer there is
-   * undefined (spec-issues S5).
-   */
+  /** Stop using a Session, and drop its tokens: the next request starts a new one, with a new `sid` (5.5). */
   abandonSession(issuer: Issuer, label: string): void {
     this.#forgetSession(issuer, label);
   }
 
   /**
    * Before any token for a Company: resolve a Direct Sign-In whose code
-   * exchange was interrupted (4.5), so a Session it may have signed in is
-   * never renewed with the assertion. Cheap when there is none.
+   * exchange was interrupted, so its refresh token is stored before anything
+   * asks for one. Cheap when there is none.
    */
   async #recoverSignIns(issuer: Issuer): Promise<void> {
     if (!signInRecovery) return;
@@ -719,6 +741,13 @@ export class PoppyClient {
     if (pending) await signInRecovery(this, issuer);
   }
 
+  /** A new `sid` for the Session `label`, keeping its account (7, `invalid_session`). */
+  #restartSession(issuer: Issuer, label: string): void {
+    const session = this.session(issuer, label);
+    this.#forgetTokens(issuer, label);
+    if (session) this.#writeSession(issuer, label, randomId(), session.account, session.scope);
+  }
+
   #forgetSession(issuer: Issuer, label: string): void {
     this.sql.exec("DELETE FROM poppy_sessions WHERE issuer = ? AND label = ?", issuer, label);
     for (const key of [...this.#tokens.keys()]) {
@@ -726,7 +755,7 @@ export class PoppyClient {
     }
   }
 
-  // ---------------------------------------------------------------- Account Tokens
+  // ---------------------------------------------------------------- Refresh tokens (poppy_accounts)
 
   account(issuer: Issuer, account: string): AccountRow | undefined {
     const row = one(
@@ -749,8 +778,29 @@ export class PoppyClient {
       : rows(this.sql, accountRow, "SELECT * FROM poppy_accounts");
   }
 
+  /** The authority of memory-only access tokens and browser contexts for this account. */
+  accountGeneration(issuer: Issuer, account: string): number {
+    return this.#accountGenerations.get(JSON.stringify([issuer, account])) ?? 0;
+  }
+
+  #advanceAccountGeneration(issuer: Issuer, account: string): void {
+    this.#accountGenerations.set(JSON.stringify([issuer, account]), this.accountGeneration(issuer, account) + 1);
+  }
+
+  #checkAccountGeneration(issuer: Issuer, account: string, expected: number): void {
+    if (this.accountGeneration(issuer, account) !== expected) {
+      throw new PoppyError("approval_changed", "The account's access changed while this request was being prepared. Start it again.", 0);
+    }
+  }
+
+  #checkAccount(row: AccountRow): void {
+    if (this.account(row.issuer, row.account)?.token !== row.token) {
+      throw new PoppyError("approval_changed", "The account's refresh token changed while this request was being prepared. Start it again.", 0);
+    }
+  }
+
   /**
-   * The additional data an Account Token is sealed with: its issuer, the
+   * The additional data a refresh token is sealed with: its issuer, the
    * User ID there and its account, so it opens only for its own account. A
    * token waiting to be revoked (signout.ts) keeps it.
    */
@@ -758,24 +808,27 @@ export class PoppyClient {
     return `account|${issuer}|${this.userId(issuer)}|${account}`;
   }
 
-  /** The Account Token itself, decrypted only for a token-endpoint request. */
-  async #accountToken(row: AccountRow): Promise<string> {
+  /** The refresh token itself, decrypted only for a token-endpoint request. */
+  async #accountToken(row: AccountRow): Promise<{ value: string; row: AccountRow }> {
     const context = this.accountContext(row.issuer, row.account);
     const { plaintext, current } = await this.sealer.openChecked(row.token, context);
     // Sealed under TOKEN_ENC_KEY_PREVIOUS, or before values were versioned: seal it again under the current key.
     if (!current) {
-      this.sql.exec(
-        "UPDATE poppy_accounts SET token = ? WHERE issuer = ? AND account = ? AND token = ?",
-        await this.sealer.seal(plaintext, context),
+      const sealed = await this.sealer.seal(plaintext, context);
+      const changed = this.sql.exec(
+        "UPDATE poppy_accounts SET token = ? WHERE issuer = ? AND account = ? AND token = ? RETURNING account",
+        sealed,
         row.issuer,
         row.account,
         row.token
-      );
+      ).toArray();
+      if (changed.length) row = { ...row, token: sealed };
     }
-    return plaintext;
+    this.#checkAccount(row);
+    return { value: plaintext, row };
   }
 
-  /** Store a new or rotated Account Token at once, encrypted (spec 4.8). */
+  /** Store new sign-in access encrypted; a withdrawal while sealing wins. */
   async storeAccountToken(
     issuer: Issuer,
     account: string,
@@ -783,7 +836,9 @@ export class PoppyClient {
     scope: string,
     expiresInSeconds: number | undefined
   ): Promise<void> {
+    const generation = this.accountGeneration(issuer, account);
     const sealed = await this.sealer.seal(token, this.accountContext(issuer, account));
+    this.#checkAccountGeneration(issuer, account, generation);
     this.sql.exec(
       `INSERT OR REPLACE INTO poppy_accounts (issuer, account, token, scope, expires_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -794,13 +849,16 @@ export class PoppyClient {
       expiresInSeconds ? Date.now() + expiresInSeconds * 1000 : null,
       Date.now()
     );
+    this.#advanceAccountGeneration(issuer, account);
   }
 
   deleteAccount(issuer: Issuer, account: string): void {
     this.sql.exec("DELETE FROM poppy_accounts WHERE issuer = ? AND account = ?", issuer, account);
-    // Sessions signed in to it continue signed out on their next renewal.
+    this.#advanceAccountGeneration(issuer, account);
+    // Sessions signed in to it continue signed out (5.5), now: an approval bound to the account
+    // (apis.ts `checkApprovalBinding`) is withdrawn before anything awaits, not at the next renewal.
     for (const session of this.sessions(issuer)) {
-      if (session.account === account) this.#forgetTokens(issuer, session.label);
+      if (session.account === account) this.signOutSession(issuer, session.label);
     }
   }
 
@@ -810,165 +868,28 @@ export class PoppyClient {
     }
   }
 
-  // ---------------------------------------------------------------- Session Tokens
-
-  /**
-   * A Session Token for one Session, from memory, by renewal, or by starting
-   * a Session (spec 4.2, 4.8). After an eviction the DPoP key is new, so the
-   * next token request binds a new token to it.
-   */
-  async token(company: Company, options: TokenOptions = {}): Promise<HeldToken> {
-    isDraft2(company); // Reject unknown versions even when a caller supplied cached state.
-    await this.#recoverSignIns(company.issuer);
-    const label = options.label ?? "main";
-    const key = `${company.issuer}|${label}|${options.resource ?? ""}|${options.scope ?? ""}|${options.bearer ? "bearer" : "dpop"}|${company.protocolVersion}`;
-    const dpop = options.bearer ? null : await this.dpopKey(company.issuer);
-    const usable = () => {
-      const held = this.#tokens.get(key);
-      return held &&
-        held.expiresAt - RENEW_EARLY_MS > Date.now() &&
-        (dpop === null || held.keyThumbprint === dpop.thumbprint)
-        ? held
-        : undefined;
-    };
-    const held = usable();
-    if (held) return held;
-    return this.#serial(company.issuer, async () => {
-      // Another caller may have renewed it while this one waited.
-      const renewed = usable();
-      if (renewed) return renewed;
-      return this.#renew(company, label, key, options, dpop);
-    });
-  }
-
-  async #renew(
-    company: Company,
-    label: string,
-    key: string,
-    options: TokenOptions,
-    dpop: DpopKey | null
-  ): Promise<HeldToken> {
-    const response = await this.#obtainToken(company, label, options);
-    if (isDraft2(company) && !response.token_type) throw new PoppyError("invalid_response", "The token response has no token_type", 0);
-    if ((response.token_type ?? (options.bearer ? "Bearer" : "DPoP")).toLowerCase() !== (options.bearer ? "bearer" : "dpop")) {
-      throw new PoppyError("invalid_response", "The token type does not match the resource's authentication requirements", 0);
-    }
-    const token: HeldToken = {
-      value: response.access_token,
-      type: options.bearer ? "Bearer" : "DPoP",
-      expiresAt: Date.now() + response.expires_in * 1000,
-      scope: response.scope ?? "",
-      signedIn: response.signed_in === true,
-      keyThumbprint: dpop?.thumbprint ?? null
-    };
-    // Scope/resource variants must not revive an older token (spec 4.3).
-    this.#forgetTokens(company.issuer, label);
-    this.#tokens.set(key, token);
-    return token;
-  }
+  // ---------------------------------------------------------------- Access tokens
 
   /** Drop a token the Company rejected, so the next call gets a new one. */
   dropToken(company: Company, options: TokenOptions = {}): void {
     this.#forgetTokens(company.issuer, options.label ?? "main");
   }
 
-  async #obtainToken(company: Company, label: string, options: TokenOptions): Promise<TokenResponse> {
-    const signing = await currentKey(this.host.env);
-    const userId = this.userId(company.issuer);
-    const extra = {
-      ...(options.resource ? { resource: options.resource } : {}),
-      ...(options.scope ? { scope: options.scope } : {})
-    };
-    const dpop = { dpop: !options.bearer };
-    const session = this.session(company.issuer, label);
-    const account = session?.account ? this.account(company.issuer, session.account) : undefined;
-
-    // A signed-in Session renews with its Account Token.
-    if (session && session.signed_in && account) {
-      try {
-        const response = withScope(
-          await this.tokenRequest(
-            company,
-            async () => ({
-              grant_type: "refresh_token",
-              refresh_token: await this.#accountToken(account),
-              session_id: session.session_id,
-              ...extra
-            }),
-            dpop
-          ),
-          options.scope ?? account.scope
-        );
-        await this.#afterAccountUse(company, account.account, response);
-        // A token narrowed for one lookup doesn't narrow the Session.
-        this.#saveSession(company.issuer, label, options.scope ? { ...response, scope: session.scope } : response, account.account);
-        return response;
-      } catch (error) {
-        if (!(error instanceof PoppyError)) throw error;
-        if (error.is("invalid_grant")) {
-          await this.#accountGone(company, account.account);
-        } else if (error.is("invalid_session", "account_mismatch")) {
-          this.#forgetSession(company.issuer, label);
-          return this.#obtainToken(company, label, options);
-        } else {
-          throw error;
-        }
-      }
-    }
-
-    // A signed-out Session renews with our assertion; `invalid_session` starts a new one.
-    const current = this.session(company.issuer, label);
-    try {
-      const response = withScope(
-        await this.tokenRequest(
-          company,
-          async () => ({
-            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            assertion: await sessionAssertion(
-              signing,
-              this.identity.clientId,
-              userId,
-              isDraft2(company) ? company.issuer : company.endpoints.token
-            ),
-            ...(current ? { session_id: current.session_id } : {}),
-            // A signed-out token has no scopes (4.2), and some Companies reject
-            // `scope` on this grant, so only `resource` narrows it.
-            ...(options.resource ? { resource: options.resource } : {})
-          }),
-          dpop
-        ),
-        current?.scope ?? ""
-      );
-      this.#saveSession(company.issuer, label, response, null);
-      return response;
-    } catch (error) {
-      if (
-        current &&
-        error instanceof PoppyError &&
-        (error.is("invalid_session", "account_mismatch"))
-      ) {
-        this.#forgetSession(company.issuer, label);
-        return this.#obtainToken(company, label, options);
-      }
-      throw error;
-    }
-  }
-
-  /** After any use of an Account Token: a rotated one replaces it at once (spec 4.8). */
-  async #afterAccountUse(company: Company, account: string, response: TokenResponse): Promise<void> {
+  /** After any use of a refresh token: a new one replaces it at once (4.4). */
+  async #afterAccountUse(company: Company, account: AccountRow, response: TokenResponse): Promise<void> {
+    this.#checkAccount(account);
     if (response.refresh_token) {
-      const existing = this.account(company.issuer, account);
-      await this.storeAccountToken(
-        company.issuer,
-        account,
-        response.refresh_token,
-        existing?.scope ?? response.scope ?? "",
-        response.refresh_token_expires_in
-      );
+      const sealed = await this.sealer.seal(response.refresh_token, this.accountContext(company.issuer, account.account));
+      const changed = this.sql.exec(
+        "UPDATE poppy_accounts SET token = ?, scope = ?, expires_at = ?, updated_at = ? WHERE issuer = ? AND account = ? AND token = ? RETURNING account",
+        sealed, account.scope, response.refresh_token_expires_in ? Date.now() + response.refresh_token_expires_in * 1000 : null,
+        Date.now(), company.issuer, account.account, account.token
+      ).toArray();
+      if (!changed.length) throw new PoppyError("approval_changed", "The account's refresh token changed before its rotated token could be stored. Start it again.", 0);
     }
   }
 
-  /** `invalid_grant` for an Account Token: delete it, continue signed out, tell the User. */
+  /** `invalid_grant` for a refresh token: delete it, continue signed out, tell the User (5.5). */
   async #accountGone(company: Company, account: string): Promise<void> {
     this.deleteAccount(company.issuer, account);
     await this.host.showCard({
@@ -982,8 +903,8 @@ export class PoppyClient {
   }
 
   /**
-   * Sign a Session in with an Account Token we already hold (spec 4.8), so
-   * the User isn't asked again. Returns false when there is none that covers
+   * Sign a Session in with a refresh token we already hold (4.4), so the
+   * User isn't asked again. Returns false when there is none that covers
    * `scopes`.
    */
   async signInWithAccount(
@@ -1007,41 +928,18 @@ export class PoppyClient {
       : this.accounts(company.issuer);
     const account = candidates.find((row) => covers(row.scope, scopes));
     if (!account) return false;
-    const session = this.session(company.issuer, label);
-    // A Session signed in to another account can't switch: start a new one (4.4).
-    const sessionId = session && (!session.signed_in || session.account === account.account) ? session.session_id : undefined;
-    try {
-      const response = withScope(
-        await this.tokenRequest(company, async () => ({
-          grant_type: "refresh_token",
-          refresh_token: await this.#accountToken(account),
-          ...(sessionId ? { session_id: sessionId } : {})
-        })),
-        account.scope
-      );
-      await this.#afterAccountUse(company, account.account, response);
-      this.#forgetTokens(company.issuer, label);
-      this.#saveSession(company.issuer, label, response, account.account);
-      return true;
-    } catch (error) {
-      if (!(error instanceof PoppyError)) throw error;
-      if (error.is("invalid_grant")) {
-        await this.#accountGone(company, account.account);
-        return false;
-      }
-      if (error.is("invalid_session", "account_mismatch")) {
-        this.#forgetSession(company.issuer, label);
-        return this.#signInWithAccount(company, label, scopes, account.account);
-      }
-      throw error;
-    }
+    // Sign-in is plain OAuth and needs no Session (5.4): the Session uses the account from its next request.
+    this.#bindAccount(company, label, account.account, account.scope);
+    const key = `${company.issuer}|${label}|||access`;
+    return (await this.#refresh(company, label, key, {}, company.dpop ? await this.dpopKey(company.issuer) : null)) !== null;
   }
 
   /**
-   * Record a completed sign-in: Account Token, signed-in Session (spec 4.4).
-   * Returns the account as it was when a step-up replaced its Account Token
-   * with another, still holding the old token sealed, for the caller to
-   * revoke (signout.ts); null when nothing was replaced.
+   * Record a completed sign-in: its refresh token, and the Session signed in
+   * to the account (5.4). Returns the account as it was when a step-up
+   * replaced its refresh token with another, still holding the old token
+   * sealed, for the caller to revoke (signout.ts); null when nothing was
+   * replaced.
    */
   async completeSignIn(
     company: Company,
@@ -1050,11 +948,13 @@ export class PoppyClient {
     response: TokenResponse
   ): Promise<AccountRow | null> {
     const previous = this.account(company.issuer, account);
+    const previousGeneration = this.accountGeneration(company.issuer, account);
     // Compared before the new token is stored, so nothing awaits between storing it and the caller recording the old one.
     // One that won't open is taken as replaced: its revocation then says it can't be sent.
     const same = async (sealed: string, token: string) =>
       (await this.sealer.open(sealed, this.accountContext(company.issuer, account)).catch(() => null)) === token;
     const replaced = previous && response.refresh_token && !(await same(previous.token, response.refresh_token)) ? previous : null;
+    this.#checkAccountGeneration(company.issuer, account, previousGeneration);
     if (response.refresh_token) {
       await this.storeAccountToken(
         company.issuer,
@@ -1063,58 +963,336 @@ export class PoppyClient {
         response.scope ?? "",
         response.refresh_token_expires_in
       );
+    } else this.#advanceAccountGeneration(company.issuer, account);
+    this.#checkAccountGeneration(company.issuer, account, previousGeneration + 1);
+    this.#bindAccount(company, label, account, response.scope ?? "");
+    const generation = this.accountGeneration(company.issuer, account);
+    const bound = sessionAuthority(this.session(company.issuer, label));
+    // The sign-in's own access token serves the Session's next request, when it came with the answer
+    // (a sign-in finished after an interruption kept only the refresh token) and we can use it.
+    const dpop = company.dpop ? await this.dpopKey(company.issuer) : null;
+    this.#checkAccountGeneration(company.issuer, account, generation);
+    if (!sameAuthority(bound, sessionAuthority(this.session(company.issuer, label)))) {
+      throw new PoppyError("approval_changed", "The Session changed while sign-in was being completed. Start it again.", 0);
     }
-    this.#forgetTokens(company.issuer, label);
-    this.#saveSession(company.issuer, label, response, account);
+    const held = response.access_token ? this.#usable(response, dpop, account, generation) : null;
+    if (held) this.#tokens.set(`${company.issuer}|${label}|||access`, held);
     return replaced;
+  }
+
+  // ---------------------------------------------------------------- Sessions (5)
+
+  /**
+   * The delegated key this Company's User ID signs with, and its
+   * delegation (5.2): a new key and delegation before the old one runs out.
+   * One per Company, so one per User ID: never shared between Companies.
+   */
+  async #delegatedFor(company: Company): Promise<Delegated> {
+    const held = this.#delegated.get(company.issuer);
+    if (held) {
+      const current = await held.catch(() => null);
+      if (current && delegationUsable(current)) return current;
+      if (this.#delegated.get(company.issuer) !== held) return this.#delegatedFor(company);
+    }
+    const next = (async () => delegate(await currentKey(this.host.env), this.identity.clientId, await newDpopKey()))();
+    this.#delegated.set(company.issuer, next);
+    return next;
+  }
+
+  /** The Session header for one request (5.2). */
+  async sessionHeader(company: Company, sid: string, request: { readonly method: string; readonly url: string; readonly accessToken?: string }): Promise<string> {
+    return sessionJwt(await this.#delegatedFor(company), {
+      clientId: this.identity.clientId,
+      issuer: company.issuer,
+      sid,
+      userId: this.userId(company.issuer),
+      method: request.method,
+      url: request.url,
+      ...(request.accessToken !== undefined ? { accessToken: request.accessToken } : {})
+    });
+  }
+
+  /**
+   * The Session for `label`, started when there is none: a new random
+   * `sid`, signed out (5.2, 5.4). It lives in `poppy_sessions` as earlier
+   * versions' Sessions do, its `sid` in `session_id`.
+   */
+  sessionFor(company: Company, label: string): SessionRow {
+    const existing = this.session(company.issuer, label);
+    if (existing) return existing;
+    this.#writeSession(company.issuer, label, randomId(), null, "");
+    return this.session(company.issuer, label)!;
+  }
+
+  /**
+   * A Session's row: `account` is the account it is signed in to now,
+   * and `used_account` the one it was used with, kept after it continues
+   * signed out, so signing in to another account later starts a new
+   * Session (5.4) rather than mixing them.
+   */
+  #writeSession(issuer: Issuer, label: string, sid: string, account: string | null, scope: string, used: string | null = account, authorityGeneration?: number): void {
+    // Reusing a sid/account after sign-out must not restore its earlier approvals.
+    const generation = authorityGeneration ?? this.session(issuer, label)?.authority_generation ?? 0;
+    this.sql.exec(
+      `INSERT OR REPLACE INTO poppy_sessions (issuer, label, session_id, account, signed_in, scope, updated_at, used_account, authority_generation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      issuer,
+      label,
+      sid,
+      account,
+      account ? 1 : 0,
+      scope,
+      Date.now(),
+      used,
+      generation
+    );
+  }
+
+  /** The account a Session was used with, signed in now or not. */
+  #usedAccount(issuer: Issuer, label: string): string | null {
+    return one(this.sql, sessionsTable.pick("used_account"), "SELECT used_account FROM poppy_sessions WHERE issuer = ? AND label = ?", issuer, label)?.used_account ?? null;
+  }
+
+  /**
+   * The Session continues signed out (5.5): the same `sid`, no
+   * account. Its cart and conversations carry on; what used the account
+   * gets a challenge.
+   */
+  signOutSession(issuer: Issuer, label: string): void {
+    const session = this.session(issuer, label);
+    if (session) this.#writeSession(
+      issuer, label, session.session_id, null, "", this.#usedAccount(issuer, label) ?? session.account,
+      session.authority_generation + (session.signed_in ? 1 : 0)
+    );
+    this.#forgetTokens(issuer, label);
+  }
+
+  /**
+   * Sign the Session `label` in to `account`. A Session already used
+   * with another account gets a new `sid` instead (5.4: "start a new
+   * Session rather than use a second account in one Session").
+   */
+  #bindAccount(company: Company, label: string, account: string, scope: string): void {
+    const session = this.session(company.issuer, label);
+    const used = session ? this.#usedAccount(company.issuer, label) ?? session.account : null;
+    const sid = session && (!used || used === account) ? session.session_id : randomId();
+    this.#forgetTokens(company.issuer, label);
+    this.#writeSession(company.issuer, label, sid, account, scope);
+  }
+
+  /**
+   * Whether a service takes only its own tokens (4.5): its protected
+   * resource metadata, at the URL RFC 9728 3.1 defines from the service's
+   * URL, names a `resource` other than the Company's domain. Fetched
+   * without redirects, cached like discovery documents; no metadata means
+   * the default token.
+   */
+  async serviceResource(company: Company, service: string): Promise<string | undefined> {
+    let cached = this.#serviceResources.get(service);
+    if (!cached || cached.expiresAt <= this.host.now()) {
+      const url = new URL(service);
+      // RFC 9728 3.1 inserts the well-known segment before the exact service path.
+      const path = url.pathname === "/" ? "" : url.pathname;
+      let metadata: Json | null = null;
+      let seconds: number | null = null;
+      try {
+        const fetched = await fetchJson(this.host.fetcher, `${url.origin}/.well-known/oauth-protected-resource${path}`, { maxRedirects: 0 });
+        metadata = fetched.json;
+        seconds = fetched.maxAgeSeconds;
+      } catch {
+        // No metadata: the default token works there (4.5).
+      }
+      cached = { metadata, expiresAt: this.host.now() + boundedCacheSeconds(seconds) * 1000 };
+      this.#serviceResources.set(service, cached);
+    }
+    const resource = metadataResource(company, cached.metadata);
+    return resource?.toLowerCase() !== `https://${company.domain}` ? resource : undefined;
+  }
+
+  /** An invalid_token challenge refreshes stale service metadata once, without trusting a new issuer or following a redirect. */
+  async #refreshServiceMetadata(company: Company, service: string, hint: string, expectedResource?: string): Promise<string | undefined> {
+    this.#serviceResources.delete(service);
+    const url = serviceMetadataUrl(company, hint);
+    if (!url) throw new PoppyError("invalid_response", "The service's resource_metadata challenge names an untrusted metadata URL", 0);
+    let fetched: Awaited<ReturnType<typeof fetchJson>>;
+    try { fetched = await fetchJson(this.host.fetcher, url.href, { maxRedirects: 0 }); }
+    catch { throw new PoppyError("invalid_response", "The service's challenged resource metadata could not be fetched safely", 0); }
+    const resource = metadataResource(company, fetched.json);
+    if (!resource || (expectedResource !== undefined && resource !== expectedResource)) {
+      throw new PoppyError("invalid_response", "The refreshed resource metadata does not identify this Company's selected service", 0);
+    }
+    this.#serviceResources.set(service, { metadata: fetched.json, expiresAt: this.host.now() + boundedCacheSeconds(fetched.maxAgeSeconds) * 1000 });
+    // An explicitly selected resource (MCP's exact URL) remains explicit even if it names the Company domain.
+    return expectedResource ?? (resource.toLowerCase() === `https://${company.domain}` ? undefined : resource);
+  }
+
+  /**
+   * The access token for a signed-in Session, from memory or by refresh
+   * (4.4, 4.5); null for a signed-out one, which sends the Session header
+   * alone. A refresh token the Company no longer honours signs the Session
+   * out, and the request goes signed out (5.5). It starts the Session
+   * `label` when there is none, so callers use it to have one.
+   */
+  async token(company: Company, options: TokenOptions = {}): Promise<HeldToken | null> {
+    assertSupported(company);
+    return this.#token(company, options);
+  }
+
+  async #token(company: Company, options: TokenOptions): Promise<HeldToken | null> {
+    await this.#recoverSignIns(company.issuer);
+    const label = options.label ?? "main";
+    const session = this.sessionFor(company, label);
+    if (!session.signed_in || !session.account) return null;
+    const key = `${company.issuer}|${label}|${options.resource ?? ""}|${options.scope ?? ""}|access`;
+    const dpop = company.dpop ? await this.dpopKey(company.issuer) : null;
+    const usable = () => {
+      const held = this.#tokens.get(key);
+      return held && held.account === session.account && held.accountGeneration === this.accountGeneration(company.issuer, held.account)
+        && held.expiresAt - RENEW_EARLY_MS > Date.now() && (held.type === "Bearer" || held.keyThumbprint === dpop?.thumbprint) ? held : undefined;
+    };
+    const held = usable();
+    if (held) return held;
+    return this.#serial(company.issuer, async () => usable() ?? this.#refresh(company, label, key, options, dpop));
+  }
+
+  async #refresh(company: Company, label: string, key: string, options: TokenOptions, dpop: DpopKey | null): Promise<HeldToken | null> {
+    const session = this.session(company.issuer, label);
+    const account = session?.account ? this.account(company.issuer, session.account) : undefined;
+    if (!session?.account || !account) {
+      this.signOutSession(company.issuer, label);
+      return null;
+    }
+    const generation = this.accountGeneration(company.issuer, account.account);
+    const credential = await this.#accountToken(account);
+    const check = () => { this.#checkAccountGeneration(company.issuer, account.account, generation); this.#checkAccount(credential.row); };
+    let response: TokenResponse;
+    try {
+      response = withScope(
+        await this.tokenRequest(company, async () => ({
+          grant_type: "refresh_token",
+          refresh_token: credential.value,
+          ...(options.resource ? { resource: options.resource } : {}),
+          ...(options.scope ? { scope: options.scope } : {})
+        }), { dpop: true, beforeDispatch: check }),
+        options.scope ?? account.scope
+      );
+    } catch (error) {
+      if (!hasCode(error, "invalid_grant")) throw error;
+      check();
+      await this.#accountGone(company, account.account);
+      return null;
+    }
+    await this.#afterAccountUse(company, credential.row, response);
+    this.#checkAccountGeneration(company.issuer, account.account, generation);
+    const token = this.#held(response, dpop, account.account, generation);
+    // Another scope or resource must not revive an older token (4.5).
+    this.#forgetTokens(company.issuer, label);
+    this.#tokens.set(key, token);
+    return token;
+  }
+
+  /** An access token: its scheme is the one `token_type` names (4.5), and a DPoP-bound one needs the proof we sent. */
+  #held(response: TokenResponse, dpop: DpopKey | null, account: string, generation: number): HeldToken {
+    const held = this.#usable(response, dpop, account, generation);
+    if (!held) throw new PoppyError("invalid_response", "The token response names a token_type this request can't use", 0);
+    return held;
+  }
+
+  #usable(response: TokenResponse, dpop: DpopKey | null, account: string, generation: number): HeldToken | null {
+    const type = response.token_type?.toLowerCase();
+    if (type !== "bearer" && !(type === "dpop" && dpop)) return null;
+    return {
+      value: response.access_token,
+      account,
+      accountGeneration: generation,
+      type: type === "dpop" ? "DPoP" : "Bearer",
+      expiresAt: Date.now() + response.expires_in * 1000,
+      scope: response.scope ?? "",
+      signedIn: true,
+      keyThumbprint: type === "dpop" ? dpop!.thumbprint : null
+    };
   }
 
   // ---------------------------------------------------------------- Resources
 
   /**
-   * One request to a Company API, conversation or operations endpoint, with
-   * the Session Token in `Authorization: DPoP` and a fresh proof (spec 4.3).
-   * Nonces, `invalid_token` renewals and short `Retry-After` waits are
-   * handled; other auth errors come back as `PoppyError`s. It takes only a
-   * request one of the checking constructors made: an `EndpointRequest` to
-   * an endpoint `poppy.json` names, or a `CheckedApiRequest` (apis.ts).
+   * One request to a Company API, conversation, MCP server or other endpoint
+   * the protocol defines: the Session header, signed for this request (5.2),
+   * and the access token when signed in (4.5), with a DPoP proof when it is
+   * DPoP-bound. Nonces, `invalid_token` refreshes, one new Session after
+   * `invalid_session`, and short `Retry-After` waits are handled; other auth
+   * errors come back as `PoppyError`s. It takes only a request one of the
+   * checking constructors made: an `EndpointRequest` to an endpoint
+   * `poppy.json` names, or a `CheckedApiRequest` (apis.ts).
    */
   async resource(company: Company, outgoing: EndpointRequest | CheckedApiRequest, options: TokenOptions = {}): Promise<Response> {
     const request = outgoing.init();
     const url = new URL(request.url);
-    const bearer = options.bearer === true;
-    if (bearer && (!options.resource || options.resource !== request.url || !company.apis.some((api) => api.type === "mcp" && api.url === request.url))) {
-      throw new PoppyError("invalid_request", "A Bearer token is usable only at the exact MCP resource URL", 0);
-    }
     if (url.protocol !== "https:") {
-      recordResource(this.sql, company, request, { bearer, nonce: false }, { refused: "not_https" });
+      recordResource(this.sql, company, request, { token: "none", nonce: false }, { refused: "not_https" });
       throw new PoppyError("invalid_request", "Refusing a non-HTTPS URL", 0);
     }
-    // Session Tokens go only to the Company's own hosts (N10), whatever a description names.
+    // Tokens and Session JWTs go only to the Company's own hosts (N10), whatever a description names.
     if (!tokenHostAllowed(company, url)) {
-      recordResource(this.sql, company, request, { bearer, nonce: false }, { refused: "untrusted_host" });
+      recordResource(this.sql, company, request, { token: "none", nonce: false }, { refused: "untrusted_host" });
       throw new PoppyError(
         "untrusted_host",
-        `${url.hostname} isn't one of ${company.name}'s hosts (not listed in its poppy.json, nor under ${company.domain} or its poppy_domains), so it never gets a Session Token`,
+        `${url.hostname} isn't one of ${company.name}'s hosts (not listed in its poppy.json, nor under ${company.domain} or a URL in its issuer's protected_resources), so it never gets a token or Session JWT`,
         0
       );
     }
+    const label = options.label ?? "main";
     let renewed = false;
     let restarted = false;
+    let challengedResource: { readonly value: string | undefined } | undefined;
     for (let attempt = 0; attempt < 4; attempt++) {
       await this.#respectLimit(company.issuer);
-      const token = await this.token(company, options);
-      // Tokens never travel in a URL (spec 4.3), whatever a description or a model supplies.
-      if (url.href.includes(token.value)) {
-        recordResource(this.sql, company, request, { bearer, nonce: false }, { refused: "token_in_url" });
+      const prepared = this.sessionFor(company, label);
+      let preparedToken: HeldToken | null | undefined;
+      const sameSession = () => {
+        const current = this.session(company.issuer, label);
+        return sameAuthority(sessionAuthority(prepared), sessionAuthority(current)) && current?.signed_in === prepared.signed_in;
+      };
+      const sameBinding = () => sameSession() && (!preparedToken ||
+        preparedToken.accountGeneration === this.accountGeneration(company.issuer, preparedToken.account));
+      const checkRetry = () => {
+        if (!sameBinding()) throw new PoppyError("approval_changed", "The account or Session changed after this request was sent. No further attempt will be sent.", 0);
+      };
+      // A signed-in request to a service that takes only its own tokens asks for one (4.5).
+      let effective = options;
+      if (challengedResource) {
+        const { resource: _previous, ...rest } = options;
+        effective = { ...rest, ...(challengedResource.value ? { resource: challengedResource.value } : {}) };
+      } else if (!options.resource && options.service && prepared.signed_in) {
+        const resource = await this.serviceResource(company, options.service);
+        if (resource) effective = { ...options, resource };
+      }
+      const token = await this.token(company, effective);
+      preparedToken = token;
+      if (!sameBinding()) {
+        if (sameSession()) throw new PoppyError("approval_changed", "The account's access changed while this request was being prepared. Start it again.", 0);
+        // A sign-in or sign-out may have won while refresh was pending. Its
+        // old response must neither travel nor populate the new Session's cache.
+        this.#forgetTokens(company.issuer, label);
+        if (attempt === 3) throw new PoppyError("approval_changed", "The account or Session changed while this request was being prepared. Start it again.", 0);
+        continue;
+      }
+      // Tokens never travel in a URL (5.6), whatever a description or a model supplies.
+      if (token && url.href.includes(token.value)) {
+        recordResource(this.sql, company, request, { token: token.type, nonce: false }, { refused: "token_in_url" });
         throw new PoppyError("invalid_request", "Refusing a URL that contains a token", 0);
       }
-      const auth = { bearer: token.type === "Bearer", nonce: token.type !== "Bearer" && this.#nonces.has(url.origin) };
+      const auth: ResourceAuth = { token: token?.type ?? "none", nonce: token?.type === "DPoP" && this.#nonces.has(url.origin) };
       const log = (answer: Parameters<typeof recordResource>[4], next?: Followup) => recordResource(this.sql, company, request, auth, answer, next);
       const headers = new Headers(request.headers);
       headers.set("Accept", request.accept ?? "application/json");
       if (request.body !== undefined && !request.form) headers.set("Content-Type", "application/json");
-      if (token.type === "Bearer") {
+      // Every request carries the Session header, signed for it alone (5.2); `ath` binds it to the token.
+      const sid = prepared.session_id;
+      headers.set("Poppy-Session", await this.sessionHeader(company, sid, { method: request.method, url: url.href, ...(token ? { accessToken: token.value } : {}) }));
+      if (!token) {
+        // Signed out (5): the Session header alone.
+      } else if (token.type === "Bearer") {
         headers.set("Authorization", `Bearer ${token.value}`);
       } else {
         const nonce = this.#nonces.get(url.origin);
@@ -1138,6 +1316,12 @@ export class PoppyClient {
       });
       // No await between the authority check and fetch: a revocation during
       // token renewal, nonce retries or a rate-limit wait wins before sending.
+      // Signing the Session JWT or DPoP proof also yields: the authority callback
+      // must observe the same binding as the already prepared outbound request.
+      if (!sameBinding()) {
+        if (!sameSession()) this.#forgetTokens(company.issuer, label);
+        throw new PoppyError("approval_changed", "The account or Session changed while this request was being prepared. Start it again.", 0);
+      }
       options.beforeDispatch?.();
       // A deadline for the answer to start; the caller reads the body with `readBody`.
       const response = await withDeadline(this.timeouts.requestMs + (request.waitMs ?? 0), (signal) =>
@@ -1158,19 +1342,34 @@ export class PoppyClient {
         const retrying = wait <= INLINE_WAIT_MS && attempt < 3;
         log({ status: response.status, error: challenge.error ?? null }, { kind: "wait", ms: wait, retrying });
         if (!retrying) throw withAnswer(new RateLimitedError(wait), response.status);
+        checkRetry();
         await this.host.sleep(wait);
+        checkRetry();
         continue;
       }
       if (response.status === 401 && challenge.error === "use_dpop_nonce" && nonce) {
         await response.body?.cancel();
         log({ status: 401, error: challenge.error }, { kind: "nonce" });
+        checkRetry();
         continue;
       }
       if (response.status === 401 && challenge.error === "invalid_token" && !renewed) {
-        // Expired or revoked: get a new token and retry once (spec 6).
+        // Expired or revoked: refresh it and retry once (7, 4.4).
         await response.body?.cancel();
-        log({ status: 401, error: challenge.error }, { kind: "renew" });
+        log({ status: 401, error: challenge.error }, { kind: "refresh" });
+        checkRetry();
         this.dropToken(company, options);
+        if (challenge.resourceMetadataAmbiguous) {
+          this.#serviceResources.delete(options.service ?? options.resource ?? url.href);
+          throw new PoppyError("invalid_response", "The service's authentication challenge has conflicting or malformed resource metadata", 401);
+        }
+        if (challenge.resourceMetadata) {
+          const service = options.service ?? options.resource ?? url.href;
+          if (!sameBinding()) throw new PoppyError("approval_changed", "The account or Session changed before refreshing service metadata", 0);
+          const value = await this.#refreshServiceMetadata(company, service, challenge.resourceMetadata, options.resource);
+          if (!sameBinding()) throw new PoppyError("approval_changed", "The account or Session changed while service metadata was being refreshed", 0);
+          challengedResource = { value };
+        }
         renewed = true;
         continue;
       }
@@ -1179,22 +1378,29 @@ export class PoppyClient {
         response.status >= 400 && !(response.headers.get("Content-Type") ?? "").includes("text/event-stream")
           ? ((await this.readJson(response.clone()).catch(() => null)) as { error?: unknown } | null)
           : null;
-      // Some Companies end a Session with `invalid_session` in the body rather
-      // than 401 invalid_token, the only token error spec 6 lists for this
-      // (spec-issues S13, N39): start a new Session and retry once.
+      // `invalid_session` (7: 400, in a JSON body; a 401 is read the same): start a
+      // new Session once; an account it was signed in to stays with the new one.
       if ((response.status === 400 || response.status === 401) && !restarted && peek?.error === "invalid_session") {
         await response.body?.cancel();
         log({ status: response.status, error: "invalid_session" }, { kind: "restart" });
-        this.#forgetSession(company.issuer, options.label ?? "main");
+        checkRetry();
+        this.#restartSession(company.issuer, label);
         restarted = true;
         continue;
       }
-      log({ status: response.status, error: challenge.error ?? (typeof peek?.error === "string" ? peek.error : null) });
-      if (challenge.error && (response.status === 401 || response.status === 403)) {
+      // 7: a 401 with no error code and the scopes needed is handled as insufficient_scope.
+      const code = challenge.error ?? (response.status === 401 && challenge.scope ? "insufficient_scope" : undefined);
+      log({ status: response.status, error: code ?? (typeof peek?.error === "string" ? peek.error : null) });
+      if (code && (response.status === 401 || response.status === 403)) {
         await response.body?.cancel();
+        // 3.3: the model and the User are told which extension, as a JSON body's `extension` tells them.
+        const said = code === "extension_required"
+          ? `${company.name} requires the extension ${challenge.extension ?? "(unnamed)"}, which this agent doesn't support`
+          : `${company.name}: ${code}`;
         throw withAnswer(
-          new PoppyError(companyErrorCode(challenge.error, response.status), `${company.name}: ${challenge.error}`, response.status, {
-            ...(challenge.scope ? { scope: challenge.scope } : {})
+          new PoppyError(companyErrorCode(code, response.status), said, response.status, {
+            ...(challenge.scope ? { scope: challenge.scope } : {}),
+            ...(challenge.extension ? { extension: challenge.extension } : {})
           }),
           response.status
         );

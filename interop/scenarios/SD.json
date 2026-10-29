@@ -1,7 +1,7 @@
 {
   "id": "SD",
   "title": "Direct Sign-In",
-  "requirements": ["4.4", "4.5"],
+  "requirements": ["4.2", "4.7"],
   "readings": ["S1", "S2"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["approve_authorization"] },
   "steps": [

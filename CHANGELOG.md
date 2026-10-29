@@ -2,7 +2,64 @@
 
 Release notes and upgrade instructions for PDA. Entries are newest first, inspired by [Pi's changelog](https://pi.dev/changelog). PDA's release number is separate from the Poppy version it speaks. **Unreleased entries describe repository changes, not a deployed release.**
 
-## Unreleased — Poppy 0.1 and draft 0.2
+## Unreleased — Poppy 0.3 alone
+
+Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](spec/draft-0.3-retrieved-2026-10-29/README.md); `spec/upstream.json` pins its hashes; the restored browser rule has no upstream commit yet). Operations **v2**, Mediated Sign-In **v1**. 0.1 and 0.2 are no longer spoken ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)).
+
+### Breaking
+
+- A Company whose `poppy.json` declares 0.1 or 0.2 is refused before its issuer is used, and can't be used until it moves to 0.3; an agent's accounts there go unused, and aren't revoked. Print with Poppy moved on 28 October (`b340741`, and printwithpoppy.com declares 0.3).
+- The client metadata document is `/poppy/client.json` again, listing Operations 2; `/poppy/0.3/client.json` is gone. A Company that allowlisted it sees a new `client_id`, and the User signs in again.
+- Operations 1 is gone: proposals, confirm and cancel, tracking, standing permissions, the `poppy_operation` tool and its card. A migration drops `poppy_operations`, `poppy_proposals` and `poppy_permissions`. A Company's terms are an approval card, after our own card for the write.
+- Sign-in asks for the Company's own scopes; `poppy:read` and `poppy:write` are gone.
+
+### Added
+
+- Approval dispatch verification uses actual process-group SIGKILL with a surviving Company request/effect ledger at four boundaries, for OpenAPI and MCP. It exposed a lost completion notification; approvals now persist a per-decision notification and retry its stable ID/text after restart without resending the action.
+- Eight concurrent two-Company/two-User callback attacks check issuer, state and code combinations, then valid sign-ins and API reads.
+- A separately patched copy of the official Company kit sends valid DPoP token proofs. Its assertion probes pass, with 18 independent positive/denial controls; original pinned verdicts remain unchanged.
+- The manual 29 October spec refresh restores the explicit agent-controlled-browser MUST. PDA already uses its own browser; direct privacy/isolation evidence covers the restored rule.
+
+- `poppy_feedback`: tells a Company about a task the User couldn't do there, once per task, never one it lists as excluded, and passes on another way to do it when the Company answers with one (9.3). `poppy_discover` now lists the tasks a Company leaves out of the protocol (9.1) and describes its scopes from its OpenAPI descriptions and `scope_hints`.
+- Approval cards check the Company's terms against the request and the summary, and say what differs (Ops 5).
+- A requirement ledger for 0.3: `spec/requirements-0.3.json` gives each of the changelog's 43 entries a disposition, and `npm run check:spec` holds it to the changelog.
+- A mock check that no Session header reaches an OAuth endpoint (`session-jwt.oauth-endpoint`, 5.2).
+- Four issues found while implementing, in [poppy-0.3-issues.md](docs/poppy-0.3-issues.md#found-while-implementing).
+- The Python Hypothesis client and its five state machines speak 0.3: the Session header, refresh tokens, Operations 2, the browser join and MCP with its own token ([its README](test/hypothesis/README.md)).
+- The interop grid's first run at 0.3 (29 October): our four agent profiles against `lenient-company`, `strict-company` and `evil-company`, every failure the sloppy agent's by design ([results](docs/interop-results/README.md)).
+- print-with-poppy's adapter, back at `b340741`, the first other project on the 28 October text, and `print-with-poppy-live` for discovery at printwithpoppy.com. Its first run at 0.3: our three honest agents pass all ten scenarios it claims, the photo upload and its order (OU) among them, and the sloppy agent fails only its known `aud` ([results](docs/interop-results/README.md#print-with-poppy-at-03)). Its build stage starts from the full `node:22-bookworm` image, so the build installs no Debian packages.
+- The first live 0.3 run: discovery (D) at printwithpoppy.com passes from our agent's container, and the validator finds it valid ([results](docs/interop-results/README.md#live-printwithpoppycom-29-october)).
+- A trace check, `one_session`, that every resource request in a cell carries the Session header with one `sid`, and none reaches an OAuth endpoint (5.2).
+- The interop agent reads pages in Node with `html-rewriter-wasm` (lol-html, as Workers' `HTMLRewriter`), so browsing scenarios see the page the Company served.
+- An ecosystem refresh for 29 October: who implements the 28 October text, and dated public discovery results ([ecosystem.md](docs/ecosystem.md), [evidence](docs/evidence/ecosystem-2026-10-29/README.md)).
+
+### Fixed
+
+- A delayed refresh or retry response can no longer overwrite newer sign-in access, undo sign-out or restart a newer Session. Browser cookies and saved forms are invalidated when consent scopes or the account family change.
+- Approval receipt failures preserve completed Company outcomes. Reconciliation and batch notifications keep their ID/text across failure and restart, and a batch acknowledges only decisions it actually claimed.
+- Conversation streams handle CRLF split across chunks, bound individual events and unfinished text, cancel cleanly and release read timers. Concurrent feedback reports no longer duplicate a task or combine different Users in the mock's repetition oracle.
+- Incompatible conversations retire locally after an upgrade instead of running failing read jobs indefinitely. History and pending-message evidence remain, and Activity explicitly retains an unknown remote outcome.
+- The separately patched kit follows replacement DPoP nonces and signs fresh retry proofs. [Final adversarial audit, counterexamples and verification](docs/evidence/pr-36-final-audit/README.md).
+
+- Remaining 0.3 conformance gaps: Company-wide holds and User reconciliation for uncertain actions, MCP cache invalidation after withdrawal or scope changes, safe metadata recovery after `invalid_token`, and conservative missing scope hints. Verification now includes endpoint redirect controls, model-boundary guards and direct User alternatives, API/MCP lifecycle cases, restored 0.3 security lanes in CI and actual Chromium approval/recovery journeys. The [conformance review](docs/poppy-0.3-conformance.md) lists the fixes and keeps live and language-model limits explicit.
+- The PR 36 audit's nine findings: withdrawn conversation and browser approvals, account changes during browser join, interrupted legacy sign-ins, invisible Operations 1 cards, Company-dependent metadata and task caches, service metadata paths ending in `/`, Session JWT leak checks and tool steps left waiting after the Company's terms were decided. Sign-out now persists a local authority counter, so signing back into the same account cannot revive an old approval or browser context. [Fixes and regression evidence](docs/evidence/pr-36-audit/README.md).
+- The protocol log called token-endpoint requests "Session header"; they carry our client assertion.
+- Signing out withdraws its Sessions' pending approvals at once, not at the next token refresh.
+- `extension_required` names the extension the Company asks for.
+- The mock Company left out a scope a sign-in type can't grant instead of refusing it, when the issuer lists it (4.7, RFC 6749 3.3), and names the granted scope whenever it differs from the request, even where it usually omits it (RFC 6749 5.1). The Hypothesis port found both.
+- The live lane's notice without an identity named 0.1's scenarios and error: at 0.3 a Company refuses S0, CL and ML's Session header with `invalid_session`, and only a sign-in with `invalid_client`.
+- CI's interop job ran no cell at all after the move to 0.3: the mock's adapter still declared 0.1, so every cell was refused at version negotiation and the run passed. The adapter declares the version we speak, and a run in which no cell passes or fails now fails.
+- One agent's OpenAPI descriptions and task coverage were cached per process, so a second agent in the same process (the interop image, the Durable Object's isolate) could use the first one's. Each cache is now per client.
+- The interop checks require `conversation_id` on every conversation read (8.5).
+- Scenarios S0, CM, N and XN exercised nothing at 0.3, since a signed-out request no longer starts a Session at the token endpoint; each now makes the request its requirement is about. Every scenario's requirements cite 0.3's sections.
+
+### Removed
+
+- Every interop peer, vector and lane that spoke 0.1 or 0.2, with `lenient-company-v02`, the official validator's lanes (`npm run interop:official`, `npm run interop:flaws`) and the adversarial agent, which waits for a 0.3 port. [interop-spec §14](docs/interop-spec.md#14-retired-with-01-and-02) lists each with its last pin.
+- 0.1 and 0.2 error codes from the client's list: `account_mismatch`, `operation_not_found`, `sign_in_required`, `terms_changed` and `user_approval_required`. `rate_limited` stays as our own agent code.
+- NREP, the replayed token request, from the mock's manifest: it replayed 0.2's Session request, and waits for a 0.3 rewrite.
+
+## Earlier — Poppy 0.1 and draft 0.2
 
 Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/39b35bdf240fc07f157d6ca4e29b5a41d4b36b5d), Operations **v1**. [Local specification and official changelog](spec/draft-0.2-2026-10-19/README.md). [Upstream changelog](https://personalagentprotocol.org/docs/changelog#v0-2). Draft 0.2 is still in progress; this entry targets that exact revision.
 
@@ -15,6 +72,8 @@ Protocol baseline: **0.2, upstream revision 19 October 2026**, commit [`39b35bd`
 
 ### Added
 
+- **Draft 0.3, as upstream rewrote it on 28 October**, beside 0.2 and 0.1, on branch `poppy-0.3` ([snapshot](spec/draft-0.3-retrieved-2026-10-28/README.md), [plan and status](docs/poppy-0.3-plan.md#then-03-as-rewritten-on-28-october)). A Company whose `poppy.json` says `"0.3"` is discovered through its domain's protected resource metadata, and every request to it carries a `Poppy-Session` JWT signed with a delegated key, one per User ID. Accounts use plain OAuth refresh and access tokens, with DPoP only when the issuer asks for it. The browser joins a Session by authorizing the page's code in our own request. Operations 2 puts the Company's terms on an approval card and sends the same request again with `Poppy-Approval`, MCP `_meta` or a message's `approval`. Mediated Sign-In is a token-endpoint grant, and messages carry `author`. The validator has a `Draft 0.3` profile with 12 new messages; the mock Company speaks 0.3 and checks 51 of its rules. A 0.3 Company sees its own client_id, `/poppy/0.3/client.json`, which lists Operations 2 ([decision 36](docs/decisions.md#36-draft-03-beside-02-a-client_id-per-version-our-card-before-the-companys-terms-and-sessions-that-outlive-sign-out)). Not yet in the interop grid; 0.3 isn't published, so this follows an in-progress text.
+- Three snapshots of Personal Agent Protocol draft 0.3 as the site served it, at [01:47](spec/draft-0.3-retrieved-2026-10-25/README.md) and [06:13 UTC](spec/draft-0.3-retrieved-2026-10-25T0613Z/README.md) on 25 October and [18:34 UTC](spec/draft-0.3-retrieved-2026-10-26/README.md) on 26 October, since it kept changing, what it changes here ([docs/poppy-0.3-upgrade.md](docs/poppy-0.3-upgrade.md)), a plan to keep up with weekly versions, starting with 0.3 and dropping 0.1 ([docs/poppy-0.3-plan.md](docs/poppy-0.3-plan.md)), every open problem in one list ([docs/poppy-0.3-issues.md](docs/poppy-0.3-issues.md)) and a review of its text ([docs/spec-issues-0.3.md](docs/spec-issues-0.3.md)). At the time, nothing of 0.3 was implemented; the protocol baseline stays 0.2. 0.2 was published and frozen on 24 October with the same text as the pinned revision.
 - A 28 October ecosystem refresh: 23 checked repository heads, six new source candidates and 33 dated public discovery results. Six unsupported 0.3 declarations are distinguished from invalid supported-profile documents; historical grid and live-journey dates are preserved.
 
 - A 23 October ecosystem refresh: 17 checked source heads, 28 dated public discovery/metadata results, Archon's new entry and current 0.2 declarations. Older Session results and grid scores retain their original dates.

@@ -4,6 +4,8 @@
  * where, how and with what access, in the words the rest of the page uses.
  * Pure, so it is tested on its own (test/ui/tool-line.test.ts).
  */
+import { isApprovalId, type ApprovalResult } from "../poppy/approval-outcome";
+import { messageDelivery } from "../poppy/message-result";
 
 export type ToolHow = "API" | "their agent" | "website" | "sign-in" | "web page" | "memory" | "clock" | "calculator" | "schedule";
 export type ToolAccess = "view" | "view and change";
@@ -34,20 +36,17 @@ export type ToolOutcome = {
  * asked for approval reads "Waiting for you" until this says otherwise.
  */
 export type ToolDecision = {
-  readonly result: "waiting" | "in_progress" | "done" | "declined" | "failed" | "unknown";
+  readonly result: ApprovalResult;
   /** The User's photos it sends, by name, when the card still says. */
   readonly photos?: readonly string[];
 };
 
-/** The approval a call asked for, or its Company-scoped operation. Older results may lack the issuer. */
-export function proposedBy(outcome: ToolOutcome | undefined): { approvalId: string } | { operationId: string; issuer?: string } | null {
+/** The approval a call asked for, by its card's id. */
+export function proposedBy(outcome: ToolOutcome | undefined): { approvalId: string } | null {
   if (!outcome || outcome.error || !isRecord(outcome.details)) return null;
   const proposed = outcome.details.proposed;
-  if (typeof proposed === "string" && proposed.startsWith("apr_")) return { approvalId: proposed };
-  if (isRecord(proposed) && typeof proposed.operation_id === "string") return {
-    operationId: proposed.operation_id,
-    ...(typeof proposed.issuer === "string" ? { issuer: proposed.issuer } : {})
-  };
+  // Our own card ids: `apr_` for a request we hold, `apr2_` for an operation a Company returned (operations-v2.ts).
+  if (isApprovalId(proposed)) return { approvalId: proposed };
   return null;
 }
 
@@ -83,13 +82,6 @@ function noun(path: string): string {
     .split(/[/?#]/)
     .filter((part) => part !== "" && !/^\{.*\}$/.test(part) && !/^:/.test(part));
   return parts.length ? words(parts.at(-1)!) : "the API";
-}
-
-function access(scopes: unknown): ToolAccess | null {
-  if (!Array.isArray(scopes)) return null;
-  if (scopes.includes("poppy:write")) return "view and change";
-  if (scopes.includes("poppy:read")) return "view";
-  return null;
 }
 
 function proposed(outcome: ToolOutcome | undefined): boolean {
@@ -222,11 +214,16 @@ export function describeToolCall(
       return line(`Looked up what ${company} offers personal agents`, null);
     case "poppy_sign_in": {
       const granted = isRecord(outcome?.details) && typeof outcome.details.status === "string" && outcome.details.status.startsWith("signed in");
-      return line(granted ? `Used the access you gave ${company} before` : `Asked you to sign in at ${company}`, "sign-in", access(a.scopes));
+      // 0.3 defines no scopes: each Company's are its own (spec 4.7), so a sign-in names no access level.
+      return line(granted ? `Used the access you gave ${company} before` : `Asked you to sign in at ${company}`, "sign-in");
     }
     case "poppy_status":
       return line(domain ? `Checked your accounts and conversations at ${company}` : "Checked what's open at every Company", null);
     case "poppy_message": {
+      const delivery = messageDelivery(outcome?.details);
+      if (delivery === "authorization_requested") return line(`Kept verification details private and asked ${company}'s agent for sign-in`, "their agent");
+      if (delivery === "withheld") return line(`Kept verification details private; sign-in was already requested from ${company}'s agent`, "their agent");
+      if (outcome?.error) return line(`Couldn't confirm sending a message to ${company}'s agent`, "their agent");
       const text = str(a.text);
       if (!text) return line(`Sent details to ${company}'s agent`, "their agent");
       return line(a.conversation ? `Wrote to ${company}'s agent:` : `Asked ${company}'s agent:`, "their agent", null, clip(text));
@@ -275,8 +272,9 @@ export function describeToolCall(
           case "declined":
             return { ...line(`You declined a change at ${company}${where}`, "API", "view and change"), state: "done" };
           case "failed":
-          case "unknown":
             return { ...line(`The change you approved at ${company}${where} didn't go through`, "API", "view and change"), state: "failed" };
+          case "unknown":
+            return { ...line(`The outcome of the change you approved at ${company}${where} is unknown`, "API", "view and change"), state: "failed" };
           default:
             return line(`Asked you to approve a change at ${company}`, "API", "view and change");
         }

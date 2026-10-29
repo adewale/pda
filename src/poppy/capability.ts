@@ -15,20 +15,7 @@ import {
 } from "./conversations";
 import type { Fetcher, PoppyTimeouts } from "./fetch";
 import type { Json } from "./json";
-import {
-  addPermission,
-  approveAndConfirm,
-  cancelOperation,
-  decideLocal,
-  decideLocalBatch,
-  permissions,
-  recoverApprovalBatches,
-  recoverInterruptedApprovals,
-  recoverOperations,
-  removePermission,
-  retryApproved,
-  trackOperation
-} from "./operations";
+import { decideLocal, decideLocalBatch, recoverApprovalBatches, recoverInterruptedApprovals, resolveApprovalOutcome } from "./operations";
 import {
   expireSignIn,
   cancelSignIn,
@@ -47,6 +34,8 @@ import type { Card, PoppyClientFrame, PoppyServerFrame } from "./wire";
 import { issuerDecoder, type Issuer } from "./issuer";
 import { clientFrame } from "./frames";
 import { object, optional, string, tryDecode } from "../decode";
+import { writeCard, type CardWriteOptions } from "./cards";
+import { approvalDecisions } from "./approval-decisions";
 
 export type PoppyOptions = {
   readonly env: Env;
@@ -69,7 +58,7 @@ export type PoppyOptions = {
 };
 
 /** Frames that only read or keep the User present: no event of their own. */
-const QUIET_FRAMES = new Set(["poppy.context", "poppy.activity", "poppy.protocol"]);
+const QUIET_FRAMES = new Set(["poppy.context", "poppy.activity", "poppy.protocol", "poppy.approvals.read"]);
 
 /** The last locale and time zone the User's page sent: one row. */
 const USER_CONTEXT_SCHEMA = `CREATE TABLE IF NOT EXISTS user_context (
@@ -183,7 +172,7 @@ export class PoppyCapability extends LifecycleCapability {
       env: options.env,
       sql: options.storage.sql,
       fetcher: options.fetcher,
-      showCard: (card) => this.#showCard(card),
+      showCard: (card, options) => this.#showCard(card, options),
       notifyModel: (text, operationId) => options.notifyModel(text, operationId),
       schedule: async (fn, at, payload, id) => {
         await this.lifecycle.jobs.push({ fn, time: at, payload, id, singleflight: true });
@@ -215,7 +204,6 @@ export class PoppyCapability extends LifecycleCapability {
     await this.#units.job({ job: literal("poppy.recover") }, async () => {
       await recoverInterruptedApprovals(this.client);
       await recoverApprovalBatches(this.client);
-      await recoverOperations(this.client);
       // A Direct Sign-In the restart interrupted: finish it, or start a new Session (4.5).
       await recoverSignIns(this.client).catch((error: unknown) => reportError(error, { source: literal("poppy.signin_recovery") }));
       // A revocation still pending whose job is missing: schedule it again.
@@ -243,17 +231,11 @@ export class PoppyCapability extends LifecycleCapability {
     }
   }
 
-  async #showCard(card: Card): Promise<void> {
-    this.#options.storage.sql.exec(
-      "INSERT OR REPLACE INTO poppy_cards (id, card, open, updated_at) VALUES (?, ?, ?, ?)",
-      card.id,
-      JSON.stringify(card),
-      card.open ? 1 : 0,
-      Date.now()
-    );
+  async #showCard(card: Card, options?: CardWriteOptions): Promise<void> {
+    if (!writeCard(this.#options.storage.sql, card, Date.now(), options)) return;
     recordCard(card as { kind: string; open?: boolean });
     this.#sendCards();
-    if (card.kind === "notice" || card.kind === "signin_link" || card.kind === "operation") this.#sendSettings();
+    if (card.kind === "notice" || card.kind === "signin_link") this.#sendSettings();
     this.#sendActivity();
   }
 
@@ -327,16 +309,22 @@ export class PoppyCapability extends LifecycleCapability {
 
   /** Take a closed card out of every page's list now, as dismissing it does. */
   retireCard(id: string): void {
-    this.#options.storage.sql.exec("UPDATE poppy_cards SET open = 0, updated_at = 0 WHERE id = ?", id);
+    // An unresolved receipt is the User's route to checking the outcome.
+    // Keep it until reconciled, including requests from a page left open before this update.
+    this.#options.storage.sql.exec(`UPDATE poppy_cards SET open = 0, updated_at = 0 WHERE id = ?
+      AND NOT COALESCE(json_extract(card, '$.kind') = 'approval' AND json_extract(card, '$.status') = 'unknown'
+        AND json_extract(card, '$.outcomeResolution') IS NULL, 0)`, id);
     this.#sendCards();
   }
 
-  /** Open cards, plus closed ones from the last hour so outcomes stay visible. */
+  /** Open cards, recent receipts and unresolved outcomes, however long checking them takes. */
   #sendCards(socket?: WebSocket): void {
     const cards = rows(
       this.#options.storage.sql,
       cardsTable.pick("card", "updated_at"),
-      "SELECT card, updated_at FROM poppy_cards WHERE open = 1 OR updated_at > ? ORDER BY updated_at",
+      `SELECT card, updated_at FROM poppy_cards WHERE open = 1 OR updated_at > ?
+        OR (json_extract(card, '$.kind') = 'approval' AND json_extract(card, '$.status') = 'unknown'
+          AND json_extract(card, '$.outcomeResolution') IS NULL) ORDER BY updated_at`,
       Date.now() - 60 * 60_000
     ).map((row) => ({ ...(JSON.parse(row.card) as Card), at: row.updated_at }));
     const frame: PoppyServerFrame = { type: "poppy.cards", cards };
@@ -360,18 +348,6 @@ export class PoppyCapability extends LifecycleCapability {
         company: name(row.issuer),
         account: row.account,
         scope: row.scope,
-        expiresAt: row.expires_at
-      })),
-      permissions: permissions(client).map((row) => ({
-        id: row.id,
-        issuer: row.issuer,
-        company: name(row.issuer),
-        account: row.account,
-        action: row.action,
-        maxAmount: row.max_amount,
-        currency: row.currency,
-        maxUses: row.max_uses,
-        uses: row.uses,
         expiresAt: row.expires_at
       })),
       // Never the token: what the page shows about each sign-out the Company hasn't accepted.
@@ -452,6 +428,13 @@ export class PoppyCapability extends LifecycleCapability {
       }
       case "poppy.activity":
         return;
+      case "poppy.approvals.read": {
+        const decisions = approvalDecisions(client.sql, frame.ids, issuer => {
+          try { return client.companyByIssuer(issuer).name; } catch { return issuer; }
+        });
+        socket.send(JSON.stringify({ type: "poppy.approvals.state", ids: frame.ids, decisions } satisfies PoppyServerFrame));
+        return;
+      }
       case "poppy.protocol":
         // Read-only, from our own table, to the page that asked.
         if (typeof frame.key === "string") socket.send(JSON.stringify(protocolLog(client.sql, frame.key, this.#companyNames)));
@@ -468,15 +451,11 @@ export class PoppyCapability extends LifecycleCapability {
       case "poppy.signin.cancel":
         await cancelSignIn(client, frame.signInId);
         return;
-      case "poppy.operation":
-        if (frame.decision === "approve") {
-          await approveAndConfirm(client, frame.issuer, frame.operationId, frame.revision, "user");
-        } else {
-          await cancelOperation(client, frame.issuer, frame.operationId);
-        }
-        return;
       case "poppy.approval":
         await decideLocal(client, frame.approvalId, frame.decision);
+        return;
+      case "poppy.approval.resolve":
+        await resolveApprovalOutcome(client, frame.approvalId, frame.outcome);
         return;
       case "poppy.approvals":
         await decideLocalBatch(client, frame.decisions);
@@ -503,34 +482,14 @@ export class PoppyCapability extends LifecycleCapability {
         await retryRevocation(client, frame.id);
         this.#sendSettings();
         return;
-      case "poppy.permission.add":
-        addPermission(client, {
-          issuer: frame.issuer,
-          account: frame.account,
-          action: frame.action,
-          ...(frame.maxAmount ? { maxAmount: frame.maxAmount } : {}),
-          ...(frame.currency ? { currency: frame.currency } : {}),
-          ...(frame.maxUses ? { maxUses: frame.maxUses } : {}),
-          ...(frame.expiresAt ? { expiresAt: frame.expiresAt } : {})
-        });
-        this.#sendSettings();
-        return;
-      case "poppy.permission.remove":
-        await removePermission(client, frame.id);
-        this.#sendSettings();
-        return;
       case "poppy.card.dismiss":
         this.retireCard(frame.id);
         return;
     }
   }
 
-  /** After any sign-in: confirm operations that were waiting on it, refresh settings. */
+  /** After any sign-in: the Companies page shows the new account. */
   async #afterSignIn(): Promise<void> {
-    const client = this.client;
-    for (const issuer of new Set(client.accounts().map((row) => row.issuer))) {
-      await retryApproved(client, issuer);
-    }
     this.#sendSettings();
   }
 
@@ -568,7 +527,6 @@ export class PoppyCapability extends LifecycleCapability {
     const fields: Fields = {
       job: literal(fn),
       ...(fn === "poppy-read" ? { conversation_id: id(payload.id) } : {}),
-      ...(fn === "poppy-operation" ? { operation_id: id(payload.id), issuer: origin(payload.issuer) } : {}),
       ...(fn === "poppy-revoke" ? { issuer: origin(payload.issuer) } : {})
     };
     return this.#units.job(fields, async (event) => {
@@ -579,8 +537,6 @@ export class PoppyCapability extends LifecycleCapability {
         } else if (fn === "poppy-device" && payload.id) {
           next = await pollDeviceSignIn(client, payload.id);
           if (next === null) await this.#afterSignIn();
-        } else if (fn === "poppy-operation" && payload.id && payload.issuer) {
-          next = await trackOperation(client, payload.issuer, payload.id);
         } else if (fn === "poppy-signin-expiry" && payload.id) {
           await expireSignIn(client, payload.id);
         } else if (fn === "poppy-revoke" && payload.id) {
@@ -603,10 +559,9 @@ function frameFields(frame: PoppyClientFrame): Fields {
   return {
     ...("decision" in frame ? { decision: code(frame.decision) } : {}),
     ...("issuer" in frame ? { issuer: origin(frame.issuer) } : {}),
-    ...(frame.type === "poppy.operation" ? { operation_id: id(frame.operationId) } : {}),
-    ...(frame.type === "poppy.approval" ? { approval_id: id(frame.approvalId) } : {}),
-    ...(frame.type === "poppy.approvals" ? { approvals: frame.decisions.length, approved: frame.decisions.filter((item) => item.decision === "approve").length } : {}),
-    ...(frame.type === "poppy.permission.add" ? { action: code(frame.action) } : {})
+    ...(frame.type === "poppy.approval" || frame.type === "poppy.approval.resolve" ? { approval_id: id(frame.approvalId) } : {}),
+    ...(frame.type === "poppy.approval.resolve" ? { outcome: code(frame.outcome) } : {}),
+    ...(frame.type === "poppy.approvals" ? { approvals: frame.decisions.length, approved: frame.decisions.filter((item) => item.decision === "approve").length } : {})
   };
 }
 

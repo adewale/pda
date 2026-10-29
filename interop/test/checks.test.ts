@@ -20,7 +20,7 @@ const ids = (checks: { id: string; severity: string }[]) => checks.map((check) =
 const DISCOVERY = [
   {
     url: "https://acme.company.interop.test/.well-known/poppy.json",
-    response: { protocol_version: "0.1", organization: { name: "Acme", domain: "acme.company.interop.test" }, auth: { issuer: "https://auth.acme.company.interop.test" }, apis: [{ type: "openapi", url: `${API}/openapi.json`, description: "x" }] }
+    response: { protocol_version: "0.3", organization: { name: "Acme", domain: "acme.company.interop.test" }, auth: { issuer: "https://auth.acme.company.interop.test" }, apis: [{ type: "openapi", url: `${API}/openapi.json`, description: "x" }] }
   },
   { url: "https://auth.acme.company.interop.test/.well-known/oauth-authorization-server", response: { issuer: "https://auth.acme.company.interop.test", token_endpoint: TOKEN } }
 ];
@@ -39,7 +39,7 @@ describe("trace checks", () => {
     expect(disagree.map(([id]) => id)).toEqual([]);
   });
 
-  it("finds nothing wrong with a correct Session start", () => {
+  it("finds nothing wrong with a correct token request", () => {
     expect(traceChecks(recording(...DISCOVERY, sessionStart()))).toEqual([]);
   });
 
@@ -62,19 +62,14 @@ describe("trace checks", () => {
     ]);
   });
 
-  it("checks a Session assertion's audience and issuer", () => {
-    const assertion = jwt({ alg: "ES256", kid: "k1", typ: "JWT" }, { iss: "https://other.example/c.json", sub: "usr_1", aud: [TOKEN], iat: NOW, exp: NOW + 60, jti: jti() });
-    expect(ids(assertionChecks(recording(sessionStart(0, { assertion }))))).toEqual(["session-assertion.aud:error", "session-assertion.iss:error"]);
-  });
-
   it("checks a client assertion's iss, sub and aud form", () => {
     const client = clientAssertion({ payload: { sub: "someone", aud: [TOKEN] } });
-    expect(ids(assertionChecks(recording(sessionStart(0, { client }))))).toEqual(["client-assertion.aud-array:warning", "client-assertion.iss-sub:error"]);
+    expect(ids(assertionChecks(recording(sessionStart(0, { client }))))).toEqual(["client-assertion.aud-array:error", "client-assertion.iss-sub:error"]);
   });
 
   it("checks DPoP proofs: htm, htu, iat, typ, ath and jti", () => {
     const url = `${API}/orders`;
-    const token = "at_session_token_1";
+    const token = "at_token_1";
     const reused = proof("GET", url, { token });
     const checks = dpopChecks(
       recording(
@@ -92,12 +87,12 @@ describe("trace checks", () => {
   });
 
   it("finds a token in a URL", () => {
-    const checks = tokenInUrlChecks(recording(sessionStart(), { url: `${API}/orders?token=at_session_token_1` }, { url: `${API}/orders?access_token=x` }));
+    const checks = tokenInUrlChecks(recording(sessionStart(), { url: `${API}/orders?token=at_token_1` }, { url: `${API}/orders?access_token=x` }));
     expect(ids(checks)).toEqual(["secret.token-in-url:error", "secret.token-in-url:error"]);
   });
 
-  it("finds a Session Token sent to a host the Company didn't list", () => {
-    const send = (url: string) => ({ url, headers: { authorization: "DPoP at_session_token_1", dpop: proof("GET", url, { token: "at_session_token_1" }) } });
+  it("finds an access token sent to a host the Company didn't list", () => {
+    const send = (url: string) => ({ url, headers: { authorization: "DPoP at_token_1", dpop: proof("GET", url, { token: "at_token_1" }) } });
     const checks = unlistedHostChecks(recording(...DISCOVERY, sessionStart(), send(`${API}/orders`), send("https://cdn.acme.company.interop.test/x"), send("https://evil.company.interop.test/x")));
     expect(checks.map((check) => check.detail)).toEqual([
       "a token from acme sent to cdn.acme.company.interop.test",
@@ -113,7 +108,7 @@ describe("trace checks", () => {
         { url: "https://elsewhere.company.interop.test/orders", headers: { authorization: "DPoP t" } }
       )
     );
-    expect(ids(checks)).toEqual(["redirect.credentials-followed:warning"]);
+    expect(ids(checks)).toEqual(["redirect.credentials-followed:error"]);
   });
 
   it("finds a request sent before Retry-After elapsed, allowing for the proxy's clock", () => {
@@ -136,7 +131,7 @@ describe("trace checks", () => {
         { url: `${API}/orders`, headers: { authorization: "DPoP t" }, status: 401, response: { error: "invalid_token" } },
         { url: `${API}/orders`, status: 429 },
         { url: TOKEN, form: { grant_type: "refresh_token" }, status: 400, response: "Bad Request" },
-        { url: TOKEN, form: { grant_type: "refresh_token" }, response: { access_token: "a", token_type: "DPoP" }, responseHeaders: { "cache-control": "no-store" } }
+        { url: TOKEN, form: { grant_type: "refresh_token" }, response: { token_type: "DPoP" }, responseHeaders: { "cache-control": "no-store" } }
       )
     );
     expect(ids(checks)).toEqual(["company.www-authenticate:error", "company.retry-after:error", "company.oauth-error-body:error", "company.token-response:error"]);
@@ -165,7 +160,7 @@ describe("trace checks", () => {
     expect(ids(checks)).toEqual(["company.events-shape:error", "company.sse-event-id:error"]);
   });
 
-  describe("every read includes cursor, has_more, status and responder (7.5's MUST)", () => {
+  describe("every read includes conversation_id, cursor, has_more, status and responder (8.5's MUST)", () => {
     const events = `${API}/poppy/conversations/c1/events`;
     const complete = { conversation_id: "c1", events: [], cursor: "e1", has_more: false, status: "idle", responder: "agent" };
     const event = { id: "e2", type: "message", created_at: "2026-10-12T00:00:00Z" };
@@ -179,9 +174,16 @@ describe("trace checks", () => {
     });
 
     it("fails a read with events and a cursor but no has_more, status or responder", () => {
-      const checks = checksOf(`${events}?cursor=e1`, { events: [event], cursor: "e2" });
+      const checks = checksOf(`${events}?cursor=e1`, { conversation_id: "c1", events: [event], cursor: "e2" });
       expect(ids(checks)).toEqual(["company.events-shape:error"]);
       expect(checks[0]!.detail).toMatch(/^no has_more; no status; no responder: /);
+    });
+
+    it("fails a read without conversation_id, which 8.5 added to the MUST", () => {
+      const { conversation_id: _omitted, ...withoutId } = complete;
+      const checks = checksOf(`${events}?cursor=e1`, withoutId);
+      expect(ids(checks)).toEqual(["company.events-shape:error"]);
+      expect(checks[0]!.detail).toMatch(/^no string conversation_id: /);
     });
 
     it("passes a complete read, with or without events", () => {

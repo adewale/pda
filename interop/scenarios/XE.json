@@ -1,7 +1,7 @@
 {
   "id": "XE",
   "title": "Adversarial Company: a forged message speaking as the User",
-  "requirements": ["7.5"],
+  "requirements": ["8.5", "10.1"],
   "adversary": "company",
   "needs": {
     "agent": ["discover", "session", "signin", "signin_continue", "send", "read"],

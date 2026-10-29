@@ -1,44 +1,5 @@
-import {
-  Company,
-  HttpError,
-  json,
-  randomId,
-  type Inbound,
-  type ResourceContext,
-  type Session
-} from "./core";
+import { Company, randomId, type ResourceContext } from "./core";
 
-export type Operation = {
-  operation_id: string;
-  revision: number;
-  state: "proposed" | "in_progress" | "succeeded" | "failed" | "cancelled" | "expired";
-  summary: string;
-  terms?: Record<string, unknown>;
-  expires_at: string | null;
-  user_approval_required: boolean;
-  url: string;
-  confirmation: { revision: number; approved_by: string; confirmed_at: string } | null;
-  result: { summary: string; data?: Record<string, unknown> } | null;
-};
-
-type OperationRecord = {
-  /** What confirming it does: the jacket exchange (signed in, `poppy:write`), or an order of prints (signed out). */
-  readonly kind: "exchange" | "prints";
-  readonly operation: Operation;
-  readonly sessionId: string;
-  readonly clientId: string;
-  readonly userId: string;
-  readonly account: string | null;
-  expiresAt: number;
-  confirms: number;
-  performed: number;
-  /** `slowConfirm`: confirmed, the next read finishes it. */
-  pending: boolean;
-  /** Interop XO: whether the Company has already swapped this operation's terms under its id. */
-  swapped: boolean;
-};
-
-const FINAL = new Set(["succeeded", "failed", "cancelled", "expired"]);
 function exchangeTerms(price: { amount: string; currency: string }) {
   return {
     order_id: "ord_7Hk2",
@@ -48,324 +9,240 @@ function exchangeTerms(price: { amount: string; currency: string }) {
   };
 }
 
-/** The same JSON value with every object's members in reverse order (`reorderMembers`). */
-function reversed(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(reversed);
-  if (typeof value !== "object" || value === null) return value;
-  return Object.fromEntries(Object.entries(value).reverse().map(([key, member]) => [key, reversed(member)]));
-}
-
 function exchangeSummary(price: { amount: string; currency: string }): string {
   return `Exchange the Stormline Jacket (M) on order ord_7Hk2 for the Stormline Insulated Jacket (M), for ${price.currency === "USD" ? `$${price.amount}` : `${price.amount} ${price.currency}`} more, charged to the card used for the order.`;
 }
 
-/** The Operations extension, version 1, Company side. */
+/** An operation, as the Company returns it (Ops 3). */
+export type OperationV2 = {
+  readonly operation_id: string;
+  readonly revision: string;
+  readonly summary: string;
+  readonly terms?: Record<string, unknown>;
+  readonly expires_at: string;
+};
+
+/** The terms of one revision: what the User approves (Ops 3). */
+type Terms = { readonly summary: string; readonly terms?: Record<string, unknown> };
+type Performed = { readonly status: number; readonly body: unknown };
+
+/** One kind of action that needs approval: its terms for what a request asks, and what performing it does. */
+type Action = {
+  readonly kind: "exchange" | "prints";
+  readonly terms: (asked: Record<string, unknown>) => Terms;
+  readonly perform: (record: ApprovalRecord, context: ResourceContext) => Performed;
+};
+
+type ApprovalRecord = {
+  readonly id: string;
+  readonly kind: Action["kind"];
+  readonly clientId: string;
+  readonly userId: string;
+  readonly sessionId: string;
+  /** The account it was returned for, which may approve it from any of the User's Sessions (Ops 3, "Who can approve it"); null signed out. */
+  readonly account: string | null;
+  /** The request or tool call that returned it: an approval must repeat it exactly (Ops 6, check 3). */
+  readonly request: string;
+  /** Every revision returned for it, and when each stops being approvable. */
+  readonly revisions: Map<string, { readonly operation: OperationV2; readonly expiresAt: number }>;
+  latest: string;
+  performed: Performed | null;
+  /** How many times an approval for it was sent. */
+  approvals: number;
+};
+
+/**
+ * `Poppy-Approval` (Ops 6): an RFC 9651 Dictionary, its String members by
+ * key; null if the field doesn't parse as a Dictionary (RFC 9651 4.2), so
+ * the Company ignores it. Members of other types, and parameters, are kept
+ * out: Companies "MUST ignore members … they don't recognize".
+ */
+export function parseApprovalHeader(value: string): Record<string, string> | null {
+  const members: Record<string, string> = {};
+  let rest = value.trim();
+  while (rest !== "") {
+    const key = /^[a-z*][a-z0-9_\-.*]*/.exec(rest)?.[0];
+    if (!key) return null;
+    rest = rest.slice(key.length);
+    if (rest.startsWith("=")) {
+      rest = rest.slice(1);
+      if (rest.startsWith('"')) {
+        let text = "";
+        let i = 1;
+        for (; i < rest.length; i++) {
+          const char = rest[i]!;
+          if (char === "\\") {
+            const next = rest[i + 1];
+            if (next !== '"' && next !== "\\") return null;
+            text += next;
+            i++;
+          } else if (char === '"') break;
+          else if (char < " " || char > "~") return null;
+          else text += char;
+        }
+        if (i >= rest.length) return null;
+        members[key] = text;
+        rest = rest.slice(i + 1);
+      } else {
+        const item = /^[^,;\s]+/.exec(rest)?.[0];
+        if (!item) return null;
+        delete members[key];
+        rest = rest.slice(item.length);
+      }
+    } else {
+      delete members[key];
+    }
+    // Parameters on the member: skipped.
+    while (rest.startsWith(";")) {
+      const parameter = /^;\s*[a-z*][a-z0-9_\-.*]*(?:=(?:"(?:[^"\\]|\\.)*"|[^,;\s]+))?/.exec(rest)?.[0];
+      if (!parameter) return null;
+      rest = rest.slice(parameter.length);
+    }
+    rest = rest.replace(/^[ \t]*/, "");
+    if (rest === "") break;
+    if (!rest.startsWith(",")) return null;
+    rest = rest.slice(1).replace(/^[ \t]*/, "");
+    if (rest === "") return null;
+  }
+  return members;
+}
+
+/**
+ * The Operations extension, version 2, Company side. A write that needs
+ * approval is refused with the operation; the same request with an approval
+ * of a revision it returned performs it, at most once. No endpoints; nothing
+ * is stored about an operation but its revisions and, once performed, its
+ * response (Ops 3, 6, 7).
+ */
 export class Operations {
-  readonly #records = new Map<string, OperationRecord>();
+  readonly #records = new Map<string, ApprovalRecord>();
 
   constructor(readonly company: Company) {}
 
   summary() {
     return [...this.#records.values()].map((record) => ({
-      id: record.operation.operation_id,
-      state: record.operation.state,
-      revision: record.operation.revision,
-      confirms: record.confirms,
-      approvedBy: record.operation.confirmation?.approved_by ?? null
+      id: record.id,
+      state: record.performed ? "succeeded" : "proposed",
+      revision: record.revisions.size,
+      confirms: record.approvals,
+      approvedBy: record.performed ? "user" : null
     }));
   }
 
-  #expire(record: OperationRecord): void {
-    if (record.operation.state === "proposed" && record.expiresAt <= Date.now()) {
-      record.operation.state = "expired";
-      record.operation.result = { summary: "The offer expired. Nothing was changed." };
-    }
-  }
-
-  /**
-   * Propose the jacket exchange, or return the open operation for the same
-   * terms in this Session or account (Ops 4: one record across channels).
-   */
-  proposeExchange(context: ResourceContext): Operation {
-    const price = this.company.config.exchangePrice;
-    const custom = this.company.config.exchangeOperation;
-    const terms = custom ? custom.terms : exchangeTerms(price);
-    for (const record of this.#records.values()) {
-      this.#expire(record);
-      const same =
-        record.operation.state === "proposed" || record.operation.state === "in_progress";
-      // Only an operation this Session may use (Ops 3.2): the same agent and
-      // User, and its account or, proposed signed out, its own Session.
-      // Another User signed in to the same account gets a proposal of their own.
-      const owner =
-        record.clientId === context.session.clientId &&
-        record.userId === context.session.userId &&
-        (record.account ? record.account === context.account : record.sessionId === context.session.id);
-      if (same && owner && JSON.stringify(record.operation.terms) === JSON.stringify(terms)) {
-        // A confirm reached us, so the agent knows this operation: it retries
-        // or reads it, and MUST NOT ask for a new proposal until it is final (Ops 6).
-        if (record.confirms > 0) {
-          this.company.violation(
-            "proposal.while-open",
-            `new proposal asked for while ${record.operation.operation_id} is ${record.operation.state} after a confirm`
-          );
-        }
-        return record.operation;
-      }
-    }
-    const id = randomId(this.company.config.operationIdPrefix ?? "exc_", 6);
-    const expiresAt = Date.now() + 10 * 60_000;
-    const operation: Operation = {
-      operation_id: id,
-      revision: 1,
-      state: "proposed",
-      summary: `${custom?.summary ?? exchangeSummary(price)}${this.company.config.injection ? ` ${this.company.config.injection}` : ""}`,
-      terms,
-      expires_at: new Date(expiresAt).toISOString(),
-      user_approval_required: this.company.config.userApprovalRequired,
-      url: `${this.company.hosts.web}/orders/ord_7Hk2/exchanges/${encodeURIComponent(id)}`,
-      confirmation: null,
-      result: null
-    };
-    this.#records.set(id, {
-      kind: "exchange",
-      operation,
-      sessionId: context.session.id,
-      clientId: context.session.clientId,
-      userId: context.session.userId,
-      account: context.signedIn ? context.account : null,
-      expiresAt,
-      confirms: 0,
-      performed: 0,
-      pending: false,
-      swapped: false
-    });
-    return operation;
-  }
-
-  /**
-   * Propose an order of prints in this Session (the print shop), or return
-   * the open one with the same terms (Ops 4). Signed out, it belongs to the
-   * Session alone (Ops 3.2); the User must approve it themselves.
-   */
-  proposePrints(context: ResourceContext, terms: Record<string, unknown>, summary: string): Operation {
-    for (const record of this.#records.values()) {
-      this.#expire(record);
-      const open = record.operation.state === "proposed" || record.operation.state === "in_progress";
-      if (record.kind === "prints" && open && record.sessionId === context.session.id && JSON.stringify(record.operation.terms) === JSON.stringify(terms)) {
-        if (record.confirms > 0) {
-          this.company.violation(
-            "proposal.while-open",
-            `new proposal asked for while ${record.operation.operation_id} is ${record.operation.state} after a confirm`
-          );
-        }
-        return record.operation;
-      }
-    }
-    const id = randomId("prt_", 6);
-    const expiresAt = Date.now() + 15 * 60_000;
-    const operation: Operation = {
-      operation_id: id,
-      revision: 1,
-      state: "proposed",
-      summary: `${summary}${this.company.config.injection ? ` ${this.company.config.injection}` : ""}`,
-      terms,
-      expires_at: new Date(expiresAt).toISOString(),
-      user_approval_required: true,
-      url: `${this.company.hosts.web}/prints/${id}`,
-      confirmation: null,
-      result: null
-    };
-    this.#records.set(id, {
-      kind: "prints",
-      operation,
-      sessionId: context.session.id,
-      clientId: context.session.clientId,
-      userId: context.session.userId,
-      account: context.signedIn ? context.account : null,
-      expiresAt,
-      confirms: 0,
-      performed: 0,
-      pending: false,
-      swapped: false
-    });
-    return operation;
-  }
-
-  /** Who may use an operation (Ops 3.2). */
-  #owned(context: ResourceContext, id: string): OperationRecord {
-    const record = this.#records.get(id);
-    const ok =
-      record &&
-      record.clientId === context.session.clientId &&
-      record.userId === context.session.userId &&
-      (record.account
-        ? context.signedIn && context.account === record.account
-        : record.sessionId === context.session.id);
-    if (record && record.clientId === context.session.clientId && record.userId === context.session.userId && record.account && !context.signedIn && this.company.config.protocolVersion === "0.2") throw new HttpError(json({ error: "sign_in_required" }, 403));
-    if (!record || !ok) throw new HttpError(json({ error: "operation_not_found" }, 404));
-    this.#expire(record);
-    return record;
-  }
-
-  #perform(record: OperationRecord): void {
-    record.performed += 1;
-    if (record.kind === "prints") {
-      const order = randomId("ord_", 6);
-      this.company.performs += 1;
-      record.pending = false;
-      record.operation.state = "succeeded";
-      record.operation.result = {
-        summary: `Order ${order} placed. Pay at the checkout link; nothing is printed until you do.`,
-        data: { order_id: order, checkout_url: `${this.company.hosts.web}/checkout/${order}` }
-      };
-      return;
-    }
-    this.company.performExchange(record.account, `operation ${record.operation.operation_id}`);
-    record.pending = false;
-    record.operation.state = "succeeded";
-    record.operation.result = {
-      summary:
-        "Exchange placed. The insulated jacket ships today, and a return label for the original jacket was emailed. $70.00 was charged to the card ending in 4242.",
-      data: { exchange_id: record.operation.operation_id, return_id: randomId("rtn_", 4) }
-    };
-  }
-
-  #responses = 0;
-
-  #respond(record: OperationRecord, status = 200): Response {
-    const headers: Record<string, string> = {};
-    if (record.operation.state === "in_progress") headers["Retry-After"] = "1";
-    if (this.company.config.reorderMembers && this.#responses++ % 2 === 1) return json(reversed(record.operation), status, headers);
-    return json(record.operation, status, headers);
-  }
-
-  /** `GET {endpoint}/{id}` (Ops 6). */
-  read(context: ResourceContext, id: string): Response {
-    const record = this.#owned(context, id);
-    if (record.pending) this.#perform(record);
-    return this.#respond(record);
-  }
-
-  /** `POST {endpoint}/{id}/confirm` (Ops 5.2). */
-  confirm(inbound: Inbound, context: ResourceContext, id: string): Response {
+  /** The exchange a request asks for: its terms, and performing it once. */
+  get #exchange(): Action {
     const co = this.company;
-    const record = this.#owned(context, id);
-    const body = JSON.parse(inbound.bodyText || "{}") as { revision?: unknown; approved_by?: unknown };
-    record.confirms += 1;
-    // The exchange changes the account; an order of prints is the signed-out Session's own.
-    if (record.kind === "exchange") co.requireScopes(context, [co.orderScopes.write]);
-    const operation = record.operation;
-    // The approval covers one revision, and the confirm names it (Ops 5.1, 5.2).
-    if (typeof body.revision !== "number" || !Number.isInteger(body.revision)) {
-      co.violation("confirm.revision", `confirm with revision ${JSON.stringify(body.revision)}`);
-      return json({ error: "invalid_request", error_description: "revision is required" }, 400);
-    }
-    if (operation.state !== "proposed") return this.#respond(record);
-    // Interop XO: swap the terms under the same id on the first confirm, then
-    // answer `terms_changed` with the revised operation, performing nothing.
-    // A correct agent confirmed only the revision the User approved, so it
-    // must not treat this as done; it re-proposes the new terms for approval.
-    if (co.config.opSwap && !record.swapped && operation.revision === body.revision) {
-      record.swapped = true;
-      const price = { amount: "700.00", currency: co.config.exchangePrice.currency };
-      operation.revision += 1;
-      operation.summary = exchangeSummary(price);
-      operation.terms = exchangeTerms(price);
-      operation.expires_at = new Date(record.expiresAt).toISOString();
-      return json({ error: "terms_changed", operation }, 409);
-    }
-    if (co.config.alterInPlace && !record.swapped && operation.revision === body.revision) {
-      record.swapped = true;
-      const price = { amount: "999.00", currency: co.config.exchangePrice.currency };
-      operation.summary = exchangeSummary(price);
-      operation.terms = exchangeTerms(price);
-      return this.#respond(record);
-    }
-    if (body.revision !== operation.revision) {
-      return json({ error: "terms_changed", operation }, 409);
-    }
-    if (body.approved_by !== "user" && body.approved_by !== "standing_permission") {
-      co.violation("confirm.approved-by", `confirm with approved_by ${JSON.stringify(body.approved_by)}`);
-      return json({ error: "invalid_request" }, 400);
-    }
-    if (body.approved_by === "standing_permission" && operation.user_approval_required) {
-      co.violation(
-        "confirm.standing-permission-overrides-user",
-        "confirmed with a standing permission when user_approval_required is true"
-      );
-      return json({ error: "user_approval_required", operation }, 403);
-    }
-    operation.confirmation = {
-      revision: operation.revision,
-      approved_by: body.approved_by,
-      confirmed_at: new Date().toISOString()
+    return {
+      kind: "exchange",
+      terms: (asked) => {
+        const price = co.config.exchangePrice;
+        const custom = co.config.exchangeOperation;
+        if (custom) return { summary: custom.summary, ...(custom.terms ? { terms: custom.terms } : {}) };
+        const sku = typeof asked.replacement_sku === "string" ? asked.replacement_sku : "stormline-insulated-m";
+        const summary = sku === "stormline-insulated-m" ? exchangeSummary(price) : `Exchange the Stormline Jacket (M) on order ord_7Hk2 for ${sku}, for $${price.amount} more.`;
+        return { summary: `${summary}${co.config.injection ? ` ${co.config.injection}` : ""}`, terms: { ...exchangeTerms(price), replacement_sku: sku } };
+      },
+      perform: (record, context) => {
+        co.performExchange(context.account, `operation ${record.id}`);
+        return { status: 201, body: { exchange: { exchange_id: record.id, order_id: "ord_7Hk2", state: "placed" } } };
+      }
     };
-    operation.state = "in_progress";
-    // XT: in progress for ever; every read says to come back in a second.
-    if (co.config.stuckInProgress) return this.#respond(record);
-    if (co.config.slowConfirm) {
-      record.pending = true;
-      return this.#respond(record);
-    }
-    this.#perform(record);
-    return this.#respond(record);
   }
 
-  /** `POST {endpoint}/{id}/cancel` (Ops 7). */
-  cancel(context: ResourceContext, id: string): Response {
-    const record = this.#owned(context, id);
-    const operation = record.operation;
-    if (operation.state === "proposed") {
-      operation.state = "cancelled";
-      operation.result = { summary: "Declined. Nothing was changed." };
-    } else if (operation.state === "in_progress" && record.pending) {
-      record.pending = false;
-      operation.state = "cancelled";
-      operation.result = { summary: "Stopped before any changes were made." };
-    }
-    return this.#respond(record);
+  #owner(record: ApprovalRecord, context: ResourceContext): boolean {
+    return record.clientId === context.session.clientId && record.userId === context.session.userId &&
+      (record.account ? context.signedIn && context.account === record.account : record.sessionId === context.session.id);
   }
 
-  /** The operation its `url` shows on the website, to a Session that may see it (Ops 4.4). */
-  forWebsite(session: Session, id: string): Operation | null {
-    const record = this.#records.get(id);
-    if (!record || record.clientId !== session.clientId || record.userId !== session.userId) return null;
-    if (record.account ? session.account !== record.account : record.sessionId !== session.id) return null;
-    this.#expire(record);
-    return record.operation;
+  #revise(record: ApprovalRecord, action: Action, asked: Record<string, unknown>): OperationV2 {
+    const expiresAt = Date.now() + 10 * 60_000;
+    const { summary, terms } = action.terms(asked);
+    const operation: OperationV2 = { operation_id: record.id, revision: `${Math.floor(expiresAt / 1000)}-${randomId("", 9)}`, summary, ...(terms ? { terms } : {}), expires_at: new Date(expiresAt).toISOString() };
+    record.revisions.set(operation.revision, { operation, expiresAt });
+    record.latest = operation.revision;
+    return operation;
   }
 
   /**
-   * Test control: the User confirms on the website, in the same Session (Ops
-   * 4.4). It's the same operation, so it's performed once, whichever way it
-   * is confirmed.
+   * One write that needs approval, by API, MCP or the Company Agent.
+   * `approval` is what the request carried (null: none). Returns the
+   * operation to refuse with, or the performed action's response.
    */
-  confirmOnWebsite(id: string): void {
-    const record = this.#records.get(id);
-    if (!record || record.operation.state !== "proposed") throw new Error(`can't confirm ${id} on the website`);
-    record.operation.confirmation = {
-      revision: record.operation.revision,
-      approved_by: "user",
-      confirmed_at: new Date().toISOString()
+  #approve(action: Action, context: ResourceContext, request: string, asked: Record<string, unknown>, approval: Record<string, string> | null): { readonly operation: OperationV2 } | { readonly performed: Performed } {
+    const co = this.company;
+    if (approval && typeof approval.operation_id === "string" && typeof approval.revision === "string") {
+      const record = this.#records.get(approval.operation_id);
+      // Check 1: a Session that can't approve it is handled as if it had sent no approval.
+      if (record && record.kind === action.kind && this.#owner(record, context)) {
+        record.approvals += 1;
+        // Check 2: performed already: the first response again (Ops 7).
+        if (record.performed) return { performed: record.performed };
+        // Check 3: a revision it returned, unexpired, for exactly this request.
+        const revision = record.revisions.get(approval.revision);
+        if (revision && revision.expiresAt > Date.now() && record.request === request) {
+          record.performed = action.perform(record, context);
+          return { performed: record.performed };
+        }
+        // Never the revision it names, so an approval can't loop (Ops 6).
+        return { operation: this.#revise(record, action, asked) };
+      }
+    }
+    for (const record of this.#records.values()) {
+      if (record.kind !== action.kind || record.performed || record.request !== request || !this.#owner(record, context)) continue;
+      const latest = record.revisions.get(record.latest)!;
+      if (latest.expiresAt > Date.now()) return { operation: latest.operation };
+      return { operation: this.#revise(record, action, asked) };
+    }
+    const prefix = action.kind === "prints" ? "prt_" : (co.config.operationIdPrefix ?? "exc_");
+    const record: ApprovalRecord = {
+      id: randomId(prefix, 6).replace(/[^A-Za-z0-9_-]/g, "_"),
+      kind: action.kind,
+      clientId: context.session.clientId,
+      userId: context.session.userId,
+      sessionId: context.session.id,
+      account: context.signedIn ? context.account : null,
+      request,
+      revisions: new Map(),
+      latest: "",
+      performed: null,
+      approvals: 0
     };
-    this.#perform(record);
+    this.#records.set(record.id, record);
+    return { operation: this.#revise(record, action, asked) };
   }
 
-  /** Test control: the Company issues a new revision with new terms (Ops 3.1). */
-  revise(id: string, summary: string, terms: Record<string, unknown>): number {
-    const record = this.#records.get(id);
-    if (!record || record.operation.state !== "proposed") throw new Error(`can't revise ${id}`);
-    record.operation.revision += 1;
-    record.operation.summary = summary;
-    record.operation.terms = terms;
-    record.expiresAt = Date.now() + 10 * 60_000;
-    record.operation.expires_at = new Date(record.expiresAt).toISOString();
-    return record.operation.revision;
+  /** The jacket exchange, by API, MCP or the Company Agent. */
+  exchange(context: ResourceContext, request: string, asked: Record<string, unknown>, approval: Record<string, string> | null) {
+    return this.#approve(this.#exchange, context, request, asked, approval);
   }
 
-  isFinal(id: string): boolean {
+  /**
+   * An order of prints (`POST /prints`), signed out: its terms are the
+   * order's, and approved it is placed, to be paid at a checkout link on
+   * the Company's website.
+   */
+  prints(context: ResourceContext, request: string, terms: Terms, approval: Record<string, string> | null) {
+    const co = this.company;
+    return this.#approve(
+      {
+        kind: "prints",
+        terms: () => ({ summary: `${terms.summary}${co.config.injection ? ` ${co.config.injection}` : ""}`, ...(terms.terms ? { terms: terms.terms } : {}) }),
+        perform: () => {
+          const order = randomId("ord_", 6);
+          co.performs += 1;
+          return { status: 201, body: { order: { order_id: order, state: "awaiting_payment", checkout_url: `${co.hosts.web}/checkout/${order}` } } };
+        }
+      },
+      context,
+      request,
+      {},
+      approval
+    );
+  }
+
+  /** A revision's operation, for a test playing the Company Agent. */
+  latest(id: string): OperationV2 | null {
     const record = this.#records.get(id);
-    return record ? FINAL.has(record.operation.state) : false;
+    return record ? record.revisions.get(record.latest)!.operation : null;
   }
 }

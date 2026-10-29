@@ -12,12 +12,12 @@ import { gs, jsonValues, property } from "./hegel";
  * Company's answer reaches the screen.
  */
 
-const STATUSES = ["pending", "approved", "declined", "done", "refused", "failed", "unknown"] as const;
+const STATUSES = ["pending", "approved", "declined", "done", "terms", "refused", "failed", "unknown"] as const;
 
 /** Cards as the agent sends them: approvals in every state, with or without a batch key, among other kinds. Keys come from a small pool, so they collide, and from any text. */
 const cardLists = gs.arrays(
   gs.tuples(
-    gs.sampledFrom(["approval", "approval", "approval", "notice", "operation"] as const),
+    gs.sampledFrom(["approval", "approval", "approval", "notice"] as const),
     gs.booleans(),
     gs.sampledFrom(STATUSES),
     gs.optional(gs.oneOf(gs.sampledFrom(["k1", "k2", "k3"]), gs.text()))
@@ -27,7 +27,6 @@ const cardLists = gs.arrays(
   drawn.map(([kind, open, status, key], index): Card => {
     const id = `card-${index}`;
     if (kind === "notice") return { id, kind, company: "Acme", open, text: "A notice" };
-    if (kind === "operation") return { id, kind, company: "Acme", open, issuer: "https://acme.example" as never, operationId: `op_${index}`, revision: 1, state: "proposed", summary: "s", account: null, highlights: [], userApprovalRequired: true };
     return { id, kind, company: "Acme", open, approvalId: `apr_${index}`, summary: "s", status, ...(key === null || key === undefined ? {} : { batchKey: key }) };
   })
 );

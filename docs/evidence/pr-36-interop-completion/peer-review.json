@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-29",
+  "method": "Read-only pinned source; no third-party runtime executed outside Docker. GitHub code searches for pap_dlg and poppy-session+jwt, first 30 results each, supplemented the known-project review. This is bounded discovery, not proof no other implementation exists.",
+  "peers": [
+    {
+      "project": "spenciefy/print-with-poppy",
+      "commit": "b340741d696d867ff3190c10c1f1d1e0c368e846",
+      "finding": "Current Session-JWT wire; ten supported API-oriented demo scenarios. No MCP, conversations, streaming, handoff or browser join."
+    },
+    {
+      "project": "datalayer/personal-agent-protocol",
+      "commit": "a3713e358dd407080d446c8934250e9cdf684dad",
+      "finding": "Earlier 0.3 wire: Session Keys and Session Tokens."
+    },
+    {
+      "project": "akshay5995/poppyseed",
+      "commit": "6393dfb0f3ec93a604a6b1885fcdb89a918c3527",
+      "finding": "Explicit 26 October draft; earlier 0.3 wire."
+    },
+    {
+      "project": "LMol-4/poppykit-server",
+      "commit": "945d0cfa18a74a2e439abe9de06ddc98d179b338",
+      "finding": "AUTH.md and INTEGRATIONS.md require Session Token, Session Key proof and old Session grants, despite the README saying 0.3."
+    },
+    {
+      "project": "LMol-4/poppykit-client",
+      "commit": "053fe1c8c93a9519660122715583b75497ea0183",
+      "finding": "AUTH.md creates a Session Key per start and stores Session Tokens in memory; earlier 0.3 wire."
+    }
+  ]
+}

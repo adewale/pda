@@ -48,7 +48,6 @@ const STOP_LABEL: Record<ActivityTask["kind"], (task: ActivityTask) => string> =
   conversation: () => "End conversation",
   device_sign_in: () => "Cancel sign-in",
   sign_out: () => "Try again",
-  operation: (task) => `Ask ${task.company} to stop`,
   approval: () => "Stop"
 };
 

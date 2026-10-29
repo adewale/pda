@@ -1,0 +1,108 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.5, pytest-9.1.1, pluggy-1.6.0
+rootdir: /workspace/pda-pr36-audit/test/hypothesis
+configfile: pytest.ini
+plugins: hypothesis-6.169.0, anyio-4.15.1
+collected 16 items / 13 deselected / 3 selected
+
+test_oracles.py FFF                                                      [100%]
+
+=================================== FAILURES ===================================
+__ test_message_oracle_preserves_context_and_rejects_loss_or_change[context0] __
+
+context = {}
+
+    @pytest.mark.parametrize("context", [{}, {"user_available": False}, {"locale": "en-GB", "time_zone": "Europe/London"}])
+    def test_message_oracle_preserves_context_and_rejects_loss_or_change(context):
+        """8.5: the event contains the message as sent, including context-only messages."""
+        sent = {"id": "msg_context", "author": {"type": "agent"}, "context": context}
+        echoed = sent | {"role": "user"}
+        conversation = NS(sent=[sent["id"]], messages=[sent], log=[{"type": "message", "message": echoed}])
+        model = NS(log_checks=lambda conversation: None)
+>       Base.full_read_checks(model, conversation, None)
+
+test_oracles.py:19:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = namespace(log_checks=<function test_message_oracle_preserves_context_and_rejects_loss_or_change.<locals>.<lambda> at 0x7fa624b8ac00>)
+conversation = namespace(sent=['msg_context'], messages=[{'id': 'msg_context', 'author': {'type': 'agent'}, 'context': {}}], log=[{'type': 'message', 'message': {'id': 'msg_context', 'author': {'type': 'agent'}, 'context': {}, 'role': 'user'}}])
+page = None
+
+    def full_read_checks(self, conversation: MConversation, page: dict[str, Any] | None) -> None:
+        mine = [e for e in conversation.log if e.get("type") == "message" and e["message"].get("role") == "user"]
+        assert [e["message"]["id"] for e in mine] == conversation.sent, "every message we sent, once, in order"
+        for event, original in zip(mine, conversation.messages):
+            sent = event["message"]["id"]
+            shown = {k: v for k, v in original.items() if k != "context"} | {"role": "user", "id": sent}
+>           assert canonical(event["message"]) == canonical(shown), (event["message"], shown)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AssertionError: ({'id': 'msg_context', 'author': {'type': 'agent'}, 'context': {}, 'role': 'user'}, {'id': 'msg_context', 'author': {'type': 'agent'}, 'role': 'user'})
+
+machine.py:517: AssertionError
+__ test_message_oracle_preserves_context_and_rejects_loss_or_change[context1] __
+
+context = {'user_available': False}
+
+    @pytest.mark.parametrize("context", [{}, {"user_available": False}, {"locale": "en-GB", "time_zone": "Europe/London"}])
+    def test_message_oracle_preserves_context_and_rejects_loss_or_change(context):
+        """8.5: the event contains the message as sent, including context-only messages."""
+        sent = {"id": "msg_context", "author": {"type": "agent"}, "context": context}
+        echoed = sent | {"role": "user"}
+        conversation = NS(sent=[sent["id"]], messages=[sent], log=[{"type": "message", "message": echoed}])
+        model = NS(log_checks=lambda conversation: None)
+>       Base.full_read_checks(model, conversation, None)
+
+test_oracles.py:19:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = namespace(log_checks=<function test_message_oracle_preserves_context_and_rejects_loss_or_change.<locals>.<lambda> at 0x7fa624c1ef20>)
+conversation = namespace(sent=['msg_context'], messages=[{'id': 'msg_context', 'author': {'type': 'agent'}, 'context': {'user_availab... 'message': {'id': 'msg_context', 'author': {'type': 'agent'}, 'context': {'user_available': False}, 'role': 'user'}}])
+page = None
+
+    def full_read_checks(self, conversation: MConversation, page: dict[str, Any] | None) -> None:
+        mine = [e for e in conversation.log if e.get("type") == "message" and e["message"].get("role") == "user"]
+        assert [e["message"]["id"] for e in mine] == conversation.sent, "every message we sent, once, in order"
+        for event, original in zip(mine, conversation.messages):
+            sent = event["message"]["id"]
+            shown = {k: v for k, v in original.items() if k != "context"} | {"role": "user", "id": sent}
+>           assert canonical(event["message"]) == canonical(shown), (event["message"], shown)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AssertionError: ({'id': 'msg_context', 'author': {'type': 'agent'}, 'context': {'user_available': False}, 'role': 'user'}, {'id': 'msg_context', 'author': {'type': 'agent'}, 'role': 'user'})
+
+machine.py:517: AssertionError
+__ test_message_oracle_preserves_context_and_rejects_loss_or_change[context2] __
+
+context = {'locale': 'en-GB', 'time_zone': 'Europe/London'}
+
+    @pytest.mark.parametrize("context", [{}, {"user_available": False}, {"locale": "en-GB", "time_zone": "Europe/London"}])
+    def test_message_oracle_preserves_context_and_rejects_loss_or_change(context):
+        """8.5: the event contains the message as sent, including context-only messages."""
+        sent = {"id": "msg_context", "author": {"type": "agent"}, "context": context}
+        echoed = sent | {"role": "user"}
+        conversation = NS(sent=[sent["id"]], messages=[sent], log=[{"type": "message", "message": echoed}])
+        model = NS(log_checks=lambda conversation: None)
+>       Base.full_read_checks(model, conversation, None)
+
+test_oracles.py:19:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = namespace(log_checks=<function test_message_oracle_preserves_context_and_rejects_loss_or_change.<locals>.<lambda> at 0x7fa624c1f380>)
+conversation = namespace(sent=['msg_context'], messages=[{'id': 'msg_context', 'author': {'type': 'agent'}, 'context': {'locale': 'en...context', 'author': {'type': 'agent'}, 'context': {'locale': 'en-GB', 'time_zone': 'Europe/London'}, 'role': 'user'}}])
+page = None
+
+    def full_read_checks(self, conversation: MConversation, page: dict[str, Any] | None) -> None:
+        mine = [e for e in conversation.log if e.get("type") == "message" and e["message"].get("role") == "user"]
+        assert [e["message"]["id"] for e in mine] == conversation.sent, "every message we sent, once, in order"
+        for event, original in zip(mine, conversation.messages):
+            sent = event["message"]["id"]
+            shown = {k: v for k, v in original.items() if k != "context"} | {"role": "user", "id": sent}
+>           assert canonical(event["message"]) == canonical(shown), (event["message"], shown)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AssertionError: ({'id': 'msg_context', 'author': {'type': 'agent'}, 'context': {'locale': 'en-GB', 'time_zone': 'Europe/London'}, 'role': 'user'}, {'id': 'msg_context', 'author': {'type': 'agent'}, 'role': 'user'})
+
+machine.py:517: AssertionError
+=========================== short test summary info ============================
+FAILED test_oracles.py::test_message_oracle_preserves_context_and_rejects_loss_or_change[context0]
+FAILED test_oracles.py::test_message_oracle_preserves_context_and_rejects_loss_or_change[context1]
+FAILED test_oracles.py::test_message_oracle_preserves_context_and_rejects_loss_or_change[context2]
+======================= 3 failed, 13 deselected in 0.28s =======================

@@ -1,124 +1,22 @@
+/**
+ * Local approvals: a request the agent makes only once the User has
+ * approved it on a card of ours. Any write, an upload of the User's files, a
+ * website form, and an operation a Company returned (0.3 Operations 2,
+ * `operations-v2.ts`) wait here: the exact request is stored, checked again
+ * when approved, and sent once. Also what a card shows of an operation's
+ * terms, and where they disagree with its summary or the request (Ops 5).
+ */
 import { approvalAttachments, approvalBatchKey, readApproval, storedApproval, type ApprovalKind, type ApprovalOf, type NewApproval } from "./approvals";
-import { answerOf, hasCode, PoppyClient, PoppyError, unreadableAnswerOf } from "./client";
+import { answerOf, PoppyClient, PoppyError, unreadableAnswerOf } from "./client";
 import { tokenHostAllowed, type Company } from "./discovery";
 import { canonicalJson, isObject, toJson, type Json } from "./json";
-import { randomId } from "./jwt";
-import { FINAL_STATES, parseOperation, type Operation } from "./operation-value";
-import { EndpointRequest } from "./outgoing";
-import { backoff } from "./pace";
+import { randomId, sha256 } from "./jwt";
+import type { OperationV2 } from "./operations-v2";
+import type { ApprovalTerms } from "./wire";
 import { one, rows, type RowOf } from "../rows";
-import { approvalBatchesTable, approvalsTable, operationsTable, permissionsTable, proposalsTable } from "./store";
-import type { Issuer } from "./issuer";
-
-
-const operationRow = operationsTable.row;
-type OperationRow = RowOf<typeof operationRow>;
-
-/**
- * `poppy_operations.confirmed`: whether a confirm is outstanding. `SENT` is
- * recorded, and the tracking job scheduled, before the confirm goes out, so
- * an answer that never arrives (lost, an exception, the object restarting)
- * is followed up: read first, then confirm the same revision again only if
- * the operation still awaits it (Ops 6).
- */
-const NOT_SENT = 0;
-const ANSWERED = 1;
-const SENT = 2;
-/**
- * The Company says it no longer has the operation (`operation_not_found`),
- * as when the signed-out Session it was proposed in has ended (Ops 3.2).
- * Nothing can confirm, read or cancel it any more, so it is final for us
- * (our reading of N19, docs/readings.md): never confirmed or read again, and
- * no longer in the way of a new proposal. `LOST`: it may have happened (a
- * confirm's answer never came, or it was in progress); `LOST_NOT_DONE`: it
- * wasn't. Rows marked lost before the two were told apart are all `LOST`,
- * the cautious one.
- */
-const LOST = 3;
-const LOST_NOT_DONE = 4;
-
-function isLost(confirmed: number): boolean {
-  return confirmed === LOST || confirmed === LOST_NOT_DONE;
-}
-
-/** For a lost operation, whether it may have happened; null when it isn't lost. */
-export function lostOutcome(confirmed: number): "unknown" | "not_done" | null {
-  return confirmed === LOST ? "unknown" : confirmed === LOST_NOT_DONE ? "not_done" : null;
-}
-/** When the tracking job checks on a confirm whose answer never came. */
-const CONFIRM_CHECK_MS = 60_000;
-
-const FINAL = FINAL_STATES;
-
-/** A short, stable tag for a value (FNV-1a of its JSON), so a notice about it is given once. */
-function tagOf(value: Json): string {
-  const text = JSON.stringify(value) ?? "";
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < text.length; index++) hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
-  return hash.toString(16).padStart(8, "0");
-}
-
-/**
- * The Company proposed something we can't use: an operation we can't read,
- * or one from a Company that doesn't list the extension (so there is nowhere
- * to confirm it). Nothing was done and nothing can be confirmed; the User
- * and the model are told so, once, rather than the model being left with
- * the raw answer.
- */
-async function unusableProposal(client: PoppyClient, company: Company, problem: string, value: Json): Promise<void> {
-  const tag = `${company.issuer}-${tagOf(value)}`;
-  await client.host.showCard({
-    id: `op-unreadable-${tag}`,
-    kind: "notice",
-    company: company.name,
-    domain: company.domain,
-    open: false,
-    text: `${company.name} proposed an action your agent couldn't read (${problem}), so nothing was done and there is nothing to approve. Ask again if you still want it.`
-  });
-  await client.host.notifyModel(
-    `[system] ${company.name} proposed an operation the agent can't use (${problem}). Nothing was done, and it can't be approved or confirmed. Tell the User; if they still want it, ask ${company.name} again or another way.`,
-    `poppy-op-unreadable-${tag}`
-  );
-}
-
-/**
- * A write sent without our own card, because the Company's description says
- * it answers with a proposal, came back a success with no operation: the
- * Company broke its own description, and may have acted without the User's
- * approval. The User and the model are told so, once; neither is told it
- * was done or not done. `what` names the request for the User only.
- */
-export async function actedWithoutProposal(client: PoppyClient, company: Company, what: string, status: number, value: Json): Promise<void> {
-  const tag = `${company.issuer}-${tagOf({ what, status, value })}`;
-  await client.host.showCard({
-    id: `op-unproposed-${tag}`,
-    kind: "notice",
-    company: company.name,
-    domain: company.domain,
-    open: false,
-    text: `${company.name} says ${what} only proposes an action for you to approve, but it answered ${status} with no proposal, so it may have done it without asking you. Check with ${company.name} before asking again.`
-  });
-  await client.host.notifyModel(
-    `[system] ${company.name}'s description says this write answers with a proposal for the User to approve, but it answered ${status} with no operation, so it may have acted without the User's approval. Tell the User; don't say it was done or not done until ${company.name} says which.`,
-    `poppy-op-unproposed-${tag}`
-  );
-}
-
-function stored(client: PoppyClient, issuer: Issuer, id: string): OperationRow | undefined {
-  return one(
-    client.sql,
-    operationRow,
-    "SELECT * FROM poppy_operations WHERE issuer = ? AND operation_id = ?",
-    issuer,
-    id
-  );
-}
-
-function endpointOf(company: Company): { url: string; resource?: string } {
-  const operations = company.extensions.operations;
-  if (!operations) throw new PoppyError("no_operations", `${company.name} doesn't use the operations extension`, 0);
-  return { url: operations.endpoint.replace(/\/+$/, ""), ...(operations.resource ? { resource: operations.resource } : {}) };
-}
+import { approvalBatchesTable, approvalsTable, cardsTable } from "./store";
+import { approvalResult, checkedOutcomeText, storedResolution } from "./approval-outcome";
+import type { CardWriteOptions } from "./cards";
 
 /**
  * What the Guides ask an approval to point out (Operations section): costs,
@@ -152,23 +50,6 @@ export function highlights(terms: Json | undefined): string[] {
   if (terms !== undefined) walk(terms, "");
   found.push(reversibility ?? "The company hasn't said whether this can be undone.");
   return found;
-}
-
-/**
- * Links in a final operation's `result.data` the User can follow: HTTPS URLs
- * on the Company's own hosts (a checkout or an order's status page), each
- * labelled by its key. Anything else stays data.
- */
-export function resultLinks(company: Company, data: Json | undefined): { label: string; url: string }[] {
-  if (!isObject(data ?? null)) return [];
-  const links: { label: string; url: string }[] = [];
-  for (const [key, value] of Object.entries(data as Record<string, Json>)) {
-    if (typeof value !== "string" || !URL.canParse(value)) continue;
-    const url = new URL(value);
-    if (url.protocol !== "https:" || url.username || url.password || !tokenHostAllowed(company, url)) continue;
-    links.push({ label: key.replace(/_url$/i, "").replace(/[_-]+/g, " ").trim() || "link", url: url.href });
-  }
-  return links.slice(0, 4);
 }
 
 /**
@@ -224,902 +105,135 @@ export function termsPreviews(company: Company, terms: Json | undefined): { labe
   return found;
 }
 
-async function showOperation(client: PoppyClient, company: Company, row: OperationRow): Promise<void> {
-  const operation = row.operation;
-  const lost = lostOutcome(row.confirmed) ?? undefined;
-  const altered = row.altered_summary ?? undefined;
-  const open = !lost && !row.cancel_requested && altered === undefined && operation.state === "proposed" && row.approved_revision !== operation.revision;
-  const links = FINAL.has(operation.state) ? resultLinks(company, operation.result?.data) : [];
-  const total = termsTotal(operation.terms);
-  const previews = termsPreviews(company, operation.terms);
-  await client.host.showCard({
-    id: `op-${row.issuer}-${operation.operation_id}`,
-    kind: "operation",
-    company: company.name,
-    domain: company.domain,
-    open,
-    issuer: row.issuer,
-    operationId: operation.operation_id,
-    revision: operation.revision,
-    state: operation.state,
-    summary: operation.summary,
-    account: row.account,
-    ...(operation.terms !== undefined ? { terms: operation.terms } : {}),
-    highlights: highlights(operation.terms),
-    ...(row.previous_summary ? { previousSummary: row.previous_summary } : {}),
-    ...(operation.expires_at ? { expiresAt: operation.expires_at } : {}),
-    userApprovalRequired: operation.user_approval_required === true,
-    ...(operation.url ? { url: operation.url } : {}),
-    ...(operation.result?.summary ? { result: operation.result.summary } : {}),
-    ...(links.length ? { links } : {}),
-    ...(lost ? { lost } : {}),
-    ...(altered !== undefined ? { alteredSummary: altered } : {}),
-    ...(row.approved_by ? { approvedBy: row.approved_by } : {}),
-    ...(total ? { total } : {}),
-    ...(previews.length ? { previews } : {})
-  });
+/** The longest value a difference quotes, so a Company's long string can't fill the card. */
+const QUOTE_LIMIT = 80;
+const quoted = (value: string | number | boolean) => {
+  const text = String(value);
+  return text.length > QUOTE_LIMIT ? `${text.slice(0, QUOTE_LIMIT)}…` : text;
+};
+
+/** Every number written in a text, commas dropped: "$1,070.50 more" → [1070.5]. */
+function numbersIn(text: string): number[] {
+  return [...text.matchAll(/\d[\d,]*(?:\.\d+)?/g)].map((match) => Number(match[0].replace(/,/g, ""))).filter(Number.isFinite);
+}
+
+type Scalar = string | number | boolean;
+const isScalar = (value: Json | undefined): value is Scalar => typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+
+/** The scalar at exactly `path` in a value, if there is one: what the request asked for in that place. */
+function scalarAtPath(value: Json | undefined, path: readonly (string | number)[]): Scalar | undefined {
+  let at: Json | undefined = value;
+  for (const segment of path) {
+    if (typeof segment === "number") at = Array.isArray(at) ? at[segment] : undefined;
+    else at = isObject(at) && Object.hasOwn(at, segment) ? at[segment] : undefined;
+  }
+  return isScalar(at) ? at : undefined;
+}
+
+/** Every scalar under `key` anywhere in a value, breadth first, to six levels: what the request asked for under that name. */
+function scalarsAt(value: Json | undefined, key: string): Scalar[] {
+  const found: Scalar[] = [];
+  let level: Json[] = value === undefined ? [] : [value];
+  for (let depth = 0; depth < 6 && level.length; depth++) {
+    const next: Json[] = [];
+    for (const item of level) {
+      if (Array.isArray(item)) next.push(...item);
+      if (!isObject(item)) continue;
+      const named = Object.hasOwn(item, key) ? item[key] : undefined;
+      if (isScalar(named)) found.push(named);
+      next.push(...Object.values(item));
+    }
+    level = next;
+  }
+  return found;
 }
 
 /**
- * The Company answered `operation_not_found` for an operation it proposed:
- * the Session it belongs to has ended, or the Company forgot it. Mark it
- * lost, release a reserved permission use, close its card and tell the model,
- * once. If a confirm was sent, it may have happened; the User is told to check.
+ * Where an operation's terms disagree with its summary or with the request
+ * that returned it (Ops 5: the agent "SHOULD check that they agree with the
+ * `summary` and with what it asked for ... and point out any difference").
+ * Two checks, both mechanical: every amount the terms name appears as a
+ * number in the summary (its size: a refund of -20.00 may be written
+ * "20.00"), and every scalar the terms name has the request's value: the
+ * request's at the same place, or, where the request has none there, one
+ * of the request's under the same key, if it used that key. So an order of
+ * several items, each with its own `sku`, agrees with itself. Wording,
+ * dates and anything else the summary says are left to the User, who
+ * reads it in full.
  */
-async function markLost(client: PoppyClient, company: Company, row: OperationRow): Promise<void> {
-  if (isLost(row.confirmed)) return;
-  // It may have happened if it was being performed, or an earlier confirm's answer never came.
-  const uncertain = row.confirmed === SENT || row.operation.state === "in_progress";
-  const approved = row.approved_revision !== null;
-  releasePermission(client, row);
-  setConfirmed(client, row.issuer, row.operation_id, uncertain ? LOST : LOST_NOT_DONE);
-  await showOperation(client, company, stored(client, row.issuer, row.operation_id)!);
-  const outcome = uncertain
-    ? `A confirm may have reached ${company.name} before, so it may have happened: tell the User to check with ${company.name} before asking for it again.`
-    : approved
-      ? `The User approved it, but ${company.name} no longer has it, so it wasn't done. If the User still wants it, ask for a new proposal; they approve that one again.`
-      : "Nothing was confirmed. If the User still wants it, ask for a new proposal.";
-  await client.host.notifyModel(
-    `[system] ${company.name} no longer has operation ${row.operation_id} (operation_not_found)${row.account ? "" : ": it was proposed in a signed-out Session, which has ended, and only that Session could use it (Operations 3.2)"}. It can't be confirmed, read or cancelled now. ${outcome}`,
-    `poppy-op-lost-${row.issuer}-${row.operation_id}`
-  );
-}
-
-/**
- * Before an API write that once proposed an operation: if we've tried to
- * confirm that operation and it isn't final, we read or confirm it again
- * instead, and MUST NOT ask for a new proposal of the same action (Ops 6).
- * `request` identifies the write: method, URL and body, or MCP tool and args.
- */
-export function refuseWhileConfirming(client: PoppyClient, issuer: Issuer, request: string): void {
-  const found = one(
-    client.sql,
-    proposalsTable.pick("operation_id"),
-    "SELECT operation_id FROM poppy_proposals WHERE issuer = ? AND request = ?",
-    issuer,
-    request
-  );
-  const row = found ? stored(client, issuer, found.operation_id) : undefined;
-  if (!row || isLost(row.confirmed)) return;
-  if (row.approved_revision === null && row.confirmed !== SENT && !row.cancel_requested && row.operation.state !== "in_progress") return;
-  const operation = row.operation;
-  if (FINAL.has(operation.state)) return;
-  throw new PoppyError(
-    "operation_open",
-    `This request already proposed operation ${operation.operation_id}, which is ${operation.state}${row.cancel_requested ? " and awaiting cancellation" : ""}. Read it with poppy_operation; don't ask again until it is final.`,
-    0
-  );
-}
-
-/** Remember which API write proposed an operation, for `refuseWhileConfirming`. */
-export function rememberProposal(client: PoppyClient, issuer: Issuer, request: string, operationId: string): void {
-  client.sql.exec(
-    `INSERT INTO poppy_proposals (issuer, request, operation_id) VALUES (?, ?, ?)
-     ON CONFLICT (issuer, request) DO UPDATE SET operation_id = excluded.operation_id`,
-    issuer,
-    request,
-    operationId
-  );
-}
-
-/** What an approval of a revision covers: its summary and terms, whatever their members' order (Ops 3.1, 5.1). */
-function termsOf(operation: Operation): string {
-  return canonicalJson({ summary: operation.summary, terms: operation.terms ?? null });
-}
-
-/** What counts as progress for an operation: its state, revision, result and confirmation, whatever their members' order. */
-function progressOf(operation: Operation): string {
-  return canonicalJson(
-    toJson({ state: operation.state, revision: operation.revision, result: operation.result ?? null, confirmation: operation.confirmation ?? null })
-  );
-}
-
-/**
- * Each revision is fixed once issued; the Company MUST NOT change its terms
- * (Ops 3.1). When it sends the revision we have with other terms, keep the
- * ones the User saw, and never confirm that revision: an approval it carried
- * is withdrawn, a permission use released, and a confirm still owed is not
- * sent again. Returns the operation to store; `alteredNotice` tells the User
- * and the model, once.
- */
-function keepRevisionTerms(client: PoppyClient, existing: OperationRow, incoming: Operation): Operation {
-  const previous = existing.operation;
-  if (incoming.revision !== previous.revision || termsOf(incoming) === termsOf(previous)) return incoming;
-  const { terms: _, ...rest } = incoming;
-  const kept: Operation = { ...rest, summary: previous.summary, ...(previous.terms !== undefined ? { terms: previous.terms } : {}) };
-  if (existing.altered_summary === null) {
-    client.sql.exec(
-      "UPDATE poppy_operations SET altered_summary = ? WHERE issuer = ? AND operation_id = ?",
-      incoming.summary,
-      existing.issuer,
-      existing.operation_id
-    );
-    if (incoming.state === "proposed") {
-      releasePermission(client, existing);
-      clearApproval(client, existing.issuer, existing.operation_id);
-      if (!isLost(existing.confirmed)) setConfirmed(client, existing.issuer, existing.operation_id, NOT_SENT);
-    }
-  }
-  return kept;
-}
-
-/** Tell the model, once, that the Company changed a revision's terms in place (`keepRevisionTerms`). */
-async function alteredNotice(client: PoppyClient, company: Company, existing: OperationRow, incoming: Operation): Promise<void> {
-  if (existing.altered_summary !== null) return;
-  const what = `${company.name} changed the terms of operation ${incoming.operation_id} (revision ${incoming.revision}) without a new revision, which Operations 3.1 forbids. It now says: "${incoming.summary}". The terms the User ${existing.approved_revision !== null ? "approved" : "was shown"}: "${existing.operation.summary}".`;
-  await client.host.notifyModel(
-    incoming.state === "proposed"
-      ? `[system] ${what} It won't be confirmed. If the User still wants it, ask ${company.name} for a new proposal; the User decides on its card.`
-      : `[system] ${what} It is ${incoming.state}: tell the User to check with ${company.name} what was done.`,
-    `poppy-op-altered-${existing.issuer}-${incoming.operation_id}-${incoming.revision}`
-  );
-}
-
-/**
- * Record an operation from any channel (Ops 4): an OpenAPI 202, an MCP tool
- * result, or a Company message. A new revision of a proposal needs a new
- * explicit approval (Ops 5.1).
- */
-export async function handleProposal(
-  client: PoppyClient,
-  company: Company,
-  label: string,
-  value: Json
-): Promise<Operation | null> {
-  const parsed = parseOperation(value);
-  if ("problem" in parsed || !company.extensions.operations) {
-    await unusableProposal(
-      client,
-      company,
-      "problem" in parsed ? parsed.problem : "its poppy.json doesn't list the Operations extension, so there is nowhere to confirm it",
-      value
-    );
-    return null;
-  }
-  let { operation } = parsed;
-  client.rememberCompany("operation", operation.operation_id, company);
-  const existing = stored(client, company.issuer, operation.operation_id);
-  const previous = existing ? existing.operation : undefined;
-  if (previous && previous.revision > operation.revision) return previous;
-  if (previous && FINAL.has(previous.state)) return previous;
-  const account = client.session(company.issuer, label)?.account ?? null;
-  const incoming = operation;
-  operation = existing ? keepRevisionTerms(client, existing, incoming) : incoming;
-  const previousSummary =
-    previous && previous.revision < operation.revision ? previous.summary : (existing?.previous_summary ?? null);
-  client.sql.exec(
-    `INSERT INTO poppy_operations (issuer, operation_id, label, account, operation, previous_summary, approved_revision, approved_by, permission_id, confirmed, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?)
-     ON CONFLICT (issuer, operation_id) DO UPDATE SET operation = excluded.operation, previous_summary = excluded.previous_summary, updated_at = excluded.updated_at`,
-    company.issuer,
-    operation.operation_id,
-    label,
-    account,
-    JSON.stringify(operation),
-    previousSummary,
-    client.host.now()
-  );
-  const row = stored(client, company.issuer, operation.operation_id)!;
-  const isNewRevision = !previous || previous.revision !== operation.revision;
-
-  if (operation.state === "proposed" && isNewRevision) {
-    // Draft 0.1 supplies no checkable action semantics. A prose-prefix
-    // permission cannot authorize every term: every proposal asks the User.
-    await announceProposal(client, company, row, operation);
-  } else if (operation.state === "proposed" && row.approved_revision !== operation.revision) {
-    // The same proposal again (a repeated event or call): its card and notice
-    // again, both idempotent, in case the first time didn't get that far.
-    await announceProposal(client, company, row, operation);
-  } else {
-    await afterUpdate(client, company, row, previous);
-  }
-  if (existing && operation !== incoming) await alteredNotice(client, company, existing, incoming);
-  return operation;
-}
-
-async function announceProposal(client: PoppyClient, company: Company, row: OperationRow, operation: Operation): Promise<void> {
-  await showOperation(client, company, row);
-  await client.host.notifyModel(
-    `[system] ${company.name} proposed operation ${operation.operation_id} (revision ${operation.revision}): "${operation.summary}". Nothing has happened yet. The User has been shown the terms and decides on the card; don't say it's done until it is.`,
-    `poppy-op-${company.issuer}-${operation.operation_id}-${operation.revision}`
-  );
-}
-
-async function afterUpdate(
-  client: PoppyClient,
-  company: Company,
-  row: OperationRow,
-  previous: Operation | undefined
-): Promise<void> {
-  const operation = row.operation;
-  await showOperation(client, company, row);
-  if (FINAL.has(operation.state) && previous?.state !== operation.state) {
-    settlePermission(client, row, operation.state === "succeeded" || operation.state === "in_progress");
-    const result = operation.result?.summary ?? "No details.";
-    const data = operation.result?.data !== undefined ? JSON.stringify(operation.result.data) : "";
-    await client.host.notifyModel(
-      `[system] Operation ${operation.operation_id} at ${company.name} is ${operation.state}. The company's account of what happened: "${result}"${data ? ` Its details, as data: ${data.length > 1_000 ? `${data.slice(0, 1_000)}…` : data}` : ""}`,
-      `poppy-op-final-${row.issuer}-${operation.operation_id}`
-    );
-  }
-}
-
-/** A response must describe the operation we requested before it can settle uncertainty. */
-function operationAnswer(company: Company, value: Json, expectedId: string): Operation {
-  const parsed = parseOperation(value);
-  if ("problem" in parsed || parsed.operation.operation_id !== expectedId) {
-    throw new PoppyError("invalid_response", `${company.name} returned no valid answer for the requested operation`, 0);
-  }
-  return parsed.operation;
-}
-
-/** Store a validated operation response, and react to its state. */
-async function update(client: PoppyClient, company: Company, incoming: Operation): Promise<Operation> {
-  const existing = stored(client, company.issuer, incoming.operation_id);
-  if (!existing) throw new PoppyError("invalid_response", `${company.name} returned an unknown operation`, 0);
-  const previous = existing.operation;
-  if (incoming.revision < previous.revision || FINAL.has(previous.state) ||
-      (incoming.revision === previous.revision && previous.state === "in_progress" && incoming.state === "proposed")) {
-    // A delayed response cannot resurrect a cancelled/final action, rewind
-    // its revision or undo progress another channel has already established.
-    if (canonicalJson(toJson(incoming)) !== canonicalJson(toJson(previous))) {
-      await client.host.showCard({
-        id: `op-response-conflict-${company.issuer}-${incoming.operation_id}`,
-        kind: "notice", company: company.name, domain: company.domain, open: false,
-        text: `${company.name} returned an older or contradictory operation response. Your agent kept revision ${previous.revision} in state ${previous.state}; check with the Company if its outcome is unclear.`
-      });
-    }
-    return previous;
-  }
-  const operation = keepRevisionTerms(client, existing, incoming);
-  // `updated_at` is when the operation last made progress, not when it was last read:
-  // Activity's "since", and the tracking job's backoff (`trackOperation`).
-  const changed = progressOf(operation) !== progressOf(previous);
-  client.sql.exec(
-    "UPDATE poppy_operations SET operation = ?, updated_at = ? WHERE issuer = ? AND operation_id = ?",
-    JSON.stringify(operation),
-    changed ? client.host.now() : existing.updated_at,
-    company.issuer,
-    operation.operation_id
-  );
-  await afterUpdate(client, company, stored(client, company.issuer, operation.operation_id)!, previous);
-  if (operation !== incoming) await alteredNotice(client, company, existing, incoming);
-  // Tracking starts when the operation goes in progress; after that the job sets its own pace.
-  if (operation.state === "in_progress" && previous.state !== "in_progress") {
-    await client.host.schedule(
-      "poppy-operation",
-      client.host.now() + 5_000,
-      { issuer: company.issuer, id: operation.operation_id },
-      `op-${company.issuer}-${operation.operation_id}`
-    );
-  }
-  return operation;
-}
-
-/**
- * The User approved revision `revision` on the card: confirm exactly that
- * revision (Ops 5.2). The model can't reach this. Legacy standing-permission
- * callers are retained at the type boundary but cannot authorize a request.
- */
-export async function approveAndConfirm(
-  client: PoppyClient,
-  issuer: Issuer,
-  operationId: string,
-  revision: number,
-  approvedBy: "user" | "standing_permission",
-  permissionId?: string
-): Promise<void> {
-  const row = stored(client, issuer, operationId);
-  if (!row || isLost(row.confirmed)) return;
-  const operation = row.operation;
-  // An approval covers one revision; a stale card can't approve newer terms, nor a revision the Company changed in place.
-  if (operation.revision !== revision || operation.state !== "proposed" || row.altered_summary !== null || row.cancel_requested) return;
-  // Existing generic grants are retained for inspection/removal only. They
-  // never create an authorization, including calls made by older adapters.
-  if (approvedBy !== "user" || permissionId) return;
-  if (row.approved_revision === revision && row.approved_by === "user") {
-    // A failed recovery-job write can leave valid approval but no request.
-    // Resume that decision without renewing it. SENT may also mean an unknown
-    // earlier outcome, so reconcile before retrying; an active attempt owns it.
-    if (!client.inFlight.has(CONFIRMING(issuer, operationId))) {
-      if (row.confirmed === SENT) await trackOperation(client, issuer, operationId);
-      else await confirm(client, issuer, operationId);
-    }
-    return;
-  }
-  if (row.confirmed === SENT) return;
-  releasePermission(client, row);
-  client.sql.exec(
-    "UPDATE poppy_operations SET approved_revision = ?, approved_by = ?, permission_id = ?, approval_generation = approval_generation + 1 WHERE issuer = ? AND operation_id = ?",
-    revision,
-    approvedBy,
-    permissionId ?? null,
-    issuer,
-    operationId
-  );
-  await confirm(client, issuer, operationId);
-}
-
-function setConfirmed(client: PoppyClient, issuer: Issuer, operationId: string, value: number): void {
-  client.sql.exec("UPDATE poppy_operations SET confirmed = ? WHERE issuer = ? AND operation_id = ?", value, issuer, operationId);
-}
-
-async function scheduleTracking(client: PoppyClient, issuer: Issuer, operationId: string, at: number): Promise<void> {
-  await client.host.schedule("poppy-operation", at, { issuer, id: operationId }, `op-${issuer}-${operationId}`);
-}
-
-/** Restore follow-up when durable intent survived but its tracking job did not. */
-export async function recoverOperations(client: PoppyClient): Promise<void> {
-  for (const row of rows(client.sql, operationRow,
-    "SELECT * FROM poppy_operations WHERE approved_by = 'standing_permission'")) {
-    await retireStandingApproval(client, row);
-  }
-  for (const row of rows(client.sql, operationRow,
-    "SELECT * FROM poppy_operations WHERE confirmed = ? OR cancel_requested = 1 OR json_extract(operation, '$.state') = 'in_progress'", SENT)) {
-    if (isLost(row.confirmed) || FINAL.has(row.operation.state)) continue;
-    if (!client.host.hasJob(`op-${row.issuer}-${row.operation_id}`)) {
-      await scheduleTracking(client, row.issuer, row.operation_id, client.host.now());
-    }
-  }
-}
-
-const CONFIRMING = (issuer: Issuer, operationId: string) => `confirm|${issuer}|${operationId}`;
-
-/** Retire approvals created by the old prose heuristic without losing unknown outcomes. */
-async function retireStandingApproval(client: PoppyClient, row: OperationRow): Promise<void> {
-  // Recovery snapshots several rows, then yields while refreshing each card.
-  // A later row may already carry a newer explicit decision when we reach it.
-  const live = stored(client, row.issuer, row.operation_id);
-  if (!live) return;
-  row = live;
-  if (row.approved_by !== "standing_permission" || FINAL.has(row.operation.state) || isLost(row.confirmed)) return;
-  const uncertain = row.confirmed === SENT || row.operation.state === "in_progress";
-  if (uncertain) {
-    client.sql.exec(
-      "UPDATE poppy_operations SET cancel_requested = 1, approved_revision = NULL, approved_by = NULL, approval_generation = approval_generation + 1 WHERE issuer = ? AND operation_id = ? AND approved_by = 'standing_permission'",
-      row.issuer, row.operation_id
-    );
-    await scheduleTracking(client, row.issuer, row.operation_id, client.host.now());
-  } else {
-    releasePermission(client, row);
-    clearApproval(client, row.issuer, row.operation_id);
-  }
-  await showOperation(client, client.companyByIssuer(row.issuer), stored(client, row.issuer, row.operation_id)!);
-}
-
-/** Rechecked immediately before every actual fetch, including transport retries. */
-function assertConfirmation(client: PoppyClient, row: OperationRow): void {
-  const current = stored(client, row.issuer, row.operation_id);
-  if (!current || current.cancel_requested || current.approval_generation !== row.approval_generation ||
-      current.approved_by !== "user" || current.approved_revision !== row.approved_revision ||
-      current.label !== row.label || current.account !== row.account ||
-      (client.session(row.issuer, row.label)?.account ?? null) !== row.account ||
-      current.operation.revision !== row.approved_revision || current.operation.state !== "proposed" || current.altered_summary !== null) {
-    throw new PoppyError("approval_changed", "Confirmation stopped: this revision no longer has the User's approval", 0);
-  }
-}
-
-/**
- * POST `/confirm` for the approved revision (Ops 5.2). Never for a final
- * operation, and never twice at once. The intent and its follow-up are
- * recorded before sending, so a lost answer is checked on (Ops 6).
- */
-export async function confirm(client: PoppyClient, issuer: Issuer, operationId: string): Promise<void> {
-  const row = stored(client, issuer, operationId);
-  if (!row || row.approved_revision === null || !row.approved_by || isLost(row.confirmed)) return;
-  if (row.approved_by === "standing_permission") {
-    await retireStandingApproval(client, row);
-    return;
-  }
-  if (row.cancel_requested) return;
-  if (FINAL.has(row.operation.state) || row.altered_summary !== null) return;
-  const signedInAccount = client.session(issuer, row.label)?.account ?? null;
-  if (row.account === null && signedInAccount !== null && row.confirmed !== SENT) {
-    // A signed-out proposal can survive signing into the same Session. Bind
-    // its next decision to the now-known account, rather than silently
-    // rejecting every future retry or carrying old authority across sign-in.
-    clearApproval(client, issuer, operationId);
-    client.sql.exec("UPDATE poppy_operations SET account = ? WHERE issuer = ? AND operation_id = ?", signedInAccount, issuer, operationId);
-    await showOperation(client, client.companyByIssuer(issuer), stored(client, issuer, operationId)!);
-    await client.host.notifyModel(
-      `[system] Operation ${operationId} was approved before sign-in identified the account. The User must approve its exact revision again on the card; it has not been confirmed.`,
-      `poppy-op-account-approval-${issuer}-${operationId}-${row.approved_revision}`
-    );
-    return;
-  }
-  const key = CONFIRMING(issuer, operationId);
-  if (client.inFlight.has(key)) return;
-  // Reserve synchronously: persisting the follow-up yields, so another
-  // approval could otherwise enter before the first request is marked busy.
-  client.inFlight.add(key);
-  let dispatched = false;
-  try {
-    const company = await client.resumeCompany(issuer, "operation", operationId);
-    const endpoint = endpointOf(company);
-    setConfirmed(client, issuer, operationId, SENT);
-    await scheduleTracking(client, issuer, operationId, client.host.now() + CONFIRM_CHECK_MS);
-    try {
-      const { body, headers } = await client.resourceJson(
-        company,
-        EndpointRequest.to(company, {
-          method: "POST",
-          url: `${endpoint.url}/${encodeURIComponent(operationId)}/confirm`,
-          body: { revision: row.approved_revision, approved_by: row.approved_by }
-        }),
-        {
-          label: row.label,
-          ...(endpoint.resource ? { resource: endpoint.resource } : {}),
-          beforeDispatch: () => {
-            assertConfirmation(client, row);
-            dispatched = true;
-          }
-        }
-      );
-      const answer = operationAnswer(company, body, operationId);
-      if (answer.revision !== row.approved_revision) {
-        throw new PoppyError("invalid_response", `${company.name} returned no confirmed outcome for the approved revision`, 0);
+export function termsDifferences(operation: Pick<OperationV2, "summary" | "terms">, asked: Json | undefined): string[] {
+  const differences: string[] = [];
+  const written = numbersIn(operation.summary);
+  const walk = (value: Json, path: string, segments: readonly (string | number)[]) => {
+    if (differences.length >= 8) return;
+    if (Array.isArray(value)) return value.forEach((item, index) => walk(item, `${path}[${index}]`, [...segments, index]));
+    if (!isObject(value)) return;
+    if (typeof value.amount === "string" || typeof value.amount === "number") {
+      const amount = Number(value.amount);
+      const currency = typeof value.currency === "string" ? ` ${value.currency}` : "";
+      if (!Number.isFinite(amount) || !written.includes(Math.abs(amount))) {
+        differences.push(`The terms name ${quoted(value.amount)}${quoted(currency)} (${path || "amount"}), which the summary doesn't mention.`);
       }
-      if (answer.state === "proposed") {
-        // Observe same-revision terms tampering before rejecting the invalid
-        // transition. update() preserves the approved terms and warns the User;
-        // an unchanged proposal remains SENT and is read back by tracking.
-        await update(client, company, answer);
-        throw new PoppyError("invalid_response", `${company.name} returned no confirmed outcome for the approved revision`, 0);
-      }
-      const latest = stored(client, issuer, operationId);
-      if (latest?.approval_generation === row.approval_generation) setConfirmed(client, issuer, operationId, ANSWERED);
-      const operation = await update(client, company, answer);
-      if (operation.state === "in_progress") {
-        const retryAfter = Number(headers.get("Retry-After") ?? "5");
-        await scheduleTracking(
-          client,
-          issuer,
-          operationId,
-          client.host.now() + Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5) * 1000
-        );
-      }
-    } catch (error) {
-      const current = stored(client, issuer, operationId);
-      if (hasCode(error, "approval_changed")) {
-        // No new attempt was sent. An earlier unknown attempt still needs
-        // reconciliation; a withdrawal keeps its durable cancellation job.
-        if (!dispatched && row.confirmed !== SENT) setConfirmed(client, issuer, operationId, NOT_SENT);
-        if (current?.cancel_requested) await scheduleTracking(client, issuer, operationId, client.host.now());
-        return;
-      }
-      if (current && current.approval_generation !== row.approval_generation) {
-        // A late refusal belongs to the old authorization, not a later User
-        // decision. Never restore or clear the newer decision from here.
-        if (current.cancel_requested) {
-          if (error instanceof PoppyError && error.status >= 400 && error.status < 500 && !error.is("rate_limited") && row.confirmed !== SENT) {
-            // The first attempt was definitely refused. Settle only this
-            // operation's live reservation, never the captured row twice.
-            releasePermission(client, current);
-            setConfirmed(client, issuer, operationId, NOT_SENT);
-          }
-          await scheduleTracking(client, issuer, operationId, client.host.now());
-        }
-        return;
-      }
-      if (!(error instanceof PoppyError) || error.status >= 500 || error.is("invalid_response")) {
-        // No answer we can trust: read, then confirm again only if still needed, with the same id (Ops 6).
-        await scheduleTracking(client, issuer, operationId, client.host.now() + 5_000);
-        return;
-      }
-      if (error.is("rate_limited")) {
-        // Not acted on: after Retry-After the tracking job reads, then confirms.
-        await scheduleTracking(client, issuer, operationId, client.host.now() + (error.detail.retryAfter ?? 30) * 1000);
-        return;
-      }
-      if (error.is("operation_not_found")) {
-        await markLost(client, company, row);
-        return;
-      }
-      // The Company answered, so no confirm is outstanding.
-      setConfirmed(client, issuer, operationId, NOT_SENT);
-      if (error.is("terms_changed")) {
-        releasePermission(client, row);
-        clearApproval(client, issuer, operationId);
-        const current = isObject(error.detail.body) ? error.detail.body.operation : undefined;
-        if (current !== undefined) await handleProposal(client, company, row.label, current);
-        return;
-      }
-      if (error.is("user_approval_required")) {
-        releasePermission(client, row);
-        clearApproval(client, issuer, operationId);
-        const current = { ...row.operation, user_approval_required: true };
-        client.sql.exec("UPDATE poppy_operations SET operation = ? WHERE issuer = ? AND operation_id = ?", JSON.stringify(current), issuer, operationId);
-        await showOperation(client, company, stored(client, issuer, operationId)!);
-        return;
-      }
-      if (error.is("insufficient_scope", "sign_in_required")) {
-        // The approval stands; confirm again after sign-in (see retryApproved).
-        await client.host.notifyModel(
-          `[system] Confirming operation ${operationId} at ${company.name} needs the User signed in (${error.code}${error.detail.scope ? `, scopes "${error.detail.scope}"` : ""}). Call poppy_sign_in; it will be confirmed after sign-in.`,
-          `poppy-op-auth-${issuer}-${operationId}-${row.approved_revision}`
-        );
-        return;
-      }
-      releasePermission(client, row);
-      await client.host.notifyModel(
-        `[system] ${company.name} refused to confirm operation ${operationId} (${error.code}).`,
-        `poppy-op-error-${issuer}-${operationId}-${error.code}`
-      );
-    }
-  } finally {
-    client.inFlight.delete(key);
-  }
-}
-
-function clearApproval(client: PoppyClient, issuer: Issuer, operationId: string): void {
-  client.sql.exec(
-    "UPDATE poppy_operations SET approved_revision = NULL, approved_by = NULL, permission_id = NULL, approval_generation = approval_generation + 1 WHERE issuer = ? AND operation_id = ?",
-    issuer,
-    operationId
-  );
-}
-
-/** GET the operation and store what the Company says; throws a PoppyError if it can't be read. */
-async function readOperation(
-  client: PoppyClient,
-  company: Company,
-  row: OperationRow
-): Promise<{ operation: Operation; retryAfter: number }> {
-  const endpoint = endpointOf(company);
-  const response = await client.resourceJson(
-    company,
-    EndpointRequest.to(company, { method: "GET", url: `${endpoint.url}/${encodeURIComponent(row.operation_id)}` }),
-    { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
-  );
-  const retryAfter = Number(response.headers.get("Retry-After") ?? "5");
-  return {
-    operation: await update(client, company, operationAnswer(company, response.body, row.operation_id)),
-    retryAfter: Math.max(1, Number.isFinite(retryAfter) ? retryAfter : 5)
-  };
-}
-
-/**
- * Approved operations waiting on a sign-in: read each first, since it may
- * have been confirmed elsewhere, revised or ended meanwhile, and confirm it
- * only if it still awaits the approved revision. A final one never is.
- */
-export async function retryApproved(client: PoppyClient, issuer: Issuer): Promise<void> {
-  for (const row of rows(
-    client.sql,
-    operationRow,
-    "SELECT * FROM poppy_operations WHERE issuer = ? AND approved_revision IS NOT NULL AND confirmed = ?",
-    issuer,
-    NOT_SENT
-  )) {
-    if (FINAL.has(row.operation.state)) continue;
-    if (row.approved_by === "standing_permission") {
-      await retireStandingApproval(client, row);
-      continue;
-    }
-    let operation: Operation;
-    try {
-      ({ operation } = await readOperation(client, await client.resumeCompany(issuer, "operation", row.operation_id), row));
-    } catch (error) {
-      if (!(error instanceof PoppyError)) throw error;
-      if (error.is("operation_not_found")) await markLost(client, client.companyByIssuer(issuer), row);
-      continue;
-    }
-    const current = stored(client, issuer, row.operation_id);
-    if (operation.state === "proposed" && current?.approved_revision === operation.revision && current.confirmed === NOT_SENT) {
-      await confirm(client, issuer, row.operation_id);
-    }
-  }
-}
-
-/**
- * The durable tracking job (Ops 6): read the operation; if a confirm's
- * answer was lost and it still awaits the approved revision, confirm that
- * revision again. A final operation is neither read nor confirmed again.
- * Returns when to run next.
- */
-export async function trackOperation(client: PoppyClient, issuer: Issuer, operationId: string): Promise<number | null> {
-  const row = stored(client, issuer, operationId);
-  if (!row || isLost(row.confirmed)) return null;
-  const known = row.operation;
-  if (FINAL.has(known.state)) return null;
-  // A proposal with no confirm outstanding has nothing to follow up.
-  if (known.state === "proposed" && row.confirmed !== SENT && !row.cancel_requested) return null;
-  const company = await client.resumeCompany(issuer, "operation", operationId);
-  let read;
-  try {
-    read = await readOperation(client, company, row);
-  } catch (error) {
-    if (hasCode(error, "rate_limited")) {
-      return client.host.now() + (error.detail.retryAfter ?? 30) * 1000;
-    }
-    if (hasCode(error, "operation_not_found")) {
-      await markLost(client, company, row);
-      return null;
-    }
-    return client.host.now() + 30_000;
-  }
-  const { operation } = read;
-  const reconciled = stored(client, issuer, operationId)!;
-  if (reconciled.cancel_requested && !FINAL.has(operation.state)) {
-    try {
-      await cancelOperation(client, issuer, operationId);
-    } catch {
-      return client.host.now() + 30_000;
-    }
-    return FINAL.has(stored(client, issuer, operationId)!.operation.state) ? null : client.host.now() + 5_000;
-  }
-  if (operation.state === "proposed") {
-    const current = stored(client, issuer, operationId)!;
-    if (current.confirmed !== SENT) return null;
-    if (current.approved_revision !== operation.revision) {
-      // Revised since the approval, which covered only the old revision: the card asks again.
-      setConfirmed(client, issuer, operationId, NOT_SENT);
-      return null;
-    }
-    // This object is still waiting on that confirm's answer.
-    if (client.inFlight.has(CONFIRMING(issuer, operationId))) return client.host.now() + CONFIRM_CHECK_MS;
-    await confirm(client, issuer, operationId);
-    return null;
-  }
-  if (operation.state === "in_progress") {
-    // At least the Company's Retry-After, and slower the longer nothing changes: a
-    // Company can't keep the agent polling every second (interop scenario XT).
-    const quietFor = client.host.now() - stored(client, issuer, operationId)!.updated_at;
-    return client.host.now() + Math.max(read.retryAfter * 1000, backoff(quietFor, 0));
-  }
-  return null;
-}
-
-/** Decline a proposal, or ask the Company to stop one in progress (Ops 7). */
-export async function cancelOperation(client: PoppyClient, issuer: Issuer, operationId: string): Promise<void> {
-  const row = stored(client, issuer, operationId);
-  if (!row || isLost(row.confirmed) || FINAL.has(row.operation.state)) return;
-  // Withdrawal is durable before the first await. A failed cancellation,
-  // restart or a late response must never restore authority to confirm.
-  client.sql.exec(
-    "UPDATE poppy_operations SET cancel_requested = 1, approved_revision = NULL, approved_by = NULL, approval_generation = approval_generation + 1 WHERE issuer = ? AND operation_id = ? AND cancel_requested = 0",
-    issuer, operationId
-  );
-  if (row.confirmed !== SENT && row.operation.state !== "in_progress") releasePermission(client, row);
-  await scheduleTracking(client, issuer, operationId, client.host.now() + 5_000);
-  const company = await client.resumeCompany(issuer, "operation", operationId);
-  const endpoint = endpointOf(company);
-  await showOperation(client, company, stored(client, issuer, operationId)!);
-  const key = `cancel|${issuer}|${operationId}`;
-  if (client.inFlight.has(key)) return;
-  client.inFlight.add(key);
-  let body: Json;
-  try {
-    ({ body } = await client.resourceJson(
-      company,
-      EndpointRequest.to(company, { method: "POST", url: `${endpoint.url}/${encodeURIComponent(operationId)}/cancel` }),
-      { label: row.label, ...(endpoint.resource ? { resource: endpoint.resource } : {}) }
-    ));
-  } catch (error) {
-    if (hasCode(error, "operation_not_found")) {
-      await markLost(client, company, row);
       return;
     }
-    await client.host.showCard({
-      id: `op-cancel-${issuer}-${operationId}`, kind: "notice", company: company.name, domain: company.domain, open: false,
-      text: `${company.name} hasn't accepted the cancellation yet. Your agent won't confirm it again and will keep checking and retrying the cancellation; an earlier request may already have reached the Company.`
-    });
-    throw error;
-  } finally {
-    client.inFlight.delete(key);
-  }
-  await update(client, company, operationAnswer(company, body, operationId));
-}
-
-export function operation(client: PoppyClient, issuer: Issuer, operationId: string): Operation | undefined {
-  const row = stored(client, issuer, operationId);
-  return row ? row.operation : undefined;
-}
-
-// ---------------------------------------------------------------- Standing permissions
-
-const permissionRow = permissionsTable.row;
-type PermissionRow = RowOf<typeof permissionRow>;
-
-export function addPermission(
-  client: PoppyClient,
-  permission: { issuer: Issuer; account: string; action: string; maxAmount?: string; currency?: string; maxUses?: number; expiresAt?: number }
-): string {
-  const id = randomId("perm_");
-  client.sql.exec(
-    `INSERT INTO poppy_permissions (id, issuer, account, action, max_amount, currency, max_uses, uses, reserved, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`,
-    id,
-    permission.issuer,
-    permission.account,
-    permission.action.trim().toLowerCase(),
-    permission.maxAmount ?? null,
-    permission.currency ?? null,
-    permission.maxUses ?? null,
-    permission.expiresAt ?? null,
-    Date.now()
-  );
-  return id;
-}
-
-export async function removePermission(client: PoppyClient, id: string): Promise<void> {
-  const pending = rows(client.sql, operationRow, "SELECT * FROM poppy_operations WHERE permission_id = ?", id);
-  // Tombstone the associated approvals synchronously before any notification.
-  for (const row of pending) {
-    if (FINAL.has(row.operation.state) || isLost(row.confirmed)) continue;
-    const uncertain = row.confirmed === SENT || row.operation.state === "in_progress";
-    client.sql.exec(
-      "UPDATE poppy_operations SET approved_revision = NULL, approved_by = NULL, approval_generation = approval_generation + 1, cancel_requested = ? WHERE issuer = ? AND operation_id = ?",
-      uncertain ? 1 : row.cancel_requested, row.issuer, row.operation_id
-    );
-    if (!uncertain) releasePermission(client, row);
-  }
-  client.sql.exec("DELETE FROM poppy_permissions WHERE id = ?", id);
-  for (const row of pending) {
-    const current = stored(client, row.issuer, row.operation_id)!;
-    if (current.cancel_requested && !FINAL.has(current.operation.state)) await scheduleTracking(client, row.issuer, row.operation_id, client.host.now());
-    await showOperation(client, client.companyByIssuer(row.issuer), current);
-  }
-}
-
-export function permissions(client: PoppyClient): PermissionRow[] {
-  return rows(client.sql, permissionRow, "SELECT * FROM poppy_permissions ORDER BY created_at");
-}
-
-/**
- * The `terms` keys a standing permission lets through as they are, besides
- * money and dates: the ones that say which record the action is on, from the
- * draft's own example (Ops 3: `order_id`, `item_id`, `replacement_sku`, beside
- * `price_difference`). The Company names its keys (Ops 3), so anything else,
- * whatever it is called, is a term we can't check, and the User decides.
- */
-const DESCRIPTIVE_TERMS = new Set(["order_id", "item_id", "replacement_sku"]);
-
-/** Words that, right after the action, say the summary isn't that action: "Exchange nothing: …". */
-const NEGATIONS = new Set(["not", "no", "nothing", "none", "never", "neither", "nor", "without"]);
-
-function words(text: string): string[] {
-  return text.toLowerCase().match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu) ?? [];
-}
-
-/**
- * The summary begins with the permission's action, word for word ("exchange"
- * covers "Exchange the Stormline Jacket…"), and the word after it isn't a
- * negation. Anywhere else in the summary isn't enough: "Not an exchange:
- * delete all saved addresses" contains the word too.
- */
-export function summaryStartsWithAction(summary: string, action: string): boolean {
-  const want = words(action);
-  const have = words(summary);
-  if (want.length === 0 || !want.every((word, index) => have[index] === word)) return false;
-  const next = have[want.length];
-  return next === undefined || !NEGATIONS.has(next);
-}
-
-/** The most digits a money amount may have before and after its point: beyond these we can't check it, and the User decides. */
-const MONEY_INTEGER_DIGITS = 15;
-const MONEY_FRACTION_DIGITS = 6;
-const MONEY_SCALE = 10n ** BigInt(MONEY_FRACTION_DIGITS);
-
-/**
- * A decimal amount as an exact count of millionths, or null: a plain decimal
- * (a string like "12.50", or a JSON number whose shortest form is one), at
- * most 15 digits before the point and 6 after. No exponents, no rounding, so
- * a limit check can't be fooled by a value a float can't hold.
- */
-export function exactAmount(value: unknown): bigint | null {
-  const text = typeof value === "number" ? (Number.isFinite(value) ? String(value) : "") : typeof value === "string" ? value : "";
-  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(text);
-  if (!match) return null;
-  const [, sign, whole, fraction = ""] = match;
-  const digits = whole!.replace(/^0+(?=\d)/, "");
-  if (digits.length > MONEY_INTEGER_DIGITS || fraction.length > MONEY_FRACTION_DIGITS) return null;
-  const units = BigInt(digits) * MONEY_SCALE + BigInt(fraction.padEnd(MONEY_FRACTION_DIGITS, "0"));
-  return sign ? -units : units;
-}
-
-/** A money term: an object of exactly `amount` (a bounded decimal, `exactAmount`) and `currency` (three capital letters). */
-function moneyOf(value: Json): { units: bigint; currency: string } | null {
-  if (!isObject(value)) return null;
-  const keys = Object.keys(value);
-  if (keys.length !== 2 || !("amount" in value) || !("currency" in value)) return null;
-  const { amount, currency } = value;
-  if (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency)) return null;
-  const units = exactAmount(amount);
-  return units === null ? null : { units, currency };
-}
-
-/** A date or time term: a key that names one, never a renewal or repeat, with an ISO 8601 value. */
-function isDateTerm(key: string, value: Json): boolean {
-  if (!/(date|_at$|_on$|time|deadline|until)/i.test(key) || /(renew|recur|repeat|trial|charge|bill|interval|period)/i.test(key)) return false;
-  return (
-    typeof value === "string" &&
-    /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/.test(value) &&
-    !Number.isNaN(Date.parse(value))
-  );
-}
-
-/**
- * Whether a permission covers every term (Ops 5.1). `terms` must be a
- * non-empty object, every member of which is one of: a money term; a date;
- * or a descriptive key above, as a string. With a maximum, every money term
- * is in the permission's currency and their amounts together, credits
- * counted as charges, come to no more than it: the maximum is what the
- * operation may cost in all, not what each line may (our reading of S20).
- * A permission without a maximum is for any amount, as the page offers it.
- * Anything else (a flag, a number without a currency, a recurrence, a nested
- * or unknown term) we can't check, and a permission with a maximum needs at
- * least one money term to check it against. Otherwise the User decides
- * (Guides, Operations).
- */
-export function termsCovered(terms: Json | undefined, limit: { maxAmount: string | null; currency: string | null }): boolean {
-  if (terms === undefined || !isObject(terms) || Object.keys(terms).length === 0) return false;
-  let money = 0;
-  let total = 0n;
-  for (const [key, value] of Object.entries(terms)) {
-    const found = moneyOf(value);
-    if (found) {
-      if (limit.maxAmount !== null && found.currency !== limit.currency) return false;
-      total += found.units < 0n ? -found.units : found.units;
-      money += 1;
-    } else if (!(DESCRIPTIVE_TERMS.has(key) && typeof value === "string") && !isDateTerm(key, value)) {
-      return false;
+    for (const [key, item] of Object.entries(value)) {
+      const where = path ? `${path}.${key}` : key;
+      if (isScalar(item)) {
+        const here = scalarAtPath(asked, [...segments, key]);
+        const sent = here === undefined ? scalarsAt(asked, key) : [here];
+        if (sent.length > 0 && !sent.some((value) => String(value) === String(item))) {
+          differences.push(`The terms say ${where} is ${quoted(item)}, but the request asked for ${quoted(sent[0]!)}.`);
+        }
+      } else {
+        walk(item, where, [...segments, key]);
+      }
     }
-  }
-  if (limit.maxAmount === null) return true;
-  // Exact: millionths on both sides, so neither rounding nor an oversized value can pass a limit.
-  const max = exactAmount(limit.maxAmount);
-  return max !== null && max >= 0n && money > 0 && total <= max;
+  };
+  if (operation.terms !== undefined) walk(operation.terms, "", []);
+  return differences.slice(0, 8);
 }
 
-/** Release this operation's live reservation exactly once. */
-function releasePermission(client: PoppyClient, row: OperationRow): void {
-  settlePermission(client, row, false);
-}
-
-/** A final state settles a reserved use: counted if the action happened, released if not. */
-function settlePermission(client: PoppyClient, row: OperationRow, used: boolean): void {
-  // Claim the live reservation once. A concurrent cancellation may already
-  // have released the snapshot a late confirm response still carries.
-  const live = stored(client, row.issuer, row.operation_id)?.permission_id;
-  if (!live) return;
-  const claimed = client.sql.exec(
-    "UPDATE poppy_operations SET permission_id = NULL WHERE issuer = ? AND operation_id = ? AND permission_id = ? RETURNING ? AS permission_id",
-    row.issuer, row.operation_id, live, live
-  ).toArray()[0];
-  if (typeof claimed?.permission_id !== "string") return;
-  client.sql.exec(
-    used
-      ? "UPDATE poppy_permissions SET reserved = MAX(0, reserved - 1), uses = uses + 1 WHERE id = ?"
-      : "UPDATE poppy_permissions SET reserved = MAX(0, reserved - 1) WHERE id = ?",
-    claimed.permission_id
-  );
+/** What the approval card shows of an operation (Ops 5): the Company's summary, its expiry, and what its terms name. */
+export function approvalTerms(company: Company, operation: OperationV2, asked: Json | undefined): ApprovalTerms {
+  const total = termsTotal(operation.terms);
+  const previews = termsPreviews(company, operation.terms);
+  const differences = termsDifferences(operation, asked);
+  return {
+    summary: operation.summary.trim(),
+    expiresAt: operation.expires_at,
+    highlights: highlights(operation.terms),
+    ...(total ? { total } : {}),
+    ...(previews.length ? { previews } : {}),
+    ...(differences.length ? { differences } : {})
+  };
 }
 
 // ---------------------------------------------------------------- Local approvals
 
+/**
+ * What an executor throws when the request it sent, as the User approved
+ * it, came back with an operation of the Company's (Ops 4): our card's
+ * request was sent, and nothing is done until the User approves the
+ * Company's terms on the card that now waits.
+ */
+export class TermsRequested extends Error {
+  constructor(readonly result: string, readonly approvalId: string) {
+    super(result);
+  }
+}
+
+/** An approval message was accepted, but that acknowledgement doesn't establish the action's outcome. */
+export class OperationOutcomeUnknown extends Error {}
+
+/** The same action cannot acquire fresh authority until its earlier outcome is reconciled. */
+export class ActionOutcomePending extends PoppyError {
+  constructor(readonly previousApprovalId: string) {
+    super("approval_changed", "Another approved action at this Company has an unknown outcome. Check with the Company, then record what happened on its receipt before approving further writes there. Nothing was sent.", 0);
+  }
+}
+
 /** How an approved local action of one kind is carried out (registered by the APIs and browser). */
-export type ApprovalExecution = { readonly beforeDispatch: () => void };
+export type ApprovalExecution = { readonly approvalId: string; readonly beforeDispatch: () => void };
 export type ApprovalExecutor<K extends ApprovalKind> = (client: PoppyClient, company: Company, approval: ApprovalOf<K>, label: string, execution: ApprovalExecution) => Promise<string>;
 const executors: { [K in ApprovalKind]?: ApprovalExecutor<K> } = {};
 
@@ -1131,6 +245,62 @@ function run<K extends ApprovalKind>(client: PoppyClient, company: Company, appr
   const executor = executors[approval.kind] as ApprovalExecutor<K> | undefined;
   if (!executor) throw new Error(`No executor for ${approval.kind}`);
   return executor(client, company, approval, label, execution);
+}
+
+type ActionIdentity = { readonly key: string; readonly owner: string; readonly operationId: string | null };
+
+/**
+ * Exact request identity, independent of transport retry keys and operation revisions.
+ * Account operations span Sessions; signed-out actions belong to one Session.
+ * Company operation ids also connect revisions returned through different interfaces.
+ */
+async function actionIdentity(label: string, approval: NewApproval): Promise<ActionIdentity> {
+  const binding = approval.binding;
+  const owner = canonicalJson(binding?.account ? ["account", binding.account] : binding?.sessionId ? ["session", binding.sessionId] : ["legacy-label", label]);
+  const operationId = approval.kind === "message-approval" ? approval.approval.operation_id
+    : approval.kind === "openapi" || approval.kind === "mcp" ? approval.call.approval?.operation_id ?? null : null;
+  let action: Json;
+  switch (approval.kind) {
+    case "openapi":
+      action = ["openapi", approval.method, approval.url, toJson(approval.call.params), approval.call.body !== undefined, approval.call.body ?? null, toJson(approval.call.files ?? {})];
+      break;
+    case "mcp": action = ["mcp", approval.call.apiUrl, approval.call.tool, approval.call.args]; break;
+    case "message-approval": action = ["operation", approval.approval.operation_id]; break;
+    case "browse-submit": action = toJson(["browse-submit", approval.submission]); break;
+  }
+  return { key: await sha256(canonicalJson(action)), owner, operationId };
+}
+
+async function backfillActionIdentities(client: PoppyClient): Promise<void> {
+  for (const row of rows(client.sql, approvalsTable.pick("id", "label", "request"), "SELECT id, label, request FROM poppy_approvals WHERE action_identity_checked = 0")) {
+    const read = readApproval(row.request);
+    if (!read.ok) {
+      client.sql.exec("UPDATE poppy_approvals SET action_identity_checked = 1 WHERE id = ?", row.id);
+      continue;
+    }
+    const action = await actionIdentity(row.label, read.value);
+    client.sql.exec("UPDATE poppy_approvals SET action_key = ?, action_owner = ?, operation_id = ?, action_identity_checked = 1 WHERE id = ? AND action_identity_checked = 0", action.key, action.owner, action.operationId, row.id);
+  }
+}
+
+/**
+ * Exact identities serialize concurrent attempts. An unknown outcome holds all writes at the issuer:
+ * aliases, changed arguments, new Sessions and a different interface cannot prove a different action (Ops 7).
+ * Reads do not ask for an approval and remain available to check what happened.
+ */
+function requireKnownOutcome(client: PoppyClient, issuer: string, action: ActionIdentity, except: readonly string[] = []): void {
+  const handoffs = rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE issuer = ? AND status = 'executing' AND terms_approval_id IS NOT NULL", issuer);
+  const allowed = new Set(except);
+  for (;;) {
+    let added = false;
+    for (const parent of handoffs) if (parent.terms_approval_id && allowed.has(parent.terms_approval_id) && !allowed.has(parent.id)) { allowed.add(parent.id); added = true; }
+    if (!added) break;
+  }
+  const unresolved = rows(client.sql, approvalRow, `SELECT * FROM poppy_approvals
+    WHERE issuer = ? AND outcome_resolution IS NULL AND (status = 'unknown' OR
+      (status = 'executing' AND action_owner = ? AND (action_key = ? OR (? IS NOT NULL AND operation_id = ?))))`,
+    issuer, action.owner, action.key, action.operationId, action.operationId).find(row => !allowed.has(row.id));
+  if (unresolved) throw new ActionOutcomePending(unresolved.id);
 }
 
 /**
@@ -1147,28 +317,59 @@ export async function proposeLocal(
   summary: string,
   approval: NewApproval,
   /** A fixed id, so a replayed tool call shows the same card rather than a second one. */
-  fixedId?: string
+  fixedId?: string,
+  /** An operation's terms, for a Company's approval (Ops 5). */
+  terms?: ApprovalTerms,
+  /** A known approval_required response may hand its current executing request to a terms card. */
+  replacesExecuting?: string
 ): Promise<string> {
   const id = fixedId ?? randomId("apr_");
+  const action = await actionIdentity(label, approval);
+  await backfillActionIdentities(client);
   const stored = storedApproval(approval);
   const attachments = approvalAttachments(stored);
   const existing = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
-  if (existing && (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored || existing.summary !== summary)) {
+  const replacing = replacesExecuting ? one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ? AND issuer = ? AND status = 'executing'", replacesExecuting, company.issuer) : undefined;
+  requireKnownOutcome(client, company.issuer, action, [
+    ...(existing?.status === "pending" ? [id] : []), ...(replacing ? [replacing.id] : [])
+  ]);
+  // A Company's terms have one card per revision (operations-v2.ts `approvalCardId`), so a new request of
+  // the User's that the Company answers with the same revision asks for the same terms again (Ops 4).
+  const askedAgain = terms !== undefined && existing !== undefined && existing.issuer === company.issuer && existing.label === label && existing.summary === summary && existing.request !== stored;
+  if (askedAgain) {
+    // Sent already: its outcome stands, and the Company performs it at most once (Ops 7).
+    if (existing.status !== "pending" && existing.status !== "declined" && existing.status !== "failed") return id;
+    // Report the previous decision before reusing this revision's card for a new attempt.
+    await notifyApprovalDecision(client, id);
+    // Waiting, declined, or never sent: the card waits for the User's decision on the newest request.
+    client.sql.exec(
+      "UPDATE poppy_approvals SET request = ?, terms = ?, action_key = ?, action_owner = ?, operation_id = ?, action_identity_checked = 1, status = 'pending', result = NULL, outcome_resolution = NULL, outcome_resolved_at = NULL WHERE id = ? AND status = ?",
+      stored,
+      JSON.stringify(terms),
+      action.key, action.owner, action.operationId,
+      id,
+      existing.status
+    );
+  } else if (existing && (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored || existing.summary !== summary)) {
     throw new PoppyError("approval_changed", "This tool call already proposed a different request. Use a new call for fresh approval.", 0);
   }
-  if (existing && existing.status !== "pending") return id;
+  if (existing && !askedAgain && existing.status !== "pending") return id;
   if (!existing) {
     client.rememberCompany("approval", id, company);
     client.sql.exec(
-      "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+      "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at, terms, action_key, action_owner, operation_id, action_identity_checked) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 1)",
       id,
       company.issuer,
       label,
       summary,
       stored,
-      Date.now()
+      Date.now(),
+      terms ? JSON.stringify(terms) : null,
+      action.key, action.owner, action.operationId
     );
   }
+  // The known refusal handed this executing request to its terms card before the User can act reentrantly.
+  if (replacing && replacing.id !== id) client.sql.exec("UPDATE poppy_approvals SET terms_approval_id = ? WHERE id = ? AND status = 'executing'", id, replacing.id);
   await client.host.showCard({
     id: `approval-${id}`,
     kind: "approval",
@@ -1178,6 +379,7 @@ export async function proposeLocal(
     approvalId: id,
     summary,
     status: "pending",
+    ...(terms ? { terms } : {}),
     ...attachments,
     ...batchKeyOf(company.issuer, stored)
   });
@@ -1189,25 +391,191 @@ function batchKeyOf(issuer: string, request: string): { batchKey?: string } {
   return key ? { batchKey: key } : {};
 }
 
-const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "request", "status");
+const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "request", "status", "terms", "result", "terms_approval_id", "action_key", "action_owner", "operation_id", "notification_batch_id", "outcome_resolution", "outcome_resolved_at");
+
+/** Reconstruct a committed outcome if its process died before returning the original notice. */
+function recoveredDecisionNotice(client: PoppyClient, row: RowOf<typeof approvalRow>): string {
+  let company = "the Company";
+  try { company = client.companyByIssuer(row.issuer).name; } catch { /* Retain the generic name. */ }
+  const resolution = storedResolution(row);
+  if (resolution) return `[system] ${checkedOutcomeText(company, resolution.outcome)} Action: ${row.summary}. The original uncertain receipt is preserved. No request was resent.`;
+  if (row.status === "unknown") return `[system] An approved action was interrupted and its outcome is unknown: ${row.summary}. Tell the User to check with ${company}; it won't be retried automatically.`;
+  const status = row.status === "terms" ? "Sent as the User approved; the Company's terms still need approval and nothing has happened yet" : BATCH_STATUS[row.status];
+  return `[system] ${status ?? "The User decided this request"}: ${row.summary}.${row.result ? ` Result: ${row.result}` : ""}`;
+}
+
+/** Durable outbox: the claim arms it; a stable harness operation ID makes a replay idempotent. */
+async function notifyApprovalDecision(client: PoppyClient, id: string, notice?: string): Promise<void> {
+  const pending = one(client.sql, approvalsTable.pick("notification_pending", "notification"), "SELECT notification_pending, notification FROM poppy_approvals WHERE id = ?", id);
+  if (!pending?.notification_pending) return;
+  const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  if (!row || row.status === "pending" || row.status === "executing") return;
+  if (!pending.notification) client.sql.exec("UPDATE poppy_approvals SET notification = ? WHERE id = ? AND notification IS NULL", JSON.stringify({ v: 1, id: randomId(`poppy-approval-${id}-`), text: notice ?? recoveredDecisionNotice(client, row) }), id);
+  await deliverApprovalNotification(client, id, "decision");
+}
+
+/** Both outboxes retain their exact payload until the idempotent callback acknowledges it. */
+async function deliverApprovalNotification(client: PoppyClient, id: string, kind: "decision" | "resolution"): Promise<void> {
+  const row = one(client.sql, approvalsTable.pick("notification_pending", "notification", "resolution_notification_pending", "resolution_notification"),
+    "SELECT notification_pending, notification, resolution_notification_pending, resolution_notification FROM poppy_approvals WHERE id = ?", id);
+  if (!row) return;
+  const pending = kind === "decision" ? row.notification_pending : row.resolution_notification_pending;
+  const saved = kind === "decision" ? row.notification : row.resolution_notification;
+  if (!pending || !saved) return;
+  const prefix = kind === "decision" ? "" : "resolution_";
+  await deliverSavedNotification(client, saved, () => {
+    client.sql.exec(`UPDATE poppy_approvals SET ${prefix}notification_pending = 0 WHERE id = ? AND json_extract(${prefix}notification, '$.id') = ?`, id, saved.id);
+  });
+}
+
+/** Delivery failure leaves the exact saved operation available for a later retry. */
+async function deliverSavedNotification(client: PoppyClient, saved: { readonly id: string; readonly text: string }, acknowledge: () => void): Promise<void> {
+  await client.host.notifyModel(saved.text, saved.id);
+  acknowledge();
+}
+
+function outcomeResolution(row: { readonly outcome_resolution: "performed" | "not_performed" | null; readonly outcome_resolved_at: number | null }) {
+  const resolution = storedResolution(row);
+  return resolution ? { outcomeResolution: resolution } : {};
+}
+
+/** Rebuild the page's receipt from the durable User assertion, including after interruption. */
+async function showResolvedApprovalCard(client: PoppyClient, id: string, options?: CardWriteOptions): Promise<void> {
+  const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  if (!current || current.status !== "unknown" || current.outcome_resolution === null) return;
+  const company = client.companyByIssuer(current.issuer);
+  await client.host.showCard({
+    id: `approval-${current.id}`, kind: "approval", company: company.name, domain: company.domain,
+    open: false, approvalId: current.id, summary: current.summary, status: "unknown",
+    ...(current.terms ? { terms: current.terms } : {}), ...(current.result ? { result: current.result } : {}),
+    ...outcomeResolution(current), ...approvalAttachments(current.request), ...batchKeyOf(current.issuer, current.request)
+  }, options);
+}
+
+/** A committed terminal result must reach the receipt before its pending notice is acknowledged. */
+async function repairTerminalApprovalCard(client: PoppyClient, id: string): Promise<void> {
+  const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  if (!current || !finishedApproval(current.status)) return;
+  const previous = one(client.sql, cardsTable.pick("card"), "SELECT card FROM poppy_cards WHERE id = ?", `approval-${id}`);
+  if (previous) {
+    try {
+      const card: unknown = JSON.parse(previous.card);
+      // Keep a valid existing answer's status/code and other presentation details.
+      if (isObject(card) && card.kind === "approval" && card.status === current.status &&
+          JSON.stringify(card.outcomeResolution) === JSON.stringify(outcomeResolution(current).outcomeResolution)) return;
+    } catch { /* Reconstruct an unreadable receipt from its durable decision. */ }
+  }
+  let company = "the Company";
+  let domain: string | undefined;
+  try {
+    const stored = client.companyByIssuer(current.issuer);
+    company = stored.name;
+    domain = stored.domain;
+  } catch { /* Historical records can lack a resumable Company context. */ }
+  await client.host.showCard({
+    id: `approval-${id}`, kind: "approval", company, ...(domain ? { domain } : {}),
+    open: false, approvalId: id, summary: current.summary, status: current.status,
+    ...(current.terms ? { terms: current.terms } : {}), ...(current.result ? { result: current.result } : {}),
+    ...outcomeResolution(current), ...approvalAttachments(current.request), ...batchKeyOf(current.issuer, current.request)
+  }, { repair: true });
+}
+
+/**
+ * Only the trusted page can record the User's reconciliation after checking with the Company.
+ * Preserve the original unknown receipt, and record this assertion separately. It never resends a request.
+ */
+export async function resolveApprovalOutcome(client: PoppyClient, id: string, outcome: "performed" | "not_performed"): Promise<void> {
+  await backfillActionIdentities(client);
+  const selected = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  if (!selected || selected.status !== "unknown") throw new PoppyError("invalid_request", "Only a receipt with an unknown outcome can be reconciled. Nothing was sent.", 0);
+  // A terms chain represents one request, even when its original local card and terms card both show unknown.
+  const candidates = rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE issuer = ? AND label = ? AND status IN ('unknown', 'terms')", selected.issuer, selected.label);
+  const linked = new Set([id]);
+  for (;;) {
+    let added = false;
+    for (const row of candidates) {
+      if (row.terms_approval_id && (linked.has(row.id) || linked.has(row.terms_approval_id))) {
+        for (const next of [row.id, row.terms_approval_id]) if (!linked.has(next)) { linked.add(next); added = true; }
+      }
+    }
+    if (!added) break;
+  }
+  const at = Date.now();
+  const group = candidates.filter(row => linked.has(row.id));
+  // Claim the whole linked action before showing any card: two pages may reconcile opposite outcomes.
+  const earlier = group.filter(row => row.outcome_resolution !== null && row.outcome_resolved_at !== null)
+    .sort((a, b) => a.outcome_resolved_at! - b.outcome_resolved_at!)[0];
+  const resolved = earlier?.outcome_resolution ?? outcome;
+  const resolvedAt = earlier?.outcome_resolved_at ?? at;
+  const notice = JSON.stringify({ v: 1, id: randomId(`poppy-resolution-${id}-`), text: `[system] The User checked with the Company and reports that this action ${resolved === "performed" ? "happened" : "did not happen"}: ${selected.summary}. The original uncertain receipt is preserved. No request was resent.` });
+  if (group.length) client.sql.exec(`UPDATE poppy_approvals SET outcome_resolution = ?, outcome_resolved_at = ?,
+    resolution_notification_pending = CASE WHEN id = ? AND ? THEN 1 ELSE resolution_notification_pending END,
+    resolution_notification = CASE WHEN id = ? AND ? THEN ? ELSE resolution_notification END
+    WHERE id IN (${group.map(() => "?").join(",")}) AND outcome_resolution IS NULL AND status IN ('unknown', 'terms')`,
+    resolved, resolvedAt, id, earlier ? 0 : 1, id, earlier ? 0 : 1, notice, ...group.map(row => row.id));
+  for (const row of candidates) {
+    if (!linked.has(row.id)) continue;
+    await showResolvedApprovalCard(client, row.id, { repair: earlier !== undefined });
+  }
+  for (const row of group) await deliverApprovalNotification(client, row.id, "resolution");
+}
+
+type FinishedApproval = "declined" | "done" | "refused" | "failed" | "unknown";
+function finishedApproval(status: string): status is FinishedApproval {
+  return status === "declined" || status === "done" || status === "refused" || status === "failed" || status === "unknown";
+}
+
+/** Carry the attempt's outcome and any User reconciliation through linked terms cards. */
+async function settleTermsApprovals(client: PoppyClient): Promise<void> {
+  // A child can finish before its parent receives TermsRequested, or during a restart.
+  // Re-read durable links rather than relying on the order in which cards arrived.
+  for (;;) {
+    const parents = rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'terms' AND terms_approval_id IS NOT NULL");
+    let changed = false;
+    for (const parent of parents) {
+      const child = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ? AND issuer = ? AND label = ?", parent.terms_approval_id, parent.issuer, parent.label);
+      if (!child || !finishedApproval(child.status)) continue;
+      const company = client.companyByIssuer(parent.issuer);
+      await client.host.showCard({
+        id: `approval-${parent.id}`, kind: "approval", company: company.name, domain: company.domain,
+        open: false, approvalId: parent.id, summary: parent.summary, status: child.status,
+        ...(parent.terms ? { terms: parent.terms } : {}),
+        ...(child.result ? { result: child.result } : {}),
+        ...outcomeResolution(child),
+        ...approvalAttachments(parent.request), ...batchKeyOf(parent.issuer, parent.request)
+      });
+      // Persist the card first. A crash before this update leaves a durable link
+      // to replay on recovery, rather than a terminal row with a stale card.
+      const claimed = client.sql.exec(
+        "UPDATE poppy_approvals SET status = ?, result = ?, outcome_resolution = ?, outcome_resolved_at = ? WHERE id = ? AND status = 'terms' AND terms_approval_id = ? RETURNING id",
+        child.status, child.result, child.outcome_resolution, child.outcome_resolved_at, parent.id, child.id
+      ).toArray();
+      changed ||= claimed.length > 0;
+    }
+    if (!changed) break;
+  }
+}
 
 /**
  * Decide one local approval and do what it says. Returns what the model is to
  * be told, or null when it was already decided; the caller tells the model,
  * once for one card and once for a batch (`decideLocal`, `decideLocalBatch`).
  */
-async function decideOne(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<string | null> {
+async function decideOne(client: PoppyClient, id: string, decision: "approve" | "decline", batch?: string): Promise<string | null> {
+  await backfillActionIdentities(client);
   const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!row || row.status !== "pending") return null;
   const company = await client.resumeCompany(row.issuer, "approval", id);
   // Discovery may have yielded to another decision. Only one handler may
   // claim this exact pending request, including a decline racing an approval.
   const claimed = client.sql.exec(
-    "UPDATE poppy_approvals SET status = ? WHERE id = ? AND status = 'pending' AND issuer = ? AND label = ? AND request = ? AND summary = ? RETURNING id",
-    decision === "decline" ? "declined" : "executing", id, row.issuer, row.label, row.request, row.summary
+    "UPDATE poppy_approvals SET status = ?, notification_pending = 1, notification = NULL, notification_batch_id = ? WHERE id = ? AND status = 'pending' AND issuer = ? AND label = ? AND request = ? AND summary = ? RETURNING id",
+    decision === "decline" ? "declined" : "executing", batch ?? null, id, row.issuer, row.label, row.request, row.summary
   ).toArray();
   if (claimed.length === 0) return null;
-  const card = (status: "approved" | "declined" | "done" | "refused" | "failed" | "unknown", result?: string, answer?: { status: number; error?: string }) =>
+  // The claim is authoritative even if a crash precedes this compatibility snapshot.
+  if (batch) client.sql.exec("UPDATE poppy_approval_batches SET ids = (SELECT json_group_array(id) FROM poppy_approvals WHERE notification_batch_id = ?) WHERE id = ?", batch, batch);
+  const card = (status: "approved" | "declined" | "done" | "terms" | "refused" | "failed" | "unknown", result?: string, answer?: { status: number; error?: string }) =>
     client.host.showCard({
       id: `approval-${id}`,
       kind: "approval",
@@ -1217,6 +585,7 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
       approvalId: id,
       summary: row.summary,
       status,
+      ...(row.terms ? { terms: row.terms } : {}),
       ...(result ? { result } : {}),
       ...(answer ? { answer } : {}),
       ...approvalAttachments(row.request),
@@ -1236,17 +605,26 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
   }
   // The card says it is being sent, so a page shows each one's progress (a batch's tiles, the step that asked).
   await card("approved");
+  let result: string;
   try {
-    const result = await run(client, company, read.value, row.label, { beforeDispatch: () => {
+    result = await run(client, company, read.value, row.label, { approvalId: id, beforeDispatch: () => {
       const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
       if (!current || current.status !== "executing" || current.request !== row.request || current.issuer !== row.issuer || current.label !== row.label) {
         throw new PoppyError("approval_changed", "The stored approval changed; no further attempt will be sent", 0);
       }
+      if (current.action_key && current.action_owner) requireKnownOutcome(client, current.issuer, { key: current.action_key, owner: current.action_owner, operationId: current.operation_id }, [id]);
     } });
-    client.sql.exec("UPDATE poppy_approvals SET status = 'done', result = ? WHERE id = ?", result, id);
-    await card("done", result);
-    return `[system] Done, as the User approved: ${row.summary}. Result: ${result}`;
   } catch (error) {
+    if (error instanceof OperationOutcomeUnknown) {
+      client.sql.exec("UPDATE poppy_approvals SET status = 'unknown', result = ? WHERE id = ?", error.message, id);
+      await card("unknown", error.message);
+      return `[system] ${error.message} Check with ${company.name} before approving this action again.`;
+    }
+    if (error instanceof TermsRequested) {
+      client.sql.exec("UPDATE poppy_approvals SET status = 'terms', result = ?, terms_approval_id = ? WHERE id = ?", error.result, error.approvalId, id);
+      await card("terms", error.result);
+      return `[system] Sent as the User approved, and ${company.name} asks the User to approve its exact terms first, on a new card; nothing has happened yet: ${row.summary}. Don't tell the User it was done.`;
+    }
     // A Company's refusal keeps its code, as tool failures show it.
     const message = error instanceof PoppyError ? `${error.message} [${error.code}]` : error instanceof Error ? error.message : String(error);
     const answer = answerOf(error);
@@ -1265,6 +643,12 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
       await card("unknown", result);
       return `[system] Sent as the User approved, but no answer came from ${name} (${message}), so it may or may not have happened: ${row.summary}. Tell the User to check with ${name}; it won't be retried automatically.`;
     }
+    if (typeof answer === "number" && answer >= 500) {
+      const result = `Sent as you approved; ${name} answered HTTP ${answer}, which does not establish whether the action took effect. Check with ${name} before approving further writes there.`;
+      client.sql.exec("UPDATE poppy_approvals SET status = 'unknown', result = ? WHERE id = ?", result, id);
+      await card("unknown", result, { status: answer });
+      return `[system] ${result} No new operation for this action may be approved until its outcome is known: ${row.summary}.`;
+    }
     if (typeof answer === "number") {
       // The Company answered, and not with success: sent as approved, not done as far as it says.
       const code = error instanceof PoppyError && error.code !== `http_${answer}` ? error.code : undefined;
@@ -1274,17 +658,28 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
       await card("refused", result, { status: answer, ...(code ? { error: code } : {}) });
       return `[system] Sent as the User approved, but ${name} answered ${answered}, so it wasn't done as far as ${name} says: ${row.summary}. Don't tell the User it was done. ${message}`;
     }
-    // No answer marked: the agent refused it before sending, couldn't get a Session Token, or couldn't read the answer.
+    // No answer marked: the agent refused it before sending, couldn't get an access token, or couldn't read the answer.
     client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = ? WHERE id = ?", message, id);
     await card("failed", message);
     return `[system] The approved action failed: ${row.summary}. ${message}`;
   }
+  // A receipt failure cannot change a completed business action into a failed one.
+  client.sql.exec("UPDATE poppy_approvals SET status = 'done', result = ? WHERE id = ?", result, id);
+  await card("done", result);
+  return `[system] Done, as the User approved: ${row.summary}. Result: ${result}`;
 }
 
 /** Decide one local approval, from its own card, and tell the model what happened. */
 export async function decideLocal(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<void> {
-  const notice = await decideOne(client, id, decision);
-  if (notice) await client.host.notifyModel(notice, `poppy-approval-${id}`);
+  let notice = await decideOne(client, id, decision);
+  await settleTermsApprovals(client);
+  const settled = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  if (notice && settled?.terms_approval_id && finishedApproval(settled.status)) {
+    // The child may have been decided while the original request was still
+    // returning its terms. Do not tell the model it is still waiting.
+    notice = `[system] The Company's terms for ${settled.summary} are ${settled.status}.${settled.result ? ` Result: ${settled.result}` : ""}`;
+  }
+  if (notice) await notifyApprovalDecision(client, id, notice);
 }
 
 /** The most approvals one card decides: a print shop keeps 100 photos a Session. */
@@ -1317,30 +712,41 @@ export async function decideLocalBatch(client: PoppyClient, decisions: readonly 
   client.sql.exec(
     "INSERT INTO poppy_approval_batches (id, ids, told, created_at) VALUES (?, ?, 0, ?)",
     batch,
-    JSON.stringify(waiting.map((item) => item.approvalId)),
+    "[]",
     Date.now()
   );
   const lines: string[] = [];
   for (const item of waiting) {
     try {
-      const notice = await decideOne(client, item.approvalId, item.decision);
+      const notice = await decideOne(client, item.approvalId, item.decision, batch);
       if (notice) lines.push(notice.replace(/^\[system\] /, ""));
     } catch (error) {
-      // One that couldn't be decided doesn't stop the rest; the model hears why.
-      lines.push(`This one couldn't be decided (${error instanceof PoppyError ? error.code : "error"}): ${item.row.summary}`);
+      // Publication can fail after the action committed. Report its durable outcome, never undo it.
+      const committed = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", item.approvalId);
+      if (committed?.notification_batch_id === batch && finishedApproval(committed.status)) lines.push(recoveredDecisionNotice(client, committed).replace(/^\[system\] /, ""));
+      else lines.push(`This one couldn't be decided (${error instanceof PoppyError ? error.code : "error"}): ${item.row.summary}`);
     }
   }
+  await settleTermsApprovals(client);
   await tellBatch(client, batch, lines);
 }
 
 async function tellBatch(client: PoppyClient, batch: string, lines: readonly string[]): Promise<void> {
-  if (lines.length) {
-    await client.host.notifyModel(
-      `[system] The User decided ${lines.length === 1 ? "this request" : `${lines.length} requests together`} on one card:\n${lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}`,
-      `poppy-approvals-${batch}`
-    );
+  for (const row of rows(client.sql, approvalsTable.pick("id"),
+    "SELECT id FROM poppy_approvals WHERE notification_batch_id = ? OR id IN (SELECT value FROM json_each((SELECT ids FROM poppy_approval_batches WHERE id = ?)))", batch, batch)) {
+    await repairTerminalApprovalCard(client, row.id);
   }
-  client.sql.exec("UPDATE poppy_approval_batches SET told = 1 WHERE id = ?", batch);
+  if (lines.length) {
+    const notification = { v: 1, id: `poppy-approvals-${batch}`, text: `[system] The User decided ${lines.length === 1 ? "this request" : `${lines.length} requests together`} on one card:\n${lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}` };
+    client.sql.exec("UPDATE poppy_approval_batches SET notification = ? WHERE id = ? AND notification IS NULL", JSON.stringify(notification), batch);
+  }
+  const saved = one(client.sql, approvalBatchesTable.pick("notification"), "SELECT notification FROM poppy_approval_batches WHERE id = ?", batch)?.notification;
+  const acknowledge = () => {
+    client.sql.exec("UPDATE poppy_approval_batches SET told = 1 WHERE id = ?", batch);
+    client.sql.exec("UPDATE poppy_approvals SET notification_pending = 0 WHERE notification_batch_id = ?", batch);
+  };
+  if (saved) await deliverSavedNotification(client, saved, acknowledge);
+  else acknowledge();
 }
 
 const BATCH_STATUS: Record<string, string> = {
@@ -1358,15 +764,29 @@ const BATCH_STATUS: Record<string, string> = {
  * card, for the User to decide again.
  */
 export async function recoverApprovalBatches(client: PoppyClient): Promise<void> {
-  for (const batch of rows(client.sql, approvalBatchesTable.pick("id", "ids"), "SELECT id, ids FROM poppy_approval_batches WHERE told = 0")) {
+  await settleTermsApprovals(client);
+  for (const batch of rows(client.sql, approvalBatchesTable.pick("id", "ids", "notification"), "SELECT id, ids, notification FROM poppy_approval_batches WHERE told = 0")) {
+    if (batch.notification) {
+      await tellBatch(client, batch.id, []);
+      continue;
+    }
     let ids: unknown;
     try {
       ids = JSON.parse(batch.ids);
     } catch {
       ids = [];
     }
-    const lines = (Array.isArray(ids) ? ids : []).flatMap((id) => {
-      const row = typeof id === "string" ? one(client.sql, approvalsTable.pick("summary", "status", "result"), "SELECT summary, status, result FROM poppy_approvals WHERE id = ?", id) : undefined;
+    const members = new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
+    for (const row of rows(client.sql, approvalsTable.pick("id"), "SELECT id FROM poppy_approvals WHERE notification_batch_id = ?", batch.id)) members.add(row.id);
+    const lines = [...members].flatMap((id) => {
+      const row = typeof id === "string" ? one(client.sql, approvalsTable.pick("summary", "status", "result", "issuer", "outcome_resolution", "outcome_resolved_at"), "SELECT summary, status, result, issuer, outcome_resolution, outcome_resolved_at FROM poppy_approvals WHERE id = ?", id) : undefined;
+      const resolution = row ? storedResolution(row) : undefined;
+      if (row && ["waiting", "in_progress"].includes(approvalResult(row.status, resolution))) return [];
+      if (row && resolution) {
+        let company = "the Company";
+        try { company = client.companyByIssuer(row.issuer).name; } catch { /* Keep the generic name. */ }
+        return [`${checkedOutcomeText(company, resolution.outcome)} Action: ${row.summary}.`];
+      }
       const status = row ? BATCH_STATUS[row.status] : undefined;
       if (!row || !status) return [];
       return [`${status}: ${row.summary}.${row.status === "done" && row.result ? ` Result: ${row.result}` : ""}`];
@@ -1375,19 +795,13 @@ export async function recoverApprovalBatches(client: PoppyClient): Promise<void>
   }
 }
 
-/** After a restart: approvals left mid-call have an unknown outcome; say so, never retry. */
+/** Recover interrupted attempts without resending, and repair reconciled receipts without reviving history. */
 export async function recoverInterruptedApprovals(client: PoppyClient): Promise<void> {
   // One in a batch the model hasn't heard about yet is told with its batch (recoverApprovalBatches).
-  const batched = new Set(
-    rows(client.sql, approvalBatchesTable.pick("ids"), "SELECT ids FROM poppy_approval_batches WHERE told = 0").flatMap((row) => {
-      try {
-        const ids: unknown = JSON.parse(row.ids);
-        return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
-      } catch {
-        return [];
-      }
-    })
-  );
+  // Old batches lack authoritative ownership. Their individual pending notices remain eligible;
+  // a one-time duplicate is safer than discarding a decision another handler may have owned.
+  const batched = new Set(rows(client.sql, approvalsTable.pick("id"),
+    "SELECT a.id FROM poppy_approvals a JOIN poppy_approval_batches b ON b.id = a.notification_batch_id WHERE b.told = 0").map(row => row.id));
   for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'executing'")) {
     let company = "the company";
     try {
@@ -1396,7 +810,7 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
       // Unknown issuer; keep the generic name.
     }
     client.sql.exec(
-      "UPDATE poppy_approvals SET status = 'unknown', result = ? WHERE id = ?",
+      "UPDATE poppy_approvals SET status = 'unknown', result = ?, notification_pending = 1 WHERE id = ?",
       `Interrupted after you approved, so it may or may not have reached ${company}. Check with ${company} before asking again.`,
       row.id
     );
@@ -1408,13 +822,24 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
       approvalId: row.id,
       summary: row.summary,
       status: "unknown",
+      ...(row.terms ? { terms: row.terms } : {}),
       result: `It may have happened: check with ${company} before asking again.`,
       ...approvalAttachments(row.request)
     });
     if (batched.has(row.id)) continue;
-    await client.host.notifyModel(
+    await notifyApprovalDecision(client, row.id,
       `[system] An approved action was interrupted and its outcome is unknown: ${row.summary}. Tell the User to check with ${company}; it won't be retried automatically.`,
-      `poppy-approval-${row.id}`
     );
+  }
+  await settleTermsApprovals(client);
+  for (const row of rows(client.sql, approvalsTable.pick("id"), "SELECT id FROM poppy_approvals WHERE notification_pending = 1")) {
+    await repairTerminalApprovalCard(client, row.id);
+    if (!batched.has(row.id)) await notifyApprovalDecision(client, row.id);
+  }
+  for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'unknown' AND outcome_resolution IS NOT NULL")) {
+    await showResolvedApprovalCard(client, row.id, { repair: true });
+  }
+  for (const row of rows(client.sql, approvalsTable.pick("id"), "SELECT id FROM poppy_approvals WHERE resolution_notification_pending = 1")) {
+    await deliverApprovalNotification(client, row.id, "resolution");
   }
 }

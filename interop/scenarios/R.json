@@ -1,7 +1,7 @@
 {
   "id": "R",
-  "title": "Renew a Session Token, following Account Token rotation",
-  "requirements": ["4.8", "6"],
+  "title": "Refresh an access token, following refresh token rotation",
+  "requirements": ["4.4", "7"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue", "api"], "company": ["approve_authorization", "expire_tokens"] },
   "steps": [
     { "agent": "discover" },

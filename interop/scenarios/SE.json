@@ -1,7 +1,7 @@
 {
   "id": "SE",
   "title": "Session ended by the Company, then recovery",
-  "requirements": ["4.2", "4.8", "6"],
+  "requirements": ["5.5", "4.4", "7"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue", "send"], "company": ["approve_authorization", "end_sessions"] },
   "steps": [
     { "agent": "discover" },

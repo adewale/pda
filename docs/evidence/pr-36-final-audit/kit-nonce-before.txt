@@ -1,0 +1,177 @@
+
+ RUN  v4.1.12 /tmp/pda-kit-old-helper-audit-tzs72ahg
+
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Nonce preflight must regenerate proofs after a 429
++ actual - expected
+
++ 'undefined'
+- 'function'
+
+    at Object.request (file:///tmp/pda-kit-old-helper-audit-tzs72ahg/[eval1]:22:12)
+    at async file:///tmp/pda-kit-proof-controls-swmdqU/validate/checks/token-request.ts:25:30
+    at async file:///tmp/pda-kit-old-helper-audit-tzs72ahg/[eval1]:35:2 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 'undefined',
+  expected: 'function',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.19.0
+ ❯ |interop| interop/test/company-kit-dpop-patch.test.ts (3 tests | 3 failed) 1922ms
+     × uses replacement nonces from ordinary token responses without changing assertion verdicts 591ms
+     × retains a real failure when the Company accepts an invalid assertion signature 686ms
+     × generates a fresh proof for a rate-limited nonce preflight retry 619ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |interop| interop/test/company-kit-dpop-patch.test.ts > separately patched upstream DPoP probe prerequisites > uses replacement nonces from ordinary token responses without changing assertion verdicts
+AssertionError: expected [ …(2) ] to deeply equal [ …(2) ]
+
+- Expected
++ Received
+
+  [
+    {
+      "id": "assertion.ps384",
+-     "status": "pass",
++     "status": "fail",
+    },
+    {
+      "id": "assertion.signature",
+-     "status": "pass",
++     "status": "fail",
+    },
+  ]
+
+ ❯ interop/test/company-kit-dpop-patch.test.ts:71:29
+     69|   it("uses replacement nonces from ordinary token responses without ch…
+     70|     const result = run("rotation");
+     71|     expect(result.verdicts).toEqual([{ id: "assertion.ps384", status: …
+       |                             ^
+     72|     expect(result.calls.map((item: { error: string }) => item.error)).…
+     73|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |interop| interop/test/company-kit-dpop-patch.test.ts > separately patched upstream DPoP probe prerequisites > retains a real failure when the Company accepts an invalid assertion signature
+AssertionError: expected [ …(2) ] to deeply equal [ …(2) ]
+
+- Expected
++ Received
+
+@@ -1,9 +1,9 @@
+  [
+    {
+      "id": "assertion.ps384",
+-     "status": "pass",
++     "status": "fail",
+    },
+    {
+      "id": "assertion.signature",
+      "status": "fail",
+    },
+
+ ❯ interop/test/company-kit-dpop-patch.test.ts:76:29
+     74|   it("retains a real failure when the Company accepts an invalid asser…
+     75|     const result = run("accept-bad-signature");
+     76|     expect(result.verdicts).toEqual([{ id: "assertion.ps384", status: …
+       |                             ^
+     77|   });
+     78|   it("generates a fresh proof for a rate-limited nonce preflight retry…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |interop| interop/test/company-kit-dpop-patch.test.ts > separately patched upstream DPoP probe prerequisites > generates a fresh proof for a rate-limited nonce preflight retry
+Error: Command failed: /opt/codex/runtimes/codex-primary-runtime/dependencies/node/bin/node --input-type=module -e
+import assert from "node:assert/strict";
+import path from "node:path";
+import {pathToFileURL} from "node:url";
+const [kit, mode] = process.argv.slice(1);
+const jose = await import(pathToFileURL(path.join(kit,"validate/jose.ts")));
+const {checkAssertions} = await import(pathToFileURL(path.join(kit,"validate/checks/assertion.ts")));
+const {prepareTokenEndpoint, tokenHeaders} = await import(pathToFileURL(path.join(kit,"validate/checks/token-request.ts")));
+const calls=[], verdicts=[];
+const identity={clientId:"https://agent.test/poppy/client.json",rootKey:await jose.generateKey(),rsaRootKey:await jose.generateRsaKey()};
+const endpoint="https://company.test/token";
+let nonce="nonce-1", sequence=1;
+const ctx={identity,discovered:{issuer:"https://company.test",metadata:{token_endpoint:endpoint,dpop_signing_alg_values_supported:["ES256"]}},http:{async request(req){
+  const fields=new URLSearchParams(req.body);
+  const assertion=fields.get("client_assertion");
+  const proof=jose.decodeJwt(req.headers.DPoP);
+  assert.ok(await jose.verifyJwt(req.headers.DPoP,proof.header.jwk),"Every probe proof must have a valid signature");
+  assert.equal(proof.payload.htm,"POST");assert.equal(proof.payload.htu,endpoint);
+  const client=jose.decodeJwt(assertion);
+  const valid=client.header.alg==="PS384"?await jose.verifyPs384(assertion,identity.rsaRootKey.publicJwk):await jose.verifyJwt(assertion,identity.rootKey.publicJwk);
+  if(mode==="retry" && calls.length===0){
+    assert.equal(typeof req.refreshHeaders,"function","Nonce preflight must regenerate proofs after a 429");
+    const next=await req.refreshHeaders();
+    assert.notEqual(jose.decodeJwt(next.DPoP).payload.jti,proof.payload.jti);
+    assert.deepEqual(jose.decodeJwt(next.DPoP).header.jwk,proof.header.jwk);
+    assert.equal(new URLSearchParams(req.body).get("client_assertion"),assertion,"Retry preserves the separate preflight assertion");
+  }
+  let error=proof.payload.nonce===nonce?(valid?"invalid_grant":"invalid_client"):"use_dpop_nonce";
+  if(mode==="accept-bad-signature" && error==="invalid_client") error="invalid_grant";
+  if(error!=="use_dpop_nonce") nonce="nonce-"+(++sequence);
+  calls.push({error,nonce:proof.payload.nonce??null,assertionJti:client.payload.jti,proofJti:proof.payload.jti});
+  return {status:400,json:{error},responseHeaders:{"dpop-nonce":nonce},requestHeaders:req.headers,url:endpoint,method:"POST"};
+}}};
+if(mode==="retry") {
+ await prepareTokenEndpoint(ctx,endpoint);
+ const next=await tokenHeaders(ctx,endpoint);
+ assert.equal(jose.decodeJwt(next.DPoP).payload.nonce,nonce);
+ console.log(JSON.stringify({retryFresh:true}));
+} else {
+ const recorder={wants:id=>["assertion.ps384","assertion.signature"].includes(id),pass:id=>verdicts.push({id,status:"pass"}),fail:id=>verdicts.push({id,status:"fail"}),inconclusive:id=>verdicts.push({id,status:"inconclusive"}),skip:id=>verdicts.push({id,status:"skip"})};
+ await checkAssertions(ctx,recorder);
+ assert.equal(new Set(calls.map(item=>item.proofJti)).size,calls.length,"All requests use fresh DPoP proofs");
+ assert.notEqual(calls[0].assertionJti,calls[1].assertionJti,"Nonce preflight must not consume the assertion under test");
+ console.log(JSON.stringify({calls,verdicts}));
+}
+ /tmp/pda-kit-proof-controls-swmdqU retry
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: Nonce preflight must regenerate proofs after a 429
++ actual - expected
+
++ 'undefined'
+- 'function'
+
+    at Object.request (file:///tmp/pda-kit-old-helper-audit-tzs72ahg/[eval1]:22:12)
+    at async file:///tmp/pda-kit-proof-controls-swmdqU/validate/checks/token-request.ts:25:30
+    at async file:///tmp/pda-kit-old-helper-audit-tzs72ahg/[eval1]:35:2 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 'undefined',
+  expected: 'function',
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.19.0
+
+ ❯ Object.request [eval1]:22:12
+ ❯ ../pda-kit-proof-controls-swmdqU/validate/checks/token-request.ts:25:30
+ ❯ run interop/test/company-kit-dpop-patch.test.ts:65:21
+     63| `;
+     64| function run(mode: string) {
+     65|   return JSON.parse(execFileSync(process.execPath, ["--input-type=modu…
+       |                     ^
+     66| }
+     67|
+ ❯ interop/test/company-kit-dpop-patch.test.ts:79:12
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  17:28:17
+   Duration  2.34s (transform 68ms, setup 0ms, import 124ms, tests 1.92s, environment 0ms)

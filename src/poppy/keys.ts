@@ -8,7 +8,10 @@ export type SigningKey = {
   readonly publicJwk: JWK;
 };
 
-/** Where our identity lives. `client_id` is the metadata document's URL, forever. */
+/**
+ * Where our identity lives. `client_id` is the metadata document's URL,
+ * forever (decision 37: one document again, now that we speak 0.3 alone).
+ */
 export type AgentIdentity = {
   readonly origin: string;
   readonly clientId: string;

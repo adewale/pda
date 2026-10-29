@@ -1,12 +1,13 @@
 /**
- * Version-independent building blocks. A profile (one per supported wire version) combines these into rules; a new version reuses them and
- * changes only the rules that differ.
+ * Version-independent building blocks. A profile (one per supported wire
+ * version) combines these into rules; a new version reuses them and changes
+ * only the rules that differ.
  */
 import { pointer, type Position } from "./json.ts";
 import { MESSAGES, type Basis, type MessageId, type Ref, type Severity } from "./messages.ts";
 
 /** Which document a message is about. */
-export type DocumentKind = "poppy" | "oauth-metadata" | "client-metadata" | "jwks";
+export type DocumentKind = "poppy" | "oauth-metadata" | "client-metadata" | "jwks" | "protected-resource";
 
 export type Message = {
   readonly id: MessageId;
@@ -26,7 +27,6 @@ export type Message = {
 
 /** Collects the messages for one document, with positions when it was parsed from text. */
 export class Checker {
-  protocolVersion = "0.1";
   readonly messages: Message[] = [];
   readonly document: DocumentKind;
   #positions: ReadonlyMap<string, Position> = new Map();
@@ -49,20 +49,17 @@ export class Checker {
   }
 
   report(id: MessageId, at: string, text: string, ref?: Ref, position: Position | undefined = this.#position(at)): void {
-    if (this.protocolVersion === "0.2" && id === "not-https-url-unstated") id = "not-https-url";
     const definition = MESSAGES[id];
-    const reference = ref ?? definition.ref;
-    const promoted = this.protocolVersion === "0.2" && ["http-non-public-host", "http-non-public-address", "metadata-dpop-alg"].includes(id);
     this.messages.push({
       id,
-      basis: promoted ? "MUST" : definition.basis,
-      severity: promoted ? "error" : definition.severity,
-      refuses: promoted || (this.protocolVersion === "0.2" && id === "organization-name-missing") ? true : definition.refuses,
+      basis: definition.basis,
+      severity: definition.severity,
+      refuses: definition.refuses,
       document: this.document,
       pointer: at,
       ...(position ? { line: position.line, column: position.column } : {}),
       text,
-      ref: { ...reference, url: reference.url.replace("personalagentprotocol.org/docs/", `personalagentprotocol.org/docs/${this.protocolVersion}/`) }
+      ref: ref ?? definition.ref
     });
   }
 
@@ -137,10 +134,11 @@ export function unknownMembers(c: Checker, value: Obj, at: string, known: readon
 }
 
 /**
- * Where a URL's HTTPS or no-fragment rule is our reading rather than the
- * draft's or an RFC's (spec-issues N9): the `-unstated` messages, warnings.
+ * Where a URL's no-fragment rule is our reading rather than an RFC's
+ * (spec-issues N9): `url-has-fragment-unstated`, a warning. Every URL the
+ * protocol defines is HTTPS by its own MUST (3).
  */
-export type UrlRules = { readonly https?: "unstated"; readonly fragment?: "unstated" };
+export type UrlRules = { readonly fragment?: "unstated" };
 
 /** An absolute HTTPS URL with no fragment, or undefined after reporting why not. */
 export function httpsUrl(c: Checker, value: unknown, at: string, ref?: Ref, rules: UrlRules = {}): URL | undefined {
@@ -156,7 +154,7 @@ export function httpsUrl(c: Checker, value: unknown, at: string, ref?: Ref, rule
     return undefined;
   }
   if (url.protocol !== "https:") {
-    c.report(rules.https === "unstated" ? "not-https-url-unstated" : "not-https-url", at, `${label(at)} must be an HTTPS URL, not ${url.protocol.replace(":", "")}: ${value}.`, ref);
+    c.report("not-https-url", at, `${label(at)} must be an HTTPS URL, not ${url.protocol.replace(":", "")}: ${value}.`, ref);
     return undefined;
   }
   // The URL parser accepts hosts such as "." (https://.) or "a..b", which name no server.
@@ -214,27 +212,6 @@ export function isHostname(value: string): boolean {
     value.length <= 253 &&
     /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(value)
   );
-}
-
-/** Host comparison that ignores case and one leading `www.` (spec 3.1). */
-export function bareHost(host: string): string {
-  return host.toLowerCase().replace(/^www\./, "");
-}
-
-/** RFC 8707 resource indicator: an absolute URI without a fragment. */
-export function resourceIndicator(c: Checker, value: unknown, at: string): void {
-  if (c.protocolVersion === "0.2") { httpsUrl(c, value, at); return; }
-  if (typeof value !== "string") {
-    c.report("wrong-type", at, `${label(at)} must be a string, not ${typeName(value)}.`);
-    return;
-  }
-  let ok = false;
-  try {
-    ok = !!new URL(value).protocol && !value.includes("#");
-  } catch {
-    ok = false;
-  }
-  if (!ok) c.report("resource-invalid", at, `${label(at)} must be an absolute URI without a fragment: ${JSON.stringify(value)}.`);
 }
 
 /**

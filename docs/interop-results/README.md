@@ -2,14 +2,92 @@
 
 **Names.** On 23 October 2026 our mocks and adversarial agent were renamed: `pda-mock` is now `lenient-company`, `pda-mock-strict` `strict-company`, `pda-mock-v02` `lenient-company-v02` and `evil-agent` `evil-personal-agent`. The snapshots here keep the names they were run under.
 
-**21 October 2026:** [dual-version upgrade evidence](../poppy-0.2-upgrade.md#validation), with a [per-cell result summary](2026-10-21-poppy-0.2.json). The historical snapshots below retain their original dates and pins. CI now also runs the 0.2 mock and the official validator separately.
+## 29 October: process crashes and fresh independent verification
+
+The [completion evidence](../evidence/pr-36-interop-completion/README.md) records a fresh source-pinned print-with-poppy run: all ten supported scenarios pass, with no unsupported cells, errors, check failures or warnings. The Company remains pinned at `b340741d696d867ff3190c10c1f1d1e0c368e846`; its demo orders and payments are synthetic. It offers no MCP, conversations, streaming, handoff or browser join.
+
+Separate local checks now kill the actual PDA/workerd process group at four approval boundaries, for OpenAPI and MCP, while the Company request/effect ledger survives. All eight cases recover without a resend. Eight combined issuer/state/code attacks across two Companies and two Users pass at the Worker boundary; they are not additional grid cells.
+
+The original Company-kit verdicts remain intact. A temporary DPoP-capable kit copy passes the previously blocked probes, with 18 independent proof controls. Fresh Chromium and Python evidence is recorded alongside the grid receipt. These checks still do not establish live OAuth or broad cross-project interoperability; the isolated hosted journey and independent interface coverage remain open.
+
+## 29 October: conformance verification after the PR 36 review
+
+Fresh isolated runs exercised the conformance fixes, the restored 0.3 malicious agent and authorization-code replay, and the pinned independent print-shop demo. [Receipts, commands and browser evidence](../evidence/pr-36-conformance/README.md).
+
+| Selected lane | Pass | Fail | Unsupported | Error |
+| --- | --- | --- | --- | --- |
+| PDA × lenient/strict Company, default cross-product | 72 | 0 | 32 | 0 |
+| PDA × malicious Company, its eight attacks | 8 | 0 | 0 | 0 |
+| Malicious agent × lenient/strict Company, eight attacks each | 16 | 0 | 0 | 0 |
+| PDA × lenient/strict Company, replay-only corroboration | 2 | 0 | 0 | 0 |
+| PDA × print-with-poppy, its ten supported scenarios | 10 | 0 | 0 | 0 |
+
+The replay-only row repeats two cells already in the 72-cell run. The default cross-product's unsupported cells pair honest agents or Companies with attacks they do not implement. CI instead selects the 72 applicable honest/network-fault cells, eight malicious-Company cells and 16 malicious-agent cells, and uses `--require-supported` to fail if any is skipped. None of the runs above recorded a check failure or warning.
+
+The print-shop builder now starts from the pinned slim runtime base, installs its build tools over verified HTTPS, and removes them in the same layer. This reduces VFS build snapshots; the upstream commit, frozen dependency lock and runtime image are unchanged. The initial restoration below used the full builder because Debian mirrors were unavailable then.
+
+## Initial run: 29 October, Poppy 0.3, our agents and mocks
+
+The first grid at 0.3 that ran anything. From 28 October the mock's adapter still declared 0.1 while our agent spoke 0.3, so CI's grid marked all 88 cells unsupported and passed; the adapter now takes its version from the client, and the runner fails a run in which no cell ran (interop spec, opening). Run locally in Docker, with images built through this session's proxy:
+
+```sh
+npm run interop -- --agents pda,lenient-personal-agent,strict-personal-agent,sloppy-personal-agent --companies lenient-company,strict-company
+npm run interop -- --image-tag adv --agents pda --companies evil-company --scenarios XH,XI,BX,XB,XN,XP,XE,XR
+```
+
+| Pairs | Pass | Fail | Unsupported | Error |
+| --- | --- | --- | --- | --- |
+| `pda` × both mocks, after the fixes below | 68 | 0 | 20 | 0 |
+| four agents × both mocks (first full run) | 248 | 32 | 72 | 0 |
+| `sloppy-personal-agent` × both mocks, with its known failure | 38 | 32, all known | 18 | 0 |
+| `pda` × `evil-company` | 8 | 0 | 0 | 0 |
+
+The 32 failures are the sloppy agent's, by design: its client assertions name the token endpoint as `aud`, which 0.3's 4.1 forbids, so both mocks refuse its first token request ([known failure](../../interop/known-failures.json)). Unsupported cells are the adversarial scenarios no honest Company lists, `NREP` (below), and scenarios a fake agent doesn't list.
+
+What running it found, each fixed before the counts above:
+
+- **Every page read as empty in the agent's image.** Node has no `HTMLRewriter`, and the stand-in returned nothing, so at 0.3, where the browser join reads its code from the page, `W` failed. Node now uses lol-html in WebAssembly ([`html-rewriter.ts`](../../interop/impls/pda-agent/html-rewriter.ts)).
+- **One cell's OpenAPI description answered the next.** `src/poppy` cached descriptions per process, by URL; the adapter runs a new client per cell, so `BX` met the description `XH` had served and never reached the Session check. Descriptions and excluded tasks are now cached per agent (`test/poppy.test.ts`, "keeps each agent's OpenAPI descriptions to itself").
+- **Scenarios that sent nothing at 0.3.** A 0.3 Session starts with its first request, so `S0` and `CM` now make signed-out API calls, and `S0` checks them with the new `one_session` trace check; `N` and `XN` sign in first, since only token requests and DPoP-bound calls carry a proof. `NREP` replayed 0.2's Session request and waits for a rewrite; no Company lists it.
+- **`conversation_id` in every read** (8.5's MUST) was checked only at 0.2; the trace check now applies it.
+
+On GitHub, the Interop workflow's first run that ran anything, on `02fa5e4` (29 October, `pda` × both mocks): 70 pass, 0 fail, 18 unsupported, 0 errors.
+
+### print-with-poppy at 0.3
+
+[print-with-poppy](https://github.com/spenciefy/print-with-poppy) at `b340741` (28 October), the first other project on the 28 October text, in its demo mode behind [its adapter](../../interop/impls/print-with-poppy-company). That initial run used the full `node:22-bookworm` builder because Debian mirrors were unavailable. The later conformance run above uses the pinned slim base and removes temporary build tools in the same layer. The honest scenarios only, since adversarial cells never run against another project's Company:
+
+```sh
+npm run interop -- --agents pda,lenient-personal-agent,strict-personal-agent,sloppy-personal-agent --companies print-with-poppy \
+  --scenarios AM,AO,AS,C,CA,CC,CI,CL,CM,CS,D,DC,DP,H,ML,N,O,OU,OX,R,RL,S0,SD,SE,SM,SMC,SO,SV,SVN,SX,SXV,W
+```
+
+| Agent | Pass | Fail | Unsupported | Error |
+| --- | --- | --- | --- | --- |
+| `pda` | 10 | 0 | 22 | 0 |
+| `lenient-personal-agent` | 10 | 0 | 22 | 0 |
+| `strict-personal-agent` | 10 | 0 | 22 | 0 |
+| `sloppy-personal-agent` | 5 | 5, all known | 22 | 0 |
+
+print-with-poppy claims ten scenarios (D, S0, OU, CM, SD, SX, SMC, SO, AO, AS), and every honest agent passes all ten, the photo upload and its order under Operations 2 (OU) among them. The sloppy agent's five failures are its token-endpoint `aud` at every sign-in, which the store refuses with `invalid_client` as our mocks do; the same known failure covers them. No check fired against the store itself: the run's 5 failures and 15 tentative results are all the sloppy agent's client assertions.
+
+### Live: printwithpoppy.com, 29 October
+
+The first live 0.3 Company our agent has run against. Discovery only: the store takes real payments, and its registry entry lists D alone.
+
+- `npm run validate -- printwithpoppy.com`: valid under the 0.3 profile, 0 errors, 0 warnings, 3 info (none of `poppy.json`, the protected resource metadata or the issuer's metadata sends `Cache-Control` or `Expires`, a SHOULD of spec 3).
+- `npm run interop -- --lane live --agents pda --companies print-with-poppy-live`: D passes, from our agent's own container.
+
+Not run live: S0, CL and ML need the live identity, whose key is only on the owner's machine (`interop/.live-identity.json`), and the store admits only agents on its allowlist.
+
+**21 October 2026:** [dual-version upgrade evidence](../poppy-0.2-upgrade.md#validation), with a [per-cell result summary](2026-10-21-poppy-0.2.json). The historical snapshots below retain their original dates and pins. CI ran the 0.2 mock and the official validator separately until 28 October.
 
 A snapshot: the summary of one run of the [interop harness](../../interop/README.md), on 13 October 2026, with the 12 October runs kept below it. It isn't regenerated, so it goes stale as the code changes. The full results (`results.json`, the `index.html` grid and a HAR file per cell) aren't committed. To get them:
 
 - **Run the grid locally** (needs Docker): `npm run interop` with the command below, or `npm run interop -- --agents pda --companies lenient-company,strict-company` for our own pair. Each run writes to `interop/results/<run>/` (gitignored); [interop spec](../interop-spec.md) section 9 describes the files.
 - **Download CI's**: the Interop workflow (`.github/workflows/interop.yml`) runs our agent against both of our mocks and uploads the `interop-results` artifact from each run.
 
-For current validation, see [the two complete isolated grid runs on 17 October](https://github.com/adewale/pda/actions/runs/38988240129). The dated snapshot below is retained as historical context.
+For 0.2-era validation, see [the two complete isolated grid runs on 17 October](https://github.com/adewale/pda/actions/runs/38988240129). The dated snapshot below is retained as historical context.
 
 ## Public snapshot: 13 October, 30 scenarios, 8 agents, 12 Companies
 

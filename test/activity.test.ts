@@ -95,7 +95,8 @@ describe("poppy.activity", () => {
       company: `Mock Shop ${c.id}`,
       issuer: c.hosts.issuer,
       how: "sign_in",
-      access: "view_and_change",
+      // 0.3 defines no scopes (4.7), so a sign-in's access is the Company's to name, not ours.
+      access: null,
       decidedBy: "you",
       result: "done"
     });
@@ -115,16 +116,16 @@ describe("poppy.activity", () => {
   });
 
   it("shows a device sign-in in progress, with its expiry and a cancel frame, but never its codes", async () => {
-    const c = await company({ signIn: { direct: null, device: ["poppy:read"], mediated: null }, deviceInterval: 30, deviceExpiresIn: 600 });
+    const c = await company({ signIn: { direct: null, device: ["orders:read"], mediated: null }, deviceInterval: 30, deviceExpiresIn: 600 });
     const a = await agent();
-    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["poppy:read"], reason: "To see your orders" });
+    await tool(a, "poppy_sign_in", { domain: c.domain, scopes: ["orders:read"], reason: "To see your orders" });
     const card = (await cards(a)).find((item) => item.kind === "signin_device")!;
     const p = await page(a);
     const task = p.latest().inProgress.find((item): item is ActivityTask => item.kind === "device_sign_in")!;
     expect(task.company).toBe(`Mock Shop ${c.id}`);
     expect(task.until).toBe(card.expiresAt);
     expect(task.stop).toEqual({ type: "poppy.signin.cancel", signInId: card.signInId });
-    expect(find(p.latest().log, "sign_in")).toMatchObject({ access: "view", result: "waiting", decidedBy: null });
+    expect(find(p.latest().log, "sign_in")).toMatchObject({ access: null, result: "waiting", decidedBy: null });
     expect(p.raw.join("\n")).not.toContain(card.userCode);
     for (const secret of await secrets(a)) expect(p.raw.join("\n")).not.toContain(secret);
 
@@ -142,45 +143,38 @@ describe("poppy.activity", () => {
     const a = await agent();
     await signIn(a, c);
     await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
-    const card = (await cards(a)).find((item) => item.kind === "operation")!;
+    // Our card for the write first; approved, the Company answers with its terms, on a card of their own (Ops 4).
+    const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
+    const card = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms)!;
+    const entryOf = (frame: Activity) => frame.log.find((entry) => entry.id === `approval-${card.approvalId}`);
     const p = await page(a);
-    expect(find(p.latest().log, "operation")).toMatchObject({
-      quote: card.summary,
+    expect(entryOf(p.latest())).toMatchObject({
+      what: `Mock Shop ${c.id} asked for your approval`,
+      quote: card.terms.summary,
       quoteBy: "company",
       how: "api",
       access: "view_and_change",
       decidedBy: null,
       result: "waiting"
     });
+    // Our own card's request went, and what it asked is now the Company's to say.
+    expect(p.latest().log.find((entry) => entry.id === `approval-${ours.approvalId}`)).toMatchObject({ quoteBy: "agent", decidedBy: "you", result: "waiting" });
 
     // The page is told as soon as it changes, without asking again.
     const before = p.frames.length;
-    await a.stub.poppyFrame({ type: "poppy.operation", issuer: c.hosts.issuer, operationId: card.operationId, revision: card.revision, decision: "approve" });
-    const done = await p.next((frame) => find(frame.log, "operation")?.result === "done", before);
-    const entry = find(done.log, "operation")!;
-    expect(entry).toMatchObject({ decidedBy: "you", outcomeBy: "company" });
-    // The Company's own words: the operation's result summary, as the mock sent it.
-    expect(entry.outcome).toBe(
-      "Exchange placed. The insulated jacket ships today, and a return label for the original jacket was emailed. $70.00 was charged to the card ending in 4242."
-    );
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
+    const done = await p.next((frame) => entryOf(frame)?.result === "done", before);
+    // What the approved API call returned stays out of the log.
+    expect(entryOf(done)).toMatchObject({ decidedBy: "you", quote: card.terms.summary, quoteBy: "company" });
+    expect(entryOf(done)!.outcome).toBeUndefined();
 
     // Past the cards' hour the card is gone; the activity log still has it.
     await a.stub.poppySql("UPDATE poppy_cards SET updated_at = 0, open = 0");
     const count = p.frames.length;
     p.socket.send(JSON.stringify({ type: "poppy.context" }));
     const later = await p.next(() => true, count);
-    expect(find(later.log, "operation")).toMatchObject({ result: "done", decidedBy: "you", quote: card.summary });
-    p.socket.close();
-  });
-
-  it("keeps proposals waiting for the User when a legacy prose permission matches", async () => {
-    const c = await company();
-    const a = await agent();
-    await signIn(a, c);
-    await a.stub.poppyFrame({ type: "poppy.permission.add", issuer: c.hosts.issuer, account: "default", action: "exchange", maxAmount: "100", currency: "USD", maxUses: 1 });
-    await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
-    const p = await page(a);
-    expect(find(p.latest().log, "operation")).toMatchObject({ decidedBy: null, result: "waiting" });
+    expect(entryOf(later)).toMatchObject({ result: "done", decidedBy: "you", quote: card.terms.summary });
     p.socket.close();
   });
 
@@ -211,21 +205,25 @@ describe("poppy.activity over a long history", () => {
     const a = await agent();
     await a.stub.poppyActivity(); // Migrates the Poppy tables.
     const sql = (query: string, ...bindings: unknown[]) => a.stub.poppySql(query, ...bindings);
-    // A thousand finished approvals, and the newest 300 of everything else, interleaved in time.
+    const terms = (summary: string) => `json_object('summary', ${summary}, 'expiresAt', '2026-10-28T12:00:00Z', 'highlights', json_array())`;
+    // A thousand finished approvals of ours, and the newest 300 of everything else, interleaved in time.
     await sql(
       series(1, 1000, `INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, result, created_at)
-        SELECT 'done-' || i, ?, 'default', 'Exchange ' || i, '{"kind":"api"}', 'done', NULL, ${T} + 5 * i FROM n`),
+        SELECT 'done-' || i, ?, 'default', 'Exchange ' || i, '{"kind":"openapi"}', 'done', NULL, ${T} + 5 * i FROM n`),
       ISSUER
     );
+    // Operations the Company returned (Ops 4), approved on their terms cards: the newest through its agent, the rest by API.
     await sql(
-      series(701, 1000, `INSERT INTO poppy_operations (issuer, operation_id, label, account, operation, confirmed, updated_at)
-        SELECT ?, 'op-' || i, 'default', 'default',
-          json_object('operation_id', 'op-' || i, 'revision', 1, 'state', 'succeeded', 'summary', 'Order ' || i), 1, ${T} + 5 * i + 1 FROM n`),
+      series(701, 1000, `INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, result, created_at, terms)
+        SELECT 'terms-' || i, ?, 'default', 'Order ' || i,
+          CASE WHEN i = 1000 THEN json_object('kind', 'message-approval', 'approval', json_object('operation_id', 'op-' || i, 'revision', 'r1'))
+            ELSE json_object('kind', 'openapi', 'call', json_object('approval', json_object('operation_id', 'op-' || i, 'revision', 'r1'))) END,
+          'done', NULL, ${T} + 5 * i + 1, ${terms("'Order ' || i")} FROM n`),
       ISSUER
     );
     await sql(
       series(701, 1000, `INSERT INTO poppy_signins (id, type, issuer, label, account, scopes, secret, expires_at, status, created_at)
-        SELECT 's-' || i, 'direct', ?, 'default', 'default', 'poppy:read', 'unused', 0, 'done', ${T} + 5 * i + 2 FROM n`),
+        SELECT 's-' || i, 'direct', ?, 'default', 'default', 'orders:read', 'unused', 0, 'done', ${T} + 5 * i + 2 FROM n`),
       ISSUER
     );
     await sql(
@@ -235,17 +233,17 @@ describe("poppy.activity over a long history", () => {
     );
     await sql(
       series(701, 1000, `INSERT INTO poppy_messages (id, issuer, conversation_id, body, created_at)
-        SELECT 'm-' || i, ?, 'c-' || i, json_object('message', json_object('sender', 'agent', 'text', 'Hello ' || i)), ${T} + 5 * i + 4 FROM n`),
+        SELECT 'm-' || i, ?, 'c-' || i, json_object('message', json_object('author', json_object('type', 'agent'), 'text', 'Hello ' || i)), ${T} + 5 * i + 4 FROM n`),
       ISSUER
     );
     // Open work, older than anything the log shows.
     await sql(
-      `INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at) VALUES ('exec-old', ?, 'default', 'Upload', '{"kind":"api"}', 'executing', 1)`,
+      `INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at) VALUES ('exec-old', ?, 'default', 'Upload', '{"kind":"openapi"}', 'executing', 1)`,
       ISSUER
     );
     await sql(
-      `INSERT INTO poppy_operations (issuer, operation_id, label, operation, confirmed, updated_at)
-       VALUES (?, 'op-open', 'default', json_object('operation_id', 'op-open', 'revision', 1, 'state', 'in_progress', 'summary', 'Refund'), 1, 2)`,
+      `INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at, terms)
+       VALUES ('terms-open', ?, 'default', 'Refund', json_object('kind', 'openapi', 'call', json_object('approval', json_object('operation_id', 'op-open', 'revision', 'r1'))), 'executing', 2, ${terms("'Refund'")})`,
       ISSUER
     );
     await sql(
@@ -254,7 +252,7 @@ describe("poppy.activity over a long history", () => {
     );
     await sql(
       `INSERT INTO poppy_signins (id, type, issuer, label, account, scopes, secret, expires_at, status, created_at)
-       VALUES ('s-device', 'device', ?, 'default', 'default', 'poppy:read', 'unused', ?, 'pending', 5)`,
+       VALUES ('s-device', 'device', ?, 'default', 'default', 'orders:read', 'unused', ?, 'pending', 5)`,
       ISSUER,
       Date.now() + 3_600_000
     );
@@ -264,21 +262,16 @@ describe("poppy.activity over a long history", () => {
       ISSUER
     );
     await sql(
-      "INSERT INTO poppy_messages (id, issuer, conversation_id, body, created_at) VALUES ('m-direct', ?, 'd-old', json_object('message', json_object('sender', 'agent', 'text', 'Thanks')), ?)",
+      "INSERT INTO poppy_messages (id, issuer, conversation_id, body, created_at) VALUES ('m-direct', ?, 'd-old', json_object('message', json_object('author', json_object('type', 'agent'), 'text', 'Thanks')), ?)",
       ISSUER,
       T + 5 * 1001
-    );
-    // The newest operation reached us through the Company's agent.
-    await sql(
-      `INSERT INTO poppy_inbox (conversation_id, event, created_at)
-       VALUES ('c-1000', json_object('type', 'message', 'id', 'e-1', 'message', json_object('operation', json_object('operation_id', 'op-1000'))), 0)`
     );
 
     const expected: { id: string; at: number }[] = [{ id: "message-m-direct", at: T + 5 * 1001 }];
     for (let i = 1; i <= 1000; i++) {
       expected.push({ id: `approval-done-${i}`, at: T + 5 * i });
       if (i > 700) {
-        expected.push({ id: `op-${ISSUER}-op-${i}`, at: T + 5 * i + 1 }, { id: `signin-s-${i}`, at: T + 5 * i + 2 });
+        expected.push({ id: `approval-terms-${i}`, at: T + 5 * i + 1 }, { id: `signin-s-${i}`, at: T + 5 * i + 2 });
         expected.push({ id: `conversation-c-${i}`, at: T + 5 * i + 3 }, { id: `message-m-${i}`, at: T + 5 * i + 4 });
       }
     }
@@ -288,15 +281,16 @@ describe("poppy.activity over a long history", () => {
     const frame = JSON.parse(cost.frame) as Activity;
     expect(frame.log.map(({ id, at }) => ({ id, at }))).toEqual(expected.slice(0, 200));
     expect(find(frame.log, "message")).toMatchObject({ id: "message-m-direct", how: "direct" });
-    expect(frame.log.find((entry) => entry.id === `op-${ISSUER}-op-1000`)).toMatchObject({ how: "company_agent" });
-    expect(frame.log.find((entry) => entry.id === `op-${ISSUER}-op-999`)).toMatchObject({ how: "api" });
-    expect(frame.inProgress.map((task) => task.id).sort()).toEqual(["approval-exec-old", "conversation-c-open", `op-${ISSUER}-op-open`, "signin-s-device"].sort());
+    expect(frame.log.find((entry) => entry.id === "approval-terms-1000")).toMatchObject({ how: "company_agent", quoteBy: "company", quote: "Order 1000" });
+    expect(frame.log.find((entry) => entry.id === "approval-terms-999")).toMatchObject({ how: "api", quoteBy: "company" });
+    expect(frame.inProgress.map((task) => task.id).sort()).toEqual(["approval-exec-old", "approval-terms-open", "conversation-c-open", "signin-s-device"].sort());
 
-    // Each query over a table with history reads a bounded number of rows (the newest, the open work, or one probe
-    // per operation shown), through an index: never the whole table, so the 1,001 approvals aren't all read.
-    const history = /\b(poppy_operations|poppy_approvals|poppy_signins|poppy_signouts|poppy_conversations|poppy_messages|poppy_inbox)\b/;
+    // Each query over a table with history reads a bounded number of rows (the newest or the open work),
+    // through an index: never the whole table, so the 1,301 approvals aren't all read.
+    const history = /\b(poppy_approvals|poppy_signins|poppy_signouts|poppy_conversations|poppy_messages)\b/;
     const historyQueries = cost.plans.filter((ran) => history.test(ran.query));
-    expect(historyQueries.length).toBeGreaterThanOrEqual(12);
+    // Approvals, sign-ins, sign-outs and conversations: their newest and their open work; and the newest messages.
+    expect(historyQueries.length).toBeGreaterThanOrEqual(9);
     for (const { query, rowsRead, plan } of historyQueries) {
       expect(plan.filter((step) => /^SCAN \w+$/.test(step)), `a whole table read by: ${query}`).toEqual([]);
       expect(rowsRead, query).toBeLessThanOrEqual(3 * ACTIVITY_LOG_LIMIT);

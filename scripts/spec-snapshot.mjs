@@ -459,7 +459,7 @@ function walkthroughMarkdown(list) {
       if (step.caption) out.push("", step.caption);
       if (step.chat?.length) {
         out.push("", "Chat:", "");
-        for (const line of step.chat) out.push(`- **${line.t ?? line.from}:** ${line.text ?? ""}${line.reaction ? ` (${line.reaction})` : ""}`);
+        for (const line of step.chat) out.push(`- **${line.t ?? line.from}:** ${line.text ?? ""}${line.reaction ? ` (${typeof line.reaction === "string" ? line.reaction : [line.reaction.emoji, line.reaction.label].filter(Boolean).join(" ")})` : ""}`);
       }
       const company = step.company ?? step.view;
       if (company) {

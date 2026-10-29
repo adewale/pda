@@ -1,0 +1,58 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+ ❯ |interop| interop/test/sse-stream.test.ts (4 tests | 2 failed) 21ms
+   × keeps no deadline timers after any immediate stream chunk or EOF 12ms
+   × clears the deadline timer when a stream read rejects 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |interop| interop/test/sse-stream.test.ts > keeps no deadline timers after any immediate stream chunk or EOF
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ interop/test/sse-stream.test.ts:16:34
+     14|     for (let i = 0; i < 1_000; ++i) {
+     15|       expect(await readSseChunk(reader, deadline)).toEqual({ value: "x…
+     16|       expect(vi.getTimerCount()).toBe(0);
+       |                                  ^
+     17|     }
+     18|     expect(await readSseChunk(reader, deadline)).toMatchObject({ done:…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |interop| interop/test/sse-stream.test.ts > clears the deadline timer when a stream read rejects
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ interop/test/sse-stream.test.ts:28:30
+     26|   const reader = { read: () => Promise.reject(failure) };
+     27|   await expect(readSseChunk(reader, Date.now() + 60_000)).rejects.toBe…
+     28|   expect(vi.getTimerCount()).toBe(0);
+       |                              ^
+     29| });
+     30|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at  17:10:45
+   Duration  209ms (transform 31ms, setup 0ms, import 49ms, tests 21ms, environment 0ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice
