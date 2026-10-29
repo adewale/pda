@@ -78,6 +78,26 @@
       "notes": "The same image as lenient-company with the mock's strict profile: assertion typ \"JWT\", a kid naming a published key and a 60-second lifetime (S2 jwt-60s), as the strictest live Companies require."
     },
     {
+      "name": "print-with-poppy",
+      "role": "company",
+      "source": "https://github.com/spenciefy/print-with-poppy",
+      "commit": "b340741d696d867ff3190c10c1f1d1e0c368e846",
+      "build": "interop/impls/print-with-poppy-company",
+      "notes": "Agent-first photo-print store in APP_MODE=demo (payments, prints and email simulated); Poppy 0.3, the 28 October text, since b340741: the Session header on every API request, plain OAuth tokens without DPoP, Operations 2 and Mediated Sign-In 1; accounts by an emailed code (Direct and Mediated Sign-In; the adapter reads the code demo mode stores); our agents on its AGENT_CLIENT_IDS allowlist. Unpatched: ALLOW_COMPAT_AGENT_SESSIONS=false turns its non-Poppy Bearer path off, and upstream's ALLOW_INTEROP_TEST_HOSTS=true lets it fetch agents' metadata at private addresses for *.interop.test names only. MIT."
+    },
+    {
+      "name": "print-with-poppy-live",
+      "role": "company",
+      "liveScenarios": [
+        "D"
+      ],
+      "source": "https://github.com/spenciefy/print-with-poppy",
+      "commit": "unknown",
+      "url": "https://printwithpoppy.com",
+      "protocolVersion": "0.3",
+      "notes": "Live store with real payments and prints, declaring 0.3 since 28 October: discovery (D) only. Agents need its allowlist; never order here. Its Agent Sandbox (sandbox.printwithpoppy.com) still declared 0.2 on 29 October, so it has no entry."
+    },
+    {
       "name": "evil-company",
       "role": "company",
       "adversarial": true,
