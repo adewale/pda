@@ -4,8 +4,8 @@
  * site (`--drift`). Never updates the pin.
  *
  * The pin is a dated snapshot of personalagentprotocol.org
- * (`spec/upstream.json`), since upstream hasn't committed the 0.3 text it
- * publishes: `commit` is null, and the snapshot's own hashes are what we pin.
+ * (`spec/upstream.json`); commit is null until all pinned text is committed.
+ * The snapshot's own hashes supply the offline integrity check.
  */
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";

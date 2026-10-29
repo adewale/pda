@@ -14,7 +14,7 @@ The detail lives elsewhere. Every implementation, with licences and maturity, is
 
 ## Current ecosystem — 29 October 2026
 
-PDA speaks **Poppy 0.3 alone**, the text upstream published on its site on 28 October ([local 0.3 copy](../spec/draft-0.3-retrieved-2026-10-28/README.md)), and refuses a Company that declares 0.1 or 0.2 ([decision 37](decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)). "0.3" names more than one text: Datalayer's SDKs, poppyseed and several public Companies follow an earlier 0.3 draft, with Session Keys and Session Tokens, that the 28 October rewrite replaced with the Session header and delegated keys. An agent built for one can't use a Company built for the other.
+PDA speaks **Poppy 0.3 alone**, the reviewed 29 October text ([local 0.3 copy](../spec/draft-0.3-retrieved-2026-10-29/README.md)), and refuses a Company that declares 0.1 or 0.2 ([decision 37](decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)). "0.3" names more than one text: Datalayer's SDKs, poppyseed and several public Companies follow an earlier 0.3 draft, with Session Keys and Session Tokens, that the 28 October rewrite replaced with the Session header and delegated keys. An agent built for one can't use a Company built for the other.
 
 ### Who implements the 28 October text — 29 October 2026
 
@@ -22,11 +22,12 @@ We read the head of each project the grid used to pin (read only; nothing of the
 
 | Project | Head | What its 0.3 is |
 | --- | --- | --- |
-| [print-with-poppy](https://github.com/spenciefy/print-with-poppy/tree/b340741d696d867ff3190c10c1f1d1e0c368e846) | `b340741`, 28 October | The 28 October text: the Session header on every API request, plain OAuth tokens, Operations 2 and Mediated Sign-In 1. It refuses agents built for 0.2 or the earlier draft. Back in our grid at this commit; its image wasn't built yet ([results](interop-results/README.md)) |
+| [print-with-poppy](https://github.com/spenciefy/print-with-poppy/tree/b340741d696d867ff3190c10c1f1d1e0c368e846) | `b340741`, 28 October | The 28 October text: the Session header on every API request, plain OAuth tokens, Operations 2 and Mediated Sign-In 1. It refuses agents built for 0.2 or the earlier draft. Its rebuilt isolated demo passes all ten supported scenarios ([fresh evidence](evidence/pr-36-interop-completion/README.md)); no live paid action was run |
 | [Datalayer](https://github.com/datalayer/personal-agent-protocol/tree/a3713e3) | `a3713e3`, 27 October | The earlier 0.3 draft: Session Keys and Session Tokens |
 | [poppyseed](https://github.com/akshay5995/poppyseed/tree/6393dfb) | `6393dfb`, 27 October | The earlier 0.3 draft; no protected resource metadata |
 | [everruns](https://github.com/everruns/everruns/tree/a22760a) | `a22760a`, 28 October | 0.1; refuses 0.3 |
-| [Specification source](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/a95b757872533a6ef1e1a9bcf29802857d2e5ff4) | `a95b757`, 26 October | The earlier 0.3 draft; the 28 October text is on the site only |
+| [PoppyKit server](https://github.com/LMol-4/poppykit-server/tree/945d0cfa18a74a2e439abe9de06ddc98d179b338) / [client](https://github.com/LMol-4/poppykit-client/tree/053fe1c8c93a9519660122715583b75497ea0183) | `945d0cf` / `053fe1c`, read 29 October | Earlier 0.3 wire: their authentication/integration docs require Session Tokens and Session Keys. The README's version label alone does not establish compatibility |
+| [Specification source](https://github.com/personal-agent-protocol/personal-agent-protocol/tree/3e9bada9ec8f66777b43e429d49574131dc2f67e) | `3e9bada`, 29 October | Contains the 28 October rewrite. The site adds the restored browser-ownership MUST; that sentence is not in this commit, so our exact pin remains the site snapshot |
 | pi-poppy, poppy-demo, Ilmer, adonis-agora, tipping-co | read on 29 October | No code for either 0.3 text found |
 
 ### Public discovery — 29 October 2026

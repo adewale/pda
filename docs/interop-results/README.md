@@ -2,6 +2,14 @@
 
 **Names.** On 23 October 2026 our mocks and adversarial agent were renamed: `pda-mock` is now `lenient-company`, `pda-mock-strict` `strict-company`, `pda-mock-v02` `lenient-company-v02` and `evil-agent` `evil-personal-agent`. The snapshots here keep the names they were run under.
 
+## 29 October: process crashes and fresh independent verification
+
+The [completion evidence](../evidence/pr-36-interop-completion/README.md) records a fresh source-pinned print-with-poppy run: all ten supported scenarios pass, with no unsupported cells, errors, check failures or warnings. The Company remains pinned at `b340741d696d867ff3190c10c1f1d1e0c368e846`; its demo orders and payments are synthetic. It offers no MCP, conversations, streaming, handoff or browser join.
+
+Separate local checks now kill the actual PDA/workerd process group at four approval boundaries, for OpenAPI and MCP, while the Company request/effect ledger survives. All eight cases recover without a resend. Eight combined issuer/state/code attacks across two Companies and two Users pass at the Worker boundary; they are not additional grid cells.
+
+The original Company-kit verdicts remain intact. A temporary DPoP-capable kit copy passes the previously blocked probes, with 18 independent proof controls. Fresh Chromium and Python evidence is recorded alongside the grid receipt. These checks still do not establish live OAuth or broad cross-project interoperability; the isolated hosted journey and independent interface coverage remain open.
+
 ## 29 October: conformance verification after the PR 36 review
 
 Fresh isolated runs exercised the conformance fixes, the restored 0.3 malicious agent and authorization-code replay, and the pinned independent print-shop demo. [Receipts, commands and browser evidence](../evidence/pr-36-conformance/README.md).

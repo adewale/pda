@@ -18,7 +18,7 @@
  * without a description). Each says so in `explain`, so a report never
  * presents our policy as the draft's requirement.
  *
- * The draft is 0.3 (spec/draft-0.3-retrieved-2026-10-28), and the links go
+ * The draft is 0.3 (spec/draft-0.3-retrieved-2026-10-29), and the links go
  * to its pages. Where 0.3 changed a rule a Company may still follow, the
  * explanation says what replaced it.
  */
@@ -509,7 +509,7 @@ export const MESSAGES = define({
     fix: "Add S256.",
     ref: spec("4.2", "direct-sign-in")
   },
-  // 0.3 (spec/draft-0.3-retrieved-2026-10-28)
+  // 0.3 (spec/draft-0.3-retrieved-2026-10-29)
   "poppy-redirect-path": {
     basis: "MUST",
     title: "Redirected away from the well-known path",

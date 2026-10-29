@@ -5,6 +5,40 @@ import { browse } from "../src/poppy/browser";
 import { FetchBrowser } from "../src/poppy/fetch-browser";
 import { decideLocal } from "../src/poppy/operations";
 
+it("joins only the agent-controlled browser and leaves an ordinary User visit unjoined", async () => {
+  const c = await company();
+  const a = await agent();
+  await signInDirect(a, c);
+  const joined = await runInDurableObject(a.stub, async instance => {
+    const client = instance.poppy.client;
+    const C = await client.company(c.domain);
+    let code: string | undefined;
+    const cookies: string[] = [];
+    const fetcher = client.host.fetcher;
+    const browser = new FetchBrowser(async request => {
+      cookies.push(request.headers.get("Cookie") ?? "");
+      if (request.method === "POST" && new URL(request.url).pathname === "/poppy/browser-session") {
+        code = new URLSearchParams(new TextDecoder().decode(await request.clone().arrayBuffer())).get("code") ?? undefined;
+      }
+      return fetcher(request);
+    });
+    const page = await browse(client, browser, C, "main", { kind: "open", url: "/orders" });
+    expect(JSON.stringify(page)).toContain("Signed in as acct_ada");
+    expect(cookies.some(cookie => cookie.length > 0)).toBe(true);
+    expect(cookies.every(cookie => !cookie.includes("private-user-cookie"))).toBe(true);
+    const userVisit = await fetcher(new Request(`https://${c.domain}/orders`, {
+      headers: { Cookie: "user-browser=private-user-cookie" }
+    }));
+    expect(await userVisit.text()).toContain("Signed out");
+    expect(code).toBeTruthy();
+    return { page, code };
+  });
+  const visible = JSON.stringify({ page: joined.page, cards: await cards(a) });
+  expect(visible).not.toContain(joined.code!);
+  expect(visible).not.toContain("private-user-cookie");
+  expect((await c.stub.state()).browserJoins).toBe(1);
+});
+
 it("keeps normal browser navigation and POST303GET while requiring approval of frozen form values", async () => {
   const c = await company();
   const a = await agent();

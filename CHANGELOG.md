@@ -4,7 +4,7 @@ Release notes and upgrade instructions for PDA. Entries are newest first, inspir
 
 ## Unreleased — Poppy 0.3 alone
 
-Protocol baseline: **0.3, the text upstream published on its site on 28 October 2026**, which has no upstream commit yet ([snapshot](spec/draft-0.3-retrieved-2026-10-28/README.md); `spec/upstream.json` pins its hashes). Operations **v2**, Mediated Sign-In **v1**. 0.1 and 0.2 are no longer spoken ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)).
+Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](spec/draft-0.3-retrieved-2026-10-29/README.md); `spec/upstream.json` pins its hashes; the restored browser rule has no upstream commit yet). Operations **v2**, Mediated Sign-In **v1**. 0.1 and 0.2 are no longer spoken ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)).
 
 ### Breaking
 
@@ -15,9 +15,14 @@ Protocol baseline: **0.3, the text upstream published on its site on 28 October 
 
 ### Added
 
+- Approval dispatch verification uses actual process-group SIGKILL with a surviving Company request/effect ledger at four boundaries, for OpenAPI and MCP. It exposed a lost completion notification; approvals now persist a per-decision notification and retry its stable ID/text after restart without resending the action.
+- Eight concurrent two-Company/two-User callback attacks check issuer, state and code combinations, then valid sign-ins and API reads.
+- A separately patched copy of the official Company kit sends valid DPoP token proofs. Its assertion probes pass, with 18 independent positive/denial controls; original pinned verdicts remain unchanged.
+- The manual 29 October spec refresh restores the explicit agent-controlled-browser MUST. PDA already uses its own browser; direct privacy/isolation evidence covers the restored rule.
+
 - `poppy_feedback`: tells a Company about a task the User couldn't do there, once per task, never one it lists as excluded, and passes on another way to do it when the Company answers with one (9.3). `poppy_discover` now lists the tasks a Company leaves out of the protocol (9.1) and describes its scopes from its OpenAPI descriptions and `scope_hints`.
 - Approval cards check the Company's terms against the request and the summary, and say what differs (Ops 5).
-- A requirement ledger for 0.3: `spec/requirements-0.3.json` gives each of the changelog's 42 entries a disposition, and `npm run check:spec` holds it to the changelog.
+- A requirement ledger for 0.3: `spec/requirements-0.3.json` gives each of the changelog's 43 entries a disposition, and `npm run check:spec` holds it to the changelog.
 - A mock check that no Session header reaches an OAuth endpoint (`session-jwt.oauth-endpoint`, 5.2).
 - Four issues found while implementing, in [poppy-0.3-issues.md](docs/poppy-0.3-issues.md#found-while-implementing).
 - The Python Hypothesis client and its five state machines speak 0.3: the Session header, refresh tokens, Operations 2, the browser join and MCP with its own token ([its README](test/hypothesis/README.md)).

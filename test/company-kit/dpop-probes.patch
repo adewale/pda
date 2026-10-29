@@ -1,0 +1,88 @@
+--- a/validate/checks/assertion.ts
++++ b/validate/checks/assertion.ts
+@@ -5,0 +6 @@
++import { prepareTokenEndpoint, tokenHeaders } from "./token-request.ts";
+@@ -62 +63 @@
+-function refresh(ctx: Context, endpoint: string, assertion: string, note: string) {
++async function refresh(ctx: Context, endpoint: string, assertion: string, note: string) {
+@@ -73,4 +74,2 @@
+-        headers: {
+-            Accept: "application/json",
+-            "Content-Type": "application/x-www-form-urlencoded",
+-        },
++        headers: await tokenHeaders(ctx, endpoint),
++        refreshHeaders: () => tokenHeaders(ctx, endpoint),
+@@ -114,0 +114 @@
++    await prepareTokenEndpoint(ctx, endpoint);
+@@ -280,0 +281 @@
++    await prepareTokenEndpoint(ctx, endpoint);
+@@ -292,4 +293,2 @@
+-        headers: {
+-            Accept: "application/json",
+-            "Content-Type": "application/x-www-form-urlencoded",
+-        },
++        headers: await tokenHeaders(ctx, endpoint),
++        refreshHeaders: () => tokenHeaders(ctx, endpoint),
+--- /dev/null
++++ b/validate/checks/token-request.ts
+@@ -0,0 +1,60 @@
++// Token probes use their own DPoP key, separate from the client-assertion key.
++import { generateKey, nowSeconds, randomId, signJwt, type SigningKey } from "../jose.ts";
++import type { Context } from "./types.ts";
++
++const keys = new WeakMap<Context, Promise<SigningKey>>();
++const nonces = new WeakMap<Context, string>();
++const preparations = new WeakMap<Context, Promise<void>>();
++
++// A separate, valid assertion learns a nonce before any assertion under test is sent.
++// Otherwise a nonce challenge could consume the assertion intended as the replay control.
++export function prepareTokenEndpoint(ctx: Context, endpoint: string): Promise<void> {
++    let pending = preparations.get(ctx);
++    if (!pending) {
++        pending = (async () => {
++            const algorithms = ctx.discovered.metadata?.dpop_signing_alg_values_supported;
++            if (!Array.isArray(algorithms) || !algorithms.includes("ES256")) return;
++            const identity = ctx.identity!;
++            const iat = nowSeconds();
++            const assertion = await signJwt(
++                { alg: "ES256", typ: "JWT", kid: identity.rootKey.publicJwk.kid },
++                { iss: identity.clientId, sub: identity.clientId, aud: ctx.discovered.issuer,
++                  iat, exp: iat + 60, jti: randomId(16) },
++                identity.rootKey.privateKey,
++            );
++            const response = await ctx.http.request({
++                method: "POST", url: endpoint, headers: await tokenHeaders(ctx, endpoint),
++                body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: "rt_validator_nonce_probe_" + randomId(16),
++                    client_id: identity.clientId, client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
++                    client_assertion: assertion }).toString(),
++                note: "establish a DPoP nonce using a separate assertion and an unknown refresh token",
++            });
++            const nonce = response.responseHeaders["dpop-nonce"];
++            if (nonce) nonces.set(ctx, nonce);
++        })();
++        preparations.set(ctx, pending);
++    }
++    return pending;
++}
++
++export async function tokenHeaders(ctx: Context, endpoint: string): Promise<Record<string, string>> {
++    const headers: Record<string, string> = {
++        Accept: "application/json",
++        "Content-Type": "application/x-www-form-urlencoded",
++    };
++    const algorithms = ctx.discovered.metadata?.dpop_signing_alg_values_supported;
++    if (!Array.isArray(algorithms) || !algorithms.includes("ES256")) return headers;
++    let pending = keys.get(ctx);
++    if (!pending) keys.set(ctx, pending = generateKey());
++    const key = await pending;
++    const url = new URL(endpoint);
++    url.search = "";
++    url.hash = "";
++    headers.DPoP = await signJwt(
++        { typ: "dpop+jwt", alg: "ES256", jwk: key.publicJwk },
++        { jti: randomId(16), htm: "POST", htu: url.href, iat: nowSeconds(),
++          ...(nonces.has(ctx) ? { nonce: nonces.get(ctx) } : {}) },
++        key.privateKey,
++    );
++    return headers;
++}

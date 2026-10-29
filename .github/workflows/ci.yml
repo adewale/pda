@@ -46,6 +46,12 @@ jobs:
       # names already discovered in this invocation. No second workerd startup.
       - run: npm test
 
+      - name: Approval recovery after actual PDA process termination
+        run: npm run check:approval-crashes -- --output "$RUNNER_TEMP/approval-crashes.json"
+        env:
+          WRANGLER_SEND_METRICS: "false"
+          XDG_CONFIG_HOME: ${{ runner.temp }}/pda-process-crash-wrangler
+
       - name: Hosted dummy Company requires real consent and fails closed
         run: node test/hosted/company-security.node.mjs
         env:
@@ -58,10 +64,19 @@ jobs:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-wrangler
 
+      - name: Separate DPoP-capable kit copy and independent proof controls
+        run: node scripts/check-company-kit.mjs --with-dpop --reviewed-findings --output "$RUNNER_TEMP/company-kit-dpop.json"
+        env:
+          WRANGLER_SEND_METRICS: "false"
+          XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-dpop-wrangler
+
       - name: Upload upstream Company-kit results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: company-kit-results
-          path: ${{ runner.temp }}/company-kit.json
+          path: |
+            ${{ runner.temp }}/company-kit.json
+            ${{ runner.temp }}/company-kit-dpop.json
+            ${{ runner.temp }}/approval-crashes.json
           if-no-files-found: ignore

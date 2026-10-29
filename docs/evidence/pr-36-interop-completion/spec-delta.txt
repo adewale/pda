@@ -1,0 +1,33 @@
+--- pinned-spec
+
++++ current-spec
+
+@@ -583,6 +583,8 @@
+
+
+ This is optional. A Company that supports it lists `web.browser_session_endpoint` in its `poppy.json` (section 3). When it does, the Personal Agent MUST join its browser to a Session before browsing the Company's website. On a website without the endpoint, the Personal Agent browses as an ordinary signed-out visitor.
+
++The Personal Agent MUST join only a browser it controls to a Session, never the User's own browser. Otherwise, the Company would treat the User's own visits as the Personal Agent's.
++
+ **1. The browser opens the page.** The Personal Agent has its browser load the endpoint with a GET, as a top-level navigation. The Company responds with an HTML page with a form, and sets a short-lived cookie that ties the form's code to this browser. For example:
+
+ *Request: Personal Agent's browser → Company*
+
+--- pinned-changelog
+
++++ current-changelog
+
+@@ -238,6 +238,12 @@
+
+
+ Rate limits are HTTP 429 with `Retry-After` everywhere, without the custom `rate_limited` body at the token endpoint and the protocol's and extensions' endpoints.
+
++#### Only the Personal Agent's browser joins a Session
++
++[Spec 6](/docs/0.3/spec#web-browsing) · [Issue #53](https://github.com/personal-agent-protocol/personal-agent-protocol/issues/53)
++
++Section 6 restores the rule from 0.2 that a Personal Agent joins only a browser it controls to a Session, never the User's own browser. The browser-join redesign left it out. Otherwise, the Company would treat the User's own visits as the Personal Agent's. Acting in the User's own browser remains an [open topic](/docs/path-to-1#open-topics) for self-hosted personal agents.
++
+ #### Missing scopes on the website
+
+ [Spec 6](/docs/0.3/spec#web-browsing) · [Guides: Enforcing scopes everywhere](/docs/0.3/guides#company-scopes)

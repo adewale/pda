@@ -1,6 +1,6 @@
 # Updating Poppy support
 
-PDA supports one protocol version at a time, currently the pinned 28 October 2026 text of 0.3. [Decision 37](decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles) records that choice. The [current verification report](poppy-0.3-conformance.md#current-verification) is the source for implementation status and live limits.
+PDA supports one protocol version at a time, currently the pinned 29 October 2026 text of 0.3. [Decision 37](decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles) records that choice. The [current verification report](poppy-0.3-conformance.md#current-verification) is the source for implementation status and live limits.
 
 ## Upgrade procedure
 

@@ -1,8 +1,8 @@
 {
   "protocolVersion": "0.3",
-  "revision": "2026-10-28",
+  "revision": "2026-10-29",
   "commit": null,
-  "scope": "Disposition of every entry in the 0.3 changelog as retrieved on 28 October 2026. Done records implementation of that entry with the stated evidence and limits; it does not claim full specification or Guides conformance.",
+  "scope": "Disposition of every entry in the 0.3 changelog as retrieved on 29 October 2026. Done records implementation of that entry with the stated evidence and limits; it does not claim full specification or Guides conformance.",
   "changes": [
     {
       "change": "Company-defined scopes",
@@ -248,6 +248,13 @@
       "implementation": "src/poppy/client.ts",
       "evidence": "test/recovery.test.ts",
       "notes": "429 with Retry-After is respected everywhere through the shared CompanyLimiter."
+    },
+    {
+      "change": "Only the Personal Agent's browser joins a Session",
+      "disposition": "Done",
+      "implementation": "src/poppy/browser.ts",
+      "evidence": "test/browser-context.test.ts",
+      "notes": "Only the agent's FetchBrowser joins, using its private per-User/Session cookie jar. The regression keeps an ordinary User visit signed out, verifies the joined agent sees its account, and checks join material never reaches tool output or cards. Existing tests isolate two Users and two Sessions. This restores an explicit MUST; it changes no wire format."
     },
     {
       "change": "Missing scopes on the website",

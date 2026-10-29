@@ -1,7 +1,7 @@
 import { ConfigError } from "../config";
 import { base64url, fromBase64url } from "../base64url";
 import { migrateProtocolLog } from "./protocol-log";
-import { flag, jsonText, literal } from "../decode";
+import { flag, jsonText, literal, object, string } from "../decode";
 import { integer, integerOf, nullable, one, table, text, textOf } from "../rows";
 import { issuerDecoder } from "./issuer";
 import { approvalTermsDecoder } from "./operations-v2";
@@ -140,6 +140,8 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   action_owner TEXT,
   operation_id TEXT,
   action_identity_checked INTEGER NOT NULL DEFAULT 0,
+  notification_pending INTEGER NOT NULL DEFAULT 0,
+  notification TEXT,
   outcome_resolution TEXT,
   outcome_resolved_at INTEGER
 );
@@ -214,6 +216,13 @@ export function migrate(sql: Sql): void {
   }
   sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_unchecked_action ON poppy_approvals (id) WHERE action_identity_checked = 0");
   sql.exec("UPDATE poppy_approvals SET action_identity_checked = 1 WHERE action_identity_checked = 0 AND action_key IS NOT NULL");
+  // Historical receipts were already reported. Interrupted attempts still need recovery.
+  if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "notification_pending")) {
+    sql.exec("ALTER TABLE poppy_approvals ADD COLUMN notification_pending INTEGER NOT NULL DEFAULT 0");
+    sql.exec("UPDATE poppy_approvals SET notification_pending = 1 WHERE status = 'executing'");
+  }
+  sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_notification ON poppy_approvals (id) WHERE notification_pending = 1");
+  if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "notification")) sql.exec("ALTER TABLE poppy_approvals ADD COLUMN notification TEXT");
   retireIncompatibleSignIns(sql);
   retireOperationCards(sql);
   migrateConversationIdentity(sql);
@@ -408,6 +417,8 @@ export const approvalsTable = table("poppy_approvals", {
   action_owner: nullable(text),
   operation_id: nullable(text),
   action_identity_checked: integerOf(flag),
+  notification_pending: integerOf(flag),
+  notification: nullable(textOf(jsonText(object({ v: literal(1), id: string, text: string })))),
   outcome_resolution: nullable(textOf(literal("performed", "not_performed"))),
   outcome_resolved_at: nullable(integer)
 });

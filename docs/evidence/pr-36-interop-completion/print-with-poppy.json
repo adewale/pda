@@ -1,0 +1,1461 @@
+{
+  "interop": 1,
+  "run": "2026-10-29T16:37:42Z",
+  "spec": "Personal Agent Protocol Drafts 0.3 (2026-10-29)",
+  "lane": "local",
+  "isolation": {
+    "network": "poppy-interop-643ca6",
+    "internal": true,
+    "probe": {
+      "tcp 1.1.1.1:443": "ENETUNREACH",
+      "tcp 8.8.8.8:53": "ENETUNREACH",
+      "dns example.com": "EAI_AGAIN"
+    }
+  },
+  "implementations": [
+    {
+      "name": "pda",
+      "role": "agent",
+      "commit": "4c08609-dirty",
+      "readings": {
+        "S1": "issuer",
+        "S2": "jwt-60s",
+        "S3": "insertion",
+        "S23": "per-origin"
+      },
+      "relaxations": []
+    },
+    {
+      "name": "print-with-poppy",
+      "role": "company",
+      "commit": "b340741d696d867ff3190c10c1f1d1e0c368e846",
+      "readings": {
+        "S1": "issuer",
+        "S2": "lenient-300s",
+        "S3": "either"
+      },
+      "relaxations": [
+        "APP_MODE=demo, upstream's local mode: payments, print orders and email are simulated in process, prices are illustrative, and no Stripe, Prodigi or Resend client is configured. Demo mode also serves the store's own browser demo (/api/demo/*, the Demo authorization scheme, its built-in demo agent), which no grid agent uses.",
+        "ALLOW_INTEROP_TEST_HOSTS=true, upstream's own setting for this grid (since 3360d8b): its private-address check lets an agent's client metadata and keys be fetched from a private address only when the host name ends in .interop.test. Off by default, and the store refuses to start with it outside demo mode, on a non-.interop.test origin, on Cloudflare or with provider credentials.",
+        "Sign-in codes: demo mode stores each code email in the store's SQLite (kind demo-signin-email) instead of sending it, and the adapter reads the code from there for the person signing in (approve_authorization, deny_authorization, last_one_time_code). expire_tokens rewrites the expiry of the store's access token records."
+      ]
+    }
+  ],
+  "cells": [
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "D",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 81,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 1,
+          "ok": true
+        },
+        {
+          "actor": "runner",
+          "op": "assert_trace",
+          "ms": 6,
+          "ok": true,
+          "result": {
+            "exchange": 0
+          }
+        },
+        {
+          "actor": "runner",
+          "op": "assert_trace",
+          "ms": 2,
+          "ok": true,
+          "result": {
+            "exchange": 2
+          }
+        }
+      ],
+      "checks": [],
+      "har": "D/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "S0",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 32,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 9,
+          "ok": true,
+          "result": {
+            "session_id": "hgsKa-Jv2-7yqvGfOPZDzQ",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 94,
+          "ok": true,
+          "result": {
+            "status": 200,
+            "body": {
+              "products": [
+                {
+                  "id": "square",
+                  "name": "4 × 4 square prints",
+                  "minimumPrice": 1200,
+                  "includedQuantity": 5,
+                  "additionalPrintPrice": 50,
+                  "maxQuantity": 100,
+                  "pricingGroup": "small-prints"
+                },
+                {
+                  "id": "enlargement",
+                  "name": "8 × 10 lustre print",
+                  "minimumPrice": 1200,
+                  "includedQuantity": 1,
+                  "additionalPrintPrice": 300,
+                  "additionalPrintPriceAppliesAfter": 1,
+                  "maxQuantity": 100
+                },
+                {
+                  "id": "prints",
+                  "pricingGroup": "small-prints",
+                  "name": "4 × 6 photo prints",
+                  "minimumPrice": 1200,
+                  "includedQuantity": 5,
+                  "additionalPrintPrice": 50,
+                  "maxQuantity": 100
+                },
+                {
+                  "id": "poster",
+                  "name": "12 × 16 matte print",
+                  "price": 2800,
+                  "maxQuantity": 1
+                },
+                {
+                  "id": "tshirt",
+                  "name": "Custom T-shirt",
+                  "minimumPrice": 2900,
+                  "includedQuantity": 1,
+                  "additionalShirtPrice": 1700,
+                  "maxQuantity": 20,
+                  "easterEgg": true,
+                  "colors": [
+                    "white",
+                    "black",
+                    "navy blue",
+                    "orange",
+                    "natural"
+                  ],
+                  "sizes": [
+                    "s",
+                    "m",
+                    "l",
+                    "xl"
+                  ],
+                  "description": "Optional custom front-print T-shirt. First shirt $29, each additional shirt $17. Mix sizes and colors with a separate item and quantity for each combination. Ask for photo, color, size quantities together. Show all returned shirt mockups and record explicit user approval using approveShirtPreviews before sending the order approval; it is an approximate illustration. US shipping included; may ship separately. Only offer when asked about T-shirts or hidden extras."
+                }
+              ],
+              "httpOrderingEnabled": false,
+              "samplePhotos": [
+                {
+                  "color": "yellow",
+                  "name": "Yellow poppies",
+                  "url": "/photos/poppy-abstract-yellow.webp"
+                },
+                {
+                  "color": "orange",
+                  "name": "Orange poppies",
+                  "url": "/photos/poppy-abstract-cluster.webp"
+                },
+                {
+                  "color": "red",
+                  "name": "Red poppies",
+                  "url": "/photos/poppy-abstract-red.webp"
+                }
+              ],
+              "currency": "USD",
+              "shippingIncluded": true,
+              "shipping": {
+                "flatRate": 0,
+                "included": true
+              },
+              "country": "US",
+              "tax": "Added before approval",
+              "deliveryEstimate": "Estimated delivery: 7–12 business days after payment. This is our estimate, not a guaranteed arrival date.",
+              "oneProductPerOrder": false,
+              "smallPrintBundle": {
+                "products": [
+                  "prints",
+                  "square"
+                ],
+                "minimumPrice": 1200,
+                "includedQuantity": 5,
+                "additionalPrintPrice": 50
+              },
+              "mixedPhotoSaving": {
+                "products": [
+                  "small-prints",
+                  "enlargement"
+                ],
+                "amount": 500,
+                "appliesOncePerOrder": true,
+                "description": "Combine small prints and 8×10s to save $5 on shared delivery; already included in the quote subtotal."
+              },
+              "maxPhotoPrints": 100,
+              "mode": "demo",
+              "environment": "demo",
+              "sandboxEmailDelivery": false
+            }
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 13,
+          "ok": true,
+          "result": {
+            "session_id": "hgsKa-Jv2-7yqvGfOPZDzQ",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 18,
+          "ok": true,
+          "result": {
+            "status": 200,
+            "body": {
+              "products": [
+                {
+                  "id": "square",
+                  "name": "4 × 4 square prints",
+                  "minimumPrice": 1200,
+                  "includedQuantity": 5,
+                  "additionalPrintPrice": 50,
+                  "maxQuantity": 100,
+                  "pricingGroup": "small-prints"
+                },
+                {
+                  "id": "enlargement",
+                  "name": "8 × 10 lustre print",
+                  "minimumPrice": 1200,
+                  "includedQuantity": 1,
+                  "additionalPrintPrice": 300,
+                  "additionalPrintPriceAppliesAfter": 1,
+                  "maxQuantity": 100
+                },
+                {
+                  "id": "prints",
+                  "pricingGroup": "small-prints",
+                  "name": "4 × 6 photo prints",
+                  "minimumPrice": 1200,
+                  "includedQuantity": 5,
+                  "additionalPrintPrice": 50,
+                  "maxQuantity": 100
+                },
+                {
+                  "id": "poster",
+                  "name": "12 × 16 matte print",
+                  "price": 2800,
+                  "maxQuantity": 1
+                },
+                {
+                  "id": "tshirt",
+                  "name": "Custom T-shirt",
+                  "minimumPrice": 2900,
+                  "includedQuantity": 1,
+                  "additionalShirtPrice": 1700,
+                  "maxQuantity": 20,
+                  "easterEgg": true,
+                  "colors": [
+                    "white",
+                    "black",
+                    "navy blue",
+                    "orange",
+                    "natural"
+                  ],
+                  "sizes": [
+                    "s",
+                    "m",
+                    "l",
+                    "xl"
+                  ],
+                  "description": "Optional custom front-print T-shirt. First shirt $29, each additional shirt $17. Mix sizes and colors with a separate item and quantity for each combination. Ask for photo, color, size quantities together. Show all returned shirt mockups and record explicit user approval using approveShirtPreviews before sending the order approval; it is an approximate illustration. US shipping included; may ship separately. Only offer when asked about T-shirts or hidden extras."
+                }
+              ],
+              "httpOrderingEnabled": false,
+              "samplePhotos": [
+                {
+                  "color": "yellow",
+                  "name": "Yellow poppies",
+                  "url": "/photos/poppy-abstract-yellow.webp"
+                },
+                {
+                  "color": "orange",
+                  "name": "Orange poppies",
+                  "url": "/photos/poppy-abstract-cluster.webp"
+                },
+                {
+                  "color": "red",
+                  "name": "Red poppies",
+                  "url": "/photos/poppy-abstract-red.webp"
+                }
+              ],
+              "currency": "USD",
+              "shippingIncluded": true,
+              "shipping": {
+                "flatRate": 0,
+                "included": true
+              },
+              "country": "US",
+              "tax": "Added before approval",
+              "deliveryEstimate": "Estimated delivery: 7–12 business days after payment. This is our estimate, not a guaranteed arrival date.",
+              "oneProductPerOrder": false,
+              "smallPrintBundle": {
+                "products": [
+                  "prints",
+                  "square"
+                ],
+                "minimumPrice": 1200,
+                "includedQuantity": 5,
+                "additionalPrintPrice": 50
+              },
+              "mixedPhotoSaving": {
+                "products": [
+                  "small-prints",
+                  "enlargement"
+                ],
+                "amount": 500,
+                "appliesOncePerOrder": true,
+                "description": "Combine small prints and 8×10s to save $5 on shared delivery; already included in the quote subtotal."
+              },
+              "maxPhotoPrints": 100,
+              "mode": "demo",
+              "environment": "demo",
+              "sandboxEmailDelivery": false
+            }
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "runner",
+          "op": "assert_trace",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "requests": 2
+          }
+        }
+      ],
+      "checks": [],
+      "har": "S0/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "SD",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 26,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 6,
+          "ok": true,
+          "result": {
+            "session_id": "fyQN-sU-g8vNqrGyV2smig",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 18,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://print-with-poppy.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread&state=7bVySjTH0aVxlzaJq_ZaPQ&code_challenge=ZiuaHOr6syjvZ3DyNhncfKmkdzFRApvJCYibzdSiJVQ&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 89,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=7bVySjTH0aVxlzaJq_ZaPQ&iss=https%3A%2F%2Fprint-with-poppy.company.interop.test&code=code_G5jIahIHTryXYgO-88HX0gWn"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 43,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read",
+            "session_id": "fyQN-sU-g8vNqrGyV2smig"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 1,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "SD/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "SMC",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 24,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "session_id": "VwG2l_YT3I15-3b5b7xRFw",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 24,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "mediated",
+              "fields": [
+                "email"
+              ]
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "mediated_answers",
+          "ms": 6,
+          "ok": true,
+          "result": {
+            "fields": {
+              "email": "ada@example.com"
+            }
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 66,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "mediated",
+              "code_required": true
+            }
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "company",
+          "op": "last_one_time_code",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "code": "772811"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 21,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read",
+            "session_id": "VwG2l_YT3I15-3b5b7xRFw"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "SMC/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "SX",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 26,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "session_id": "pdrEPO7y60KP2h4Q6EXTBg",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 21,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://print-with-poppy.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread&state=zUBiXj9-9ORRnE_b0FFifA&code_challenge=pr_HkOwGjrqrqf9P3TrVnvDIC2dlCN8-DtCXqs-iy4w&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "deny_authorization",
+          "ms": 83,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=zUBiXj9-9ORRnE_b0FFifA&iss=https%3A%2F%2Fprint-with-poppy.company.interop.test&error=access_denied"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 17,
+          "ok": true,
+          "result": {
+            "refused": true,
+            "poppy_error": "access_denied",
+            "status": 0,
+            "detail": "Sign-in to Print with Poppy didn't complete (access_denied)."
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "state",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "sessions": [
+              {
+                "issuer": "https://print-with-poppy.company.interop.test",
+                "label": "main",
+                "session_id": "pdrEPO7y60KP2h4Q6EXTBg",
+                "signed_in": false,
+                "account": null,
+                "scope": ""
+              }
+            ],
+            "accounts": []
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "SX/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "SO",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 23,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 8,
+          "ok": true,
+          "result": {
+            "session_id": "0LQC1rSj63d7_CFC-L8BHw",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 17,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://print-with-poppy.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread&state=rrX1dI5xnO3R7OW4CGVFGA&code_challenge=U_fdxt3cOEum4r2gwGXJBdVBG_AiH0HPpVrEsPa1iq8&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 92,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=rrX1dI5xnO3R7OW4CGVFGA&iss=https%3A%2F%2Fprint-with-poppy.company.interop.test&code=code_a4Urhi5hTX1f4HvPG_XhtxPm"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 32,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read",
+            "session_id": "0LQC1rSj63d7_CFC-L8BHw"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "signout",
+          "ms": 19,
+          "ok": true,
+          "result": {
+            "revoked": true
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "runner",
+          "op": "assert_trace",
+          "ms": 5,
+          "ok": true,
+          "result": {
+            "revocations": 1
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 5,
+          "ok": true,
+          "result": {
+            "session_id": "0LQC1rSj63d7_CFC-L8BHw",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "SO/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "AO",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 34,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 10,
+          "ok": true,
+          "result": {
+            "session_id": "STKEa-EMowpTpxR-FpHsug",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 26,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://print-with-poppy.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread&state=jWKPEJDphjSaMmVYbDL69w&code_challenge=gEwNKVvkKayF1GkXu_QokZamyitrnts0KROk5kbvWfs&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 87,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=jWKPEJDphjSaMmVYbDL69w&iss=https%3A%2F%2Fprint-with-poppy.company.interop.test&code=code_XksElu8mFNjtRaBr1FIy8Ow5"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 27,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read",
+            "session_id": "STKEa-EMowpTpxR-FpHsug"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 37,
+          "ok": true,
+          "result": {
+            "status": 200,
+            "body": {
+              "email": "ada@example.com",
+              "scope": "orders:read",
+              "saved_addresses": 0,
+              "default_address": null
+            }
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "skipped": "${a.held} is null"
+          }
+        },
+        {
+          "actor": "runner",
+          "op": "first",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "status": 200,
+            "body": {
+              "email": "ada@example.com",
+              "scope": "orders:read",
+              "saved_addresses": 0,
+              "default_address": null
+            }
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "AO/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "AS",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 22,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "session_id": "bOOINmFyu3SSleGXd818fA",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin",
+          "ms": 14,
+          "ok": true,
+          "result": {
+            "pending": {
+              "type": "direct",
+              "url": "https://print-with-poppy.company.interop.test/oauth/authorize?response_type=code&client_id=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fclient.json&redirect_uri=https%3A%2F%2Fpda.agent.interop.test%2Fpoppy%2Fcallback&scope=orders%3Aread&state=AvBmgQ4cqqG6ATO9VH6xpg&code_challenge=bEIlvOSluXWpAy1MPsp_l4biEg1rrt4E34kZ2-zMkqE&code_challenge_method=S256"
+            }
+          }
+        },
+        {
+          "actor": "company",
+          "op": "approve_authorization",
+          "ms": 62,
+          "ok": true,
+          "result": {
+            "redirect": "https://pda.agent.interop.test/poppy/callback?state=AvBmgQ4cqqG6ATO9VH6xpg&iss=https%3A%2F%2Fprint-with-poppy.company.interop.test&code=code_iwgdf6ksRGYqb_Q3OLWFBLxQ"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "signin_continue",
+          "ms": 19,
+          "ok": true,
+          "result": {
+            "signed_in": true,
+            "account": "default",
+            "scope": "orders:read",
+            "session_id": "bOOINmFyu3SSleGXd818fA"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 36,
+          "ok": true,
+          "result": {
+            "refused": true,
+            "poppy_error": "insufficient_scope",
+            "status": 403,
+            "detail": "Print with Poppy: insufficient_scope"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 0,
+          "ok": true,
+          "result": {
+            "skipped": "${w.held} is null"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "AS/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "OU",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 20,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 5,
+          "ok": true,
+          "result": {
+            "session_id": "__2kZ550n7hjladtAh92VQ",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 17,
+          "ok": true,
+          "result": {
+            "held": "apr_pjo5W5qYIpnpz5Wbuqam1Q"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 232,
+          "ok": true,
+          "result": {
+            "status": "done",
+            "result": {
+              "status": 201,
+              "body": {
+                "id": "photo_tal23SPLxm-88FgtGjtvwVi7",
+                "name": "Photo 1",
+                "width": 480,
+                "height": 360,
+                "lowResolution": true,
+                "created": 1793291894655,
+                "previews": {
+                  "contain": "https://print-with-poppy.company.interop.test/media/photo_tal23SPLxm-88FgtGjtvwVi7/contain?exp=1793295494&sig=LrA1nYq2hxYa9lovjalbHUpgmCQkquyRCaxBj1B6ZN8",
+                  "cover": "https://print-with-poppy.company.interop.test/media/photo_tal23SPLxm-88FgtGjtvwVi7/cover?exp=1793295494&sig=w3Zki60jHLve3QT1CPHBUMQU8HbNxsGpCVp7SkVfrBU"
+                }
+              }
+            }
+          }
+        },
+        {
+          "actor": "runner",
+          "op": "first",
+          "ms": 0,
+          "ok": true,
+          "result": "photo_tal23SPLxm-88FgtGjtvwVi7"
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 15,
+          "ok": true,
+          "result": {
+            "held": "apr_f9WBqvCpdhrsPqczAyWAOw"
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 65,
+          "ok": true,
+          "result": {
+            "status": "terms",
+            "held": "apr2_mEhnUrujMuCyb8GAoHCJZV"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "approve_op",
+          "ms": 43,
+          "ok": true,
+          "result": {
+            "status": "done",
+            "result": "{\"status\":201,\"body\":{\"status_url\":\"https://print-with-poppy.company.interop.test/order/ord_zLMje61MH0u51oV44STsMWjg#view_AGtLep0nlSLdlCBfpbezuUVG\",\"id\":\"ord_zLMje61MH0u51oV44STsMWjg\",\"status\":\"awaiting_payment\",\"orderingMethod\":\"native-poppy\",\"created\":1793291894769,\"quote\":{\"email\":\"ada@example.com\",\"address\":{\"name\":\"Ada Lovelace\",\"line1\":\"123 Market Street\",\"line2\":\"\",\"city\":\"San Francisco\",\"state\":\"CA\",\"postalCode\":\"94103\",\"country\":\"US\"},\"items\":[{\"photoId\":\"photo_tal23SPLxm-88FgtGjtvwVi7\",\"quantity\":1,\"fit\":\"contain\"}],\"subtotal\":1200,\"shipping\":0,\"printDiscount\":0,\"shippingDiscount\":0,\"discount\":0,\"tax\":105,\"total\":1305,\"id\":\"quote_d9D2PumQgE5mqjG-H-AqkrcE\",\"orderingMethod\":\"native-poppy\",\"created\":1793291894713,\"expires\":1793292794713,\"currency\":\"USD\",\"estimate\":\"Estimated delivery: 7–12 business days after payment. This is our estimate, not a guaranteed arrival date.\",\"finish\":\"lustre\",\"shippingMethod\":\"Budget\",\"summary\":\"Print with Poppy\\n1 × 4 × 6 photo prints · lustre\\nPhoto 1 · 1 copy each · whole image with white margins\\nLow-resolution warning: Photo 1 may look soft at this size.\\n\\nDeliver to: Ada Lovelace, 123 Market Street, San Francisco, CA 94103, US\\nEmail: ada@example.com\\nDelivery: estimated 7–12 business days after payment; not guaranteed.\\n\\nPrints $12.00 · US shipping included + tax $1.05\\nTotal: $13.05 USD\\n\\nApprove to continue to payment.\\nCompleting checkout starts printing; cancellation is not guaranteed afterward.\\nSANDBOX: simulated payment and fulfillment. No prints will be shipped.\",\"previews\":[{\"previewId\":\"preview_spDdVvcVRNag1iq2FaVE3_eJ\",\"product\":\"prints\",\"photoId\":\"photo_tal23SPLxm-88FgtGjtvwVi7\",\"url\":\"https://print-with-poppy.company.interop.test/media/photo_tal23SPLxm-88FgtGjtvwVi7/contain?exp=1793295494&sig=LrA1nYq2hxYa9lovjalbHUpgmCQkquyRCaxBj1B6ZN8\",\"name\":\"Photo 1\",\"quantity\":1,\"fit\":\"contain\"}]},\"checkoutUrl\":\"https://print-with-poppy.company.interop.test/checkout/ord_zLMje61MH0u51oV44STsMWjg#view_AGtLep0nlSLdlCBfpbez"
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 9,
+          "ok": true,
+          "result": {
+            "session_id": "__2kZ550n7hjladtAh92VQ",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 0,
+          "ok": true
+        }
+      ],
+      "checks": [],
+      "har": "OU/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    },
+    {
+      "agent": "pda",
+      "company": "print-with-poppy",
+      "scenario": "CM",
+      "outcome": "pass",
+      "blame": null,
+      "rule": null,
+      "steps": [
+        {
+          "actor": "agent",
+          "op": "discover",
+          "ms": 28,
+          "ok": true,
+          "result": {
+            "issuer": "https://print-with-poppy.company.interop.test",
+            "poppy_version": "0.3",
+            "conversations": false,
+            "apis": [
+              "openapi"
+            ],
+            "sign_in": [
+              "direct",
+              "device",
+              "mediated"
+            ],
+            "extensions": [
+              "operations"
+            ]
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "session",
+          "ms": 7,
+          "ok": true,
+          "result": {
+            "session_id": "YMYbZsRR5jRyCallFQOALA",
+            "signed_in": false,
+            "scope": ""
+          }
+        },
+        {
+          "actor": "agent",
+          "op": "api",
+          "ms": 61,
+          "ok": true,
+          "result": {
+            "status": 200,
+            "body": {
+              "products": [
+                {
+                  "id": "square",
+                  "name": "4 × 4 square prints",
+                  "minimumPrice": 1200,
+                  "includedQuantity": 5,
+                  "additionalPrintPrice": 50,
+                  "maxQuantity": 100,
+                  "pricingGroup": "small-prints"
+                },
+                {
+                  "id": "enlargement",
+                  "name": "8 × 10 lustre print",
+                  "minimumPrice": 1200,
+                  "includedQuantity": 1,
+                  "additionalPrintPrice": 300,
+                  "additionalPrintPriceAppliesAfter": 1,
+                  "maxQuantity": 100
+                },
+                {
+                  "id": "prints",
+                  "pricingGroup": "small-prints",
+                  "name": "4 × 6 photo prints",
+                  "minimumPrice": 1200,
+                  "includedQuantity": 5,
+                  "additionalPrintPrice": 50,
+                  "maxQuantity": 100
+                },
+                {
+                  "id": "poster",
+                  "name": "12 × 16 matte print",
+                  "price": 2800,
+                  "maxQuantity": 1
+                },
+                {
+                  "id": "tshirt",
+                  "name": "Custom T-shirt",
+                  "minimumPrice": 2900,
+                  "includedQuantity": 1,
+                  "additionalShirtPrice": 1700,
+                  "maxQuantity": 20,
+                  "easterEgg": true,
+                  "colors": [
+                    "white",
+                    "black",
+                    "navy blue",
+                    "orange",
+                    "natural"
+                  ],
+                  "sizes": [
+                    "s",
+                    "m",
+                    "l",
+                    "xl"
+                  ],
+                  "description": "Optional custom front-print T-shirt. First shirt $29, each additional shirt $17. Mix sizes and colors with a separate item and quantity for each combination. Ask for photo, color, size quantities together. Show all returned shirt mockups and record explicit user approval using approveShirtPreviews before sending the order approval; it is an approximate illustration. US shipping included; may ship separately. Only offer when asked about T-shirts or hidden extras."
+                }
+              ],
+              "httpOrderingEnabled": false,
+              "samplePhotos": [
+                {
+                  "color": "yellow",
+                  "name": "Yellow poppies",
+                  "url": "/photos/poppy-abstract-yellow.webp"
+                },
+                {
+                  "color": "orange",
+                  "name": "Orange poppies",
+                  "url": "/photos/poppy-abstract-cluster.webp"
+                },
+                {
+                  "color": "red",
+                  "name": "Red poppies",
+                  "url": "/photos/poppy-abstract-red.webp"
+                }
+              ],
+              "currency": "USD",
+              "shippingIncluded": true,
+              "shipping": {
+                "flatRate": 0,
+                "included": true
+              },
+              "country": "US",
+              "tax": "Added before approval",
+              "deliveryEstimate": "Estimated delivery: 7–12 business days after payment. This is our estimate, not a guaranteed arrival date.",
+              "oneProductPerOrder": false,
+              "smallPrintBundle": {
+                "products": [
+                  "prints",
+                  "square"
+                ],
+                "minimumPrice": 1200,
+                "includedQuantity": 5,
+                "additionalPrintPrice": 50
+              },
+              "mixedPhotoSaving": {
+                "products": [
+                  "small-prints",
+                  "enlargement"
+                ],
+                "amount": 500,
+                "appliesOncePerOrder": true,
+                "description": "Combine small prints and 8×10s to save $5 on shared delivery; already included in the quote subtotal."
+              },
+              "maxPhotoPrints": 100,
+              "mode": "demo",
+              "environment": "demo",
+              "sandboxEmailDelivery": false
+            }
+          }
+        },
+        {
+          "actor": "expect",
+          "op": "expect",
+          "ms": 1,
+          "ok": true
+        },
+        {
+          "actor": "runner",
+          "op": "assert_trace",
+          "ms": 6,
+          "ok": true,
+          "result": {
+            "client_id": "https://pda.agent.interop.test/poppy/client.json",
+            "metadata": 5,
+            "jwks": 6
+          }
+        }
+      ],
+      "checks": [],
+      "har": "CM/pda__print-with-poppy.har",
+      "protocolVersion": "0.3",
+      "specificationRevision": "2026-10-29"
+    }
+  ],
+  "flaky": [],
+  "staleKnown": [],
+  "levels": {
+    "failure": 0,
+    "warning": 0,
+    "tentative": 0
+  }
+}

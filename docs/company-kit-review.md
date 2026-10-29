@@ -36,6 +36,23 @@ We have retained those verdicts. The strict Bearer profile passes all eight corr
 
 `--reviewed-findings` compares exact finding IDs, profile, status and prerequisite error. It also requires all eight accepted Bearer controls and the exact absent-feature skips. It fails on a new finding, a disappeared finding or a failed control. It does not relabel the raw failures or warnings as passes. CI retains the receipt as an artifact. No feedback was sent to the protocol maintainers.
 
+### Separately patched DPoP run
+
+`node scripts/check-company-kit.mjs --with-dpop --reviewed-findings --output /tmp/company-kit-dpop.json` verifies the original archive and all 79 files, then applies [a small token-probe patch](../test/company-kit/dpop-probes.patch) to a temporary copy. The original pin and raw verdicts above remain unchanged. A zero-context patch is applied only after the exact source hashes pass.
+
+The copy uses the kit's own WebCrypto signer, an independent ephemeral P-256 DPoP key and fresh request-bound proofs. A separate valid assertion learns the nonce before each assertion probe, so nonce negotiation cannot consume the assertion under test. Retry proofs are fresh; the expected assertion verdicts are unmodified.
+
+| Profile | Pass | Fail | Warnings | Skip |
+| --- | ---: | ---: | ---: | ---: |
+| Lenient mock, DPoP required | 119 | 0 | 0 | 1 |
+| Strict mock, DPoP required | 119 | 0 | 0 | 1 |
+| Strict mock, Bearer | 119 | 0 | 0 | 1 |
+| Hosted handlers, local workerd | 62 | 0 | 0 | 58 |
+
+An additional six controls on each DPoP profile use the unmodified upstream signer: valid, missing proof, bad signature, wrong method, wrong URL, then valid again. All 18 reach their intended errors (`invalid_grant` for a valid proof and nonexistent refresh token; `invalid_dpop_proof` for denials). No PDA JWT implementation is imported. The kit still performs zero Company actions and verifies no live sign-in.
+
+[Fresh raw/patched receipts, controls and a prepared upstream report](evidence/pr-36-interop-completion/README.md). Nothing was posted upstream; the report and patch are ready for review.
+
 ### Changes the kit prompted
 
 1. The mock removed `context` when echoing a message into event history. This also made context-only message events invalid. It now retains the message as sent, with only the Company-assigned `role` added.

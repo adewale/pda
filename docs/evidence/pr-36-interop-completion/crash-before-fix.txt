@@ -1,0 +1,21 @@
+openapi/before-dispatch: passed
+openapi/after-effect: passed
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: A committed approval's interrupted notification must recover once
+
+0 !== 1
+
+    at file:///workspace/pda-pr36-audit/scripts/check-approval-crashes.mjs:145:14
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 0,
+  expected: 1,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v24.19.0

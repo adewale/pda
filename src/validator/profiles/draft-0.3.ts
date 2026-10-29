@@ -1,5 +1,5 @@
 /**
- * Rules for Draft 0.3 (spec/draft-0.3-retrieved-2026-10-28), the only
+ * Rules for Draft 0.3 (spec/draft-0.3-retrieved-2026-10-29), the only
  * version this validator checks. For discovery: the issuer comes from the
  * domain's protected resource metadata (3.2), and `auth.issuer` only chooses
  * among several; the issuer's metadata lists the domain in

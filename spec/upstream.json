@@ -1,11 +1,11 @@
 {
-  "snapshot": "spec/draft-0.3-retrieved-2026-10-28",
+  "snapshot": "spec/draft-0.3-retrieved-2026-10-29",
   "protocolVersion": "0.3",
-  "revision": "2026-10-28",
+  "revision": "2026-10-29",
   "commit": null,
   "operationsVersion": "2",
   "mediatedSignInVersion": "1",
   "source": "https://personalagentprotocol.org/docs/0.3/spec",
   "upstream": "https://github.com/personal-agent-protocol/personal-agent-protocol",
-  "note": "Upstream publishes the 0.3 text on its site without a commit in its repository yet, so the pin is the dated site snapshot and its hashes (scripts/check-spec.mjs). When a commit appears, set commit here and in src/poppy/protocol-version.ts together."
+  "note": "Manually reviewed 29 October site snapshot. Since the 28 October pin, section 6 restores the agent-controlled-browser MUST; no wire format changed. Upstream head 3e9bada9ec8f66777b43e429d49574131dc2f67e contains the rewrite but not this sentence, so no exact matching commit is recorded. Snapshot hashes are the exact pin."
 }

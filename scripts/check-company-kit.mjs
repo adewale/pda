@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-/** Run the pinned upstream CLI unchanged against real local HTTPS and workerd Company handlers. */
+/** Run the verified upstream CLI (optionally a separately patched copy) against local HTTPS/workerd. */
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,22 +12,31 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { Miniflare, convertV4MiniflareOptions, Log, LogLevel } from "miniflare";
 import { localAgent, localFetch } from "../test/company-kit/local-https.mjs";
+import { dpopControls } from "../test/company-kit/dpop-controls.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const snapshot = path.join(root, "spec/company-kit-2026-10-29");
 const kit = path.join(snapshot, "kit");
-const cli = path.join(kit, "validate/index.ts");
+let cli = path.join(kit, "validate/index.ts");
 const manifest = JSON.parse(readFileSync(path.join(snapshot, "manifest.json"), "utf8"));
 const digest = data => createHash("sha256").update(data).digest("hex");
 assert.equal(digest(readFileSync(path.join(snapshot, "upstream.zip"))), manifest.archiveSha256, "The original Company kit archive changed");
 for (const [file, sha] of Object.entries(manifest.files)) assert.equal(digest(readFileSync(path.join(snapshot, file))), sha, `Upstream file changed: ${file}`);
 
 const args = process.argv.slice(2);
+const withDpop = args.includes("--with-dpop");
 const output = args.includes("--output") ? args[args.indexOf("--output") + 1] : undefined;
 if (args.includes("--verify-pin")) { process.stdout.write(`Verified Company kit: ${Object.keys(manifest.files).length} unmodified files and original archive.\n`); process.exit(0); }
 if (!output) throw new Error("Usage: node scripts/check-company-kit.mjs --output <receipt.json> [--reviewed-findings] | --verify-pin");
 const directory = mkdtempSync(path.join(tmpdir(), "pda-company-kit-"));
 chmodSync(directory, 0o700);
+const dpopPatch = path.join(root, "test/company-kit/dpop-probes.patch");
+if (withDpop) {
+  const copy = path.join(directory, "kit");
+  cpSync(kit, copy, { recursive: true });
+  execFileSync("git", ["apply", "--unidiff-zero", dpopPatch], { cwd: copy, stdio: "pipe" });
+  cli = path.join(copy, "validate/index.ts");
+}
 const pdaOrigin = "https://kit-agent.test";
 const companyOrigin = "https://kit-hosted.test";
 const hosts = ["kit-agent.test", "kit-hosted.test", ...["", "auth.", "api.", "mcp.", "www.", "cdn."].flatMap(prefix => [`${prefix}kit.shop.test`, `${prefix}kit.shop-uk.test`])];
@@ -103,6 +112,7 @@ try {
   writeFileSync(networkFile, JSON.stringify(network));
   const mock = (await runtime.getDurableObjectNamespace("MOCK_COMPANY")).getByName("kit");
   const runs = [];
+  const proofControls = [];
   for (const profile of ["lenient", "strict", "bearer", "hosted"]) {
     if (profile !== "hosted") {
       await mock.configure({ protocolVersion: "0.3", strictAssertions: profile !== "lenient", dpopTokens: profile !== "bearer", unknownApi: false, unknownProtocol: false, unknownExtension: false, unknownField: false, printShop: true, feedback: true });
@@ -113,6 +123,7 @@ try {
     const report = JSON.parse(run.stdout);
     runs.push({ profile, target, exitCode: run.code, ...report });
     process.stdout.write(`${profile}: ${JSON.stringify(report.summary.total)}\n`);
+    if (withDpop && profile !== "bearer") proofControls.push({ profile, results: await dpopControls({ kit, directory, target, fetcher: (url, init) => localFetch(agent, url, init) }) });
   }
   const limits = JSON.parse(readFileSync(path.join(root, "test/company-kit/reviewed-findings.json"), "utf8"));
   let review, reviewError;
@@ -123,8 +134,8 @@ try {
       for (const run of runs) {
         assert.equal(run.results.length, limits.catalogChecks, "Every pinned catalogue check must be reported");
         assert.equal(new Set(run.results.map(item => item.id)).size, limits.catalogChecks);
-        const expectedFail = dpop.failureProfiles.includes(run.profile) ? [dpop.failureId] : [];
-        const expectedWarn = dpop.warningProfiles.includes(run.profile) ? dpop.warningIds : [];
+        const expectedFail = !withDpop && dpop.failureProfiles.includes(run.profile) ? [dpop.failureId] : [];
+        const expectedWarn = !withDpop && dpop.warningProfiles.includes(run.profile) ? dpop.warningIds : [];
         const expectedSkip = limits.skips[run.profile === "hosted" ? "hosted" : "mock"];
         for (const [status, expected] of [["fail", expectedFail], ["warn", expectedWarn], ["skip", expectedSkip]]) {
           const actual = run.results.filter(item => item.status === status);
@@ -137,7 +148,10 @@ try {
       }
       const control = runs.find(run => run.profile === limits.positiveControlProfile);
       for (const id of [...dpop.warningIds, dpop.failureId]) assert.equal(control.results.find(item => item.id === id)?.status, "pass", `Missing accepted control for ${id}`);
-      review = "All upstream verdicts retained; only the documented DPoP prerequisite findings and explicit absent-feature skips remain. Accepted controls pass on the bearer profile.";
+      if (withDpop) for (const run of runs) for (const id of [...dpop.warningIds, dpop.failureId]) {
+        if (!limits.skips[run.profile === "hosted" ? "hosted" : "mock"].includes(id)) assert.equal(run.results.find(item => item.id === id)?.status, "pass", `Missing DPoP-capable control for ${run.profile}/${id}`);
+      }
+      review = withDpop ? "The separately patched CLI supplies ES256 DPoP proofs. All applicable checks pass; only documented absent-feature skips remain. The pinned upstream source is unchanged." : "All upstream verdicts retained; only the documented DPoP prerequisite findings and explicit absent-feature skips remain. Accepted controls pass on the bearer profile.";
     } catch (error) { reviewError = error; }
   }
   const mockState = await mock.state();
@@ -146,11 +160,13 @@ try {
   assert.deepEqual(effects, { mock: 0, hosted: 0 }, "The signed-out kit must perform no Company action");
   const receipt = {
     archiveSha256: manifest.archiveSha256, source: manifest.source, upstreamFilesVerified: Object.keys(manifest.files).length,
-    runtime: "local workerd through real HTTPS; certificate and hostname verified", validator: "unmodified upstream CLI",
+    runtime: "local workerd through real HTTPS; certificate and hostname verified", validator: withDpop ? "separate temporary upstream copy with DPoP token-probe patch" : "unmodified upstream CLI",
+    ...(withDpop ? { patchSha256: digest(readFileSync(dpopPatch)), dpopScope: "ES256 token proofs; nonce preflight uses an independent assertion before the tested controls" } : {}),
     identity: "fresh upstream-generated test identity, provisioned at the dummy Company's existing allowlisted client_id",
     privateAddressSetting: "upstream --allow-private-addresses; transport accepts declared local hosts only",
     liveHostingVerified: false, liveSignInVerified: false, authenticatedActionVerifiedByKit: false, companyEffects: effects,
     transportFailures: failures, ...(review ? { reviewedFindings: review } : {}),
+    ...(withDpop ? { proofControls } : {}),
     ...(reviewError ? { reviewFailure: "An upstream verdict or expected control changed; inspect the raw runs." } : {}), runs
   };
   const serialized = JSON.stringify(receipt, null, 2);

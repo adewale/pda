@@ -2,15 +2,15 @@
  * The Poppy versions we speak. Before 1.0 every version can break the one
  * before (3.1), so support is explicit and a document that declares any
  * other version is refused before its issuer is used. We speak 0.3 alone,
- * as upstream rewrote it on 28 October 2026 (spec/draft-0.3-retrieved-2026-10-28),
+ * as retrieved on 29 October 2026 (spec/draft-0.3-retrieved-2026-10-29),
  * decision 37. The list stays a list so a new version is added as data
  * (docs/poppy-0.3-plan.md).
  */
 export const PROTOCOL_VERSIONS = ["0.3"] as const;
 export type ProtocolVersion = (typeof PROTOCOL_VERSIONS)[number];
-/** The date of the text we implement: the site snapshot, since upstream hasn't committed it. */
-export const PROTOCOL_REVISION = "2026-10-28";
-/** Upstream's commit for that text: none yet (spec/upstream.json). */
+/** The date of the manually reviewed site snapshot we implement. */
+export const PROTOCOL_REVISION = "2026-10-29";
+/** No exact upstream commit for the site-only restored browser rule (spec/upstream.json). */
 export const PROTOCOL_COMMIT: string | null = null;
 
 export function supportsProtocol(value: unknown): value is ProtocolVersion {
