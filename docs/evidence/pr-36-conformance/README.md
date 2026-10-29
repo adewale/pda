@@ -33,7 +33,7 @@ Independent checks include Worker approval/recovery tests, API/MCP lifecycle reg
 
 ## Follow-up: message filtering and aged outcomes
 
-The reply guard now leaves warnings and harmless task replies intact, withholds recognizable verification details, and attempts one stable authorization message per conversation. Its decision persists across tool replay and restart. Ordinary numeric, UUID and tracking identifiers remain usable; named credentials and recognizable secret formats are still refused. Worker tests assert the actual messages and request counts, including a replay after the Company changes the subject.
+The reply guard now leaves warnings and harmless task replies intact, withholds recognizable verification details, and uses one stable authorization message per conversation. Its decision persists across tool replay and restart. Lost requests or answers retry the same message ID until acknowledged; later replies cannot create another authorization message. Ordinary numeric, UUID and tracking identifiers remain usable; named credentials and recognizable secret formats are still refused. Worker tests assert the actual messages and request counts, including a replay after the Company changes the subject.
 
 The transcript also retains the User's attribution when a reconciled receipt expires or is dismissed. The page tests render both checked outcomes with no receipt present. The fresh-build browser journey records the User's checked outcome, ages the resolved receipt out, reloads the page and checks the original request. The Company still has one request and one effect.
 

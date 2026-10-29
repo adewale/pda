@@ -106,6 +106,27 @@ describe("model policy at the real Poppy tool boundary", () => {
     expect((await tool(a, "poppy_message", { domain: c.domain, conversation: hello.conversationId, text: "Size medium, please." })).isError).toBe(false);
   });
 
+  it.each(["lose", "throw"] as const)("retries the same authorization message after a %s fault, then suppresses later repeats", async mode => {
+    const c = await company({ agentReplies: false });
+    const a = await agent();
+    const hello = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "Hello" })).text);
+    await c.stub.say(hello.conversationId, "To verify your identity, please provide your email address.");
+    await a.stub.poppyReadNow(hello.conversationId);
+    await a.stub.poppyFault({ method: "POST", url: "/messages", mode });
+    const reply = { domain: c.domain, conversation: hello.conversationId, data: { email: "alice@example.com" } };
+    expect((await tool(a, "poppy_message", reply, "lost-authorization")).isError).toBe(true);
+    expect(await a.stub.poppyFaultsLeft()).toBe(0);
+    await a.stub.poppyRestart();
+    const retried = await tool(a, "poppy_message", reply, "lost-authorization");
+    expect(retried.isError).toBe(false);
+    expect(retried.text).toContain("A separate request for an authorization event was sent");
+    const before = (await requests(c)).length;
+    expect((await tool(a, "poppy_message", reply)).text).toContain("already attempted");
+    expect((await requests(c)).length).toBe(before);
+    const messages = (await c.stub.state()).conversations.flatMap(conversation => conversation.sent);
+    expect(messages.filter(message => message === `agent:${REQUEST_AUTHORIZATION}`)).toHaveLength(1);
+  });
+
   it("denies a faux model's personal feedback report while a general report still reaches the Company", async () => {
     const c = await company({ feedback: true });
     const identity = person();

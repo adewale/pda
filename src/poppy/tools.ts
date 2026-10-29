@@ -22,7 +22,7 @@ import { excludedTasks, sendFeedback, showExcludedTasks, type ExcludedTask } fro
 import { pendingSignOuts, signOutForModel } from "./signout";
 import { isVerificationReply, messageHasCredential, REQUEST_AUTHORIZATION } from "./model-policy";
 import { one } from "../rows";
-import { intent, messagesTable } from "./store";
+import { intent, intentsTable } from "./store";
 
 const PREAMBLE = `You can work with companies that support the Personal Agent Protocol (Poppy) using the poppy_* tools.
 - Start with poppy_discover(domain), and read the tasks it says the company doesn't offer before you start. Prefer a company's APIs and its agent over its website; never suggest phoning a company that publishes poppy.json.
@@ -237,15 +237,15 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
           if (!verification && messageHasCredential(message, details)) {
             throw new PoppyError("invalid_request", "The message was not sent because it appears to contain a credential or verification code. Ask the Company for an authorization event instead.", 0);
           }
-          if (verification && one(client().sql, messagesTable.pick("id"),
-            "SELECT id FROM poppy_messages WHERE issuer = ? AND conversation_id = ? AND json_extract(body, '$.message.text') = ? LIMIT 1",
-            found.issuer, id!, REQUEST_AUTHORIZATION)) {
+          const authorizationKey = `verification-authorization|${id}`;
+          if (verification && one(client().sql, intentsTable.pick("value"),
+            "SELECT value FROM poppy_intents WHERE call_key = ?", authorizationKey)) {
             return { status: "not sent", note: "Your proposed reply was not sent. An authorization request was already attempted in this conversation. Wait for the Company's authorization event or continue without verification details." };
           }
           const result = await sendMessage(client(), found, {
             label: session ?? (id ? (conversation(client(), id)?.label ?? "main") : "main"),
             // One stable message identity also deduplicates concurrent authorization requests.
-            callKey: verification ? `verification-authorization|${id}` : callKey,
+            callKey: verification ? authorizationKey : callKey,
             ...(id ? { conversationId: id } : {}),
             sender: "agent",
             ...(verification ? { text: REQUEST_AUTHORIZATION } : {
@@ -254,6 +254,9 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             }),
             wait: 10
           });
+          // A saved outgoing body is not delivery evidence. Until acknowledged,
+          // a replay retries the same message id; the Company deduplicates it.
+          if (verification) intent(client().sql, authorizationKey, () => "acknowledged");
           return verification ? { status: "not sent", note: "Your proposed reply was not sent. A separate request for an authorization event was sent to the Company so the User can verify by signing in.", authorizationRequest: result } : result;
         }
       ),
