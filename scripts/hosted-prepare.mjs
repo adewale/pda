@@ -95,6 +95,9 @@ try {
   }
   process.stdout.write(`Prepared isolated files in ${path.relative(root, output)}. ${prepareOnly ? "Build/upload dry-runs skipped." : "Both upload dry-runs passed."} Nothing was deployed; secrets were not printed.\n`);
 } catch (error) {
-  process.stderr.write(`hosted-prepare: ${error instanceof Error ? error.message : "preparation failed"}\n`);
+  // Assertion diagnostics include the actual private input after the first
+  // line. Keep the supplied validation message and omit those diagnostics.
+  const message = error instanceof Error ? error.message.split(/\r?\n/, 1)[0] : "preparation failed";
+  process.stderr.write(`hosted-prepare: ${message}\n`);
   process.exitCode = 1;
 }

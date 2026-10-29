@@ -25,7 +25,7 @@ chmod 600 test/hosted/settings.local.json
 node scripts/hosted-prepare.mjs --settings test/hosted/settings.local.json
 ```
 
-The default command builds separate frontend assets and dry-runs both Worker uploads. It never deploys. Generated config and secrets go under the gitignored `test/hosted/local/<label>/`, with directory mode 0700 and file mode 0600. A new pair gets independent signing keys, session/encryption keys, Company password and Company control secret. They are never printed. An existing label cannot be rebound to another account, origin or User.
+The default command builds separate frontend assets and dry-runs both Worker uploads. It never deploys. Generated config and secrets go under the gitignored `test/hosted/local/<label>/`, with directory mode 0700 and file mode 0600. A new pair gets independent signing keys, session/encryption keys, Company password and Company control secret. They are never printed. An existing label cannot be rebound to another account, origin or User. Validation errors omit private input values.
 
 `--prepare-only` writes the private files without building. Empty settings, mismatched origins/names and missing OAuth inputs fail before preparation. The checked-in unconfigured Company returns 503 until both origins and both Company secrets exist; the PDA's production checks refuse missing deployment/auth settings.
 

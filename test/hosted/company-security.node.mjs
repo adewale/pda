@@ -137,6 +137,18 @@ try {
   assert.ok(!JSON.stringify(counters).includes(password) && !JSON.stringify(counters).includes(control));
   // A bounded fixture checks the read-only live verifier's failure path; it never authenticates a PDA User.
   const replyFile = path.join(directory, "counter-reply.json");
+  const validationPrivateProbe = "private-value-must-not-be-printed";
+  const privateSettings = path.join(directory, "private-settings.json");
+  for (const invalid of [{ pdaOrigin: `https://username:${validationPrivateProbe}@pda-hosted-private-check.example` }, { accountId: validationPrivateProbe }]) {
+    writeFileSync(privateSettings, JSON.stringify({ label: "private-check", accountId: "0".repeat(32),
+      pdaOrigin: "https://pda-hosted-private-check.example", companyOrigin: "https://pda-dummy-private-check.example",
+      githubLogin: "test-owner", githubNumericId: 1, githubClientId: "test-client", githubClientSecret: "test-oauth-private",
+      privacyContact: "privacy@example.com", ...invalid }), { mode: 0o600 });
+    const refused = spawnSync(process.execPath, [path.join(root, "scripts/hosted-prepare.mjs"), "--settings", privateSettings, "--prepare-only"], { cwd: root, encoding: "utf8" });
+    assert.equal(refused.status, 1, "Private malformed settings must be refused");
+    assert.equal(refused.stdout, "");
+    assert.ok(!refused.stderr.includes(validationPrivateProbe), "Preparation errors must not print private input values");
+  }
   const networkFixture = path.join(directory, "counter-network.mjs");
   writeFileSync(networkFixture, `import { readFileSync } from "node:fs"; globalThis.fetch = async () => Response.json(JSON.parse(readFileSync(${JSON.stringify(replyFile)}, "utf8")));\n`, { mode: 0o600 });
   for (const [name, value] of [["manifest.json", { companyOrigin }], ["company.secrets.json", { COMPANY_CONTROL_SECRET: control }]]) writeFileSync(path.join(directory, name), JSON.stringify(value), { mode: 0o600 });
@@ -149,7 +161,7 @@ try {
   assert.equal(changed.status, 1, "Live verification must fail when the Company instance changes");
   assert.match(changed.stderr, /instance changed/);
   assert.equal(check("finish", counters).status, 0);
-  process.stdout.write(`${JSON.stringify({ runtime: "local workerd", hostedCompanyUploadDryRun: true, missingSecretsFailClosed: true, singleOriginDiscoveryAndServices: true, publicAdministrativeHooksAbsent: true, unacceptedClientRefusedBeforeFetch: true, realPasswordAndCsrfRequired: true, simultaneousConsentSingleUse: true, strictAuthorizationCodePkceAssertionDpop: true, delegatedSessionApiTermsAndApprovedDummyAction: true, signedOutMcpInitialization: true, protectedBoundedCountersOnly: true, liveVerifierRejectsInstanceChange: true, strictViolations: counters.violations, strictWarnings: counters.warnings, liveGitHubOAuthVerified: false })}\n`);
+  process.stdout.write(`${JSON.stringify({ runtime: "local workerd", hostedCompanyUploadDryRun: true, missingSecretsFailClosed: true, singleOriginDiscoveryAndServices: true, publicAdministrativeHooksAbsent: true, unacceptedClientRefusedBeforeFetch: true, realPasswordAndCsrfRequired: true, simultaneousConsentSingleUse: true, strictAuthorizationCodePkceAssertionDpop: true, delegatedSessionApiTermsAndApprovedDummyAction: true, signedOutMcpInitialization: true, protectedBoundedCountersOnly: true, liveVerifierRejectsInstanceChange: true, privatePreparationErrorsRedacted: true, strictViolations: counters.violations, strictWarnings: counters.warnings, liveGitHubOAuthVerified: false })}\n`);
 } finally {
   await runtime?.dispose();
   await unconfigured?.dispose();
