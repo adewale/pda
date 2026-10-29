@@ -15,6 +15,25 @@ PDA implements the pinned 28 October 2026 text of Poppy 0.3 alone. This is the c
 | Browser interaction | The maintained [application smoke command](evidence/pr-36-conformance/README.md#reproduce) uses the production build, authenticated WebSocket and strict mock. Identity, model and Company are synthetic. |
 | Live services | Discovery has been checked at printwithpoppy.com. Authenticated live 0.3 journeys remain unverified. The [isolated hosted pair](../test/hosted/README.md) is prepared; account/OAuth inputs and the User's model key are still needed. |
 
+## Is the 0.3 verification sufficient?
+
+There is substantial evidence for the pinned implementation and its local safety properties. There is not yet enough evidence for broad cross-project interoperability or a production-verified 0.3 journey. The repository's 2,004 passing tests include the rest of the application; they are not 2,004 independent protocol checks. The 96 CI interop cells use our code on both sides, including profiles of the same implementations.
+
+The independent evidence has narrower scope. print-with-poppy supplies ten supported scenarios at one pinned demo, including sign-in and a photo order, but no independent MCP, conversations, handoff, streaming or browser join. Its recorded run predates the latest client/mock changes and it is not in the CI grid. The official kit independently checks our Company fixtures, while the Python client exercises those fixtures through a separate implementation written under our own readings. Neither directly proves that PDA's client works against every other Company.
+
+The sufficiency review found a concrete shared assumption: the Python message oracle discarded `context`, as our mock had done before the official kit exposed that defect. The oracle now requires the whole message as sent. Three focused counterexamples fail under the old oracle and pass under the corrected one; loss or mutation of context is still rejected. Generators, configured examples, step counts and the other invariants are unchanged. [Fresh Python verification and counterexamples](evidence/pr-36-verification/README.md).
+
+| Priority | Evidence gap | Useful next verification |
+| --- | --- | --- |
+| 1 | No authenticated live 0.3 journey. The browser evidence uses synthetic identity/model/Company; the hosted pair is undeployed. | Use the isolated non-production pair for real GitHub sign-in, Company consent, API and MCP approve/decline, refresh, sign-out and reload, with recorded requests/effects. Deployment inputs remain required; no paid store is needed. |
+| 2 | Approval recovery tests inject lost replies and run recovery after forgetting memory. The whole-runtime durability tests cover chat and the page reader, not an approval dispatch. | Terminate/restart the actual PDA runtime before dispatch, after the Company effect but before local commit, and after commit but before notification. Keep the Company/effect ledger alive separately; assert no second effect, correct uncertainty/hold and retained User attribution. |
+| 3 | External coverage is concentrated in one API-oriented Company. Lenient/strict/sloppy profiles are not additional independent implementations. | Rerun the pinned print-shop scenarios on the final client source and add independent MCP, conversation/streaming and browser-join peers when available. Keep unsupported features explicit; do not substitute another configuration of our mock for an independent peer. |
+| 4 | Important combined attacks are not full interop cases. Single-callback issuer/state rejection is tested, but the harness lacks simultaneous two-Company mix-up coverage. | Exercise two legitimate Companies and two Users, swapping callback issuer/state/code combinations while checking token destinations and unchanged account bindings. Reassess retired 0.2 attack descriptions against the current wire rather than porting obsolete assumptions. |
+| 5 | The official kit cannot finish its DPoP-required token probes. Reviewed findings preserve that limitation; CI success does not turn them into passes. | Obtain independent valid-DPoP controls for those probes, or a corrected upstream kit, while preserving the unmodified pinned verdicts and existing positive/denial controls. |
+| 6 | Independent runs and actual browser captures are occasional evidence. Python is intentionally local-only; the print-shop and browser commands are outside CI. | Keep fresh, source-pinned receipts after relevant client/mock changes. The Python suite also documents ungenerated expiry, cursor-expiry, early-stream-close and consent cases; distinguish gaps in that suite from coverage elsewhere. |
+
+This is an assessment of evidence, not a new version-support policy or a claim that every absent scenario is an implementation defect. Production Company storage, abuse controls and consent gaps from [the kit review](company-kit-review.md) remain a separate fixture-readiness backlog.
+
 ## Local problems and their fixes
 
 The consistency follow-up addresses the ten findings from the second PR review:

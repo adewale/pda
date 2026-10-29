@@ -513,7 +513,7 @@ class Base(RuleBasedStateMachine):
         assert [e["message"]["id"] for e in mine] == conversation.sent, "every message we sent, once, in order"
         for event, original in zip(mine, conversation.messages):
             sent = event["message"]["id"]
-            shown = {k: v for k, v in original.items() if k != "context"} | {"role": "user", "id": sent}
+            shown = original | {"role": "user", "id": sent}
             assert canonical(event["message"]) == canonical(shown), (event["message"], shown)
         last = self.log_checks(conversation)
         if page is not None:

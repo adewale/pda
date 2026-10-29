@@ -9,6 +9,20 @@ from test_mcp_browsing import BrowsingRules
 from test_operations import MOperation, OperationsRules
 
 
+@pytest.mark.parametrize("context", [{}, {"user_available": False}, {"locale": "en-GB", "time_zone": "Europe/London"}])
+def test_message_oracle_preserves_context_and_rejects_loss_or_change(context):
+    """8.5: the event contains the message as sent, including context-only messages."""
+    sent = {"id": "msg_context", "author": {"type": "agent"}, "context": context}
+    echoed = sent | {"role": "user"}
+    conversation = NS(sent=[sent["id"]], messages=[sent], log=[{"type": "message", "message": echoed}])
+    model = NS(log_checks=lambda conversation: None)
+    Base.full_read_checks(model, conversation, None)
+    for wrong in [{k: v for k, v in echoed.items() if k != "context"}, echoed | {"context": {"user_available": "changed"}}]:
+        conversation.log = [{"type": "message", "message": wrong}]
+        with pytest.raises(AssertionError):
+            Base.full_read_checks(model, conversation, None)
+
+
 def test_who_may_approve_an_operation():
     """Ops 3: signed in, any of the User's Sessions signed in to its account; signed out, only its own Session."""
     model = OperationsRules()

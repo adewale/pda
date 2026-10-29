@@ -82,6 +82,8 @@ Not covered: an operation's `expires_at` passing (the mock times it on the real 
 
 ## What it found
 
+**During the 0.3 verification review, 29 October.** The official Company kit exposed the mock dropping message `context` from its events. The independent Python model had the same assumption: its oracle removed `context` before comparing a message with the event. The oracle now checks the whole message as sent. Three fixed counterexamples cover empty context, availability and locale/time-zone context, with context-only messages and negative controls for lost or changed values. These cases fail under the old oracle. Generators, example counts, step counts and other invariants are unchanged. [Current verification assessment and evidence](../../docs/poppy-0.3-conformance.md#is-the-03-verification-sufficient).
+
 **In the 0.3 port, 29 October.** Device Sign-In refused `addresses` with `invalid_scope`, though the issuer lists it in `scopes_supported`, which 4.7 says holds every scope a Personal Agent can request. The mock now leaves out a listed scope a sign-in type can't grant, as RFC 6749 3.3 allows, and refuses only an unlisted scope or a request with nothing left to grant. Writing the model showed a second slip: with `omitTokenScope`, the mock left `scope` out of the token response even when it granted less than was asked, which RFC 6749 5.1 forbids; it now names the scope whenever it differs. Both have regression tests in `test/mock-company.test.ts` under "the mock Company, as the Hypothesis model found it".
 
 **With the 0.1 client, October.** The ledger is in `docs/spec-issues.md` (N4, S8, S9). Each was fixed in the mock and has a regression test in `test/mock-company.test.ts`:
