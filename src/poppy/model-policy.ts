@@ -24,9 +24,15 @@ function hasCredential(prose: string, details: string): boolean {
   return credentialProblem(prose) !== null || credentialProblem(details) !== null;
 }
 
+/** The latest Company message with text, shared by classification and handoff deduplication. */
+export function latestCompanyMessage(messages: readonly Json[]): { [key: string]: Json } | undefined {
+  const latest = [...messages].reverse().find((message) => isObject(message) && message.role === "company" && typeof message.text === "string");
+  return isObject(latest) ? latest : undefined;
+}
+
 /** Only the latest Company's message can request verification; ordinary delivery details aren't verification. */
 export function requestsVerification(messages: readonly Json[]): boolean {
-  const latest = [...messages].reverse().find((message) => isObject(message) && message.role === "company" && typeof message.text === "string");
+  const latest = latestCompanyMessage(messages);
   if (!isObject(latest) || typeof latest.text !== "string") return false;
   // The purpose may precede the request in another sentence. Check negation
   // beside each: a warning such as "we never ask for a code" asks for nothing.

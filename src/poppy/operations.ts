@@ -272,11 +272,14 @@ async function actionIdentity(label: string, approval: NewApproval): Promise<Act
 }
 
 async function backfillActionIdentities(client: PoppyClient): Promise<void> {
-  for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE action_key IS NULL")) {
+  for (const row of rows(client.sql, approvalsTable.pick("id", "label", "request"), "SELECT id, label, request FROM poppy_approvals WHERE action_identity_checked = 0")) {
     const read = readApproval(row.request);
-    if (!read.ok) continue;
+    if (!read.ok) {
+      client.sql.exec("UPDATE poppy_approvals SET action_identity_checked = 1 WHERE id = ?", row.id);
+      continue;
+    }
     const action = await actionIdentity(row.label, read.value);
-    client.sql.exec("UPDATE poppy_approvals SET action_key = ?, action_owner = ?, operation_id = ? WHERE id = ? AND action_key IS NULL", action.key, action.owner, action.operationId, row.id);
+    client.sql.exec("UPDATE poppy_approvals SET action_key = ?, action_owner = ?, operation_id = ?, action_identity_checked = 1 WHERE id = ? AND action_identity_checked = 0", action.key, action.owner, action.operationId, row.id);
   }
 }
 
@@ -338,7 +341,7 @@ export async function proposeLocal(
     if (existing.status !== "pending" && existing.status !== "declined" && existing.status !== "failed") return id;
     // Waiting, declined, or never sent: the card waits for the User's decision on the newest request.
     client.sql.exec(
-      "UPDATE poppy_approvals SET request = ?, terms = ?, action_key = ?, action_owner = ?, operation_id = ?, status = 'pending', result = NULL, outcome_resolution = NULL, outcome_resolved_at = NULL WHERE id = ? AND status = ?",
+      "UPDATE poppy_approvals SET request = ?, terms = ?, action_key = ?, action_owner = ?, operation_id = ?, action_identity_checked = 1, status = 'pending', result = NULL, outcome_resolution = NULL, outcome_resolved_at = NULL WHERE id = ? AND status = ?",
       stored,
       JSON.stringify(terms),
       action.key, action.owner, action.operationId,
@@ -352,7 +355,7 @@ export async function proposeLocal(
   if (!existing) {
     client.rememberCompany("approval", id, company);
     client.sql.exec(
-      "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at, terms, action_key, action_owner, operation_id) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)",
+      "INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at, terms, action_key, action_owner, operation_id, action_identity_checked) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 1)",
       id,
       company.issuer,
       label,

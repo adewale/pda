@@ -280,9 +280,9 @@
     {
       "change": "Verifying the user by sign-in in conversations",
       "disposition": "Done",
-      "implementation": "src/poppy/tools.ts",
+      "implementation": "src/poppy/agent-message.ts",
       "evidence": "test/poppy-model-policy.test.ts",
-      "notes": "The tool boundary withholds recognizable credentials and replies to explicit Company verification requests with a fixed request for an authorization event. Real faux-model negative and ordinary-task positive controls pass. This recognizes bounded patterns, not every language or paraphrase."
+      "notes": "The tool boundary withholds recognizable credentials and replies to explicit Company verification requests with a fixed request for an authorization event, once per Company prompt. The chosen prompt and message identity survive replay, restart and a lost answer. Later verification prompts in the same conversation can request authorization again. Real faux-model negative and ordinary-task positive controls pass. This recognizes bounded patterns, not every language or paraphrase."
     },
     {
       "change": "Authorization servers without client ID metadata documents",

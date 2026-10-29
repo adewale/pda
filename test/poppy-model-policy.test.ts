@@ -75,7 +75,7 @@ describe("model policy at the real Poppy tool boundary", () => {
     expect(messages).not.toContain(`agent:${REQUEST_AUTHORIZATION}`);
   });
 
-  it("withholds verification details once, permits harmless replies, and does not repeat the authorization request after restart", async () => {
+  it("withholds repeated replies to one verification prompt, permits harmless replies, and remembers the handoff after restart", async () => {
     // Keep this explicit Company prompt last while checking the repeated reply paths.
     const c = await company({ agentReplies: false });
     const a = await agent();
@@ -116,6 +116,73 @@ describe("model policy at the real Poppy tool boundary", () => {
     expect(await messagePosts(c)).toHaveLength(before);
     expect((await c.stub.state()).conversations.flatMap(conversation => conversation.sent).some(message => message.includes("alice@example.com"))).toBe(false);
     expect((await tool(a, "poppy_message", { domain: c.domain, conversation: hello.conversationId, text: "Size medium, please." })).isError).toBe(false);
+  });
+
+  it("requests authorization again for a later verification prompt without replaying the earlier handoff", async () => {
+    const c = await company({ agentReplies: false });
+    const a = await agent();
+    const hello = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "Hello" })).text);
+    const reply = { domain: c.domain, conversation: hello.conversationId, data: { email: "alice@example.com" } };
+    const prompt = "To verify your identity, please provide your email address.";
+    await c.stub.say(hello.conversationId, prompt);
+    await a.stub.poppyReadNow(hello.conversationId);
+    expect(JSON.parse((await tool(a, "poppy_message", reply, "first-verification")).text).kind).toBe("authorization_requested");
+    expect(JSON.parse((await tool(a, "poppy_message", reply)).text).kind).toBe("withheld");
+
+    await c.stub.say(hello.conversationId, "What size do you need?");
+    await a.stub.poppyReadNow(hello.conversationId);
+    // Identical wording in a new Company message is a new verification prompt.
+    await c.stub.say(hello.conversationId, prompt);
+    await a.stub.poppyReadNow(hello.conversationId);
+    await a.stub.poppyRestart();
+    const before = (await messagePosts(c)).length;
+    expect(JSON.parse((await tool(a, "poppy_message", reply, "first-verification")).text).kind).toBe("withheld");
+    expect(await messagePosts(c)).toHaveLength(before);
+    expect(JSON.parse((await tool(a, "poppy_message", reply, "second-verification")).text).kind).toBe("authorization_requested");
+    expect(JSON.parse((await tool(a, "poppy_message", reply)).text).kind).toBe("withheld");
+    const sent = (await c.stub.state()).conversations.flatMap(conversation => conversation.sent);
+    expect(sent.filter(message => message === `agent:${REQUEST_AUTHORIZATION}`)).toHaveLength(2);
+    expect(sent.some(message => message.includes("alice@example.com"))).toBe(false);
+  });
+
+  it("preserves a pre-upgrade authorization handoff on replay while permitting a fresh prompt", async () => {
+    const c = await company({ agentReplies: false });
+    const a = await agent();
+    const hello = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "Hello" })).text);
+    const legacy = `verification-authorization|${hello.conversationId}`;
+    // Old versions saved the tool policy, message body and acknowledgement separately.
+    await a.stub.poppySql("INSERT INTO poppy_intents (call_key, value, created_at) VALUES (?, 'authorization', ?), (?, ?, ?), (?, 'acknowledged', ?)",
+      "message-policy|test|old-verification", Date.now(), `message|${legacy}`, JSON.stringify({ message: { id: "msg_legacy", text: REQUEST_AUTHORIZATION } }), Date.now(), legacy, Date.now());
+    await c.stub.say(hello.conversationId, "To verify your identity, please provide your email address.");
+    await a.stub.poppyReadNow(hello.conversationId);
+    const reply = { domain: c.domain, conversation: hello.conversationId, data: { email: "alice@example.com" } };
+    const before = (await messagePosts(c)).length;
+    expect(JSON.parse((await tool(a, "poppy_message", reply, "old-verification")).text).kind).toBe("withheld");
+    expect(await messagePosts(c)).toHaveLength(before);
+    expect(JSON.parse((await tool(a, "poppy_message", reply)).text).kind).toBe("authorization_requested");
+    const sent = (await c.stub.state()).conversations.flatMap(conversation => conversation.sent);
+    expect(sent.filter(message => message === `agent:${REQUEST_AUTHORIZATION}`)).toHaveLength(1);
+    expect(sent.some(message => message.includes("alice@example.com"))).toBe(false);
+  });
+
+  it("retries an unacknowledged handoff with the same message after a new verification prompt arrives", async () => {
+    const c = await company({ agentReplies: false });
+    const a = await agent();
+    const hello = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "Hello" })).text);
+    const reply = { domain: c.domain, conversation: hello.conversationId, data: { email: "alice@example.com" } };
+    await c.stub.say(hello.conversationId, "To verify your identity, please provide your email address.");
+    await a.stub.poppyReadNow(hello.conversationId);
+    await a.stub.poppyFault({ method: "POST", url: "/messages", mode: "throw" });
+    expect((await tool(a, "poppy_message", reply, "unacknowledged-verification")).isError).toBe(true);
+    await c.stub.say(hello.conversationId, "To verify your identity, please provide your phone number.");
+    await a.stub.poppyReadNow(hello.conversationId);
+    await a.stub.poppyRestart();
+    expect(JSON.parse((await tool(a, "poppy_message", reply, "unacknowledged-verification")).text).kind).toBe("authorization_requested");
+    const sent = () => c.stub.state().then(state => state.conversations.flatMap(conversation => conversation.sent));
+    expect((await sent()).filter(message => message === `agent:${REQUEST_AUTHORIZATION}`)).toHaveLength(1);
+    expect(JSON.parse((await tool(a, "poppy_message", reply)).text).kind).toBe("authorization_requested");
+    expect((await sent()).filter(message => message === `agent:${REQUEST_AUTHORIZATION}`)).toHaveLength(2);
+    expect((await sent()).some(message => message.includes("alice@example.com"))).toBe(false);
   });
 
   it.each(["lose", "throw"] as const)("retries the same authorization message after a %s fault, then suppresses later repeats", async mode => {

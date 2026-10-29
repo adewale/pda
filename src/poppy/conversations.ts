@@ -1006,10 +1006,11 @@ export function recentMessages(client: PoppyClient, id: string, limit = 20): Jso
     id,
     limit
   ).map(({ event }) => {
-    const parsed = JSON.parse(event) as { message: { [key: string]: Json } };
+    const parsed = JSON.parse(event) as { id: string; message: { [key: string]: Json } };
     const { role, text, data, operation } = parsed.message;
     const name = authorName(parsed.message);
     return {
+      eventId: parsed.id,
       role: role ?? null,
       sender: writtenBy(parsed.message),
       ...(name ? { author_name: name } : {}),

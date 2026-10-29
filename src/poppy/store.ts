@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   action_key TEXT,
   action_owner TEXT,
   operation_id TEXT,
+  action_identity_checked INTEGER NOT NULL DEFAULT 0,
   outcome_resolution TEXT,
   outcome_resolved_at INTEGER
 );
@@ -207,6 +208,12 @@ export function migrate(sql: Sql): void {
     if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === name)) sql.exec(`ALTER TABLE poppy_approvals ADD COLUMN ${name} ${type}`);
   }
   sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_action ON poppy_approvals (issuer, action_owner, action_key)");
+  // Remember failed decoding too: old unreadable requests must not be re-read on every decision.
+  if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "action_identity_checked")) {
+    sql.exec("ALTER TABLE poppy_approvals ADD COLUMN action_identity_checked INTEGER NOT NULL DEFAULT 0");
+  }
+  sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_unchecked_action ON poppy_approvals (id) WHERE action_identity_checked = 0");
+  sql.exec("UPDATE poppy_approvals SET action_identity_checked = 1 WHERE action_identity_checked = 0 AND action_key IS NOT NULL");
   retireIncompatibleSignIns(sql);
   retireOperationCards(sql);
   migrateConversationIdentity(sql);
@@ -400,6 +407,7 @@ export const approvalsTable = table("poppy_approvals", {
   action_key: nullable(text),
   action_owner: nullable(text),
   operation_id: nullable(text),
+  action_identity_checked: integerOf(flag),
   outcome_resolution: nullable(textOf(literal("performed", "not_performed"))),
   outcome_resolved_at: nullable(integer)
 });

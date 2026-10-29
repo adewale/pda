@@ -1215,6 +1215,7 @@ export class PoppyClient {
         // A sign-in or sign-out may have won while refresh was pending. Its
         // old response must neither travel nor populate the new Session's cache.
         this.#forgetTokens(company.issuer, label);
+        if (attempt === 3) throw new PoppyError("approval_changed", "The account or Session changed while this request was being prepared. Start it again.", 0);
         continue;
       }
       // Tokens never travel in a URL (5.6), whatever a description or a model supplies.

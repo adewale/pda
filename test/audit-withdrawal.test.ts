@@ -1,6 +1,7 @@
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { decideLocal } from "../src/poppy/operations";
+import { EndpointRequest } from "../src/poppy/outgoing";
 import { signOut } from "../src/poppy/signout";
 import { agent, cards, company, requests, signInDirect, tool, type Agent, type Company } from "./agent-helpers";
 
@@ -28,6 +29,28 @@ async function terms(a: Agent, c: Company): Promise<Record<string, any>> {
 const approvals = async (c: Company) => (await requests(c)).filter((request) => request.headers["poppy-approval"]);
 
 describe("approval authorization and withdrawal", () => {
+  it("reports changing local authority rather than a Company refusal when preparation exhausts its attempts", async () => {
+    const a = await agent();
+    const c = await company();
+    await runInDurableObject(a.stub, async instance => {
+      const client = instance.poppy.client;
+      const C = await client.company(c.domain);
+      const token = vi.spyOn(client, "token").mockImplementation(async () => {
+        client.abandonSession(C.issuer, "main");
+        client.sessionFor(C, "main");
+        return null;
+      });
+      const remote = vi.spyOn(client.host, "fetcher");
+      try {
+        await expect(client.resource(C, EndpointRequest.to(C, {
+          method: "POST", url: C.conversations!.endpoint, body: { message: { id: "not-sent", text: "Hello" } }
+        }))).rejects.toMatchObject({ code: "approval_changed", message: expect.stringContaining("Session") });
+        expect(token).toHaveBeenCalledTimes(4);
+        expect(remote).not.toHaveBeenCalled();
+      } finally { token.mockRestore(); remote.mockRestore(); }
+    });
+  });
+
   it("never sends an approval the User gives after signing out of the account it was for; asked again, its terms wait for a fresh decision", async () => {
     const a = await agent();
     const c = await company();

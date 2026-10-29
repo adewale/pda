@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
 import { decodeJwt } from "jose";
 import { describe, expect, it, vi } from "vitest";
 import { checkParams, openApi, outsidePoppySession, tokenSchemes, type OpenApiOperation } from "../src/poppy/apis";
@@ -2248,14 +2249,21 @@ describe("8 conversations", () => {
   it("tells the User when part of a conversation has expired", async () => {
     const c = await company();
     const a = await agent();
-    const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
-    await c.stub.say(first.conversationId, "Are you still there?");
-    // The agent last read up to an event the Company then stops keeping.
-    const [oldest] = JSON.parse(await a.stub.poppySql("SELECT event_id FROM poppy_events WHERE conversation_id = ? ORDER BY rowid LIMIT 1", first.conversationId));
-    await c.stub.expireEvents(first.conversationId);
-    await a.stub.poppySql("UPDATE poppy_conversations SET cursor = ? WHERE id = ?", oldest.event_id, first.conversationId);
-    await a.stub.poppyReadNow(first.conversationId);
-    expect((await cards(a)).find((card) => card.kind === "notice" && card.text.includes("no longer has part"))).toBeDefined();
+    let restoreSchedule = () => {};
+    await runInDurableObject(a.stub, instance => {
+      // An alarm must not replace the deliberately expired cursor during setup.
+      const scheduled = vi.spyOn(instance.poppy.client.host, "schedule").mockResolvedValue(undefined);
+      restoreSchedule = () => scheduled.mockRestore();
+    });
+    try {
+      const first = JSON.parse((await tool(a, "poppy_message", { domain: c.domain, text: "hello" })).text);
+      await c.stub.say(first.conversationId, "Are you still there?");
+      const [oldest] = JSON.parse(await a.stub.poppySql("SELECT event_id FROM poppy_events WHERE conversation_id = ? ORDER BY rowid LIMIT 1", first.conversationId));
+      await c.stub.expireEvents(first.conversationId);
+      await a.stub.poppySql("UPDATE poppy_conversations SET cursor = ? WHERE id = ?", oldest.event_id, first.conversationId);
+      await a.stub.poppyReadNow(first.conversationId);
+      expect((await cards(a)).find((card) => card.kind === "notice" && card.text.includes("no longer has part"))).toBeDefined();
+    } finally { await runInDurableObject(a.stub, () => restoreSchedule()); }
   });
 
   it("skips event types it doesn't know", async () => {

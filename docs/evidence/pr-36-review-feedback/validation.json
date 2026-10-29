@@ -1,0 +1,61 @@
+{
+  "recorded_at": "2026-10-29T14:49:16.032739+00:00",
+  "baseline_commit": "d1d20feef1868b778cf212966dc74216f29a1e60",
+  "runtime": "v24.19.0",
+  "reverted_regressions": {
+    "mode": "Three production files restored from baseline; final regressions and supporting schema/helper changes retained. All fixes restored afterward.",
+    "files": [
+      "src/poppy/client.ts",
+      "src/poppy/agent-message.ts",
+      "src/poppy/operations.ts"
+    ],
+    "command": "npx vitest run --config test/vitest.config.ts test/audit-withdrawal.test.ts test/poppy-model-policy.test.ts test/poppy-approval-migration.test.ts -t 'exhausts its attempts|later verification prompt|finishes legacy approval'",
+    "exit_code": 1,
+    "failed": 3,
+    "skipped_by_filter": 17,
+    "prior_backfill_reads": 814,
+    "permitted_reads_after_inspection_for_four_operations": 4
+  },
+  "full_suite": {
+    "command": "XDG_CONFIG_HOME=/tmp/pda-pr36-verification-xdg WRANGLER_SEND_METRICS=false npm test",
+    "exit_code": 0,
+    "passed": 2009,
+    "skipped": 1,
+    "files": 101,
+    "projects": {
+      "Workers": 1174,
+      "durability": 3,
+      "UI": 256,
+      "interop": 386,
+      "properties": 190
+    },
+    "appendix_test_references": 379,
+    "earlier_failure": "The first full run exposed a cursor-expiry fixture race with a background read. The fixture now suppresses scheduling while driving its explicit read, retaining the actual message tool and notice assertion."
+  },
+  "checks": [
+    "npm run typecheck",
+    "npm run check:spec",
+    "git diff --check"
+  ],
+  "source_sha256": {
+    "src/poppy/client.ts": "0637ed18321313d1127c9173f7486e1b18fdfee38c406301fccf6ea4d5c84ef2",
+    "src/poppy/agent-message.ts": "fd3e490ccb040e2bfa3e3b5ad3f55bb518afc9d86039af7478812419c13e05f7",
+    "src/poppy/conversations.ts": "87bf28c7c454ea3225aa41d2561485eac97499ea2a545e2cfa37104b6ca8b310",
+    "src/poppy/model-policy.ts": "bf6746e222d59c28284e2077758b14d8cc391651d72cf12e9dfdf74b3d64b71d",
+    "src/poppy/operations.ts": "a7c9797d5bfee11b3e7636fc5351019b3e840ef679d80b60fd03ebd14a1d5a07",
+    "src/poppy/store.ts": "5d1ae849beef1c0679bc02a341fa423915e05d97fb2e7508d022e4b64c98a9e7",
+    "test/audit-withdrawal.test.ts": "b52a9100865380b717d9b56f553d012e6e219fcd079b53ace542bfcb24bd2f7c",
+    "test/poppy-model-policy.test.ts": "bf2485fda3bc9181ad8de410b48c6e69a8c50214b244f8ae5829e45fd485f702",
+    "test/poppy-approval-migration.test.ts": "c1147f6b2adf39bdad114a04adfb6b33b86a199fef85309a182db04108abf25e",
+    "test/poppy.test.ts": "bcb40a9ff07897b35820b6daf532e727e18b32c3241df3dec0ecc03ebab346dd",
+    "spec/requirements-0.3.json": "cb39037f24cfd1a7db8582d365cadfc002a621b497eeed5b65d8eca71a2fd538"
+  },
+  "receipt_sha256": {
+    "full-suite-summary.txt": "f9598397918c241236b5b92601c9425d75f73b03142c0b196c55ec5d65efae0b",
+    "regressions-before.txt": "de4d843bee0f6201b405a49eed42651b42323179369cc641ce3b979a3f341e45"
+  },
+  "limits": [
+    "Synthetic strict Company and local runtime; no live OAuth, independent new peer or actual approval-dispatch process-crash evidence.",
+    "The summary receipt extracts project totals and documentation results; it is not the complete test log."
+  ]
+}
