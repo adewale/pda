@@ -512,6 +512,7 @@ function outcomeResolution(row: { readonly outcome_resolution: "performed" | "no
 async function showResolvedApprovalCard(client: PoppyClient, id: string, options?: CardWriteOptions): Promise<void> {
   const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!current || current.status !== "unknown" || current.outcome_resolution === null) return;
+  if (isTaskRequest(id) && current.terms_approval_id) return;
   const company = client.companyByIssuer(current.issuer);
   await client.host.showCard({
     id: `approval-${current.id}`, kind: "approval", company: company.name, domain: company.domain,
@@ -525,6 +526,7 @@ async function showResolvedApprovalCard(client: PoppyClient, id: string, options
 async function repairTerminalApprovalCard(client: PoppyClient, id: string): Promise<void> {
   const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!current || !finishedApproval(current.status)) return;
+  if (isTaskRequest(id) && current.terms_approval_id) return;
   if (current.status === "done" && current.result) {
     let company = "the Company";
     try { company = client.companyByIssuer(current.issuer).name; } catch { /* Keep historical receipts repairable. */ }
@@ -877,6 +879,9 @@ export async function recoverApprovalBatches(client: PoppyClient): Promise<void>
 
 /** Recover interrupted attempts without resending, and repair reconciled receipts without reviving history. */
 export async function recoverInterruptedApprovals(client: PoppyClient): Promise<void> {
+  // A known approval_required handoff belongs to its terms card even if publication
+  // interrupted the initial task before it could record the final waiting state.
+  client.sql.exec("UPDATE poppy_approvals SET status = 'terms' WHERE id GLOB 'req_*' AND status = 'executing' AND terms_approval_id IS NOT NULL");
   // A task record created before dispatch began is not a card waiting for a click.
   // After a crash report that no action was sent rather than leaving it pending forever.
   client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = 'Interrupted before dispatch. Nothing was sent.', notification_pending = 1 WHERE id GLOB 'req_*' AND status = 'pending'");

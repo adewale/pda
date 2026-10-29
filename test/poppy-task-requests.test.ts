@@ -91,6 +91,22 @@ describe("task requests use the Company's Operations 2 approval", () => {
     expect((await c.stub.state()).performs).toBe(1);
   });
 
+  it("keeps the internal task record hidden through uncertain terms, reconciliation and receipt expiry", async () => {
+    const c = await company();
+    const a = await agent();
+    await signInDirect(a, c);
+    const asked = JSON.parse((await ask(a, c.domain, "openapi")).details);
+    await a.stub.poppyFault({ method: "POST", url: "/exchanges", mode: "throw" });
+    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: asked.proposed, decision: "approve" });
+    expect((await cards(a)).filter(card => card.kind === "approval")).toHaveLength(1);
+    await a.stub.poppyFrame({ type: "poppy.approval.resolve", approvalId: asked.proposed, outcome: "performed" });
+    expect((await cards(a)).filter(card => card.kind === "approval")).toHaveLength(1);
+    await a.stub.poppySql("UPDATE poppy_cards SET updated_at = 0 WHERE id = ?", `approval-${asked.proposed}`);
+    await a.stub.poppyRestart();
+    expect((await cards(a)).filter(card => card.kind === "approval")).toEqual([]);
+    expect((await c.stub.state()).performs).toBe(1);
+  });
+
   it("retains a complete approved response and checkout URL beyond the old 2000-character cut", async () => {
     const c = await company();
     const a = await agent();
