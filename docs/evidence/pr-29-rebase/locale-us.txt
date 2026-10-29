@@ -1,0 +1,14 @@
+
+ RUN  v4.1.12 /workspace/pda-pr29-rebase
+
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  18:02:14
+   Duration  3.79s (transform 434ms, setup 124ms, import 2.50s, tests 612ms, environment 383ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

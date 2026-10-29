@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang=en>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width, initial-scale=1">
+<title>Poppy interop PR29 synthetic capability fixture</title>
+<style>
+:root { color-scheme: light dark; --pass: #1a7f37; --fail: #cf222e; --na: #6e7781; --error: #9a6700; }
+body { font: 15px/1.45 system-ui, sans-serif; max-width: 72rem; margin: 0 auto; padding: 1rem; }
+table { border-collapse: collapse; margin: 0.5rem 0 1rem; }
+th, td { border: 1px solid #8884; padding: 0.25rem 0.5rem; text-align: left; vertical-align: top; }
+.grid td { min-width: 9rem; }
+td.pass a, span.pass { color: var(--pass); }
+td.fail a, span.fail, tr.bad td, tr.error td:first-child { color: var(--fail); }
+td.unsupported a, span.unsupported, td.none { color: var(--na); }
+td.error a, span.error { color: var(--error); }
+td.known { text-decoration: underline dotted; }
+.meta { color: var(--na); margin-top: -0.5rem; }
+details { border-top: 1px solid #8884; padding: 0.5rem 0; }
+code { font-size: 0.9em; }
+</style>
+<h1>Poppy interop run PR29 synthetic capability fixture</h1>
+<p>Lane synthetic; no external traffic · Poppy 0.3 · 4 fail.
+Checks: 0 failures, 0 warnings, 0 tentative (our readings); only failures fail a cell (docs/conformance-levels.md).
+Each failed cell is blamed by the first rule that decides it: violation, warning, grid, reading, or unattributed (docs/interop-spec.md, section 9).</p>
+
+
+<h2>Implementations</h2>
+<table><thead><tr><th>name</th><th>role</th><th>commit</th><th>readings</th><th>interop-only relaxations</th></tr></thead><tbody><tr><td>pda</td><td>agent</td><td><code>4c92a2d890d771feedf7a8fc7274d86644626f70</code></td><td></td><td>Synthetic discover response; actual runCell/report code</td></tr>
+<tr><td>fixture-live</td><td>company</td><td><code>fixture</code></td><td></td><td>No conversations or MCP</td></tr>
+<tr><td>fixture-claimed</td><td>company</td><td><code>fixture</code></td><td></td><td>No conversations or MCP</td></tr></tbody></table>
+<section>
+<h2 id="CL">CL: Conversation at a live Company: a labelled test message, read, a follow-up, then close</h2>
+<p class=meta>Spec 8.2, 8.3, 8.5, 8.12</p>
+<table class=grid><thead><tr><th>agent \ Company</th><th scope=col>fixture-live</th><th scope=col>fixture-claimed</th></tr></thead>
+<tbody><tr><th scope=row>pda</th><td class="fail"><a href="#CL--pda--fixture-live">fail</a></td><td class="fail"><a href="#CL--pda--fixture-claimed">fail</a></td></tr></tbody></table>
+</section>
+<section>
+<h2 id="ML">ML: MCP tool listing without calling a tool</h2>
+<p class=meta>Spec 7</p>
+<table class=grid><thead><tr><th>agent \ Company</th><th scope=col>fixture-live</th><th scope=col>fixture-claimed</th></tr></thead>
+<tbody><tr><th scope=row>pda</th><td class="fail"><a href="#ML--pda--fixture-live">fail</a></td><td class="fail"><a href="#ML--pda--fixture-claimed">fail</a></td></tr></tbody></table>
+</section>
+
+<h2>Cells</h2>
+<details id="CL--pda--fixture-live" open>
+<summary><b>CL</b> pda × fixture-live: <span class="fail">fail</span></summary>
+<p>step 1 (expect): ${d.conversations}: expected true, got false</p>
+
+
+
+<table><thead><tr><th>#</th><th>actor</th><th>op</th><th>ms</th><th>result</th></tr></thead><tbody><tr class="ok"><td>0</td><td>agent</td><td>discover</td><td>0</td><td>ok</td></tr>
+<tr class="bad"><td>1</td><td>expect</td><td>expect</td><td>0</td><td>${d.conversations}: expected true, got false</td></tr></tbody></table>
+<p>No checks reported anything.</p>
+</details>
+<details id="CL--pda--fixture-claimed" open>
+<summary><b>CL</b> pda × fixture-claimed: <span class="fail">fail</span></summary>
+<p>step 1 (expect): ${d.conversations}: expected true, got false</p>
+
+
+
+<table><thead><tr><th>#</th><th>actor</th><th>op</th><th>ms</th><th>result</th></tr></thead><tbody><tr class="ok"><td>0</td><td>agent</td><td>discover</td><td>0</td><td>ok</td></tr>
+<tr class="bad"><td>1</td><td>expect</td><td>expect</td><td>0</td><td>${d.conversations}: expected true, got false</td></tr></tbody></table>
+<p>No checks reported anything.</p>
+</details>
+<details id="ML--pda--fixture-live" open>
+<summary><b>ML</b> pda × fixture-live: <span class="fail">fail</span></summary>
+<p>step 1 (expect): ${d.apis}: expected $contains &quot;mcp&quot;, got []</p>
+
+
+
+<table><thead><tr><th>#</th><th>actor</th><th>op</th><th>ms</th><th>result</th></tr></thead><tbody><tr class="ok"><td>0</td><td>agent</td><td>discover</td><td>0</td><td>ok</td></tr>
+<tr class="bad"><td>1</td><td>expect</td><td>expect</td><td>0</td><td>${d.apis}: expected $contains &quot;mcp&quot;, got []</td></tr></tbody></table>
+<p>No checks reported anything.</p>
+</details>
+<details id="ML--pda--fixture-claimed" open>
+<summary><b>ML</b> pda × fixture-claimed: <span class="fail">fail</span></summary>
+<p>step 1 (expect): ${d.apis}: expected $contains &quot;mcp&quot;, got []</p>
+
+
+
+<table><thead><tr><th>#</th><th>actor</th><th>op</th><th>ms</th><th>result</th></tr></thead><tbody><tr class="ok"><td>0</td><td>agent</td><td>discover</td><td>0</td><td>ok</td></tr>
+<tr class="bad"><td>1</td><td>expect</td><td>expect</td><td>1</td><td>${d.apis}: expected $contains &quot;mcp&quot;, got []</td></tr></tbody></table>
+<p>No checks reported anything.</p>
+</details>
+</html>

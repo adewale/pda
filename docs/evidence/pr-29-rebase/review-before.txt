@@ -1,0 +1,55 @@
+
+ RUN  v4.1.12 /workspace/pda-pr29-rebase
+
+ ❯ |interop| interop/test/scenario.test.ts (24 tests | 2 failed) 43ms
+     × is unsupported when a live Company lacks conversations for CL, and fails when an adapter claimed it 9ms
+     × checks interpolated fixture values while leaving literal parameter keys alone 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |interop| interop/test/scenario.test.ts > a cell > is unsupported when a live Company lacks conversations for CL, and fails when an adapter claimed it
+AssertionError: expected 'fail' to be 'unsupported' // Object.is equality
+
+Expected: "unsupported"
+Received: "fail"
+
+ ❯ interop/test/scenario.test.ts:161:26
+    159|     const noConversations = () => driver({ discover: { kind: "ok", res…
+    160|     const live = await runCell(C, {}, noConversations(), { live: true …
+    161|     expect(live.outcome).toBe("unsupported");
+       |                          ^
+    162|     expect(live.reason).toContain(`doesn't offer what ${id} tests`);
+    163|     expect((await runCell(C, {}, noConversations())).outcome).toBe("fa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |interop| interop/test/scenario.test.ts > a cell > checks interpolated fixture values while leaving literal parameter keys alone
+AssertionError: expected 'fixture.not_a_reference' to be null
+
+- Expected:
+null
+
++ Received:
+"fixture.not_a_reference"
+
+ ❯ interop/test/scenario.test.ts:181:44
+    179|     const literalKey: Scenario = { id: "KEY", title: "literal key", st…
+    180|     expect(resolveParams(literalKey.steps[0]!.params, { fixture: {} })…
+    181|     expect(missingFixture(literalKey, {})).toBeNull();
+       |                                            ^
+    182|     const nestedValue: Scenario = { id: "VALUE", title: "nested value"…
+    183|     expect(missingFixture(nestedValue, {})).toBe("fixture.required");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 22 passed (24)
+   Start at  18:04:35
+   Duration  601ms (transform 318ms, setup 0ms, import 406ms, tests 43ms, environment 0ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

@@ -1,0 +1,58 @@
+{
+  "originalHead": "de613e0b49a9783315d27f75262b3e1647809575",
+  "originalBase": "73030c4f7b0028b5a93723c72dbe0166b15bcc53",
+  "newBase": "4c92a2d890d771feedf7a8fc7274d86644626f70",
+  "testedSourceCommit": "864f5c5a4bb539998079287d2fa1c2a458193ee9",
+  "oldGridCommitOmitted": "ee86997bccf9abd7702aff527642d90d77c7b007",
+  "omissionReason": "Its peer adapters, S4 reading and 0.1/0.2 known failures were retired by merged PR36; preserve the dated source rather than reintroducing them.",
+  "checks": {
+    "typecheck": true,
+    "specPin": {
+      "dispositions": 43,
+      "pages": 13
+    },
+    "passed": 2091,
+    "skipped": 1,
+    "files": 114,
+    "interopPassed": 422,
+    "localeCasesPassedEach": 14,
+    "locales": [
+      "en-GB",
+      "en-US"
+    ]
+  },
+  "newRegressionBefore": {
+    "failed": 2,
+    "passed": 22,
+    "causes": [
+      "CL missing offers flag after the 0.3 scenario change",
+      "Literal parameter keys incorrectly treated as interpolated references"
+    ]
+  },
+  "visualFixture": "Synthetic discover response with no MCP/conversations, actual immutable runCell modules and unchanged production report renderer. No external Company requests.",
+  "changedSourceSha256": {
+    "interop/runner/cell.ts": "c9871ec3a1da809b78ab546e14d17445d37b7c7ffec70ad7691d219aba1562e4",
+    "interop/runner/cli.ts": "ea00b4966eee973056a84493c8714517fbdc1b62960f92570993dc14a6c98ff0",
+    "interop/runner/scenario.ts": "a336348e7f2160043e35b8c688cb26dee4cb0f85b41cb48f09b195a3f6f7f6cd",
+    "interop/runner/types.ts": "35dff4d40d9c7c037d1e88adc28561b8d3ee9cb84e6b92c03b0ed18b8897a26a",
+    "interop/scenarios/C.json": "8405b2596287c7e7a6999e2f936283a356580895a43016be95b8aee7112c5f95",
+    "interop/scenarios/CL.json": "9200e51584683807cbdfa7cb2610568adc54b2afc7243cbeb77d712a45f7b8d1",
+    "interop/scenarios/ML.json": "88c1a6afb1d54061e269d1112cdf7f352d9bee5b04ead3981bc6f3c0fe8956d2",
+    "interop/test/runner.test.ts": "01ad9d0312b819a68bd1420321a0237ac500378af1d90bdf89850318a7d20173",
+    "interop/test/scenario.test.ts": "93a6797515caf3f196471c8f01d19963455e416d14e5695cdbcdd1f676e86a24",
+    "test/ui/chat-steps.test.tsx": "7baed8ec5d53ac3ada242b1161a31ab5730a281cab67572132fda472072fb2b7"
+  },
+  "artifactSha256": {
+    "after.html": "3fc59e5c96f88aa5a50a0a43668333e97aec6892ea524d7fb27ea92c8cd73dc1",
+    "after.png": "6443067b964266685c776569c2db5471373f483bc27c9e4ace5f3491154d8f5b",
+    "before.html": "53f52c07e25168d53422ad2653d8e9c5fa8ae42a19ac7c4fc870e1a580a4dd55",
+    "before.png": "a6e2153082893107210f835a3fcb2c24b91921eccfe8422f4803d6b7a2b492da",
+    "capture.mjs": "b9e351d7f5355508cce43caf1cccc37db86f7949f88a4b97a4a0a7dfa47a2e8e",
+    "interop-after.txt": "c21b57629086db499a406799f9ce3d8870bf652b11744663f650b71f2d151808",
+    "locale-gb.txt": "6b4e6bbc64772853b40c2c5aee70b17d2a04fb514dc64fc942831e0d8304dc41",
+    "locale-us.txt": "9e1f6b40eea5b659682759032f11c8a80ffbf08c6afcbe64d092106b0a3b565c",
+    "review-before.txt": "45c1c404b643190aca1eb6e05a5d37028bb432406ea902b6495f83dd8a625d6e",
+    "tests-summary.txt": "4f21c1b1f700f6f2dcd4c3573c0e6b7b96cbede928cbdadfda9652fc943d827c",
+    "visual-receipt.json": "c9c154da149eb86ed2b8ed2a78ba68c2f41ca40075453e382e65bc9d7637bb9a"
+  }
+}

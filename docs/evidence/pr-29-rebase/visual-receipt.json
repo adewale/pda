@@ -1,0 +1,62 @@
+{
+  "base": "4c92a2d890d771feedf7a8fc7274d86644626f70",
+  "head": "864f5c5a4bb539998079287d2fa1c2a458193ee9",
+  "fixture": "Company offers neither conversations nor MCP",
+  "networkRequests": 0,
+  "stages": [
+    {
+      "stage": "before",
+      "source": "4c92a2d890d771feedf7a8fc7274d86644626f70",
+      "cells": [
+        {
+          "company": "fixture-live",
+          "scenario": "CL",
+          "outcome": "fail"
+        },
+        {
+          "company": "fixture-claimed",
+          "scenario": "CL",
+          "outcome": "fail"
+        },
+        {
+          "company": "fixture-live",
+          "scenario": "ML",
+          "outcome": "fail"
+        },
+        {
+          "company": "fixture-claimed",
+          "scenario": "ML",
+          "outcome": "fail"
+        }
+      ],
+      "htmlSha256": "53f52c07e25168d53422ad2653d8e9c5fa8ae42a19ac7c4fc870e1a580a4dd55"
+    },
+    {
+      "stage": "after",
+      "source": "864f5c5a4bb539998079287d2fa1c2a458193ee9",
+      "cells": [
+        {
+          "company": "fixture-live",
+          "scenario": "CL",
+          "outcome": "unsupported"
+        },
+        {
+          "company": "fixture-claimed",
+          "scenario": "CL",
+          "outcome": "fail"
+        },
+        {
+          "company": "fixture-live",
+          "scenario": "ML",
+          "outcome": "unsupported"
+        },
+        {
+          "company": "fixture-claimed",
+          "scenario": "ML",
+          "outcome": "fail"
+        }
+      ],
+      "htmlSha256": "3fc59e5c96f88aa5a50a0a43668333e97aec6892ea524d7fb27ea92c8cd73dc1"
+    }
+  ]
+}
