@@ -29,15 +29,14 @@ npm run interop -- --agents lenient-personal-agent,strict-personal-agent,sloppy-
 | `--out dir` | Where to write results, instead of `interop/results/<run>/`. |
 | `--image-tag tag` | Build and run under a Docker tag (default `latest`); `--image-tag adv` keeps a full grid run's `:latest` images untouched. The only way to keep a side build of our images: don't `docker tag` them by hand, and `docker image rm poppy-interop/<image>:<tag>` a side tag when you're done with it (the runner never removes images). |
 
-**Adversarial cells** (the malicious `evil-personal-agent`/`evil-company` and the fault-injection proxy; [`docs/adversarial-interop.md`](../docs/adversarial-interop.md)) run only against our own `owner: "self"` implementations, on the local lane, never live, with one exception: `evil-company` may attack other projects' agents. No flag lifts the rest ([`SECURITY.md`](../SECURITY.md), [`docs/interop-spec.md`](../docs/interop-spec.md) §13). They appear in a separate security grid in `index.html` and never count toward the interop pass rates. Run with no `--agents` and `--scenarios`, `npm run interop` pairs every adversarial scenario with every implementation too; the runner refuses each such cell with a third-party side, other than an agent facing `evil-company`, before anything is sent and records it as `error`, blame `harness` (spec §13), so that command always exits 1. A full grid is the honest scenarios with every agent and Company ([the command](../docs/interop-results/README.md)) plus the three security commands below.
+**Adversarial cells** (the malicious `evil-company` and the fault-injection proxy; the malicious `evil-personal-agent` spoke 0.2's wire and waits for a 0.3 port, [interop-spec §14](../docs/interop-spec.md#14-retired-with-01-and-02); [`docs/adversarial-interop.md`](../docs/adversarial-interop.md)) run only against our own `owner: "self"` implementations, on the local lane, never live, with one exception: `evil-company` may attack other projects' agents. No flag lifts the rest ([`SECURITY.md`](../SECURITY.md), [`docs/interop-spec.md`](../docs/interop-spec.md) §13). They appear in a separate security grid in `index.html` and never count toward the interop pass rates. Run with no `--agents` and `--scenarios`, `npm run interop` pairs every adversarial scenario with every implementation too; the runner refuses each such cell with a third-party side, other than an agent facing `evil-company`, before anything is sent and records it as `error`, blame `harness` (spec §13), so that command always exits 1. A full grid is the honest scenarios with every agent and Company ([the command](../docs/interop-results/README.md)) plus the two security commands below.
 
 ```sh
-npm run interop -- --image-tag adv --agents evil-personal-agent --companies lenient-company,strict-company --scenarios YR,YD,YA,YT,YS,YK,YU,YM
-npm run interop -- --image-tag adv --agents pda --companies evil-company --scenarios XH,XI,BX,XB,XN,XO,XP,XE,XR,XT
+npm run interop -- --image-tag adv --agents pda --companies evil-company --scenarios XH,XI,BX,XB,XN,XP,XE,XR
 npm run interop -- --image-tag adv --agents pda --companies lenient-company,strict-company --scenarios NREP,CDUP,CIDUP,ODUP
 ```
 
-`--image-tag adv` builds our images under a side tag so a grid run in progress keeps its `:latest` ones. When no grid is running, `--no-build` reuses `:latest` instead (`evil-personal-agent` and `evil-company` are our two images with `INTEROP_ADVERSARY` set). A side tag stays on Docker's disk until you remove it: `docker image rm poppy-interop/agent-pda:adv poppy-interop/company-lenient-company:adv poppy-interop/proxy:adv`.
+`--image-tag adv` builds our images under a side tag so a grid run in progress keeps its `:latest` ones. When no grid is running, `--no-build` reuses `:latest` instead (`evil-company` is our image with `INTEROP_ADVERSARY` set). A side tag stays on Docker's disk until you remove it: `docker image rm poppy-interop/agent-pda:adv poppy-interop/company-lenient-company:adv poppy-interop/proxy:adv`.
 
 Each run writes:
 
@@ -110,12 +109,9 @@ scenarios/           One JSON file per scenario (spec section 6)
 files/               Files scenarios upload (an api step's args.files): lake.jpg, a 480×360 photo drawn for the purpose
 runner/              The CLI, cell runner, checks, attribution and report
 proxy/               The recording TLS proxy and the control relay (Node, no dependencies)
-impls/pda-agent/     Our agent: src/poppy in Node, no model, registered as pda, the three fake Personal Agents (profiles.ts) and evil-personal-agent (attacks.ts)
-impls/pda-mock/      Our mock Company (test/mock-company) behind the hooks API, registered as lenient-company, strict-company, lenient-company-v02 and evil-company
+impls/pda-agent/     Our agent: src/poppy in Node, no model, registered as pda and the three fake Personal Agents (profiles.ts)
+impls/pda-mock/      Our mock Company (test/mock-company) behind the hooks API, registered as lenient-company, strict-company and evil-company
 impls/shared/        What our two adapters share: the HTTP shim, the esbuild bundle, and the mock's hooks (mock-hooks.ts, also used by test/hypothesis)
-vectors/datalayer/   Runs Datalayer's conformance cases against src/poppy and src/validator (spec section 11)
-vectors/validators/  Our validator against poppy-validator and poppy-sidecar (0.1) and the official validator (0.2) on the same documents
-vectors/official/    The official Company validator against the 0.2 Companies, and the flawed-Company lane
 test/                Unit tests for the runner, in Node (interop/vitest.config.ts, part of npm test)
 ```
 
@@ -144,8 +140,8 @@ Our two adapters each register a set of fakes: our own code with a profile, buil
 | Real | `pda`: src/poppy as the Durable Object runs it | none: we don't build a Company |
 | Lenient | `lenient-personal-agent`, the reference agent: accepts every reading of what a Company does that gives no more access (S3 metadata at either location; another of the Company's names as `aud` after `invalid_client` at an endpoint without DPoP) | `lenient-company`, the reference Company: S2-lenient assertions |
 | Strict | `strict-personal-agent`: runs the runner's Company-side checks and the validator over everything it receives, refuses at the first finding of any level, a SHOULD or the Guides included, and serves its findings at `GET /violations` | `strict-company`: `typ: "JWT"`, a published `kid` and 60-second assertions |
-| Sloppy | `sloppy-personal-agent`: the mistakes real agents make, declared honestly in its readings: no `typ`, 300-second assertions, a token-endpoint `aud` everywhere, `scope` on a signed-out Session | none |
-| Evil | `evil-personal-agent`: raw wire attacks (`attacks.ts`) | `evil-company`: the mock reconfigured per attack |
+| Sloppy | `sloppy-personal-agent`: the mistakes real agents make, declared honestly in its readings: no `typ`, 300-second assertions, and a token-endpoint `aud` everywhere, where 4.1 says the issuer | none |
+| Evil | none since 28 October: `evil-personal-agent`'s raw wire attacks were written for 0.2 and wait for a 0.3 port | `evil-company`: the mock reconfigured per attack |
 
 `INTEROP_AGENT_PROFILE` (`lenient`, `strict` or `sloppy`) and `INTEROP_MOCK_PROFILE` set the profile, from the registry's `env`. An agent's profile lives only in the adapter's network seam (`impls/pda-agent/profiles.ts`): `src/poppy` runs unchanged. Renamed on 23 October 2026: `pda-mock` is now `lenient-company`, `pda-mock-strict` `strict-company`, `pda-mock-v02` `lenient-company-v02` and `evil-agent` `evil-personal-agent`. Results and dated notes from before then use the old names.
 
@@ -168,4 +164,4 @@ Check that `MediaType` is an image index (`…image.index…` or `…manifest.li
 
 ## Vectors
 
-`vectors/datalayer/run.mjs` runs Datalayer's language-neutral conformance cases against our client and validator ([its README](vectors/datalayer/README.md)). We used to export our own validator fixtures and the mock's tamper rows the same way, as `vectors/validator.json` and `vectors/mock-company.json`; they were removed because nothing consumed them, and the shared vectors repository they were meant to seed was never made. The fixtures and rows themselves are still the tests in `test/validator.test.ts` and `test/mock-company.test.ts`. `vectors/validators/run.mjs` runs our validator and three independent ones over the same documents, the others in Docker with no network ([its README](vectors/validators/README.md)). `npm run interop:official` runs the official Company validator against the 0.2 Companies, and `npm run interop:flaws` against our mock with one of its protections turned off at a time (`--set lenient-company-v02:INTEROP_MOCK_FLAWS=<flaw>`), beside our adversarial and strict agents ([its README](vectors/official/README.md)).
+The one-sided vectors were retired with 0.1 and 0.2 on 28 October and `interop/vectors/` is gone: Datalayer's conformance cases, the cross-check of our validator against three independent ones, and the official Company validator's lanes (`npm run interop:official`, `npm run interop:flaws`) all checked 0.1 or 0.2 documents and wires. [interop-spec §14](../docs/interop-spec.md#14-retired-with-01-and-02) lists each with its last pin. Our validator fixtures and the mock's tamper rows are still the tests in `test/validator.test.ts` and `test/mock-company.test.ts`.

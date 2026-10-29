@@ -132,7 +132,7 @@ Certification needs a stable spec, while a grid suits a draft. WPT's move from p
 
 | Idea | Where it is in our harness |
 | --- | --- |
-| Tests as data | Scenarios as JSON in [`interop/scenarios/`](../interop/scenarios), honest, adversarial and network-fault; Datalayer's one-sided vectors run against our code by [`interop/vectors/datalayer/`](../interop/vectors/datalayer), and [`interop/vectors/validators/`](../interop/vectors/validators/README.md) runs two other validators and ours over the same 107 `poppy.json` documents. We exported our own validator fixtures and tamper rows in Datalayer's schema too, but removed them: nothing consumed them |
+| Tests as data | Scenarios as JSON in [`interop/scenarios/`](../interop/scenarios), honest, adversarial and network-fault; Datalayer's one-sided vectors run against our code by [`interop/vectors/datalayer/`](interop-spec.md#14-retired-with-01-and-02), and [`interop/vectors/validators/`](interop-spec.md#14-retired-with-01-and-02) runs two other validators and ours over the same 107 `poppy.json` documents. We exported our own validator fixtures and tamper rows in Datalayer's schema too, but removed them: nothing consumed them |
 | Thin adapter per implementation | Control API and hooks API ([interop-spec §5](interop-spec.md#5-adapter-apis)); every implementation is an entry in [`registry.json`](../interop/registry.json) |
 | Unsupported ≠ failed | 501 from an adapter, and `scenarios` in the manifest |
 | Playing the missing side | Our mock Company, in its lenient profile (`pda-mock`), is the reference column for attribution rule 2; the strict profile runs beside it as `pda-mock-strict` |

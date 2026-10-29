@@ -69,7 +69,7 @@ This section follows the 28 October text ([snapshot](../spec/draft-0.3-retrieved
 
 **Not done yet.**
 - **The interop grid in Docker** wasn't run on this branch; its offline tests pass. Until a 0.3 peer is pinned it has our agent and our mock alone ([interop-spec §14](interop-spec.md#14-retired-with-01-and-02)).
-- **Two ports:** the adversarial agent, whose attacks were written for Session Tokens and Operations 1, and the Python Hypothesis client in `test/hypothesis/`, which speaks 0.1.
+- **One port:** the adversarial agent, whose attacks were written for Session Tokens and Operations 1. The Python Hypothesis client in `test/hypothesis/` was ported on 29 October, and found two slips in the mock's scope handling (its README).
 - **What the text allows that we don't use:** anonymous browsing User IDs (5.1 MAY), since our browser always joins the User's Session; Agent IDs (5.1 MAY), since each User has one agent; Markdown in an operation's summary, shown as text, which Ops 3 allows.
 
 **If 0.3 changes again before it is published:** the Session header and delegations are the part most likely to move, since they were invented two days before this was built. `npm run spec:drift` reports a changed page; diff it against [the 28 October snapshot](../spec/draft-0.3-retrieved-2026-10-28/README.md), take a new snapshot, and change what moved, entry by entry in the ledger.

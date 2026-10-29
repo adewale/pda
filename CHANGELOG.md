@@ -20,12 +20,14 @@ Protocol baseline: **0.3, the text upstream published on its site on 28 October 
 - A requirement ledger for 0.3: `spec/requirements-0.3.json` gives each of the changelog's 42 entries a disposition, and `npm run check:spec` holds it to the changelog.
 - A mock check that no Session header reaches an OAuth endpoint (`session-jwt.oauth-endpoint`, 5.2).
 - Four issues found while implementing, in [poppy-0.3-issues.md](docs/poppy-0.3-issues.md#found-while-implementing).
+- The Python Hypothesis client and its five state machines speak 0.3: the Session header, refresh tokens, Operations 2, the browser join and MCP with its own token ([its README](test/hypothesis/README.md)).
 
 ### Fixed
 
 - The protocol log called token-endpoint requests "Session header"; they carry our client assertion.
 - Signing out withdraws its Sessions' pending approvals at once, not at the next token refresh.
 - `extension_required` names the extension the Company asks for.
+- The mock Company left out a scope a sign-in type can't grant instead of refusing it, when the issuer lists it (4.7, RFC 6749 3.3), and names the granted scope whenever it differs from the request, even where it usually omits it (RFC 6749 5.1). The Hypothesis port found both.
 
 ### Removed
 

@@ -1,6 +1,6 @@
 # Poppy interop harness specification
 
-The runner currently checks explicit 0.1 and 0.2 lanes. Each cell records the common `protocolVersion` and local `specificationRevision`; no common version is unsupported. Retries preserve that context. Unversioned known failures apply only to 0.1. Registry entries marked `vectorsOnly` are explicit provisioning helpers excluded from the default M×N grid. The official validator reuses provisioning and cleanup in its [one-sided lane](../interop/vectors/official/README.md); its checks do not contribute grid passes.
+The runner currently checks explicit 0.1 and 0.2 lanes. Each cell records the common `protocolVersion` and local `specificationRevision`; no common version is unsupported. Retries preserve that context. Unversioned known failures apply only to 0.1. Registry entries marked `vectorsOnly` are explicit provisioning helpers excluded from the default M×N grid. The official validator reuses provisioning and cleanup in its [one-sided lane](interop-spec.md#14-retired-with-01-and-02); its checks do not contribute grid passes.
 
 
 Version 1. What an implementation of the [Personal Agent Protocol](https://personalagentprotocol.org/) (Poppy) provides to join the M×N interop grid, and what the runner does with it. The rationale and plan are in [interop-testing.md](interop-testing.md); the code is in [`interop/`](../interop).
@@ -358,5 +358,5 @@ On 28 October 2026 the project dropped Poppy 0.1 and 0.2 ([decision 37](decision
 | `evil-personal-agent` | adversarial agent | ours; its attacks (scenarios YR, YD, YA, YT, YS, YK, YU, YM) were written against Session Tokens and Operations 1 |
 | Scenarios O2, XO, XT | Operations 1 | a second proposal, an operation altered in place, one stuck in progress: Operations 2 has no proposals or tracking |
 
-Two lanes wait for a 0.3 port rather than a peer: the adversarial agent, whose attacks need rewriting for the Session header, delegated keys and Operations 2, and the Hypothesis client in `test/hypothesis/`, an independent Python client of 0.1 (its README says what it covers until then).
+One lane waits for a 0.3 port rather than a peer: the adversarial agent, whose attacks need rewriting for the Session header, delegated keys and Operations 2. The Hypothesis client in `test/hypothesis/`, which waited with it, was ported on 29 October.
 
