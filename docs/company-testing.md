@@ -29,18 +29,17 @@ Every Poppy test in the Workers suite runs against the mock, and the `afterEach`
 
 That strictness is for our own code only. In the interop grid a warning never fails a cell.
 
-## One mock, four profiles
+## One mock, three profiles
 
-The interop grid runs the mock under four names, all built from one image in [`interop/impls/pda-mock`](../interop/impls/pda-mock) and told apart by environment variables in [`interop/registry.json`](../interop/registry.json).
+The interop grid runs the mock under three names, all built from one image in [`interop/impls/pda-mock`](../interop/impls/pda-mock) and told apart by environment variables in [`interop/registry.json`](../interop/registry.json).
 
 | Name | What changes | What it is for |
 | --- | --- | --- |
 | `lenient-company` | Nothing: assertions need no `typ` or `kid` and may live 300 seconds | The reference Company. Attribution compares other cells against it |
 | `strict-company` | `INTEROP_MOCK_PROFILE=strict`: `typ: "JWT"`, a published `kid` and 60-second assertions | The strictest reading live Companies take, so an agent learns where it would be refused |
-| `lenient-company-v02` | `INTEROP_POPPY_VERSION=0.2` | The lenient mock speaking draft 0.2 |
 | `evil-company` | `INTEROP_ADVERSARY=company`, then one attack armed per cell | Checking that an agent refuses a Company that misbehaves on purpose |
 
-Two more settings exist for one lane only and never appear in the registry. `INTEROP_MOCK_VARIANT` turns on honest options the profiles leave off (required DPoP nonces, Bearer MCP at 0.2), and `INTEROP_MOCK_FLAWS` turns one of the Company's own protections off (below).
+Every profile speaks the version our client speaks: the adapter takes it from `src/poppy/protocol-version.ts`, so our two sides can't drift apart. Until 29 October the adapter still declared 0.1, and CI's grid ran no cell for a day while passing; the runner now fails such a run. The two settings the retired official-validator lanes used (`INTEROP_MOCK_VARIANT`, `INTEROP_MOCK_FLAWS`) went with them.
 
 Because the code is the same, a difference between two profiles' results comes from the profile and nothing else. Every profile reports every check it recorded at `GET /violations` with its basis and level, and the runner turns failures into errors and everything else into warnings.
 
@@ -77,6 +76,6 @@ On 24 October the official validator caught nine of the ten flaws and our checks
 
 - **A misreading the draft allows.** Where the draft is ambiguous, the mock takes a reading, recorded in [readings.md](readings.md). A Company that reads it the other way isn't wrong, and the grid attributes such a failure to the draft.
 - **Behaviour no scenario exercises.** A cell covers only what both sides list in their manifests. A Company's untested paths stay untested.
-- **A requirement nothing of ours checks.** [`spec/official-checks-0.2.json`](../spec/official-checks-0.2.json) maps each of the official validator's 74 checks to ours: 25 have nothing behind them, mostly a Company's refusals of malformed conversation requests and of DPoP misuse no agent of ours attempts.
+- **A requirement nothing of ours checks.** At 0.2, [`spec/official-checks-0.2.json`](../spec/official-checks-0.2.json) mapped each of the official validator's 74 checks to ours: 25 had nothing behind them, mostly a Company's refusals of malformed conversation requests and of DPoP misuse no agent of ours attempts. No validator of upstream's checks 0.3 yet, so nothing measures that gap now.
 - **What a deployment does.** The local grid runs code. Hosting, redirects and a live allowlist show up only in the live lane, which mostly runs signed out.
 - **A real model.** The harness drives protocol code with no model, so whether a model obeys text a Company sends is tested separately, in [`test/prompt-injection.test.ts`](../test/prompt-injection.test.ts), with a fake model that obeys everything.

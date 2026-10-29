@@ -1,8 +1,19 @@
 # Poppy implementations
 
-**Dated source survey.** This catalogue preserves the 12–18 October observations extracted from [PR #11](https://github.com/adewale/pda/pull/11). The [ecosystem map](ecosystem.md#current-ecosystem) was refreshed on **28 October 2026** and has current version and tooling findings; the [upgrade delta](poppy-0.2-upgrade.md) records the implemented 0.2 behavior. Statements below that PDA has yet to migrate describe the 18 October baseline.
+**Dated source survey.** This catalogue preserves the 12–18 October observations extracted from [PR #11](https://github.com/adewale/pda/pull/11). The [ecosystem map](ecosystem.md#current-ecosystem) was refreshed on **29 October 2026**, after PDA moved to Poppy 0.3 alone, and has current version and tooling findings; the [upgrade delta](poppy-0.2-upgrade.md) records the implemented 0.2 behavior. Statements below that PDA has yet to migrate describe the 18 October baseline.
 
 **23 October refresh.** The current [ecosystem map](ecosystem.md#current-ecosystem) and [refresh report](ecosystem-refresh-2026-10-23.md) now include 17 checked repository heads and 28 public discovery/metadata checks, including Archon, Print with Poppy's production and sandbox 0.2 documents, and current domain-validation refusals. The dated catalogue below and historical grid are preserved; the new document checks are not new Session or ordering results.
+
+## Profile changes — 29 October 2026
+
+PDA speaks 0.3 alone since 28 October, the text upstream published on its site that day ([decision 37](decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)); everything below that judged a project by 0.1 or 0.2 is a record of then. Read on 29 October:
+
+| Project | Head | Poppy it speaks | In PDA's grid |
+| --- | --- | --- | --- |
+| Print with Poppy | `b340741`, 28 October | The 28 October 0.3 text, Operations 2, Mediated Sign-In 1; refuses 0.2 and the earlier 0.3 draft. printwithpoppy.com declares 0.3 and passes our validator; the Agent Sandbox still declares 0.2 | Registered again at `b340741`; image not yet built |
+| Datalayer SDKs and Manzanita | `a3713e3`, 27 October | The earlier 0.3 draft (Session Keys, Session Tokens) | Not pinned: no common version |
+| Poppyseed | `6393dfb`, 27 October | The earlier 0.3 draft | Not pinned |
+| everruns | `a22760a`, 28 October | 0.1; refuses 0.3 | Not pinned |
 
 ## Source additions and profile changes — 28 October 2026
 

@@ -69,7 +69,7 @@ Send passwords and fixed codes to the person who asked, directly, never in a sha
 
 ## If you build a Personal Agent
 
-The same grid runs your agent against our mock Companies: `lenient-company` (the reference), `strict-company`, `lenient-company-v02` (draft 0.2), and `evil-company`, which tries to make agents leak tokens or act without approval. `evil-company` runs only in our containers, against your agent at its pinned commit, and what it finds goes to you privately first. Your agent publishes its client metadata at `https://<name>.agent.interop.test`, trusts the run's certificate authority, and needs the same narrow exception for `.test` names if it refuses private addresses. How to add an adapter is in [interop/README.md](../interop/README.md#add-an-implementation).
+The same grid runs your agent against our mock Companies: `lenient-company` (the reference), `strict-company` and `evil-company`, all at Poppy 0.3, which tries to make agents leak tokens or act without approval. `evil-company` runs only in our containers, against your agent at its pinned commit, and what it finds goes to you privately first. Your agent publishes its client metadata at `https://<name>.agent.interop.test`, trusts the run's certificate authority, and needs the same narrow exception for `.test` names if it refuses private addresses. How to add an adapter is in [interop/README.md](../interop/README.md#add-an-implementation).
 
 ## Talking to us
 

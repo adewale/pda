@@ -8,7 +8,7 @@ Protocol baseline: **0.3, the text upstream published on its site on 28 October 
 
 ### Breaking
 
-- A Company whose `poppy.json` declares 0.1 or 0.2 is refused before its issuer is used. Print with Poppy and the other Companies still on 0.2 can't be used until they move to 0.3; an agent's accounts there go unused, and aren't revoked.
+- A Company whose `poppy.json` declares 0.1 or 0.2 is refused before its issuer is used, and can't be used until it moves to 0.3; an agent's accounts there go unused, and aren't revoked. Print with Poppy moved on 28 October (`b340741`, and printwithpoppy.com declares 0.3).
 - The client metadata document is `/poppy/client.json` again, listing Operations 2; `/poppy/0.3/client.json` is gone. A Company that allowlisted it sees a new `client_id`, and the User signs in again.
 - Operations 1 is gone: proposals, confirm and cancel, tracking, standing permissions, the `poppy_operation` tool and its card. A migration drops `poppy_operations`, `poppy_proposals` and `poppy_permissions`. A Company's terms are an approval card, after our own card for the write.
 - Sign-in asks for the Company's own scopes; `poppy:read` and `poppy:write` are gone.
@@ -21,6 +21,11 @@ Protocol baseline: **0.3, the text upstream published on its site on 28 October 
 - A mock check that no Session header reaches an OAuth endpoint (`session-jwt.oauth-endpoint`, 5.2).
 - Four issues found while implementing, in [poppy-0.3-issues.md](docs/poppy-0.3-issues.md#found-while-implementing).
 - The Python Hypothesis client and its five state machines speak 0.3: the Session header, refresh tokens, Operations 2, the browser join and MCP with its own token ([its README](test/hypothesis/README.md)).
+- The interop grid's first run at 0.3 (29 October): our four agent profiles against `lenient-company`, `strict-company` and `evil-company`, every failure the sloppy agent's by design ([results](docs/interop-results/README.md)).
+- print-with-poppy's adapter, back at `b340741`, the first other project on the 28 October text, and `print-with-poppy-live` for discovery at printwithpoppy.com. Its image hasn't been built here yet: the sandbox's proxy refuses the plain-HTTP apt fetches its base image needs.
+- A trace check, `one_session`, that every resource request in a cell carries the Session header with one `sid`, and none reaches an OAuth endpoint (5.2).
+- The interop agent reads pages in Node with `html-rewriter-wasm` (lol-html, as Workers' `HTMLRewriter`), so browsing scenarios see the page the Company served.
+- An ecosystem refresh for 29 October: who implements the 28 October text, and dated public discovery results ([ecosystem.md](docs/ecosystem.md), [evidence](docs/evidence/ecosystem-2026-10-29/README.md)).
 
 ### Fixed
 
@@ -28,10 +33,16 @@ Protocol baseline: **0.3, the text upstream published on its site on 28 October 
 - Signing out withdraws its Sessions' pending approvals at once, not at the next token refresh.
 - `extension_required` names the extension the Company asks for.
 - The mock Company left out a scope a sign-in type can't grant instead of refusing it, when the issuer lists it (4.7, RFC 6749 3.3), and names the granted scope whenever it differs from the request, even where it usually omits it (RFC 6749 5.1). The Hypothesis port found both.
+- CI's interop job ran no cell at all after the move to 0.3: the mock's adapter still declared 0.1, so every cell was refused at version negotiation and the run passed. The adapter declares the version we speak, and a run in which no cell passes or fails now fails.
+- One agent's OpenAPI descriptions and task coverage were cached per process, so a second agent in the same process (the interop image, the Durable Object's isolate) could use the first one's. Each cache is now per client.
+- The interop checks require `conversation_id` on every conversation read (8.5).
+- Scenarios S0, CM, N and XN exercised nothing at 0.3, since a signed-out request no longer starts a Session at the token endpoint; each now makes the request its requirement is about. Every scenario's requirements cite 0.3's sections.
 
 ### Removed
 
 - Every interop peer, vector and lane that spoke 0.1 or 0.2, with `lenient-company-v02`, the official validator's lanes (`npm run interop:official`, `npm run interop:flaws`) and the adversarial agent, which waits for a 0.3 port. [interop-spec §14](docs/interop-spec.md#14-retired-with-01-and-02) lists each with its last pin.
+- 0.1 and 0.2 error codes from the client's list: `account_mismatch`, `operation_not_found`, `sign_in_required`, `terms_changed` and `user_approval_required`. `rate_limited` stays as our own agent code.
+- NREP, the replayed token request, from the mock's manifest: it replayed 0.2's Session request, and waits for a 0.3 rewrite.
 
 ## Earlier — Poppy 0.1 and draft 0.2
 
