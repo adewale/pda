@@ -69,6 +69,9 @@ type ContextEntry = {
   account: string | null;
   /** Invalidated by sign-out, even when the same account and SID are used again. */
   authorityGeneration: number;
+  /** The cookie was authorized for these scopes and this sign-in's refresh-token family. */
+  readonly scope: string;
+  readonly accountGeneration: number;
   joined: boolean;
   /** At most one join may use this context's one-time cookie at once. */
   joining?: Promise<void>;
@@ -93,9 +96,23 @@ function contextsOf(client: PoppyClient): Map<string, ContextEntry> {
 
 function checkContext(client: PoppyClient, company: Company, label: string, entry: ContextEntry): void {
   const session = client.session(company.issuer, label);
-  if (contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry || !sameAuthority(entry, sessionAuthority(session))) {
-    throw new PoppyError("approval_changed", "The open page belongs to an earlier account or Session. Open a fresh page.", 0);
+  if (contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry || !sameContextSession(client, company, entry, session)) {
+    throw new PoppyError("approval_changed", "The account, Session or access changed. Open a fresh page.", 0);
   }
+}
+
+function canonicalScope(scope = ""): string {
+  return [...new Set(scope.split(/\s+/).filter(Boolean))].sort().join(" ");
+}
+
+function accountGeneration(client: PoppyClient, company: Company, account: string | null): number {
+  return account === null ? 0 : client.accountGeneration(company.issuer, account);
+}
+
+function sameContextSession(client: PoppyClient, company: Company, entry: ContextEntry, session: ReturnType<PoppyClient["session"]>): boolean {
+  return sameAuthority(entry, sessionAuthority(session))
+    && entry.scope === canonicalScope(session?.scope)
+    && entry.accountGeneration === accountGeneration(client, company, session?.account ?? null);
 }
 
 async function dropContext(contexts: Map<string, ContextEntry>, key: string, expected?: ContextEntry): Promise<void> {
@@ -177,14 +194,15 @@ async function sessionContext(
     const fresh: ContextEntry = {
       id: randomId("ctx_"),
       context: browser.newContext((url) => { guard(url); checkContext(client, company, label, fresh); }),
-      sessionId: session?.session_id ?? null, account: session?.account ?? null, authorityGeneration: session?.authority_generation ?? 0, joined: false
+      sessionId: session?.session_id ?? null, account: session?.account ?? null, authorityGeneration: session?.authority_generation ?? 0,
+      scope: canonicalScope(session?.scope), accountGeneration: accountGeneration(client, company, session?.account ?? null), joined: false
     };
     contexts.set(key, fresh);
     return fresh;
   };
   let entry = contexts.get(key);
   const before = client.session(company.issuer, label);
-  if (entry && !sameAuthority(entry, sessionAuthority(before))) {
+  if (entry && !sameContextSession(client, company, entry, before)) {
     await dropContext(contexts, key);
     entry = undefined;
   }
@@ -194,7 +212,7 @@ async function sessionContext(
       await client.token(company, { label });
       const session = client.session(company.issuer, label)!;
       // Preparation may have signed the Session out, or started a new one.
-      if (!sameAuthority(entry, sessionAuthority(session))) {
+      if (!sameContextSession(client, company, entry, session)) {
         await dropContext(contexts, key, entry);
         entry = open();
       }
@@ -244,24 +262,26 @@ async function join(client: PoppyClient, company: Company, label: string, contex
   }
   if (!page.code || !page.action) throw new PoppyError("browser_join_failed", `${company.name}'s browser-session page didn't give a code to join with`, page.status);
   const authorize = `${endpoint.replace(/\/+$/, "")}/authorize`;
-  let authorized: { readonly sessionId: string; readonly account: string | null; readonly authorityGeneration: number } | undefined;
+  let authorized: { readonly sessionId: string; readonly account: string | null; readonly authorityGeneration: number; readonly scope: string; readonly accountGeneration: number } | undefined;
   await client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: authorize, body: { code: page.code } }), {
     label,
     beforeDispatch: () => {
       const session = client.session(company.issuer, label);
-      if (!session || session.account !== entry.account || session.authority_generation !== entry.authorityGeneration || contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry) {
+      if (!session || session.account !== entry.account || session.authority_generation !== entry.authorityGeneration
+        || canonicalScope(session.scope) !== entry.scope || accountGeneration(client, company, session.account) !== entry.accountGeneration
+        || contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry) {
         throw new PoppyError("approval_changed", "The account or browser changed while joining. Open a fresh page.", 0);
       }
       // resource() may have retried invalid_session with a fresh SID. Its
       // dispatch guard makes this the binding actually sent on that attempt.
-      authorized = { sessionId: session.session_id, account: session.account, authorityGeneration: session.authority_generation };
+      authorized = { sessionId: session.session_id, account: session.account, authorityGeneration: session.authority_generation, scope: entry.scope, accountGeneration: entry.accountGeneration };
       entry.sessionId = authorized.sessionId;
       check();
     }
   });
   const checkAuthorized = () => {
     check();
-    if (!authorized || !sameAuthority(entry, authorized)) {
+    if (!authorized || !sameAuthority(entry, authorized) || entry.scope !== authorized.scope || entry.accountGeneration !== authorized.accountGeneration) {
       throw new PoppyError("approval_changed", "The browser join no longer belongs to the authorized Session. Open a fresh page.", 0);
     }
   };

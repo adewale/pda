@@ -13,6 +13,7 @@ import { conversationsTable, inboxTable, intent } from "./store";
 import type { DirectMessage } from "./wire";
 import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
 import { sameAuthority, sessionAuthority } from "./authority";
+import { MAX_SSE_CHARS, readSseChunk, SseLineEndings } from "./sse";
 
 const conversationRow = conversationsTable.row;
 export type ConversationRow = RowOf<typeof conversationRow>;
@@ -744,6 +745,7 @@ async function readStream(
 ): Promise<void> {
   const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
   const deadline = Date.now() + (waitSeconds + 5) * 1000;
+  const lineEndings = new SseLineEndings();
   let buffer = "";
   let partial: { messageId: string; text: string } | null = null;
   const dispatch = async (block: string) => {
@@ -768,10 +770,11 @@ async function readStream(
     }
     if (eventType === "text-delta") {
       if (isObject(payload) && typeof payload.message_id === "string" && typeof payload.text === "string") {
-        partial =
-          partial && partial.messageId === payload.message_id
-            ? { messageId: partial.messageId, text: partial.text + payload.text }
-            : { messageId: payload.message_id, text: payload.text };
+        const previous = partial?.messageId === payload.message_id ? partial.text : "";
+        if (previous.length + payload.text.length > MAX_SSE_CHARS) {
+          throw new PoppyError("invalid_response", "The Company's unfinished streamed message is too large", 0);
+        }
+        partial = { messageId: payload.message_id, text: previous + payload.text };
         const row = conversation(client, id);
         if (row?.direct) pushDirect(client, company, id, partial);
       }
@@ -783,18 +786,17 @@ async function readStream(
   };
   try {
     while (Date.now() < deadline) {
-      const timeout = new Promise<"timeout">((resolve) =>
-        setTimeout(() => resolve("timeout"), Math.max(0, deadline - Date.now()))
-      );
-      const next = await Promise.race([reader.read(), timeout]);
+      const next = await readSseChunk(reader, deadline);
       if (next === "timeout" || next.done) break;
-      buffer += next.value.replace(/\r\n?/g, "\n");
+      buffer += lineEndings.normalize(next.value);
       let split: number;
       while ((split = buffer.indexOf("\n\n")) !== -1) {
+        if (split > MAX_SSE_CHARS) throw new PoppyError("invalid_response", "The Company's stream event is too large", 0);
         const block = buffer.slice(0, split);
         buffer = buffer.slice(split + 2);
         await dispatch(block);
       }
+      if (buffer.length > MAX_SSE_CHARS) throw new PoppyError("invalid_response", "The Company's unfinished stream event is too large", 0);
     }
   } finally {
     // Pieces of a message we didn't receive in full are dropped (8.6).

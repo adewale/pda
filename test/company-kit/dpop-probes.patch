@@ -1,10 +1,13 @@
 --- a/validate/checks/assertion.ts
 +++ b/validate/checks/assertion.ts
 @@ -5,0 +6 @@
-+import { prepareTokenEndpoint, tokenHeaders } from "./token-request.ts";
++import { prepareTokenEndpoint, rememberTokenNonce, tokenHeaders } from "./token-request.ts";
 @@ -62 +63 @@
 -function refresh(ctx: Context, endpoint: string, assertion: string, note: string) {
 +async function refresh(ctx: Context, endpoint: string, assertion: string, note: string) {
+@@ -70 +71 @@
+-    return ctx.http.request({
++    const exchange = await ctx.http.request({
 @@ -73,4 +74,2 @@
 -        headers: {
 -            Accept: "application/json",
@@ -12,27 +15,39 @@
 -        },
 +        headers: await tokenHeaders(ctx, endpoint),
 +        refreshHeaders: () => tokenHeaders(ctx, endpoint),
-@@ -114,0 +114 @@
+@@ -79,0 +79,2 @@
++    rememberTokenNonce(ctx, exchange);
++    return exchange;
+@@ -114,0 +116 @@
 +    await prepareTokenEndpoint(ctx, endpoint);
-@@ -280,0 +281 @@
+@@ -280,0 +283 @@
 +    await prepareTokenEndpoint(ctx, endpoint);
-@@ -292,4 +293,2 @@
+@@ -292,4 +295,2 @@
 -        headers: {
 -            Accept: "application/json",
 -            "Content-Type": "application/x-www-form-urlencoded",
 -        },
 +        headers: await tokenHeaders(ctx, endpoint),
 +        refreshHeaders: () => tokenHeaders(ctx, endpoint),
+@@ -298,0 +300 @@
++    rememberTokenNonce(ctx, ex);
 --- /dev/null
 +++ b/validate/checks/token-request.ts
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,67 @@
 +// Token probes use their own DPoP key, separate from the client-assertion key.
 +import { generateKey, nowSeconds, randomId, signJwt, type SigningKey } from "../jose.ts";
++import type { Exchange } from "../http.ts";
 +import type { Context } from "./types.ts";
 +
 +const keys = new WeakMap<Context, Promise<SigningKey>>();
 +const nonces = new WeakMap<Context, string>();
 +const preparations = new WeakMap<Context, Promise<void>>();
++
++// A token response can replace the nonce even when it isn't a challenge.
++export function rememberTokenNonce(ctx: Context, response: Exchange): void {
++    const nonce = response.responseHeaders["dpop-nonce"];
++    if (nonce) nonces.set(ctx, nonce);
++}
 +
 +// A separate, valid assertion learns a nonce before any assertion under test is sent.
 +// Otherwise a nonce challenge could consume the assertion intended as the replay control.
@@ -52,13 +67,13 @@
 +            );
 +            const response = await ctx.http.request({
 +                method: "POST", url: endpoint, headers: await tokenHeaders(ctx, endpoint),
++                refreshHeaders: () => tokenHeaders(ctx, endpoint),
 +                body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: "rt_validator_nonce_probe_" + randomId(16),
 +                    client_id: identity.clientId, client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
 +                    client_assertion: assertion }).toString(),
 +                note: "establish a DPoP nonce using a separate assertion and an unknown refresh token",
 +            });
-+            const nonce = response.responseHeaders["dpop-nonce"];
-+            if (nonce) nonces.set(ctx, nonce);
++            rememberTokenNonce(ctx, response);
 +        })();
 +        preparations.set(ctx, pending);
 +    }

@@ -37,6 +37,7 @@ import { CompanyLimiter } from "../../../src/poppy/limiter.ts";
 import { decideLocal } from "../../../src/poppy/operations.ts";
 import { writtenBy } from "../../../src/poppy/message-author.ts";
 import { EndpointRequest } from "../../../src/poppy/outgoing.ts";
+import { MAX_SSE_CHARS, readSseChunk, SseLineEndings } from "../../../src/poppy/sse.ts";
 import { handleIdentityRoute } from "../../../src/poppy/routes.ts";
 import {
   completeDirectSignIn,
@@ -562,14 +563,16 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     const events: { id: string | null; type: string; data: Json }[] = [];
     const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
     const deadline = Date.now() + 10_000;
+    const lineEndings = new SseLineEndings();
     let buffer = "";
     try {
       while (events.length < max && Date.now() < deadline) {
-        const next = await Promise.race([reader.read(), new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), Math.max(0, deadline - Date.now())))]);
+        const next = await readSseChunk(reader, deadline);
         if (next === "timeout" || next.done) break;
-        buffer += next.value.replace(/\r\n?/g, "\n");
+        buffer += lineEndings.normalize(next.value);
         let split: number;
         while ((split = buffer.indexOf("\n\n")) !== -1 && events.length < max) {
+          if (split > MAX_SSE_CHARS) throw new PoppyError("invalid_response", "The Company's stream event is too large", 0);
           const block = buffer.slice(0, split);
           buffer = buffer.slice(split + 2);
           let eventId: string | null = null;
@@ -593,6 +596,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
           }
           events.push({ id: eventId, type: eventType, data: payload });
         }
+        if (events.length < max && buffer.length > MAX_SSE_CHARS) throw new PoppyError("invalid_response", "The Company's unfinished stream event is too large", 0);
       }
     } finally {
       await reader.cancel().catch(() => undefined);

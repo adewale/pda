@@ -139,6 +139,9 @@ export type FeedbackAnswer =
   | { readonly kind: "excluded"; readonly task: ExcludedTask }
   | { readonly kind: "already_sent" };
 
+/** Concurrent attempts queue by this User's Company/task; only acknowledged reports become durable. */
+const feedbackInFlight = new WeakMap<PoppyClient, Map<string, Promise<FeedbackAnswer>>>();
+
 /**
  * Report a task the User couldn't do (9.3): with the Session header, and no
  * scope. Not sent for a task the Company lists as excluded (9.3 SHOULD NOT),
@@ -163,20 +166,29 @@ export async function sendFeedback(client: PoppyClient, company: Company, label:
   }
   // Remembered once the Company has it, so a report that failed can be sent again.
   const key = `feedback|${company.issuer}|${phrase(trimmed)}`;
-  if (one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", key)) return { kind: "already_sent" };
-  const response = await client.resource(company, EndpointRequest.to(company, { method: "POST", url: endpoint, body: { task: trimmed, description: description.trim() } }), { label });
-  if (response.status === 202) {
-    await response.body?.cancel();
-    intent(client.sql, key, () => "sent");
-    return { kind: "accepted" };
-  }
-  if (response.status === 200) {
+  const pending = feedbackInFlight.get(client) ?? new Map<string, Promise<FeedbackAnswer>>();
+  feedbackInFlight.set(client, pending);
+  const send = async (): Promise<FeedbackAnswer> => {
+    if (one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", key)) return { kind: "already_sent" };
+    const response = await client.resource(company, EndpointRequest.to(company, { method: "POST", url: endpoint, body: { task: trimmed, description: description.trim() } }), { label });
+    if (response.status === 202) {
+      await response.body?.cancel();
+      intent(client.sql, key, () => "sent");
+      return { kind: "accepted" };
+    }
+    if (response.status === 200) {
+      const body: Json = await client.readJson(response).catch(() => null);
+      intent(client.sql, key, () => "sent");
+      const alternative = readAlternative(company, body);
+      if (alternative) await showAlternative(client, company, trimmed, alternative);
+      return alternative ? { kind: "alternative", alternative } : { kind: "accepted" };
+    }
     const body: Json = await client.readJson(response).catch(() => null);
-    intent(client.sql, key, () => "sent");
-    const alternative = readAlternative(company, body);
-    if (alternative) await showAlternative(client, company, trimmed, alternative);
-    return alternative ? { kind: "alternative", alternative } : { kind: "accepted" };
-  }
-  const body: Json = await client.readJson(response).catch(() => null);
-  throw new PoppyError(companyErrorCode(isObject(body) ? body.error : undefined, response.status), `${company.name} refused the report (${response.status})`, response.status);
+    throw new PoppyError(companyErrorCode(isObject(body) ? body.error : undefined, response.status), `${company.name} refused the report (${response.status})`, response.status);
+  };
+  const queued = (pending.get(key) ?? Promise.resolve()).then(send, send);
+  pending.set(key, queued);
+  try { return await queued; }
+  finally { if (pending.get(key) === queued) pending.delete(key); }
+
 }

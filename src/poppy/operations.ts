@@ -14,7 +14,7 @@ import { randomId, sha256 } from "./jwt";
 import type { OperationV2 } from "./operations-v2";
 import type { ApprovalTerms } from "./wire";
 import { one, rows, type RowOf } from "../rows";
-import { approvalBatchesTable, approvalsTable } from "./store";
+import { approvalBatchesTable, approvalsTable, cardsTable } from "./store";
 import { approvalResult, checkedOutcomeText, storedResolution } from "./approval-outcome";
 import type { CardWriteOptions } from "./cards";
 
@@ -411,10 +411,27 @@ async function notifyApprovalDecision(client: PoppyClient, id: string, notice?: 
   const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!row || row.status === "pending" || row.status === "executing") return;
   if (!pending.notification) client.sql.exec("UPDATE poppy_approvals SET notification = ? WHERE id = ? AND notification IS NULL", JSON.stringify({ v: 1, id: randomId(`poppy-approval-${id}-`), text: notice ?? recoveredDecisionNotice(client, row) }), id);
-  const saved = one(client.sql, approvalsTable.pick("notification"), "SELECT notification FROM poppy_approvals WHERE id = ?", id)?.notification;
-  if (!saved) return;
+  await deliverApprovalNotification(client, id, "decision");
+}
+
+/** Both outboxes retain their exact payload until the idempotent callback acknowledges it. */
+async function deliverApprovalNotification(client: PoppyClient, id: string, kind: "decision" | "resolution"): Promise<void> {
+  const row = one(client.sql, approvalsTable.pick("notification_pending", "notification", "resolution_notification_pending", "resolution_notification"),
+    "SELECT notification_pending, notification, resolution_notification_pending, resolution_notification FROM poppy_approvals WHERE id = ?", id);
+  if (!row) return;
+  const pending = kind === "decision" ? row.notification_pending : row.resolution_notification_pending;
+  const saved = kind === "decision" ? row.notification : row.resolution_notification;
+  if (!pending || !saved) return;
+  const prefix = kind === "decision" ? "" : "resolution_";
+  await deliverSavedNotification(client, saved, () => {
+    client.sql.exec(`UPDATE poppy_approvals SET ${prefix}notification_pending = 0 WHERE id = ? AND json_extract(${prefix}notification, '$.id') = ?`, id, saved.id);
+  });
+}
+
+/** Delivery failure leaves the exact saved operation available for a later retry. */
+async function deliverSavedNotification(client: PoppyClient, saved: { readonly id: string; readonly text: string }, acknowledge: () => void): Promise<void> {
   await client.host.notifyModel(saved.text, saved.id);
-  client.sql.exec("UPDATE poppy_approvals SET notification_pending = 0 WHERE id = ? AND json_extract(notification, '$.id') = ?", id, saved.id);
+  acknowledge();
 }
 
 function outcomeResolution(row: { readonly outcome_resolution: "performed" | "not_performed" | null; readonly outcome_resolved_at: number | null }) {
@@ -433,6 +450,34 @@ async function showResolvedApprovalCard(client: PoppyClient, id: string, options
     ...(current.terms ? { terms: current.terms } : {}), ...(current.result ? { result: current.result } : {}),
     ...outcomeResolution(current), ...approvalAttachments(current.request), ...batchKeyOf(current.issuer, current.request)
   }, options);
+}
+
+/** A committed terminal result must reach the receipt before its pending notice is acknowledged. */
+async function repairTerminalApprovalCard(client: PoppyClient, id: string): Promise<void> {
+  const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  if (!current || !finishedApproval(current.status)) return;
+  const previous = one(client.sql, cardsTable.pick("card"), "SELECT card FROM poppy_cards WHERE id = ?", `approval-${id}`);
+  if (previous) {
+    try {
+      const card: unknown = JSON.parse(previous.card);
+      // Keep a valid existing answer's status/code and other presentation details.
+      if (isObject(card) && card.kind === "approval" && card.status === current.status &&
+          JSON.stringify(card.outcomeResolution) === JSON.stringify(outcomeResolution(current).outcomeResolution)) return;
+    } catch { /* Reconstruct an unreadable receipt from its durable decision. */ }
+  }
+  let company = "the Company";
+  let domain: string | undefined;
+  try {
+    const stored = client.companyByIssuer(current.issuer);
+    company = stored.name;
+    domain = stored.domain;
+  } catch { /* Historical records can lack a resumable Company context. */ }
+  await client.host.showCard({
+    id: `approval-${id}`, kind: "approval", company, ...(domain ? { domain } : {}),
+    open: false, approvalId: id, summary: current.summary, status: current.status,
+    ...(current.terms ? { terms: current.terms } : {}), ...(current.result ? { result: current.result } : {}),
+    ...outcomeResolution(current), ...approvalAttachments(current.request), ...batchKeyOf(current.issuer, current.request)
+  }, { repair: true });
 }
 
 /**
@@ -462,14 +507,17 @@ export async function resolveApprovalOutcome(client: PoppyClient, id: string, ou
     .sort((a, b) => a.outcome_resolved_at! - b.outcome_resolved_at!)[0];
   const resolved = earlier?.outcome_resolution ?? outcome;
   const resolvedAt = earlier?.outcome_resolved_at ?? at;
-  if (group.length) client.sql.exec(`UPDATE poppy_approvals SET outcome_resolution = ?, outcome_resolved_at = ?
-    WHERE id IN (${group.map(() => "?").join(",")}) AND outcome_resolution IS NULL AND status IN ('unknown', 'terms')`, resolved, resolvedAt, ...group.map(row => row.id));
+  const notice = JSON.stringify({ v: 1, id: randomId(`poppy-resolution-${id}-`), text: `[system] The User checked with the Company and reports that this action ${resolved === "performed" ? "happened" : "did not happen"}: ${selected.summary}. The original uncertain receipt is preserved. No request was resent.` });
+  if (group.length) client.sql.exec(`UPDATE poppy_approvals SET outcome_resolution = ?, outcome_resolved_at = ?,
+    resolution_notification_pending = CASE WHEN id = ? AND ? THEN 1 ELSE resolution_notification_pending END,
+    resolution_notification = CASE WHEN id = ? AND ? THEN ? ELSE resolution_notification END
+    WHERE id IN (${group.map(() => "?").join(",")}) AND outcome_resolution IS NULL AND status IN ('unknown', 'terms')`,
+    resolved, resolvedAt, id, earlier ? 0 : 1, id, earlier ? 0 : 1, notice, ...group.map(row => row.id));
   for (const row of candidates) {
     if (!linked.has(row.id)) continue;
     await showResolvedApprovalCard(client, row.id, { repair: earlier !== undefined });
   }
-  if (earlier) return;
-  await client.host.notifyModel(`[system] The User checked with the Company and reports that this action ${resolved === "performed" ? "happened" : "did not happen"}: ${selected.summary}. The original uncertain receipt is preserved. No request was resent.`, `poppy-resolution-${id}`);
+  for (const row of group) await deliverApprovalNotification(client, row.id, "resolution");
 }
 
 type FinishedApproval = "declined" | "done" | "refused" | "failed" | "unknown";
@@ -555,17 +603,15 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
   }
   // The card says it is being sent, so a page shows each one's progress (a batch's tiles, the step that asked).
   await card("approved");
+  let result: string;
   try {
-    const result = await run(client, company, read.value, row.label, { approvalId: id, beforeDispatch: () => {
+    result = await run(client, company, read.value, row.label, { approvalId: id, beforeDispatch: () => {
       const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
       if (!current || current.status !== "executing" || current.request !== row.request || current.issuer !== row.issuer || current.label !== row.label) {
         throw new PoppyError("approval_changed", "The stored approval changed; no further attempt will be sent", 0);
       }
       if (current.action_key && current.action_owner) requireKnownOutcome(client, current.issuer, { key: current.action_key, owner: current.action_owner, operationId: current.operation_id }, [id]);
     } });
-    client.sql.exec("UPDATE poppy_approvals SET status = 'done', result = ? WHERE id = ?", result, id);
-    await card("done", result);
-    return `[system] Done, as the User approved: ${row.summary}. Result: ${result}`;
   } catch (error) {
     if (error instanceof OperationOutcomeUnknown) {
       client.sql.exec("UPDATE poppy_approvals SET status = 'unknown', result = ? WHERE id = ?", error.message, id);
@@ -615,6 +661,10 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
     await card("failed", message);
     return `[system] The approved action failed: ${row.summary}. ${message}`;
   }
+  // A receipt failure cannot change a completed business action into a failed one.
+  client.sql.exec("UPDATE poppy_approvals SET status = 'done', result = ? WHERE id = ?", result, id);
+  await card("done", result);
+  return `[system] Done, as the User approved: ${row.summary}. Result: ${result}`;
 }
 
 /** Decide one local approval, from its own card, and tell the model what happened. */
@@ -669,8 +719,10 @@ export async function decideLocalBatch(client: PoppyClient, decisions: readonly 
       const notice = await decideOne(client, item.approvalId, item.decision);
       if (notice) lines.push(notice.replace(/^\[system\] /, ""));
     } catch (error) {
-      // One that couldn't be decided doesn't stop the rest; the model hears why.
-      lines.push(`This one couldn't be decided (${error instanceof PoppyError ? error.code : "error"}): ${item.row.summary}`);
+      // Publication can fail after the action committed. Report its durable outcome, never undo it.
+      const committed = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", item.approvalId);
+      if (committed && finishedApproval(committed.status)) lines.push(recoveredDecisionNotice(client, committed).replace(/^\[system\] /, ""));
+      else lines.push(`This one couldn't be decided (${error instanceof PoppyError ? error.code : "error"}): ${item.row.summary}`);
     }
   }
   await settleTermsApprovals(client);
@@ -678,14 +730,21 @@ export async function decideLocalBatch(client: PoppyClient, decisions: readonly 
 }
 
 async function tellBatch(client: PoppyClient, batch: string, lines: readonly string[]): Promise<void> {
-  if (lines.length) {
-    await client.host.notifyModel(
-      `[system] The User decided ${lines.length === 1 ? "this request" : `${lines.length} requests together`} on one card:\n${lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}`,
-      `poppy-approvals-${batch}`
-    );
+  for (const row of rows(client.sql, approvalsTable.pick("id"),
+    "SELECT id FROM poppy_approvals WHERE id IN (SELECT value FROM json_each((SELECT ids FROM poppy_approval_batches WHERE id = ?)))", batch)) {
+    await repairTerminalApprovalCard(client, row.id);
   }
-  client.sql.exec("UPDATE poppy_approval_batches SET told = 1 WHERE id = ?", batch);
-  client.sql.exec("UPDATE poppy_approvals SET notification_pending = 0 WHERE id IN (SELECT value FROM json_each((SELECT ids FROM poppy_approval_batches WHERE id = ?)))", batch);
+  if (lines.length) {
+    const notification = { v: 1, id: `poppy-approvals-${batch}`, text: `[system] The User decided ${lines.length === 1 ? "this request" : `${lines.length} requests together`} on one card:\n${lines.map((line, index) => `${index + 1}. ${line}`).join("\n")}` };
+    client.sql.exec("UPDATE poppy_approval_batches SET notification = ? WHERE id = ? AND notification IS NULL", JSON.stringify(notification), batch);
+  }
+  const saved = one(client.sql, approvalBatchesTable.pick("notification"), "SELECT notification FROM poppy_approval_batches WHERE id = ?", batch)?.notification;
+  const acknowledge = () => {
+    client.sql.exec("UPDATE poppy_approval_batches SET told = 1 WHERE id = ?", batch);
+    client.sql.exec("UPDATE poppy_approvals SET notification_pending = 0 WHERE id IN (SELECT value FROM json_each((SELECT ids FROM poppy_approval_batches WHERE id = ?)))", batch);
+  };
+  if (saved) await deliverSavedNotification(client, saved, acknowledge);
+  else acknowledge();
 }
 
 const BATCH_STATUS: Record<string, string> = {
@@ -704,7 +763,11 @@ const BATCH_STATUS: Record<string, string> = {
  */
 export async function recoverApprovalBatches(client: PoppyClient): Promise<void> {
   await settleTermsApprovals(client);
-  for (const batch of rows(client.sql, approvalBatchesTable.pick("id", "ids"), "SELECT id, ids FROM poppy_approval_batches WHERE told = 0")) {
+  for (const batch of rows(client.sql, approvalBatchesTable.pick("id", "ids", "notification"), "SELECT id, ids, notification FROM poppy_approval_batches WHERE told = 0")) {
+    if (batch.notification) {
+      await tellBatch(client, batch.id, []);
+      continue;
+    }
     let ids: unknown;
     try {
       ids = JSON.parse(batch.ids);
@@ -772,9 +835,13 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
   }
   await settleTermsApprovals(client);
   for (const row of rows(client.sql, approvalsTable.pick("id"), "SELECT id FROM poppy_approvals WHERE notification_pending = 1")) {
+    await repairTerminalApprovalCard(client, row.id);
     if (!batched.has(row.id)) await notifyApprovalDecision(client, row.id);
   }
   for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'unknown' AND outcome_resolution IS NOT NULL")) {
     await showResolvedApprovalCard(client, row.id, { repair: true });
+  }
+  for (const row of rows(client.sql, approvalsTable.pick("id"), "SELECT id FROM poppy_approvals WHERE resolution_notification_pending = 1")) {
+    await deliverApprovalNotification(client, row.id, "resolution");
   }
 }

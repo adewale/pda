@@ -34,6 +34,7 @@ function fixture(stage?: "authorize" | "post", restart = false) {
     sql, host: { showCard: async () => {}, notifyModel: async () => {} },
     rememberCompany: () => {}, resumeCompany: async () => COMPANY,
     session: () => state,
+    accountGeneration: () => 0,
     token: async () => null,
     beforeRequest: async () => {},
     pageLimited: async () => false,

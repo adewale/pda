@@ -43,7 +43,7 @@ const approvalRow = object({
 
 const signInRow = signInsTable.pick("id", "type", "issuer", "account", "scopes", "status", "expires_at", "created_at");
 
-const conversationRow = conversationsTable.pick("id", "issuer", "quarantined", "direct", "status", "responder", "last_event_at", "created_at");
+const conversationRow = conversationsTable.pick("id", "issuer", "quarantined", "retired_at", "direct", "status", "responder", "last_event_at", "created_at");
 
 /** A reminder or task that ran (src/tools/schedule-store.ts `schedule_runs`). */
 const scheduleRunRow = object({ id: integer, kind: text, text, ran_at: integer, outcome: text, detail: nullable(text) });
@@ -329,7 +329,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   }
 
   // Conversations with the Company's agent, and Direct Conversations.
-  const conversationColumns = "id, issuer, quarantined, direct, status, responder, last_event_at, created_at";
+  const conversationColumns = "id, issuer, quarantined, retired_at, direct, status, responder, last_event_at, created_at";
   for (const row of rows(sql, conversationRow, ...newest("poppy_conversations", conversationColumns, "created_at"))) {
     if (row.quarantined) continue;
     const company = name(row.issuer);
@@ -344,7 +344,8 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       how: row.direct ? "direct" : "company_agent",
       access: null,
       decidedBy: row.direct ? "you" : null,
-      result: row.status !== "closed" ? "in_progress" : "done"
+      result: row.retired_at !== null ? "unknown" : row.status !== "closed" ? "in_progress" : "done",
+      ...(row.retired_at !== null ? { outcome: "This conversation was stopped locally after a protocol update. Nothing was cancelled or confirmed at the Company; earlier messages were retained.", outcomeBy: "agent" as const } : {})
     });
   }
   for (const row of rows(sql, conversationRow, `SELECT ${conversationColumns} FROM poppy_conversations WHERE status != 'closed' AND quarantined = 0`)) {

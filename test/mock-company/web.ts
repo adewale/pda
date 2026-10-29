@@ -12,6 +12,8 @@ const DEFAULT_CACHING: Readonly<Record<string, string>> = { "Cache-Control": "ma
 
 /** Discovery documents, the website, and the browser join (sections 3 and 6). */
 export class Web {
+  /** A report belongs to the verified Personal Agent and User, not every visitor to the Company. */
+  readonly #reportedTasks = new Set<string>();
   /** Browser cookie value → Session id. */
   readonly #cookies = new Map<string, string>();
   /** What each Session cookie acts for, as authorized in step 2 (6: "MUST act for the account and scopes authorized"). */
@@ -130,13 +132,15 @@ export class Web {
       return json({ error: "invalid_request" }, 400);
     }
     if ("kind" in report) co.violation("feedback.kind", "feedback report: kind is 0.2's; 0.3 removed it (9.3)");
-    const phrase = task.toLowerCase().trim();
+    const phrase = task.toLowerCase().trim().replace(/\s+/g, " ").replace(/[.!?]+$/, "");
     if (co.config.excludedTasks && EXCLUDED.some((entry) => entry.task.toLowerCase() === phrase)) {
       co.violation("feedback.excluded-task", `feedback report about ${JSON.stringify(task)}, which the Company lists as excluded`);
     }
-    if (co.feedback.some((entry) => entry.task.toLowerCase().trim() === phrase)) {
+    const reportKey = JSON.stringify([context.session.clientId, context.session.userId, phrase]);
+    if (this.#reportedTasks.has(reportKey)) {
       co.violation("feedback.repeated", `a second feedback report about ${JSON.stringify(task)}`);
     }
+    this.#reportedTasks.add(reportKey);
     co.feedback.push({ task, signedIn: context.signedIn });
     if (co.config.feedbackAlternative) {
       return json({ instructions: "Gift cards are applied at checkout on the website.", references: [{ type: "web", url: `${co.hosts.web}/checkout` }] });

@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS poppy_conversations (
   issuer TEXT NOT NULL,
   remote_id TEXT NOT NULL DEFAULT '',
   quarantined INTEGER NOT NULL DEFAULT 0,
+  retired_at INTEGER,
   label TEXT NOT NULL,
   parent TEXT,
   direct INTEGER NOT NULL,
@@ -142,6 +143,8 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   action_identity_checked INTEGER NOT NULL DEFAULT 0,
   notification_pending INTEGER NOT NULL DEFAULT 0,
   notification TEXT,
+  resolution_notification_pending INTEGER NOT NULL DEFAULT 0,
+  resolution_notification TEXT,
   outcome_resolution TEXT,
   outcome_resolved_at INTEGER
 );
@@ -151,7 +154,8 @@ CREATE TABLE IF NOT EXISTS poppy_approval_batches (
   id TEXT PRIMARY KEY,
   ids TEXT NOT NULL,
   told INTEGER NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  notification TEXT
 );
 CREATE TABLE IF NOT EXISTS poppy_intents (
   call_key TEXT PRIMARY KEY,
@@ -197,6 +201,10 @@ export function migrate(sql: Sql): void {
   if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "authority_generation")) {
     sql.exec("ALTER TABLE poppy_sessions ADD COLUMN authority_generation INTEGER NOT NULL DEFAULT 0");
   }
+  // Local retirement is distinct from the Company confirming a conversation closed.
+  if (!sql.exec("PRAGMA table_info(poppy_conversations)").toArray().some(column => column.name === "retired_at")) {
+    sql.exec("ALTER TABLE poppy_conversations ADD COLUMN retired_at INTEGER");
+  }
   // Agents created before 28 October 2026: what an approval card shows of a Company's terms (Ops 5).
   if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some((column) => column.name === "terms")) {
     sql.exec("ALTER TABLE poppy_approvals ADD COLUMN terms TEXT");
@@ -223,9 +231,17 @@ export function migrate(sql: Sql): void {
   }
   sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_notification ON poppy_approvals (id) WHERE notification_pending = 1");
   if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "notification")) sql.exec("ALTER TABLE poppy_approvals ADD COLUMN notification TEXT");
+  // Only new User reconciliations arm this outbox; historical checked outcomes were already reported.
+  if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "resolution_notification_pending")) {
+    sql.exec("ALTER TABLE poppy_approvals ADD COLUMN resolution_notification_pending INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "resolution_notification")) sql.exec("ALTER TABLE poppy_approvals ADD COLUMN resolution_notification TEXT");
+  sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_resolution_notification ON poppy_approvals (id) WHERE resolution_notification_pending = 1");
+  if (!sql.exec("PRAGMA table_info(poppy_approval_batches)").toArray().some(column => column.name === "notification")) sql.exec("ALTER TABLE poppy_approval_batches ADD COLUMN notification TEXT");
   retireIncompatibleSignIns(sql);
   retireOperationCards(sql);
   migrateConversationIdentity(sql);
+  retireIncompatibleConversations(sql);
   // After the tables its triggers watch.
   migrateProtocolLog(sql);
 }
@@ -277,6 +293,45 @@ function retireOperationCards(sql: Sql): void {
     };
     // Do not bring every historical receipt back into the last-hour card list.
     sql.exec("UPDATE poppy_cards SET card = ?, open = 0, updated_at = ? WHERE id = ?", JSON.stringify(card), row.open ? Date.now() : row.updated_at, row.id);
+  }
+}
+
+/** Retired wire versions must not leave uncloseable conversations and read jobs running forever. */
+function retireIncompatibleConversations(sql: Sql): void {
+  const read = (value: unknown): Record<string, unknown> | undefined => {
+    if (typeof value !== "string") return undefined;
+    try { const parsed: unknown = JSON.parse(value); return isObject(parsed) ? parsed : undefined; }
+    catch { return undefined; }
+  };
+  const supported = (company: Record<string, unknown> | undefined): boolean => company !== undefined &&
+    typeof company.protocolVersion === "string" && supportsProtocol(company.protocolVersion) &&
+    (company.specificationRevision === undefined || company.specificationRevision === protocolRevision(company.protocolVersion));
+  const open = sql.exec(`SELECT c.id, c.issuer, t.company FROM poppy_conversations c
+    LEFT JOIN poppy_task_contexts t ON t.kind = 'conversation' AND t.task_id = c.id AND t.issuer = c.issuer
+    WHERE c.status != 'closed' AND c.quarantined = 0`).toArray();
+  for (const row of open) {
+    let company = read(row.company);
+    if (row.company === null) {
+      // Before immutable contexts, resumeCompany used the single known Company domain.
+      const cached = sql.exec("SELECT company FROM poppy_domains WHERE issuer = ?", row.issuer).toArray().map(value => read(value.company));
+      if (cached.length && cached.every(supported) && new Set(cached.map(value => value?.domain)).size === 1) continue;
+      company = cached.find(value => value !== undefined);
+    } else if (supported(company)) continue;
+    const at = Date.now();
+    const notice = {
+      id: `conversation-retired-${row.id}`, kind: "notice", open: false,
+      company: typeof company?.name === "string" ? company.name : String(row.issuer),
+      ...(typeof company?.domain === "string" ? { domain: company.domain } : {}),
+      text: "This earlier conversation was stopped locally because its protocol context could not be resumed after the update. This did not cancel or confirm anything at the Company. Earlier messages and pending-message evidence were kept; no messages were resent. Start a new conversation if you still need help."
+    };
+    // Keep one explanation with its original age even if migration is interrupted before closing the row.
+    sql.exec("INSERT OR IGNORE INTO poppy_cards (id, card, open, updated_at) VALUES (?, ?, 0, ?)", notice.id, JSON.stringify(notice), at);
+    for (const card of sql.exec(`SELECT id FROM poppy_cards WHERE json_valid(card) AND json_extract(card, '$.kind') = 'direct_invite'
+      AND json_extract(card, '$.conversationId') = ?`, row.id)) {
+      sql.exec("UPDATE poppy_cards SET card = ?, open = 0, updated_at = 0 WHERE id = ?", JSON.stringify({ ...notice, id: String(card.id) }), card.id);
+    }
+    // Preserve the cursor, context, inbox, outgoing messages and immutable Company context as evidence.
+    sql.exec("UPDATE poppy_conversations SET status = 'closed', retired_at = ? WHERE id = ? AND status != 'closed'", at, row.id);
   }
 }
 
@@ -387,6 +442,7 @@ export const conversationsTable = table("poppy_conversations", {
   issuer: issuerColumn,
   remote_id: text,
   quarantined: integerOf(flag),
+  retired_at: nullable(integer),
   label: text,
   parent: nullable(text),
   direct: integer,
@@ -402,6 +458,7 @@ export const conversationMigrationTable = table("poppy_conversation_migration", 
 export const eventsTable = table("poppy_events", { conversation_id: text, event_id: text });
 export const inboxTable = table("poppy_inbox", { seq: integer, conversation_id: text, event: text, created_at: integer });
 export const messagesTable = table("poppy_messages", { id: text, issuer: issuerColumn, conversation_id: nullable(text), body: text, created_at: integer });
+const savedApprovalNotification = textOf(jsonText(object({ v: literal(1), id: string, text: string })));
 export const approvalsTable = table("poppy_approvals", {
   id: text,
   issuer: issuerColumn,
@@ -418,11 +475,13 @@ export const approvalsTable = table("poppy_approvals", {
   operation_id: nullable(text),
   action_identity_checked: integerOf(flag),
   notification_pending: integerOf(flag),
-  notification: nullable(textOf(jsonText(object({ v: literal(1), id: string, text: string })))),
+  notification: nullable(savedApprovalNotification),
+  resolution_notification_pending: integerOf(flag),
+  resolution_notification: nullable(savedApprovalNotification),
   outcome_resolution: nullable(textOf(literal("performed", "not_performed"))),
   outcome_resolved_at: nullable(integer)
 });
-export const approvalBatchesTable = table("poppy_approval_batches", { id: text, ids: text, told: integer, created_at: integer });
+export const approvalBatchesTable = table("poppy_approval_batches", { id: text, ids: text, told: integer, created_at: integer, notification: nullable(savedApprovalNotification) });
 export const intentsTable = table("poppy_intents", { call_key: text, value: text, created_at: integer });
 export const cardsTable = table("poppy_cards", { card: text, id: text, open: integer, updated_at: integer });
 
