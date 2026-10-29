@@ -4,28 +4,40 @@ from types import SimpleNamespace as NS
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from machine import ApiRules, Base
+from machine import READ, ApiRules, Base
 from test_mcp_browsing import BrowsingRules
-from test_operations import OperationsRules
+from test_operations import MOperation, OperationsRules
 
 
-def test_pending_exchange_reserves_only_its_item_and_releases_it_on_cancellation():
+def test_who_may_approve_an_operation():
+    """Ops 3: signed in, any of the User's Sessions signed in to its account; signed out, only its own Session."""
     model = OperationsRules()
     model.init_operations()
-    pending = NS(kind="exchange", account="acct_ada", state="in_progress", pending=True)
-    other_user = NS(kind="exchange", account="acct_ada", state="proposed", pending=False)
-    other_account = NS(kind="exchange", account="acct_grace", state="proposed", pending=False)
-    prints = NS(kind="prints", account="acct_ada", state="proposed", pending=False)
-    model.operations = [pending, other_user, other_account, prints]
-    model.usable_pairs = lambda operations: [(op, None) for op in operations]
-    # Retrying the pending confirm remains valid, as do independent business actions.
-    assert model.confirmable() == [(pending, None), (other_account, None), (prints, None)]
-    assert not model.item_available(other_user)  # also used by website confirmation
-    pending.state, pending.pending = "cancelled", False
-    assert model.item_available(other_user)
-    assert (other_user, None) in model.confirmable()
-    model.exchanged.add("acct_ada")
-    assert not model.item_available(other_user)
+    ada, grace = NS(), NS()
+    own = NS(user=ada, account=None, ended=False)
+    other_session = NS(user=ada, account=None, ended=False)
+    signed_in = NS(user=ada, account="acct_ada", ended=False)
+    other_user = NS(user=grace, account="acct_ada", ended=False)
+    signed_out_op = MOperation("prt_1", "prints", "prints", "{}", ada, None, own)
+    account_op = MOperation("exc_1", "exchange", "api", "{}", ada, "acct_ada", own)
+    assert model.can_approve(signed_out_op, own) and not model.can_approve(signed_out_op, other_session)
+    assert model.can_approve(account_op, signed_in) and not model.can_approve(account_op, own)
+    assert not model.can_approve(account_op, other_user), "another User signed in to the same account"
+    signed_in.ended = True
+    assert not model.can_approve(account_op, signed_in)
+
+
+def test_an_approval_again_must_get_the_first_response():
+    """Ops 7: the second approval's response is compared with the first, and a different one fails."""
+    model = OperationsRules()
+    model.init_operations()
+    model.violation = lambda violation_id: None
+    op = MOperation("exc_1", "exchange", "api", "{}", NS(), "acct_ada", NS())
+    model.perform(op, {"exchange": {"exchange_id": "exc_1"}})
+    model.perform(op, {"exchange": {"exchange_id": "exc_1"}})
+    assert model.performs == 1
+    with pytest.raises(AssertionError):
+        model.perform(op, {"exchange": {"exchange_id": "exc_2"}})
 
 
 @pytest.mark.parametrize("body", [
@@ -35,9 +47,9 @@ def test_pending_exchange_reserves_only_its_item_and_releases_it_on_cancellation
 @settings(max_examples=1, database=None)
 @given(data=st.data())
 def test_orders_oracle_rejects_missing_fixture_or_wrong_owner(body, data):
-    ms = NS(session=NS(), account="acct_ada", token_scope={"poppy:read"})
+    ms = NS(session=NS(), account="acct_ada", token_scope={READ})
     reply = NS(status=200, error=None, body=body, text=str(body))
-    model = NS(live=lambda: [ms], api_ops=[("/orders", ["poppy:read"])],
+    model = NS(live=lambda: [ms], api_ops=[("/orders", [READ])], touch=lambda *args: None,
                api_base="https://api.company.test", co=NS(), poppy=NS(resource=lambda *args: reply))
     with pytest.raises(AssertionError):
         ApiRules.call_api(model, data)
@@ -45,11 +57,11 @@ def test_orders_oracle_rejects_missing_fixture_or_wrong_owner(body, data):
     ApiRules.call_api(model, data)
 
 
-@pytest.mark.parametrize("field,value", [("account", "acct_grace"), ("signedIn", False), ("userId", "usr_other"), ("ended", True)])
+@pytest.mark.parametrize("field,value", [("account", "acct_grace"), ("signedIn", False), ("userId", "usr_other"), ("ended", True), ("sid", "sid_other")])
 def test_session_oracle_compares_each_identity_and_state_field(field, value):
-    ms = NS(session=NS(session_id="ses_1"), user=NS(user=NS(user_id="usr_ada")), ended=False, account="acct_ada")
-    state = {"id": "ses_1", "ended": False, "account": "acct_ada", "signedIn": True, "userId": "usr_ada"}
-    model = NS(company=True, server=NS(state=lambda: {"sessions": [state]}), sessions_started={"ses_1"}, users=[NS(sessions=[ms])])
+    ms = NS(session=NS(sid="sid_1"), user=NS(user=NS(user_id="usr_ada")), seen=True, ended=False, remote_account="acct_ada")
+    state = {"sid": "sid_1", "ended": False, "account": "acct_ada", "signedIn": True, "userId": "usr_ada"}
+    model = NS(company=True, server=NS(state=lambda: {"sessions": [state]}), other_sids=set(), all_sessions=lambda: [ms])
     Base.sessions_match_the_model(model)
     state[field] = value
     with pytest.raises(AssertionError):
@@ -65,8 +77,8 @@ def test_session_oracle_compares_each_identity_and_state_field(field, value):
 @given(data=st.data())
 def test_signed_out_browser_oracle_rejects_private_content(body, data):
     browser = NS(get=lambda url: NS(status_code=200, text=body))
-    ms = NS(browser=browser, joined=True, ended=False, account=None, grant=None)
-    model = NS(users=[NS(sessions=[ms])])
+    ms = NS(browser=browser, joined=True, ended=False, joined_as=None, joined_grant=None, joined_scope=frozenset())
+    model = NS(all_sessions=lambda: [ms])
     with pytest.raises(AssertionError):
         BrowsingRules.browse(model, data)
     browser.get = lambda url: NS(status_code=200, text="<p>Signed out</p><p>Sign in to continue.</p>")

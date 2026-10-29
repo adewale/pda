@@ -1,5 +1,5 @@
 """
-Rate limits (4.3) and Device Sign-In's polling (4.6, RFC 8628 3.4, 3.5),
+Rate limits (5.6) and Device Sign-In's polling (4.3, RFC 8628 3.4, 3.5),
 both on the agent's clock (poppy_client.Clock), which moves only when the
 agent waits, so every timing here is exact and costs nothing.
 
@@ -8,14 +8,15 @@ token or resource requests with 429 and `Retry-After`. The model replays
 the Company's limiter over every request the client sent and holds each
 answer to it: which got 429, with which `Retry-After`. The client shares
 one limiter for the Company (Guides "Rate limits"), so after a 429 it sends
-nothing until the `Retry-After` has passed; the MUST (4.3) is that it
+nothing until the `Retry-After` has passed; the MUST (5.6) is that it
 doesn't send *the request* again sooner. The reject rules resend the same
 request too soon, and send a different one.
 
 Device Sign-In: polls every `interval` seconds, `slow_down` adds 5 seconds
 for this and every later poll, and polling stops after a final answer
 (`access_denied`, `expired_token`, or the tokens). The model tracks each
-device request through the User's decision, the clock and the polls.
+device request through the User's decision, the clock and the polls; the
+tokens go to a Session as any sign-in's do (5.4: a sign-in names no Session).
 """
 
 from __future__ import annotations
@@ -27,9 +28,9 @@ from dataclasses import dataclass
 from hypothesis import strategies as st
 from hypothesis.stateful import invariant, precondition, rule, run_state_machine_as_test
 
-from machine import ApiRules, Base, MGrant, MSession, MUser, SessionRules, WarmUp, expect, reached
+from machine import DEVICE_GRANTS, ApiRules, Base, MGrant, MUser, SessionRules, WarmUp, expect, reached
 from mock_server import MockServer
-from poppy_client import Exchange, Session
+from poppy_client import Exchange, random_id
 from strategies import CONFIGS
 
 LIMITS_CONFIGS = st.tuples(
@@ -42,22 +43,20 @@ def limit_kind(exchange: Exchange) -> str | None:
     """
     Which of the mock's limits a request counts against (its `rateLimit`
     calls in test/mock-company): `token` for the token, device and
-    revocation endpoints; `other` for API, conversation, operations,
-    Mediated Sign-In and MCP requests; `page` for the website; none for
-    discovery, metadata and the browser join.
+    revocation endpoints (Mediated Sign-In among them, a grant there);
+    `other` for API, conversation, feedback and MCP requests; `page` for the
+    website; none for discovery, metadata and the browser join.
     """
     parts = urllib.parse.urlsplit(exchange.url)
     sub = (parts.hostname or "").split(".")[0]
     path, method = parts.path, exchange.method
     if sub == "auth":
-        if method == "POST" and path in ("/oauth/token", "/oauth/revoke", "/oauth/device"):
-            return "token"
-        return "other" if method == "POST" and path.startswith("/poppy/sign-in") else None
+        return "token" if method == "POST" and path in ("/oauth/token", "/oauth/revoke", "/oauth/device") else None
     if sub == "mcp":
         return "other" if path == "/mcp" else None
     if sub == "api":
-        return None if (method == "GET" and path == "/openapi.json") else "other"
-    if sub == "cdn" or path in ("/.well-known/poppy.json", "/poppy/browser-session"):
+        return None if (method == "GET" and (path == "/openapi.json" or path.startswith("/.well-known/"))) else "other"
+    if sub == "cdn" or path.startswith("/.well-known/") or path.startswith("/poppy/browser-session") or path == "/poppy/excluded-tasks.json":
         return None
     return "page" if method == "GET" or (method == "POST" and path == "/account/address") else None
 
@@ -69,13 +68,14 @@ class MDevice:
     user_code: str
     interval: int  # seconds, plus 5 for every slow_down (RFC 8628 3.5)
     expires_at_ms: int
-    scopes: list[str]
+    scopes: list[str]  # as requested
+    grantable: list[str]  # what of them Device Sign-In can grant (RFC 6749 3.3)
     decision: str = "pending"  # pending, approved, denied, done
     account: str | None = None
     granted: list[str] | None = None
     last_poll_ms: int | None = None
     slowed: bool = False
-    final: str | None = None  # the final answer the agent got: it stops polling (4.6)
+    final: str | None = None  # the final answer the agent got: it stops polling (4.3)
 
 
 class LimitRules:
@@ -102,7 +102,7 @@ class LimitRules:
         step: a request inside an earlier `Retry-After` is 429 with what is
         left of it; otherwise it counts against its limit, and the first n
         after the hook are 429 with the hook's `Retry-After`. Every 429
-        carries `Retry-After` (4.3).
+        carries `Retry-After` (5.6).
         """
         if self.company is None:
             return
@@ -126,7 +126,7 @@ class LimitRules:
             else:
                 assert exchange.status != 429, f"{exchange.method} {exchange.url}: 429 the model didn't expect"
 
-    # ---- rate limits (4.3) ----
+    # ---- rate limits (5.6) ----
 
     @precondition(lambda self: self.company is not None)
     @rule(data=st.data())
@@ -146,7 +146,7 @@ class LimitRules:
     def resend_too_soon(self, data: st.DataObject) -> None:
         """
         Reject: the Personal Agent MUST wait at least `Retry-After` before
-        sending the request again (4.3). The same request resent at once is
+        sending the request again (5.6). The same request resent at once is
         429 again, and recorded; after the wait it goes through.
         """
         ms = data.draw(st.sampled_from(self.live()))
@@ -166,13 +166,15 @@ class LimitRules:
             self.violation("rate-limit.retry-after-ignored")
         finally:
             self.transport.ignore_limits = False
-        expect(self.poppy.resource(ms.session, "GET", url, self.co), 200)
+        reply = self.poppy.resource(ms.session, "GET", url, self.co)
+        self.touch(ms, reply)
+        expect(reply, 200)
 
     @precondition(lambda self: self.live())
     @rule(data=st.data())
     def another_request_inside_retry_after(self, data: st.DataObject) -> None:
         """
-        4.3's MUST is about sending *the request* again. After a 429 on a
+        5.6's MUST is about sending *the request* again. After a 429 on a
         token request, a different request (an API read) inside its
         `Retry-After` breaks only the Guides' advice to share a Company's
         limits across tasks: the Company may still answer 429, and records
@@ -187,28 +189,32 @@ class LimitRules:
         self.retry_after_s = retry_after
         self.transport.ignore_limits = True
         try:
-            expect(self.poppy.start_session(self.co, ms.user.user, retry_limited=False), 429)
+            form = {"token": random_id("rt_"), "token_type_hint": "refresh_token"}
+            expect(self.poppy.token_request(self.co, None, form, endpoint=self.co.revocation_endpoint, dpop=False, retry_limited=False), 429)
             self.too_soon_allowed += 1
             expect(self.poppy.resource(ms.session, "GET", self.api_base + "/products", self.co, retry_limited=False), 429)
             self.violation("rate-limit.shared-limit-ignored")
         finally:
             self.transport.ignore_limits = False
 
-    # ---- Device Sign-In polling (4.6) ----
+    # ---- Device Sign-In polling (4.3) ----
 
     @precondition(lambda self: self.co.offered("device"))
     @rule(data=st.data())
     def device_start(self, data: st.DataObject) -> None:
-        """4.6 step 1: the device authorization response has the codes, `verification_uri`, `expires_in` and, here, `interval`."""
+        """4.3 step 1: the device authorization response has the codes, `verification_uri`, `expires_in` and, here, `interval`."""
         mu = data.draw(st.sampled_from(self.users))
-        offered = self.co.offered("device")
-        scopes = data.draw(st.lists(st.sampled_from(offered), min_size=1, unique=True))
+        scopes = data.draw(st.lists(st.sampled_from(self.co.offered("device")), min_size=1, unique=True))
+        grantable = [scope for scope in scopes if scope in DEVICE_GRANTS]
+        if not grantable:
+            expect(self.poppy.device_start(self.co, scopes), 400, "invalid_scope")
+            return
         body = expect(self.poppy.device_start(self.co, scopes), 200).body
         for name in ("device_code", "user_code", "verification_uri", "expires_in"):
             assert name in body, f"device authorization response without {name} (RFC 8628 3.2)"
         at = self.transport.log[-1].at_ms
         interval = body.get("interval", 5)  # RFC 8628 3.2: 5 seconds when absent
-        device = MDevice(mu, body["device_code"], body["user_code"], interval, at + body["expires_in"] * 1000, scopes)
+        device = MDevice(mu, body["device_code"], body["user_code"], interval, at + body["expires_in"] * 1000, scopes, grantable)
         self.devices.append(device)
         # The User may act on the code at once, or later, between polls (`user_decides`).
         if data.draw(st.booleans(), label="the User acts at once"):
@@ -220,13 +226,13 @@ class LimitRules:
     @precondition(lambda self: self.undecided())
     @rule(data=st.data())
     def user_decides(self, data: st.DataObject) -> None:
-        """4.6 step 2: the User approves some or all of the scopes, for an account, or declines."""
+        """4.3 step 2: the User approves some or all of the scopes, for an account, or declines."""
         self.decide(data, data.draw(st.sampled_from(self.undecided())))
 
     def decide(self, data: st.DataObject, device: MDevice) -> None:
         if data.draw(st.booleans(), label="approve"):
             device.account = data.draw(st.sampled_from(self.fixture["accounts"]))
-            device.granted = data.draw(st.just(device.scopes) | st.lists(st.sampled_from(device.scopes), unique=True))
+            device.granted = data.draw(st.just(device.grantable) | st.lists(st.sampled_from(device.grantable), unique=True))
             self.server.hook("approve_device", user_code=device.user_code, account=device.account, scopes=device.granted)
             device.decision = "approved"
         else:
@@ -239,26 +245,25 @@ class LimitRules:
         """The agent waits: rate limits lapse, devices expire."""
         self.clock.sleep(seconds)
 
-    def pollable(self) -> list[tuple[MDevice, MSession]]:
-        return [(d, s) for d in self.devices if d.final is None for s in self.live(d.user) if not (s.mismatched and d.account not in (None, s.bound))]
+    def pollable(self) -> list[MDevice]:
+        return [d for d in self.devices if d.final is None]
 
     @precondition(lambda self: self.pollable())
     @rule(data=st.data())
     def device_poll(self, data: st.DataObject) -> None:
         """
-        4.6 step 3, honest: every `interval` seconds, until a final answer.
+        4.3 step 3, honest: every `interval` seconds, until a final answer.
         Pending is `authorization_pending`; declined is `access_denied`;
-        past `expires_in`, `expired_token`; approved, the tokens, into this
-        Session (or `account_mismatch` for a Session bound to another
-        account, 4.4, after which the request is still approved).
+        past `expires_in`, `expired_token`; approved, the tokens, for a
+        Session they fit (5.4).
         """
-        device, ms = data.draw(st.sampled_from(self.pollable()))
+        device = data.draw(st.sampled_from(self.pollable()))
         if device.last_poll_ms is not None:
             due = device.last_poll_ms + device.interval * 1000
             if self.clock.now_ms() < due:
                 self.clock.sleep((due - self.clock.now_ms()) / 1000)
-        key = ms.user.user.dpop_key
-        reply = self.poppy.device_poll(self.co, Session(ms.user.user, ms.session.session_id, ms.session.token, key, False), device.device_code)
+        key = device.user.user.dpop_key
+        reply = self.poppy.device_poll(self.co, key, device.device_code)
         at = self.transport.log[-1].at_ms
         if device.decision == "denied":
             expect(reply, 400, "access_denied")
@@ -273,20 +278,17 @@ class LimitRules:
             expect(reply, 400, "authorization_pending")
             return
         assert device.account is not None and device.granted is not None
-        if ms.bound is not None and ms.bound != device.account:
-            expect(reply, 400, "account_mismatch")
-            ms.mismatched = True
-            return
-        body = self.token_body(reply, session_id=ms.session.session_id, signed_in=True, scope=frozenset(device.granted))
-        grant = MGrant(ms.user, device.account, frozenset(device.granted), body["refresh_token"])
-        ms.user.grants.append(grant)
-        self.signed_in(ms, grant, body, key, frozenset(device.granted))
+        body = self.token_body(reply, scope=frozenset(device.granted), sign_in=True, requested=device.scopes)
+        grant = MGrant(device.user, device.account, frozenset(device.granted), body["refresh_token"])
+        device.user.grants.append(grant)
+        ms = self.target_session(data, device.user, device.account)
+        self.set_token(ms, self.token_from(body, grant, frozenset(device.granted), key))
         device.decision, device.final = "done", "done"
 
-    def too_soon(self) -> list[tuple[MDevice, MSession]]:
+    def too_soon(self) -> list[MDevice]:
         return [
-            (d, s)
-            for d, s in self.pollable()
+            d
+            for d in self.pollable()
             if d.decision != "denied" and d.last_poll_ms is not None and self.clock.now_ms() + d.interval * 1000 < d.expires_at_ms
         ]
 
@@ -299,7 +301,7 @@ class LimitRules:
         3.5, MUST); polling too soon again after that is recorded. (The mock
         allows 250 ms of jitter, so the draw stays 300 ms short of the interval.)
         """
-        device, ms = data.draw(st.sampled_from(self.too_soon()))
+        device = data.draw(st.sampled_from(self.too_soon()))
         assert device.last_poll_ms is not None
         self.wait_out_limits()
         elapsed = self.clock.now_ms() - device.last_poll_ms
@@ -308,8 +310,7 @@ class LimitRules:
             self.clock.sleep(data.draw(st.integers(0, early - elapsed)) / 1000)
         if self.clock.now_ms() - device.last_poll_ms >= early:
             return  # time already passed: this poll wouldn't be too soon
-        key = ms.user.user.dpop_key
-        reply = self.poppy.device_poll(self.co, Session(ms.user.user, ms.session.session_id, ms.session.token, key, False), device.device_code)
+        reply = self.poppy.device_poll(self.co, device.user.user.dpop_key, device.device_code)
         expect(reply, 400, "slow_down")
         if device.slowed:
             self.violation("device.too-fast")
@@ -317,14 +318,12 @@ class LimitRules:
         device.interval += 5
         device.last_poll_ms = self.transport.log[-1].at_ms
 
-    @precondition(lambda self: [d for d in self.devices if d.final is not None] and self.live())
+    @precondition(lambda self: [d for d in self.devices if d.final is not None])
     @rule(data=st.data())
     def poll_after_the_end(self, data: st.DataObject) -> None:
-        """Reject: the agent stops asking after `access_denied`, `expired_token` or the tokens (4.6); asking again is recorded."""
+        """Reject: the agent stops asking after `access_denied`, `expired_token` or the tokens (4.3); asking again is recorded."""
         device = data.draw(st.sampled_from([d for d in self.devices if d.final is not None]))
-        ms = data.draw(st.sampled_from(self.live()))
-        key = ms.user.user.dpop_key
-        reply = self.poppy.device_poll(self.co, Session(ms.user.user, ms.session.session_id, ms.session.token, key, False), device.device_code)
+        reply = self.poppy.device_poll(self.co, device.user.user.dpop_key, device.device_code)
         if device.decision == "done":
             expect(reply, 400, "invalid_grant")
             self.violation("device.polled-after-final")

@@ -1,53 +1,58 @@
 """
-The Operations extension (Ops 1 to 9): proposals through every channel the
-mock has (an OpenAPI write, an MCP tool, a Company message, the print
-shop's signed-out order), then approval, confirmation, tracking,
-cancelling, revisions, a confirm on the website, and who may use an
-operation. The model holds each operation's revisions, state, confirmation
-and result, and the mock's count of actions performed.
+The Operations extension, version 2 (Ops 1 to 7): a write that needs the
+User's approval is refused with an operation, through every channel the
+mock has (an OpenAPI write, an MCP tool, a Company message, the print shop's
+order); the same request sent again with an approval of a revision it
+returned is performed, once. The model holds each operation: the request
+and channel that returned it, who may approve it, every revision and its
+terms, whether it was performed and with what response, and how many
+approvals reached it.
 
-Invariants, from the extension's text:
+Invariants, from the extension's text and the mock's record of it:
 
-- each revision is fixed once issued (3.1): a revision seen again has the
-  same summary and terms;
-- a final operation never changes (3);
-- `confirmation` is null until confirmed and then names the revision and
-  how it was approved (3, 5.2); `result` is null until final (3);
-- at most once (Ops 1, 6): the Company performs exactly the actions the
-  model expects, however many times and through whichever channel an
-  operation is confirmed (the mock's `performs`);
-- who may use one (3.2): any Session of the same agent and User signed in
-  to its account, or only its own Session when proposed signed out;
-  anyone else gets `operation_not_found`;
-- no operation reaches an agent that doesn't list the extension (2).
+- a revision is fixed once returned (Ops 3): seen again, it has the same
+  summary and terms;
+- the Company has the operations the model has, each with as many
+  revisions and approvals, performed or not;
+- at most once (Ops 7): the Company performs exactly the actions the model
+  expects (the mock's `performs`), however many times an approved request
+  is sent again, whichever key it carries;
+- who can approve it (Ops 3): the same agent and User, signed in to its
+  account, or, returned signed out, only its own Session; an approval from
+  anyone else is no approval;
+- an approval names a revision the Company returned for exactly that
+  request; anything else gets a new revision, never the one it named (Ops 6);
+- no operation reaches an agent that doesn't list the extension (Ops 2).
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import os
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from hypothesis import assume
 from hypothesis import strategies as st
 from hypothesis.stateful import invariant, precondition, rule, run_state_machine_as_test
 
-from machine import READ, WRITE, Base, MConversation, MSession, MUser, SessionRules, WarmUp, expect, reached
+from machine import WRITE, Base, ConversationRules, MConversation, MSession, MUser, SessionRules, WarmUp, expect, expect_challenge, reached
 from mock_server import MockServer
-from poppy_client import random_id
-from strategies import CONFIGS, serialisations
+from poppy_client import approval_header, random_id
+from strategies import CONFIGS
 
-FINAL = frozenset({"succeeded", "failed", "cancelled", "expired"})
-OPEN = frozenset({"proposed", "in_progress"})
+APPROVAL_META = "personalagentprotocol.org/approval"
+EXCHANGE = {"item_id": "itm_4Qa", "replacement_sku": "stormline-insulated-m"}
+EXCHANGE_ARGS = {"order_id": "ord_7Hk2"} | EXCHANGE
+PHOTO = b"\xff\xd8\xff\xe0" + b"\x00" * 64 + b"\xff\xd9"  # enough of a JPEG for the mock's sniffing
+SHIP_TO = {"name": "Ada Lovelace", "line1": "12 St James's Square", "city": "London", "postal_code": "SW1Y 4JH", "country": "GB"}
 
 OPS_CONFIGS = st.tuples(
     CONFIGS,
     st.fixed_dictionaries(
         {
-            "slowConfirm": st.booleans(),
-            "userApprovalRequired": st.booleans(),
             "requireOperationsExtension": st.booleans(),
-            # Ops 3: an operation_id MAY be the Company's own record's id, any text; the agent encodes it in the path.
+            # Ops 3: an operation_id is the Company's own text; the mock keeps it URL-safe.
             "operationIdPrefix": st.sampled_from([None, "exc_", "booking:", "ord#", "a/b ", "réservation-", "%41"]),
         }
     ),
@@ -58,20 +63,19 @@ OPS_CONFIGS = st.tuples(
 class MOperation:
     id: str
     kind: str  # "exchange" or "prints"
+    channel: str  # "api", "mcp", "conversation" or "prints"
+    request: str  # what the Company compares an approved request with: the body, the tool's arguments, or the conversation
     user: MUser
-    account: str | None  # signed in when proposed: it belongs to the account too (3.2)
-    session: MSession  # the Session it was proposed in
-    user_approval_required: bool
-    revision: int = 1
-    known: int = 1  # the revision the agent has seen, and shown the User
-    revisions: dict[int, tuple[str, Any]] = field(default_factory=dict)  # summary and terms, fixed once issued (3.1)
-    state: str = "proposed"
-    confirmation: dict[str, Any] | None = None
-    confirm_tried: bool = False  # a confirm reached the Company (Ops 6, N34)
-    pending: bool = False  # `slowConfirm`: in_progress until the next read
-    retry_at_ms: int = 0  # Retry-After from the last in_progress answer
-    result: Any = None
-    url: str | None = None  # where the website shows it (Ops 3, 4.4)
+    account: str | None  # signed in when returned: any of the User's Sessions signed in to it may approve it (Ops 3)
+    session: MSession  # the Session it was returned in: the only one that may approve it when signed out
+    revisions: dict[str, tuple[str, Any]] = field(default_factory=dict)  # summary and terms, fixed once returned (Ops 3)
+    latest: str = ""
+    performed: Any = None  # the first response of the approved request (Ops 7)
+    approvals: int = 0  # approvals that reached it: from someone who may approve it, of this kind
+    conversation: MConversation | None = None
+    order: dict[str, Any] | None = None  # a print order, as sent
+    keys: list[tuple[MSession, str]] = field(default_factory=list)  # Idempotency-Keys of requests without an approval that returned it
+    performed_keys: list[str] = field(default_factory=list)  # a print order's keys that got the performed response
 
 
 class OperationsRules:
@@ -80,123 +84,141 @@ class OperationsRules:
     def init_operations(self) -> None:
         self.operations: list[MOperation] = []
         self.performs = 0
-        self.exchanged: set[str] = set()  # accounts whose jacket was exchanged: an item is exchanged once
-        self.exchange_terms: Any = None  # the jacket exchange's terms, as the Company first proposed them
-        self.idempotency: dict[tuple[str, str], tuple[int, str]] = {}  # (Session, key) → (status, operation or exchange id)
-        self.revised = 0
+        self.exchanged: set[str | None] = set()  # accounts whose jacket was exchanged: the item is exchanged once
+        self.photos: dict[MSession, list[str]] = {}
 
-    def can_use(self, op: MOperation, ms: MSession) -> bool:
-        """Ops 3.2: the same agent and User, signed in to its account; signed out, only its own Session."""
-        if ms.user is not op.user:
+    def can_approve(self, op: MOperation, ms: MSession, account: object = ...) -> bool:
+        """Ops 3: the same agent and User, signed in to its account; returned signed out, only its own Session."""
+        acting = ms.account if account is ... else account
+        if ms.user is not op.user or ms.ended:
             return False
-        return ms.account == op.account if op.account is not None else ms is op.session
+        return acting == op.account if op.account is not None else ms is op.session
 
-    def open_exchange_for(self, ms: MSession) -> MOperation | None:
-        """
-        The open jacket exchange this Session's proposal is the same action
-        as (Ops 4: the Company SHOULD return the existing operation): the
-        same User and account, and still the terms first proposed.
-        """
+    def existing(self, kind: str, request: str, ms: MSession, account: str | None) -> MOperation | None:
+        """The first unperformed operation for exactly this request that this Session may approve: the Company returns it again."""
         for op in self.operations:
-            if (
-                op.kind == "exchange"
-                and op.state in OPEN
-                and op.account == ms.account
-                and op.user is ms.user
-                and op.revisions[op.revision][1] == self.exchange_terms
-            ):
+            if op.kind == kind and op.performed is None and op.request == request and self.can_approve(op, ms, account):
                 return op
         return None
 
     def check_operation(self, body: Any, op: MOperation) -> None:
-        """One operation object, held to the model (Ops 3, 5.2)."""
+        """One operation (Ops 3): its id, a revision, a summary, its terms if any, and when it expires."""
         assert isinstance(body, dict), body
-        for name in ("operation_id", "revision", "state", "summary", "confirmation", "result"):
-            assert name in body, f"an operation without {name} (Ops 3): {body}"
-        assert body["operation_id"] == op.id, (body["operation_id"], op.id)
-        assert body["revision"] == op.revision, f"revision {body['revision']}, model {op.revision}"
-        assert body["state"] == op.state, f"{op.id}: state {body['state']}, model {op.state}"
-        assert isinstance(body["summary"], str) and body["summary"], body
-        seen = (body["summary"], body.get("terms"))
-        fixed = op.revisions.setdefault(op.revision, seen)
-        assert seen == fixed, f"revision {op.revision} of {op.id} changed: {fixed} then {seen} (Ops 3.1)"
-        assert body.get("user_approval_required", False) is op.user_approval_required, body
-        if op.state == "proposed":
-            expires = body.get("expires_at")
-            assert isinstance(expires, str), f"a proposed operation without expires_at (Ops 3): {body}"
-            assert dt.datetime.fromisoformat(expires).tzinfo is not None, f"expires_at {expires} isn't RFC 3339 with an offset"
-        if op.confirmation is None:
-            assert body["confirmation"] is None, body
-        else:
-            got = body["confirmation"]
-            assert isinstance(got, dict) and isinstance(got.get("confirmed_at"), str), got
-            assert (got.get("revision"), got.get("approved_by")) == (op.confirmation["revision"], op.confirmation["approved_by"]), (got, op.confirmation)
-        if op.state in OPEN:
-            assert body["result"] is None, f"a result before the operation is final (Ops 3): {body}"
-        else:
-            assert isinstance(body["result"], dict) and isinstance(body["result"].get("summary"), str), body
-            if op.result is not None:
-                assert body["result"] == op.result, "a final operation changed (Ops 3)"
-            op.result = body["result"]
-        if "url" in body and body["url"] is not None:
-            assert self.co.on_own_domain(body["url"]), f"the operation's url isn't on the Company's website: {body['url']}"
-            assert op.url in (None, body["url"]), f"{op.id}'s url changed"
-            op.url = body["url"]
+        assert body.get("operation_id") == op.id, (body, op.id)
+        revision, summary = body.get("revision"), body.get("summary")
+        assert isinstance(revision, str) and revision, body
+        assert isinstance(summary, str) and summary, body
+        terms = body.get("terms")
+        assert terms is None or isinstance(terms, dict), body
+        expires = body.get("expires_at")
+        assert isinstance(expires, str) and dt.datetime.fromisoformat(expires.replace("Z", "+00:00")).tzinfo is not None, body
+        fixed = op.revisions.setdefault(revision, (summary, terms))
+        assert fixed == (summary, terms), f"revision {revision} of {op.id} changed: {fixed} then {(summary, terms)} (Ops 3)"
+        if op.kind == "exchange" and terms is not None:
+            assert terms.get("order_id") == "ord_7Hk2" and terms.get("item_id") == "itm_4Qa", terms
+        if op.kind == "prints":
+            assert terms is not None and terms.get("items") == [{"photo_id": i["photo_id"], "copies": i["copies"]} for i in op.order["items"]], terms  # type: ignore[index]
 
-    def proposed(self, body: Any, ms: MSession, kind: str) -> MOperation:
-        """A proposal: the open one for the same action (Ops 4, 6), or a new operation."""
-        assert isinstance(body, dict), body
-        existing = self.open_exchange_for(ms) if kind == "exchange" else None
-        if existing is not None:
-            assert body["operation_id"] == existing.id, (
-                f"proposed {body['operation_id']}, but {existing.id} is open for the same action, User and account (Ops 4)"
-            )
-            if existing.confirm_tried:
-                # Ops 6: no new proposal until it's final; the reject rule asked on purpose.
-                self.violation("proposal.while-open")
-            existing.known = existing.revision
-            self.check_operation(body, existing)
-            return existing
-        known = {op.id: op for op in self.operations}
-        assert body["operation_id"] not in known, (
-            f"a new proposal for {ms.user.user.user_id} returned {body['operation_id']}, "
-            f"an operation of User {known[body['operation_id']].user.user.user_id} in account {known[body['operation_id']].account} (Ops 3.2)"
-        )
-        assert body["state"] == "proposed" and body["revision"] == 1 and body["confirmation"] is None, body
-        op = MOperation(
-            body["operation_id"],
-            kind,
-            ms.user,
-            ms.account,
-            ms,
-            True if kind == "prints" else self.config["userApprovalRequired"],
-        )
-        if kind == "exchange" and self.exchange_terms is None:
-            self.exchange_terms = body.get("terms")
+    def returned(self, body: Any, *, kind: str, channel: str, request: str, ms: MSession, account: str | None, **extra: Any) -> MOperation:
+        """
+        An operation the Company returned for a request without an approval:
+        the open one for exactly this request and this approver, at its
+        latest revision, or a new one (Ops 4).
+        """
+        assert isinstance(body, dict) and "operation_id" in body, body
+        op = self.existing(kind, request, ms, account)
+        if op is not None:
+            assert body["operation_id"] == op.id, f"returned {body['operation_id']}, but {op.id} is open for the same request and approver"
+            assert body["revision"] == op.latest, f"{op.id}: revision {body['revision']}, not the latest {op.latest}"
+            self.check_operation(body, op)
+            return op
+        known = {o.id: o for o in self.operations}
+        assert body["operation_id"] not in known, f"a new request got {body['operation_id']}, an operation of {known[body['operation_id']].user.user.user_id} (Ops 3)"
+        op = MOperation(body["operation_id"], kind, channel, request, ms.user, account, ms, **extra)
         self.operations.append(op)
         self.check_operation(body, op)
+        op.latest = body["revision"]
+        reached(f"{channel}: new operation")
         return op
 
-    def performed(self, op: MOperation | None, account: str | None = None) -> None:
-        self.performs += 1
-        if op is None or op.kind == "exchange":
-            self.exchanged.add(op.account if op else account)  # type: ignore[arg-type]
+    def revised(self, body: Any, op: MOperation, named: str) -> None:
+        """Ops 6: an approval that can't be used gets a new revision of the operation, never the one it named."""
+        assert isinstance(body, dict) and body.get("operation_id") == op.id, (body, op.id)
+        assert body["revision"] != named and body["revision"] not in op.revisions, f"{op.id}: revision {body['revision']} again"
+        self.check_operation(body, op)
+        op.latest = body["revision"]
 
-    def proposals_allowed(self, ms: MSession) -> bool:
-        """Ops 6: the honest agent doesn't ask again for an action whose operation it tried to confirm, until it's final."""
-        existing = self.open_exchange_for(ms)
-        return existing is None or not existing.confirm_tried
+    def perform(self, op: MOperation, response: Any) -> None:
+        """The approved request was performed: its response is the one every later approval gets (Ops 7)."""
+        if op.performed is None:
+            op.performed = response
+            self.performs += 1
+            if op.kind == "exchange":
+                if op.account in self.exchanged:
+                    self.violation("exchange.performed-twice")
+                self.exchanged.add(op.account)
+        else:
+            assert response == op.performed, f"{op.id}: an approval again got {response}, not the first response {op.performed} (Ops 7)"
 
-    def usable_pairs(self, ops: list[MOperation]) -> list[tuple[MOperation, MSession]]:
-        return [(op, ms) for op in ops for ms in self.live() if self.can_use(op, ms)]
+    def approvable(self, *, honest: bool = True) -> list[tuple[MOperation, MSession]]:
+        """
+        Who may send an approval now: a live Session that may approve it, on
+        its channel (the print order only from the Session holding its
+        photos; a message only where the Session may send to the
+        conversation). The honest agent never approves a second exchange of
+        the same item.
+        """
+        pairs = []
+        for op in self.operations:
+            if honest and op.kind == "exchange" and op.performed is None and op.account in self.exchanged:
+                continue
+            for ms in self.live(op.user):
+                if not self.can_approve(op, ms):
+                    continue
+                if op.channel == "prints" and ms is not op.session:
+                    continue
+                if op.channel in ("api", "mcp") and WRITE not in ms.token_scope:
+                    continue  # the write needs the scope before anything else (7)
+                if op.channel == "conversation" and (op.conversation not in [c for c, s in self.sendable() if s is ms]):
+                    continue
+                pairs.append((op, ms))
+        return pairs
 
-    def exchange_outcome(self, ms: MSession, scope: frozenset[str], account: str | None) -> tuple[int, str | None] | None:
-        """What an exchange write gets before any proposal: sign-in or scope errors (6), or None to go on."""
-        if account is None:
-            return 403, "sign_in_required"
-        if WRITE not in scope:
-            return 403, "insufficient_scope"
-        return None
+    @invariant()
+    def operations_match_the_company(self) -> None:
+        """The Company's operations are the model's: each performed or not, with as many revisions and approvals; and its performs."""
+        if self.company is None:
+            return
+        state = self.server.state()
+        got = {o["id"]: (o["state"], o["revision"], o["confirms"]) for o in state["operations"]}
+        want = {op.id: ("succeeded" if op.performed is not None else "proposed", len(op.revisions), op.approvals) for op in self.operations}
+        assert got == want, f"the Company's operations {got}, the model's {want}"
+        assert state["performs"] == self.performs, f"the Company performed {state['performs']} actions, the model {self.performs} (Ops 7)"
+
+    # ---- requests, by channel ----
+
+    def api_request(self, ms: MSession, body: dict[str, Any], *, key: str | None = None, approval: str | None = None) -> Any:
+        headers = {"Idempotency-Key": key or random_id("idk_")}
+        if approval is not None:
+            headers["Poppy-Approval"] = approval
+        reply = self.poppy.resource(ms.session, "POST", f"{self.api_base}/orders/ord_7Hk2/exchanges", self.co, body=body, headers=headers)
+        self.touch(ms, reply)
+        return reply, headers["Idempotency-Key"]
+
+    def mcp_exchange(self, ms: MSession, *, meta: Any = None, args: dict[str, Any] | None = None) -> Any:
+        return self.mcp_call(ms, "tools/call", {"name": "exchange_item", "arguments": args or EXCHANGE_ARGS}, meta=meta)
+
+    def prints_request(self, ms: MSession, order: dict[str, Any], *, key: str | None = None, approval: str | None = None, raw_key: bool = False) -> Any:
+        headers: dict[str, str] = {} if raw_key and key is None else {"Idempotency-Key": key or random_id("idk_", 16)}
+        if approval is not None:
+            headers["Poppy-Approval"] = approval
+        reply = self.poppy.resource(ms.session, "POST", f"{self.api_base}/prints", self.co, body=order, headers=headers)
+        self.touch(ms, reply)
+        return reply, headers.get("Idempotency-Key")
+
+    def extension_required(self, reply: Any) -> None:
+        expect(reply, 403, "extension_required")
+        assert 'extension="operations"' in reply.headers.get("www-authenticate", ""), reply.headers
 
     # ---- proposing (Ops 4) ----
 
@@ -204,447 +226,325 @@ class OperationsRules:
     @rule(data=st.data())
     def propose_by_api(self, data: st.DataObject) -> None:
         """
-        Ops 4.1: the exchange write answers 202 with the operation. An agent
-        without the extension gets the action done (201) or
-        `extension_required` (Ops 2). A retry with the same
-        `Idempotency-Key` answers for the same operation or exchange (Guides).
+        Ops 4: the exchange write is refused with `approval_required` and the
+        operation. Signed out, a challenge; without the scope,
+        `insufficient_scope` (7). An agent without the extension gets the
+        exchange done (201), or `extension_required` naming it (3.3).
         """
         ms = data.draw(st.sampled_from(self.live()))
-        keys = [key for (sid, key) in self.idempotency if sid == ms.session.session_id]
-        key = data.draw(st.sampled_from(keys) | st.just(random_id("idk_")) if keys else st.just(random_id("idk_")))
-        retry = self.idempotency.get((ms.session.session_id, key))
-        if retry is None and not self.proposals_allowed(ms):
-            reached("reads the open operation instead of asking again")
-            return self.read_one(self.open_exchange_for(ms), ms)
-        if retry is None and not self.agent.lists_operations and ms.account in self.exchanged:
+        if not self.agent.lists_operations and not self.config["requireOperationsExtension"] and ms.account in self.exchanged:
             return  # the jacket was exchanged already: nothing left to ask for
-        reply = self.poppy.exchange(ms.session, self.co, self.api_base, key)
-        outcome = self.exchange_outcome(ms, ms.token_scope, ms.account)
-        if outcome is not None:
-            expect(reply, *outcome)
-            return
-        if retry is not None:
-            expect(reply, retry[0])
-            got = reply.body["operation"]["operation_id"] if "operation" in reply.body else reply.body["exchange"]["exchange_id"]
-            assert got == retry[1], "a retry with the same Idempotency-Key answers for the same request (Guides: Retries)"
-            return
-        if self.agent.lists_operations:
-            expect(reply, 202)
-            op = self.proposed(reply.body["operation"], ms, "exchange")
-            self.idempotency[(ms.session.session_id, key)] = (202, op.id)
-        elif self.config["requireOperationsExtension"]:
-            expect(reply, 403, "extension_required")
-            assert reply.body.get("extension") == "operations", reply.body
+        reply, key = self.api_request(ms, EXCHANGE)
+        if ms.account is None:
+            expect_challenge(reply, [WRITE])
+        elif WRITE not in ms.token_scope:
+            expect(reply, 403, "insufficient_scope")
+        elif not self.agent.lists_operations:
+            if self.config["requireOperationsExtension"]:
+                self.extension_required(reply)
+            else:
+                expect(reply, 201)
+                self.performs += 1
+                self.exchanged.add(ms.account)
         else:
-            expect(reply, 201)
-            assert "operation" not in reply.body, "an operation for an agent that doesn't list the extension (Ops 2)"
-            self.performed(None, ms.account)
-            self.idempotency[(ms.session.session_id, key)] = (201, reply.body["exchange"]["exchange_id"])
+            expect(reply, 403, "approval_required")
+            op = self.returned(reply.body["operation"], kind="exchange", channel="api", request=json.dumps(EXCHANGE), ms=ms, account=ms.account)
+            op.keys.append((ms, key))
 
-    @precondition(lambda self: self.live())
+    @precondition(lambda self: self.co.mcp and any(WRITE in s.token_scope for s in self.live()))
     @rule(data=st.data())
     def propose_by_mcp(self, data: st.DataObject) -> None:
-        """Ops 4.2: the MCP tool returns the operation in `structuredContent`, and the summary as text."""
-        ms = data.draw(st.sampled_from(self.live()))
-        if not self.proposals_allowed(ms):
-            reached("reads the open operation instead of asking again")
-            return self.read_one(self.open_exchange_for(ms), ms)
-        if not self.agent.lists_operations and ms.account in self.exchanged:
+        """Ops 4 at an MCP server: the tool's result is an error that carries the operation in `structuredContent`."""
+        ms = data.draw(st.sampled_from([s for s in self.live() if WRITE in s.token_scope]))
+        if not self.agent.lists_operations and not self.config["requireOperationsExtension"] and ms.account in self.exchanged:
             return
-        args = {"order_id": "ord_7Hk2", "item_id": "itm_4Qa", "replacement_sku": "stormline-insulated-m"}
-        reply = self.mcp_call(ms, "tools/call", {"name": "exchange_item", "arguments": args})
-        assert ms.bearer is not None
-        outcome = self.exchange_outcome(ms, ms.bearer.scope if ms.bearer_account() else frozenset(), ms.bearer_account())
-        if outcome is not None:
-            expect(reply, *outcome)
-            assert reply.headers.get("www-authenticate", "").startswith("Bearer "), reply.headers
-            return
-        if self.agent.lists_operations:
-            expect(reply, 200)
-            result = reply.body["result"]
-            assert any(item.get("type") == "text" for item in result["content"]), result
-            self.proposed(result["structuredContent"]["operation"], ms, "exchange")
-        elif self.config["requireOperationsExtension"]:
-            expect(reply, 403, "extension_required")
-        else:
-            expect(reply, 200)
-            assert "operation" not in reply.body["result"].get("structuredContent", {}), "an operation for an agent that doesn't list the extension (Ops 2)"
-            self.performed(None, ms.account)
-
-    @precondition(lambda self: self.live() and self.co.conversations)
-    @rule(data=st.data())
-    def propose_in_conversation(self, data: st.DataObject) -> None:
-        """
-        Ops 4.3: asked signed in with read and write, the Company Agent's
-        message carries the operation. Signed out, or without those scopes,
-        the Company asks for them with an `authorization` event (7.11).
-        """
-        ms = data.draw(st.sampled_from(self.live()))
-        if not self.proposals_allowed(ms):
-            reached("reads the open operation instead of asking again")
-            return self.read_one(self.open_exchange_for(ms), ms)
-        message = {"id": random_id("msg_"), "sender": data.draw(st.sampled_from(["agent", "human"])), "text": self.fixture["prompts"]["operation"]}
-        reply = expect(self.poppy.post_message(ms.session, self.co, data.draw(serialisations(message)), None), 201)
-        cid = reply.body["conversation_id"]
-        conversation = MConversation(cid, ms.user, sent=[message["id"]])
-        self.conversations.append(conversation)
-        self.accepted(conversation, ms, message, started=True)
-        self.check_status(conversation, reply.body, "a new conversation")
-        if self.config["agentReplies"] and ms.account and {READ, WRITE} <= ms.token_scope:
-            conversation.account = ms.account
-        read, events = self.poppy.read_events(ms.session, self.co, cid, None, stream=False)
-        expect(read, 200)
-        self.absorb(conversation, None, events, read.body)
-        replies = [e["message"] for e in events if e["type"] == "message" and e["message"]["role"] == "company"]
-        if not self.config["agentReplies"]:
-            assert not replies and not [e for e in events if e["type"] == "authorization"], events
-            return
-        if not ms.account or not {READ, WRITE} <= ms.token_scope:
-            asks = [e for e in events if e["type"] == "authorization"]
-            assert len(asks) == 1, events
-            if not ms.account:
-                assert asks[0]["error"] == "sign_in_required", asks
-            else:
-                assert asks[0]["error"] == "insufficient_scope" and set(asks[0]["scope"].split()) == {READ, WRITE}, asks
-            reached("authorization " + asks[0]["error"])
-            return
-        assert len(replies) == 1, events
+        reply = expect(self.mcp_exchange(ms), 200)
+        result = reply.body["result"]
         if not self.agent.lists_operations:
-            assert "operation" not in replies[0], "an operation for an agent that doesn't list the extension (Ops 2)"
+            assert "operation" not in json.dumps(result), "an operation for an agent that doesn't list the extension (Ops 2)"
+            if self.config["requireOperationsExtension"]:
+                assert result.get("isError") is True, result
+            else:
+                self.performs += 1
+                self.exchanged.add(ms.account)
             return
-        self.proposed(replies[0]["operation"], ms, "exchange")
-        reached("operation in a message")
+        assert result.get("isError") is True, f"done before it was approved (Ops 4): {result}"
+        self.returned(result["structuredContent"]["operation"], kind="exchange", channel="mcp", request=json.dumps(EXCHANGE_ARGS), ms=ms, account=ms.account)
+
+    def agent_used_account(self, conversation: MConversation, ms: MSession) -> None:
+        """Ops 4 in a conversation: the Company Agent's answer carries the operation; read it to see it."""
+        if not self.agent.lists_operations:
+            return
+        before = len(conversation.log)
+        self.read_as(conversation, ms, stream=False, from_start=False)
+        carried = [e["message"]["operation"] for e in conversation.log[before:] if e.get("type") == "message" and "operation" in e["message"]]
+        assert len(carried) == 1, f"the Company Agent used the account and returned {len(carried)} operations"
+        self.returned(carried[0], kind="exchange", channel="conversation", request=conversation.id, ms=ms, account=ms.account, conversation=conversation)
 
     @precondition(lambda self: self.live())
     @rule(data=st.data())
-    def propose_prints(self, data: st.DataObject) -> None:
-        """
-        The print shop: a photo uploaded, then an order of prints, which
-        proposes an operation the User must approve themselves
-        (`user_approval_required`). Proposed signed out, it belongs to its
-        Session alone (Ops 3.2).
-        """
+    def upload_photo(self, data: st.DataObject) -> None:
+        """The print shop: a photo, uploaded signed out or in, belongs to the Session."""
         ms = data.draw(st.sampled_from(self.live()))
-        photo = expect(self.poppy.upload_photo(ms.session, self.co, self.api_base, "lake.jpg", b"\xff\xd8\xff\xe0" + os.urandom(64)), 201).body
-        order = {
-            "email": "ada@example.com",
-            "ship_to": {"name": "Ada Lovelace", "line1": "12 St James's Square", "city": "London", "postal_code": "SW1Y 4JH", "country": "GB"},
-            "items": [{"photo_id": photo["id"], "copies": data.draw(st.integers(1, 100))}],
-        }
-        reply = self.poppy.order_prints(ms.session, self.co, self.api_base, order, random_id("idk_"))
+        reply = self.poppy.upload_photo(ms.session, self.co, self.api_base, data.draw(st.sampled_from(["lake.jpg", "dog.jpg"])), PHOTO)
+        self.touch(ms, reply)
+        expect(reply, 201)
+        self.photos.setdefault(ms, []).append(reply.body["id"])
+
+    @precondition(lambda self: [s for s in self.live() if self.photos.get(s)])
+    @rule(data=st.data())
+    def order_prints(self, data: st.DataObject) -> None:
+        """Ops 4, signed out or in: the order's terms come back as an operation; nothing is ordered until it is approved."""
+        ms = data.draw(st.sampled_from([s for s in self.live() if self.photos.get(s)]))
+        photos = data.draw(st.lists(st.sampled_from(self.photos[ms]), min_size=1, max_size=2, unique=True))
+        order = {"email": "ada@example.com", "ship_to": SHIP_TO, "items": [{"photo_id": p, "copies": data.draw(st.integers(1, 3))} for p in photos]}
+        reply, key = self.prints_request(ms, order)
         if not self.agent.lists_operations:
-            expect(reply, 403, "extension_required")
+            self.extension_required(reply)
             return
+        expect(reply, 403, "approval_required")
+        op = self.returned(reply.body["operation"], kind="prints", channel="prints", request=json.dumps(order), ms=ms, account=ms.account, order=order)
+        op.keys.append((ms, key))
+
+    # ---- approving (Ops 6, 7) ----
+
+    def approve_on_channel(self, op: MOperation, ms: MSession, operation_id: str, revision: str, *, key: str | None = None) -> Any:
+        """Send the request that returned `op` again with an approval, on its channel. Returns the reply."""
+        header = approval_header(operation_id, revision)
+        if op.channel == "api":
+            return self.api_request(ms, EXCHANGE, key=key, approval=header)[0]
+        if op.channel == "prints":
+            assert op.order is not None
+            reply, used = self.prints_request(ms, op.order, key=key, approval=header)
+            if reply.status == 201:
+                op.performed_keys.append(used)
+            return reply
+        if op.channel == "mcp":
+            return self.mcp_exchange(ms, meta={APPROVAL_META: {"operation_id": operation_id, "revision": revision}})
+        assert op.conversation is not None
+        message = {"id": self.new_message_id_for(ms), "author": {"type": "agent"}, "approval": {"operation_id": operation_id, "revision": revision}}
+        reply = self.poppy.post_message(ms.session, self.co, json.dumps(message), op.conversation.id)
+        self.touch(ms, reply)
         expect(reply, 202)
-        self.proposed(reply.body["operation"], ms, "prints")
+        self.accepted(op.conversation, ms, message)
+        return reply
 
-    # ---- approving and confirming (Ops 5) ----
+    def new_message_id_for(self, ms: MSession) -> str:
+        mid = random_id("msg_")
+        assert mid not in ms.user.sent
+        return mid
 
-    def item_available(self, op: MOperation) -> bool:
-        """The fixture has one jacket per account; a pending exchange reserves it."""
-        return op.kind != "exchange" or (
-            op.account not in self.exchanged
-            and not any(other.kind == "exchange" and other.account == op.account and other.pending for other in self.operations)
-        )
-
-    def confirmable(self) -> list[tuple[MOperation, MSession]]:
-        """
-        What the honest agent confirms: an operation it may use, after the
-        User approved it, never an exchange for an account whose jacket was
-        already exchanged or committed to another pending operation (a
-        repeat confirm of a confirmed one is fine).
-        """
-        return [
-            (op, ms)
-            for op, ms in self.usable_pairs(self.operations)
-            if op.state != "proposed" or self.item_available(op)
-        ]
-
-    @precondition(lambda self: self.agent.lists_operations and self.confirmable())
-    @rule(data=st.data())
-    def confirm(self, data: st.DataObject) -> None:
-        """
-        Ops 5.2, with the revision the agent showed the User and an approval
-        it may use (5.1: a standing permission only when the operation
-        doesn't require the User's own). In the order Ops 5.2 lists:
-        scopes, the latest revision (`terms_changed` with the current
-        operation), then the state: anything but `proposed` is returned as
-        it is. Done at once (`succeeded`) or `in_progress` with `Retry-After`.
-        """
-        op, ms = data.draw(st.sampled_from(self.confirmable()))
-        approved_by = "user" if op.user_approval_required else data.draw(st.sampled_from(["user", "standing_permission"]))
-        if op.confirmation is not None:
-            approved_by = op.confirmation["approved_by"]  # a retry of the same confirm
-        reply = self.poppy.confirm_operation(ms.session, self.co, op.id, op.known, approved_by)
-        op.confirm_tried = True
-        self.confirm_answer(reply, op, ms, op.known, approved_by)
-
-    def confirm_answer(self, reply: Any, op: MOperation, ms: MSession, revision: Any, approved_by: str) -> None:
-        if op.kind == "exchange" and WRITE not in ms.token_scope:
-            expect(reply, 403, "insufficient_scope")
-            return
-        if op.state != "proposed":
-            if revision != (op.confirmation or {}).get("revision", op.revision):
-                # The draft lists the checks without an order: a stale revision on an operation no longer
-                # proposed may be `terms_changed` or the operation as it is (ask-author, see README).
-                assert reply.status in (200, 409), reply.text
-                reached(f"stale revision, not proposed: {reply.status}")
-                if reply.status == 409:
-                    assert reply.error == "terms_changed"
-                    self.check_operation(reply.body["operation"], op)
-                    return
+    def outcome(self, op: MOperation, ms: MSession, reply: Any) -> tuple[str, Any]:
+        """What an approval led to on `op`'s channel: ("performed", response) or ("operation", the operation returned)."""
+        if op.channel in ("api", "prints"):
+            if reply.status == 201:
+                return "performed", reply.body
+            expect(reply, 403, "approval_required")
+            return "operation", reply.body["operation"]
+        if op.channel == "mcp":
             expect(reply, 200)
-            self.check_operation(reply.body, op)
-            return
-        if revision != op.revision:
-            expect(reply, 409, "terms_changed")
-            self.check_operation(reply.body["operation"], op)
-            op.known = op.revision
-            return
-        expect(reply, 200)
-        op.confirmation = {"revision": op.revision, "approved_by": approved_by}
-        if self.config["slowConfirm"]:
-            op.state, op.pending = "in_progress", True
-            retry_after = reply.headers.get("retry-after")
-            assert retry_after is not None and retry_after.isdigit(), "in_progress without Retry-After (Ops 5.2)"
-            op.retry_at_ms = self.clock.now_ms() + int(retry_after) * 1000
-        else:
-            op.state = "succeeded"
-            self.performed(op)
-        self.check_operation(reply.body, op)
+            result = reply.body["result"]
+            if result.get("isError"):
+                return "operation", result["structuredContent"]["operation"]
+            return "performed", result["structuredContent"]
+        assert op.conversation is not None
+        before = len(op.conversation.log)
+        self.read_as(op.conversation, ms, stream=False, from_start=False)
+        said = [e["message"] for e in op.conversation.log[before:] if e.get("type") == "message" and e["message"].get("role") == "company"]
+        assert said, "the Company Agent said nothing about the approval (Ops 6)"
+        if "operation" in said[-1]:
+            return "operation", said[-1]["operation"]
+        assert said[-1]["text"].startswith("Done."), said[-1]
+        return "performed", "done"
 
-    def read_one(self, op: MOperation | None, ms: MSession) -> None:
-        """Ops 6: read the operation, after the `Retry-After` it gave while in progress."""
-        assert op is not None
-        if self.clock.now_ms() < op.retry_at_ms:
-            self.clock.sleep((op.retry_at_ms - self.clock.now_ms()) / 1000)
-        reply = self.poppy.read_operation(ms.session, self.co, op.id)
-        if not self.can_use(op, ms):
-            expect(reply, 404, "operation_not_found")
-            return
-        expect(reply, 200)
-        if op.pending:
-            op.pending, op.state = False, "succeeded"
-            self.performed(op)
-        if op.state == "in_progress":
-            assert reply.headers.get("retry-after"), "in_progress without Retry-After (Ops 6 SHOULD)"
-        op.known = op.revision
-        self.check_operation(reply.body, op)
-
-    @precondition(lambda self: self.agent.lists_operations and self.operations and self.live())
+    @precondition(lambda self: self.approvable())
     @rule(data=st.data())
-    def read_operation(self, data: st.DataObject) -> None:
-        """Ops 6 and 3.2: any Session may ask; only those that may use it get it."""
-        op = data.draw(st.sampled_from(self.operations))
-        ms = data.draw(st.sampled_from(self.live()))
-        self.read_one(op, ms)
-
-    @precondition(lambda self: self.agent.lists_operations and self.operations and self.live())
-    @rule(data=st.data())
-    def cancel(self, data: st.DataObject) -> None:
+    def approve(self, data: st.DataObject) -> None:
         """
-        Ops 7: `proposed` becomes `cancelled`; an `in_progress` one is
-        stopped if it can be, and says where it is; a final one is returned
-        as it is. 3.2 says who may.
+        Ops 6: the User approved the revision on our card; the same request
+        goes again with the approval, under a new Idempotency-Key, and is
+        performed. Sent again, approved, it gets the first response and is
+        performed no more (Ops 7), whichever key it carries.
         """
-        op = data.draw(st.sampled_from(self.operations))
-        ms = data.draw(st.sampled_from(self.live()))
-        reply = self.poppy.cancel_operation(ms.session, self.co, op.id)
-        if not self.can_use(op, ms):
-            expect(reply, 404, "operation_not_found")
-            return
-        expect(reply, 200)
-        if op.state == "proposed":
-            op.state = "cancelled"
-        elif op.state == "in_progress":
-            assert reply.body.get("state") in ("in_progress", "cancelled"), reply.body
-            if reply.body["state"] == "cancelled":
-                op.state, op.pending = "cancelled", False
-            reached(f"in_progress, then {reply.body['state']}")
-        self.check_operation(reply.body, op)
-
-    # ---- the Company's side ----
-
-    @precondition(lambda self: [op for op in self.operations if op.state == "proposed" and op.kind == "exchange"])
-    @rule(data=st.data())
-    def company_revises(self, data: st.DataObject) -> None:
-        """Ops 3.1: the terms change before confirmation: the next revision, fixed once issued."""
-        op = data.draw(st.sampled_from([op for op in self.operations if op.state == "proposed" and op.kind == "exchange"]))
-        self.revised += 1
-        size = data.draw(st.sampled_from(["S", "L", "XL"]))
-        terms = {"order_id": "ord_7Hk2", "item_id": "itm_4Qa", "replacement_sku": f"stormline-insulated-{size.lower()}", "change": self.revised}
-        summary = f"Exchange the Stormline Jacket (M) on order ord_7Hk2 for the Stormline Insulated Jacket ({size}), for $70.00 more."
-        revision = self.server.hook("revise_operation", operation=op.id, summary=summary, terms=terms)["revision"]
-        op.revision += 1
-        assert revision == op.revision, (revision, op.revision)
-        op.revisions[op.revision] = (summary, terms)
-        reached("revised")
-
-    @precondition(
-        lambda self: [
-            op for op in self.operations if op.state == "proposed" and self.item_available(op)
-        ]
-    )
-    @rule(data=st.data())
-    def user_confirms_on_the_website(self, data: st.DataObject) -> None:
-        """Ops 4.4: confirmed on the website, it's the same operation, performed once whichever way it's confirmed."""
-        op = data.draw(
-            st.sampled_from([op for op in self.operations if op.state == "proposed" and self.item_available(op)])
-        )
-        self.server.hook("confirm_on_website", operation=op.id)
-        op.state = "succeeded"
-        op.confirmation = {"revision": op.revision, "approved_by": "user"}
-        self.performed(op)
-        reached("confirmed on the website")
-
-    @precondition(lambda self: [op for op in self.operations if op.url] and self.live() and self.co.browser_session)
-    @rule(data=st.data())
-    def view_on_the_website(self, data: st.DataObject) -> None:
-        """
-        Ops 4.4 and 3: an operation's `url` is a page on the Company's
-        website that shows it in the same Session, to a Session that may use
-        it (3.2), with its current terms and state.
-        """
-        op = data.draw(st.sampled_from([op for op in self.operations if op.url]))
-        ms = data.draw(st.sampled_from(self.live()))
-        if not ms.joined:
-            self.join_browser(ms)
-        assert ms.browser is not None and op.url is not None
-        page = ms.browser.get(op.url)
-        if not self.can_use(op, ms):
-            assert page.status_code == 404, (page.status_code, page.text[:200])
-            reached(f"{op.kind} page: 404")
-            return
-        assert page.status_code == 200, f"{op.url} doesn't show {op.id} to a Session that may use it: {page.status_code} {page.text[:200]}"
-        assert op.revisions[op.revision][0] in page.text and f"Status: {op.state}" in page.text, page.text[:400]
-        reached(f"{op.kind} page: 200")
+        op, ms = data.draw(st.sampled_from(self.approvable()))
+        revision = data.draw(st.sampled_from(sorted(op.revisions)), label="revision approved")
+        op.approvals += 1
+        kind, got = self.outcome(op, ms, self.approve_on_channel(op, ms, op.id, revision))
+        assert kind == "performed", f"an approval of {op.id} revision {revision} wasn't performed: {got}"
+        self.perform(op, got)
+        reached(f"{op.channel}: performed" if op.performed is got else f"{op.channel}: first response again")
 
     # ---- reject direction ----
 
-    @precondition(
-        lambda self: self.agent.lists_operations
-        and [
-            (op, ms)
-            for op, ms in self.usable_pairs(self.operations)
-            if op.state == "proposed" and op.user_approval_required and (op.kind != "exchange" or WRITE in ms.token_scope)
-        ]
-    )
+    @precondition(lambda self: [op for op in self.operations if op.channel == "api" and op.performed is None])
     @rule(data=st.data())
-    def standing_permission_when_the_user_must_approve(self, data: st.DataObject) -> None:
-        """Reject: `user_approval_required` rules out a standing permission (Ops 3, 5.1): 403 `user_approval_required`."""
-        op, ms = data.draw(
+    def approval_from_someone_else(self, data: st.DataObject) -> None:
+        """
+        An approval from a Session that may not approve the operation is no
+        approval (Ops 6, check 1): the Company answers as for the request
+        alone, with that Session's own operation.
+        """
+        op = data.draw(st.sampled_from([o for o in self.operations if o.channel == "api" and o.performed is None]))
+        others = [s for s in self.live() if WRITE in s.token_scope and not self.can_approve(op, s)]
+        assume(others)
+        ms = data.draw(st.sampled_from(others))
+        reply, _ = self.api_request(ms, EXCHANGE, approval=approval_header(op.id, op.latest))
+        expect(reply, 403, "approval_required")
+        assert reply.body["operation"]["operation_id"] != op.id, "an approval from someone who may not approve it was used (Ops 3)"
+        self.returned(reply.body["operation"], kind="exchange", channel="api", request=json.dumps(EXCHANGE), ms=ms, account=ms.account)
+
+    @precondition(lambda self: [(o, s) for o, s in self.approvable(honest=False) if o.performed is None and o.channel in ("api", "mcp", "prints")])
+    @rule(data=st.data())
+    def approval_that_cannot_be_used(self, data: st.DataObject) -> None:
+        """
+        Ops 6, check 3: an approval naming a revision the Company never
+        returned, or sent with a request other than the one that returned the
+        operation, gets a new revision, not the action.
+        """
+        op, ms = data.draw(st.sampled_from([(o, s) for o, s in self.approvable(honest=False) if o.performed is None and o.channel in ("api", "mcp", "prints")]))
+        flaw = data.draw(st.sampled_from(["unknown revision", "changed request"] if op.channel != "prints" else ["unknown revision"]))
+        named = random_id("rev_") if flaw == "unknown revision" else data.draw(st.sampled_from(sorted(op.revisions)))
+        op.approvals += 1
+        if op.channel == "api":
+            body = EXCHANGE if flaw == "unknown revision" else EXCHANGE | {"replacement_sku": data.draw(st.sampled_from(["stormline-insulated-l", "stormline-m"]))}
+            reply, _ = self.api_request(ms, body, approval=approval_header(op.id, named))
+            expect(reply, 403, "approval_required")
+            got = reply.body["operation"]
+        elif op.channel == "mcp":
+            args = EXCHANGE_ARGS if flaw == "unknown revision" else EXCHANGE_ARGS | {"replacement_sku": "stormline-insulated-l"}
+            reply = expect(self.mcp_exchange(ms, meta={APPROVAL_META: {"operation_id": op.id, "revision": named}}, args=args), 200)
+            assert reply.body["result"].get("isError") is True, reply.body
+            got = reply.body["result"]["structuredContent"]["operation"]
+        else:
+            assert op.order is not None
+            reply, _ = self.prints_request(ms, op.order, approval=approval_header(op.id, named))
+            expect(reply, 403, "approval_required")
+            got = reply.body["operation"]
+        self.revised(got, op, named)
+        reached(f"{op.channel}: {flaw}")
+
+    def first_keys(self) -> list[tuple[MOperation, MSession]]:
+        return [(o, s) for o, s in self.approvable() if o.channel in ("api", "prints") and any(k[0] is s for k in o.keys)]
+
+    @precondition(lambda self: self.first_keys())
+    @rule(data=st.data())
+    def approval_reusing_the_first_key(self, data: st.DataObject) -> None:
+        """
+        Reject: the approved request is a new request, so it takes a new
+        Idempotency-Key (Ops 6); reusing the first request's is recorded. The
+        mock still performs it. Each first key is reused once here: after
+        that the Company holds the approved response under it.
+        """
+        op, ms = data.draw(st.sampled_from(self.first_keys()))
+        key = data.draw(st.sampled_from([k for s, k in op.keys if s is ms]))
+        op.keys.remove((ms, key))
+        op.approvals += 1
+        kind, got = self.outcome(op, ms, self.approve_on_channel(op, ms, op.id, op.latest, key=key))
+        assert kind == "performed", got
+        self.perform(op, got)
+        self.violation("approval.idempotency-key-reused")
+
+    @precondition(lambda self: [(o, s) for o, s in self.approvable() if o.channel == "api" and o.performed is None])
+    @rule(data=st.data())
+    def malformed_approval_header(self, data: st.DataObject) -> None:
+        """
+        Reject: `Poppy-Approval` is an RFC 9651 Dictionary with
+        `operation_id` and `revision` Strings (Ops 6). Anything else is
+        recorded and ignored: the request is answered as without one.
+        """
+        op, ms = data.draw(st.sampled_from([(o, s) for o, s in self.approvable() if o.channel == "api" and o.performed is None]))
+        header = data.draw(
             st.sampled_from(
                 [
-                    (op, ms)
-                    for op, ms in self.usable_pairs(self.operations)
-                    if op.state == "proposed" and op.user_approval_required and (op.kind != "exchange" or WRITE in ms.token_scope)
+                    f"operation_id={op.id}, revision={op.latest}",
+                    f'operation_id="{op.id}"',
+                    f'"{op.id}"',
+                    f'operation_id="{op.id}", revision=1',
+                    f'operation_id="{op.id}" revision="{op.latest}"',
+                    f'{{"operation_id": "{op.id}", "revision": "{op.latest}"}}',
                 ]
             )
         )
-        reply = self.poppy.confirm_operation(ms.session, self.co, op.id, op.revision, "standing_permission")
-        op.confirm_tried, op.known = True, op.revision
-        expect(reply, 403, "user_approval_required")
-        self.violation("confirm.standing-permission-overrides-user")
+        reply, _ = self.api_request(ms, EXCHANGE, approval=header)
+        expect(reply, 403, "approval_required")
+        self.returned(reply.body["operation"], kind="exchange", channel="api", request=json.dumps(EXCHANGE), ms=ms, account=ms.account)
+        self.violation("approval.header")
 
-    @precondition(
-        lambda self: self.agent.lists_operations
-        and [(op, ms) for op, ms in self.usable_pairs(self.operations) if op.state == "proposed" and (op.kind != "exchange" or WRITE in ms.token_scope)]
-    )
+    @precondition(lambda self: [(o, s) for o, s in self.approvable() if o.channel == "mcp" and o.performed is None])
     @rule(data=st.data())
-    def confirm_another_revision(self, data: st.DataObject) -> None:
-        """Reject: only the latest revision can be confirmed (Ops 3.1): `terms_changed` with the current operation (Ops 9)."""
-        op, ms = data.draw(
-            st.sampled_from(
-                [(op, ms) for op, ms in self.usable_pairs(self.operations) if op.state == "proposed" and (op.kind != "exchange" or WRITE in ms.token_scope)]
-            )
-        )
-        # Any other integer within RFC 8259's interoperable range (section 6).
-        revision = data.draw(st.integers(min_value=-(2**53 - 1), max_value=2**53 - 1).filter(lambda r: r != op.revision))
-        reply = self.poppy.confirm_operation(ms.session, self.co, op.id, revision, "user")
-        op.confirm_tried = True
-        expect(reply, 409, "terms_changed")
-        self.check_operation(reply.body["operation"], op)
+    def malformed_mcp_approval(self, data: st.DataObject) -> None:
+        """Reject: the approval in `_meta` is an object with `operation_id` and `revision` strings (Ops 6); else recorded, and no approval."""
+        op, ms = data.draw(st.sampled_from([(o, s) for o, s in self.approvable() if o.channel == "mcp" and o.performed is None]))
+        given = data.draw(st.sampled_from([op.id, [op.id, op.latest], {"operation_id": op.id}, {"operation_id": op.id, "revision": 1}, None]))
+        reply = expect(self.mcp_exchange(ms, meta={APPROVAL_META: given}), 200)
+        assert reply.body["result"].get("isError") is True, reply.body
+        self.returned(reply.body["result"]["structuredContent"]["operation"], kind="exchange", channel="mcp", request=json.dumps(EXCHANGE_ARGS), ms=ms, account=ms.account)
+        self.violation("approval.mcp-meta")
 
-    @precondition(
-        lambda self: self.agent.lists_operations
-        and [(op, ms) for op, ms in self.usable_pairs(self.operations) if op.kind != "exchange" or WRITE in ms.token_scope]
-    )
+    @precondition(lambda self: [(o, s) for o, s in self.approvable() if o.channel == "conversation" and o.performed is None])
     @rule(data=st.data())
-    def malformed_confirm(self, data: st.DataObject) -> None:
+    def malformed_message_approval(self, data: st.DataObject) -> None:
+        """Reject: a message's `approval` is an object with `operation_id` and `revision` strings (Ops 6); else recorded, and nothing done."""
+        op, ms = data.draw(st.sampled_from([(o, s) for o, s in self.approvable() if o.channel == "conversation" and o.performed is None]))
+        assert op.conversation is not None
+        given = data.draw(st.sampled_from([op.id, [op.id, op.latest], {"operation_id": op.id}, {"revision": op.latest}]))
+        message = {"id": self.new_message_id_for(ms), "author": {"type": "agent"}, "approval": given}
+        reply = self.poppy.post_message(ms.session, self.co, json.dumps(message), op.conversation.id)
+        self.touch(ms, reply)
+        expect(reply, 202)
+        self.accepted(op.conversation, ms, message)
+        self.violation("approval.message")
+
+    @precondition(lambda self: [(o, s) for o, s in self.approvable(honest=False) if o.kind == "exchange" and o.performed is None and o.account in self.exchanged])
+    @rule(data=st.data())
+    def second_exchange_of_the_item(self, data: st.DataObject) -> None:
+        """Reject: approving a second exchange of an item already exchanged; the mock performs it and records it."""
+        op, ms = data.draw(st.sampled_from([(o, s) for o, s in self.approvable(honest=False) if o.kind == "exchange" and o.performed is None and o.account in self.exchanged]))
+        op.approvals += 1
+        kind, got = self.outcome(op, ms, self.approve_on_channel(op, ms, op.id, op.latest))
+        assert kind == "performed", got
+        self.perform(op, got)
+
+    @precondition(lambda self: self.agent.lists_operations and [s for s in self.live() if self.photos.get(s)])
+    @rule(data=st.data())
+    def prints_without_a_key(self, data: st.DataObject) -> None:
+        """Reject: the order's description makes `Idempotency-Key` required (Guides: send one on writes that take one)."""
+        ms = data.draw(st.sampled_from([s for s in self.live() if self.photos.get(s)]))
+        order = {"email": "ada@example.com", "ship_to": SHIP_TO, "items": [{"photo_id": self.photos[ms][0], "copies": 1}]}
+        reply, _ = self.prints_request(ms, order, raw_key=True)
+        expect(reply, 400, "idempotency_key_required")
+        self.violation("idempotency.key-missing")
+
+    @precondition(lambda self: [op for op in self.operations if op.performed_keys and op.session in self.live()])
+    @rule(data=st.data())
+    def prints_key_reused(self, data: st.DataObject) -> None:
         """
-        Reject: a confirm names the revision as an integer and how it was
-        approved, `user` or `standing_permission` (Ops 5.1, 5.2). The draft
-        has no error for it (N20); the mock answers `invalid_request` and
-        records it. A JSON number with an integral value is that integer
-        (RFC 8259 6), so 1.0 is revision 1.
+        A performed order's key, sent again: the same body gets the same
+        response (Guides: retries); a different body is `idempotency_conflict`,
+        and recorded.
         """
-        op, ms = data.draw(
-            st.sampled_from([(op, ms) for op, ms in self.usable_pairs(self.operations) if op.kind != "exchange" or WRITE in ms.token_scope])
-        )
-        bad_revision = data.draw(st.booleans(), label="bad revision")
-        if bad_revision:
-            revision = data.draw(
-                st.none() | st.booleans() | st.text() | st.floats(allow_nan=False, allow_infinity=False).filter(lambda f: not f.is_integer())
-            )
-            approved_by: Any = "user"
+        op = data.draw(st.sampled_from([o for o in self.operations if o.performed_keys and o.session in self.live()]))
+        assert op.order is not None
+        ms, key = op.session, data.draw(st.sampled_from(op.performed_keys))
+        changed = data.draw(st.booleans(), label="a different body")
+        order = op.order | {"email": "grace@example.com"} if changed else op.order
+        reply, _ = self.prints_request(ms, order, key=key, approval=approval_header(op.id, op.latest))
+        if changed:
+            expect(reply, 409, "idempotency_conflict")
+            self.violation("idempotency.key-reused")
         else:
-            revision = op.revision
-            approved_by = data.draw(st.none() | st.text().filter(lambda t: t not in ("user", "standing_permission")) | st.integers())
-        reply = self.poppy.confirm_operation(ms.session, self.co, op.id, revision, approved_by)
-        op.confirm_tried = True
-        if bad_revision:
-            expect(reply, 400, "invalid_request")
-            self.violation("confirm.revision")
-        elif op.state != "proposed":
-            expect(reply, 200)
-            self.check_operation(reply.body, op)
-        else:
-            expect(reply, 400, "invalid_request")
-            self.violation("confirm.approved-by")
-
-    def asking_again(self) -> list[MSession]:
-        return [
-            ms
-            for ms in self.live()
-            if ms.account and WRITE in ms.token_scope and (op := self.open_exchange_for(ms)) is not None and op.confirm_tried
-        ]
-
-    @precondition(lambda self: self.agent.lists_operations and self.asking_again())
-    @rule(data=st.data())
-    def ask_again_while_confirming(self, data: st.DataObject) -> None:
-        """
-        Reject: after a confirm, no new proposal of the same action until
-        the operation is final (Ops 6 MUST NOT; N34). The Company answers
-        with the open operation, and records it.
-        """
-        ms = data.draw(st.sampled_from(self.asking_again()))
-        reply = expect(self.poppy.exchange(ms.session, self.co, self.api_base, random_id("idk_")), 202)
-        self.proposed(reply.body["operation"], ms, "exchange")
-
-    # ---- invariants ----
-
-    @invariant()
-    def performed_at_most_once(self) -> None:
-        """Ops 1, 6: the Company performed exactly the actions confirmed, each once, and its operations are the model's."""
-        if self.company is None:
-            return
-        state = self.server.state()
-        assert state["performs"] == self.performs, f"performed {state['performs']} actions, model {self.performs}"
-        mock = {o["id"]: o for o in state["operations"]}
-        assert set(mock) == {op.id for op in self.operations}, (set(mock), [op.id for op in self.operations])
-        for op in self.operations:
-            assert (mock[op.id]["state"], mock[op.id]["revision"]) == (op.state if not op.pending else "in_progress", op.revision), (mock[op.id], op.state)
+            expect(reply, 201)
+            assert reply.body == op.performed, "a retry with the same key got another response"
 
 
-class OperationsMachine(WarmUp, Base, SessionRules, OperationsRules):
+class OperationsMachine(WarmUp, OperationsRules, Base, SessionRules, ConversationRules):
     CONFIG = OPS_CONFIGS
-    # Mostly an agent that lists the extension; sometimes one that doesn't (Ops 2).
-    LISTS_OPERATIONS = st.sampled_from([True, True, True, False])
+    LISTS_OPERATIONS = st.booleans()
 
     def __init__(self, server: MockServer) -> None:
         super().__init__(server)
         self.init_operations()
 
 
-def test_operations_extension(mock_server: MockServer) -> None:
+def test_operations(mock_server: MockServer) -> None:
     run_state_machine_as_test(lambda: OperationsMachine(mock_server))
