@@ -1,0 +1,10 @@
+RUN  v4.1.12 /workspace/pda-pr29-rebase
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  19:20:19
+   Duration  10.88s (transform 4.11s, setup 0ms, import 9.19s, tests 432ms, environment 0ms)
