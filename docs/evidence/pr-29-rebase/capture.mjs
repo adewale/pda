@@ -6,7 +6,6 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { renderReport } from "../../../interop/runner/report.ts";
 import puppeteer from "@cloudflare/puppeteer";
 
 const [base, head] = process.argv.slice(2);
@@ -16,8 +15,15 @@ const output = import.meta.dirname;
 const directory = mkdtempSync(path.join(tmpdir(), "pr29-classification-"));
 const git = (sha, file) => execFileSync("git", ["show", `${sha}:${file}`], { cwd: root });
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
-assert.deepEqual(git(base, "interop/runner/report.ts"), git(head, "interop/runner/report.ts"), "The report renderer must be identical");
-const receipt = { base, head, fixture: "Company offers neither conversations nor MCP", networkRequests: 0, stages: [] };
+const rendererSources = [
+  "interop/runner/report.ts", "interop/runner/attribution.ts", "interop/runner/readings.ts", "interop/runner/har.ts",
+  "src/validator/levels.ts", "src/poppy/protocol-version.ts"
+];
+for (const file of rendererSources) assert.deepEqual(git(base, file), git(head, file), `Renderer dependency must be identical: ${file}`);
+const receipt = {
+  base, head, fixture: "Company offers neither conversations nor MCP", networkRequests: 0,
+  rendererSha256: Object.fromEntries(rendererSources.map(file => [file, hash(git(head, file))])), stages: []
+};
 let child, browser;
 try {
   child = spawn(process.env.PDA_ACCEPTANCE_CHROMIUM || "/usr/bin/chromium", ["--headless", "--no-sandbox", "--disable-dev-shm-usage", "--disable-background-networking", "--disable-component-update", "--no-first-run", "--remote-debugging-port=0", `--user-data-dir=${path.join(directory, "chrome")}`], { stdio: ["ignore", "ignore", "pipe"] });
@@ -38,9 +44,13 @@ try {
   page.on("request", request => { void request.abort(); });
   for (const [stage, sha] of [["before", base], ["after", head]]) {
     const source = path.join(directory, stage);
-    mkdirSync(source);
-    for (const file of ["cell.ts", "scenario.ts"]) writeFileSync(path.join(source, file), git(sha, `interop/runner/${file}`));
-    const { runCell } = await import(pathToFileURL(path.join(source, "cell.ts")));
+    for (const file of ["interop/runner/cell.ts", "interop/runner/scenario.ts", ...rendererSources]) {
+      const target = path.join(source, file);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, git(sha, file));
+    }
+    const { runCell } = await import(pathToFileURL(path.join(source, "interop/runner/cell.ts")));
+    const { renderReport } = await import(pathToFileURL(path.join(source, "interop/runner/report.ts")));
     const scenarios = ["CL", "ML"].map(id => JSON.parse(git(sha, `interop/scenarios/${id}.json`)));
     const cells = [];
     for (const scenario of scenarios) for (const live of [true, false]) {

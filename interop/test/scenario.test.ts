@@ -194,13 +194,44 @@ describe("a cell", () => {
       title: "w",
       steps: [
         { agent: "api", params: { x: "${fixture.optional}" }, when: "${fixture.optional}" },
-        { company: "require_nonce", params: { x: "${fixture.hook}" }, optional: true },
+        { company: "require_nonce", optional: true },
         { runner: "first", params: { of: ["${fixture.a}", "${fixture.b}"] } },
         { agent: "send", params: { text: "say ${fixture.prompts.hello}" } }
       ]
     };
     expect(missingFixture(lenient, { prompts: { hello: "Hello" } })).toBeNull();
     expect(missingFixture(lenient, {})).toBe("fixture.prompts.hello");
+  });
+
+  it.each([true, 0, "", false, null, undefined])("checks parameters only when a fixture condition is active (%s)", enabled => {
+    const scenario: Scenario = { id: "WHEN", title: "fixture condition", steps: [
+      { agent: "api", when: "${fixture.enabled}", params: { account: "${fixture.account}" } }
+    ] };
+    const active = enabled !== undefined && enabled !== null && enabled !== false;
+    expect(missingFixture(scenario, { enabled })).toBe(active ? "fixture.account" : null);
+  });
+
+  it("defers runtime conditions and fixture references to earlier results without following a third interpolation pass", () => {
+    const scenario: Scenario = { id: "LATER", title: "runtime result", steps: [
+      { agent: "api", save: "upload_id" },
+      { agent: "api", params: { args: "${fixture.args}" } },
+      { agent: "send", when: "${upload_id.held}", params: { account: "${fixture.runtime_only}" } }
+    ] };
+    expect(lintScenario(scenario, "LATER.json")).toEqual([]);
+    const fixture = { args: { photo: "${upload_id}", chain: "${fixture.second}" }, second: "${fixture.third}" };
+    expect(missingFixture(scenario, fixture)).toBeNull();
+    expect(resolveParams(scenario.steps[1]!.params, { fixture, upload_id: "photo-1" })).toEqual({ args: { photo: "photo-1", chain: "${fixture.third}" } });
+  });
+
+  it("defers a second-pass path assembled from an unknown runtime result", () => {
+    const scenario: Scenario = { id: "DYNAMIC", title: "runtime-built path", steps: [
+      { agent: "api", save: "s" },
+      { agent: "api", params: { value: "${fixture.prefix}${s.suffix}" } }
+    ] };
+    const fixture = { prefix: "${fixture.", present: "available" };
+    expect(lintScenario(scenario, "DYNAMIC.json")).toEqual([]);
+    expect(missingFixture(scenario, fixture)).toBeNull();
+    expect(resolveParams(scenario.steps[1]!.params, { fixture, s: { suffix: "present}" } })).toEqual({ value: "available" });
   });
 
   it("signs in with the Company's own scopes from its fixture, and none when it names none", async () => {

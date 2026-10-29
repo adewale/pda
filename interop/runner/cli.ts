@@ -358,7 +358,7 @@ export function runExitCode(cells: readonly Cell[], bad: readonly Cell[], stale:
   return bad.length > 0 || stale.length > 0 || (cells.length > 0 && !ran) || (requireSupported && cells.some((cell) => cell.outcome === "unsupported")) ? 1 : 0;
 }
 
-async function runCells(options: {
+export async function runCells(options: {
   scenarios: readonly Scenario[];
   agents: readonly Implementation[];
   companies: readonly Implementation[];
