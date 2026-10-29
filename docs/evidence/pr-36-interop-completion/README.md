@@ -1,6 +1,6 @@
 # PR 36: approval process crashes and refreshed interoperability evidence
 
-Recorded manually on 29 October 2026. [Validation receipt](validation.json) contains exact tested source and artifact SHA-256 hashes. The grid truthfully labels the tested working tree `4c08609-dirty`; the hashes identify its final source. Identity, models, consent and business effects are synthetic unless explicitly stated otherwise. No live authentication or payments were performed.
+Recorded manually on 29 October 2026. [Validation receipt](validation.json) contains exact tested source and artifact SHA-256 hashes. The grid truthfully labels the tested working tree `4c08609-dirty`; the hashes identify its final production source, committed at `44f61dc`. The crash runner subsequently received an explicit test Worker name and all eight cases passed again with `CI=true`; its current source and refreshed process receipt are hashed too. Identity, models, consent and business effects are synthetic unless explicitly stated otherwise. No live authentication or payments were performed.
 
 ## Results
 
@@ -26,7 +26,7 @@ The initial real-process run failed after the Company action and local completio
 
 A claimed decision now arms a durable pending notification. Before delivery it saves a versioned ID and exact text; startup drains it through the existing idempotent model callback without repeating the Company request. A later decision on a reused terms card gets a fresh ID. Old terminal approvals migrate with pending clear; executing rows recover as unknown. Two additive SQLite columns and a partial index implement this without a new dependency or authentication route.
 
-The driver sends SIGKILL to the entire detached PDA process group, including Node and workerd, then starts a different process using the same actual SQLite. The separate Company process and Node business-request ledger remain alive throughout.
+The driver supplies an explicit test Worker name, so Wrangler does not require interactive configuration. It sends SIGKILL to the entire detached PDA process group, including Node and workerd, then starts a different process using the same actual SQLite. The separate Company process and Node business-request ledger remain alive throughout.
 
 | Crash boundary, tested on OpenAPI and MCP | Effects before/after recovery | Recovered status |
 | --- | --- | --- |

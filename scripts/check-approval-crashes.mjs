@@ -71,6 +71,7 @@ async function kill(runtime) {
 
 try {
   const config = JSON.parse(readFileSync(path.join(root, "test/wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, ""));
+  config.name = "pda-process-crash";
   config.main = path.join(root, "test/durability/process-worker.ts");
   const configFile = path.join(directory, "wrangler.json");
   writeFileSync(configFile, JSON.stringify(config));

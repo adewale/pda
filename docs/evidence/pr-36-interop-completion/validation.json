@@ -1,7 +1,7 @@
 {
   "date": "2026-10-29",
   "baseCommit": "4c08609d4b69d6409e9b11afc4811f37c4b8f8ec",
-  "sourceState": "Tested working tree before the evidence commit; exact relevant source hashes below. Docker receipt truthfully retains the dirty source label. No source is relabelled as a clean commit.",
+  "sourceState": "Production source matches the tested working tree committed as 44f61dc7912b7a84ee8711e5e19b90a95e37e39c. The only subsequent source change gives the test crash runner an explicit Worker name; all eight process cases were rerun with CI=true. The grid truthfully retains the earlier dirty working-tree label. Exact current source hashes are listed below.",
   "protocolRevision": "2026-10-29",
   "protocolCommit": null,
   "tests": {
@@ -18,7 +18,8 @@
   "processCrashes": {
     "passed": 8,
     "oldSourceCounterexample": "crash-before-fix.txt",
-    "noRepeatedBusinessRequest": true
+    "noRepeatedBusinessRequest": true,
+    "ciEnvironment": true
   },
   "mixupCases": 8,
   "python": {
@@ -92,7 +93,7 @@
     "scripts/app-approval-journey.mjs": "5e69b271f9ab7404e3c8ac1b572535d529fa038737d548430ec88c10e6947c50",
     "scripts/app-smoke.mjs": "cbd35c7842e7d1aa3f70f1f220e3f7f2267dc0f372199d6b23ec682800f03713",
     "scripts/build-info.ts": "9a9d3e40d03880c31af2090e4a6648fc78d9c0a0dffa50f80be5273ec27265fd",
-    "scripts/check-approval-crashes.mjs": "457528cbf6983b112317b1ee538a62d3f915acf1105d24beb5270f4fd5584d73",
+    "scripts/check-approval-crashes.mjs": "a89f47f541ce09ff720c3282e8824f4fcc8b1597ac4cdcb1adb9f4b79e50f7d0",
     "scripts/check-company-kit.mjs": "6d35d04a218f6cfa5477db95af5eb9082d5fc63f8d0d61e772683d32090ff5d5",
     "scripts/check-deployment.ts": "b26cc957e61b4e2e583005d37cde9e751a36393d428ff1517763e575e6aa3137",
     "scripts/check-docs.mjs": "669b44e4b4e6daf9c23a46041895e0e930c431b2bf8a34133170d59baa4e0d86",
@@ -384,7 +385,7 @@
     "notifications.txt": "90324100134f6e76efd68b168daa531f225110466c75b77fadd2d66e8877fa58",
     "peer-review.json": "293154a1c60d68adec6bce14f78d55812d0f1950a1e1229ff294eb3d5cab20ea",
     "print-with-poppy.json": "18517285c9830c51b3be847c22fd0e4e286d59f314dc6429302acbd9604e2cb3",
-    "process-crashes.json": "1a4e0bbee88149b0347e97b51f8c218a10245dccfcc586a86ec6a459e029de0d",
+    "process-crashes.json": "7e0d56fa8b7f33c06a8f5698a64743f0366b0a811aae43923c26bb55a0f0e9c7",
     "python.txt": "b459b299e625faf441fec02307a1396fa10377c6909f106d512e66ad3df9265d",
     "spec-delta.txt": "2bffb5c3963db22cd16f20aad75ba04301db6ef0c3179d8d08c639c5d54c45aa",
     "tests-summary.txt": "91369b8377214861ded2098fd89c50481a62582ce0a4d87117052744db8a70e9",
