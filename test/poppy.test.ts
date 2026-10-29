@@ -273,6 +273,24 @@ describe("Guides: fetching metadata safely", () => {
     }
   });
 
+  // The interop grid found this on 29 October: its agent runs a new PoppyClient per cell in one process, and a
+  // description an adversarial Company served in one cell answered the next cell, which never fetched its own.
+  it("keeps each agent's OpenAPI descriptions to itself", async () => {
+    const fetched: string[] = [];
+    const fetcher: Fetcher = async (request) => {
+      fetched.push(request.url);
+      return Response.json({ openapi: "3.1.0", paths: {} }, { headers: { "Cache-Control": "max-age=600" } });
+    };
+    const api = { type: "openapi", url: `https://api.${crypto.randomUUID()}.example/openapi.json`, description: "" } as const;
+    const first = { host: { fetcher } } as unknown as PoppyClient;
+    const second = { host: { fetcher } } as unknown as PoppyClient;
+    await openApi(first, api);
+    await openApi(first, api);
+    expect(fetched).toHaveLength(1);
+    await openApi(second, api);
+    expect(fetched).toHaveLength(2);
+  });
+
   it.each([
     { what: "no caching headers: a minute, as for poppy.json", headers: {}, fresh: 59, stale: 61 },
     { what: "max-age=600", headers: { "Cache-Control": "max-age=600" }, fresh: 599, stale: 601 },
@@ -535,7 +553,7 @@ describe.each(PROFILES)("4.2 Direct Sign-In ($name)", ({ config: profile }) => {
     expect(await codeExchanges(c)).toHaveLength(0);
   });
 
-  it("reuses an Account Token that covers the task instead of asking again", async () => {
+  it("reuses a refresh token that covers the task instead of asking again", async () => {
     const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c);
@@ -543,7 +561,7 @@ describe.each(PROFILES)("4.2 Direct Sign-In ($name)", ({ config: profile }) => {
     expect(again.text).toContain("signed in with access the User granted earlier");
   });
 
-  it("steps up: signs in again for more scopes and revokes the old Account Token", async () => {
+  it("steps up: signs in again for more scopes and revokes the old refresh token", async () => {
     const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c, ["orders:read"]);
@@ -706,7 +724,7 @@ describe.each(PROFILES)("Mediated Sign-In ($name)", ({ config: profile }) => {
 describe.each(PROFILES)("4.4, 4.6, 5.5 refresh tokens and signing out ($name)", ({ config: profile }) => {
   const companyHere = (config: Partial<MockConfig> = {}) => company({ ...profile, ...config });
 
-  it("uses a rotated Account Token from then on", async () => {
+  it("uses a rotated refresh token from then on", async () => {
     const c = await companyHere({ rotateRefreshTokens: true });
     const a = await agent();
     await signInDirect(a, c);
@@ -717,7 +735,7 @@ describe.each(PROFILES)("4.4, 4.6, 5.5 refresh tokens and signing out ($name)", 
     expect((await requests(c)).filter((request) => request.grant === "refresh_token" && request.status === 200).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("signs out by revoking the Account Token; the Session continues signed out", async () => {
+  it("signs out by revoking the refresh token; the Session continues signed out", async () => {
     const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c);
@@ -754,7 +772,7 @@ describe.each(PROFILES)("4.4, 4.6, 5.5 refresh tokens and signing out ($name)", 
     expect(await a.stub.poppySql("SELECT * FROM poppy_accounts")).toBe("[]");
   });
 
-  it("stores Account Tokens encrypted", async () => {
+  it("stores refresh tokens encrypted", async () => {
     const c = await companyHere();
     const a = await agent();
     await signInDirect(a, c);
@@ -798,7 +816,7 @@ describe("4.6, 5.5 a sign-out the Company doesn't accept", () => {
     const a = await agent();
     await signInDirect(a, c);
     const [{ token: sealed }] = JSON.parse(await a.stub.poppySql("SELECT token FROM poppy_accounts")) as { token: string }[];
-    // An Account Token the Company gave no expiry.
+    // A refresh token the Company gave no expiry.
     await a.stub.poppySql("UPDATE poppy_accounts SET expires_at = NULL");
     await signOut(a, c);
     const shop = `Mock Shop ${c.id}`;
@@ -944,7 +962,7 @@ describe("4.6, 5.5 a sign-out the Company doesn't accept", () => {
     expect(log!.outcome).toBeUndefined();
   });
 
-  it("sends nothing for an Account Token that has expired, at sign-out or before a retry", async () => {
+  it("sends nothing for a refresh token that has expired, at sign-out or before a retry", async () => {
     const c = await company({ refuseRevocations: 1 });
     const a = await agent();
     const expired = `Signed out of Mock Shop ${c.id}. The access it granted had already ended, so there was nothing to revoke. Open tasks there continue signed out.`;
@@ -1026,7 +1044,7 @@ describe("4.7 a step-up's replaced refresh token the Company doesn't revoke", ()
   const notices = async (a: Agent) => (await cards(a)).filter((card) => card.kind === "notice" && card.id.startsWith("signout-"));
   const activity = async (a: Agent) => JSON.parse(await a.stub.poppyActivity()) as { inProgress: Record<string, any>[]; log: Record<string, any>[] };
   const status = async (a: Agent, domain?: string) => JSON.parse((await tool(a, "poppy_status", domain ? { domain } : {})).text);
-  /** Signed in with read access, then stepped up to read and write; the first Account Token's access ends at a known time. */
+  /** Signed in with read access, then stepped up to read and write; the first refresh token's access ends at a known time. */
   const steppedUp = async (config: Partial<MockConfig>) => {
     const c = await company(config);
     const a = await agent();
@@ -1222,12 +1240,12 @@ describe("5.4 one account per Session", () => {
 });
 
 describe("4.4 rotation with reuse detection", () => {
-  it("never uses a rotated Account Token twice, even when renewals run in parallel", async () => {
+  it("never uses a rotated refresh token twice, even when renewals run in parallel", async () => {
     const c = await company({ rotateRefreshTokens: true, reuseDetection: true });
     const a = await agent();
     await signInDirect(a, c);
     await a.stub.poppyForgetMemory();
-    // Three calls at once, each needing its own token from the one Account Token.
+    // Three calls at once, each needing its own token from the one refresh token.
     const results = await Promise.all([
       tool(a, "poppy_message", { domain: c.domain, text: "hello" }),
       tool(a, "poppy_api_call", { domain: c.domain, operation: "GET /orders" }),

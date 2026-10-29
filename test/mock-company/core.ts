@@ -477,7 +477,7 @@ export class Company {
 
   /**
    * Passwords may appear only in the mediated sign-in body, one-time codes
-   * only in the code submission, Account Tokens only at the token and
+   * only in the code submission, refresh tokens only at the token and
    * revocation endpoints. Anything else is a violation.
    */
   scanSecrets(inbound: Inbound, allowed: "account-token" | "token-endpoint" | null): void {
@@ -507,7 +507,7 @@ export class Company {
     for (const token of this.accountTokens.values()) {
       check("secret.account-token", "refresh token", token.value, (allowed === "account-token" || allowed === "token-endpoint"));
     }
-    // Session Tokens never belong in a URL (4.3).
+    // Tokens never belong in a URL (4.5).
     for (const [name, value] of inbound.url.searchParams) {
       if (
         name === "access_token" ||

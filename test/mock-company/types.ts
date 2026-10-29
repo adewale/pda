@@ -103,7 +103,7 @@ export type MockConfig = {
     readonly retryAfterSeconds: number;
   };
   /**
-   * Check client and Session assertions the way the strictest live Companies
+   * Check client assertions the way the strictest live Companies
    * do (poppy-demo, Ilmer): header `typ` "JWT", a `kid` naming a published
    * key, and a lifetime of at most 60 seconds. The draft doesn't require
    * these (docs/spec-issues.md, S2), but agents that skip them can't sign in
@@ -154,7 +154,7 @@ export type MockConfig = {
   readonly ignoreWait: boolean;
   /** Never say `queued`: a handoff goes straight to `working`. */
   readonly neverQueued: boolean;
-  /** With `rotateRefreshTokens`, a rotated Account Token used again revokes its whole family. */
+  /** With `rotateRefreshTokens`, a rotated refresh token used again revokes its whole family. */
   readonly reuseDetection: boolean;
   /** Streams carry SSE comments (`: keep-alive`) between events. */
   readonly sseKeepAlive: boolean;
@@ -197,7 +197,7 @@ export type MockConfig = {
    * The OpenAPI description declares its security: a DPoP scheme, and each
    * operation's requirement. Off, it declares none, as older or minimal
    * descriptions don't (Datalayer's, pi-poppy's), and every operation is
-   * still called with the Session Token.
+   * still called with the access token.
    */
   readonly describesSecurity: boolean;
   /**
@@ -400,7 +400,7 @@ export type MockState = {
     readonly signedIn: boolean;
     readonly ended: boolean;
   }[];
-  /** Account Tokens currently valid. */
+  /** Refresh tokens currently valid. */
   readonly accountTokens: number;
   /** Actions actually performed (exchanges), by operation or direct API call. */
   readonly performs: number;

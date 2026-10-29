@@ -42,13 +42,13 @@ export const AGENT_ERROR_CODES = [
 export type AgentErrorCode = (typeof AGENT_ERROR_CODES)[number];
 
 /**
- * Codes the drafts, the Operations extension and the OAuth RFCs they build
- * on define for a Company to answer (spec 4.2, 4.3, 6, 7.13; Ops 9; 0.3's 7
- * and 8.13, Ops 2 4, Mediated Sign-In 5; RFC 6749, 8628, 8707, 9449).
+ * Codes 0.3, its extensions and the OAuth RFCs they build on define for a
+ * Company to answer (spec 5.3, 7, 8.13; Operations 2 4; Mediated Sign-In 5;
+ * RFC 6749, 8628, 8707, 9449). A Company's code outside the list is still
+ * read, as a short token (`companyErrorCode`).
  */
 export const PROTOCOL_ERROR_CODES = [
   "access_denied",
-  "account_mismatch",
   "approval_required",
   "authorization_pending",
   "code_required",
@@ -69,17 +69,12 @@ export const PROTOCOL_ERROR_CODES = [
   "invalid_target",
   "invalid_token",
   "message_id_conflict",
-  "operation_not_found",
-  "rate_limited",
   "server_error",
-  "sign_in_required",
   "slow_down",
   "temporarily_unavailable",
-  "terms_changed",
   "unauthorized_client",
   "unsupported_grant_type",
-  "use_dpop_nonce",
-  "user_approval_required"
+  "use_dpop_nonce"
 ] as const;
 export type ProtocolErrorCode = (typeof PROTOCOL_ERROR_CODES)[number];
 

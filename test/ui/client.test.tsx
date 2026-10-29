@@ -120,7 +120,7 @@ describe("public information pages", () => {
     expect(screen.getByRole("link", { name: /Read the source on GitHub/ }).getAttribute("href")).toBe(ECOSYSTEM_SOURCE);
     const heading = screen.getByRole("heading", { name: /^Current ecosystem/ });
     expect(screen.getByRole("link", { name: "Current ecosystem" }).getAttribute("href")).toBe(`#${heading.id}`);
-    expect(screen.getByRole("link", { name: "local 0.2 copy" }).getAttribute("href")).toBe(`${PROJECT_URL}/blob/main/spec/draft-0.2-2026-10-19/README.md`);
+    expect(screen.getByRole("link", { name: "local 0.3 copy" }).getAttribute("href")).toBe(`${PROJECT_URL}/blob/main/spec/draft-0.3-retrieved-2026-10-28/README.md`);
     expect(screen.getAllByRole("region", { name: "Ecosystem comparison table" }).every(table => table.tabIndex === 0)).toBe(true);
     expect(document.querySelector("details")!.open).toBe(false);
     expect(document.querySelector('a[href="/about/ecosystem"]')).toBeNull();

@@ -523,7 +523,7 @@ describe("DirectConversations", () => {
 describe("Companies page", () => {
   const accounts: ConnectedAccount[] = [
     { issuer: toIssuer("https://auth.acme.example"), company: "Acme", account: "a***@example.com", scope: "orders:read orders:write", expiresAt: null },
-    { issuer: toIssuer("https://auth.globex.example"), company: "Globex", account: "g***@example.com", scope: "poppy:read", expiresAt: null }
+    { issuer: toIssuer("https://auth.globex.example"), company: "Globex", account: "g***@example.com", scope: "orders:read", expiresAt: null }
   ];
 
   function Page({ patch, sent }: { patch: Partial<PoppyView>; sent: PoppyClientFrame[] }) {
@@ -543,7 +543,7 @@ describe("Companies page", () => {
     expect(within(table).getByRole("button", { name: "Globex" })).toBeTruthy();
     // Each Company defines its own scopes (spec 4.7): shown as granted, never read as "View" or "View and change", even one named like 0.2's.
     expect(within(table).getByText("orders:read orders:write")).toBeTruthy();
-    expect(within(table).getByText("poppy:read")).toBeTruthy();
+    expect(within(table).getByText("orders:read")).toBeTruthy();
     expect(within(table).queryByText(/^View/)).toBeNull();
     expect(sent).toEqual([]);
 

@@ -203,7 +203,19 @@ const TRANSPORT_HEADERS = /^(accept|content-type|authorization|dpop|poppy-sessio
 const RESERVED_HEADERS =
   /^(host|cookie|set-cookie|content-length|transfer-encoding|connection|keep-alive|upgrade|te|trailer|origin|referer|forwarded|via|proxy-.*|sec-.*|x-forwarded-.*|mcp-.*)$/i;
 
-const documents = new Map<string, { document: OpenApiDocument; expiresAt: number }>();
+/**
+ * Descriptions by URL, per agent: an agent never reads another's cache, so
+ * two agents in one isolate (or one process, as the interop adapter runs
+ * one per cell) can't see a description the other fetched.
+ */
+const documentCaches = new WeakMap<PoppyClient, Map<string, { document: OpenApiDocument; expiresAt: number }>>();
+/** Every description read, by URL, only so the protocol log can name a call (`apiOperationFor`); nothing acts on it. */
+const namedDocuments = new Map<string, OpenApiDocument>();
+function documentsOf(client: PoppyClient): Map<string, { document: OpenApiDocument; expiresAt: number }> {
+  let documents = documentCaches.get(client);
+  if (!documents) documentCaches.set(client, (documents = new Map()));
+  return documents;
+}
 
 function resolveRef(root: Json, value: Json, depth = 0): Json {
   if (depth > 8 || !isObject(value) || typeof value.$ref !== "string") return value;
@@ -397,6 +409,7 @@ export function checkParams(company: Pick<Company, "name">, op: OpenApiOperation
 
 /** The API's OpenAPI 3.0/3.1 description, fetched safely and cached. */
 export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDocument> {
+  const documents = documentsOf(client);
   const cached = documents.get(api.url);
   if (cached && cached.expiresAt > Date.now()) return cached.document;
   const { json, finalUrl, maxAgeSeconds } = await fetchJson(client.host.fetcher, api.url, { maxBytes: 1_000_000 });
@@ -459,6 +472,7 @@ export async function openApi(client: PoppyClient, api: Api): Promise<OpenApiDoc
   }
   const document = { base, operations, scopes: oauthScopes(json) };
   documents.set(api.url, { document, expiresAt: Date.now() + boundedCacheSeconds(maxAgeSeconds) * 1000 });
+  namedDocuments.set(api.url, document);
   return document;
 }
 
@@ -1243,7 +1257,7 @@ registerExecutor("mcp", async (client, company, approval, label, execution) => {
  */
 export function apiOperationFor(method: string, url: URL): { operation: string; path: string; base: string } | null {
   const target = `${url.origin}${url.pathname}`.replace(/\/+$/, "");
-  for (const { document } of documents.values()) {
+  for (const document of namedDocuments.values()) {
     for (const op of document.operations) {
       if (op.method !== method.toUpperCase()) continue;
       const pattern = `${document.base}${op.path}`

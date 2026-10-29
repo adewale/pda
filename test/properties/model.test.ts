@@ -309,7 +309,7 @@ async function signInto(client: Pick<World, "client" | "company" | "cards">, moc
 
 // Fixed negative controls run once each. Changing protocol configurations in
 // every generated history does not add coverage of the encryption context.
-describe("sealed Account Token ownership controls", () => {
+describe("sealed refresh token ownership controls", () => {
   it.each(["user", "account"] as const)("refuses a token copied across %s context, with accepted baselines", async (context) => {
     const w = await world({});
     const target = context === "user" ? await w.createClient() : w;
@@ -385,7 +385,7 @@ type IsolatedModel = {
 type IsolationCommand = "signIn" | "signOut" | "refresh" | "orders" | "message" | "read" | "close" | "propose" | "approveOurs" | "approveTerms" | "decline";
 
 describe("two PDA clients and two accounts in one generated world", () => {
-  it("keeps identities, sessions, Account Tokens, conversations and operations isolated after every action", propertyAsync(async (tc) => {
+  it("keeps identities, sessions, refresh tokens, conversations and operations isolated after every action", propertyAsync(async (tc) => {
     const config = {
       rotateRefreshTokens: tc.draw(gs.booleans()), reuseDetection: tc.draw(gs.booleans()),
       dpopTokens: tc.draw(gs.booleans()),

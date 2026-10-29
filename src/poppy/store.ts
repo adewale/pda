@@ -251,9 +251,9 @@ export const accountsTable = table("poppy_accounts", {
   updated_at: integer
 });
 /**
- * Account Tokens to revoke (spec 4.9, 4.4): the User's sign-outs, and the
+ * Refresh tokens to revoke (spec 4.6): the User's sign-outs, and the
  * tokens a step-up replaced. While the Company hasn't accepted the
- * revocation, `token` holds the Account Token, still sealed as it was in
+ * revocation, `token` holds the refresh token, still sealed as it was in
  * `poppy_accounts`, so it can be sent again; once it has, or the token has
  * expired, `token` is null and the row is only a record for Activity.
  */
@@ -341,7 +341,7 @@ function importKey(name: string, encoded: string | undefined): Promise<CryptoKey
 }
 
 /**
- * Encryption at rest for Account Tokens, pending sign-in secrets and model
+ * Encryption at rest for refresh tokens, pending sign-in secrets and model
  * keys: AES-GCM under `TOKEN_ENC_KEY`, with additional data binding each
  * value to where it belongs, so a ciphertext copied to another row fails to
  * decrypt.
