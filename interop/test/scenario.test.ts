@@ -154,16 +154,33 @@ describe("a cell", () => {
     expect(inapplicable.outcome).toBe("unsupported");
   });
 
-  it("is unsupported when a live Company doesn't offer what the scenario tests, and fails when an adapter claimed it", async () => {
-    const C = loadScenarios().find((scenario) => scenario.id === "C")!;
+  it.each(["C", "CL"])("is unsupported when a live Company lacks conversations for %s, and fails when an adapter claimed it", async id => {
+    const C = loadScenarios().find(scenario => scenario.id === id)!;
     const noConversations = () => driver({ discover: { kind: "ok", result: { conversations: false } } });
     const live = await runCell(C, {}, noConversations(), { live: true });
     expect(live.outcome).toBe("unsupported");
-    expect(live.reason).toContain("doesn't offer what C tests");
+    expect(live.reason).toContain(`doesn't offer what ${id} tests`);
     expect((await runCell(C, {}, noConversations())).outcome).toBe("fail");
     // An expectation not marked `offers` still fails against a live Company.
     const S: Scenario = { id: "S0", title: "s", steps: [{ agent: "session", save: "s" }, { expect: { "${s.session_id}": { $exists: true } } }] };
     expect((await runCell(S, {}, driver({ session: { kind: "ok", result: {} } }), { live: true })).outcome).toBe("fail");
+  });
+
+  it("keeps real MCP failures distinct from a live Company without MCP", async () => {
+    const ML = loadScenarios().find(scenario => scenario.id === "ML")!;
+    const absent = () => driver({ discover: { kind: "ok", result: { apis: [] } } });
+    expect((await runCell(ML, {}, absent(), { live: true })).outcome).toBe("unsupported");
+    expect((await runCell(ML, {}, absent())).outcome).toBe("fail");
+    const brokenListing = driver({ discover: { kind: "ok", result: { apis: ["mcp"] } }, mcp_list: { kind: "ok", result: { tools: [] } } });
+    expect((await runCell(ML, {}, brokenListing, { live: true })).outcome).toBe("fail");
+  });
+
+  it("checks interpolated fixture values while leaving literal parameter keys alone", () => {
+    const literalKey: Scenario = { id: "KEY", title: "literal key", steps: [{ agent: "api", params: { "${fixture.not_a_reference}": "literal" } }] };
+    expect(resolveParams(literalKey.steps[0]!.params, { fixture: {} })).toEqual({ "${fixture.not_a_reference}": "literal" });
+    expect(missingFixture(literalKey, {})).toBeNull();
+    const nestedValue: Scenario = { id: "VALUE", title: "nested value", steps: [{ agent: "api", params: { nested: [{ value: "${fixture.required}" }] } }] };
+    expect(missingFixture(nestedValue, {})).toBe("fixture.required");
   });
 
   it("finds the fixture value a scenario's steps can't run without, skipping steps that may go without", () => {

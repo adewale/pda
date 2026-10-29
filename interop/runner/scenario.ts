@@ -249,12 +249,25 @@ export function actorOf(step: Step): { actor: "agent" | "company" | "runner" | "
  * entry's and so known before the run (spec §10).
  */
 export function missingFixture(scenario: Scenario, fixture: unknown): string | null {
+  // Interpolation replaces parameter values, never object keys.
+  const missing = (value: unknown): string | null => {
+    if (typeof value === "string") {
+      for (const match of value.matchAll(PART)) {
+        const path = match[1]!.trim();
+        if (path.startsWith("fixture.") && lookup(path, { fixture }) === undefined) return path;
+      }
+    } else if (value !== null && typeof value === "object") {
+      for (const item of Object.values(value)) {
+        const path = missing(item);
+        if (path) return path;
+      }
+    }
+    return null;
+  };
   for (const step of scenario.steps) {
     if (step.when !== undefined || step.optional || step.runner === "first" || step.expect) continue;
-    for (const match of JSON.stringify(step.params ?? null).matchAll(PART)) {
-      const path = match[1]!.trim();
-      if (path.startsWith("fixture.") && lookup(path, { fixture }) === undefined) return path;
-    }
+    const path = missing(step.params);
+    if (path) return path;
   }
   return null;
 }

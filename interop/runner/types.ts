@@ -87,7 +87,7 @@ export type Step = {
    * nothing (spec §10), so a miss makes its cell unsupported; a Company with
    * an adapter claims the scenario in its manifest, so a miss fails.
    */
-  readonly offers?: boolean;
+  readonly offers?: true;
   readonly note?: string;
 };
 

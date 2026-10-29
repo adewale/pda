@@ -95,6 +95,8 @@ The live lane signed as the deployed Worker's own interop test client, `https://
 
 # Live tests — 24 October 2026, afternoon: every live Company, with the pre-flight
 
+This is historical 0.1/0.2 evidence from [PR 29's original source](https://github.com/adewale/pda/tree/de613e0b49a9783315d27f75262b3e1647809575), not a new live 0.3 run. Those registry peers are now retired.
+
 PR #26's runner, which fetches the live identity as a Company would before any agent starts (interop spec §10), signed as `https://poppydemoagent.dev/poppy/interop/client.json`, key `interop-2026-10-13`. `scripts/interop-live-identity.mjs` printed that `client_id` with no warning, and its key set matched the deployed `jwks.json`. Signed out, one request a second, `pda` and the lenient and strict fakes:
 
 ```sh
@@ -120,6 +122,8 @@ npm run interop -- --lane live --agents pda,lenient-personal-agent,strict-person
 - Results are in the gitignored `interop/results/` runs `dde469` (the first) and `06b01e`; no tokens or traffic are copied here. No findings were posted to another project.
 
 # Live tests — 26 October 2026: an order through the deployed agent's cards
+
+This order used the deployed 0.2 agent and Operations 1. It does not verify the current 0.3 implementation; [current verification and limits](poppy-0.3-conformance.md#current-verification) are recorded separately.
 
 The deployed agent at `poppydemoagent.dev`, signed in with Google, ordered from Print with Poppy's Agent Sandbox (`sandbox.printwithpoppy.com`) in its User's one conversation. It signed with its own client, `https://poppydemoagent.dev/poppy/client.json`, not the interop identity, and the sandbox opened a native signed-out Session for it; earlier runs there used the interop identity. Before anything was ordered, `GET /api/config` said `environment: "agent-sandbox"` and `mode: "demo"`, with `liveOrdersEnabled: false`. The agent read it too, as its prompt asked. The artwork was a 1200 × 1500 PNG of a poppy, drawn for the test. The recipient was fictional: Sandbox Recipient, 123 Market Street, San Francisco, with the email `poppy-sandbox@example.com`. The User ran the order twice and approved each approval card.
 
