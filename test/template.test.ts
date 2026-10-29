@@ -110,7 +110,7 @@ const EMAIL = /[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g;
  * issues. The About page also links to the public source project. This URL
  * grants no deployment access; the exception is limited to source attribution.
  */
-const registry = JSON.parse(sources["interop/registry.json"]!) as { implementations: { owner?: string; source?: string }[] };
+const registry = JSON.parse(sources["interop/registry.json"]!) as { implementations: { name: string; owner?: string; source?: string }[] };
 const REPO_URLS = new Set(registry.implementations.filter((entry) => entry.owner === "self").map((entry) => entry.source));
 const REPO_URL_ALLOWED_IN = new Set(["interop/registry.json", "interop/known-failures.json", "src/public/project.ts"]);
 
