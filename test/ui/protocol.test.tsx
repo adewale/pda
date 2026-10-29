@@ -176,7 +176,7 @@ describe("protocol view", () => {
   });
 
   it("folds the index and each log into the page's view", () => {
-    const empty: PoppyView = { cards: [], accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
+    const empty: PoppyView = { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
     const indexed = reducePoppy(empty, { type: "poppy.protocol.index", companies: [company] });
     expect(indexed.protocol).toEqual({ companies: [company], logs: {} });
     const loaded = reducePoppy(indexed, log);
@@ -225,7 +225,7 @@ describe("diagnostics", () => {
   });
 
   it("folds the agent's frame into the page's view", () => {
-    const empty: PoppyView = { cards: [], accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: [company], logs: {} } };
+    const empty: PoppyView = { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: [company], logs: {} } };
     const folded = reducePoppy(empty, { type: "poppy.diagnostics", text, at: AT });
     expect(folded.protocol).toEqual({ companies: [company], logs: {}, diagnostics: { text, at: AT } });
   });

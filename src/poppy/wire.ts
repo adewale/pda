@@ -1,4 +1,5 @@
 import type { Issuer } from "./issuer";
+import type { ApprovalCardStatus, ApprovalDecision, ApprovalResult, OutcomeResolution } from "./approval-outcome";
 /**
  * Poppy's messages on the chat WebSocket, beside the Pi protocol in
  * `protocol.ts` (which stays an unchanged copy). Frames whose `type` starts
@@ -59,18 +60,18 @@ export type Card =
       readonly approvalId: string;
       readonly summary: string;
       /**
-       * `done`: the Company answered 2xx. `terms`: sent as approved, and the
+       * `done`: the Company returned a confirmed result. `terms`: sent as approved, and the
        * Company answered with an operation, whose terms wait on a card of
        * their own (Ops 4), so nothing is done yet. `refused`: sent as approved, and
        * the Company answered with another status (`answer`). `unknown`: no
-       * answer came, or the agent restarted mid-call, so it may or may not
-       * have reached the Company. `failed`: it wasn't sent, or its answer
-       * couldn't be read.
+       * confirmed result came (including 5xx, unreadable responses, asynchronous
+       * acceptance or an interrupted call). `failed`: no action was sent.
+       * A User reconciliation remains a separate assertion below.
        */
-      readonly status: "pending" | "approved" | "declined" | "done" | "terms" | "refused" | "failed" | "unknown";
+      readonly status: ApprovalCardStatus;
       readonly result?: string;
       /** The User checked the original outcome with the Company; the original receipt remains in history. */
-      readonly outcomeResolution?: { readonly outcome: "performed" | "not_performed"; readonly at: number };
+      readonly outcomeResolution?: OutcomeResolution;
       /** What the Company answered a `refused` write: its HTTP status and error code, if it gave one. */
       readonly answer?: { readonly status: number; readonly error?: string };
       /** The User's photos the request sends: names, types and sizes, which the page shows with the photo itself. */
@@ -168,15 +169,7 @@ export type ActivityChannel = "api" | "company_agent" | "website" | "sign_in" | 
 /** What an action could do with the account: read it, or read and change it. */
 export type ActivityAccess = "view" | "view_and_change";
 
-export type ActivityResult =
-  | "waiting"
-  | "in_progress"
-  | "done"
-  | "declined"
-  | "cancelled"
-  | "expired"
-  | "failed"
-  | "unknown";
+export type ActivityResult = ApprovalResult | "cancelled" | "expired";
 
 /**
  * One line of the activity log, built from the agent's own records (approvals, sign-ins, conversations, messages), so it outlives the cards.
@@ -276,6 +269,7 @@ export type ProtocolCompany = {
 /** Server → page. */
 export type PoppyServerFrame =
   | { readonly type: "poppy.cards"; readonly cards: readonly Card[] }
+  | { readonly type: "poppy.approvals.state"; readonly ids: readonly string[]; readonly decisions: readonly ApprovalDecision[] }
   | { readonly type: "poppy.direct"; readonly update: DirectUpdate }
   | {
       readonly type: "poppy.settings";
@@ -309,6 +303,7 @@ export type PoppyServerFrame =
 /** Page → server. */
 export type PoppyClientFrame =
   | { readonly type: "poppy.context"; readonly locale?: string; readonly time_zone?: string }
+  | { readonly type: "poppy.approvals.read"; readonly ids: readonly string[] }
   /** The User is using the page, so they count as available (spec 8.10). Not the server's `poppy.activity`. */
   | { readonly type: "poppy.activity" }
   | {

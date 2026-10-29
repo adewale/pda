@@ -1,7 +1,9 @@
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
-import { decideLocal, resolveApprovalOutcome } from "../src/poppy/operations";
-import { agent, cards, company, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
+import { decideLocal, recoverApprovalBatches, resolveApprovalOutcome } from "../src/poppy/operations";
+import { agent, cards, company, connect, requests, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
+import { stepDecisions } from "../src/ui/steps";
+import { serverFrame } from "../src/poppy/frames";
 
 type Channel = "openapi" | "mcp";
 const channels = ["openapi", "mcp"] as const;
@@ -32,6 +34,59 @@ async function loseOutcome(channel: Channel, mode: "throw" | "lose" = "throw") {
 }
 
 describe("an unknown approved action needs reconciliation before fresh approval", () => {
+  it("repairs reconciled receipts after restart without undoing dismissal or renewing their age", async () => {
+    const { a, c, parent, child } = await loseOutcome("openapi");
+    await a.stub.poppyFrame({ type: "poppy.approval.resolve", approvalId: parent.approvalId, outcome: "performed" });
+    await a.stub.poppyFrame({ type: "poppy.card.dismiss", id: parent.id });
+    const aged = Date.now() - 2 * 60 * 60_000;
+    await a.stub.poppySql("UPDATE poppy_cards SET updated_at = ? WHERE id = ?", aged, child.id);
+    const before = await a.stub.poppySql("SELECT id, updated_at FROM poppy_cards WHERE id IN (?, ?) ORDER BY id", parent.id, child.id);
+    await a.stub.poppyRestart();
+    expect(await a.stub.poppySql("SELECT id, updated_at FROM poppy_cards WHERE id IN (?, ?) ORDER BY id", parent.id, child.id)).toBe(before);
+    expect(JSON.parse(before).find((row: { id: string }) => row.id === parent.id).updated_at).toBe(0);
+    expect((await c.stub.state()).performs).toBe(1);
+  });
+
+  it("recovers batch notifications with the User's checked outcome and its provenance", async () => {
+    const { a, parent } = await loseOutcome("openapi");
+    await a.stub.poppyFrame({ type: "poppy.approval.resolve", approvalId: parent.approvalId, outcome: "performed" });
+    await a.stub.poppySql("INSERT INTO poppy_approval_batches (id, ids, told, created_at) VALUES (?, ?, 0, ?)", "reconciled-batch", JSON.stringify([parent.approvalId]), Date.now());
+    await runInDurableObject(a.stub, async instance => recoverApprovalBatches(instance.poppy.client));
+    const note = (await a.stub.poppyNotices()).find(text => text.includes("The User decided this request"));
+    expect(note).toContain("You checked with");
+    expect(note).toContain("this action happened");
+    expect(note).toContain("original uncertain receipt");
+    expect(note).not.toContain("Its outcome is unknown");
+  });
+
+  it("reads an old decision over the authenticated socket after its receipt and Activity entry disappear", async () => {
+    const { a, c, parent, child } = await loseOutcome("openapi");
+    await a.stub.poppyFrame({ type: "poppy.approval.resolve", approvalId: parent.approvalId, outcome: "performed" });
+    for (const card of [parent, child]) await a.stub.poppyFrame({ type: "poppy.card.dismiss", id: card.id });
+    await a.stub.poppySql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 205)
+      INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at)
+      SELECT 'apr_later_' || i, ?, 'main', 'Later action', '{}', 'done', ? + i FROM n`, c.hosts.issuer, Date.now());
+    const activity = JSON.parse(await a.stub.poppyActivity());
+    expect(activity.log.some((entry: { id: string }) => entry.id === parent.id)).toBe(false);
+    const { socket, client } = await connect(a.identity);
+    socket.send(JSON.stringify({ type: "poppy.approvals.read", ids: [parent.approvalId, "apr_missing"] }));
+    await client.until(() => client.frames.some(frame => frame.type === "poppy.approvals.state"));
+    const frame = serverFrame(client.frames.find(frame => frame.type === "poppy.approvals.state"), "lookup reply");
+    if (frame.type !== "poppy.approvals.state") throw new Error("Expected approval decisions");
+    expect(frame.decisions).toHaveLength(1);
+    expect(frame.decisions[0]).toMatchObject({ approvalId: parent.approvalId, result: "done", outcomeResolution: { outcome: "performed" } });
+    expect(JSON.stringify(frame)).not.toContain("request");
+    const durable = Object.fromEntries(frame.decisions.map(item => [item.approvalId, item]));
+    expect(stepDecisions([], activity.log, durable).approvals.get(parent.approvalId)).toMatchObject({ result: "done", facts: [expect.stringContaining("You checked with")] });
+    expect((await c.stub.state()).performs).toBe(1);
+    socket.close();
+    const other = await agent();
+    const elsewhere = await connect(other.identity);
+    elsewhere.socket.send(JSON.stringify({ type: "poppy.approvals.read", ids: [parent.approvalId] }));
+    await elsewhere.client.until(() => elsewhere.client.frames.some(frame => frame.type === "poppy.approvals.state"));
+    expect(elsewhere.client.frames.find(frame => frame.type === "poppy.approvals.state")).toMatchObject({ decisions: [] });
+    elsewhere.socket.close();
+  });
   it.each(channels)("blocks a fresh identical %s action after an unknown outcome and restart", async channel => {
     const { a, c } = await loseOutcome(channel);
     expect((await c.stub.state()).performs).toBe(1);

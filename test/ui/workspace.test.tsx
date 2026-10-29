@@ -54,7 +54,7 @@ function session(patch: Partial<PiSession> = {}, poppy: Partial<PoppyView> = {})
     error: null,
     status: "open",
     catalog: [],
-    poppy: { cards: [], accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
+    poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
     outbox: [],
     submit: (text: string) => void submitted.push(text),
     resend: () => undefined,

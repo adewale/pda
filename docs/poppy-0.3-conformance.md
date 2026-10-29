@@ -2,7 +2,36 @@
 
 This review targets the [28 October 2026 snapshot](../spec/draft-0.3-retrieved-2026-10-28/README.md). It separates PDA's implementation and verification problems from the [43 issues in the upstream text](poppy-0.3-issues.md). A changelog disposition of **Done** records an implemented change; it does not certify every normative requirement or every deployment path.
 
+## Current verification
+
+PDA implements the pinned 28 October 2026 text of Poppy 0.3 alone. This is the current verification summary; dated evidence packages retain the results of their own runs.
+
+| Area | Evidence and limit |
+| --- | --- |
+| Repository implementation | The [PR checks](https://github.com/adewale/pda/pull/36/checks) run types, specification integrity, Worker, durability, page, interop and property tests on the commit under review. Passing them does not certify every normative requirement. |
+| Own interop and security lanes | CI selects applicable honest/network, malicious-Company and malicious-agent cells explicitly, and refuses skipped required cells. [Lane definitions](../.github/workflows/interop.yml). |
+| Independent Company | The pinned print-with-poppy 0.3 demo passed its supported scenarios. [Dated results and pin](interop-results/README.md#29-october-conformance-verification-after-the-pr-36-review). Demo accounts, orders and payments are synthetic. |
+| Browser interaction | The maintained [application smoke command](evidence/pr-36-conformance/README.md#reproduce) uses the production build, authenticated WebSocket and strict mock. Identity, model and Company are synthetic. |
+| Live services | Discovery has been checked at printwithpoppy.com. Authenticated live 0.3 journeys remain unverified. The [isolated hosted pair](../test/hosted/README.md) is prepared; account/OAuth inputs and the User's model key are still needed. |
+
 ## Local problems and their fixes
+
+The consistency follow-up addresses the ten findings from the second PR review:
+
+| Review finding | Final change |
+| --- | --- |
+| 1. Withheld replies looked sent. | Typed message outcomes drive transcript summaries, including saved results from before this update. A withheld reply is never quoted as a sent message. |
+| 2. Restart revived dismissed receipts. | Card recovery repairs content while preserving age and dismissal; a first User reconciliation is still a new event. |
+| 3. Old actions looked pending after Activity retention. | The page requests durable decisions for the approvals in its loaded transcript. Reads are bounded, read-only and scoped to the authenticated User's own object. Activity remains a bounded feed. |
+| 4. Recovered batches omitted User reconciliation. | Batch recovery reads the same checked outcome used by Activity and the page, preserving its User provenance and the original uncertain receipt. |
+| 5. Hosted checking echoed private JSON. | Both hosted commands use one private-file reader/writer and safe error formatter. Malformed settings, manifests and secrets are refused without printing input values. |
+| 6. Outcome interpretation was duplicated. | One typed approval-state projection and one reconciliation formatter serve receipts, transcript decisions, Activity and batch recovery. |
+| 7. Message policy and delivery were mixed into the tool adapter. | A conversation helper owns classification, saved policy, stable message identity, acknowledgement and typed results. The tool adapts arguments. |
+| 8. Authority comparison was repeated. | A shared Session/account/withdrawal predicate replaces repeated comparisons. Browser context ownership, scope-sensitive MCP cache bindings and all checks around asynchronous work remain distinct. |
+| 9. Current documentation contradicted itself. | This report owns the current verification summary. The design and README link here; the active upgrade procedure specifies manual, single-version upgrades. The obsolete plan is linked at its frozen revision. |
+| 10. Several capture drivers were maintained. | New evidence uses the application smoke entry point. Earlier images and receipts remain, with immutable links to their archived source and instructions. |
+
+The Python client and strict mock retain their independent validation. Their agreement is useful evidence precisely because they do not share all of PDA's implementation.
 
 | Problem | Result and evidence |
 | --- | --- |

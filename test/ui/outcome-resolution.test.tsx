@@ -43,7 +43,7 @@ describe("recording an outcome checked with the Company", () => {
     expect(receipts([card])).toEqual([card]);
     const step = stepDecisions([card]).approvals.get(card.approvalId);
     expect(step).toMatchObject({ result: outcome === "performed" ? "done" : "failed", httpStatus: null, code: null });
-    expect(step?.facts).toEqual([`You checked with the Company: ${outcome === "performed" ? "it happened" : "it did not happen"}`]);
+    expect(step?.facts).toEqual([expect.stringContaining(`You checked with Shop: this action ${outcome === "performed" ? "happened" : "did not happen"}`)]);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -75,6 +75,13 @@ describe("recording an outcome checked with the Company", () => {
       .toEqual({ type: "poppy.approval.resolve", approvalId: "uncertain", outcome: "not_performed" });
     for (const outcome of ["approve", "try_again", "unknown", true, null]) {
       expect(() => clientFrame({ type: "poppy.approval.resolve", approvalId: "uncertain", outcome }, "frame")).toThrow();
+    }
+  });
+
+  it("bounds read-only approval lookups and refuses malformed identifiers", () => {
+    expect(clientFrame({ type: "poppy.approvals.read", ids: ["apr_old", "apr2_terms"] }, "frame")).toEqual({ type: "poppy.approvals.read", ids: ["apr_old", "apr2_terms"] });
+    for (const ids of [Array.from({ length: 101 }, (_, i) => `apr_${i}`), ["../another-user"], [null]]) {
+      expect(() => clientFrame({ type: "poppy.approvals.read", ids }, "frame")).toThrow();
     }
   });
 });

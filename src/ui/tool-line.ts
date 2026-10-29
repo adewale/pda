@@ -4,6 +4,8 @@
  * where, how and with what access, in the words the rest of the page uses.
  * Pure, so it is tested on its own (test/ui/tool-line.test.ts).
  */
+import { isApprovalId, type ApprovalResult } from "../poppy/approval-outcome";
+import { messageDelivery } from "../poppy/message-result";
 
 export type ToolHow = "API" | "their agent" | "website" | "sign-in" | "web page" | "memory" | "clock" | "calculator" | "schedule";
 export type ToolAccess = "view" | "view and change";
@@ -34,7 +36,7 @@ export type ToolOutcome = {
  * asked for approval reads "Waiting for you" until this says otherwise.
  */
 export type ToolDecision = {
-  readonly result: "waiting" | "in_progress" | "done" | "declined" | "failed" | "unknown";
+  readonly result: ApprovalResult;
   /** The User's photos it sends, by name, when the card still says. */
   readonly photos?: readonly string[];
 };
@@ -44,7 +46,7 @@ export function proposedBy(outcome: ToolOutcome | undefined): { approvalId: stri
   if (!outcome || outcome.error || !isRecord(outcome.details)) return null;
   const proposed = outcome.details.proposed;
   // Our own card ids: `apr_` for a request we hold, `apr2_` for an operation a Company returned (operations-v2.ts).
-  if (typeof proposed === "string" && /^apr2?_/.test(proposed)) return { approvalId: proposed };
+  if (isApprovalId(proposed)) return { approvalId: proposed };
   return null;
 }
 
@@ -218,6 +220,10 @@ export function describeToolCall(
     case "poppy_status":
       return line(domain ? `Checked your accounts and conversations at ${company}` : "Checked what's open at every Company", null);
     case "poppy_message": {
+      const delivery = messageDelivery(outcome?.details);
+      if (delivery === "authorization_requested") return line(`Kept verification details private and asked ${company}'s agent for sign-in`, "their agent");
+      if (delivery === "withheld") return line(`Kept verification details private; sign-in was already requested from ${company}'s agent`, "their agent");
+      if (outcome?.error) return line(`Couldn't confirm sending a message to ${company}'s agent`, "their agent");
       const text = str(a.text);
       if (!text) return line(`Sent details to ${company}'s agent`, "their agent");
       return line(a.conversation ? `Wrote to ${company}'s agent:` : `Asked ${company}'s agent:`, "their agent", null, clip(text));

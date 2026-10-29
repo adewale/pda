@@ -1,0 +1,204 @@
+{
+  "signedOutPage": true,
+  "publicAboutAndEcosystem": true,
+  "publicPagesNeedNoIdentityOrSocket": true,
+  "ecosystemMobileTablesAndDeepLinks": true,
+  "ecosystemMobileLandscape": true,
+  "publicLinksAndSectionTargets": true,
+  "oldEcosystemPathHasNoPageOrRedirect": true,
+  "authenticatedWorkspaceAndWebSocket": true,
+  "chatReply": true,
+  "chatSurvivesReload": true,
+  "companyApprovalJourneys": {
+    "journeys": [
+      {
+        "transport": "OpenAPI",
+        "viewport": "desktop",
+        "domain": "copenapijourney.shop.test",
+        "localApproval": {
+          "id": "apr_LGx1rbxIH8iRNK7onu08Uw",
+          "status": "done"
+        },
+        "companyApproval": {
+          "id": "apr2_ATJTnINiZxdRCDle3k-e3i",
+          "status": "done"
+        },
+        "browserWebSocketDecisions": [
+          {
+            "approvalId": "apr_LGx1rbxIH8iRNK7onu08Uw",
+            "decision": "approve"
+          },
+          {
+            "approvalId": "apr2_ATJTnINiZxdRCDle3k-e3i",
+            "decision": "approve"
+          }
+        ],
+        "companyWire": [
+          {
+            "status": 403,
+            "companyApprovalPresent": false
+          },
+          {
+            "status": 201,
+            "companyApprovalPresent": true
+          }
+        ],
+        "companyOperation": {
+          "id": "exc_gtpxunde",
+          "state": "succeeded",
+          "revision": 1,
+          "confirms": 1,
+          "approvedBy": "user"
+        },
+        "performsBeforeEitherApproval": 0,
+        "performsAfterLocalApproval": 0,
+        "performsAfterTermsApprovalAndReload": 1,
+        "originalTranscript": "done",
+        "originalTranscriptSurvivesReload": true,
+        "activityInProgress": 0,
+        "activityResults": [
+          "done",
+          "done"
+        ],
+        "strictCompanyViolations": 0,
+        "strictCompanyWarnings": 0
+      },
+      {
+        "transport": "MCP",
+        "viewport": "mobile",
+        "domain": "cmcpjourney.shop.test",
+        "localApproval": {
+          "id": "apr_tglgHT5FIk7UzmDtRDb96A",
+          "status": "done"
+        },
+        "companyApproval": {
+          "id": "apr2_TVeh6o-RwlMUH7CEcGQtik",
+          "status": "done"
+        },
+        "browserWebSocketDecisions": [
+          {
+            "approvalId": "apr_tglgHT5FIk7UzmDtRDb96A",
+            "decision": "approve"
+          },
+          {
+            "approvalId": "apr2_TVeh6o-RwlMUH7CEcGQtik",
+            "decision": "approve"
+          }
+        ],
+        "companyWire": null,
+        "companyOperation": {
+          "id": "exc_69cpSbOM",
+          "state": "succeeded",
+          "revision": 1,
+          "confirms": 1,
+          "approvedBy": "user"
+        },
+        "performsBeforeEitherApproval": 0,
+        "performsAfterLocalApproval": 0,
+        "performsAfterTermsApprovalAndReload": 1,
+        "originalTranscript": "done",
+        "originalTranscriptSurvivesReload": true,
+        "activityInProgress": 0,
+        "activityResults": [
+          "done",
+          "done"
+        ],
+        "strictCompanyViolations": 0,
+        "strictCompanyWarnings": 0
+      }
+    ],
+    "recovery": {
+      "transport": "OpenAPI",
+      "viewport": "desktop",
+      "fault": "Company performs the action, then the response is lost",
+      "initialReceipt": "unknown",
+      "agedReceiptSurvivesReload": true,
+      "ageAtReloadHours": 2,
+      "unresolvedReceiptOffersDismiss": false,
+      "freshProposalBlocked": true,
+      "browserWebSocketResolution": {
+        "approvalId": "apr_OlDFkBteRdutQ3Z20oEDSg",
+        "outcome": "performed"
+      },
+      "preservedReceiptStatus": "unknown",
+      "userReportedOutcome": "performed",
+      "resolvedReceiptExpired": true,
+      "recoveryPreservesReceiptAge": true,
+      "newerSyntheticActivityRows": 205,
+      "originalDecisionOutsideActivity": true,
+      "userAttributionAfterResolvedReceiptExpiry": true,
+      "exchangeRequestsBeforeReconciliation": 1,
+      "exchangeRequestsAfterReconciliationAndReload": 1,
+      "performsBeforeReconciliation": 1,
+      "performsAfterReconciliationAndReload": 1,
+      "originalTranscriptAfterReload": "done, attributed to the User's check with the Company",
+      "activityResult": "done",
+      "activityInProgress": 0,
+      "strictCompanyViolations": 0,
+      "strictCompanyWarnings": 0
+    },
+    "messageWithheld": {
+      "actualBrowserToolCall": true,
+      "replyQuotedAsSent": false,
+      "verificationCodeSent": false,
+      "authorizationMessages": 1,
+      "strictViolations": 0,
+      "strictWarnings": 0
+    },
+    "companySignInSetup": "strict mock authorization decision followed by production authenticated callback",
+    "userApprovals": "actual Chromium clicks sent over the production WebSocket",
+    "liveOAuthOrExternalPaymentsVerified": false
+  },
+  "deepRoutes": true,
+  "mobileLayout": true,
+  "revokedSessionShowsRecoveryAndRetainsDraft": true,
+  "logoutAndReloadSignsOut": true,
+  "uncaughtBrowserErrors": 0,
+  "runtime": "local workerd",
+  "assets": "production Vite build",
+  "builtThisRun": true,
+  "model": "synthetic test provider",
+  "authentication": "production signed-cookie verifier with synthetic test identity",
+  "liveOAuthOrModelVerified": false,
+  "publishedScreenshots": [
+    {
+      "file": "consistency-history-desktop.png",
+      "sha256": "a19aa7f4dadb0c0df83ccf3d537a0fdad2f4206adcb88440feefb9ba658d7fe9",
+      "width": 1440,
+      "height": 1000
+    },
+    {
+      "file": "withheld-message-desktop.png",
+      "sha256": "e18dd969bce9790f48852b0e569761f3e1fa20e1e65e18b20a85665b7ed6b89b",
+      "width": 1440,
+      "height": 1000
+    }
+  ],
+  "reviewedBase": "4a5d2143c2d46a88e37c90e48247b5a7162f2b5e",
+  "captureCommand": "node scripts/app-smoke.mjs --approval-journey --output /tmp/pr36-consistency-final-browser.json",
+  "selectedEvidence": "Actual browser interaction: a checked outcome after recovery, receipt expiry and 205 later synthetic Activity rows; and an attempted verification reply whose safe replacement reaches the Company. Identity, model and Company are synthetic.",
+  "captureSources": {
+    "scripts/app-smoke.mjs": "cbd35c7842e7d1aa3f70f1f220e3f7f2267dc0f372199d6b23ec682800f03713",
+    "scripts/app-approval-journey.mjs": "5e69b271f9ab7404e3c8ac1b572535d529fa038737d548430ec88c10e6947c50",
+    "test/browser/approval-journey-worker.ts": "e27f4e7ec6a7269d66b95ee0d63ab7051fc92a17bd1feb5b64b30ab88dc00e61"
+  },
+  "repositoryChecks": {
+    "npmTest": {
+      "passed": 2000,
+      "skipped": 1,
+      "total": 2001,
+      "files": 100,
+      "workersPassed": 1165,
+      "durabilityPassed": 3,
+      "uiPassed": 256,
+      "interopPassed": 386,
+      "propertiesPassed": 190
+    },
+    "typecheck": "passed",
+    "specCheck": {
+      "dispositions": 42,
+      "pinnedPages": 13
+    },
+    "hostedSecurity": "Local strict protocol/security smoke passed, including malformed private settings, manifest and secrets without input echo."
+  }
+}

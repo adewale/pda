@@ -3,8 +3,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, chmodSync } from "node:fs";
 import path from "node:path";
+import { PrivateInputError, readPrivateJson as privateRead, writePrivateJson as secureWrite, privateErrorMessage } from "./private-files.mjs";
 import { exportJWK, generateKeyPair, importJWK } from "jose";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -12,18 +13,12 @@ const args = process.argv.slice(2);
 const settingsIndex = args.indexOf("--settings");
 const settingsPath = path.resolve(settingsIndex < 0 ? path.join(root, "test/hosted/settings.local.json") : args[settingsIndex + 1] ?? "");
 const prepareOnly = args.includes("--prepare-only");
-const privateRead = file => {
-  if ((statSync(file).mode & 0o077) !== 0) throw new Error(`${path.basename(file)} must have permissions 0600`);
-  try { return JSON.parse(readFileSync(file, "utf8")); }
-  catch { throw new Error(`${path.basename(file)} is not valid JSON`); }
-};
 const run = (command, values, options = {}) => {
   const result = spawnSync(command, values, { cwd: root, encoding: "utf8", env: { ...process.env, WRANGLER_SEND_METRICS: "false" }, ...options });
-  if (result.status !== 0) throw new Error(`${path.basename(command)} ${values[0] ?? ""} failed (${result.status}); inspect the local command without printing secrets`);
+  if (result.status !== 0) throw new PrivateInputError(`${path.basename(command)} ${values[0] ?? ""} failed (${result.status}); inspect the local command without printing secrets`);
   return result.stdout ?? "";
 };
 const json = file => JSON.parse(readFileSync(file, "utf8").replace(/^\s*\/\/.*$/gm, ""));
-const secureWrite = (file, value) => { writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 }); chmodSync(file, 0o600); };
 const validOrigin = value => {
   const url = new URL(value);
   assert.equal(url.protocol, "https:", "Origins must use HTTPS");
@@ -53,7 +48,7 @@ try {
   chmodSync(output, 0o700);
   const manifest = { label: settings.label, accountId: settings.accountId, pdaName, companyName, pdaOrigin: pda.origin, companyOrigin: company.origin, githubNumericId: settings.githubNumericId };
   const manifestPath = path.join(output, "manifest.json");
-  if (existsSync(manifestPath) && JSON.stringify(privateRead(manifestPath)) !== JSON.stringify(manifest)) throw new Error("Use a new label rather than rebinding an existing test namespace");
+  if (existsSync(manifestPath) && JSON.stringify(privateRead(manifestPath)) !== JSON.stringify(manifest)) throw new PrivateInputError("Use a new label rather than rebinding an existing test namespace");
   const pdaSecretPath = path.join(output, "pda.secrets.json");
   const companySecretPath = path.join(output, "company.secrets.json");
   if (!existsSync(pdaSecretPath)) {
@@ -65,16 +60,16 @@ try {
     secureWrite(pdaSecretPath, { SESSION_SECRET: randomBytes(48).toString("base64url"), TOKEN_ENC_KEY: randomBytes(32).toString("base64"), POPPY_SIGNING_JWKS: JSON.stringify(keys), GITHUB_CLIENT_ID: settings.githubClientId, GITHUB_CLIENT_SECRET: settings.githubClientSecret });
   }
   const existingPda = privateRead(pdaSecretPath);
-  if (existingPda.GITHUB_CLIENT_ID !== settings.githubClientId || existingPda.GITHUB_CLIENT_SECRET !== settings.githubClientSecret) throw new Error("Existing OAuth application or secret differs: use a new label");
-  if (typeof existingPda.SESSION_SECRET !== "string" || existingPda.SESSION_SECRET.length < 32 || Buffer.from(existingPda.TOKEN_ENC_KEY ?? "", "base64").length !== 32) throw new Error("PDA session/encryption keys are missing or invalid");
+  if (existingPda.GITHUB_CLIENT_ID !== settings.githubClientId || existingPda.GITHUB_CLIENT_SECRET !== settings.githubClientSecret) throw new PrivateInputError("Existing OAuth application or secret differs: use a new label");
+  if (typeof existingPda.SESSION_SECRET !== "string" || existingPda.SESSION_SECRET.length < 32 || Buffer.from(existingPda.TOKEN_ENC_KEY ?? "", "base64").length !== 32) throw new PrivateInputError("PDA session/encryption keys are missing or invalid");
   try {
     const keys = JSON.parse(existingPda.POPPY_SIGNING_JWKS);
-    if (!Array.isArray(keys) || keys.length < 2) throw new Error();
-    for (const key of keys) { if (!key.d || !key.kid) throw new Error(); await importJWK(key, "ES256"); }
-  } catch { throw new Error("PDA signing keys are missing or invalid"); }
+    if (!Array.isArray(keys) || keys.length < 2) throw new PrivateInputError();
+    for (const key of keys) { if (!key.d || !key.kid) throw new PrivateInputError(); await importJWK(key, "ES256"); }
+  } catch { throw new PrivateInputError("PDA signing keys are missing or invalid"); }
   if (!existsSync(companySecretPath)) secureWrite(companySecretPath, { COMPANY_PASSWORD: randomBytes(32).toString("base64url"), COMPANY_CONTROL_SECRET: randomBytes(32).toString("base64url") });
   const companySecrets = privateRead(companySecretPath);
-  if (![companySecrets.COMPANY_PASSWORD, companySecrets.COMPANY_CONTROL_SECRET].every(value => typeof value === "string" && /^[A-Za-z0-9_-]{43,128}$/.test(value)) || companySecrets.COMPANY_PASSWORD === companySecrets.COMPANY_CONTROL_SECRET) throw new Error("Company consent/control secrets are missing or invalid");
+  if (![companySecrets.COMPANY_PASSWORD, companySecrets.COMPANY_CONTROL_SECRET].every(value => typeof value === "string" && /^[A-Za-z0-9_-]{43,128}$/.test(value)) || companySecrets.COMPANY_PASSWORD === companySecrets.COMPANY_CONTROL_SECRET) throw new PrivateInputError("Company consent/control secrets are missing or invalid");
   const pdaConfig = json(path.join(root, "test/hosted/pda.wrangler.jsonc"));
   pdaConfig.name = pdaName;
   pdaConfig.account_id = settings.accountId;
@@ -95,9 +90,6 @@ try {
   }
   process.stdout.write(`Prepared isolated files in ${path.relative(root, output)}. ${prepareOnly ? "Build/upload dry-runs skipped." : "Both upload dry-runs passed."} Nothing was deployed; secrets were not printed.\n`);
 } catch (error) {
-  // Assertion diagnostics include the actual private input after the first
-  // line. Keep the supplied validation message and omit those diagnostics.
-  const message = error instanceof Error ? error.message.split(/\r?\n/, 1)[0] : "preparation failed";
-  process.stderr.write(`hosted-prepare: ${message}\n`);
+  process.stderr.write(`hosted-prepare: ${privateErrorMessage(error, "Preparation failed; check the private inputs and local command")}\n`);
   process.exitCode = 1;
 }

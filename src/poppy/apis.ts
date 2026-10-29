@@ -11,11 +11,12 @@ import { approvable, approvalCardId, approvalForModel, approvalHeader, approvalJ
 import { EndpointRequest, type RequestInit } from "./outgoing";
 import { firstTime, intent, type Sql } from "./store";
 import type { NewApproval } from "./approvals";
+import { sameAuthority, sessionAuthority, type ApprovalAuthority } from "./authority";
 import { companyErrorCode } from "./error-codes";
 
 type Api = Company["apis"][number];
 
-type ApprovalBinding = { readonly account: string | null; readonly sessionId: string; readonly authorityGeneration?: number };
+type ApprovalBinding = ApprovalAuthority;
 async function approvalBinding(client: PoppyClient, company: Company, label: string, resource?: string): Promise<ApprovalBinding> {
   await client.token(company, { label, ...(resource ? { resource } : {}) });
   const session = client.session(company.issuer, label);
@@ -24,8 +25,7 @@ async function approvalBinding(client: PoppyClient, company: Company, label: str
 }
 function checkApprovalBinding(client: PoppyClient, company: Company, label: string, binding?: ApprovalBinding): void {
   const session = client.session(company.issuer, label);
-  if (!binding || !session || session.session_id !== binding.sessionId || session.account !== binding.account ||
-      session.authority_generation !== (binding.authorityGeneration ?? 0)) {
+  if (!binding || !sameAuthority(binding, sessionAuthority(session))) {
     throw new PoppyError("approval_changed", "The account or Session changed. Review a fresh request before sending it.", 0);
   }
 }

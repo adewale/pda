@@ -12,6 +12,7 @@ import { found, one, rows, type RowOf } from "../rows";
 import { conversationsTable, inboxTable, intent } from "./store";
 import type { DirectMessage } from "./wire";
 import { companyErrorCode, isProtocolErrorCode } from "./error-codes";
+import { sameAuthority, sessionAuthority } from "./authority";
 
 const conversationRow = conversationsTable.row;
 export type ConversationRow = RowOf<typeof conversationRow>;
@@ -400,7 +401,7 @@ registerExecutor("message-approval", async (client, company, approval, label, ex
   const beforeDispatch = () => {
     execution.beforeDispatch();
     const session = client.session(company.issuer, label);
-    if (!session || session.session_id !== approval.binding.sessionId || session.account !== approval.binding.account || session.authority_generation !== (approval.binding.authorityGeneration ?? 0)) {
+    if (!sameAuthority(approval.binding, sessionAuthority(session))) {
       throw new PoppyError("approval_changed", "The account or Session changed. Review a fresh request before sending it.", 0);
     }
     if (!approvable(approval.approval, Date.now())) {

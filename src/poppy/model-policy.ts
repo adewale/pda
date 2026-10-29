@@ -17,9 +17,11 @@ function fields(value: Json): string {
 
 /** An agent message must not carry a recognizable credential, in prose or structured fields. */
 export function messageHasCredential(text: string | undefined, data: Json | undefined): boolean {
-  const prose = text ?? "";
-  return credentialProblem(prose) !== null
-    || (data !== undefined && credentialProblem(fields(data)) !== null);
+  return hasCredential(text ?? "", data === undefined ? "" : fields(data));
+}
+
+function hasCredential(prose: string, details: string): boolean {
+  return credentialProblem(prose) !== null || credentialProblem(details) !== null;
 }
 
 /** Only the latest Company's message can request verification; ordinary delivery details aren't verification. */
@@ -51,13 +53,20 @@ const NAMED_PHONE = /\b(?:phone|telephone|mobile|contact)(?:\s+(?:number|no\.?))
 const PERSONAL_DETAIL = /\b(?:(?:my|customer(?:'s)?|user(?:'s)?|full|first|last)\s+name|(?:postal|home|delivery|billing)\s+address|date of birth)\s*(?:is\s+|[:=]\s*)\S/i;
 
 /** A harmless refusal or task question must not be replaced just because verification was requested. */
-export function isVerificationReply(messages: readonly Json[], text: string | undefined, data: Json | undefined): boolean {
-  if (!requestsVerification(messages)) return false;
-  const proposed = `${text ?? ""}\n${data === undefined ? "" : fields(data)}`;
-  return messageHasCredential(text, data)
-    || /^\s*\d{4,8}\s*$/.test(text ?? "")
+export const MESSAGE_POLICIES = ["send", "request_authorization", "reject"] as const;
+export type MessagePolicy = typeof MESSAGE_POLICIES[number];
+
+/** Inspect the payload once; ordinary task details do not become verification replies by proximity alone. */
+export function classifyMessage(messages: readonly Json[], text: string | undefined, data: Json | undefined): MessagePolicy {
+  const prose = text ?? "", details = data === undefined ? "" : fields(data);
+  const credential = hasCredential(prose, details);
+  if (!requestsVerification(messages)) return credential ? "reject" : "send";
+  const proposed = `${prose}\n${details}`;
+  const verification = credential
+    || /^\s*\d{4,8}\s*$/.test(prose)
     || EMAIL.test(proposed) || PHONE.test(proposed) || NAMED_PHONE.test(proposed) || PERSONAL_DETAIL.test(proposed)
-    || (data !== undefined && /(?:^|\n)(?:name|email|email address|phone|phone number|dob|personal details|account details):\s*\S/i.test(fields(data)));
+    || /(?:^|\n)(?:name|email|email address|phone|phone number|dob|personal details|account details):\s*\S/i.test(details);
+  return verification ? "request_authorization" : "send";
 }
 
 /** Sent instead of an unsafe verification reply. It contains no part of the attempted text or fields. */

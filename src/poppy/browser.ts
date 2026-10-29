@@ -3,6 +3,7 @@ import type { Company } from "./discovery";
 import { assertPublicHost, PoppyFetchError } from "./fetch";
 import { toJson, type Json } from "./json";
 import { randomId } from "./jwt";
+import { sameAuthority, sessionAuthority } from "./authority";
 import { proposeLocal, registerExecutor } from "./operations";
 import { EndpointRequest } from "./outgoing";
 
@@ -92,7 +93,7 @@ function contextsOf(client: PoppyClient): Map<string, ContextEntry> {
 
 function checkContext(client: PoppyClient, company: Company, label: string, entry: ContextEntry): void {
   const session = client.session(company.issuer, label);
-  if (contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry || entry.sessionId !== (session?.session_id ?? null) || entry.account !== (session?.account ?? null) || entry.authorityGeneration !== (session?.authority_generation ?? 0)) {
+  if (contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry || !sameAuthority(entry, sessionAuthority(session))) {
     throw new PoppyError("approval_changed", "The open page belongs to an earlier account or Session. Open a fresh page.", 0);
   }
 }
@@ -183,7 +184,7 @@ async function sessionContext(
   };
   let entry = contexts.get(key);
   const before = client.session(company.issuer, label);
-  if (entry && (entry.sessionId !== (before?.session_id ?? null) || entry.account !== (before?.account ?? null) || entry.authorityGeneration !== (before?.authority_generation ?? 0))) {
+  if (entry && !sameAuthority(entry, sessionAuthority(before))) {
     await dropContext(contexts, key);
     entry = undefined;
   }
@@ -193,7 +194,7 @@ async function sessionContext(
       await client.token(company, { label });
       const session = client.session(company.issuer, label)!;
       // Preparation may have signed the Session out, or started a new one.
-      if (entry.sessionId !== session.session_id || entry.account !== session.account || entry.authorityGeneration !== session.authority_generation) {
+      if (!sameAuthority(entry, sessionAuthority(session))) {
         await dropContext(contexts, key, entry);
         entry = open();
       }
@@ -260,7 +261,7 @@ async function join(client: PoppyClient, company: Company, label: string, contex
   });
   const checkAuthorized = () => {
     check();
-    if (!authorized || entry.sessionId !== authorized.sessionId || entry.account !== authorized.account || entry.authorityGeneration !== authorized.authorityGeneration) {
+    if (!authorized || !sameAuthority(entry, authorized)) {
       throw new PoppyError("approval_changed", "The browser join no longer belongs to the authorized Session. Open a fresh page.", 0);
     }
   };
@@ -390,7 +391,7 @@ registerExecutor("browse-submit", async (client, company, { submission, binding 
   guard(new URL(submission.action));
   const entry = contextsOf(client).get(JSON.stringify([company.issuer, label]));
   if (!entry) throw new Error("The page is no longer open");
-  if (!binding || binding.contextId !== entry.id || binding.sessionId !== entry.sessionId || binding.account !== entry.account || (binding.authorityGeneration ?? 0) !== entry.authorityGeneration) throw new PoppyError("approval_changed", "The account, Session or page context changed. Review a fresh form.", 0);
+  if (!binding || binding.contextId !== entry.id || !sameAuthority(binding, entry)) throw new PoppyError("approval_changed", "The account, Session or page context changed. Review a fresh form.", 0);
   checkContext(client, company, label, entry);
   await client.beforeRequest(company);
   const handle = await entry.context;

@@ -34,6 +34,8 @@ import type { Card, PoppyClientFrame, PoppyServerFrame } from "./wire";
 import { issuerDecoder, type Issuer } from "./issuer";
 import { clientFrame } from "./frames";
 import { object, optional, string, tryDecode } from "../decode";
+import { writeCard, type CardWriteOptions } from "./cards";
+import { approvalDecisions } from "./approval-decisions";
 
 export type PoppyOptions = {
   readonly env: Env;
@@ -56,7 +58,7 @@ export type PoppyOptions = {
 };
 
 /** Frames that only read or keep the User present: no event of their own. */
-const QUIET_FRAMES = new Set(["poppy.context", "poppy.activity", "poppy.protocol"]);
+const QUIET_FRAMES = new Set(["poppy.context", "poppy.activity", "poppy.protocol", "poppy.approvals.read"]);
 
 /** The last locale and time zone the User's page sent: one row. */
 const USER_CONTEXT_SCHEMA = `CREATE TABLE IF NOT EXISTS user_context (
@@ -170,7 +172,7 @@ export class PoppyCapability extends LifecycleCapability {
       env: options.env,
       sql: options.storage.sql,
       fetcher: options.fetcher,
-      showCard: (card) => this.#showCard(card),
+      showCard: (card, options) => this.#showCard(card, options),
       notifyModel: (text, operationId) => options.notifyModel(text, operationId),
       schedule: async (fn, at, payload, id) => {
         await this.lifecycle.jobs.push({ fn, time: at, payload, id, singleflight: true });
@@ -229,14 +231,8 @@ export class PoppyCapability extends LifecycleCapability {
     }
   }
 
-  async #showCard(card: Card): Promise<void> {
-    this.#options.storage.sql.exec(
-      "INSERT OR REPLACE INTO poppy_cards (id, card, open, updated_at) VALUES (?, ?, ?, ?)",
-      card.id,
-      JSON.stringify(card),
-      card.open ? 1 : 0,
-      Date.now()
-    );
+  async #showCard(card: Card, options?: CardWriteOptions): Promise<void> {
+    if (!writeCard(this.#options.storage.sql, card, Date.now(), options)) return;
     recordCard(card as { kind: string; open?: boolean });
     this.#sendCards();
     if (card.kind === "notice" || card.kind === "signin_link") this.#sendSettings();
@@ -432,6 +428,13 @@ export class PoppyCapability extends LifecycleCapability {
       }
       case "poppy.activity":
         return;
+      case "poppy.approvals.read": {
+        const decisions = approvalDecisions(client.sql, frame.ids, issuer => {
+          try { return client.companyByIssuer(issuer).name; } catch { return issuer; }
+        });
+        socket.send(JSON.stringify({ type: "poppy.approvals.state", ids: frame.ids, decisions } satisfies PoppyServerFrame));
+        return;
+      }
       case "poppy.protocol":
         // Read-only, from our own table, to the page that asked.
         if (typeof frame.key === "string") socket.send(JSON.stringify(protocolLog(client.sql, frame.key, this.#companyNames)));

@@ -7,6 +7,7 @@ import { issuerDecoder } from "./issuer";
 import { approvalTermsDecoder } from "./operations-v2";
 import { protocolRevision, supportsProtocol } from "./protocol-version";
 import { isObject } from "./json";
+import { APPROVAL_STATUSES } from "./approval-outcome";
 
 /**
  * Poppy state in the person's SQLite, beside Pi's `pi_*` tables. Session
@@ -391,7 +392,7 @@ export const approvalsTable = table("poppy_approvals", {
   label: text,
   summary: text,
   request: text,
-  status: text,
+  status: textOf(literal(...APPROVAL_STATUSES)),
   result: nullable(text),
   created_at: integer,
   terms: nullable(textOf(jsonText(approvalTermsDecoder))),

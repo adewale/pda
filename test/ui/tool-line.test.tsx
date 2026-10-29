@@ -12,6 +12,24 @@ import { gs, jsonValues, property } from "../properties/hegel";
 const done = { error: false };
 const names = new Map([["manzanita.example", "Manzanita"]]);
 
+it.each([
+  { kind: "authorization_requested", status: "not sent", authorizationRequest: {} },
+  { kind: "withheld", status: "not sent" },
+  { status: "not sent", authorizationRequest: {} },
+  { status: "not sent" }
+])("does not present a withheld verification reply as sent: %j", details => {
+  const line = describeToolCall("poppy_message", { domain: "manzanita.example", conversation: "c1", text: "The verification code is 482913" }, { error: false, details }, names);
+  expect(line?.text).toContain("Kept verification details private");
+  expect(line?.text).not.toContain("Wrote");
+  expect(line?.quote).toBeUndefined();
+});
+
+it("does not quote a failed credential reply as a message sent to the Company", () => {
+  const line = describeToolCall("poppy_message", { domain: "manzanita.example", text: "password: hunter2" }, { error: true }, names);
+  expect(line?.text).toContain("Couldn't confirm");
+  expect(line?.quote).toBeUndefined();
+});
+
 describe("describeToolCall", () => {
   it("reads an API GET as viewing, at the Company by name", () => {
     expect(describeToolCall("poppy_api_call", { domain: "manzanita.example", operation: "GET /orders" }, done, names)).toEqual({

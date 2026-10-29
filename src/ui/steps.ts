@@ -7,22 +7,10 @@ import type { TranscriptMessage } from "../protocol";
 import type { ActivityEntry, ActivityResult, Card } from "../poppy/wire";
 import { resultFacts } from "./result-facts";
 import { proposedBy, type ToolDecision } from "./tool-line";
+import { approvalResult, checkedOutcomeText, type ApprovalDecision } from "../poppy/approval-outcome";
 
 type ApprovalCard = Extract<Card, { kind: "approval" }>;
 type Photo = NonNullable<ApprovalCard["attachments"]>[number];
-
-/** A local approval's state in the shared words: sent but refused by the Company reads failed, with its code beside it. */
-export const APPROVAL_RESULT: Record<ApprovalCard["status"], ToolDecision["result"]> = {
-  pending: "waiting",
-  approved: "in_progress",
-  declined: "declined",
-  done: "done",
-  // Sent; the Company's terms wait on a card of their own.
-  terms: "waiting",
-  refused: "failed",
-  failed: "failed",
-  unknown: "unknown"
-};
 
 /** One approval's outcome, for the step that asked for it. */
 export type ApprovalStep = ToolDecision & {
@@ -48,21 +36,20 @@ function fromActivity(result: ActivityResult): ToolDecision["result"] {
 }
 
 /**
- * Every decided or waiting request the page knows of, by approval id: from
- * the cards (the last hour, with photos and what the Company answered), then
- * Activity's log, which outlives them.
+ * Fresh cards and Activity entries take precedence while present. Requested
+ * durable decisions retain older outcomes after both presentation lists expire.
  */
-export function stepDecisions(cards: readonly Card[], log: readonly ActivityEntry[] = []): { approvals: ReadonlyMap<string, ApprovalStep> } {
+export function stepDecisions(cards: readonly Card[], log: readonly ActivityEntry[] = [], durable: Readonly<Record<string, ApprovalDecision>> = {}): { approvals: ReadonlyMap<string, ApprovalStep> } {
   const approvals = new Map<string, ApprovalStep>();
   for (const card of cards) {
     if (card.kind !== "approval") continue;
     const { status: httpStatus, facts } = card.status === "done" ? resultFacts(card.result) : { status: card.answer?.status ?? null, facts: [] };
     approvals.set(card.approvalId, {
-      result: card.outcomeResolution ? (card.outcomeResolution.outcome === "performed" ? "done" : "failed") : APPROVAL_RESULT[card.status],
+      result: approvalResult(card.status, card.outcomeResolution),
       photos: (card.attachments ?? []).map((photo) => photo.name),
       httpStatus,
       code: card.answer?.error ?? null,
-      facts: card.outcomeResolution ? [`You checked with the Company: ${card.outcomeResolution.outcome === "performed" ? "it happened" : "it did not happen"}`] : facts,
+      facts: card.outcomeResolution ? [checkedOutcomeText(card.company, card.outcomeResolution.outcome)] : facts,
       attachments: card.attachments ?? [],
       company: card.company
     });
@@ -76,6 +63,12 @@ export function stepDecisions(cards: readonly Card[], log: readonly ActivityEntr
         attachments: [], company: entry.company
       });
     }
+  }
+  for (const item of Object.values(durable)) {
+    if (!approvals.has(item.approvalId)) approvals.set(item.approvalId, {
+      result: item.result, httpStatus: null, code: null, attachments: [], company: item.company,
+      facts: item.outcomeResolution ? [checkedOutcomeText(item.company, item.outcomeResolution.outcome)] : []
+    });
   }
   return { approvals };
 }

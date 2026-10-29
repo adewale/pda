@@ -15,6 +15,8 @@ import type { OperationV2 } from "./operations-v2";
 import type { ApprovalTerms } from "./wire";
 import { one, rows } from "../rows";
 import { approvalBatchesTable, approvalsTable } from "./store";
+import { approvalResult, checkedOutcomeText, storedResolution } from "./approval-outcome";
+import type { CardWriteOptions } from "./cards";
 
 /**
  * What the Guides ask an approval to point out (Operations section): costs,
@@ -387,13 +389,12 @@ function batchKeyOf(issuer: string, request: string): { batchKey?: string } {
 const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "request", "status", "terms", "result", "terms_approval_id", "action_key", "action_owner", "operation_id", "outcome_resolution", "outcome_resolved_at");
 
 function outcomeResolution(row: { readonly outcome_resolution: "performed" | "not_performed" | null; readonly outcome_resolved_at: number | null }) {
-  return row.outcome_resolution !== null && row.outcome_resolved_at !== null
-    ? { outcomeResolution: { outcome: row.outcome_resolution, at: row.outcome_resolved_at } }
-    : {};
+  const resolution = storedResolution(row);
+  return resolution ? { outcomeResolution: resolution } : {};
 }
 
 /** Rebuild the page's receipt from the durable User assertion, including after interruption. */
-async function showResolvedApprovalCard(client: PoppyClient, id: string): Promise<void> {
+async function showResolvedApprovalCard(client: PoppyClient, id: string, options?: CardWriteOptions): Promise<void> {
   const current = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!current || current.status !== "unknown" || current.outcome_resolution === null) return;
   const company = client.companyByIssuer(current.issuer);
@@ -402,7 +403,7 @@ async function showResolvedApprovalCard(client: PoppyClient, id: string): Promis
     open: false, approvalId: current.id, summary: current.summary, status: "unknown",
     ...(current.terms ? { terms: current.terms } : {}), ...(current.result ? { result: current.result } : {}),
     ...outcomeResolution(current), ...approvalAttachments(current.request), ...batchKeyOf(current.issuer, current.request)
-  });
+  }, options);
 }
 
 /**
@@ -436,7 +437,7 @@ export async function resolveApprovalOutcome(client: PoppyClient, id: string, ou
     WHERE id IN (${group.map(() => "?").join(",")}) AND outcome_resolution IS NULL AND status IN ('unknown', 'terms')`, resolved, resolvedAt, ...group.map(row => row.id));
   for (const row of candidates) {
     if (!linked.has(row.id)) continue;
-    await showResolvedApprovalCard(client, row.id);
+    await showResolvedApprovalCard(client, row.id, { repair: earlier !== undefined });
   }
   if (earlier) return;
   await client.host.notifyModel(`[system] The User checked with the Company and reports that this action ${resolved === "performed" ? "happened" : "did not happen"}: ${selected.summary}. The original uncertain receipt is preserved. No request was resent.`, `poppy-resolution-${id}`);
@@ -447,7 +448,7 @@ function finishedApproval(status: string): status is FinishedApproval {
   return status === "declined" || status === "done" || status === "refused" || status === "failed" || status === "unknown";
 }
 
-/** Carry the Company's final decision back to the tool request that asked for its terms. */
+/** Carry the attempt's outcome and any User reconciliation through linked terms cards. */
 async function settleTermsApprovals(client: PoppyClient): Promise<void> {
   // A child can finish before its parent receives TermsRequested, or during a restart.
   // Re-read durable links rather than relying on the order in which cards arrived.
@@ -681,7 +682,14 @@ export async function recoverApprovalBatches(client: PoppyClient): Promise<void>
       ids = [];
     }
     const lines = (Array.isArray(ids) ? ids : []).flatMap((id) => {
-      const row = typeof id === "string" ? one(client.sql, approvalsTable.pick("summary", "status", "result"), "SELECT summary, status, result FROM poppy_approvals WHERE id = ?", id) : undefined;
+      const row = typeof id === "string" ? one(client.sql, approvalsTable.pick("summary", "status", "result", "issuer", "outcome_resolution", "outcome_resolved_at"), "SELECT summary, status, result, issuer, outcome_resolution, outcome_resolved_at FROM poppy_approvals WHERE id = ?", id) : undefined;
+      const resolution = row ? storedResolution(row) : undefined;
+      if (row && ["waiting", "in_progress"].includes(approvalResult(row.status, resolution))) return [];
+      if (row && resolution) {
+        let company = "the Company";
+        try { company = client.companyByIssuer(row.issuer).name; } catch { /* Keep the generic name. */ }
+        return [`${checkedOutcomeText(company, resolution.outcome)} Action: ${row.summary}.`];
+      }
       const status = row ? BATCH_STATUS[row.status] : undefined;
       if (!row || !status) return [];
       return [`${status}: ${row.summary}.${row.status === "done" && row.result ? ` Result: ${row.result}` : ""}`];
@@ -690,7 +698,7 @@ export async function recoverApprovalBatches(client: PoppyClient): Promise<void>
   }
 }
 
-/** After a restart: approvals left mid-call have an unknown outcome; say so, never retry. */
+/** Recover interrupted attempts without resending, and repair reconciled receipts without reviving history. */
 export async function recoverInterruptedApprovals(client: PoppyClient): Promise<void> {
   // One in a batch the model hasn't heard about yet is told with its batch (recoverApprovalBatches).
   const batched = new Set(
@@ -735,6 +743,6 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
   }
   await settleTermsApprovals(client);
   for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'unknown' AND outcome_resolution IS NOT NULL")) {
-    await showResolvedApprovalCard(client, row.id);
+    await showResolvedApprovalCard(client, row.id, { repair: true });
   }
 }

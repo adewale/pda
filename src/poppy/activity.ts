@@ -5,6 +5,7 @@ import { integer, newestRows, nullable, one, rows, text } from "../rows";
 import { accountsTable, approvalsTable, conversationsTable, messagesTable, signInsTable, type Sql } from "./store";
 import type { ActivityEntry, ActivityResult, ActivityTask, PoppyServerFrame } from "./wire";
 import type { Issuer } from "./issuer";
+import { approvalResult, checkedOutcomeText, storedResolution } from "./approval-outcome";
 import { pendingSignOuts, signOutForModel, signOutRecords, type SignOutRecord } from "./signout";
 
 /**
@@ -57,17 +58,6 @@ const messageRow = object({
   created_at: messageColumns.created_at,
   in_direct: nullable(integer)
 });
-
-const APPROVAL_RESULT: Record<string, ActivityResult> = {
-  pending: "waiting",
-  executing: "in_progress",
-  done: "done",
-  terms: "waiting",
-  declined: "declined",
-  refused: "failed",
-  failed: "failed",
-  unknown: "unknown"
-};
 
 const SIGN_IN_RESULT: Record<string, ActivityResult> = {
   pending: "waiting",
@@ -202,12 +192,12 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
     ...newest("poppy_approvals", "id, issuer, summary, terms, json_extract(request, '$.kind') AS kind, status, result, created_at, outcome_resolution, outcome_resolved_at", "created_at")
   )) {
     const company = name(row.issuer);
-    const resolution = row.outcome_resolution;
-    const result = resolution ? (resolution === "performed" ? "done" : "failed") : APPROVAL_RESULT[row.status] ?? "unknown";
+    const resolution = storedResolution(row);
+    const result = approvalResult(row.status, resolution);
     // What an approved API call returned stays out of the log; what the website showed, and why something failed, go in.
     // A failure can carry a Company's arbitrary error_description. Keep those
     // words on its approval card and out of the Activity/diagnostics surface.
-    const outcome = resolution ? `You checked with ${company}: this action ${resolution === "performed" ? "happened" : "did not happen"}. The original uncertain receipt is retained; no request was resent.` : row.status === "failed"
+    const outcome = resolution ? checkedOutcomeText(company, resolution.outcome) : row.status === "failed"
       ? "The approved request could not be completed. See its approval card for details."
       : row.result && (result !== "done" || row.kind === "browse-submit") ? clip(row.result) : undefined;
     log.push({

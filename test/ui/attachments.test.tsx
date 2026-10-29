@@ -31,7 +31,7 @@ function session(patch: Partial<PiSession> = {}) {
     status: "open",
     catalog: [],
     summaries: new Set<string>(),
-    poppy: { cards: [], accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } },
+    poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } },
     outbox: [],
     submit: (text: string) => void submitted.push(text),
     resend: () => undefined,
@@ -193,7 +193,7 @@ describe("a sent photo", () => {
 });
 
 describe("cards about photos", () => {
-  const view = (cards: Card[]): PoppyView => ({ cards, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } });
+  const view = (cards: Card[]): PoppyView => ({ cards, decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } });
 
   it("asks before a photo is sent to a Company, showing the photo, and sends a frame only on a click", () => {
     const sent: PoppyClientFrame[] = [];

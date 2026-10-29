@@ -2,6 +2,18 @@
 
 These raw Chromium captures exercise the built application, its authenticated WebSocket, the real Poppy client and a strict mock Company. They replace supplied-state screenshots as the evidence for the approval interaction. [Problem inventory and upstream-audit reconciliation](../../poppy-0.3-conformance.md).
 
+## Consistency audit
+
+The maintained application journey now restarts recovery after the User records an outcome, expires the receipt, and adds 205 later synthetic approval rows. The original action stays **Done**, with User attribution, even though its Activity entry is no longer returned. Recovery preserves the receipt's old timestamp. Worker regressions separately verify that a dismissed receipt stays dismissed, that batch recovery includes the User's checked outcome, and that the read-only decision lookup cannot access another User's records.
+
+![The original request remains Done with the User's checked outcome after recovery and 205 newer Activity entries](consistency-history-desktop.png)
+
+The same fresh production build runs a faux-model message attempt over the actual WebSocket. The attempted verification reply is withheld; the Company receives one fixed request for an authorization event. The transcript reports that replacement without claiming the original reply was sent or quoting its code.
+
+![The transcript says verification details were kept private and sign-in was requested, without quoting the withheld code](withheld-message-desktop.png)
+
+[Assertions, repository checks and raw capture hashes](consistency-browser.json). The full repository run passed 2,000 tests with one skipped across 100 files; types and the pinned-spec checks passed. The hosted security smoke also verifies that malformed private JSON in either command cannot be echoed. Both captures are interaction states from one local build, with synthetic identity, model and Company. They establish the tested delivery and presentation behavior; they do not verify live OAuth or arbitrary model behavior. Regenerate them with the command below. Historical captures and receipts in this directory retain their original scope.
+
 ## User approval through to the Company's result
 
 The same action stays unperformed after the first click, when the Company's exact terms arrive. The second click approves those terms; the mock performs once. Reloading retains **Done** on the original tool step and in Activity. The receipt records both actual browser WebSocket decisions, stored approval states and Company effect counts.

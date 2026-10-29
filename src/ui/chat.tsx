@@ -9,6 +9,7 @@ import { NOT_SENT } from "./connection";
 import { Action, IconAction, useNow } from "./controls";
 import { countdown } from "./format";
 import { approvalsOnSteps, stepDecisions } from "./steps";
+import { APPROVAL_READ_LIMIT } from "../poppy/approval-outcome";
 import { Transcript, UserMessage, type TimelineEvent } from "./transcript";
 
 function Capability({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
@@ -310,8 +311,16 @@ export function ChatPage({
   onProtocol?: (domain: string) => void;
 }) {
   const { poppy, sendPoppy, messages, live, running, tools, error } = session;
-  const decisions = useMemo(() => stepDecisions(poppy.cards, poppy.activity?.log ?? []), [poppy.cards, poppy.activity]);
   const onSteps = useMemo(() => approvalsOnSteps(live ? [...messages, live] : messages), [messages, live]);
+  const approvalKey = [...onSteps].sort().join(",");
+  useEffect(() => {
+    if (session.status !== "open" || !approvalKey) return;
+    const ids = approvalKey.split(",");
+    for (let index = 0; index < ids.length; index += APPROVAL_READ_LIMIT) sendPoppy({ type: "poppy.approvals.read", ids: ids.slice(index, index + APPROVAL_READ_LIMIT) });
+    // Changes to cards/Activity refresh decisions, but the lookup's own reply
+    // changes neither dependency and cannot start a request loop.
+  }, [approvalKey, poppy.cards, poppy.activity, session.status, sendPoppy]);
+  const decisions = useMemo(() => stepDecisions(poppy.cards, poppy.activity?.log ?? [], poppy.decisions), [poppy.cards, poppy.activity, poppy.decisions]);
   const events: TimelineEvent[] = receipts(poppy.cards)
     .filter((card) => !(card.kind === "approval" && onSteps.has(card.approvalId)))
     .map((card) => ({ key: card.id, at: card.at ?? Number.POSITIVE_INFINITY, node: <PoppyCard card={card} send={sendPoppy} onAsk={(text) => session.submit(text)} /> }));

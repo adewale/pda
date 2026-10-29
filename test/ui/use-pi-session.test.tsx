@@ -5,7 +5,7 @@ import { toIssuer } from "../../src/poppy/issuer";
 
 /** How the page folds Poppy frames from the agent into what it shows. */
 
-const EMPTY: PoppyView = { cards: [], accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
+const EMPTY: PoppyView = { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} } };
 
 const notice = (id: string, text = id): Card => ({ id, kind: "notice", company: "Acme", open: false, text });
 const approval = (id: string): Card => ({ id, kind: "approval", company: "Acme", open: true, approvalId: id, summary: "Submit", status: "pending" });

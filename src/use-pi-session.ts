@@ -2,6 +2,7 @@ import { useAgent } from "agents/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HistoryRequest } from "./history";
 import { tryDecode } from "./decode";
+import type { ApprovalDecision } from "./poppy/approval-outcome";
 import { historyFrame, serverFrame } from "./poppy/frames";
 import { projectEntries } from "./transcript";
 import { historyFromEvents, summaryIds, withEarlier } from "./ui/history";
@@ -50,6 +51,8 @@ export type ProtocolView = {
 /** Poppy's part of the page: cards, settings, activity, Direct Conversations, the protocol view. */
 export type PoppyView = {
   readonly cards: readonly Card[];
+  /** Outcomes requested by the loaded transcript, independent of Activity retention. */
+  readonly decisions: Readonly<Record<string, ApprovalDecision>>;
   readonly accounts: readonly ConnectedAccount[];
   /** Sign-outs the Company hasn't accepted yet: its access is still live there. */
   readonly signOuts: readonly PendingSignOut[];
@@ -130,7 +133,7 @@ const INITIAL_STATE: State = {
   ...EMPTY_VIEW,
   status: "connecting",
   catalog: [],
-  poppy: { cards: [], accounts: [], signOuts: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
+  poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: EMPTY_PROTOCOL },
   earlier: [],
   summaries: [],
   outbox: []
@@ -138,6 +141,12 @@ const INITIAL_STATE: State = {
 
 export function reducePoppy(view: PoppyView, frame: PoppyServerFrame): PoppyView {
   switch (frame.type) {
+    case "poppy.approvals.state": {
+      const decisions = { ...view.decisions };
+      for (const id of frame.ids) delete decisions[id];
+      for (const item of frame.decisions) decisions[item.approvalId] = item;
+      return { ...view, decisions };
+    }
     case "poppy.cards": {
       // A full list replaces ours; a one-off notice is added to it.
       const ids = new Set(frame.cards.map((card) => card.id));

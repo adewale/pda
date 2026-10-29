@@ -183,19 +183,27 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
   const resolvedCards = await until(async () => JSON.parse(await agent.poppyCards()), cards => cards.find(card => card.approvalId === unknownApproval.approvalId)?.outcomeResolution?.outcome === "performed", "The User's reconciliation was not stored");
   const resolved = resolvedCards.find(card => card.approvalId === unknownApproval.approvalId);
   assert.equal(resolved.status, "unknown", "The original uncertain receipt must be preserved");
-  await page.waitForFunction(() => document.body.innerText.includes("You checked with the Company: it happened"));
-  await page.reload({ waitUntil: "networkidle0" });
-  await page.waitForFunction(() => document.body.innerText.includes("You checked with the Company: it happened"));
-  const resolvedStep = await page.waitForFunction(() => [...document.querySelectorAll('[data-tool="poppy_api_call"][data-status="done"]')].find(step => step.innerText.includes("You checked with the Company: it happened")));
-  await resolvedStep.asElement().evaluate(element => element.scrollIntoView({ block: "center" }));
-  await resolvedStep.dispose();
-  await capture("unknown-reconciled-desktop");
   const reconciledActivity = JSON.parse(await agent.poppyActivity());
   const checkedOutcome = reconciledActivity.log.find(entry => entry.id === `approval-${unknownApproval.approvalId}`);
   assert.equal(checkedOutcome.outcomeBy, "you");
+  await page.waitForFunction(outcome => document.body.innerText.includes(outcome), {}, checkedOutcome.outcome);
+  await page.reload({ waitUntil: "networkidle0" });
+  const resolvedStep = await page.waitForFunction(outcome => [...document.querySelectorAll('[data-tool="poppy_api_call"][data-status="done"]')].find(step => step.innerText.includes(outcome)), {}, checkedOutcome.outcome);
+  await resolvedStep.asElement().evaluate(element => element.scrollIntoView({ block: "center" }));
+  await resolvedStep.dispose();
+  await capture("unknown-reconciled-desktop");
   // Once the resolved card leaves the page, the original step must keep the
   // User's attribution through Activity rather than imply a Company answer.
-  await agent.poppySql("UPDATE poppy_cards SET updated_at = ? WHERE id = ?", Date.now() - 2 * 60 * 60 * 1000, `approval-${unknownApproval.approvalId}`);
+  const resolvedAt = Date.now() - 2 * 60 * 60 * 1000;
+  await agent.poppySql("UPDATE poppy_cards SET updated_at = ? WHERE id = ?", resolvedAt, `approval-${unknownApproval.approvalId}`);
+  await agent.poppyRestart();
+  assert.equal(JSON.parse(await agent.poppySql("SELECT updated_at FROM poppy_cards WHERE id = ?", `approval-${unknownApproval.approvalId}`))[0].updated_at, resolvedAt, "Recovery must not renew a resolved receipt's age");
+  const unknownIssuer = JSON.parse(await agent.poppySql("SELECT issuer FROM poppy_approvals WHERE id = ?", unknownApproval.approvalId))[0].issuer;
+  await agent.poppySql(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 205)
+    INSERT INTO poppy_approvals (id, issuer, label, summary, request, status, created_at)
+    SELECT 'apr_browser_history_' || i, ?, 'main', 'Synthetic later action', '{}', 'done', ? + i FROM n`, unknownIssuer, Date.now());
+  const boundedActivity = JSON.parse(await agent.poppyActivity());
+  assert.equal(boundedActivity.log.some(entry => entry.id === `approval-${unknownApproval.approvalId}`), false, "The old decision must be outside the bounded Activity feed");
   await page.reload({ waitUntil: "networkidle0" });
   await page.waitForFunction(attribution => [...document.querySelectorAll('[data-tool="poppy_api_call"][data-status="done"]')].some(step => step.innerText.includes(attribution)), {}, checkedOutcome.outcome);
   assert.equal(await page.evaluate(() => document.body.innerText.includes("Recording this did not send another request.")), false, "The resolved receipt must have aged out of the page");
@@ -213,16 +221,38 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     initialReceipt: "unknown", agedReceiptSurvivesReload: true, ageAtReloadHours: 2, unresolvedReceiptOffersDismiss: false, freshProposalBlocked: true,
     browserWebSocketResolution: resolutions[0], preservedReceiptStatus: resolved.status,
     userReportedOutcome: resolved.outcomeResolution.outcome,
-    resolvedReceiptExpired: true, userAttributionAfterResolvedReceiptExpiry: true,
+    resolvedReceiptExpired: true, recoveryPreservesReceiptAge: true, newerSyntheticActivityRows: 205,
+    originalDecisionOutsideActivity: true, userAttributionAfterResolvedReceiptExpiry: true,
     exchangeRequestsBeforeReconciliation: writes(unknownState), exchangeRequestsAfterReconciliationAndReload: writes(resolvedState),
     performsBeforeReconciliation: unknownState.performs, performsAfterReconciliationAndReload: resolvedState.performs,
     originalTranscriptAfterReload: "done, attributed to the User's check with the Company",
     activityResult: "done", activityInProgress: reconciledActivity.inProgress.length,
     strictCompanyViolations: resolvedState.violations.length, strictCompanyWarnings: resolvedState.warnings.length
   };
+  const verificationCompany = companies.getByName("cverificationjourney");
+  const verificationDomain = "cverificationjourney.shop.test";
+  await verificationCompany.configure({ protocolVersion: "0.3", agentReplies: false });
+  const hello = await agent.poppyTool("poppy_message", { domain: verificationDomain, text: "Hello" });
+  assert.equal(hello.isError, false);
+  const conversation = JSON.parse(hello.text).conversationId;
+  await verificationCompany.say(conversation, "To verify your identity, please provide your email and verification code.");
+  await agent.poppyReadNow(conversation);
+  await send(`Please send a verification reply at ${verificationDomain} in ${conversation}.`);
+  const withheldStep = await page.waitForFunction(() => [...document.querySelectorAll('[data-tool="poppy_message"]')].find(step => step.innerText.includes("Kept verification details private")));
+  const withheldText = await withheldStep.asElement().evaluate(element => { element.scrollIntoView({ block: "center" }); return element.innerText; });
+  assert.equal(withheldText.includes("482913"), false);
+  assert.equal(withheldText.includes("Wrote to"), false);
+  await withheldStep.dispose();
+  await capture("withheld-message-desktop");
+  const verificationState = await verificationCompany.state();
+  const sent = verificationState.conversations.flatMap(item => item.sent);
+  assert.equal(sent.some(message => message.includes("482913")), false);
+  assert.equal(sent.filter(message => message.startsWith("agent:Please send an authorization event")).length, 1);
+  assert.deepEqual(verificationState.violations, []);
+  assert.deepEqual(verificationState.warnings, []);
   network.off("Network.webSocketFrameSent", onFrame);
   return {
-    journeys: receipts, recovery, screenshots,
+    journeys: receipts, recovery, messageWithheld: { actualBrowserToolCall: true, replyQuotedAsSent: false, verificationCodeSent: false, authorizationMessages: 1, strictViolations: 0, strictWarnings: 0 }, screenshots,
     companySignInSetup: "strict mock authorization decision followed by production authenticated callback",
     userApprovals: "actual Chromium clicks sent over the production WebSocket",
     liveOAuthOrExternalPaymentsVerified: false

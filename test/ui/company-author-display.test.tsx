@@ -5,7 +5,7 @@ import type { DirectUpdate } from "../../src/poppy/wire";
 import type { PoppyView } from "../../src/use-pi-session";
 
 function view(messages: NonNullable<DirectUpdate["messages"]>): PoppyView {
-  return { cards: [], accounts: [], signOuts: [], activity: null, protocol: { companies: null, logs: {} }, direct: {
+  return { cards: [], decisions: {}, accounts: [], signOuts: [], activity: null, protocol: { companies: null, logs: {} }, direct: {
     cnv_1: { conversationId: "cnv_1", company: "Shop", status: "idle", responder: "human", messages }
   } };
 }

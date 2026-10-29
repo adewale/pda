@@ -1,4 +1,5 @@
-import { array, boolean, integer, literal, nullable, number, object, optional, record, string, tagged, type Decoder } from "../decode";
+import { array, boolean, DecodeError, integer, literal, nullable, number, object, optional, record, string, tagged, type Decoder } from "../decode";
+import { APPROVAL_READ_LIMIT, isApprovalId } from "./approval-outcome";
 import type { HistoryFrame } from "../history";
 import { issuerDecoder } from "./issuer";
 import type { PoppyClientFrame, PoppyServerFrame } from "./wire";
@@ -10,11 +11,18 @@ import type { PoppyClientFrame, PoppyServerFrame } from "./wire";
  */
 
 const decision = literal("approve", "decline");
+const approvalIds: Decoder<readonly string[]> = (value, at) => {
+  if (!Array.isArray(value) || value.length > APPROVAL_READ_LIMIT) throw new DecodeError("Invalid approval lookup");
+  const ids = array(string)(value, at);
+  if (ids.some(id => !isApprovalId(id))) throw new DecodeError("Invalid approval lookup");
+  return ids;
+};
 
 /** Page → agent. */
 export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
   "poppy.context": object({ type: literal("poppy.context"), locale: optional(string), time_zone: optional(string) }),
   "poppy.activity": object({ type: literal("poppy.activity") }),
+  "poppy.approvals.read": object({ type: literal("poppy.approvals.read"), ids: approvalIds }),
   "poppy.credentials": object({ type: literal("poppy.credentials"), signInId: string, values: record(string) }),
   "poppy.code": object({ type: literal("poppy.code"), signInId: string, code: string }),
   "poppy.signin.cancel": object({ type: literal("poppy.signin.cancel"), signInId: string }),
@@ -49,6 +57,7 @@ function built<T>(): Decoder<T> {
 /** Agent → page. */
 export const serverFrame: Decoder<PoppyServerFrame> = tagged("type", {
   "poppy.cards": object({ type: literal("poppy.cards"), cards: array(built<Extract<PoppyServerFrame, { type: "poppy.cards" }>["cards"][number]>()) }),
+  "poppy.approvals.state": object({ type: literal("poppy.approvals.state"), ids: array(string), decisions: array(built<Extract<PoppyServerFrame, { type: "poppy.approvals.state" }>["decisions"][number]>()) }),
   "poppy.direct": object({ type: literal("poppy.direct"), update: built<Extract<PoppyServerFrame, { type: "poppy.direct" }>["update"]>() }),
   "poppy.settings": object({
     type: literal("poppy.settings"),

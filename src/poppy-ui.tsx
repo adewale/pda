@@ -22,7 +22,8 @@ import { Action, ActionLink, IconAction, useNow } from "./ui/controls";
 import { countdown, fullDate, RESULT } from "./ui/format";
 import { redactQueries, resultFacts } from "./ui/result-facts";
 import { Status, STATUS_STYLE } from "./ui/status";
-import { APPROVAL_RESULT, approvalBatches } from "./ui/steps";
+import { approvalBatches } from "./ui/steps";
+import { approvalResult } from "./poppy/approval-outcome";
 import type { PoppyView } from "./use-pi-session";
 
 /** A Company-supplied link, only if it is an HTTPS URL: never `javascript:`, `data:` or `http:`. */
@@ -499,7 +500,7 @@ function BatchTile({ card, ticked, onToggle, decided }: { card: ApprovalCardOf; 
   const [pixels, setPixels] = useState<string | null>(null);
   const photo = card.attachments?.[0];
   // Waiting until the User decides; then each tile follows its own card, so the User sees which went and which didn't.
-  const status: ActivityResult | null = !decided ? null : card.status === "pending" ? (ticked ? "in_progress" : "declined") : APPROVAL_RESULT[card.status];
+  const status: ActivityResult | null = !decided ? null : card.status === "pending" ? (ticked ? "in_progress" : "declined") : approvalResult(card.status, card.outcomeResolution);
   const detail = card.answer ? `${card.answer.status}${card.answer.error ? ` ${card.answer.error}` : ""}` : null;
   const name = photo?.name ?? card.summary;
   return (
@@ -635,8 +636,8 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
     }
     case "approval": {
       const resolution = card.outcomeResolution;
-      const result = resolution ? (resolution.outcome === "performed" ? "done" : "failed") : APPROVAL_RESULT[card.status];
-      // Done only for a 2xx, and then "as you approved"; a refusal shows the Company's status and code (decision 6).
+      const result = approvalResult(card.status, resolution);
+      // A checked outcome is attributed to the User; the original Company response stays separate.
       const detail = resolution ? "you checked with the Company" : card.answer
         ? `${card.answer.status}${card.answer.error ? ` ${card.answer.error}` : ""}`
         : card.status === "done"

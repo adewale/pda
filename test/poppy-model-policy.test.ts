@@ -1,9 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { REQUEST_AUTHORIZATION } from "../src/poppy/model-policy";
-import { agent, cards, chat, company, connect, person, requests, tool, until } from "./agent-helpers";
+import { agent, cards, chat, company, connect, person, requests, tool, until, type Company } from "./agent-helpers";
 import { obey } from "./worker";
 
+const messagePosts = async (c: Company) => (await requests(c)).filter(request => request.method === "POST" && request.url.includes("/conversations"));
+
 describe("model policy at the real Poppy tool boundary", () => {
+  it("keeps a credential refused under an older saved policy blocked on replay", async () => {
+    const c = await company();
+    const a = await agent();
+    await tool(a, "poppy_discover", { domain: c.domain });
+    await a.stub.poppySql("INSERT INTO poppy_intents (call_key, value, created_at) VALUES (?, 'message', ?)", "message-policy|test|legacy-refused", Date.now());
+    const result = await tool(a, "poppy_message", { domain: c.domain, text: "The verification code is 482913" }, "legacy-refused");
+    expect(result.isError).toBe(true);
+    expect(result.text).not.toContain("482913");
+    expect((await c.stub.state()).conversations).toEqual([]);
+  });
   it("asks for an authorization event instead of sending a faux model's verification reply", async () => {
     const c = await company();
     const identity = person();
@@ -99,9 +111,9 @@ describe("model policy at the real Poppy tool boundary", () => {
     await c.stub.say(hello.conversationId, "What size do you need?");
     await a.stub.poppyReadNow(hello.conversationId);
     await a.stub.poppyRestart();
-    const before = (await requests(c)).length;
+    const before = (await messagePosts(c)).length;
     expect((await tool(a, "poppy_message", reply, "withheld-replay")).text).toContain("already attempted");
-    expect((await requests(c)).length).toBe(before);
+    expect(await messagePosts(c)).toHaveLength(before);
     expect((await c.stub.state()).conversations.flatMap(conversation => conversation.sent).some(message => message.includes("alice@example.com"))).toBe(false);
     expect((await tool(a, "poppy_message", { domain: c.domain, conversation: hello.conversationId, text: "Size medium, please." })).isError).toBe(false);
   });
@@ -120,9 +132,9 @@ describe("model policy at the real Poppy tool boundary", () => {
     const retried = await tool(a, "poppy_message", reply, "lost-authorization");
     expect(retried.isError).toBe(false);
     expect(retried.text).toContain("A separate request for an authorization event was sent");
-    const before = (await requests(c)).length;
+    const before = (await messagePosts(c)).length;
     expect((await tool(a, "poppy_message", reply)).text).toContain("already attempted");
-    expect((await requests(c)).length).toBe(before);
+    expect(await messagePosts(c)).toHaveLength(before);
     const messages = (await c.stub.state()).conversations.flatMap(conversation => conversation.sent);
     expect(messages.filter(message => message === `agent:${REQUEST_AUTHORIZATION}`)).toHaveLength(1);
   });

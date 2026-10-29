@@ -34,14 +34,9 @@ The same completed exchange is shown in both states. Before the fix, its origina
 
 These are Chromium captures of the production `Transcript`, `stepDecisions`, `PoppyCard` and `needsYou` components with the production stylesheet. The controlled fixture represents the card states established by the Worker and SQLite regression tests. The images establish rendering; they do not show a live Company, OAuth flow or button interaction. Both states use the same renderer because these fixes change persisted state rather than component markup.
 
-Reproduce from the repository root after `npm ci`:
+These supplied-state captures are historical. The [frozen source and instructions](https://github.com/adewale/pda/tree/4a5d2143c2d46a88e37c90e48247b5a7162f2b5e/docs/evidence/pr-36-audit) preserve their fixture, driver and hashes. Those files are archived rather than maintained beside another capture harness.
 
-```sh
-node node_modules/vite/bin/vite.js build --config docs/evidence/pr-36-audit/vite.config.mjs
-node docs/evidence/pr-36-audit/capture.mjs
-```
-
-The capture script needs Chromium at `/usr/bin/chromium`, or `PDA_ACCEPTANCE_CHROMIUM`. It serves the built fixture on loopback, captures desktop (960 px) and mobile (375 px), asserts the original tool's status and records page errors. `receipt.json` records fixture and image hashes, browser version and capture time. No new dependency or production route is added.
+For current interaction evidence, use [the application browser journey](../pr-36-conformance/README.md#reproduce), which builds production assets and exercises the real WebSocket and strict mock.
 
 ## Validation
 

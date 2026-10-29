@@ -13,15 +13,16 @@ function text(context: TranscriptContext): string {
 function respond(context: TranscriptContext): AssistantMessage {
   const prompt = text(context);
   const request = /^Please exchange my Stormline Jacket for the insulated medium at ([a-z0-9.-]+) using (OpenAPI|MCP)\.$/.exec(prompt);
+  const verification = /^Please send a verification reply at ([a-z0-9.-]+) in ([A-Za-z0-9_-]+)\.$/.exec(prompt);
   let response;
-  if (request) {
-    const domain = request[1]!;
-    const api = request[2] === "OpenAPI";
-    const name = api ? "poppy_api_call" : "poppy_mcp_call";
+  if (request || verification) {
+    const domain = (request ?? verification)![1]!;
+    const api = request?.[2] === "OpenAPI";
+    const name = verification ? "poppy_message" : api ? "poppy_api_call" : "poppy_mcp_call";
     let latestUser = context.messages.length - 1;
     while (latestUser >= 0 && context.messages[latestUser]!.role !== "user") latestUser--;
     const made = context.messages.slice(latestUser + 1).some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall" && part.name === name && part.arguments.domain === domain));
-    const call = api
+    const call = verification ? fauxToolCall(name, { domain, conversation: verification[2]!, text: "The verification code is 482913" }) : api
       ? fauxToolCall(name, { domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } })
       : fauxToolCall(name, { domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
     response = made

@@ -9,6 +9,7 @@ import {
 } from "./discovery";
 import { assertPublicHost, fetchJson, POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type Fetcher, type PoppyTimeouts } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
+import { sameAuthority, sessionAuthority } from "./authority";
 import { number, object, optional, string, tryDecode, type Decoded } from "../decode";
 import {
   clientAssertion,
@@ -40,7 +41,7 @@ export type PoppyHost = {
   readonly sql: Sql;
   readonly fetcher: Fetcher;
   /** Show or update a card in the person's chat page. */
-  readonly showCard: (card: Card) => Promise<void>;
+  readonly showCard: (card: Card, options?: import("./cards").CardWriteOptions) => Promise<void>;
   /** Tell the model something happened, at most once per `operationId`. */
   readonly notifyModel: (text: string, operationId: string) => Promise<void>;
   /** Run a durable job later; the same `id` replaces an earlier one. */
@@ -1198,7 +1199,7 @@ export class PoppyClient {
       const prepared = this.sessionFor(company, label);
       const sameBinding = () => {
         const current = this.session(company.issuer, label);
-        return current?.session_id === prepared.session_id && current.account === prepared.account && current.signed_in === prepared.signed_in && current.authority_generation === prepared.authority_generation;
+        return sameAuthority(sessionAuthority(prepared), sessionAuthority(current)) && current?.signed_in === prepared.signed_in;
       };
       // A signed-in request to a service that takes only its own tokens asks for one (4.5).
       let effective = options;

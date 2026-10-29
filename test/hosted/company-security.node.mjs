@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 import { generateKeyPair, exportJWK } from "jose";
 import { build } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions, Log, LogLevel } from "miniflare";
+import { privateErrorMessage } from "../../scripts/private-files.mjs";
 
 const root = path.resolve(import.meta.dirname, "../..");
 const directory = mkdtempSync(path.join(tmpdir(), "pda-hosted-security-"));
@@ -150,6 +151,21 @@ try {
     assert.ok(!refused.stderr.includes(validationPrivateProbe), "Preparation errors must not print private input values");
   }
   const networkFixture = path.join(directory, "counter-network.mjs");
+  const malformedPrivateProbe = "pvt9X7ab";
+  try { assert.equal(malformedPrivateProbe, "expected"); }
+  catch (error) { assert.equal(privateErrorMessage(error, "Safe fallback"), "Safe fallback", "Generated assertion diagnostics may contain private values"); }
+  writeFileSync(privateSettings, malformedPrivateProbe, { mode: 0o600 });
+  const malformedPreparation = spawnSync(process.execPath, [path.join(root, "scripts/hosted-prepare.mjs"), "--settings", privateSettings, "--prepare-only"], { cwd: root, encoding: "utf8" });
+  assert.equal(malformedPreparation.status, 1);
+  assert.ok(!malformedPreparation.stderr.includes(malformedPrivateProbe));
+  for (const name of ["manifest.json", "company.secrets.json"]) {
+    writeFileSync(path.join(directory, "manifest.json"), JSON.stringify({ companyOrigin }), { mode: 0o600 });
+    writeFileSync(path.join(directory, name), malformedPrivateProbe, { mode: 0o600 });
+    const refused = spawnSync(process.execPath, [path.join(root, "scripts/hosted-check.mjs"), "start", directory], { cwd: root, encoding: "utf8" });
+    assert.equal(refused.status, 1);
+    assert.equal(refused.stdout, "");
+    assert.ok(!refused.stderr.includes(malformedPrivateProbe), "Neither hosted command may echo malformed private JSON");
+  }
   writeFileSync(networkFixture, `import { readFileSync } from "node:fs"; globalThis.fetch = async () => Response.json(JSON.parse(readFileSync(${JSON.stringify(replyFile)}, "utf8")));\n`, { mode: 0o600 });
   for (const [name, value] of [["manifest.json", { companyOrigin }], ["company.secrets.json", { COMPANY_CONTROL_SECRET: control }]]) writeFileSync(path.join(directory, name), JSON.stringify(value), { mode: 0o600 });
   const check = (mode, reply) => {

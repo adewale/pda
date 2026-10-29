@@ -4,6 +4,7 @@ import type { TranscriptMessage } from "../../src/protocol";
 import type { ActivityEntry, Card, PoppyClientFrame, ProtocolCompany } from "../../src/poppy/wire";
 import { Workspace } from "../../src/ui/shell";
 import type { PiSession, PoppyView } from "../../src/use-pi-session";
+import { reducePoppy } from "../../src/use-pi-session";
 import { toIssuer } from "../../src/poppy/issuer";
 
 /**
@@ -35,7 +36,7 @@ function session(patch: Partial<PiSession> = {}, poppy: Partial<PoppyView> = {})
     error: null,
     status: "open",
     catalog: [],
-    poppy: { cards: [], accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
+    poppy: { cards: [], decisions: {}, accounts: [], signOuts: [], direct: {}, activity: null, protocol: { companies: null, logs: {} }, ...poppy },
     outbox: [],
     submit: (text: string) => void submitted.push(text),
     resend: () => undefined,
@@ -104,6 +105,21 @@ function uploadMessages(count: number, after = "All three are waiting for you.")
     { id: "a2", role: "assistant", parts: [{ type: "text", text: after }], timestamp: 4_000 }
   ];
 }
+
+it("keeps a durable checked outcome after Activity expires without looping on lookup responses", () => {
+  const fixture = session({ messages: uploadMessages(1) }, {
+    decisions: { apr_0: { approvalId: "apr_0", company: SHOP, result: "done", outcomeResolution: { outcome: "performed", at: 1000 } } },
+    activity: { inProgress: [], log: [] }
+  });
+  const { container, sent, rerender } = open("/", fixture);
+  expect(container.querySelector('[data-tool="poppy_api_call"]')?.getAttribute("data-status")).toBe("done");
+  expect(container.textContent).toContain(`You checked with ${SHOP}: this action happened`);
+  const reads = () => sent.filter(frame => frame.type === "poppy.approvals.read");
+  expect(reads()).toEqual([{ type: "poppy.approvals.read", ids: ["apr_0"] }]);
+  const poppy = reducePoppy(fixture.value.poppy, { type: "poppy.approvals.state", ids: ["apr_0"], decisions: Object.values(fixture.value.poppy.decisions) });
+  rerender(<Workspace identity={IDENTITY} session={{ ...fixture.value, poppy }} />);
+  expect(reads()).toHaveLength(1);
+});
 
 function approval(index: number, patch: Partial<Extract<Card, { kind: "approval" }>> = {}): Extract<Card, { kind: "approval" }> {
   const photo = PHOTOS[index]!;
