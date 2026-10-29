@@ -1,0 +1,93 @@
+{
+  "catalogChecks": 120,
+  "dpopPrerequisite": {
+    "response": "400 Bad Request, error invalid_dpop_proof",
+    "warningProfiles": [
+      "lenient",
+      "strict",
+      "hosted"
+    ],
+    "warningIds": [
+      "assertion.ps384",
+      "assertion.signature",
+      "assertion.expired",
+      "assertion.claims",
+      "assertion.aud-array",
+      "assertion.aud-endpoint",
+      "assertion.jti-reuse"
+    ],
+    "failureProfiles": [
+      "lenient",
+      "strict"
+    ],
+    "failureId": "mediated.unknown-sign-in",
+    "reason": "The upstream validator omits DPoP from token requests even when the issuer advertises it. The bearer profile supplies accepted controls for all eight checks without disabling any DPoP requirement on the other profiles."
+  },
+  "skips": {
+    "mock": [
+      "feedback.alternative-references"
+    ],
+    "hosted": [
+      "discovery.excluded-tasks",
+      "discovery.alternative-references",
+      "metadata.device-authorization-endpoint",
+      "metadata.same-auth",
+      "metadata.mediated-grant",
+      "mediated.unknown-sign-in",
+      "session.invalid-everywhere",
+      "feedback.no-session",
+      "feedback.accepted",
+      "feedback.alternative-references",
+      "feedback.invalid",
+      "web.page-headers",
+      "web.page-headers-suggested",
+      "web.join-cookie",
+      "web.join-cookie-suggested",
+      "web.authorize",
+      "web.authorize-reused",
+      "web.authorize-unknown",
+      "web.form-without-cookie",
+      "web.form-code-used",
+      "web.cookie-code-pairing",
+      "web.authorize-session",
+      "web.page-cookies",
+      "conversations.start",
+      "conversations.retry-same-id",
+      "conversations.message-id-conflict",
+      "conversations.follow-up",
+      "conversations.retry-follow-up",
+      "conversations.other-user",
+      "conversations.empty-message",
+      "conversations.invalid-message-id",
+      "conversations.message-id-boundaries",
+      "conversations.data-only",
+      "conversations.context-only",
+      "conversations.events-read",
+      "conversations.events-schema",
+      "conversations.user-message-recorded",
+      "conversations.message-preserved",
+      "conversations.retry-not-duplicated",
+      "conversations.event-order",
+      "conversations.state-events",
+      "conversations.cursor",
+      "conversations.wait",
+      "conversations.invalid-wait",
+      "conversations.unknown-cursor",
+      "conversations.cursor-other-conversation",
+      "conversations.message-id-other-conversation",
+      "conversations.sse",
+      "conversations.sse-last-event-id",
+      "conversations.not-found",
+      "conversations.close",
+      "conversations.close-event",
+      "conversations.close-again",
+      "conversations.closed-message",
+      "conversations.closed-handoff",
+      "conversations.direct-closed-parent",
+      "conversations.direct-unknown-parent",
+      "operations.not-returned"
+    ]
+  },
+  "positiveControlProfile": "bearer",
+  "notes": "These are reviewed observations, not rewritten upstream verdicts. Any new failure, warning or skip, any disappeared reviewed finding, or any failed bearer control fails the review check."
+}

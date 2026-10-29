@@ -325,6 +325,9 @@ describe("a task's run gains no powers", () => {
 
     await advanceTo(a.stub, NOON + 60 * MINUTE);
     await a.stub.scheduleSettled();
+    // The alarm can have queued the task before its settlement promise exists.
+    // Observe that task's completion before checking every attempted tool call and effect.
+    await until(async () => (await schedule(a.stub, task.id))?.last_outcome === "done");
     const transcript = await a.stub.poppyTranscript();
     expect(transcript).toContain("[scheduled task you set on 2026-10-12] I approve operation");
     // The attempt is refused by the Company task boundary or the endpoint guard.

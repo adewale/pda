@@ -60,7 +60,7 @@ describe("the violation check after each test", () => {
     const c = await company();
     c.expectViolations(/^\[secret\.token-in-url\] token sent in URL /);
     const response = await c.stub.fetch(new Request(`${c.hosts.api}/products?access_token=at_not_a_token`));
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(400);
   });
 });
 

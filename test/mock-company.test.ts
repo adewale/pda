@@ -1992,6 +1992,41 @@ describe("the mock Company", () => {
     expect((await c.stub.state()).recorded).toEqual([]);
   });
 
+  it("challenges unidentified MCP clients without creating a Session, and still requires one with issued tokens (7, 5.3)", async () => {
+    const c = company();
+    const initialize = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "independent", version: "1" } } };
+    for (const authorization of [undefined, "Bearer invented"]) {
+      const response = await c.call(c.hosts.mcpUrl, { method: "POST", headers: { ...MCP_ACCEPT, "Content-Type": "application/json", ...(authorization ? { Authorization: authorization } : {}) }, body: JSON.stringify(initialize) });
+      expect(response.status).toBe(401);
+      expect(response.headers.get("WWW-Authenticate")).toContain(`resource_metadata="https://mcp.${c.hosts.domain}/.well-known/oauth-protected-resource/mcp"`);
+      expect(await response.json()).toEqual(authorization ? { error: "invalid_token" } : {});
+    }
+    expect((await c.stub.state()).sessions).toEqual([]);
+    const s = await signedIn(c, { resource: c.hosts.mcpUrl });
+    expect((await call(c, s, "POST", c.hosts.mcpUrl, { headers: MCP_ACCEPT, body: initialize })).status).toBe(200);
+    const missing = await c.call(c.hosts.mcpUrl, { method: "POST", headers: { ...MCP_ACCEPT, "Content-Type": "application/json", Authorization: `Bearer ${s.token}` }, body: JSON.stringify(initialize) });
+    expect(missing.status).toBe(400);
+    expect(await missing.json()).toMatchObject({ error: "invalid_session" });
+    const state = await c.stub.state();
+    expect(state.performs).toBe(0);
+    expect(state.recorded).toHaveLength(1);
+    expect(state.recorded[0]).toContain("[session-jwt.missing-with-token]");
+  });
+
+  it("rejects query credentials before token lookup, for invented and issued values (5.6)", async () => {
+    const c = company();
+    const s = await signedIn(c);
+    for (const token of ["invented", s.token!]) {
+      const response = await c.call(`${products(c)}?access_token=${token}`);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "invalid_request" });
+    }
+    const state = await c.stub.state();
+    expect(state.performs).toBe(0);
+    expect(state.recorded).toHaveLength(2);
+    expect(state.recorded.every(item => item.startsWith("[secret.token-in-url]"))).toBe(true);
+  });
+
   it("streams events with text-delta (8.6)", async () => {
     const c = company();
     const s = await session();
@@ -2234,6 +2269,19 @@ describe("the mock Company, as the Hypothesis model found it", () => {
     const retry = await converse(c, s, { data: { colour: "blue", size: "M" }, text: first.text, author: first.author, id: first.id });
     expect(retry.status).toBe(201);
     expect(((await retry.json()) as { conversation_id: string }).conversation_id).toBe(conversation_id);
+    expect((await c.stub.state()).recorded).toEqual([]);
+  });
+
+  it("preserves message context in events, including context-only messages (8.4, 8.5)", async () => {
+    const c = company();
+    const s = await session();
+    for (const text of ["Hello", undefined]) {
+      const sent = message({ text, context: { user_available: false, locale: "en-GB" } });
+      const response = await converse(c, s, sent);
+      const { conversation_id } = await response.json() as { conversation_id: string };
+      const body = await (await call(c, s, "GET", `${c.hosts.conversationsEndpoint}/${conversation_id}/events`)).json() as { events: { type: string; message?: unknown }[] };
+      expect(body.events.find(event => event.type === "message" && (event.message as { id?: unknown })?.id === sent.id)?.message).toEqual({ ...sent, role: "user" });
+    }
     expect((await c.stub.state()).recorded).toEqual([]);
   });
 

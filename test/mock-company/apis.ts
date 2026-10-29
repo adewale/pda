@@ -566,6 +566,14 @@ export class Apis {
     if (!accept.includes("application/json") || !accept.includes("text/event-stream")) {
       co.violation("mcp.accept", `MCP request must Accept application/json and text/event-stream, got ${JSON.stringify(accept)}`);
     }
+    // MCP clients discover OAuth before they have a Poppy identity (spec 7).
+    // A token we issued to a Personal Agent still requires its Session header.
+    const authorization = inbound.request.headers.get("Authorization");
+    const presented = authorization?.split(" ", 2)[1];
+    if (!inbound.request.headers.has("Poppy-Session") && (!presented || !co.accessTokens.has(presented))) {
+      const error = authorization ? { error: "invalid_token" } : {};
+      return json(error, 401, { "WWW-Authenticate": `Bearer ${authorization ? 'error="invalid_token", ' : ""}resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", co.hosts.mcpUrl).href}"` });
+    }
     const context = await co.authorizeResource(inbound, true);
     const rpc = JSON.parse(inbound.bodyText || "{}") as {
       jsonrpc?: string;

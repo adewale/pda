@@ -263,8 +263,7 @@ export class Conversations {
     if (message.context) {
       conversation.context = { ...conversation.context, ...(message.context as Record<string, unknown>) };
     }
-    const { context: _context, ...withoutContext } = message;
-    this.#add(conversation, { type: "message", message: { ...withoutContext, role: "user" } });
+    this.#add(conversation, { type: "message", message: { ...message, role: "user" } });
     if (message.approval !== undefined) this.#approved(context, conversation, message.approval);
     else if (message.text !== undefined || message.data !== undefined) this.#reply(context, conversation, message);
   }

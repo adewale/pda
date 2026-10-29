@@ -23,6 +23,7 @@
     "test:hypothesis": "uv run --directory test/hypothesis --frozen pytest",
     "validate": "node scripts/poppy-validate.ts",
     "check:docs": "node scripts/check-docs.mjs",
+    "check:company-kit": "node scripts/check-company-kit.mjs",
     "deps:check": "node scripts/deps-check.mjs",
     "interop": "node interop/runner/cli.ts",
     "check:spec": "node scripts/check-spec.mjs",

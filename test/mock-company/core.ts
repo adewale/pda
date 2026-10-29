@@ -516,7 +516,8 @@ export class Company {
         this.accountTokens.has(value)
       ) {
         this.violation("secret.token-in-url", `token sent in URL ${inbound.url.href}`);
-        if (!this.flawed("accept-query-token")) throw resourceError("DPoP", 401, "invalid_token");
+        // Refuse the transport itself, independently of whether the supplied token exists.
+        if (!this.flawed("accept-query-token")) throw resourceError("DPoP", 400, "invalid_request");
       }
     }
   }

@@ -51,3 +51,17 @@ jobs:
         env:
           WRANGLER_SEND_METRICS: "false"
           XDG_CONFIG_HOME: ${{ runner.temp }}/pda-hosted-wrangler
+
+      - name: Pinned upstream Company kit and reviewed findings
+        run: node scripts/check-company-kit.mjs --reviewed-findings --output "$RUNNER_TEMP/company-kit.json"
+        env:
+          WRANGLER_SEND_METRICS: "false"
+          XDG_CONFIG_HOME: ${{ runner.temp }}/pda-company-kit-wrangler
+
+      - name: Upload upstream Company-kit results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: company-kit-results
+          path: ${{ runner.temp }}/company-kit.json
+          if-no-files-found: ignore
