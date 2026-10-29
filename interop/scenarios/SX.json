@@ -1,7 +1,7 @@
 {
   "id": "SX",
   "title": "Direct Sign-In denied",
-  "requirements": ["4.5"],
+  "requirements": ["4.2"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue", "state"], "company": ["deny_authorization"] },
   "steps": [
     { "agent": "discover" },

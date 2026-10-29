@@ -1,7 +1,7 @@
 {
   "id": "CIDUP",
   "title": "Duplicated message-id retry (network fault)",
-  "requirements": ["7.3"],
+  "requirements": ["8.3"],
   "adversary": "network",
   "faults": [{ "match": { "path": "/poppy/conversations", "method": "POST", "direction": "to-company", "nth": 1 }, "action": "duplicate" }],
   "needs": { "agent": ["discover", "send"] },

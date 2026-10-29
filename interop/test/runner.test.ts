@@ -8,7 +8,8 @@ import { upstreamFor } from "../proxy/routing.mjs";
 import { VIOLATION_IDS } from "../../test/mock-company/violations.ts";
 import { certificateNames, makeCertificates } from "../runner/certs.ts";
 import { TRACE_CHECKS } from "../runner/checks.ts";
-import { gridCoverage, liveCompanyManifest, imageOf, loadKnownFailures, loadRegistry, loadScenarios, parseOptions, runOne, selected } from "../runner/cli.ts";
+import { gridCoverage, liveCompanyManifest, imageOf, loadKnownFailures, loadRegistry, loadScenarios, negotiateVersion, parseOptions, runExitCode, runOne, selected } from "../runner/cli.ts";
+import { PROTOCOL_VERSIONS } from "../../src/poppy/protocol-version.ts";
 import { dockerAsync, mapConcurrent, proxyAliases } from "../runner/docker.ts";
 import { documentChecks, recordedFetcher } from "../runner/documents.ts";
 import { cellId, renderReport } from "../runner/report.ts";
@@ -278,10 +279,33 @@ describe("the report", () => {
 const liveEntry = (name: string, extra: Record<string, unknown> = {}) => ({ name, role: "company" as const, source: "https://example.com", commit: "unknown", url: `https://${name}.example`, notes: "A made-up live Company.", ...extra });
 
 // A live peer's declared version is the one its cells are attributed to.
-it("attributes live cells to the configured wire version and preserves legacy entries", () => {
+it("attributes live cells to the configured wire version, and an entry without one to the version we speak", () => {
   const scenarios = loadScenarios();
   expect(liveCompanyManifest(liveEntry("current", { protocolVersion: "0.3" }), scenarios).poppy).toEqual(["0.3"]);
-  expect(liveCompanyManifest(liveEntry("legacy"), scenarios).poppy).toEqual(["0.1"]);
+  expect(liveCompanyManifest(liveEntry("unversioned"), scenarios).poppy).toEqual([...PROTOCOL_VERSIONS].slice(-1));
+});
+
+describe("a run that runs nothing", () => {
+  const impl = (name: string, poppy: string[], owner?: "self") => ({ entry: { name, role: "agent" as const, source: "https://example.com", commit: "HEAD", ...(owner ? { owner } : {}) }, manifest: { interop: 1, name, role: "agent" as const, commit: "HEAD", poppy, scenarios: ["D"] } });
+
+  // On 29 October the grid's mock still declared 0.1 while our agent spoke 0.3: CI ran 88 cells, every one
+  // unsupported for "No common Poppy protocol version", and passed.
+  it("blames the harness when two of our own builds share no version", () => {
+    expect(negotiateVersion(impl("pda", ["0.3"], "self"), impl("lenient-company", ["0.1"], "self"))).toEqual({
+      reason: "No common Poppy protocol version (pda 0.3; lenient-company 0.1)",
+      harness: true
+    });
+    expect(negotiateVersion(impl("pda", ["0.3"], "self"), impl("someone-else", ["0.1"]))).toMatchObject({ harness: false });
+    expect(negotiateVersion(impl("pda", ["0.3"], "self"), impl("lenient-company", ["0.2", "0.3"], "self"))).toEqual({ version: "0.3" });
+  });
+
+  it("fails a run in which no cell passed or failed, and only then", () => {
+    const cell = (outcome: Cell["outcome"]) => ({ agent: "a", company: "c", scenario: "D", outcome, blame: null, rule: null, steps: [], checks: [], har: null }) as Cell;
+    expect(runExitCode([cell("unsupported"), cell("unsupported")], [], [])).toBe(1);
+    expect(runExitCode([cell("unsupported"), cell("pass")], [], [])).toBe(0);
+    expect(runExitCode([cell("pass"), cell("fail")], [], [])).toBe(0);
+    expect(runExitCode([], [], [])).toBe(0);
+  });
 });
 
 it("limits a live Company to the scenarios its entry allows: a real store gets discovery only", () => {

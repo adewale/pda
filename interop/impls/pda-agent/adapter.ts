@@ -51,6 +51,7 @@ import { rows } from "../../../src/rows.ts";
 import type { Card } from "../../../src/poppy/wire.ts";
 import { LiveIdentityClient, liveIdentityFrom } from "./live-identity.ts";
 import { changedClaims, Endpoints, lenientFetch, PROFILE_READINGS, profileFrom, sloppyRequest, StrictObserver, StrictRefusal, type Resign } from "./profiles.ts";
+import { NodeHTMLRewriter } from "./html-rewriter.ts";
 
 const NAME = process.env.INTEROP_NAME ?? "pda";
 // The adversarial Personal Agent (`evil-personal-agent`) spoke 0.2's wire; it is retired until it has a 0.3 port (docs/interop-spec.md).
@@ -65,7 +66,7 @@ delete process.env.INTEROP_LIVE_KEY;
 if (LIVE && PROFILE === "sloppy") throw new Error("The sloppy fake agent never takes the live identity");
 const ORIGIN = LIVE?.origin ?? process.env.INTEROP_ORIGIN ?? `https://${NAME}.agent.interop.test`;
 const COMMIT = process.env.INTEROP_COMMIT ?? "unknown";
-/** Interop-only: break the agent on purpose. `assertion-typ` drops `typ` from client and Session assertions. */
+/** Interop-only: break the agent on purpose. `assertion-typ` drops `typ` from client assertions. */
 const FAULT = process.env.INTEROP_FAULT ?? "";
 
 const MANIFEST = {
@@ -113,23 +114,10 @@ type Agent = {
 
 /**
  * Node has no `HTMLRewriter`, with which src/poppy/fetch-browser.ts reads a
- * page's text, links and forms. Interop-only stand-in: every page reads as
- * empty. Scenario W tests the browser Session join and the cookie on the
- * wire, not what a page says; page reading is tested in the Workers pool.
+ * page's text, links and forms, and the browser join its code (6, step 1).
+ * Interop-only: lol-html in WebAssembly stands in (html-rewriter.ts).
  */
-if (!("HTMLRewriter" in globalThis)) {
-  (globalThis as Record<string, unknown>).HTMLRewriter = class {
-    on() {
-      return this;
-    }
-    onDocument() {
-      return this;
-    }
-    transform(response: Response) {
-      return response;
-    }
-  };
-}
+if (!("HTMLRewriter" in globalThis)) (globalThis as Record<string, unknown>).HTMLRewriter = NodeHTMLRewriter;
 
 async function signingKeys(): Promise<string> {
   const keys = [];
@@ -582,7 +570,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
       const tools = await listMcpTools(agent.client, c, label(params));
       return { tools: tools.map((tool) => isRecord(tool) ? { name: tool.name } : tool) };
     } catch (error) {
-      if (error instanceof PoppyError && error.is("sign_in_required", "insufficient_scope")) {
+      if (error instanceof PoppyError && error.is("insufficient_scope")) {
         throw new StepError(501, "authentication_required", "MCP tool listing requires Sign-In; this signed-out scenario cannot exercise it");
       }
       throw error;

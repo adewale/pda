@@ -146,7 +146,7 @@ describe("attribution", () => {
   });
 
   it("rule warning: a SHOULD or Guides refusal on one side blames that side as a warning, not a violation", () => {
-    // lenient-company refuses an ES384 Session assertion (Guides: support ES256 and RS256).
+    // lenient-company refuses an ES384 client assertion (Guides: support ES256 and RS256).
     const alg = companyRecorded({ id: "session-assertion.alg", basis: "Guides", detail: "alg ES384" }, "lenient-company", false);
     const target = cell("a", "lenient-company", "fail", [alg], "C");
     expect(attribute(target, [target], none)).toEqual({ blame: "agent", rule: "warning", detail: "session-assertion.alg: a SHOULD or the Guides, not a requirement" });
@@ -159,7 +159,7 @@ describe("attribution", () => {
   });
 
   it("blames the spec for a failure our own reading of an open question explains, when no declared question covers it", () => {
-    // The mock refuses an array aud on a client assertion (Reading S1: 4.2 asks a single string only of the Session assertion).
+    // The mock refuses an array aud on a client assertion (4.1: the issuer, as a single string).
     const array = companyRecorded({ id: "client-assertion.aud-array", basis: "Reading", detail: "aud is an array" }, "lenient-company", false);
     const target = cell("a", "lenient-company", "fail", [array], "C");
     expect(attribute(target, [target], none)).toEqual({ blame: "spec", rule: "reading", detail: "client-assertion.aud-array: our reading, not a requirement of the draft" });

@@ -1,7 +1,7 @@
 {
   "id": "XH",
   "title": "Adversarial Company: an API server off the Company's domain",
-  "requirements": ["4.3", "6"],
+  "requirements": ["3.2", "7"],
   "adversary": "company",
   "permitted_by": "N10",
   "needs": { "agent": ["discover", "session", "signin", "signin_continue", "api"], "company": ["arm", "approve_authorization"] },

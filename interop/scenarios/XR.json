@@ -1,7 +1,7 @@
 {
   "id": "XR",
   "title": "Adversarial Company: a conversation always working, always with more to read, and nothing in it",
-  "requirements": ["7.5", "Guides: Rate limits"],
+  "requirements": ["8.5", "Guides: Rate limits"],
   "adversary": "company",
   "needs": { "agent": ["discover", "send", "read"], "company": ["arm"] },
   "steps": [

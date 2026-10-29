@@ -4,7 +4,8 @@
  *
  * `cloudflare:workers` becomes a small shim (cloudflare-workers.ts) and the
  * mock Company's import of the Worker (`src/index`) becomes a stub
- * (no-worker.ts); everything else is our code as it ships, plus jose.
+ * (no-worker.ts); everything else is our code as it ships, plus jose. The
+ * agent's HTMLRewriter for Node (html-rewriter-wasm) stays external.
  */
 import path from "node:path";
 import { build } from "esbuild";
@@ -36,5 +37,7 @@ await build({
   target: "node22",
   sourcemap: "inline",
   plugins: [workersShim],
+  // It reads its .wasm from beside itself, so the agent's image copies the package in whole (pda-agent/Dockerfile).
+  external: ["html-rewriter-wasm"],
   logLevel: "warning"
 });

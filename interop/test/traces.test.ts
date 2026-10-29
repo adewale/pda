@@ -15,7 +15,7 @@ describe("assert_trace predicates", () => {
     expect(nonceRetry(recording(challenge, withNonce("stale"))).kind).toBe("failed");
   });
 
-  it("refresh_rotated: the agent always sends the newest Account Token", () => {
+  it("refresh_rotated: the agent always sends the newest refresh token", () => {
     expect(refreshRotated(recording(refresh("rt1", "rt2"), refresh("rt2", "rt3"))).kind).toBe("ok");
     expect(refreshRotated(recording(refresh("rt1", "rt2"), refresh("rt1", "rt3"))).kind).toBe("failed");
     expect(refreshRotated(recording(refresh("rt1"), refresh("rt1"))).kind).toBe("inapplicable");

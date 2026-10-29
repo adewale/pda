@@ -1,7 +1,7 @@
 {
   "id": "SVN",
   "title": "Device Sign-In, polling, with DPoP nonces required",
-  "requirements": ["4.3", "4.6"],
+  "requirements": ["4.3", "4.5"],
   "readings": ["S1", "S2", "S23"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["approve_device"] },
   "steps": [

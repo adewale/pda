@@ -1,7 +1,7 @@
 {
   "id": "CDUP",
   "title": "Duplicated conversation message (network fault)",
-  "requirements": ["7.3"],
+  "requirements": ["8.3"],
   "adversary": "network",
   "faults": [{ "match": { "path": "/poppy/conversations$", "method": "POST", "direction": "to-company" }, "action": "duplicate" }],
   "needs": { "agent": ["discover", "send", "read"] },

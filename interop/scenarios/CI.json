@@ -1,7 +1,7 @@
 {
   "id": "CI",
   "title": "Conversation: a retry with the same message id",
-  "requirements": ["7.3"],
+  "requirements": ["8.3"],
   "needs": { "agent": ["discover", "send"] },
   "steps": [
     { "agent": "discover" },

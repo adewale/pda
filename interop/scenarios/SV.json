@@ -1,7 +1,7 @@
 {
   "id": "SV",
   "title": "Device Sign-In, polling",
-  "requirements": ["4.4", "4.6"],
+  "requirements": ["4.3", "4.7"],
   "readings": ["S1", "S2"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["approve_device"] },
   "steps": [

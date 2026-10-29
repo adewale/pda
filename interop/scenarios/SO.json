@@ -1,7 +1,7 @@
 {
   "id": "SO",
   "title": "Sign out and revoke",
-  "requirements": ["4.9"],
+  "requirements": ["4.6", "5.5"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue", "signout"], "company": ["approve_authorization"] },
   "steps": [
     { "agent": "discover" },

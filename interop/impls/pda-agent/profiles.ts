@@ -218,7 +218,7 @@ export class StrictObserver {
       responseHeaders: headerMap(response.headers),
       responseBody
     });
-    const checks = traceChecks(this.#exchanges, [], this.#version).filter((check) => check.side === "company");
+    const checks = traceChecks(this.#exchanges, []).filter((check) => check.side === "company");
     if (request.method === "GET") checks.push(...(await documentChecks(this.#exchanges, this.#version)).filter((check) => check.side === "company"));
     const fresh = checks.filter((check) => {
       const key = `${check.id}|${check.detail}`;

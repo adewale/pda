@@ -1,7 +1,7 @@
 {
   "id": "NREP",
   "title": "Replayed token request (network fault)",
-  "requirements": ["4.2", "4.3"],
+  "requirements": ["4.1", "4.5"],
   "adversary": "network",
   "faults": [{ "match": { "path": "/oauth/token", "method": "POST", "direction": "to-company" }, "action": "replay", "ms": 50 }],
   "needs": { "agent": ["discover", "session"] },

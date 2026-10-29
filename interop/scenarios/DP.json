@@ -1,7 +1,7 @@
 {
   "id": "DP",
   "title": "Discovery and a Session at an issuer with a path",
-  "requirements": ["3.2", "4.2"],
+  "requirements": ["3.2", "5.2"],
   "readings": ["S3"],
   "needs": { "agent": ["discover", "session"], "company": ["issuer_path"] },
   "steps": [

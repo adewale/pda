@@ -1,7 +1,7 @@
 {
   "id": "XP",
   "title": "Adversarial Company: organization.name impersonates another Company",
-  "requirements": ["Operations 5.1"],
+  "requirements": ["Operations 5"],
   "adversary": "company",
   "permitted_by": "N14",
   "needs": { "agent": ["discover", "display"], "company": ["arm"] },

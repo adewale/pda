@@ -1,7 +1,7 @@
 {
   "id": "OU",
   "title": "Signed-out operation after a file upload",
-  "requirements": ["5", "5.2", "7", "Operations 3", "Operations 4", "Operations 5", "Operations 6"],
+  "requirements": ["5.2", "7", "Operations 3", "Operations 4", "Operations 5", "Operations 6"],
   "readings": ["S2"],
   "needs": {"agent": ["discover", "session", "api", "approve_op"]},
   "steps": [

@@ -35,8 +35,8 @@ describe("expectations", () => {
     expect(compare("x", "y")).toBe('expected "y", got "x"');
     expect(compare(undefined, { $exists: false })).toBeNull();
     expect(compare("b", { $in: ["a", "b"] })).toBeNull();
-    expect(compare("poppy:read poppy:write", { $includes_scope: "poppy:write" })).toBeNull();
-    expect(compare("poppy:readx", { $includes_scope: "poppy:read" })).not.toBeNull();
+    expect(compare("orders:read orders:write", { $includes_scope: "orders:write" })).toBeNull();
+    expect(compare("orders:readx", { $includes_scope: "orders:read" })).not.toBeNull();
     expect(compare(["openapi", "mcp"], { $contains: "mcp" })).toBeNull();
     expect(compare([{ role: "user" }, { role: "company", text: "hi" }], { $some: { role: "company" } })).toBeNull();
     expect(compare([], { $length: 0, $length_gte: 0 })).toBeNull();

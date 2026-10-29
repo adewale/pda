@@ -1,7 +1,7 @@
 {
   "id": "W",
   "title": "Browser Session join",
-  "requirements": ["4.2", "5"],
+  "requirements": ["6"],
   "needs": { "agent": ["discover", "session", "web_join"] },
   "steps": [
     { "agent": "discover" },

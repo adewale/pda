@@ -1,15 +1,20 @@
 {
   "id": "S0",
   "title": "Signed-out Session",
-  "requirements": ["4.1", "4.2", "4.3"],
+  "requirements": ["3", "5.2", "5.3"],
   "readings": ["S1", "S2"],
   "live": true,
-  "needs": { "agent": ["discover", "session"] },
+  "needs": { "agent": ["discover", "session", "api"] },
   "steps": [
     { "agent": "discover" },
     { "agent": "session", "save": "s" },
     { "expect": { "${s.signed_in}": false, "${s.session_id}": { "$exists": true } } },
+    { "agent": "api", "params": { "api": "${fixture.openapi_public.api}", "operation": "${fixture.openapi_public.operation}", "args": "${fixture.openapi_public.args}" }, "save": "r", "note": "A Session starts with its first request (5.2): a signed-out call with the Session header and no token." },
+    { "expect": { "${r.status}": 200 } },
     { "agent": "session", "save": "again" },
-    { "expect": { "${again.session_id}": "${s.session_id}" } }
+    { "expect": { "${again.session_id}": "${s.session_id}" } },
+    { "agent": "api", "params": { "api": "${fixture.openapi_public.api}", "operation": "${fixture.openapi_public.operation}", "args": "${fixture.openapi_public.args}" }, "save": "r2" },
+    { "expect": { "${r2.status}": 200 } },
+    { "runner": "assert_trace", "params": { "check": "one_session" }, "note": "Both calls carried the Session header with one sid, and nothing went to an OAuth endpoint with it (5.2)." }
   ]
 }

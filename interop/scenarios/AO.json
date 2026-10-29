@@ -1,7 +1,7 @@
 {
   "id": "AO",
   "title": "OpenAPI call, signed in",
-  "requirements": ["6"],
+  "requirements": ["7"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue", "api"], "company": ["approve_authorization"] },
   "steps": [
     { "agent": "discover", "save": "d" },

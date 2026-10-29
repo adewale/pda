@@ -55,7 +55,7 @@ export function revoked(all: readonly Exchange[]): RunnerReply {
   return { kind: "ok", result: { revocations: calls.length } };
 }
 
-/** After the Company rotates an Account Token, the agent uses the new one, never the old (spec 4.8). */
+/** After the Company rotates a refresh token, the agent uses the new one, never the old (spec 4.4). */
 export function refreshRotated(all: readonly Exchange[]): RunnerReply {
   const grants = agentRequests(all).filter((x) => form(x)?.get("grant_type") === "refresh_token");
   if (grants.length < 2) return { kind: "inapplicable", detail: `${grants.length} refresh_token grant(s); the scenario needs two` };
@@ -64,7 +64,7 @@ export function refreshRotated(all: readonly Exchange[]): RunnerReply {
   for (const grant of grants) {
     const sent = form(grant)!.get("refresh_token");
     if (current !== null && sent !== current) {
-      return { kind: "failed", detail: `exchange ${grant.index} sent an Account Token the Company had replaced` };
+      return { kind: "failed", detail: `exchange ${grant.index} sent a refresh token the Company had replaced` };
     }
     const body = jsonBody(grant.responseBody) as { refresh_token?: unknown } | undefined;
     if (grant.status === 200 && typeof body?.refresh_token === "string") {
@@ -72,7 +72,7 @@ export function refreshRotated(all: readonly Exchange[]): RunnerReply {
       current = body.refresh_token;
     }
   }
-  if (rotations === 0) return { kind: "inapplicable", detail: "the Company never rotated the Account Token" };
+  if (rotations === 0) return { kind: "inapplicable", detail: "the Company never rotated the refresh token" };
   return { kind: "ok", result: { grants: grants.length, rotations } };
 }
 
@@ -135,11 +135,12 @@ export function browserJoined(all: readonly Exchange[]): RunnerReply {
 }
 
 /**
- * Scenario CM (4.1): the Company fetched the agent's client_id document,
- * and the jwks_uri it names with the key that signed the agent's first
- * granted Session assertion, before it granted that Session. Agents' keys
- * are new in every cell (interop spec 5.1), so a Session granted without
- * that fetch was granted on keys the Company never saw. Inapplicable when
+ * Scenario CM (4.1, 5.3): the Company fetched the agent's client_id
+ * document, and the jwks_uri it names with the key that signed the
+ * delegation (or client assertion) of the first request it accepted, before
+ * accepting it. Agents' keys are new in every cell (interop spec 5.1), so a
+ * request accepted without that fetch was accepted on keys the Company never
+ * saw. Inapplicable when
  * the Company fetched nothing of the agent's (registered ahead of time, 4.1's MAY).
  */
 export function clientFetched(all: readonly Exchange[]): RunnerReply {
@@ -410,6 +411,29 @@ export function replayRejected(all: readonly Exchange[], params: Record<string, 
     : { kind: "failed", detail: `replay answered HTTP ${replay.status}, expected 400 ${expected}` };
 }
 
+/**
+ * Scenario S0 (5.2): every request to the Company's resources carried the
+ * Session header, all with one `sid`, and none went to an OAuth endpoint.
+ * Resources here are what isn't an OAuth endpoint, a well-known document,
+ * a description fetched as JSON or a page a browser loaded. Inapplicable
+ * when the agent made no such request.
+ */
+export function oneSession(all: readonly Exchange[]): RunnerReply {
+  const requests = agentRequests(all).filter((x) => !x.url.pathname.startsWith("/.well-known/") && !isServerMetadata(x));
+  const oauth = requests.filter((x) => /\/oauth\//.test(x.url.pathname) || !!form(x)?.has("client_assertion"));
+  const resources = requests.filter(
+    (x) => !oauth.includes(x) && !(x.method === "GET" && x.url.pathname.endsWith(".json")) && !(x.requestHeaders.get("accept") ?? "").includes("text/html")
+  );
+  if (resources.length === 0) return { kind: "inapplicable", detail: "the agent sent no request to the Company's resources" };
+  const leaked = oauth.filter((x) => x.requestHeaders.has("poppy-session"));
+  if (leaked.length) return { kind: "failed", detail: `the Session header went to an OAuth endpoint: exchange ${leaked.map((x) => x.index).join(", ")}` };
+  const missing = resources.filter((x) => !x.requestHeaders.has("poppy-session"));
+  if (missing.length) return { kind: "failed", detail: `no Session header on exchange ${missing.map((x) => x.index).join(", ")}` };
+  const sids = new Set(resources.map((x) => decodeJwt(x.requestHeaders.get("poppy-session")!)?.payload.sid));
+  if (sids.size !== 1 || sids.has(undefined)) return { kind: "failed", detail: `${sids.size} sids across ${resources.length} requests` };
+  return { kind: "ok", result: { requests: resources.length } };
+}
+
 export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params: Record<string, unknown>) => RunnerReply> = {
   nonce_retry: (all) => nonceRetry(all),
   revoked: (all) => revoked(all),
@@ -426,7 +450,8 @@ export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params:
   bounded_requests: boundedRequests,
   attack_observed: attackObserved,
   replay_rejected: replayRejected,
-  audience_rejected: (all) => audienceRejected(all)
+  audience_rejected: (all) => audienceRejected(all),
+  one_session: (all) => oneSession(all)
 };
 
 export function assertTrace(all: readonly Exchange[], params: unknown): RunnerReply {

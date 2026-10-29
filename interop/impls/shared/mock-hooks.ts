@@ -27,7 +27,7 @@ export function placeInteropCompanies(): void {
 }
 
 /**
- * Settings every host starts from: rotating Account Tokens (scenario R),
+ * Settings every host starts from: rotating refresh tokens (scenario R),
  * devices polled every second so Device Sign-In doesn't wait five, no API
  * of an unknown type (the conformance tests list one on purpose to check
  * agents skip it, but it breaks 6's MUST, and a reference Company keeps to

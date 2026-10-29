@@ -47,19 +47,19 @@ export const TRACE_CHECKS = {
   "secret.token-in-url": { side: "agent", basis: "MUST", mock: true, what: "A token sent in a URL" },
   "rate-limit.retry-after-ignored": { side: "agent", basis: "MUST", mock: true, what: "Request sent again before its Retry-After elapsed" },
   "rate-limit.shared-limit-ignored": { side: "agent", basis: "Guides", mock: true, what: "A different request sent to the Company before an earlier Retry-After elapsed" },
-  "token.unlisted-host": { side: "agent", basis: "Reading", mock: false, what: "A Session Token sent to a host the Company's documents don't list (our reading, N10)" },
+  "token.unlisted-host": { side: "agent", basis: "Reading", mock: false, what: "An access token or Session JWT sent to a host the Company's documents don't list (our reading, N10)" },
   "redirect.credentials-followed": { side: "agent", basis: "Guides", mock: false, what: "A redirect followed with the token or proof of the request that got it (Guides)" },
   "company.www-authenticate": { side: "company", basis: "RFC", mock: false, what: "401 to a request with a token, without WWW-Authenticate (RFC 6750, RFC 9449)" },
   "company.retry-after": { side: "company", basis: "Rule", mock: false, what: "429 without Retry-After" },
   "company.oauth-error-body": { side: "company", basis: "RFC", mock: false, what: "OAuth endpoint error that isn't JSON with a string error (RFC 6749 5.2)" },
-  "company.token-response": { side: "company", basis: "RFC", mock: false, what: "Token response without access_token or token_type (RFC 6749 5.1; 4.7)" },
+  "company.token-response": { side: "company", basis: "RFC", mock: false, what: "Token response without access_token or token_type (RFC 6749 5.1; 4.4)" },
   "company.token-no-store": { side: "company", basis: "RFC", mock: false, what: "Token response without Cache-Control: no-store (RFC 6749 5.1; Guides)" },
-  "company.iss-missing": { side: "company", basis: "RFC", mock: false, what: "Authorization response without iss (RFC 9207, spec 4.5)" },
+  "company.iss-missing": { side: "company", basis: "RFC", mock: false, what: "Authorization response without iss (RFC 9207, spec 4.2)" },
   "company.events-shape": {
     side: "company",
     basis: "MUST",
     mock: false,
-    what: "Events read without an events array, a string cursor, a boolean has_more, or a string status and responder (7.5: every successful read MUST include them)"
+    what: "Events read without a string conversation_id, an events array, a string cursor, a boolean has_more, or a string status and responder (8.5: every successful read MUST include them)"
   },
   "company.events-cursor": {
     side: "company",
@@ -71,9 +71,9 @@ export const TRACE_CHECKS = {
     side: "company",
     basis: "Rule",
     mock: false,
-    what: "Send with wait whose reply isn't a read's: events, cursor, has_more, status and responder (7.3: it responds as a read would, 7.5)"
+    what: "Send with wait whose reply isn't a read's: events, cursor, has_more, status and responder (8.3: it responds as a read would, 8.5)"
   },
-  "company.sse-event-id": { side: "company", basis: "Rule", mock: false, what: "A streamed event without an id (7.6)" },
+  "company.sse-event-id": { side: "company", basis: "Rule", mock: false, what: "A streamed event without an id (8.6)" },
   // Browser Sessions (spec 5): the agent's join request, by the mock's ids, and the Company's answer.
   "company.browser-session-response": {
     side: "company",
@@ -91,13 +91,13 @@ export const TRACE_CHECKS = {
     side: "company",
     basis: "Rule",
     mock: false,
-    what: "A handoff the Company accepted without HTTP 202, or without status and responder (7.9: \"returns HTTP 202 with status and responder\"; 7.7's MUST)"
+    what: "A handoff the Company accepted without HTTP 202, or without status and responder (8.9: \"returns HTTP 202 with status and responder\"; 8.7's MUST)"
   },
   "company.direct-parent-open": {
     side: "company",
     basis: "Rule",
     mock: false,
-    what: "A message or handoff to a parent conversation accepted while its Direct Conversation was open, or refused without that conversation's id (7.10: they \"return direct_conversation_open, with the Direct Conversation's ID in conversation_id\")"
+    what: "A message or handoff to a parent conversation accepted while its Direct Conversation was open, or refused without that conversation's id (8.10: they \"return direct_conversation_open, with the Direct Conversation's ID in conversation_id\")"
   },
   "company.metadata-fetch-credentials": {
     side: "company",
@@ -249,7 +249,7 @@ export function listedHosts(all: readonly Exchange[]): Map<string, Set<string>> 
 }
 
 /**
- * A Session Token sent to a host its Company's documents don't list. Our
+ * An access token or Session JWT sent to a host its Company's documents don't list. Our
  * reading, not a MUST: 4.3 and 6 don't say which hosts may receive Session
  * Tokens (spec-issues N10). Still an error here; see docs/spec-issues.md N10.
  */
@@ -319,28 +319,29 @@ export function retryAfterChecks(all: readonly Exchange[]): Check[] {
 }
 
 const OAUTH_PATH = /token|revoke|revocation|device|par\b/;
-/** Where a conversation's first message goes, or a later one (7.3). */
+/** Where a conversation's first message goes, or a later one (8.3). */
 const SEND_PATH = /\/conversations(?:\/[^/]+\/messages)?$/;
 
 /**
- * A read's body (7.5): "Every successful read MUST include `cursor`,
+ * A read's body (8.5): "Every successful read MUST include `conversation_id`, `events`, `cursor`,
  * `has_more`, `status`, and `responder`, even with no events. `cursor` is the
  * last event returned, or the request's cursor if there were none." A send
  * with `wait` "responds as a read of the conversation's events from that
- * cursor would" (7.3), so its reply is held to the same, as a Rule.
+ * cursor would" (8.3), so its reply is held to the same, as a Rule.
  *
  * The draft doesn't say what `cursor` is when there were no events and the
  * request had no cursor (S10). Our reading (docs/readings.md): a string or
  * `null`. So `null` there departs from nothing, and any other value is
  * `company.events-cursor`, a Reading.
  */
-function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait-reply-shape", protocolVersion = "0.1"): Check[] {
+function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait-reply-shape"): Check[] {
   const body = jsonBody(x.responseBody);
   if (!body || typeof body !== "object" || Array.isArray(body)) return [check(id, x, `not a JSON object: ${x.responseBody.slice(0, 120)}`)];
   const read = body as Record<string, unknown>;
   const problems: string[] = [];
   const events = read.events;
-  if (protocolVersion === "0.2" && typeof read.conversation_id !== "string") problems.push("no string conversation_id");
+  // 8.5: every successful read MUST include conversation_id.
+  if (typeof read.conversation_id !== "string") problems.push("no string conversation_id");
   if (!Array.isArray(events)) problems.push("events isn't an array");
   if (!("has_more" in read)) problems.push("no has_more");
   else if (typeof read.has_more !== "boolean") problems.push("has_more isn't a boolean");
@@ -361,7 +362,7 @@ function readShapeChecks(x: Exchange, id: "company.events-shape" | "company.wait
 }
 
 /** Company responses: WWW-Authenticate, Retry-After, OAuth error bodies, token responses, events. */
-export function companyChecks(all: readonly Exchange[], protocolVersion = "0.1"): Check[] {
+export function companyChecks(all: readonly Exchange[]): Check[] {
   const found: Check[] = [];
   for (const x of agentRequests(all)) {
     const auth = authorization(x);
@@ -390,7 +391,7 @@ export function companyChecks(all: readonly Exchange[], protocolVersion = "0.1")
     if (x.method === "GET" && /\/events$/.test(x.url.pathname) && x.status === 200) {
       const type = x.responseHeaders.get("content-type") ?? "";
       if (type.includes("application/json")) {
-        found.push(...readShapeChecks(x, "company.events-shape", protocolVersion));
+        found.push(...readShapeChecks(x, "company.events-shape"));
       } else if (type.includes("text/event-stream")) {
         for (const block of x.responseBody.replace(/\r\n?/g, "\n").split("\n\n")) {
           const lines = block.split("\n");
@@ -404,7 +405,7 @@ export function companyChecks(all: readonly Exchange[], protocolVersion = "0.1")
       }
     }
     if (x.method === "POST" && x.url.searchParams.has("wait") && (x.status === 201 || x.status === 202) && SEND_PATH.test(x.url.pathname)) {
-      if ((x.responseHeaders.get("content-type") ?? "").includes("application/json")) found.push(...readShapeChecks(x, "company.wait-reply-shape", protocolVersion));
+      if ((x.responseHeaders.get("content-type") ?? "").includes("application/json")) found.push(...readShapeChecks(x, "company.wait-reply-shape"));
     }
   }
   return found;
@@ -483,11 +484,11 @@ export function browserSessionResponseChecks(all: readonly Exchange[]): Check[] 
   return found;
 }
 
-// ---------------------------------------------------------------- Handoff and Direct Conversations (7.9, 7.10)
+// ---------------------------------------------------------------- Handoff and Direct Conversations (8.9, 8.10)
 
 const CONVERSATION_ACTION = /\/conversations\/([^/]+)\/(messages|handoff|close|events)$/;
 
-/** A handoff the Company accepted answers 202 with `status` and `responder` (7.9, 7.7). */
+/** A handoff the Company accepted answers 202 with `status` and `responder` (8.9, 8.7). */
 export function handoffChecks(all: readonly Exchange[]): Check[] {
   const found: Check[] = [];
   for (const x of agentRequests(all)) {
@@ -501,7 +502,7 @@ export function handoffChecks(all: readonly Exchange[]): Check[] {
   return found;
 }
 
-/** The events a read returned, as JSON (7.5) or a stream (7.6). */
+/** The events a read returned, as JSON (8.5) or a stream (8.6). */
 export function eventsOf(x: Exchange): Record<string, unknown>[] {
   const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
   if ((x.responseHeaders.get("content-type") ?? "").includes("text/event-stream")) {
@@ -599,7 +600,7 @@ export function metadataFetchChecks(all: readonly Exchange[]): Check[] {
 }
 
 /** Every trace check. */
-export function traceChecks(all: readonly Exchange[], callbacks: readonly string[] = [], protocolVersion = "0.1"): Check[] {
+export function traceChecks(all: readonly Exchange[], callbacks: readonly string[] = []): Check[] {
   return [
     ...browserSessionResponseChecks(all),
     ...handoffChecks(all),
@@ -611,7 +612,7 @@ export function traceChecks(all: readonly Exchange[], callbacks: readonly string
     ...unlistedHostChecks(all),
     ...redirectChecks(all),
     ...retryAfterChecks(all),
-    ...companyChecks(all, protocolVersion),
+    ...companyChecks(all),
     ...authorizationResponseChecks(callbacks, all)
   ];
 }

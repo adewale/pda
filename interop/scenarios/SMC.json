@@ -1,7 +1,7 @@
 {
   "id": "SMC",
   "title": "Mediated Sign-In with a one-time code",
-  "requirements": ["4.7"],
+  "requirements": ["Mediated Sign-In 4"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["mediated_answers", "last_one_time_code"] },
   "steps": [
     { "agent": "discover" },

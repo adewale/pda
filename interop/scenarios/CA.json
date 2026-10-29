@@ -1,7 +1,7 @@
 {
   "id": "CA",
-  "title": "Conversation: sign_in_required, then the same conversation signed in",
-  "requirements": ["7.8", "7.11", "4.4"],
+  "title": "Conversation: the Company asks for the account, then the same conversation signed in",
+  "requirements": ["8.11", "4.7"],
   "needs": { "agent": ["discover", "send", "read", "signin", "signin_continue"], "company": ["approve_authorization"] },
   "steps": [
     { "agent": "discover" },
@@ -14,7 +14,7 @@
     { "expect": { "${done.signed_in}": true } },
     { "agent": "send", "params": { "conversation": "${m.conversation}", "text": "${fixture.prompts.sign_in}", "wait": 2 }, "save": "m2" },
     { "expect": { "${m2.conversation}": "${m.conversation}" } },
-    { "agent": "read", "params": { "conversation": "${m.conversation}", "cursor": "${r.cursor}", "wait": 2 }, "save": "r2", "note": "wait is a hint (Poppy 7.3): the reply is read after the cursor, not expected in the send result." },
+    { "agent": "read", "params": { "conversation": "${m.conversation}", "cursor": "${r.cursor}", "wait": 2 }, "save": "r2", "note": "wait is a hint (Poppy 8.3): the reply is read after the cursor, not expected in the send result." },
     { "expect": { "${r2.messages}": { "$some": { "role": "company" } } } }
   ]
 }

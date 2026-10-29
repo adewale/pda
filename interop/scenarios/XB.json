@@ -1,7 +1,7 @@
 {
   "id": "XB",
   "title": "Adversarial Company: an oversized discovery document",
-  "requirements": ["4.3", "7.6"],
+  "requirements": ["3.1", "10.1"],
   "adversary": "company",
   "needs": { "agent": ["discover"], "company": ["arm"] },
   "steps": [

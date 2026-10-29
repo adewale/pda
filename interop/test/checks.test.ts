@@ -160,7 +160,7 @@ describe("trace checks", () => {
     expect(ids(checks)).toEqual(["company.events-shape:error", "company.sse-event-id:error"]);
   });
 
-  describe("every read includes cursor, has_more, status and responder (7.5's MUST)", () => {
+  describe("every read includes conversation_id, cursor, has_more, status and responder (8.5's MUST)", () => {
     const events = `${API}/poppy/conversations/c1/events`;
     const complete = { conversation_id: "c1", events: [], cursor: "e1", has_more: false, status: "idle", responder: "agent" };
     const event = { id: "e2", type: "message", created_at: "2026-10-12T00:00:00Z" };
@@ -174,9 +174,16 @@ describe("trace checks", () => {
     });
 
     it("fails a read with events and a cursor but no has_more, status or responder", () => {
-      const checks = checksOf(`${events}?cursor=e1`, { events: [event], cursor: "e2" });
+      const checks = checksOf(`${events}?cursor=e1`, { conversation_id: "c1", events: [event], cursor: "e2" });
       expect(ids(checks)).toEqual(["company.events-shape:error"]);
       expect(checks[0]!.detail).toMatch(/^no has_more; no status; no responder: /);
+    });
+
+    it("fails a read without conversation_id, which 8.5 added to the MUST", () => {
+      const { conversation_id: _omitted, ...withoutId } = complete;
+      const checks = checksOf(`${events}?cursor=e1`, withoutId);
+      expect(ids(checks)).toEqual(["company.events-shape:error"]);
+      expect(checks[0]!.detail).toMatch(/^no string conversation_id: /);
     });
 
     it("passes a complete read, with or without events", () => {

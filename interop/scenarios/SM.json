@@ -1,7 +1,7 @@
 {
   "id": "SM",
   "title": "Mediated Sign-In",
-  "requirements": ["4.4", "4.7"],
+  "requirements": ["4.7", "Mediated Sign-In 3"],
   "needs": { "agent": ["discover", "session", "signin", "signin_continue"], "company": ["mediated_answers"] },
   "steps": [
     { "agent": "discover" },

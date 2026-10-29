@@ -3,14 +3,17 @@
   "failures": [
     {
       "agent": "sloppy-personal-agent",
-      "company": "strict-company",
+      "company": "*",
       "scenario": "*",
-      "blame": "spec",
+      "blame": "agent",
+      "checks": [
+        "client-assertion.aud"
+      ],
       "errors": [
         "invalid_client"
       ],
       "issue": "https://github.com/adewale/pda/blob/main/docs/interop-spec.md#21-the-fake-implementations",
-      "reason": "By design, reading S2: the sloppy fake agent sends client assertions without typ that live 300 s and declares S2 lenient-300s; strict-company declares jwt-60s and refuses them with invalid_client at the first token request, so its signed-in cells fail and its signed-out ones, which need no token request at 0.3, pass. The lenient reference lenient-company accepts them."
+      "reason": "By design: the sloppy fake agent sends its client assertions with the token endpoint as aud (reading S1 token-endpoint). 0.3 settled S1: 4.1 makes the issuer the aud at every endpoint, so both mocks refuse its first token request with invalid_client and record client-assertion.aud. Its signed-in cells fail; its signed-out ones, which need no token request at 0.3, pass."
     }
   ]
 }
