@@ -19,6 +19,7 @@ export const clientFrame: Decoder<PoppyClientFrame> = tagged("type", {
   "poppy.code": object({ type: literal("poppy.code"), signInId: string, code: string }),
   "poppy.signin.cancel": object({ type: literal("poppy.signin.cancel"), signInId: string }),
   "poppy.approval": object({ type: literal("poppy.approval"), approvalId: string, decision }),
+  "poppy.approval.resolve": object({ type: literal("poppy.approval.resolve"), approvalId: string, outcome: literal("performed", "not_performed") }),
   "poppy.approvals": object({ type: literal("poppy.approvals"), decisions: array(object({ approvalId: string, decision })) }),
   "poppy.direct.start": object({ type: literal("poppy.direct.start"), conversationId: string, text: string }),
   "poppy.direct.decline": object({ type: literal("poppy.direct.decline"), conversationId: string }),

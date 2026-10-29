@@ -6,7 +6,7 @@ import { protocolRevision, PROTOCOL_REVISION, PROTOCOL_VERSIONS } from "../../sr
  *   npm run interop -- [--agents a,b] [--companies x,y] [--scenarios D,SD]
  *                      [--lane local|live] [--no-build] [--keep] [--no-retry]
  *                      [--min-free-gb n] [--set name:KEY=VALUE]... [--out dir]
- *                      [--image-tag tag]
+ *                      [--image-tag tag] [--require-supported]
  *
  * Local lane: builds every selected implementation's image, makes a CA and
  * certificate for the run, starts an --internal Docker network (no way out,
@@ -78,7 +78,7 @@ export const LIVE_GREETING = "Interoperability test from the Poppy Demo Agent. N
 export const SCENARIO_ORDER = [
   "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "H", "DC", "SO", "SE", "R", "AO", "AM", "AS", "W", "O", "OX", "OU", "RL", "DP", "CM", "ML",
   // Adversarial (docs/adversarial-interop.md): network faults, then malicious agent and Company.
-  "NREP", "CDUP", "CIDUP", "ODUP", "XH", "XI", "BX", "XB", "XN", "XP", "XE", "XR"
+  "NREP", "CDUP", "CIDUP", "ODUP", "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "XH", "XI", "BX", "XB", "XN", "XP", "XE", "XR"
 ];
 
 export type Options = {
@@ -92,6 +92,8 @@ export type Options = {
   readonly keep: boolean;
   /** Run a failed or errored cell once more (`--no-retry` turns it off). */
   readonly retry: boolean;
+  /** CI contract: fail if any selected cell is unsupported. */
+  readonly requireSupported: boolean;
   /** Refuse to start with less free space than this on Docker's data disk. */
   readonly minFreeGb: number;
   /** Extra container environment, by implementation name. */
@@ -116,6 +118,7 @@ export function parseOptions(argv: readonly string[]): Options {
       "build-jobs": { type: "string", default: "2" },
       keep: { type: "boolean", default: false },
       "no-retry": { type: "boolean", default: false },
+      "require-supported": { type: "boolean", default: false },
       "min-free-gb": { type: "string", default: "2" },
       set: { type: "string", multiple: true },
       out: { type: "string" },
@@ -144,6 +147,7 @@ export function parseOptions(argv: readonly string[]): Options {
     buildJobs,
     keep: values.keep,
     retry: !values["no-retry"],
+    requireSupported: values["require-supported"] ?? false,
     minFreeGb,
     set,
     out: values.out ?? null,
@@ -344,9 +348,9 @@ export function negotiateVersion(
 }
 
 /** The run's exit code: 1 for an unexpected failure or error, a stale known failure, or a run in which no cell ran. */
-export function runExitCode(cells: readonly Cell[], bad: readonly Cell[], stale: readonly unknown[]): number {
+export function runExitCode(cells: readonly Cell[], bad: readonly Cell[], stale: readonly unknown[], requireSupported = false): number {
   const ran = cells.some((cell) => cell.outcome === "pass" || cell.outcome === "fail");
-  return bad.length > 0 || stale.length > 0 || (cells.length > 0 && !ran) ? 1 : 0;
+  return bad.length > 0 || stale.length > 0 || (cells.length > 0 && !ran) || (requireSupported && cells.some((cell) => cell.outcome === "unsupported")) ? 1 : 0;
 }
 
 async function runCells(options: {
@@ -912,7 +916,8 @@ export async function main(argv: readonly string[], provisioned?: (context: { co
   if (cells.length && !cells.some((cell) => cell.outcome === "pass" || cell.outcome === "fail")) {
     log(`\nNo cell ran: every one was unsupported or refused, which fails the run.`);
   }
-  return runExitCode(cells, bad, stale);
+  if (options.requireSupported && cells.some((cell) => cell.outcome === "unsupported")) log("\n--require-supported: selected cells were skipped as unsupported, which fails the run.");
+  return runExitCode(cells, bad, stale, options.requireSupported);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === import.meta.filename) {

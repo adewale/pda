@@ -69,6 +69,8 @@ export type Card =
        */
       readonly status: "pending" | "approved" | "declined" | "done" | "terms" | "refused" | "failed" | "unknown";
       readonly result?: string;
+      /** The User checked the original outcome with the Company; the original receipt remains in history. */
+      readonly outcomeResolution?: { readonly outcome: "performed" | "not_performed"; readonly at: number };
       /** What the Company answered a `refused` write: its HTTP status and error code, if it gave one. */
       readonly answer?: { readonly status: number; readonly error?: string };
       /** The User's photos the request sends: names, types and sizes, which the page shows with the photo itself. */
@@ -87,7 +89,7 @@ export type Card =
       readonly conversationId: string;
       readonly reason: string;
     })
-  | (CardBase & { readonly kind: "notice"; readonly text: string });
+  | (CardBase & { readonly kind: "notice"; readonly text: string; readonly links?: readonly { readonly label: string; readonly url: string }[] });
 
 /**
  * What an approval card shows of an operation a Company returned (Ops 5):
@@ -200,7 +202,7 @@ export type ActivityEntry = {
   readonly result: ActivityResult;
   /** The outcome in words: the Company's account of it, or why it failed. */
   readonly outcome?: string;
-  readonly outcomeBy?: "company" | "agent";
+  readonly outcomeBy?: "company" | "agent" | "you";
 };
 
 /** Work running in the background now. */
@@ -317,6 +319,8 @@ export type PoppyClientFrame =
   | { readonly type: "poppy.code"; readonly signInId: string; readonly code: string }
   | { readonly type: "poppy.signin.cancel"; readonly signInId: string }
   | { readonly type: "poppy.approval"; readonly approvalId: string; readonly decision: "approve" | "decline" }
+  /** Only the User's page can record a checked outcome; this never sends or retries an action. */
+  | { readonly type: "poppy.approval.resolve"; readonly approvalId: string; readonly outcome: "performed" | "not_performed" }
   /**
    * Several approvals decided on one card. The agent checks again that they
    * share one `batchKey`, sends them one at a time, and tells the model once.

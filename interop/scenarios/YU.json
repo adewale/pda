@@ -1,0 +1,42 @@
+{
+  "id": "YU",
+  "title": "Adversarial agent: Read another User's signed-out conversation",
+  "requirements": [
+    "8.2",
+    "8.11",
+    "8.13"
+  ],
+  "adversary": "agent",
+  "needs": {
+    "agent": [
+      "arm",
+      "attack"
+    ]
+  },
+  "steps": [
+    {
+      "agent": "arm",
+      "params": {
+        "attack": "YU"
+      }
+    },
+    {
+      "agent": "attack",
+      "save": "r"
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "attack_observed",
+        "agent_attack": "YU"
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "agent_attack_rejected",
+        "agent_attack": "YU"
+      }
+    }
+  ]
+}

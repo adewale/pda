@@ -17,6 +17,7 @@ import {
   setCookies
 } from "./checks.ts";
 import type { RunnerReply } from "./cell.ts";
+import { agentAttackEvidence, agentAttackRejected, authorizationCodeReplay, authorizationCodeReplayRejected, authorizationCodeFreshReplay, authorizationCodeFreshReplayRejected } from "./agent-attacks.ts";
 
 const agentRequests = (all: readonly Exchange[]) => all.filter((x) => x.direction === "to-company" && !x.probe && !x.injected);
 
@@ -272,6 +273,18 @@ export function boundedRequests(all: readonly Exchange[], params: Record<string,
  * injected, counts; `injected: true` requires the proxy to have injected one.
  */
 export function attackObserved(all: readonly Exchange[], params: Record<string, unknown>): RunnerReply {
+  if (params.authorization_code_fresh_replay === true) {
+    const pair = authorizationCodeFreshReplay(all);
+    return pair ? { kind: "ok", result: { original: pair[0].index, replay: pair[1].index } } : { kind: "failed", detail: "No accepted code exchange and consumed-code replay with fresh credentials observed" };
+  }
+  if (params.authorization_code_replay === true) {
+    const pair = authorizationCodeReplay(all);
+    return pair ? { kind: "ok", result: { original: pair[0].index, replay: pair[1].index } } : { kind: "failed", detail: "No accepted authorization-code exchange and its exact injected replay observed" };
+  }
+  if (typeof params.agent_attack === "string") {
+    const pair = agentAttackEvidence(all, params.agent_attack);
+    return pair ? { kind: "ok", result: { baseline: pair[0].index, attack: pair[1].index } } : { kind: "failed", detail: `No accepted control and isolated ${params.agent_attack} mutation observed` };
+  }
   if (params.mutation === "client_audience") {
     const pair = audiencePair(all);
     return pair ? { kind: "ok", result: { baseline: pair[0].index, attack: pair[1].index } }
@@ -456,6 +469,9 @@ export const TRACE_ASSERTIONS: Record<string, (all: readonly Exchange[], params:
   attack_observed: attackObserved,
   replay_rejected: replayRejected,
   audience_rejected: (all) => audienceRejected(all),
+  authorization_code_fresh_replay_rejected: (all) => authorizationCodeFreshReplayRejected(all),
+  authorization_code_replay_rejected: (all) => authorizationCodeReplayRejected(all),
+  agent_attack_rejected: (all, params) => agentAttackRejected(all, String(params.agent_attack)),
   one_session: (all) => oneSession(all)
 };
 

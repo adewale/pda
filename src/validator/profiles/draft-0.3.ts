@@ -293,7 +293,8 @@ export function checkProtectedResource(c: Checker, doc: unknown, poppy: PoppyFac
   const servers = member<unknown[]>(c, doc, "", "authorization_servers", "array", true, ref);
   if (!servers) return undefined;
   const list = stringList(c, servers, "/authorization_servers", ref);
-  list.forEach((server, index) => httpsUrl(c, server, `/authorization_servers/${index}`, ref));
+  // A diagnostic does not make a malformed issuer usable for metadata discovery.
+  const usable = new Set(list.filter((server, index) => httpsUrl(c, server, `/authorization_servers/${index}`, ref) !== undefined));
   if (list.length === 0) {
     c.report("prm-no-issuer", "/authorization_servers", "authorization_servers is empty, so there is no issuer.");
     return undefined;
@@ -303,13 +304,13 @@ export function checkProtectedResource(c: Checker, doc: unknown, poppy: PoppyFac
       c.report("issuer-not-listed", "/authorization_servers", `auth.issuer ${poppy.issuer} isn't in authorization_servers.`);
       return undefined;
     }
-    return poppy.issuer;
+    return usable.has(poppy.issuer) ? poppy.issuer : undefined;
   }
   if (list.length > 1) {
     c.report("issuer-ambiguous", "/authorization_servers", `authorization_servers lists ${list.length} servers, and poppy.json has no auth.issuer to say which one agents use.`);
     return undefined;
   }
-  return list[0];
+  return usable.has(list[0]!) ? list[0] : undefined;
 }
 
 /** The issuer's metadata (3.2, RFC 8414): `protected_resources`, `grant_types_supported`, and the endpoints and scopes the sign-in types need. */

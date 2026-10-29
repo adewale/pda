@@ -2,7 +2,23 @@
 
 **Names.** On 23 October 2026 our mocks and adversarial agent were renamed: `pda-mock` is now `lenient-company`, `pda-mock-strict` `strict-company`, `pda-mock-v02` `lenient-company-v02` and `evil-agent` `evil-personal-agent`. The snapshots here keep the names they were run under.
 
-## Latest run: 29 October, Poppy 0.3, our agents and mocks
+## 29 October: conformance verification after the PR 36 review
+
+Fresh isolated runs exercised the conformance fixes, the restored 0.3 malicious agent and authorization-code replay, and the pinned independent print-shop demo. [Receipts, commands and browser evidence](../evidence/pr-36-conformance/README.md).
+
+| Selected lane | Pass | Fail | Unsupported | Error |
+| --- | --- | --- | --- | --- |
+| PDA × lenient/strict Company, default cross-product | 72 | 0 | 32 | 0 |
+| PDA × malicious Company, its eight attacks | 8 | 0 | 0 | 0 |
+| Malicious agent × lenient/strict Company, eight attacks each | 16 | 0 | 0 | 0 |
+| PDA × lenient/strict Company, replay-only corroboration | 2 | 0 | 0 | 0 |
+| PDA × print-with-poppy, its ten supported scenarios | 10 | 0 | 0 | 0 |
+
+The replay-only row repeats two cells already in the 72-cell run. The default cross-product's unsupported cells pair honest agents or Companies with attacks they do not implement. CI instead selects the 72 applicable honest/network-fault cells, eight malicious-Company cells and 16 malicious-agent cells, and uses `--require-supported` to fail if any is skipped. None of the runs above recorded a check failure or warning.
+
+The print-shop builder now starts from the pinned slim runtime base, installs its build tools over verified HTTPS, and removes them in the same layer. This reduces VFS build snapshots; the upstream commit, frozen dependency lock and runtime image are unchanged. The initial restoration below used the full builder because Debian mirrors were unavailable then.
+
+## Initial run: 29 October, Poppy 0.3, our agents and mocks
 
 The first grid at 0.3 that ran anything. From 28 October the mock's adapter still declared 0.1 while our agent spoke 0.3, so CI's grid marked all 88 cells unsupported and passed; the adapter now takes its version from the client, and the runner fails a run in which no cell ran (interop spec, opening). Run locally in Docker, with images built through this session's proxy:
 
@@ -31,7 +47,7 @@ On GitHub, the Interop workflow's first run that ran anything, on `02fa5e4` (29 
 
 ### print-with-poppy at 0.3
 
-[print-with-poppy](https://github.com/spenciefy/print-with-poppy) at `b340741` (28 October), the first other project on the 28 October text, in its demo mode behind [its adapter](../../interop/impls/print-with-poppy-company). Its build stage now starts from the full `node:22-bookworm` image, which already has git and a compiler, so the build installs no Debian packages; the session that restored the adapter couldn't reach Debian's mirrors. The honest scenarios only, since adversarial cells never run against another project's Company:
+[print-with-poppy](https://github.com/spenciefy/print-with-poppy) at `b340741` (28 October), the first other project on the 28 October text, in its demo mode behind [its adapter](../../interop/impls/print-with-poppy-company). That initial run used the full `node:22-bookworm` builder because Debian mirrors were unavailable. The later conformance run above uses the pinned slim base and removes temporary build tools in the same layer. The honest scenarios only, since adversarial cells never run against another project's Company:
 
 ```sh
 npm run interop -- --agents pda,lenient-personal-agent,strict-personal-agent,sloppy-personal-agent --companies print-with-poppy \

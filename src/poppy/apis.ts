@@ -4,7 +4,7 @@ import { answerOf, PoppyClient, PoppyError, scopeSet, withAnswer, withoutAnswer,
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
-import { approvalTerms, proposeLocal, registerExecutor, TermsRequested } from "./operations";
+import { approvalTerms, OperationOutcomeUnknown, proposeLocal, registerExecutor, TermsRequested } from "./operations";
 import type { Issuer } from "./issuer";
 import { randomId } from "./jwt";
 import { approvable, approvalCardId, approvalForModel, approvalHeader, approvalJson, approvalSummary, parseOperationV2, type ApprovalV2, type OperationV2 } from "./operations-v2";
@@ -827,7 +827,7 @@ function answerForModel(answer: ApiAnswer, company: Company): Json {
 }
 
 /** Send a checked call, and read what came back. */
-async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRequest, beforeDispatch?: () => void): Promise<ApiAnswer> {
+async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRequest, beforeDispatch?: () => void, executingApproval?: string): Promise<ApiAnswer> {
   const { company, op, api } = checked;
   // Read-only lookups ask for a read-only token when the account allows (Guides).
   const readOnly = op.method === "GET" ? readOnlyScope(client.session(company.issuer, label)?.scope, op) : null;
@@ -857,7 +857,7 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
       method: checked.method,
       url: checked.url,
       binding: await approvalBinding(client, company, label)
-    });
+    }, executingApproval);
     return { kind: "approval", operation, approvalId };
   }
   if (response.status === 403 && isObject(body) && body.error === "extension_required") {
@@ -940,7 +940,7 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
       0
     );
   }
-  const answer = await sendApi(client, label, checked, check);
+  const answer = await sendApi(client, label, checked, check, execution.approvalId);
   if (answer.kind === "unusable") {
     throw withAnswer(new PoppyError("unusable_proposal", `${company.name} asked for approval of an operation the agent can't use, so nothing was done`, 403), 403);
   }
@@ -961,6 +961,9 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
       status
     );
   }
+  if (answer.kind === "answered" && answer.status === 202) {
+    throw new OperationOutcomeUnknown(`${company.name} accepted the approved request, but its action has not been confirmed. Check with the Company before approving further writes there.`);
+  }
   return JSON.stringify(answerForModel(answer, company)).slice(0, 2_000);
 });
 
@@ -973,8 +976,8 @@ function expired(company: Company): PoppyError {
  * The User's card for an operation (Ops 5): the Company's name and its
  * summary. One card per revision; the approved request is stored with it.
  */
-async function proposeApproval(client: PoppyClient, company: Company, label: string, operation: OperationV2, asked: Json, approval: NewApproval): Promise<string> {
-  return proposeLocal(client, company, label, approvalSummary(company, operation), approval, await approvalCardId(company, operation), approvalTerms(company, operation, asked));
+async function proposeApproval(client: PoppyClient, company: Company, label: string, operation: OperationV2, asked: Json, approval: NewApproval, executingApproval?: string): Promise<string> {
+  return proposeLocal(client, company, label, approvalSummary(company, operation), approval, await approvalCardId(company, operation), approvalTerms(company, operation, asked), executingApproval);
 }
 
 /** An operation we can't show the User: nothing is approved, and they are told (Ops 5: never treat it as done). */
@@ -1104,7 +1107,7 @@ async function mcpSession(client: PoppyClient, company: Company, label: string, 
   await client.token(company, { label, resource: api.url });
   const bound = client.session(company.issuer, label);
   const slot = JSON.stringify([resourceKey, label]);
-  const fingerprint = JSON.stringify([bound?.session_id, bound?.account, bound?.signed_in]);
+  const fingerprint = JSON.stringify([bound?.session_id, bound?.account, bound?.signed_in, bound?.authority_generation, bound?.scope]);
   let binding = bindings.get(slot);
   if (!binding || binding.fingerprint !== fingerprint) {
     // Returning to signed-out state must not resurrect a pre-sign-in session.
@@ -1171,7 +1174,8 @@ async function performMcp(
   company: Company,
   label: string,
   call: { apiUrl: string; tool: string; args: Json; approval?: ApprovalV2 },
-  beforeDispatch?: () => void
+  beforeDispatch?: () => void,
+  executingApproval?: string
 ): Promise<Json> {
   const api = findApi(company, "mcp", call.apiUrl);
   if (call.approval && !approvable(call.approval, Date.now())) throw expired(company);
@@ -1190,8 +1194,7 @@ async function performMcp(
       kind: "mcp",
       call: { apiUrl: api.url, tool: call.tool, args: call.args, approval: { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at } },
       binding: await approvalBinding(client, company, label, api.url)
-    });
-    if (call.approval) throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first, on a new card; nothing was done`, 200), 200);
+    }, executingApproval);
     return approvalForModel(company, operation, 200, approvalId);
   }
   if (isObject(result) && result.isError === true) throw withAnswer(new PoppyError("mcp_error", `The MCP tool reported an error: ${JSON.stringify(result).slice(0, 1_000)}`, 200), 200);
@@ -1249,7 +1252,7 @@ function checkMcpArgs(company: Company, name: string, inputSchema: Json | undefi
 registerExecutor("mcp", async (client, company, approval, label, execution) => {
   const check = () => { execution.beforeDispatch(); checkApprovalBinding(client, company, label, approval.binding); };
   check();
-  const result = await performMcp(client, company, label, approval.call, check);
+  const result = await performMcp(client, company, label, approval.call, check, execution.approvalId);
   // The tool answered with an operation (Ops 4): its card waits, and nothing was done.
   if (isObject(result) && isObject(result.approval_required) && typeof result.proposed === "string") {
     if (approval.call.approval && result.approval_required.operation_id === approval.call.approval.operation_id &&

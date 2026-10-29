@@ -89,7 +89,7 @@ These aren't declared in the grid's manifests, because they don't change what go
 | MCP `readOnlyHint` (§7) | A tool the Company's MCP server marks `readOnlyHint: true` runs without our card, as an OpenAPI GET does | n/a | **Lenient, knowingly**: the server is the Company's own (its protected resource metadata names the Company's issuer), and the Company is the one that would act |
 | An alternative's `web` reference (9.2, issue 18) | Kept only when it is HTTPS on one of the Company's hosts, with no credentials in the URL (`readAlternative` in `src/poppy/coverage.ts`); `openapi` and `mcp` references only when they name an API `poppy.json` lists, as 9.2 requires | n/a | **Strict.** 9.2 checks API references and not web ones; 4.3 closes the same hole for sign-in links |
 | <a id="pace"></a>How often to check a busy conversation (N46) | `Retry-After` is the least wait, never a schedule. A conversation that says `working` or `queued`, has a person on, or is Direct is read every second only while something happened in the last 2 minutes; otherwise at the idle pace, a quarter of the quiet time, 30 s to 15 min, an hour after a day. A read follows `has_more` for at most 10 pages (`src/poppy/pace.ts`) | n/a (Company side); the adversarial Company's `endlessEvents` (XR) does the opposite on purpose | **Strict**, since the cost is the agent's |
-| An approved request that fails or gets no answer (Ops 7) | Never sent again: the card says it may or may not have happened, tells the User to check with the Company, and the model is told it won't be retried. A new request for the same action isn't held back meanwhile; it gets our card first, and any new operation its own terms card | n/a | **Stricter than the text about resending, laxer about asking again.** Ops 7 has the agent send it again with the same approval (no keyword), which the Company answers with the first response if it performed it; we don't, because a lost answer may hide a Company that didn't keep that promise. Its MUST NOT on asking the User to approve a new operation for the same action until the first is known isn't enforced: the User sees both cards and decides (Appendix A, Ops §7, Not yet) |
+| An approved request that fails or gets no answer (Ops 7) | Never automatically resend an uncertain write. Unknown outcomes, approved 5xx, accepted OpenAPI 202 and accepted conversation approvals hold further writes Company-wide until the User checks and records the original outcome. Reads and other Companies remain usable. The original receipt and separate User assertion are durable; reconciliation sends nothing | n/a | **Conservative.** The text describes resending the same approval (no keyword); we retain our no-resend policy. Its MUST NOT on fresh approval while the outcome is unknown is enforced with a broad hold because request syntax cannot prove different business actions. `test/poppy-outcome-guard.test.ts`; actual browser recovery evidence in `docs/evidence/pr-36-conformance/`. |
 | <a id="n19"></a>An approval whose Session the Company ended (N19, issue 12) | An approval is bound to the Session and account it was shown in. When the Company answers it `invalid_session`, the client starts a new Session and doesn't send the approval on it: the card fails with `approval_changed`, nothing was done, and the User and the model are told; asking again gets a new card. An approval whose answer was lost reads "may or may not have happened" and is never sent again | The print shop's orders, signed out, belong to their Session (Ops 3) | **Strict about sending nothing more.** Tested: "stops at the Company's terms when the signed-out Session they belong to ended…", "tells the User an order may have happened when the answer to its approved request was lost…" (`test/print-journey.test.ts`) |
 
 ## Draft 0.3 readings (28 October text)
@@ -121,11 +121,18 @@ Readings we took to implement [the 28 October text](../spec/draft-0.3-retrieved-
 
 ## Mismatches between declarations and code
 
-None known.
+The changelog ledger records implementation dispositions. It is not a conformance certificate: Appendix A names behavioral checks, and the [conformance review](poppy-0.3-conformance.md) separates automated evidence, local readings and remaining limits. The PR 36 review corrected authority, cache, migration, operation-outcome and verification gaps.
 
-## Gaps in our own code
+## Limits in our own verification
 
-- None known.
+- The hosted agent uses the stated blind-signing exception; it does not claim device-only privacy.
+- Model-boundary guards recognize credential/contact formats and explicit verification requests. They do not establish universal personal-data detection or correct interpretation of every paraphrase.
+- The User must actually check an uncertain outcome before recording it; the resulting assertion is attributed to the User, while the original uncertain receipt is preserved.
+- Live authenticated OAuth/payment journeys remain unverified without an allowlisted test identity and a non-production Company. Local browser, Python and pinned independent demo runs have their own stated limits.
+
+## Scope hints and descriptions (upstream audit 30/31)
+
+Missing scope hints are displayed and supplied to the model as irreversible changes with personal data, following the conservative Guides advice. This is a local reading of the conflict with the specification, not a new MUST. The Company's description is preserved; listed OpenAPI descriptions precede `auth.scopes`. Every sign-in still uses the User's own approval interface.
 
 ## Keeping this current
 

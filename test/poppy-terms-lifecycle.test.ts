@@ -42,8 +42,8 @@ describe("the tool request follows its Company's terms approval", () => {
     }
   });
 
-  it("follows revised Company terms through to the original tool step", async () => {
-    const { a, c, parent, child } = await asking("openapi");
+  it.each(["openapi", "mcp"] as const)("follows revised %s Company terms through to the original tool step", async channel => {
+    const { a, c, parent, child } = await asking(channel);
     await a.stub.poppySql("UPDATE poppy_approvals SET request = json_set(request, '$.call.approval.revision', 'r-the-company-dropped') WHERE id = ?", child.approvalId);
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: child.approvalId, decision: "approve" });
     const revised = await until(async () => (await cards(a)).find(card => card.kind === "approval" && card.open));
@@ -54,8 +54,8 @@ describe("the tool request follows its Company's terms approval", () => {
     expect(decisions(await cards(a)).approvals.get(parent.approvalId)?.result).toBe("done");
   });
 
-  it("settles a child decided before its parent records the link", async () => {
-    const { a, c, parent } = await asking("openapi", async (a, id) => {
+  it.each(["openapi", "mcp"] as const)("settles a %s child decided before its parent records the link", async channel => {
+    const { a, c, parent } = await asking(channel, async (a, id) => {
       await runInDurableObject(a.stub, async instance => {
         const client = instance.poppy.client;
         const show = client.host.showCard;
@@ -100,8 +100,8 @@ describe("the tool request follows its Company's terms approval", () => {
     expect(decisions(await cards(a)).approvals.get(parent.approvalId)?.result).toBe("declined");
   });
 
-  it("keeps both steps uncertain when a restart interrupted the terms approval", async () => {
-    const { a, c, parent, child } = await asking("openapi");
+  it.each(["openapi", "mcp"] as const)("keeps both %s steps uncertain when a restart interrupted the terms approval", async channel => {
+    const { a, c, parent, child } = await asking(channel);
     await runInDurableObject(a.stub, async instance => {
       const client = instance.poppy.client;
       const notify = vi.spyOn(client.host, "notifyModel").mockResolvedValue(undefined);

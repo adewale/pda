@@ -111,11 +111,15 @@ async function approveOurs(w: Pick<World, "client" | "sql" | "mock">, id: string
 
 /** Terms cards the User may approve: any before the jacket is exchanged; after, only those of the operation that exchanged it, which the Company answers with its first response (Ops 7). */
 const approvableTerms = (model: Model) =>
-  [...model.terms].filter(([, operation]) => !model.performs || model.operations.get(operation) === "succeeded").map(([id]) => id).sort();
+  [...model.terms].filter(([, operation]) => !model.performs || model.operations.get(operation) === "succeeded").map(([id]) => id);
 
 type Command = "signIn" | "signOut" | "message" | "read" | "close" | "refresh" | "propose" | "approveOurs" | "approveTerms" | "decline";
-/** Every card waiting on the User, as the model holds them. */
-const waitingCards = (model: Model) => [...model.ours, ...model.terms.keys()].sort();
+/**
+ * Select every live object in creation order. Sorting random opaque IDs
+ * changes which binding a generated index selects between replay attempts,
+ * making shrinking non-deterministic. Sort only for set comparisons below.
+ */
+const waitingCards = (model: Model) => [...model.ours, ...model.terms.keys()];
 function enabled(model: Model): Command[] {
   const commands: Command[] = ["signIn", "message", "refresh"];
   if (model.conversations.size) commands.push("read", "close");
@@ -189,7 +193,7 @@ async function run(w: World, model: Model, command: Command, tc: Parameters<Para
       model.signedIn = false;
       return;
     case "message": {
-      const id = model.conversations.size ? tc.draw(gs.optional(gs.sampledFrom([...model.conversations].sort()))) : null;
+      const id = model.conversations.size ? tc.draw(gs.optional(gs.sampledFrom([...model.conversations]))) : null;
       const text = tc.draw(gs.sampledFrom(["hello", "Is the sale still on?", "Can a person help?"]));
       const sent = await sendMessage(w.client, w.company, { label: "main", callKey: crypto.randomUUID(), sender: "agent", text, ...(id ? { conversationId: id } : {}) });
       model.conversations.add(sent.conversationId);
@@ -197,12 +201,12 @@ async function run(w: World, model: Model, command: Command, tc: Parameters<Para
     }
     case "read": {
       expect(model.conversations.size).toBeGreaterThan(0);
-      await readFresh(w, w.mock, tc.draw(gs.sampledFrom([...model.conversations].sort())), `Update: ${tc.draw(gs.text({ maxSize: 100 }))}`);
+      await readFresh(w, w.mock, tc.draw(gs.sampledFrom([...model.conversations])), `Update: ${tc.draw(gs.text({ maxSize: 100 }))}`);
       return;
     }
     case "close": {
       expect(model.conversations.size).toBeGreaterThan(0);
-      const id = tc.draw(gs.sampledFrom([...model.conversations].sort()));
+      const id = tc.draw(gs.sampledFrom([...model.conversations]));
       await closeConversation(w.client, w.company, id);
       model.conversations.delete(id);
       expect(conversation(w.client, id)?.status).toBe("closed");
@@ -221,7 +225,7 @@ async function run(w: World, model: Model, command: Command, tc: Parameters<Para
       return;
     }
     case "approveOurs": {
-      const id = tc.draw(gs.sampledFrom([...model.ours].sort()));
+      const id = tc.draw(gs.sampledFrom([...model.ours]));
       if (await refusedAsChanged(w, model, id)) return;
       const { terms, operation } = await approveOurs(w, id);
       model.ours.delete(id);
@@ -261,7 +265,7 @@ async function agrees(w: World, model: Model): Promise<void> {
   // A performed operation was approved once: at most once (Ops 7).
   for (const op of state.operations) if (op.state === "succeeded") expect(op.confirms, op.id).toBe(1);
   const held = approvals(w);
-  expect([...held].filter(([, status]) => status === "pending").map(([id]) => id).sort()).toEqual(waitingCards(model));
+  expect([...held].filter(([, status]) => status === "pending").map(([id]) => id).sort()).toEqual(waitingCards(model).sort());
   expect(w.client.accounts(w.company.issuer).length).toBe(model.signedIn ? 1 : 0);
   expect(state.accountTokens).toBe(model.signedIn ? 1 : 0);
   expect(new Set(openConversations(w.client).map((row) => row.id))).toEqual(model.conversations);
@@ -411,7 +415,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
     };
     /** Terms cards the User may approve: before the account's jacket is exchanged; after, only the operation that exchanged it (Ops 7). */
     const approvable = (model: IsolatedModel, label: number) => [...model.terms].filter(([, card]) => card.label === label &&
-      (!performed.has(accounts[label]!) || model.operations.get(card.operation)?.state === "succeeded")).map(([id]) => id).sort();
+      (!performed.has(accounts[label]!) || model.operations.get(card.operation)?.state === "succeeded")).map(([id]) => id);
 
     const agrees = async () => {
       const tokenOwners = new Map<string, string>();
@@ -519,7 +523,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
       } else if (action === "propose") {
         model.ours.set(await propose(actor, labels[label]!), label);
       } else if (action === "approveOurs") {
-        const id = tc.draw(gs.sampledFrom([...model.ours].filter(([, owner]) => owner === label).map(([key]) => key).sort()));
+        const id = tc.draw(gs.sampledFrom([...model.ours].filter(([, owner]) => owner === label).map(([key]) => key)));
         const known = new Set(state0(models));
         if (await refusedWhenGone(actor, w.mock, id)) { model.ours.delete(id); counts[action] = (counts[action] ?? 0) + 1; await agrees(); continue; }
         const { terms, operation } = await approveOursAmong(actor, w.mock, id, known);
@@ -537,7 +541,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
         if (op.state !== "succeeded") performed.add(accounts[label]!);
         op.state = "succeeded";
       } else if (action === "decline") {
-        const id = tc.draw(gs.sampledFrom([...[...model.ours].filter(([, owner]) => owner === label).map(([key]) => key), ...[...model.terms].filter(([, card]) => card.label === label).map(([key]) => key)].sort()));
+        const id = tc.draw(gs.sampledFrom([...[...model.ours].filter(([, owner]) => owner === label).map(([key]) => key), ...[...model.terms].filter(([, card]) => card.label === label).map(([key]) => key)]));
         await decideLocal(client, id, "decline");
         expect(approvals(actor).get(id)).toBe("declined");
         model.ours.delete(id);

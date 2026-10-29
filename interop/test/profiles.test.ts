@@ -74,9 +74,10 @@ describe("profiles", () => {
       expect(entry, profile).toMatchObject({ fake: true, build: "interop/impls/pda-agent", env: { INTEROP_AGENT_PROFILE: profile } });
       expect(entry?.adversarial).toBeUndefined();
     }
-    // The adversarial agent spoke 0.2's wire and waits for a 0.3 port (docs/interop-spec.md).
+    const evil = loadRegistry().implementations.find((entry) => entry.name === "evil-personal-agent");
+    expect(evil).toMatchObject({ role: "agent", owner: "self", adversarial: true, live: false, env: { INTEROP_ADVERSARY: "agent" } });
+    expect(evil?.env).not.toHaveProperty("INTEROP_AGENT_PROFILE");
     const names = loadRegistry().implementations.map((entry) => entry.name);
-    expect(names).not.toContain("evil-personal-agent");
     expect(names.filter((name) => /pda-mock|evil-agent$/.test(name))).toEqual([]);
   });
 });

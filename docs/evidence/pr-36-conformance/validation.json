@@ -1,0 +1,246 @@
+{
+  "reviewedBase": "ec6ce8cfe2366b2e96f40fc480648c9a369dec12",
+  "scope": "Local conformance changes in the working tree after the reviewed base; exact pushed source is verified again by CI.",
+  "runs": {
+    "own_honest": {
+      "recordedAt": "2026-10-29T09:41:40Z",
+      "outcomes": {
+        "pass": 72,
+        "unsupported": 32
+      },
+      "resultsSha256": "a0dcacf9d3d56730b0f1df08e1c567773963d1295b89b46bac11edbbe861d609",
+      "implementations": [
+        {
+          "name": "pda",
+          "role": "agent",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "jwt-60s",
+            "S3": "insertion",
+            "S23": "per-origin"
+          },
+          "relaxations": []
+        },
+        {
+          "name": "lenient-company",
+          "role": "company",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "lenient-300s",
+            "S3": "insertion",
+            "S23": "per-company"
+          },
+          "relaxations": []
+        },
+        {
+          "name": "strict-company",
+          "role": "company",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "jwt-60s",
+            "S3": "insertion",
+            "S23": "per-company"
+          },
+          "relaxations": []
+        }
+      ],
+      "localResults": "/tmp/pda-pr36-grid-honest-final/results.json"
+    },
+    "malicious_company": {
+      "recordedAt": "2026-10-29T09:42:31Z",
+      "outcomes": {
+        "pass": 8
+      },
+      "resultsSha256": "6855d13ce475651815af37ae49838d6f0b4034cb4fde42ed8660b14722f9ada8",
+      "implementations": [
+        {
+          "name": "pda",
+          "role": "agent",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "jwt-60s",
+            "S3": "insertion",
+            "S23": "per-origin"
+          },
+          "relaxations": []
+        },
+        {
+          "name": "evil-company",
+          "role": "company",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "lenient-300s",
+            "S3": "insertion",
+            "S23": "per-company"
+          },
+          "relaxations": [],
+          "adversarial": true
+        }
+      ],
+      "localResults": "/tmp/pda-pr36-grid-company-attacks-final/results.json"
+    },
+    "malicious_agent": {
+      "recordedAt": "2026-10-29T09:09:15Z",
+      "outcomes": {
+        "pass": 16
+      },
+      "resultsSha256": "3bbf8b76957959f7b284fbcf543d7cab9441f52f2e69cf65c81c85a7430eb883",
+      "implementations": [
+        {
+          "name": "evil-personal-agent",
+          "role": "agent",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "jwt-60s",
+            "S3": "insertion",
+            "S23": "per-origin"
+          },
+          "relaxations": [],
+          "adversarial": true
+        },
+        {
+          "name": "lenient-company",
+          "role": "company",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "lenient-300s",
+            "S3": "insertion",
+            "S23": "per-company"
+          },
+          "relaxations": []
+        },
+        {
+          "name": "strict-company",
+          "role": "company",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "jwt-60s",
+            "S3": "insertion",
+            "S23": "per-company"
+          },
+          "relaxations": []
+        }
+      ],
+      "localResults": "interop/results/pr36-conformance-agent-attacks-final/results.json"
+    },
+    "code_replay": {
+      "recordedAt": "2026-10-29T09:09:36Z",
+      "outcomes": {
+        "pass": 2
+      },
+      "resultsSha256": "4428f2d6ea9ac1fd5aa9f7d289ce4e93c2d926f57b99f39075d9100d21391fa7",
+      "implementations": [
+        {
+          "name": "pda",
+          "role": "agent",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "jwt-60s",
+            "S3": "insertion",
+            "S23": "per-origin"
+          },
+          "relaxations": []
+        },
+        {
+          "name": "lenient-company",
+          "role": "company",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "lenient-300s",
+            "S3": "insertion",
+            "S23": "per-company"
+          },
+          "relaxations": []
+        },
+        {
+          "name": "strict-company",
+          "role": "company",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "jwt-60s",
+            "S3": "insertion",
+            "S23": "per-company"
+          },
+          "relaxations": []
+        }
+      ],
+      "localResults": "interop/results/pr36-conformance-replay-final/results.json"
+    },
+    "independent_print": {
+      "recordedAt": "2026-10-29T09:48:23Z",
+      "outcomes": {
+        "pass": 10
+      },
+      "resultsSha256": "14b6da7e256595a4b8db8e7c6bd899d7385f8e1a2eb552226831b7755c384ae1",
+      "implementations": [
+        {
+          "name": "pda",
+          "role": "agent",
+          "commit": "ec6ce8c-dirty",
+          "readings": {
+            "S1": "issuer",
+            "S2": "jwt-60s",
+            "S3": "insertion",
+            "S23": "per-origin"
+          },
+          "relaxations": []
+        },
+        {
+          "name": "print-with-poppy",
+          "role": "company",
+          "commit": "b340741d696d867ff3190c10c1f1d1e0c368e846",
+          "readings": {
+            "S1": "issuer",
+            "S2": "lenient-300s",
+            "S3": "either"
+          },
+          "relaxations": [
+            "APP_MODE=demo, upstream's local mode: payments, print orders and email are simulated in process, prices are illustrative, and no Stripe, Prodigi or Resend client is configured. Demo mode also serves the store's own browser demo (/api/demo/*, the Demo authorization scheme, its built-in demo agent), which no grid agent uses.",
+            "ALLOW_INTEROP_TEST_HOSTS=true, upstream's own setting for this grid (since 3360d8b): its private-address check lets an agent's client metadata and keys be fetched from a private address only when the host name ends in .interop.test. Off by default, and the store refuses to start with it outside demo mode, on a non-.interop.test origin, on Cloudflare or with provider credentials.",
+            "Sign-in codes: demo mode stores each code email in the store's SQLite (kind demo-signin-email) instead of sending it, and the adapter reads the code from there for the person signing in (approve_authorization, deny_authorization, last_one_time_code). expire_tokens rewrites the expiry of the store's access token records."
+          ]
+        }
+      ],
+      "localResults": "/tmp/pda-pr36-grid-print-verified/results.json"
+    }
+  },
+  "pythonHypothesis": {
+    "command": "npm run test:hypothesis",
+    "passed": 18,
+    "durationSeconds": 78.72,
+    "scope": "Independent Python client against strict mock Company; not a live external account."
+  },
+  "repositoryChecks": {
+    "node": "24.19.0",
+    "npmTest": {
+      "passed": 1971,
+      "skipped": 1,
+      "total": 1972,
+      "files": 100,
+      "workersPassed": 1155,
+      "durabilityPassed": 3,
+      "uiPassed": 247,
+      "interopPassed": 376,
+      "propertiesPassed": 190,
+      "appendixNamedTests": 377
+    },
+    "typecheck": "passed",
+    "specCheck": {
+      "dispositions": 42,
+      "pinnedPages": 13
+    },
+    "hostedSecurity": "hosted-security.json",
+    "hostedUploadDryRuns": "PDA and strict dummy Company passed using disposable private synthetic settings; nothing deployed"
+  }
+}

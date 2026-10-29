@@ -7,7 +7,7 @@ import {
   type Company,
   type WebsiteOnly
 } from "./discovery";
-import { fetchJson, POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type Fetcher, type PoppyTimeouts } from "./fetch";
+import { assertPublicHost, fetchJson, POPPY_TIMEOUTS, raceAbort, readLimited, timeoutError, withDeadline, type Fetcher, type PoppyTimeouts } from "./fetch";
 import { isObject, parseStrictJson, type Json } from "./json";
 import { number, object, optional, string, tryDecode, type Decoded } from "../decode";
 import {
@@ -240,17 +240,45 @@ function withScope<T extends TokenResponse>(response: T, requested: string): T {
 }
 
 /** `WWW-Authenticate: DPoP error="…", scope="…"` (RFC 6750, RFC 9449). */
-export function parseWwwAuthenticate(header: string | null): { error?: string; scope?: string; extension?: string } {
+export function parseWwwAuthenticate(header: string | null): { error?: string; scope?: string; extension?: string; resourceMetadata?: string; resourceMetadataAmbiguous?: true } {
   if (!header) return {};
   const params: Record<string, string> = {};
+  const metadata: string[] = [], errors: string[] = [];
   // A quoted-string may hold quoted-pairs (RFC 9110 §5.6.4), such as `\"` in a description.
-  for (const match of header.matchAll(/(\w+)="((?:[^"\\]|\\.)*)"/g)) params[match[1]!] ??= match[2]!.replace(/\\(.)/g, "$1");
+  for (const match of header.matchAll(/(?:^|[,\s])([\w-]+)\s*=\s*"((?:[^"\\]|\\.)*)"/g)) {
+    const name = match[1]!.toLowerCase(), value = match[2]!.replace(/\\(.)/g, "$1");
+    params[name] ??= value;
+    if (name === "resource_metadata") metadata.push(value);
+    if (name === "error") errors.push(value);
+  }
+  // Parameter-like text inside a URI or description is not another challenge.
+  const outsideValues = header.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  const metadataCount = (outsideValues.match(/(?:^|[,\s])resource_metadata\s*=/gi) ?? []).length;
+  const ambiguous = metadataCount !== metadata.length || new Set(metadata).size > 1 ||
+    (metadataCount > 0 && errors.includes("invalid_token") && errors.some((value) => value !== "invalid_token"));
   return {
     ...(params.error ? { error: params.error } : {}),
     ...(params.scope ? { scope: params.scope } : {}),
     // 3.3: an API's extension_required names the extension in the challenge.
-    ...(params.extension ? { extension: params.extension } : {})
+    ...(params.extension ? { extension: params.extension } : {}),
+    ...(params.resource_metadata ? { resourceMetadata: params.resource_metadata } : {}),
+    ...(ambiguous ? { resourceMetadataAmbiguous: true as const } : {})
   };
+}
+
+/** Public HTTPS URLs on hosts the Company has already vouched for; metadata never carries credentials. */
+function serviceMetadataUrl(company: Company, value: string): URL | undefined {
+  if (!URL.canParse(value)) return undefined;
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.username || url.password || url.hash || !tokenHostAllowed(company, url)) return undefined;
+  try { assertPublicHost(url); } catch { return undefined; }
+  return url;
+}
+
+/** A metadata response is trusted only for this issuer and one of this Company's resources. */
+function metadataResource(company: Company, value: Json): string | undefined {
+  if (!isObject(value) || typeof value.resource !== "string" || !Array.isArray(value.authorization_servers) || !value.authorization_servers.includes(company.issuer)) return undefined;
+  return serviceMetadataUrl(company, value.resource) ? value.resource : undefined;
 }
 
 /** RFC 9110 §5.6.7 HTTP-date: IMF-fixdate, and the obsolete RFC 850 and asctime forms recipients must also read. */
@@ -1033,17 +1061,25 @@ export class PoppyClient {
       cached = { metadata, expiresAt: this.host.now() + boundedCacheSeconds(seconds) * 1000 };
       this.#serviceResources.set(service, cached);
     }
-    const json = cached.metadata;
-    if (
-      isObject(json) &&
-      typeof json.resource === "string" &&
-      Array.isArray(json.authorization_servers) &&
-      json.authorization_servers.includes(company.issuer) &&
-      json.resource.toLowerCase() !== `https://${company.domain}` &&
-      URL.canParse(json.resource) &&
-      tokenHostAllowed(company, new URL(json.resource))
-    ) return json.resource;
-    return undefined;
+    const resource = metadataResource(company, cached.metadata);
+    return resource?.toLowerCase() !== `https://${company.domain}` ? resource : undefined;
+  }
+
+  /** An invalid_token challenge refreshes stale service metadata once, without trusting a new issuer or following a redirect. */
+  async #refreshServiceMetadata(company: Company, service: string, hint: string, expectedResource?: string): Promise<string | undefined> {
+    this.#serviceResources.delete(service);
+    const url = serviceMetadataUrl(company, hint);
+    if (!url) throw new PoppyError("invalid_response", "The service's resource_metadata challenge names an untrusted metadata URL", 0);
+    let fetched: Awaited<ReturnType<typeof fetchJson>>;
+    try { fetched = await fetchJson(this.host.fetcher, url.href, { maxRedirects: 0 }); }
+    catch { throw new PoppyError("invalid_response", "The service's challenged resource metadata could not be fetched safely", 0); }
+    const resource = metadataResource(company, fetched.json);
+    if (!resource || (expectedResource !== undefined && resource !== expectedResource)) {
+      throw new PoppyError("invalid_response", "The refreshed resource metadata does not identify this Company's selected service", 0);
+    }
+    this.#serviceResources.set(service, { metadata: fetched.json, expiresAt: this.host.now() + boundedCacheSeconds(fetched.maxAgeSeconds) * 1000 });
+    // An explicitly selected resource (MCP's exact URL) remains explicit even if it names the Company domain.
+    return expectedResource ?? (resource.toLowerCase() === `https://${company.domain}` ? undefined : resource);
   }
 
   /**
@@ -1156,6 +1192,7 @@ export class PoppyClient {
     const label = options.label ?? "main";
     let renewed = false;
     let restarted = false;
+    let challengedResource: { readonly value: string | undefined } | undefined;
     for (let attempt = 0; attempt < 4; attempt++) {
       await this.#respectLimit(company.issuer);
       const prepared = this.sessionFor(company, label);
@@ -1165,7 +1202,10 @@ export class PoppyClient {
       };
       // A signed-in request to a service that takes only its own tokens asks for one (4.5).
       let effective = options;
-      if (!options.resource && options.service && prepared.signed_in) {
+      if (challengedResource) {
+        const { resource: _previous, ...rest } = options;
+        effective = { ...rest, ...(challengedResource.value ? { resource: challengedResource.value } : {}) };
+      } else if (!options.resource && options.service && prepared.signed_in) {
         const resource = await this.serviceResource(company, options.service);
         if (resource) effective = { ...options, resource };
       }
@@ -1254,6 +1294,17 @@ export class PoppyClient {
         await response.body?.cancel();
         log({ status: 401, error: challenge.error }, { kind: "refresh" });
         this.dropToken(company, options);
+        if (challenge.resourceMetadataAmbiguous) {
+          this.#serviceResources.delete(options.service ?? options.resource ?? url.href);
+          throw new PoppyError("invalid_response", "The service's authentication challenge has conflicting or malformed resource metadata", 401);
+        }
+        if (challenge.resourceMetadata) {
+          const service = options.service ?? options.resource ?? url.href;
+          if (!sameBinding()) throw new PoppyError("approval_changed", "The account or Session changed before refreshing service metadata", 0);
+          const value = await this.#refreshServiceMetadata(company, service, challenge.resourceMetadata, options.resource);
+          if (!sameBinding()) throw new PoppyError("approval_changed", "The account or Session changed while service metadata was being refreshed", 0);
+          challengedResource = { value };
+        }
         renewed = true;
         continue;
       }

@@ -51,7 +51,14 @@ jobs:
 
       - run: npm ci --legacy-peer-deps
 
-      - run: npm run interop -- --agents pda --companies lenient-company,strict-company
+      - name: Honest agents and Companies, including injected network faults
+        run: npm run interop -- --agents pda --companies lenient-company,strict-company --require-supported --scenarios D,S0,N,SD,SV,SVN,SM,SMC,SX,SXV,C,CL,CC,CI,CS,CA,SO,O,OX,OU,SE,R,AO,AM,AS,RL,DP,H,DC,W,CM,ML,CDUP,CIDUP,ODUP,NREP
+
+      - name: Our agent refuses malicious Company responses
+        run: npm run interop -- --agents pda --companies evil-company --require-supported --scenarios XH,XI,BX,XB,XN,XP,XE,XR
+
+      - name: Our Companies refuse malicious agent requests
+        run: npm run interop -- --agents evil-personal-agent --companies lenient-company,strict-company --require-supported --scenarios YR,YD,YA,YT,YS,YK,YU,YM
 
       - name: Upload the grid, HAR files and container logs
         if: always()

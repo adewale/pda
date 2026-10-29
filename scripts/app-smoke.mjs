@@ -11,6 +11,7 @@ import { Miniflare, Log, LogLevel, convertV4MiniflareOptions } from "miniflare";
 import { build } from "esbuild";
 import { exportJWK, generateKeyPair } from "jose";
 import puppeteer from "@cloudflare/puppeteer";
+import { approvalJourneys } from "./app-approval-journey.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
@@ -30,12 +31,21 @@ try {
     execFileSync("npm", ["run", "build"], { cwd: root, stdio: "pipe" });
   }
   const workerDirectory = path.join(directory, "worker");
-  execFileSync(process.execPath, [path.join(root, "node_modules/wrangler/bin/wrangler.js"), "deploy", "--dry-run", "--config", "test/wrangler.jsonc", "--outdir", workerDirectory], {
+  let workerConfig = "test/wrangler.jsonc";
+  let workerEntry = "worker.js";
+  if (args.includes("--approval-journey")) {
+    const fixtureConfig = JSON.parse(readFileSync(path.join(root, workerConfig), "utf8").replace(/^\s*\/\/.*$/gm, ""));
+    fixtureConfig.main = path.join(root, "test/browser/approval-journey-worker.ts");
+    workerEntry = "approval-journey-worker.js";
+    workerConfig = path.join(directory, "wrangler.json");
+    writeFileSync(workerConfig, JSON.stringify(fixtureConfig));
+  }
+  execFileSync(process.execPath, [path.join(root, "node_modules/wrangler/bin/wrangler.js"), "deploy", "--dry-run", "--config", workerConfig, "--outdir", workerDirectory], {
     cwd: root, stdio: "pipe", env: { ...process.env, WRANGLER_SEND_METRICS: "false" }
   });
   const sessionModule = path.join(directory, "session.mjs");
   await build({ entryPoints: [path.join(root, "src/session.ts")], outfile: sessionModule, bundle: true, format: "esm", platform: "node", logLevel: "silent" });
-  const { createSession } = await import(pathToFileURL(sessionModule).href);
+  const { createSession, agentNameFor } = await import(pathToFileURL(sessionModule).href);
   const config = JSON.parse(readFileSync(path.join(root, "test/wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, ""));
   const assets = JSON.parse(readFileSync(path.join(root, "wrangler.jsonc"), "utf8").replace(/^\s*\/\/.*$/gm, "")).assets;
   const keys = await Promise.all(["smoke-current", "smoke-next"].map(async kid => {
@@ -47,7 +57,7 @@ try {
   execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert, "-days", "1", "-subj", "/CN=agent.test", "-addext", "subjectAltName=DNS:agent.test"], { stdio: "ignore" });
   const spki = createHash("sha256").update(new X509Certificate(readFileSync(cert)).publicKey.export({ type: "spki", format: "der" })).digest("base64");
   runtime = new Miniflare(convertV4MiniflareOptions({
-    name: "pda-app-smoke", scriptPath: path.join(workerDirectory, "worker.js"), modulesRoot: workerDirectory, modules: true,
+    name: "pda-app-smoke", scriptPath: path.join(workerDirectory, workerEntry), modulesRoot: workerDirectory, modules: true,
     compatibilityDate: config.compatibility_date, compatibilityFlags: config.compatibility_flags,
     host: "127.0.0.1", port: 0, https: true, httpsKey: readFileSync(key, "utf8"), httpsCert: readFileSync(cert, "utf8"),
     log: new Log(LogLevel.ERROR),
@@ -160,6 +170,9 @@ try {
   await page.reload({ waitUntil: "networkidle0" });
   await page.waitForFunction(() => /echo:.*App smoke hello/s.test(document.body.innerText));
   evidence.chatSurvivesReload = true;
+  if (args.includes("--approval-journey")) {
+    evidence.companyApprovalJourneys = await approvalJourneys({ runtime, page, network, agentName: await agentNameFor(identity), cookie: signedCookie.split(";", 1)[0], output });
+  }
   for (const route of ["/settings", "/companies", "/activity"]) {
     await page.goto(`https://agent.test${route}`, { waitUntil: "networkidle0" });
     await page.waitForSelector('nav[aria-label="Places"]');

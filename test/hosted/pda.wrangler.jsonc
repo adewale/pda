@@ -1,0 +1,43 @@
+{
+  "name": "pda-hosted-unconfigured",
+  "main": "../../src/index.ts",
+  "compatibility_date": "2026-10-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./local/unconfigured/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/", "/activity", "/companies", "/settings", "/about", "/about/ecosystem", "/ws", "/api/*", "/auth/*", "/logout", "/poppy/*", "/privacy", "/validator", "/validator/*"]
+  },
+  "durable_objects": { "bindings": [
+    { "name": "PersonalAgent", "class_name": "PersonalAgent" },
+    { "name": "CompanyLimiter", "class_name": "CompanyLimiter" },
+    { "name": "DomainBudget", "class_name": "DomainBudget" }
+  ] },
+  "migrations": [{ "tag": "hosted-v1", "new_sqlite_classes": ["PersonalAgent", "CompanyLimiter", "DomainBudget"] }],
+  "ratelimits": [{ "name": "VALIDATOR_LIMITER", "namespace_id": "9631", "simple": { "limit": 20, "period": 60 } }],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false }, "traces": { "enabled": false } },
+  "vars": {
+    "THINKING_LEVEL": "medium",
+    "DEMO_GATEWAY_ID": "hosted-disabled",
+    "DEMO_MODEL_ID": "anthropic/claude-sonnet-5-5",
+    "DEMO_DAILY_USD_PER_USER": 0,
+    "DEMO_DAILY_USD_PER_DOMAIN": 0,
+    "ANTHROPIC_MODEL_ID": "claude-sonnet-5-5",
+    "OPENAI_MODEL_ID": "gpt-6.1-sol",
+    "SIGNUP": "allowlist",
+    "SIGNIN_PROVIDERS": ["github"],
+    "BROWSER_RUN": "off",
+    "POPPY_CLIENT_NAME": "Isolated PDA test",
+    "OWNERS": { "emails": [], "github": {} },
+    "SIGNIN_ALLOWLIST": { "emails": [], "domains": [], "github": {} },
+    "DEMO_ALLOWLIST": { "emails": [], "domains": [], "github": {} },
+    "PUBLIC_ORIGIN": "",
+    "POPPY_LOGO_URI": "",
+    "PRIVACY_CONTACT": "",
+    "INTEROP_LIVE_JWKS": ""
+  }
+}

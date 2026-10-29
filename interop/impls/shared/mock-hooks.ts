@@ -135,6 +135,10 @@ export function mockHooks(current: () => MockCompany): Record<string, Hook> {
       if (!code) throw new HookError(409, "no_code", "No one-time code has been sent");
       return { code };
     },
+    /** Effects only, for adversarial Operations 2 tests; no account or request data. */
+    async performed_count() {
+      return { performed: (await current().state()).performs };
+    },
     async end_sessions() {
       return { ended: await current().endAllSessions() };
     },

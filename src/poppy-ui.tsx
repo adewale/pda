@@ -622,19 +622,22 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
       ) : (
         <div className={cn("flex min-h-10 items-start gap-2 text-[13px] text-kumo-subtle", inPanel ? "px-4 py-3" : "enter py-1")}>
           <InfoIcon size={16} aria-hidden className="mt-0.5 shrink-0" />
-          <p className="min-w-0 flex-1 text-pretty break-words">
-            {card.company ? <span className="font-medium">{card.company} · </span> : null}
-            {card.text}
-            {note}
-          </p>
+          <div className="min-w-0 flex-1 text-pretty break-words">
+            <p>{card.company ? <span className="font-medium">{card.company} · </span> : null}{card.text}{note}</p>
+            {card.links?.length ? <ul className="mt-1 space-y-1">{card.links.map((link, index) => {
+              const href = httpsHref(link.url);
+              return href ? <li key={index}><a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{link.label}</a></li> : null;
+            })}</ul> : null}
+          </div>
           {dismiss}
         </div>
       );
     }
     case "approval": {
-      const result = APPROVAL_RESULT[card.status];
+      const resolution = card.outcomeResolution;
+      const result = resolution ? (resolution.outcome === "performed" ? "done" : "failed") : APPROVAL_RESULT[card.status];
       // Done only for a 2xx, and then "as you approved"; a refusal shows the Company's status and code (decision 6).
-      const detail = card.answer
+      const detail = resolution ? "you checked with the Company" : card.answer
         ? `${card.answer.status}${card.answer.error ? ` ${card.answer.error}` : ""}`
         : card.status === "done"
           ? "as you approved"
@@ -647,7 +650,7 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
       // What the Company answered, as a few facts; never its raw body, and never a URL (src/ui/result-facts.ts).
       const facts = card.status === "done" ? resultFacts(card.result).facts : [];
       return (
-        <Receipt result={result} detail={detail} company={card.company} action={dismiss} note={note}>
+        <Receipt result={result} detail={detail} company={card.company} action={card.status === "unknown" && !resolution ? null : dismiss} note={note}>
           {card.terms ? (
             <CompanySays company={card.company} className="mt-1 border-l-2 border-kumo-line pl-3 [&_blockquote]:text-[13px]">
               {card.terms.total ? `${money(card.terms.total)} · ${card.terms.summary}` : card.terms.summary}
@@ -662,6 +665,15 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
             </p>
           ) : null}
           {card.status !== "done" && card.status !== "refused" && card.result ? <p>{redactQueries(card.result)}</p> : null}
+          {resolution ? <p className="mt-1">You reported that this action {resolution.outcome === "performed" ? "happened" : "did not happen"}. Recording this did not send another request.</p> : card.status === "unknown" ? (
+            <div className="mt-2 space-y-2">
+              <p>Check the outcome with {card.company} before asking for this action again. Record only what you have confirmed.</p>
+              <div className="flex flex-wrap gap-2">
+                <Action variant="secondary" disabled={disabled} onClick={() => send({ type: "poppy.approval.resolve", approvalId: card.approvalId, outcome: "performed" })}>I checked: it happened</Action>
+                <Action variant="secondary" disabled={disabled} onClick={() => send({ type: "poppy.approval.resolve", approvalId: card.approvalId, outcome: "not_performed" })}>I checked: it did not happen</Action>
+              </div>
+            </div>
+          ) : null}
         </Receipt>
       );
     }
@@ -702,7 +714,7 @@ export function needsYou(cards: readonly Card[]): Card[] {
     (card) =>
       card.open ||
       (card.kind === "notice" && card.id.startsWith("error-")) ||
-      (card.kind === "approval" && card.status === "unknown")
+      (card.kind === "approval" && card.status === "unknown" && !card.outcomeResolution)
   );
 }
 

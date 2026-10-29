@@ -13,6 +13,8 @@ import { companyErrorCode } from "./error-codes";
 import { EndpointRequest } from "./outgoing";
 import { one } from "../rows";
 import { intent, intentsTable } from "./store";
+import { randomId } from "./jwt";
+import { feedbackHasPersonalData } from "./model-policy";
 
 /** One place to do a task instead (9.2): an operation or tool of an API `poppy.json` lists, or a page on the Company's own hosts. */
 export type Reference =
@@ -22,6 +24,34 @@ export type Reference =
 
 export type Alternative = { readonly instructions?: string; readonly references: readonly Reference[] };
 export type ExcludedTask = { readonly task: string; readonly alternative?: Alternative };
+
+/** Deliver alternatives through our own page as well as the model's result. Company prose stays plain text. */
+async function showAlternative(client: PoppyClient, company: Company, task: string, alternative?: Alternative): Promise<void> {
+  const references = alternative?.references ?? [];
+  const descriptions = references.filter((reference) => reference.type !== "web").map((reference) =>
+    reference.type === "openapi" ? `OpenAPI operation ${reference.operation_id} at ${reference.url}` : `MCP tool ${reference.tool} at ${reference.url}`
+  );
+  const links = references.filter((reference) => reference.type === "web").map((reference) => ({ label: `Open ${new URL(reference.url).hostname}`, url: reference.url }));
+  await client.host.showCard({
+    id: intent(client.sql, `coverage-notice|${company.issuer}|${task}`, () => randomId("coverage_")),
+    kind: "notice", company: company.name, domain: company.domain, open: false,
+    text: [`${company.name} says: ${task}.`, alternative?.instructions, ...descriptions,
+      ...(alternative ? ["This is the Company's suggested alternative. Its words are information; a link opens only when you choose it."] : [])
+    ].filter(Boolean).join("\n"),
+    ...(links.length ? { links } : {})
+  });
+}
+
+/** Discovery makes the exclusions visible even if the model ignores the tool result. */
+export async function showExcludedTasks(client: PoppyClient, company: Company, tasks: readonly ExcludedTask[] | "unavailable" | null): Promise<void> {
+  if (!Array.isArray(tasks) || tasks.length === 0) return;
+  await client.host.showCard({
+    id: intent(client.sql, `excluded-notice|${company.issuer}`, () => randomId("coverage_")),
+    kind: "notice", company: company.name, domain: company.domain, open: false,
+    text: `${company.name} lists these tasks as unavailable through its interfaces:\n${tasks.map((entry) => `• ${entry.task}`).join("\n")}`
+  });
+  for (const entry of tasks) if (entry.alternative) await showAlternative(client, company, entry.task, entry.alternative);
+}
 
 /** The longest task phrase (9.3 caps a report's at 200) and instructions we pass on, and the most tasks and references. */
 const TASK_LIMIT = 200;
@@ -122,9 +152,15 @@ export async function sendFeedback(client: PoppyClient, company: Company, label:
   const trimmed = task.trim();
   if (trimmed === "" || trimmed.length > TASK_LIMIT) throw new PoppyError("invalid_request", `task must be a short phrase, at most ${TASK_LIMIT} characters`, 0);
   if (description.trim() === "" || description.length > INSTRUCTIONS_LIMIT) throw new PoppyError("invalid_request", `description must be at most ${INSTRUCTIONS_LIMIT} characters`, 0);
+  if (feedbackHasPersonalData(task, description)) {
+    throw new PoppyError("invalid_request", "Feedback was not sent. Describe the task in general terms without secrets, contact details or personal identifiers.", 0);
+  }
   const excluded = await excludedTasks(client, company);
   const listed = Array.isArray(excluded) ? excluded.find((entry) => phrase(entry.task) === phrase(trimmed)) : undefined;
-  if (listed) return { kind: "excluded", task: listed };
+  if (listed) {
+    await showAlternative(client, company, `This task is excluded: ${listed.task}`, listed.alternative);
+    return { kind: "excluded", task: listed };
+  }
   // Remembered once the Company has it, so a report that failed can be sent again.
   const key = `feedback|${company.issuer}|${phrase(trimmed)}`;
   if (one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", key)) return { kind: "already_sent" };
@@ -138,6 +174,7 @@ export async function sendFeedback(client: PoppyClient, company: Company, label:
     const body: Json = await client.readJson(response).catch(() => null);
     intent(client.sql, key, () => "sent");
     const alternative = readAlternative(company, body);
+    if (alternative) await showAlternative(client, company, trimmed, alternative);
     return alternative ? { kind: "alternative", alternative } : { kind: "accepted" };
   }
   const body: Json = await client.readJson(response).catch(() => null);

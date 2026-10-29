@@ -25,6 +25,11 @@ describe("the shared mock hooks", () => {
     expect([...used].filter((hook) => !SHARED.includes(hook))).toEqual([]);
   });
 
+  it("exposes only the performed-effect count for Operations 2 harm checks", async () => {
+    const hooks = mockHooks(() => ({ state: async () => ({ performs: 2, accounts: ["private-account"] }) }) as unknown as MockCompany);
+    expect(await hooks.performed_count!({})).toEqual({ performed: 2 });
+  });
+
   it("serve every recorded check by id, in order, with its basis, its level and the detail after it", () => {
     const state = {
       recorded: [

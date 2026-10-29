@@ -1,0 +1,115 @@
+{
+  "id": "YM",
+  "title": "Adversarial agent: An invented Operations 2 revision, then an approved replay",
+  "requirements": [
+    "Ops 6",
+    "Ops 7"
+  ],
+  "adversary": "agent",
+  "needs": {
+    "agent": [
+      "arm",
+      "attack"
+    ],
+    "company": [
+      "mediated_answers",
+      "performed_count"
+    ]
+  },
+  "steps": [
+    {
+      "company": "mediated_answers",
+      "params": {
+        "account": "${fixture.accounts.0}"
+      },
+      "save": "answers"
+    },
+    {
+      "company": "performed_count",
+      "save": "before"
+    },
+    {
+      "expect": {
+        "${before.performed}": 0
+      }
+    },
+    {
+      "agent": "arm",
+      "params": {
+        "attack": "YM",
+        "fields": "${answers.fields}",
+        "read_scopes": "${fixture.scopes.read}",
+        "write_scopes": "${fixture.scopes.write}"
+      }
+    },
+    {
+      "agent": "attack",
+      "save": "r"
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "attack_observed",
+        "agent_attack": "YM"
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "agent_attack_rejected",
+        "agent_attack": "YM"
+      }
+    },
+    {
+      "company": "performed_count",
+      "save": "after_bad"
+    },
+    {
+      "expect": {
+        "${after_bad.performed}": 0
+      }
+    },
+    {
+      "agent": "attack",
+      "params": {
+        "phase": "approve"
+      },
+      "save": "approved"
+    },
+    {
+      "expect": {
+        "${approved.status}": 201
+      }
+    },
+    {
+      "company": "performed_count",
+      "save": "after_approved"
+    },
+    {
+      "expect": {
+        "${after_approved.performed}": 1
+      }
+    },
+    {
+      "agent": "attack",
+      "params": {
+        "phase": "replay"
+      },
+      "save": "replayed"
+    },
+    {
+      "expect": {
+        "${replayed}": "${approved}"
+      }
+    },
+    {
+      "company": "performed_count",
+      "save": "after_replay"
+    },
+    {
+      "expect": {
+        "${after_replay.performed}": 1
+      }
+    }
+  ]
+}

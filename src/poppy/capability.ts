@@ -15,7 +15,7 @@ import {
 } from "./conversations";
 import type { Fetcher, PoppyTimeouts } from "./fetch";
 import type { Json } from "./json";
-import { decideLocal, decideLocalBatch, recoverApprovalBatches, recoverInterruptedApprovals } from "./operations";
+import { decideLocal, decideLocalBatch, recoverApprovalBatches, recoverInterruptedApprovals, resolveApprovalOutcome } from "./operations";
 import {
   expireSignIn,
   cancelSignIn,
@@ -313,16 +313,22 @@ export class PoppyCapability extends LifecycleCapability {
 
   /** Take a closed card out of every page's list now, as dismissing it does. */
   retireCard(id: string): void {
-    this.#options.storage.sql.exec("UPDATE poppy_cards SET open = 0, updated_at = 0 WHERE id = ?", id);
+    // An unresolved receipt is the User's route to checking the outcome.
+    // Keep it until reconciled, including requests from a page left open before this update.
+    this.#options.storage.sql.exec(`UPDATE poppy_cards SET open = 0, updated_at = 0 WHERE id = ?
+      AND NOT COALESCE(json_extract(card, '$.kind') = 'approval' AND json_extract(card, '$.status') = 'unknown'
+        AND json_extract(card, '$.outcomeResolution') IS NULL, 0)`, id);
     this.#sendCards();
   }
 
-  /** Open cards, plus closed ones from the last hour so outcomes stay visible. */
+  /** Open cards, recent receipts and unresolved outcomes, however long checking them takes. */
   #sendCards(socket?: WebSocket): void {
     const cards = rows(
       this.#options.storage.sql,
       cardsTable.pick("card", "updated_at"),
-      "SELECT card, updated_at FROM poppy_cards WHERE open = 1 OR updated_at > ? ORDER BY updated_at",
+      `SELECT card, updated_at FROM poppy_cards WHERE open = 1 OR updated_at > ?
+        OR (json_extract(card, '$.kind') = 'approval' AND json_extract(card, '$.status') = 'unknown'
+          AND json_extract(card, '$.outcomeResolution') IS NULL) ORDER BY updated_at`,
       Date.now() - 60 * 60_000
     ).map((row) => ({ ...(JSON.parse(row.card) as Card), at: row.updated_at }));
     const frame: PoppyServerFrame = { type: "poppy.cards", cards };
@@ -445,6 +451,9 @@ export class PoppyCapability extends LifecycleCapability {
       case "poppy.approval":
         await decideLocal(client, frame.approvalId, frame.decision);
         return;
+      case "poppy.approval.resolve":
+        await resolveApprovalOutcome(client, frame.approvalId, frame.outcome);
+        return;
       case "poppy.approvals":
         await decideLocalBatch(client, frame.decisions);
         return;
@@ -547,7 +556,8 @@ function frameFields(frame: PoppyClientFrame): Fields {
   return {
     ...("decision" in frame ? { decision: code(frame.decision) } : {}),
     ...("issuer" in frame ? { issuer: origin(frame.issuer) } : {}),
-    ...(frame.type === "poppy.approval" ? { approval_id: id(frame.approvalId) } : {}),
+    ...(frame.type === "poppy.approval" || frame.type === "poppy.approval.resolve" ? { approval_id: id(frame.approvalId) } : {}),
+    ...(frame.type === "poppy.approval.resolve" ? { outcome: code(frame.outcome) } : {}),
     ...(frame.type === "poppy.approvals" ? { approvals: frame.decisions.length, approved: frame.decisions.filter((item) => item.decision === "approve").length } : {})
   };
 }

@@ -1,0 +1,196 @@
+{
+  "signedOutPage": true,
+  "publicAboutAndEcosystem": true,
+  "publicPagesNeedNoIdentityOrSocket": true,
+  "ecosystemMobileTablesAndDeepLinks": true,
+  "ecosystemMobileLandscape": true,
+  "publicLinksAndSectionTargets": true,
+  "oldEcosystemPathHasNoPageOrRedirect": true,
+  "authenticatedWorkspaceAndWebSocket": true,
+  "chatReply": true,
+  "chatSurvivesReload": true,
+  "companyApprovalJourneys": {
+    "journeys": [
+      {
+        "transport": "OpenAPI",
+        "viewport": "desktop",
+        "domain": "copenapijourney.shop.test",
+        "localApproval": {
+          "id": "apr_8wvfgcg3MeqgQi_p1kwe4A",
+          "status": "done"
+        },
+        "companyApproval": {
+          "id": "apr2_ndxCqyrbQ1s-gn8vJyhjb0",
+          "status": "done"
+        },
+        "browserWebSocketDecisions": [
+          {
+            "approvalId": "apr_8wvfgcg3MeqgQi_p1kwe4A",
+            "decision": "approve"
+          },
+          {
+            "approvalId": "apr2_ndxCqyrbQ1s-gn8vJyhjb0",
+            "decision": "approve"
+          }
+        ],
+        "companyWire": [
+          {
+            "status": 403,
+            "companyApprovalPresent": false
+          },
+          {
+            "status": 201,
+            "companyApprovalPresent": true
+          }
+        ],
+        "companyOperation": {
+          "id": "exc_xGM7QzF_",
+          "state": "succeeded",
+          "revision": 1,
+          "confirms": 1,
+          "approvedBy": "user"
+        },
+        "performsBeforeEitherApproval": 0,
+        "performsAfterLocalApproval": 0,
+        "performsAfterTermsApprovalAndReload": 1,
+        "originalTranscript": "done",
+        "originalTranscriptSurvivesReload": true,
+        "activityInProgress": 0,
+        "activityResults": [
+          "done",
+          "done"
+        ],
+        "strictCompanyViolations": 0,
+        "strictCompanyWarnings": 0
+      },
+      {
+        "transport": "MCP",
+        "viewport": "mobile",
+        "domain": "cmcpjourney.shop.test",
+        "localApproval": {
+          "id": "apr_I9tcM2RiWDevOFpeTnhD4w",
+          "status": "done"
+        },
+        "companyApproval": {
+          "id": "apr2_MoXLHIog3obfBvuf6YRCcY",
+          "status": "done"
+        },
+        "browserWebSocketDecisions": [
+          {
+            "approvalId": "apr_I9tcM2RiWDevOFpeTnhD4w",
+            "decision": "approve"
+          },
+          {
+            "approvalId": "apr2_MoXLHIog3obfBvuf6YRCcY",
+            "decision": "approve"
+          }
+        ],
+        "companyWire": null,
+        "companyOperation": {
+          "id": "exc_tJjxUsGr",
+          "state": "succeeded",
+          "revision": 1,
+          "confirms": 1,
+          "approvedBy": "user"
+        },
+        "performsBeforeEitherApproval": 0,
+        "performsAfterLocalApproval": 0,
+        "performsAfterTermsApprovalAndReload": 1,
+        "originalTranscript": "done",
+        "originalTranscriptSurvivesReload": true,
+        "activityInProgress": 0,
+        "activityResults": [
+          "done",
+          "done"
+        ],
+        "strictCompanyViolations": 0,
+        "strictCompanyWarnings": 0
+      }
+    ],
+    "recovery": {
+      "transport": "OpenAPI",
+      "viewport": "desktop",
+      "fault": "Company performs the action, then the response is lost",
+      "initialReceipt": "unknown",
+      "agedReceiptSurvivesReload": true,
+      "ageAtReloadHours": 2,
+      "unresolvedReceiptOffersDismiss": false,
+      "freshProposalBlocked": true,
+      "browserWebSocketResolution": {
+        "approvalId": "apr_YWPeYbFBICcW2gnpz-z60w",
+        "outcome": "performed"
+      },
+      "preservedReceiptStatus": "unknown",
+      "userReportedOutcome": "performed",
+      "exchangeRequestsBeforeReconciliation": 1,
+      "exchangeRequestsAfterReconciliationAndReload": 1,
+      "performsBeforeReconciliation": 1,
+      "performsAfterReconciliationAndReload": 1,
+      "originalTranscriptAfterReload": "done, attributed to the User's check with the Company",
+      "activityResult": "done",
+      "activityInProgress": 0,
+      "strictCompanyViolations": 0,
+      "strictCompanyWarnings": 0
+    },
+    "screenshots": [
+      "api-before-desktop.png",
+      "api-after-desktop.png",
+      "mcp-before-mobile.png",
+      "mcp-after-mobile.png",
+      "unknown-before-desktop.png",
+      "unknown-after-desktop.png"
+    ],
+    "companySignInSetup": "strict mock authorization decision followed by production authenticated callback",
+    "userApprovals": "actual Chromium clicks sent over the production WebSocket",
+    "liveOAuthOrExternalPaymentsVerified": false
+  },
+  "deepRoutes": true,
+  "mobileLayout": true,
+  "revokedSessionShowsRecoveryAndRetainsDraft": true,
+  "logoutAndReloadSignsOut": true,
+  "uncaughtBrowserErrors": 0,
+  "runtime": "local workerd",
+  "assets": "production Vite build",
+  "builtThisRun": true,
+  "model": "synthetic test provider",
+  "authentication": "production signed-cookie verifier with synthetic test identity",
+  "liveOAuthOrModelVerified": false,
+  "captureCommand": "node scripts/app-smoke.mjs --approval-journey --output /tmp/pr36-conformance-browser.json",
+  "selectedScreenshots": "Raw Chromium PNGs from the passing fresh-build run; terms before Company execution, settled original transcript after reload, and unknown-outcome reconciliation.",
+  "artifactHashes": {
+    "api-after-desktop.png": {
+      "sha256": "722032f0ad4945835d23382fb9ee6d22e2e5711b7a58afef4611e2f6c5fb4f16",
+      "width": 1440,
+      "height": 1000
+    },
+    "api-before-desktop.png": {
+      "sha256": "ca93821af1fc4d2fe4177dcc2f161c56e6ca747916055fa8bd7a0ca4cbcbd2c0",
+      "width": 1440,
+      "height": 1000
+    },
+    "mcp-after-mobile.png": {
+      "sha256": "21a04416eaf907cfff2b8304ab4065ce7e79ac18fb35ade4b594d873780d5c92",
+      "width": 390,
+      "height": 844
+    },
+    "mcp-before-mobile.png": {
+      "sha256": "5201096cff9b54d7c7695208dd880164bbaf3c419ed2885a01cd78bc842df792",
+      "width": 390,
+      "height": 844
+    },
+    "unknown-after-desktop.png": {
+      "sha256": "fb7ffec5599be5cc8e8497a054651777dbde5e2080c75ddc5a51cb43f5c8efb5",
+      "width": 1440,
+      "height": 1000
+    },
+    "unknown-before-desktop.png": {
+      "sha256": "decb8b1e9623f5808f60618ac621c0226bac4fff54944599c3d2794c27e1091a",
+      "width": 1440,
+      "height": 1000
+    }
+  },
+  "fixtureHashes": {
+    "scripts/app-approval-journey.mjs": "9f590153ac092444c33200a280b54e9a210c643c42d5696257612b83d6d7714f",
+    "test/browser/approval-journey-worker.ts": "64c969ccf33a4c4961fd3ad03432fb6e381b465670018b27348e1baaf66c8703"
+  }
+}

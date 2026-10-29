@@ -4,7 +4,7 @@ import { hasCode, PoppyClient, PoppyError } from "./client";
 import type { Company } from "./discovery";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { randomId } from "./jwt";
-import { approvalTerms, proposeLocal, registerExecutor } from "./operations";
+import { ActionOutcomePending, approvalTerms, OperationOutcomeUnknown, proposeLocal, registerExecutor } from "./operations";
 import { approvable, approvalCardId, approvalJson, approvalSummary, parseOperationV2 } from "./operations-v2";
 import { backoff } from "./pace";
 import { EndpointRequest } from "./outgoing";
@@ -369,7 +369,7 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
   }
   const session = client.session(company.issuer, row.label);
   if (!session) throw new PoppyError("approval_changed", "No Session for this approval", 0);
-  await proposeLocal(
+  try { await proposeLocal(
     client,
     company,
     row.label,
@@ -383,7 +383,16 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
     await approvalCardId(company, operation),
     // What the agent asked for was words, so the terms are checked against the summary only.
     approvalTerms(company, operation, undefined)
-  );
+  ); } catch (error) {
+    if (!(error instanceof ActionOutcomePending)) throw error;
+    // Process this event once, then keep reading: later Company messages may
+    // establish the earlier outcome. A new terms card cannot bypass that hold.
+    await client.host.showCard({
+      id: `approval-held-${error.previousApprovalId}`, kind: "notice", company: company.name,
+      domain: company.domain, open: false,
+      text: "Another approved action at this Company has an unknown outcome. Check with the Company and record its outcome on the original receipt before approving another action. These new terms were not approved or sent."
+    });
+  }
 }
 
 /** An approved operation from a conversation: one message with the approval, in that conversation (Ops 6). */
@@ -410,7 +419,7 @@ registerExecutor("message-approval", async (client, company, approval, label, ex
     approval: approvalJson(approval.approval),
     beforeDispatch
   });
-  return `Sent the User's approval to ${company.name} in conversation ${row.id}; its agent says how it went in a later message.`;
+  throw new OperationOutcomeUnknown(`Sent the User's approval to ${company.name} in conversation ${row.id}. The message was accepted, but the action's outcome has not been confirmed. Check with ${company.name} before asking for the same action again.`);
 });
 
 /** When to read a conversation next: soon while the Company is busy, rarely when idle. */

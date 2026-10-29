@@ -58,11 +58,11 @@ export function stepDecisions(cards: readonly Card[], log: readonly ActivityEntr
     if (card.kind !== "approval") continue;
     const { status: httpStatus, facts } = card.status === "done" ? resultFacts(card.result) : { status: card.answer?.status ?? null, facts: [] };
     approvals.set(card.approvalId, {
-      result: APPROVAL_RESULT[card.status],
+      result: card.outcomeResolution ? (card.outcomeResolution.outcome === "performed" ? "done" : "failed") : APPROVAL_RESULT[card.status],
       photos: (card.attachments ?? []).map((photo) => photo.name),
       httpStatus,
       code: card.answer?.error ?? null,
-      facts,
+      facts: card.outcomeResolution ? [`You checked with the Company: ${card.outcomeResolution.outcome === "performed" ? "it happened" : "it did not happen"}`] : facts,
       attachments: card.attachments ?? [],
       company: card.company
     });

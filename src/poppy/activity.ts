@@ -35,6 +35,8 @@ const approvalRow = object({
   result: approvalColumns.result,
   created_at: approvalColumns.created_at,
   terms: approvalColumns.terms,
+  outcome_resolution: approvalColumns.outcome_resolution,
+  outcome_resolved_at: approvalColumns.outcome_resolved_at,
   kind: nullable(text)
 });
 
@@ -116,12 +118,14 @@ export function openAtCompanies(client: PoppyClient, now = Date.now()) {
   const approvals = rows(
     sql,
     approvalsTable.pick("id", "issuer", "summary", "status", "created_at"),
-    "SELECT id, issuer, summary, status, created_at FROM poppy_approvals WHERE status IN ('pending', 'executing') ORDER BY created_at DESC"
+    "SELECT id, issuer, summary, status, created_at FROM poppy_approvals WHERE status IN ('pending', 'executing') OR (status = 'unknown' AND outcome_resolution IS NULL) ORDER BY created_at DESC"
   ).map((row) => ({
     ...where(row.issuer),
     approval: row.id,
     action: row.summary,
-    state: row.status === "pending" ? "waiting for the User, on a card on their page" : "approved by the User; being carried out"
+    state: row.status === "pending" ? "waiting for the User, on a card on their page"
+      : row.status === "unknown" ? "outcome unknown; further writes at this Company are held until the User checks and records the outcome on the receipt"
+      : "approved by the User; being carried out"
   }));
 
   const signIns = rows(
@@ -195,14 +199,15 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
   for (const row of rows(
     sql,
     approvalRow,
-    ...newest("poppy_approvals", "id, issuer, summary, terms, json_extract(request, '$.kind') AS kind, status, result, created_at", "created_at")
+    ...newest("poppy_approvals", "id, issuer, summary, terms, json_extract(request, '$.kind') AS kind, status, result, created_at, outcome_resolution, outcome_resolved_at", "created_at")
   )) {
     const company = name(row.issuer);
-    const result = APPROVAL_RESULT[row.status] ?? "unknown";
+    const resolution = row.outcome_resolution;
+    const result = resolution ? (resolution === "performed" ? "done" : "failed") : APPROVAL_RESULT[row.status] ?? "unknown";
     // What an approved API call returned stays out of the log; what the website showed, and why something failed, go in.
     // A failure can carry a Company's arbitrary error_description. Keep those
     // words on its approval card and out of the Activity/diagnostics surface.
-    const outcome = row.status === "failed"
+    const outcome = resolution ? `You checked with ${company}: this action ${resolution === "performed" ? "happened" : "did not happen"}. The original uncertain receipt is retained; no request was resent.` : row.status === "failed"
       ? "The approved request could not be completed. See its approval card for details."
       : row.result && (result !== "done" || row.kind === "browse-submit") ? clip(row.result) : undefined;
     log.push({
@@ -220,7 +225,7 @@ export function buildActivity(client: PoppyClient, now = Date.now()): Extract<Po
       access: "view_and_change",
       decidedBy: row.status === "pending" ? null : "you",
       result,
-      ...(outcome ? { outcome, outcomeBy: "agent" as const } : {})
+      ...(outcome ? { outcome, outcomeBy: resolution ? "you" as const : "agent" as const } : {})
     });
   }
   for (const row of rows(

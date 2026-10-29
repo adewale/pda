@@ -1944,19 +1944,29 @@ describe("7 APIs", () => {
     return { c, a, after, logged: activity.log.find((entry) => entry.id === card.id)! };
   }
 
-  it("says a 500 to an approved write wasn't done: sent as approved, the status and code, nothing changed", async () => {
+  it("keeps a server failure to an approved write uncertain and holds further writes until checked", async () => {
     const { c, a, after, logged } = await approvedWrite("error");
-    const said = `Sent as you approved, but Mock Shop ${c.id} answered 500 (server_error). Nothing changed unless Mock Shop ${c.id} says otherwise.`;
-    expect(after).toMatchObject({ status: "refused", answer: { status: 500, error: "server_error" }, result: said });
-    expect(logged).toMatchObject({ result: "failed", outcome: said });
-    const notice = await a.stub.poppyWaitForNotice(`answered 500 (server_error)`);
-    expect(notice).toContain("Don't tell the User it was done");
+    // A 5xx does not prove the write had no effect; Ops §7 permits one while work is still in progress.
+    const said = `Sent as you approved; Mock Shop ${c.id} answered HTTP 500, which does not establish whether the action took effect. Check with Mock Shop ${c.id} before approving further writes there.`;
+    expect(after).toMatchObject({ status: "unknown", answer: { status: 500 }, result: said });
+    expect(logged).toMatchObject({ result: "unknown", outcome: said });
+    const notice = await a.stub.poppyWaitForNotice("answered HTTP 500");
+    expect(notice).toContain("does not establish whether the action took effect");
     expect(notice).not.toContain("Done, as the User approved");
-    // A status with no error code says only the status.
     const gateway = await approvedWrite("gateway");
-    expect(gateway.after).toMatchObject({ status: "refused", answer: { status: 504 } });
+    expect(gateway.after).toMatchObject({ status: "unknown", answer: { status: 504 } });
     expect(gateway.after.answer.error).toBeUndefined();
-    expect(gateway.after.result).toBe(`Sent as you approved, but Mock Shop ${gateway.c.id} answered 504. Nothing changed unless Mock Shop ${gateway.c.id} says otherwise.`);
+    expect(gateway.after.result).toBe(`Sent as you approved; Mock Shop ${gateway.c.id} answered HTTP 504, which does not establish whether the action took effect. Check with Mock Shop ${gateway.c.id} before approving further writes there.`);
+    for (const context of [{ c, a, after }, gateway]) {
+      const before = await exchangeRequests(context.c);
+      const performs = (await context.c.stub.state()).performs;
+      const repeat = await tool(context.a, "poppy_api_call", exchangeWrite(context.c));
+      expect(repeat.isError).toBe(true);
+      expect(repeat.text).toContain("unknown outcome");
+      await context.a.stub.poppyFrame({ type: "poppy.approval", approvalId: context.after.approvalId, decision: "approve" });
+      expect(await exchangeRequests(context.c)).toEqual(before);
+      expect((await context.c.stub.state()).performs).toBe(performs);
+    }
   });
 
   it("says an approved write that got no answer may or may not have reached the Company, and never sends it again", async () => {

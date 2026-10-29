@@ -783,7 +783,9 @@ describe("what these properties found, as examples", () => {
 
   it("describes a scope named like a member every object inherits by its name, never by that member", () => {
     const company = { ...companyAt("shop.example"), scopeHints: {} };
-    expect(describeScopes(company, ["constructor", "toString", "__proto__"])).toEqual(["constructor", "toString", "__proto__"].map((scope) => ({ scope, description: scope })));
+    expect(describeScopes(company, ["constructor", "toString", "__proto__"])).toEqual(["constructor", "toString", "__proto__"].map((scope) => ({
+      scope, description: scope, hint: "Can make changes that can't be undone · Uses your personal data"
+    })));
   });
 
   it("refuses a body that isn't UTF-8 with a PoppyFetchError", async () => {

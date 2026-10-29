@@ -105,9 +105,8 @@ const MANIFEST = {
     : [
         "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
         "H", "DC", "W", "CM", "ML",
-        // Honest Company against the fault-injection proxy. Not NREP: its replayed token request was 0.2's
-        // Session request, which 0.3 doesn't have, so the fault never fires; it waits for a 0.3 rewrite.
-        "CDUP", "CIDUP", "ODUP"
+        // Local adversarial agent and exact authorization-code replay, all on the 0.3 wire.
+        "YR", "YD", "YA", "YT", "YS", "YK", "YU", "YM", "NREP", "CDUP", "CIDUP", "ODUP"
       ],
   // S2 lenient-300s: no typ or kid needed, but an assertion living over 300 s is refused (MAX_ASSERTION_LIFETIME).
   readings: { S1: "issuer", S2: PROFILE === "strict" ? "jwt-60s" : "lenient-300s", S3: "insertion", S23: "per-company" },
@@ -116,7 +115,7 @@ const MANIFEST = {
   profile: PROFILE,
   notes: ADVERSARY
     ? `Adversarial Company: the ${PROFILE} mock, reconfigured per attack (arm hook); interop-only, never src/.`
-    : `test/mock-company, ${PROFILE} profile: checks recorded as named violations (GET /violations).`
+    : `test/mock-company, ${PROFILE} profile: checks recorded as named violations (GET /violations); refresh rotation is single-use and rejects the old token immediately (own policy, YK).`
 };
 
 const HOOKS: Record<string, Hook> = {

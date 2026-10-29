@@ -22,6 +22,8 @@ describe("options", () => {
     expect(options).toMatchObject({ agents: ["pda"], companies: ["lenient-company", "x"], scenarios: ["D", "SD"], lane: "local", build: false, keep: false });
     expect(options.set.get("pda")).toEqual({ INTEROP_FAULT: "assertion-typ" });
     expect(parseOptions([]).agents).toBeNull();
+    expect(parseOptions([]).requireSupported).toBe(false);
+    expect(parseOptions(["--require-supported"]).requireSupported).toBe(true);
     expect(() => parseOptions(["--lane", "moon"])).toThrow("--lane must be local or live");
     expect(() => parseOptions(["--set", "pda=1"])).toThrow("--set takes name:KEY=VALUE");
   });
@@ -305,6 +307,8 @@ describe("a run that runs nothing", () => {
     expect(runExitCode([cell("unsupported"), cell("pass")], [], [])).toBe(0);
     expect(runExitCode([cell("pass"), cell("fail")], [], [])).toBe(0);
     expect(runExitCode([], [], [])).toBe(0);
+    expect(runExitCode([cell("unsupported"), cell("pass")], [], [], true)).toBe(1);
+    expect(runExitCode([cell("pass")], [], [], true)).toBe(0);
   });
 });
 

@@ -65,7 +65,13 @@ describe("approval recovery in workerd", () => {
     if (interruption === "after lost answer") await crash(a);
     await a.stub.poppyAdvance(60_000);
     // No answer, or one we can't trust: the User and the model are told it may have happened (Safety).
-    await a.stub.poppyWaitForNotice(fault === "gateway" ? "answered 504" : "may or may not have happened");
+    // A gateway can lose the answer after the action happened, so 504 is also uncertain.
+    await a.stub.poppyWaitForNotice(fault === "gateway" ? "answered HTTP 504" : "may or may not have happened");
+    const beforeRepeat = (await exchanges(c)).approved.length;
+    const repeat = await tool(a, "poppy_api_call", exchange(c));
+    expect(repeat.isError).toBe(true);
+    expect(repeat.text).toContain("unknown outcome");
+    expect((await exchanges(c)).approved).toHaveLength(beforeRepeat);
     // A delayed/replayed card and another abrupt termination cannot send it again.
     await approve(a, card);
     await crash(a);
@@ -76,7 +82,7 @@ describe("approval recovery in workerd", () => {
       expect.objectContaining({ state: reached ? "succeeded" : "proposed", confirms: reached, approvedBy: reached ? "user" : null })
     ]);
     expect((await cards(a)).find((item) => item.approvalId === card.approvalId)).toMatchObject({
-      status: fault === "gateway" ? "refused" : "unknown",
+      status: "unknown",
       open: false
     });
     const { approved, asked } = await exchanges(c);

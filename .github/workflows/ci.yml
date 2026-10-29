@@ -45,3 +45,9 @@ jobs:
       # Runs all test projects, then checks documented references using the
       # names already discovered in this invocation. No second workerd startup.
       - run: npm test
+
+      - name: Hosted dummy Company requires real consent and fails closed
+        run: node test/hosted/company-security.node.mjs
+        env:
+          WRANGLER_SEND_METRICS: "false"
+          XDG_CONFIG_HOME: ${{ runner.temp }}/pda-hosted-wrangler

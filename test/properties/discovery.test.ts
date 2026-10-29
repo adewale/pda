@@ -367,6 +367,33 @@ describe("no document makes discovery or the validator throw", () => {
 });
 
 describe("what these properties found, as examples", () => {
+  it.each([
+    ["0", "not-a-url"],
+    ["https://[", "not-a-url"],
+    ["http://auth.shop.example", "not-https-url"],
+    ["https://auth.shop.example/#fragment", "url-has-fragment"]
+  ])("refuses an invalid protected-resource issuer without fetching its metadata: %s", async (issuer, messageId) => {
+    // Hegel reduced a mutation of authorization_servers to ["0"]. The
+    // validator reported the bad URL, then tried to build its metadata URL.
+    const domain = "shop.example";
+    const company = {
+      requested: domain, domain,
+      poppy: { protocol_version: "0.3", organization: { name: "Shop", domain }, web: { browser_session_endpoint: `https://${domain}/poppy/browser-session` } },
+      resource: { resource: `https://${domain}`, authorization_servers: [issuer] },
+      metadata: {}
+    };
+    const network = serving(company);
+    const report = await validateCompany(network.fetcher, domain);
+    expect(report.outcome).toBe("invalid");
+    expect(report.refused).toBe(true);
+    expect(report.issuer).toBeUndefined();
+    expect(report.messages.filter((message) => message.severity === "error").map((message) => [message.id, message.document, message.pointer])).toEqual([
+      [messageId, "protected-resource", "/authorization_servers/0"]
+    ]);
+    expect(network.requests).toEqual([`https://${domain}/.well-known/poppy.json`, `https://${domain}/.well-known/oauth-protected-resource`]);
+    await expect(discover(serving(company).fetcher, domain)).rejects.toBeInstanceOf(DiscoveryError);
+  });
+
   it("keeps the description of a scope named like a member every object inherits", async () => {
     const domain = "shop.example";
     const issuer = "https://auth.shop.example";

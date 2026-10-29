@@ -109,6 +109,21 @@
         "INTEROP_ADVERSARY": "company"
       },
       "notes": "The adversarial Company: the lenient-company image with INTEROP_ADVERSARY=company, reconfigured per attack by the arm hook. Runs only against our own owner:self agent, never in the live lane (docs/adversarial-interop.md; SECURITY.md)."
+    },
+    {
+      "name": "evil-personal-agent",
+      "role": "agent",
+      "owner": "self",
+      "adversarial": true,
+      "live": false,
+      "source": "https://github.com/adewale/pda",
+      "commit": "HEAD",
+      "build": "interop/impls/pda-agent",
+      "context": ".",
+      "env": {
+        "INTEROP_ADVERSARY": "agent"
+      },
+      "notes": "Local-only raw Poppy 0.3 attack adapter. Establishes accepted honest controls before testing Session/DPoP request binding, audience, stolen token, scopes, rotation, User isolation and Operations 2 approvals. Own-project Companies only."
     }
   ]
 }

@@ -1,0 +1,41 @@
+{
+  "id": "YA",
+  "title": "Adversarial agent: A Session JWT addressed to a different issuer",
+  "requirements": [
+    "5.2",
+    "5.3"
+  ],
+  "adversary": "agent",
+  "needs": {
+    "agent": [
+      "arm",
+      "attack"
+    ]
+  },
+  "steps": [
+    {
+      "agent": "arm",
+      "params": {
+        "attack": "YA"
+      }
+    },
+    {
+      "agent": "attack",
+      "save": "r"
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "attack_observed",
+        "agent_attack": "YA"
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "agent_attack_rejected",
+        "agent_attack": "YA"
+      }
+    }
+  ]
+}

@@ -21,7 +21,8 @@ describe("conversation approval authority", () => {
     const card = await terms(a, c);
     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
     expect((await c.stub.state()).performs).toBe(1);
-    expect((await cards(a)).find(item => item.approvalId === card.approvalId)).toMatchObject({ status: "done", open: false });
+    // A message acknowledgement confirms delivery, not the later Company's action.
+    expect((await cards(a)).find(item => item.approvalId === card.approvalId)).toMatchObject({ status: "unknown", open: false, result: expect.stringContaining("message was accepted") });
   });
 
   it("refuses a conversation approval after signing out, before sending its message", async () => {

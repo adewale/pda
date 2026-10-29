@@ -1,16 +1,104 @@
 {
   "id": "NREP",
-  "title": "Replayed token request (network fault)",
-  "requirements": ["4.1", "4.5"],
+  "title": "Replay an exchanged authorization code (network fault)",
+  "requirements": [
+    "4.2",
+    "RFC 6749 \u00a74.1.2"
+  ],
   "adversary": "network",
-  "faults": [{ "match": { "path": "/oauth/token", "method": "POST", "direction": "to-company" }, "action": "replay", "ms": 50 }],
-  "needs": { "agent": ["discover", "session"] },
+  "faults": [
+    {
+      "match": {
+        "path": "/oauth/token",
+        "method": "POST",
+        "direction": "to-company"
+      },
+      "action": "replay",
+      "ms": 50
+    }
+  ],
+  "needs": {
+    "agent": [
+      "discover",
+      "session",
+      "signin",
+      "signin_continue",
+      "replay_code"
+    ],
+    "company": [
+      "approve_authorization"
+    ]
+  },
   "steps": [
-    { "agent": "discover" },
-    { "agent": "session", "save": "s" },
-    { "expect": { "${s.session_id}": { "$exists": true } } },
-    { "runner": "wait", "params": { "ms": 500 } },
-    { "runner": "assert_trace", "params": { "check": "attack_observed", "injected": true, "path": "/oauth/token" } },
-    { "runner": "assert_trace", "params": { "check": "no_2xx_after", "path": "/oauth/token" } }
+    {
+      "agent": "discover"
+    },
+    {
+      "agent": "session"
+    },
+    {
+      "agent": "signin",
+      "params": {
+        "method": "direct",
+        "scopes": "${fixture.scopes.read}"
+      },
+      "save": "pending"
+    },
+    {
+      "company": "approve_authorization",
+      "params": {
+        "url": "${pending.pending.url}",
+        "account": "${fixture.accounts.0}"
+      },
+      "save": "consent"
+    },
+    {
+      "agent": "signin_continue",
+      "params": {
+        "callback_url": "${consent.redirect}"
+      },
+      "save": "done"
+    },
+    {
+      "expect": {
+        "${done.signed_in}": true
+      }
+    },
+    {
+      "runner": "wait",
+      "params": {
+        "ms": 500
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "attack_observed",
+        "authorization_code_replay": true
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "authorization_code_replay_rejected"
+      }
+    },
+    {
+      "agent": "replay_code",
+      "save": "fresh"
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "attack_observed",
+        "authorization_code_fresh_replay": true
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "authorization_code_fresh_replay_rejected"
+      }
+    }
   ]
 }

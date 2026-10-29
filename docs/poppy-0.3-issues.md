@@ -2,6 +2,8 @@
 
 From the [Poppy Demo Agent](https://github.com/adewale/pda) project, which implements a Personal Agent and a strict mock Company for Poppy 0.3, and only 0.3 since 28 October.
 
+These are issues in the upstream text. The [PDA conformance review](poppy-0.3-conformance.md) records local implementation fixes and the disposition or mitigation of all 43 audit entries; a local mitigation does not close an upstream issue.
+
 **What we read.** Draft 0.3 as published on 28 October 2026, retrieved at 17:48 UTC:
 - the [specification](https://personalagentprotocol.org/docs/0.3/spec);
 - the [Operations extension](https://personalagentprotocol.org/docs/0.3/extensions/operations), version 2;

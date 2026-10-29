@@ -2,14 +2,14 @@
   "protocolVersion": "0.3",
   "revision": "2026-10-28",
   "commit": null,
-  "scope": "Disposition of every entry in the 0.3 changelog as retrieved on 28 October 2026; not a complete normative conformance claim.",
+  "scope": "Disposition of every entry in the 0.3 changelog as retrieved on 28 October 2026. Done records implementation of that entry with the stated evidence and limits; it does not claim full specification or Guides conformance.",
   "changes": [
     {
       "change": "Company-defined scopes",
       "disposition": "Done",
       "implementation": "src/poppy/signin.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "Scopes are the Company's own, requested only from scopes_supported, and described from an OpenAPI description's OAuth scheme or auth.scopes (describeScopes, openApiScopeDescriptions). The validator checks every scope is described when it can see where; it can't read OpenAPI descriptions, so it warns only for Companies that list none."
+      "evidence": "interop/test/poppy-spec-edge-coverage.test.ts",
+      "notes": "Scope descriptions come from listed OpenAPI OAuth schemes first, then auth.scopes, following our precedence reading for upstream audit item 31. The Company's wording is preserved in discovery information and sign-in cards. The regression exercises conflicting descriptions and the auth.scopes fallback. The validator cannot read OpenAPI descriptions, so it warns about undescribed scopes only for Companies that list no OpenAPI API."
     },
     {
       "change": "Sign-in types from the OAuth server metadata",
@@ -22,8 +22,8 @@
       "change": "Scope hints",
       "disposition": "Done",
       "implementation": "src/poppy/signin.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "auth.scope_hints are read (an unknown changes value as irreversible) and shown on the sign-in card and to the model in plain words. They don't yet change which scopes the agent asks the User about before sign-in: every write already waits for the User's approval on a card."
+      "evidence": "interop/test/poppy-spec-edge-coverage.test.ts",
+      "notes": "Discovery ignores unknown hint fields and maps an unfamiliar changes value to irreversible. Scope information and sign-in cards show hints in plain words. Missing hints default to irreversible with personal data, following the Guides and our scope-hint reading in docs/readings.md; this is a documented choice for the conflict in upstream audit item 30, not a specification MUST. The Company's scope description is preserved; test/poppy-model-policy.test.ts checks the actual model-facing discovery result."
     },
     {
       "change": "OAuth and Sessions sections",
@@ -71,15 +71,15 @@
       "change": "Excluded tasks",
       "disposition": "Done",
       "implementation": "src/poppy/coverage.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "poppy_discover reads excluded_tasks with a GET and no token and gives the model the list as the Company's words. openapi and mcp references must name a listed API; web references are kept only on the Company's own hosts (our reading of a gap in 9.2)."
+      "evidence": "test/poppy-model-policy.test.ts",
+      "notes": "Credential-free excluded-task documents are cached raw and filtered for each Company. Discovery delivers exclusions and validated web alternatives directly to the User, independent of model repetition. Semantic task matching and the model's choice to try a suitable alternative still require model judgment."
     },
     {
       "change": "Answering feedback with an alternative",
       "disposition": "Done",
       "implementation": "src/poppy/coverage.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "poppy_feedback accepts 202 or 200 with an alternative, doesn't report an excluded task, and sends one report per task (remembered once the Company has it)."
+      "evidence": "test/poppy-model-policy.test.ts",
+      "notes": "Accepts 202 or 200 with a filtered alternative, reports once per task and never an excluded one. Alternatives reach the User directly. Recognizable credentials, contact details and personal identifiers are refused before sending; arbitrary personal statements cannot be fully classified."
     },
     {
       "change": "Secrets out of model context",
@@ -99,8 +99,8 @@
       "change": "Operations version 2: retry with approval",
       "disposition": "Done",
       "implementation": "src/poppy/operations-v2.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "approval_required, Poppy-Approval, MCP _meta and a message's approval; one card per revision; at most once; an expired revision is never sent. Our own card still comes first for any API write, since a description has no marker for which writes need approval (decision 37). The approval card checks terms against the summary and the request (Ops 5 SHOULD)."
+      "evidence": "test/poppy-outcome-guard.test.ts",
+      "notes": "Operations 2 is implemented on API, MCP and conversation channels. Unknown outcomes hold all further writes at the Company until the authenticated User records a checked outcome; the original uncertain receipt remains durable. We do not automatically resend uncertain writes. API 202, approved 5xx and conversation acknowledgements remain uncertain. Terms lifecycle tests cover both API and MCP; actual Chromium journeys check clicks, effects and recovery."
     },
     {
       "change": "Mediated Sign-In is an extension grant",
@@ -162,8 +162,8 @@
       "change": "Tokens for one service from protected resource metadata",
       "disposition": "Done",
       "implementation": "src/poppy/client.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "Before a signed-in call, a service's own protected resource metadata is read, and a token is requested with its resource; an MCP server's resource must equal its url."
+      "evidence": "interop/test/resource-metadata-refresh.test.ts",
+      "notes": "Reads service metadata and requests its resource. invalid_token/resource_metadata triggers one safe credential-free refetch, revalidating URI, issuer, host and resource. Default/service-specific audiences can change both ways; an explicit MCP resource remains its exact URL. Withdrawal during refetch prevents dispatch."
     },
     {
       "change": "Extensions recognized from the request",
@@ -218,8 +218,8 @@
       "change": "Requesting and describing scopes",
       "disposition": "Done",
       "implementation": "src/poppy/tools.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "The model asks for the fewest scopes, chosen from the descriptions poppy_discover gives."
+      "evidence": "test/poppy-model-policy.test.ts",
+      "notes": "Discovery describes Company scopes, preferring OpenAPI descriptions to auth.scopes. Missing hints are supplied conservatively as irreversible with personal data. The User approves sign-in; requesting the smallest sufficient scope set remains model-guided and is not claimed as a universal behavioral proof."
     },
     {
       "change": "User IDs as pairwise identifiers",
@@ -260,15 +260,15 @@
       "change": "`author` replaces `sender`",
       "disposition": "Done",
       "implementation": "src/poppy/message-author.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "Our messages carry author.type; a Company author's name is shown as text, never trusted."
+      "evidence": "interop/test/poppy-spec-edge-coverage.test.ts",
+      "notes": "Our messages carry author.type (test/poppy-0.3.test.ts). A Company author's name reaches model notices and the Direct Conversation frame; its image is not fetched. UI regressions in test/ui/company-author-display.test.tsx verify Company attribution and render the name as text, without interpreting HTML."
     },
     {
       "change": "Unknown status and responder values",
       "disposition": "Done",
       "implementation": "src/poppy/conversations.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "An unknown status reads as working, an unknown responder as human."
+      "evidence": "interop/test/poppy-spec-edge-coverage.test.ts",
+      "notes": "Unknown status and responder values become working and human, respectively. The regression supplies unfamiliar values on conversation creation and in later event reads, checking both the returned state and the stored conversation."
     },
     {
       "change": "`kind` removed from feedback",
@@ -281,8 +281,8 @@
       "change": "Verifying the user by sign-in in conversations",
       "disposition": "Done",
       "implementation": "src/poppy/tools.ts",
-      "evidence": "test/poppy-0.3.test.ts",
-      "notes": "The model is told to answer an authorization event with sign-in, never codes or personal details in messages."
+      "evidence": "test/poppy-model-policy.test.ts",
+      "notes": "The tool boundary withholds recognizable credentials and replies to explicit Company verification requests with a fixed request for an authorization event. Real faux-model negative and ordinary-task positive controls pass. This recognizes bounded patterns, not every language or paraphrase."
     },
     {
       "change": "Authorization servers without client ID metadata documents",

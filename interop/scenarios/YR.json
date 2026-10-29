@@ -1,0 +1,75 @@
+{
+  "id": "YR",
+  "title": "Adversarial agent: Replay a Session JWT at a different URL",
+  "requirements": [
+    "5.2",
+    "5.3"
+  ],
+  "adversary": "agent",
+  "needs": {
+    "agent": [
+      "arm",
+      "attack"
+    ],
+    "company": [
+      "mediated_answers"
+    ]
+  },
+  "steps": [
+    {
+      "company": "mediated_answers",
+      "params": {
+        "account": "${fixture.accounts.0}"
+      },
+      "save": "answers"
+    },
+    {
+      "agent": "arm",
+      "params": {
+        "attack": "YR",
+        "fields": "${answers.fields}",
+        "read_scopes": "${fixture.scopes.read}",
+        "write_scopes": "${fixture.scopes.write}"
+      }
+    },
+    {
+      "agent": "attack",
+      "save": "r"
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "attack_observed",
+        "agent_attack": "YR"
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "agent_attack_rejected",
+        "agent_attack": "YR"
+      }
+    },
+    {
+      "agent": "attack",
+      "params": {
+        "phase": "fresh"
+      },
+      "save": "fresh"
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "attack_observed",
+        "agent_attack": "YR-fresh"
+      }
+    },
+    {
+      "runner": "assert_trace",
+      "params": {
+        "check": "agent_attack_rejected",
+        "agent_attack": "YR-fresh"
+      }
+    }
+  ]
+}

@@ -52,10 +52,12 @@ import type { Card } from "../../../src/poppy/wire.ts";
 import { LiveIdentityClient, liveIdentityFrom } from "./live-identity.ts";
 import { changedClaims, Endpoints, lenientFetch, PROFILE_READINGS, profileFrom, sloppyRequest, StrictObserver, StrictRefusal, type Resign } from "./profiles.ts";
 import { NodeHTMLRewriter } from "./html-rewriter.ts";
+import { readApproval } from "../../../src/poppy/approvals.ts";
+import { ApprovalAcknowledgements } from "./approval-delivery.ts";
+import { ATTACKS, AttackSetupError, AttackUnsupported, freshCodeReplay, prepareAttack, type AttackId, type AttackPlan } from "./attacks.ts";
 
 const NAME = process.env.INTEROP_NAME ?? "pda";
-// The adversarial Personal Agent (`evil-personal-agent`) spoke 0.2's wire; it is retired until it has a 0.3 port (docs/interop-spec.md).
-if (process.env.INTEROP_ADVERSARY === "agent") throw new Error("The adversarial agent is retired until it has a 0.3 port");
+const ADVERSARY = process.env.INTEROP_ADVERSARY === "agent";
 /** Interop-only: a fake Personal Agent's profile (profiles.ts). Off unless the registry sets it. */
 const PROFILE = profileFrom(process.env.INTEROP_AGENT_PROFILE);
 const SECRET = setting("INTEROP_SECRET");
@@ -63,11 +65,15 @@ const SECRET = setting("INTEROP_SECRET");
 const LIVE = liveIdentityFrom({ INTEROP_LIVE_CLIENT_ID: process.env.INTEROP_LIVE_CLIENT_ID ?? "", INTEROP_LIVE_KEY: process.env.INTEROP_LIVE_KEY ?? "" });
 // Read once; nothing else in this process needs the key in its environment.
 delete process.env.INTEROP_LIVE_KEY;
+if (ADVERSARY && (LIVE || PROFILE)) throw new Error("The adversarial agent only runs locally, without a profile or live identity");
 if (LIVE && PROFILE === "sloppy") throw new Error("The sloppy fake agent never takes the live identity");
 const ORIGIN = LIVE?.origin ?? process.env.INTEROP_ORIGIN ?? `https://${NAME}.agent.interop.test`;
 const COMMIT = process.env.INTEROP_COMMIT ?? "unknown";
 /** Interop-only: break the agent on purpose. `assertion-typ` drops `typ` from client assertions. */
 const FAULT = process.env.INTEROP_FAULT ?? "";
+/** Interop-only successful code exchange, kept in memory and reset per cell; never shown to the model. */
+let approvalAcknowledgements = new ApprovalAcknowledgements();
+let codeExchange: { request: Request; nonce: string | null } | null = null;
 
 const MANIFEST = {
   interop: 1,
@@ -76,7 +82,7 @@ const MANIFEST = {
   commit: COMMIT,
   poppy: ["0.3"],
   extensions: ["operations"],
-  scenarios: [
+  scenarios: ADVERSARY ? [...ATTACKS] : [
     "D", "S0", "N", "SD", "SV", "SVN", "SM", "SMC", "SX", "SXV", "C", "CL", "CC", "CI", "CS", "CA", "SO", "O", "OX", "OU", "SE", "R", "AO", "AM", "AS", "RL", "DP",
     "H", "DC", "W", "CM", "ML",
     // Honest agent against the fault-injection proxy (docs/adversarial-interop.md) and malicious Companies.
@@ -85,11 +91,12 @@ const MANIFEST = {
   // 0.3 settles S1: the issuer (4.1).
   readings: PROFILE ? PROFILE_READINGS[PROFILE] : { S1: "issuer", S2: "jwt-60s", S3: "insertion", S23: "per-origin" },
   relaxations: [] as string[],
+  ...(ADVERSARY ? { adversarial: true, attacks: [...ATTACKS] } : {}),
   ...(PROFILE ? { profile: PROFILE } : {}),
   // The client_id it signs as, which the runner checks against the live identity it passed.
   client_id: LIVE?.clientId ?? `${ORIGIN}/poppy/client.json`,
   ...(FAULT ? { faults: [FAULT] } : {}),
-  notes: PROFILE
+  notes: ADVERSARY ? "Raw Poppy 0.3 adversarial requests; every probe establishes an accepted baseline; local own-project lane only." : PROFILE
     ? `Fake Personal Agent, ${PROFILE} profile: src/poppy with the adapter's network seam changed (interop/impls/pda-agent/profiles.ts).`
     : "Drives src/poppy directly (PoppyClient, signin, conversations, apis, operations); no model."
 };
@@ -159,10 +166,18 @@ function resignerFor(env: Env): Resign {
 function fetcherFor(env: Env, strict: StrictObserver | null): Fetcher {
   const endpoints = new Endpoints();
   const resign = resignerFor(env);
+  const network = async (request: Request): Promise<Response> => {
+    const approvalMessage = request.method === "POST" && /\/[^/]+\/messages$/.test(new URL(request.url).pathname) ? new Request(request.url, { method: request.method, headers: request.headers, body: await request.clone().text() }) : null;
+    const saved = !LIVE && request.method === "POST" && (request.headers.get("content-type") ?? "").startsWith("application/x-www-form-urlencoded") ? request.clone() : null;
+    const response = await fetch(request);
+    if (approvalMessage) await approvalAcknowledgements.observe(approvalMessage, response);
+    if (saved && response.ok && new URLSearchParams(await saved.clone().text()).get("grant_type") === "authorization_code") codeExchange = { request: new Request(saved.url, { method: saved.method, headers: saved.headers, body: await saved.text() }), nonce: response.headers.get("dpop-nonce") };
+    return response;
+  };
   const send = async (request: Request): Promise<Response> => {
     const started = Date.now();
     const sent = strict ? { method: request.method, url: request.url, headers: new Headers(request.headers), body: request.body ? await request.clone().text() : "" } : null;
-    const response = await fetch(request);
+    const response = await network(request);
     await endpoints.observe(request.url, response);
     if (strict && sent) {
       const found = await strict.observe(sent, response, started);
@@ -185,9 +200,9 @@ function fetcherFor(env: Env, strict: StrictObserver | null): Fetcher {
           changed = true;
         }
       }
-      if (changed) return fetch(new Request(request, { body: form.toString() }));
+      if (changed) return network(new Request(request, { body: form.toString() }));
     }
-    return fetch(request);
+    return network(request);
   };
 }
 
@@ -242,6 +257,7 @@ async function newAgent(): Promise<Agent> {
 }
 
 let agent = await newAgent();
+let armed: { attack: AttackId; params: Params; plan: AttackPlan | null } | null = null;
 
 // ---------------------------------------------------------------- Steps
 
@@ -345,6 +361,27 @@ async function signedInResult(company: Company, sessionLabel: string, id: string
 }
 
 const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>> = {
+  async arm(_domain, params) {
+    if (!ADVERSARY) throw new StepError(501, "unsupported", "Only the adversarial agent supports arm");
+    const attack = text(params.attack, "attack");
+    if (!ATTACKS.includes(attack as AttackId)) throw new StepError(501, "unsupported", `Unknown attack ${attack}`);
+    armed = { attack: attack as AttackId, params, plan: null };
+    return { armed: attack };
+  },
+  async attack(domain, params) {
+    if (!ADVERSARY) throw new StepError(501, "unsupported", "Only the adversarial agent supports attack");
+    if (!armed) throw new StepError(409, "not_armed", "Arm an attack first");
+    armed.plan ??= await prepareAttack({ clientId: `${ORIGIN}/poppy/client.json`, signingJwks: agent.env.POPPY_SIGNING_JWKS as string, fetcher: (request) => fetch(request) }, await company(domain), armed.attack, { ...armed.params, ...params });
+    return armed.plan.run(optional(params.phase));
+  },
+  async replay_code(domain) {
+    if (LIVE) throw new StepError(501, "unsupported", "Code-reuse probes never run with the live identity");
+    const c = await company(domain);
+    if (!codeExchange) throw new AttackSetupError("No successful authorization-code exchange captured");
+    const request = await freshCodeReplay({ clientId: `${ORIGIN}/poppy/client.json`, signingJwks: agent.env.POPPY_SIGNING_JWKS as string, fetcher: (request) => fetch(request) }, c, codeExchange.request, await agent.client.dpopKey(c.issuer), codeExchange.nonce ?? undefined);
+    const response = await fetch(request);
+    return { status: response.status, body: await response.json() };
+  },
   async discover(domain) {
     const found = await agent.client.lookup(domain);
     if (!isCompany(found)) return { issuer: null, website_only: true, name: found.name };
@@ -646,7 +683,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
     const c = await company(domain);
     const id = text(params.operation, "operation");
     const decision = params.decision === "decline" ? "decline" : "approve";
-    if (/^apr2?_/.test(id)) return decideHeld(id, decision);
+    if (/^apr2?_/.test(id)) return decideHeld(id, decision, c);
     const card = rows(
       agent.client.sql,
       approvalsTable.pick("id"),
@@ -657,7 +694,7 @@ const STEPS: Record<string, (domain: string, params: Params) => Promise<unknown>
       id
     )[0];
     if (!card) throw new StepError(404, "unknown_operation", `The agent has no card for operation ${id} from ${c.issuer}`);
-    return decideHeld(card.id, decision);
+    return decideHeld(card.id, decision, c);
   },
 
   async signout(domain, params) {
@@ -739,16 +776,22 @@ function apiResult(result: Json): unknown {
 }
 
 /** The User's decision on a held write, through the same path the approval card takes. */
-async function decideHeld(id: string, decision: "approve" | "decline") {
+async function decideHeld(id: string, decision: "approve" | "decline", company: Company) {
   await decideLocal(agent.client, id, decision);
-  const row = rows(agent.client.sql, approvalsTable.pick("status", "result"), "SELECT status, result FROM poppy_approvals WHERE id = ?", id)[0];
+  const row = rows(agent.client.sql, approvalsTable.pick("status", "result", "request", "issuer"), "SELECT status, result, request, issuer FROM poppy_approvals WHERE id = ?", id)[0];
   if (!row) throw new StepError(404, "unknown_operation", `The agent has no held write ${id}`);
   if (row.status === "failed") {
     const code = /\[([a-z_0-9]+)\]$/.exec(row.result ?? "")?.[1] ?? "approved_write_failed";
     throw new PoppyStepError(code, 0, row.result ?? "");
   }
   // No answer came: what the Company did is unknown, as a failure was before (docs/interop-spec.md 4).
-  if (row.status === "unknown") throw new PoppyStepError("approved_write_failed", 0, row.result ?? "");
+  if (row.status === "unknown") {
+    const stored = readApproval(row.request);
+    const conversation = stored.ok && stored.value.kind === "message-approval" ? conversationRow(agent.client, stored.value.conversationId) : undefined;
+    const sent = row.issuer === company.issuer && conversation?.issuer === company.issuer ? approvalAcknowledgements.outcome(row, company.conversations?.endpoint, conversation) : null;
+    if (sent) return sent;
+    throw new PoppyStepError("approved_write_failed", 0, row.result ?? "");
+  }
   // Sent, and the Company answered other than 2xx: the receipt says "answered 500 (server_error)".
   // A Poppy error is a refusal, as `api` gives it; an answer with no code is the response.
   if (row.status === "refused") {
@@ -790,6 +833,8 @@ async function step(request: Request): Promise<Response> {
     // The strict agent's refusal stands, whatever src/poppy made of the error it threw.
     const error = agent.strict?.refusal ?? caught;
     if (error instanceof StrictRefusal) return json({ ok: false, poppy_error: error.document ? "discovery_failed" : "company_departure", status: 0, detail: error.message });
+    if (error instanceof AttackSetupError) return failure(500, "attack_setup_failed", error.message);
+    if (error instanceof AttackUnsupported) return failure(501, "unsupported", error.message);
     if (error instanceof StepError) return failure(error.status, error.code, error.message);
     if (error instanceof PoppyStepError) return json({ ok: false, poppy_error: error.code, status: error.status, detail: error.message });
     if (error instanceof PoppyError) {
@@ -809,6 +854,9 @@ async function control(request: Request): Promise<Response> {
   if (request.method === "POST" && url.pathname === "/reset") {
     agent = await newAgent();
     pending.clear();
+    armed = null;
+    codeExchange = null;
+    approvalAcknowledgements = new ApprovalAcknowledgements();
     return json({ ok: true });
   }
   if (request.method === "POST" && url.pathname === "/step") return step(request);

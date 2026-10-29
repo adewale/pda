@@ -31,7 +31,9 @@ export function describeScopes(company: Company, scopes: readonly string[], from
   return scopes.map((scope) => {
     const hint = own(company.scopeHints, scope);
     // 4.7: described in an OpenAPI description's OAuth scheme, or otherwise in auth.scopes.
-    return { scope, description: own(fromApis, scope) ?? own(company.customScopes, scope) ?? scope, ...(hint ? { hint: hintText(hint) } : {}) };
+    // Guides, "Choosing how to sign in": use the conservative default (upstream audit 30; docs/readings.md).
+    return { scope, description: own(fromApis, scope) ?? own(company.customScopes, scope) ?? scope,
+      hint: hintText(hint ?? { changes: "irreversible", personalData: true }) };
   });
 }
 

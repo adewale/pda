@@ -266,8 +266,9 @@ export function describeToolCall(
           case "declined":
             return { ...line(`You declined a change at ${company}${where}`, "API", "view and change"), state: "done" };
           case "failed":
-          case "unknown":
             return { ...line(`The change you approved at ${company}${where} didn't go through`, "API", "view and change"), state: "failed" };
+          case "unknown":
+            return { ...line(`The outcome of the change you approved at ${company}${where} is unknown`, "API", "view and change"), state: "failed" };
           default:
             return line(`Asked you to approve a change at ${company}`, "API", "view and change");
         }

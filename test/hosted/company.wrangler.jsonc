@@ -1,0 +1,12 @@
+{
+  "name": "pda-dummy-unconfigured",
+  "main": "company.ts",
+  "compatibility_date": "2026-10-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "durable_objects": { "bindings": [{ "name": "HOSTED_COMPANY", "class_name": "HostedCompany" }] },
+  "migrations": [{ "tag": "hosted-v1", "new_sqlite_classes": ["HostedCompany"] }],
+  "observability": { "enabled": false },
+  "vars": { "COMPANY_ORIGIN": "", "PDA_ORIGIN": "" }
+}
