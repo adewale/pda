@@ -132,8 +132,8 @@ describe("the runner's live identity", () => {
     expect(env).not.toHaveProperty(LIVE_KEY_VAR);
   });
 
-  it("says why S0, N and C will fail when there's no identity", () => {
-    expect(liveIdentityNotice(null)).toMatch(/S0, N and C.*invalid_client/);
+  it("says why S0, CL and ML will fail when there's no identity", () => {
+    expect(liveIdentityNotice(null)).toMatch(/S0, CL and ML with invalid_session.*invalid_client/);
     expect(liveIdentityNotice(null)).toContain("scripts/interop-live-identity.mjs");
     expect(liveIdentityNotice(identity)).toContain(identity.clientId);
     expect(liveIdentityNotice(identity)).not.toContain(identity.key.d!);

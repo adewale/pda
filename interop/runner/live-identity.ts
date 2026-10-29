@@ -79,7 +79,7 @@ export function liveIdentityNotice(identity: LiveIdentity | null): string {
   if (identity) return `live identity: ${identity.clientId} (key from interop/.live-identity.json)`;
   return (
     "live identity: none (no interop/.live-identity.json), so the agent names itself at pda.agent.interop.test, " +
-    "which no public Company can fetch: a Company that checks client metadata refuses S0, N and C with invalid_client. " +
+    "which no public Company can fetch: a Company refuses its Session header at S0, CL and ML with invalid_session (5.3), and a sign-in with invalid_client. " +
     "To set one up: node scripts/interop-live-identity.mjs, then deploy (interop/README.md, The live lane's identity)."
   );
 }

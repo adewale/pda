@@ -4,13 +4,10 @@
 # is vendored: it is cloned at the pinned commit when the image is built.
 # Nothing goes in /interop: the runner copies its CA there before the container starts.
 
-# Build: clone, install the runtime dependencies. The compiler is there in case a native
-# module (better-sqlite3, sharp) has no prebuilt binary for the platform, as upstream's image has it.
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS build
-
-RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates python3 make g++ \
- && rm -rf /var/lib/apt/lists/*
+# Build: clone, install the runtime dependencies. The full image already has git, python3, make
+# and g++ (buildpack-deps), the compiler in case a native module (better-sqlite3, sharp) has no
+# prebuilt binary for the platform, so the build installs no packages and fetches nothing over plain HTTP.
+FROM node:22-bookworm@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd AS build
 
 ARG UPSTREAM=https://github.com/spenciefy/print-with-poppy.git
 ARG COMMIT=b340741d696d867ff3190c10c1f1d1e0c368e846
