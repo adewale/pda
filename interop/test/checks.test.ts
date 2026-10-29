@@ -108,7 +108,7 @@ describe("trace checks", () => {
         { url: "https://elsewhere.company.interop.test/orders", headers: { authorization: "DPoP t" } }
       )
     );
-    expect(ids(checks)).toEqual(["redirect.credentials-followed:warning"]);
+    expect(ids(checks)).toEqual(["redirect.credentials-followed:error"]);
   });
 
   it("finds a request sent before Retry-After elapsed, allowing for the proxy's clock", () => {

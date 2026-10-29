@@ -30,6 +30,7 @@ Protocol baseline: **0.3, the text upstream published on its site on 28 October 
 
 ### Fixed
 
+- The PR 36 audit's nine findings: withdrawn conversation and browser approvals, account changes during browser join, interrupted legacy sign-ins, invisible Operations 1 cards, Company-dependent metadata and task caches, service metadata paths ending in `/`, Session JWT leak checks and tool steps left waiting after the Company's terms were decided. Sign-out now persists a local authority counter, so signing back into the same account cannot revive an old approval or browser context. [Fixes and regression evidence](docs/evidence/pr-36-audit/README.md).
 - The protocol log called token-endpoint requests "Session header"; they carry our client assertion.
 - Signing out withdraws its Sessions' pending approvals at once, not at the next token refresh.
 - `extension_required` names the extension the Company asks for.

@@ -135,15 +135,18 @@ function enabled(model: Model): Command[] {
  * is bound to the Session it was proposed on, so it fails when the agent
  * now has another, or when the Company ended that one (5.5) and the agent
  * would have to start another to send it (approval_changed). Read from the
- * stored binding and the Company's own state, not predicted.
+ * stored binding and the Company's own state, not predicted. Local sign-out
+ * also withdraws authority permanently, even if the same account and sid return.
  */
 async function bindingGone(w: Pick<World, "client" | "company" | "sql">, mock: World["mock"], id: string): Promise<boolean> {
   const row = w.sql.exec("SELECT label, request FROM poppy_approvals WHERE id = ?", id).toArray()[0]!;
-  const bound = (JSON.parse(String(row.request)) as { binding?: { sessionId: string } }).binding?.sessionId;
-  const current = w.client.session(w.company.issuer, String(row.label))?.session_id;
+  const bound = (JSON.parse(String(row.request)) as { binding?: { sessionId: string; account: string | null; authorityGeneration?: number } }).binding;
+  const session = w.client.session(w.company.issuer, String(row.label));
+  const current = session?.session_id;
   const userId = w.client.userId(w.company.issuer);
   const remote = (await mock.state()).sessions.find((session) => session.sid === current && session.userId === userId);
-  return bound !== current || remote?.ended === true;
+  return bound?.sessionId !== current || bound?.account !== session?.account ||
+    (bound?.authorityGeneration ?? 0) !== session?.authority_generation || remote?.ended === true;
 }
 
 /** Approve a card whose Session is gone: it fails, and the Company does nothing. False, and nothing sent, when its Session is live. */

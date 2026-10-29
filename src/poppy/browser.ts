@@ -66,7 +66,11 @@ type ContextEntry = {
   /** The Session the context joined; a context never outlives it. */
   sessionId: string | null;
   account: string | null;
+  /** Invalidated by sign-out, even when the same account and SID are used again. */
+  authorityGeneration: number;
   joined: boolean;
+  /** At most one join may use this context's one-time cookie at once. */
+  joining?: Promise<void>;
 };
 
 /**
@@ -88,14 +92,14 @@ function contextsOf(client: PoppyClient): Map<string, ContextEntry> {
 
 function checkContext(client: PoppyClient, company: Company, label: string, entry: ContextEntry): void {
   const session = client.session(company.issuer, label);
-  if (contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry || entry.sessionId !== (session?.session_id ?? null) || entry.account !== (session?.account ?? null)) {
+  if (contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry || entry.sessionId !== (session?.session_id ?? null) || entry.account !== (session?.account ?? null) || entry.authorityGeneration !== (session?.authority_generation ?? 0)) {
     throw new PoppyError("approval_changed", "The open page belongs to an earlier account or Session. Open a fresh page.", 0);
   }
 }
 
-async function dropContext(contexts: Map<string, ContextEntry>, key: string): Promise<void> {
-  const entry = contexts.get(key);
-  contexts.delete(key);
+async function dropContext(contexts: Map<string, ContextEntry>, key: string, expected?: ContextEntry): Promise<void> {
+  const entry = expected ?? contexts.get(key);
+  if (contexts.get(key) === entry) contexts.delete(key);
   if (entry) await (await entry.context).close().catch(() => undefined);
 }
 
@@ -161,40 +165,62 @@ async function sessionContext(
   company: Company,
   label: string,
   rejoin = false
-): Promise<BrowserContextHandle> {
+): Promise<{ readonly entry: ContextEntry; readonly context: BrowserContextHandle }> {
   const key = JSON.stringify([company.issuer, label]);
   const contexts = contextsOf(client);
   const endpoint = company.web?.browserSessionEndpoint;
   const open = (): ContextEntry => {
     if (contexts.size >= MAX_CONTEXTS) void dropContext(contexts, contexts.keys().next().value!);
     const session = client.session(company.issuer, label);
-    const fresh: ContextEntry = { id: randomId("ctx_"), context: browser.newContext(pageGuard(company, endpoint)), sessionId: session?.session_id ?? null, account: session?.account ?? null, joined: false };
+    const guard = pageGuard(company, endpoint);
+    const fresh: ContextEntry = {
+      id: randomId("ctx_"),
+      context: browser.newContext((url) => { guard(url); checkContext(client, company, label, fresh); }),
+      sessionId: session?.session_id ?? null, account: session?.account ?? null, authorityGeneration: session?.authority_generation ?? 0, joined: false
+    };
     contexts.set(key, fresh);
     return fresh;
   };
   let entry = contexts.get(key);
   const before = client.session(company.issuer, label);
-  if (entry && (entry.sessionId !== (before?.session_id ?? null) || entry.account !== (before?.account ?? null))) {
+  if (entry && (entry.sessionId !== (before?.session_id ?? null) || entry.account !== (before?.account ?? null) || entry.authorityGeneration !== (before?.authority_generation ?? 0))) {
     await dropContext(contexts, key);
     entry = undefined;
   }
   entry ??= open();
   if (endpoint && (!entry.joined || rejoin)) {
-    await client.token(company, { label });
-    const session = client.session(company.issuer, label)!;
-    // Rejoining may have needed a new Session: then a new context too.
-    if (entry.sessionId !== session.session_id || entry.account !== session.account) {
-      await dropContext(contexts, key);
-      entry = open();
+    if (!entry.joining) {
+      await client.token(company, { label });
+      const session = client.session(company.issuer, label)!;
+      // Preparation may have signed the Session out, or started a new one.
+      if (entry.sessionId !== session.session_id || entry.account !== session.account || entry.authorityGeneration !== session.authority_generation) {
+        await dropContext(contexts, key, entry);
+        entry = open();
+      }
+      if ((!entry.joined || rejoin) && !entry.joining) {
+        const joining = entry;
+        joining.joined = false;
+        joining.joining = (async () => {
+          try {
+            const context = await joining.context;
+            checkContext(client, company, label, joining);
+            await join(client, company, label, context, endpoint, joining);
+            checkContext(client, company, label, joining);
+            joining.joined = true;
+          } catch (error) {
+            await dropContext(contexts, key, joining);
+            throw error;
+          } finally {
+            joining.joining = undefined;
+          }
+        })();
+      }
     }
-    const context = await entry.context;
-    await join(client, company, label, context, endpoint);
-    const after = client.session(company.issuer, label)!;
-    entry.sessionId = after.session_id;
-    entry.account = after.account;
-    entry.joined = true;
+    await entry.joining;
   }
-  return entry.context;
+  const context = await entry.context;
+  checkContext(client, company, label, entry);
+  return { entry, context };
 }
 
 /**
@@ -205,18 +231,44 @@ async function sessionContext(
  * only, and the Company sets the Session's cookie. The code is taken from
  * our own browser's page and nowhere else (10.6).
  */
-async function join(client: PoppyClient, company: Company, label: string, context: BrowserContextHandle, endpoint: string): Promise<void> {
+async function join(client: PoppyClient, company: Company, label: string, context: BrowserContextHandle, endpoint: string, entry: ContextEntry): Promise<void> {
+  const check = () => checkContext(client, company, label, entry);
   await client.beforeRequest(company);
+  check();
   const page = await context.joinCode(endpoint);
+  check();
   if (page.status === 429 || page.status === 503) {
     await client.pageLimited(company, page.status, undefined);
     throw new PoppyError("browser_join_failed", `${company.name} asked us to wait before joining the browser to the Session`, page.status);
   }
   if (!page.code || !page.action) throw new PoppyError("browser_join_failed", `${company.name}'s browser-session page didn't give a code to join with`, page.status);
   const authorize = `${endpoint.replace(/\/+$/, "")}/authorize`;
-  await client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: authorize, body: { code: page.code } }), { label });
+  let authorized: { readonly sessionId: string; readonly account: string | null; readonly authorityGeneration: number } | undefined;
+  await client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: authorize, body: { code: page.code } }), {
+    label,
+    beforeDispatch: () => {
+      const session = client.session(company.issuer, label);
+      if (!session || session.account !== entry.account || session.authority_generation !== entry.authorityGeneration || contextsOf(client).get(JSON.stringify([company.issuer, label])) !== entry) {
+        throw new PoppyError("approval_changed", "The account or browser changed while joining. Open a fresh page.", 0);
+      }
+      // resource() may have retried invalid_session with a fresh SID. Its
+      // dispatch guard makes this the binding actually sent on that attempt.
+      authorized = { sessionId: session.session_id, account: session.account, authorityGeneration: session.authority_generation };
+      entry.sessionId = authorized.sessionId;
+      check();
+    }
+  });
+  const checkAuthorized = () => {
+    check();
+    if (!authorized || entry.sessionId !== authorized.sessionId || entry.account !== authorized.account || entry.authorityGeneration !== authorized.authorityGeneration) {
+      throw new PoppyError("approval_changed", "The browser join no longer belongs to the authorized Session. Open a fresh page.", 0);
+    }
+  };
+  checkAuthorized();
   await client.beforeRequest(company);
+  checkAuthorized();
   const result = await context.postForm(page.action, { code: page.code });
+  checkAuthorized();
   // A refused submit is answered with an error page, and no redirect (6, step 3).
   if (result.url === page.action && result.status >= 400) {
     throw new PoppyError("browser_join_failed", `${company.name} didn't accept the browser into the Session`, result.status);
@@ -248,11 +300,15 @@ function snapshotForModel(snapshot: PageSnapshot): Json {
  * Load a page within the Company's rate limits (spec 4.3): after any shared
  * `Retry-After`, and again after a short one on 429 or 503, at most three times.
  */
-async function load(client: PoppyClient, company: Company, context: BrowserContextHandle, url: URL): Promise<PageSnapshot> {
+async function load(client: PoppyClient, company: Company, context: BrowserContextHandle, url: URL, check: () => void): Promise<PageSnapshot> {
   for (let attempt = 0; attempt < 3; attempt++) {
     await client.beforeRequest(company);
+    check();
     const snapshot = await context.goto(url.href);
-    if (!(await client.pageLimited(company, snapshot.status, snapshot.retryAfter))) return snapshot;
+    check();
+    const limited = await client.pageLimited(company, snapshot.status, snapshot.retryAfter);
+    check();
+    if (!limited) return snapshot;
   }
   throw new PoppyError("rate_limited", `${company.name}'s website kept refusing the page`, 429);
 }
@@ -282,25 +338,30 @@ export async function browse(
   if (action.kind === "open") {
     const url = new URL(action.url, `https://${company.domain}/`);
     pageGuard(company)(url);
-    const context = await sessionContext(client, browser, company, label);
-    let snapshot = await load(client, company, context, url);
+    let active = await sessionContext(client, browser, company, label);
+    const check = () => checkContext(client, company, label, active.entry);
+    let snapshot = await load(client, company, active.context, url, check);
     // The website stopped recognising the Session: join again (6: "MAY join again at any time").
     if ((snapshot.status === 401 || snapshot.status === 403) && company.web?.browserSessionEndpoint) {
-      const rejoined = await sessionContext(client, browser, company, label, true);
-      snapshot = await load(client, company, rejoined, url);
+      active = await sessionContext(client, browser, company, label, true);
+      snapshot = await load(client, company, active.context, url, check);
     }
     return snapshotForModel(snapshot);
   }
   const entry = contextsOf(client).get(JSON.stringify([company.issuer, label]));
-  if (!entry) throw new PoppyError("invalid_request", "Open a page first", 0);
+  if (!entry || entry.joining) throw new PoppyError("invalid_request", "Open a page first, and wait for its browser join to finish", 0);
   checkContext(client, company, label, entry);
   const handle = await entry.context;
   checkContext(client, company, label, entry);
   if (action.kind === "click") {
     await client.beforeRequest(company);
+    checkContext(client, company, label, entry);
     let snapshot = await handle.click(action.selector);
-    if (await client.pageLimited(company, snapshot.status, snapshot.retryAfter)) {
-      snapshot = await load(client, company, handle, new URL(snapshot.url));
+    checkContext(client, company, label, entry);
+    const limited = await client.pageLimited(company, snapshot.status, snapshot.retryAfter);
+    checkContext(client, company, label, entry);
+    if (limited) {
+      snapshot = await load(client, company, handle, new URL(snapshot.url), () => checkContext(client, company, label, entry));
     }
     return snapshotForModel(snapshot);
   }
@@ -314,7 +375,7 @@ export async function browse(
   }
   const submission = await handle.prepareSubmit(action.selector);
   checkContext(client, company, label, entry);
-  const id = await proposeLocal(client, company, label, describeSubmission(company, action.selector, submission), { kind: "browse-submit", submission, binding: { account: entry.account, sessionId: entry.sessionId, contextId: entry.id } });
+  const id = await proposeLocal(client, company, label, describeSubmission(company, action.selector, submission), { kind: "browse-submit", submission, binding: { account: entry.account, sessionId: entry.sessionId, contextId: entry.id, authorityGeneration: entry.authorityGeneration } });
   return { proposed: id, note: "Waiting for the User's approval on a card; nothing has happened yet." };
 }
 
@@ -329,7 +390,7 @@ registerExecutor("browse-submit", async (client, company, { submission, binding 
   guard(new URL(submission.action));
   const entry = contextsOf(client).get(JSON.stringify([company.issuer, label]));
   if (!entry) throw new Error("The page is no longer open");
-  if (!binding || binding.contextId !== entry.id || binding.sessionId !== entry.sessionId || binding.account !== entry.account) throw new PoppyError("approval_changed", "The account, Session or page context changed. Review a fresh form.", 0);
+  if (!binding || binding.contextId !== entry.id || binding.sessionId !== entry.sessionId || binding.account !== entry.account || (binding.authorityGeneration ?? 0) !== entry.authorityGeneration) throw new PoppyError("approval_changed", "The account, Session or page context changed. Review a fresh form.", 0);
   checkContext(client, company, label, entry);
   await client.beforeRequest(company);
   const handle = await entry.context;

@@ -48,7 +48,7 @@ export const TRACE_CHECKS = {
   "rate-limit.retry-after-ignored": { side: "agent", basis: "MUST", mock: true, what: "Request sent again before its Retry-After elapsed" },
   "rate-limit.shared-limit-ignored": { side: "agent", basis: "Guides", mock: true, what: "A different request sent to the Company before an earlier Retry-After elapsed" },
   "token.unlisted-host": { side: "agent", basis: "Reading", mock: false, what: "An access token or Session JWT sent to a host the Company's documents don't list (our reading, N10)" },
-  "redirect.credentials-followed": { side: "agent", basis: "Guides", mock: false, what: "A redirect followed with the token or proof of the request that got it (Guides)" },
+  "redirect.credentials-followed": { side: "agent", basis: "MUST", mock: false, what: "A protocol redirect followed with a token, proof or Session JWT (3)" },
   "company.www-authenticate": { side: "company", basis: "RFC", mock: false, what: "401 to a request with a token, without WWW-Authenticate (RFC 6750, RFC 9449)" },
   "company.retry-after": { side: "company", basis: "Rule", mock: false, what: "429 without Retry-After" },
   "company.oauth-error-body": { side: "company", basis: "RFC", mock: false, what: "OAuth endpoint error that isn't JSON with a string error (RFC 6749 5.2)" },
@@ -209,14 +209,38 @@ export function issuedTokens(all: readonly Exchange[]): Map<string, string> {
   return tokens;
 }
 
-/** Tokens in URLs (spec 4.3): a known token or an `access_token` parameter in any request's URL. */
+/** Compact Session JWTs visible in a request, including credentials misplaced in its body or URL. */
+function requestSessionJwts(x: Exchange): string[] {
+  const values = [...x.requestHeaders.values(), ...x.url.searchParams.values(), x.requestBody];
+  return [...new Set(values.flatMap((value) => value.match(/[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g) ?? []))]
+    .filter((value) => decodeJwt(value)?.header.typ === "poppy-session+jwt");
+}
+
+/**
+ * Session JWTs and their claimed issuer audience, as recording evidence only.
+ * Decoding a trace does not verify a signature or authorize a request.
+ */
+export function sessionJwts(all: readonly Exchange[]): Map<string, string | null> {
+  const tokens = new Map<string, string | null>();
+  for (const x of all) {
+    if (x.probe || x.injected || x.direction === "other") continue;
+    for (const value of requestSessionJwts(x)) {
+      const aud = decodeJwt(value)?.payload.aud;
+      tokens.set(value, typeof aud === "string" ? aud : null);
+    }
+  }
+  return tokens;
+}
+
+/** Tokens in URLs (5.6): a known OAuth token, a Session JWT or an `access_token` parameter. */
 export function tokenInUrlChecks(all: readonly Exchange[]): Check[] {
   const tokens = issuedTokens(all);
+  const sessions = sessionJwts(all);
   const found: Check[] = [];
   for (const x of all) {
     if (x.probe || x.injected || x.direction === "other") continue;
     for (const [name, value] of x.url.searchParams) {
-      if (name === "access_token" || tokens.has(value)) {
+      if (name === "access_token" || tokens.has(value) || sessions.has(value)) {
         found.push(check("secret.token-in-url", x, `${name}= in ${withoutQuery(x.url)}`));
       }
     }
@@ -248,6 +272,44 @@ export function listedHosts(all: readonly Exchange[]): Map<string, Set<string>> 
   return hosts;
 }
 
+/** Company peers whose recorded discovery/issuer metadata identifies each issuer. */
+function issuerPeers(all: readonly Exchange[]): Map<string, Set<string>> {
+  const peers = new Map<string, Set<string>>();
+  for (const x of all) {
+    if (x.probe || x.injected || x.direction !== "to-company" || !x.peer || x.status !== 200) continue;
+    const doc = jsonBody(x.responseBody) as Record<string, unknown> | undefined;
+    if (!doc || typeof doc !== "object" || Array.isArray(doc)) continue;
+    const auth = doc.auth as { issuer?: unknown } | undefined;
+    const issuers = isServerMetadata(x) ? [doc.issuer]
+      : /\/\.well-known\/oauth-protected-resource(?:\/|$)/.test(x.url.pathname) && Array.isArray(doc.authorization_servers) ? doc.authorization_servers
+      : /(?:^|\/)poppy\.json$/.test(x.url.pathname) ? [auth?.issuer] : [];
+    for (const issuer of issuers) {
+      if (typeof issuer !== "string") continue;
+      const known = peers.get(issuer) ?? new Set<string>();
+      known.add(x.peer);
+      peers.set(issuer, known);
+    }
+  }
+  return peers;
+}
+
+function sessionPeer(value: string, peers: ReadonlyMap<string, ReadonlySet<string>>): string | null {
+  const aud = decodeJwt(value)?.payload.aud;
+  const candidates = typeof aud === "string" ? peers.get(aud) : undefined;
+  return candidates?.size === 1 ? [...candidates][0]! : null;
+}
+
+/** A Session header is on its claimed Company's listed host and bound to this request, without verifying its signature. */
+export function sessionHeaderAtListedHost(all: readonly Exchange[], x: Exchange): boolean {
+  const value = x.requestHeaders.get("poppy-session");
+  if (!value || x.direction !== "to-company") return false;
+  const peer = sessionPeer(value, issuerPeers(all));
+  const decoded = decodeJwt(value);
+  const claims = decoded?.payload;
+  return decoded?.header.typ === "poppy-session+jwt" && peer !== null && x.peer === peer && !!listedHosts(all).get(peer)?.has(x.url.host)
+    && claims?.htm === x.method && claims.htu === withoutQuery(x.url);
+}
+
 /**
  * An access token or Session JWT sent to a host its Company's documents don't list. Our
  * reading, not a MUST: 4.3 and 6 don't say which hosts may receive Session
@@ -256,32 +318,40 @@ export function listedHosts(all: readonly Exchange[]): Map<string, Set<string>> 
 export function unlistedHostChecks(all: readonly Exchange[]): Check[] {
   const tokens = issuedTokens(all);
   const listed = listedHosts(all);
+  const peers = issuerPeers(all);
   const found: Check[] = [];
   for (const x of all) {
     if (x.probe || x.injected) continue;
     const auth = authorization(x);
-    if (!auth || (auth.scheme !== "DPoP" && auth.scheme !== "Bearer")) continue;
-    const issuer = tokens.get(auth.token);
-    if (issuer === undefined) continue;
-    const hosts = listed.get(issuer);
-    if (!hosts) continue;
-    if (x.direction !== "to-company" || x.peer !== issuer || !hosts.has(x.url.host)) {
-      found.push(check("token.unlisted-host", x, `a token from ${issuer} sent to ${x.url.host}`));
+    const oauthPeer = auth && (auth.scheme === "DPoP" || auth.scheme === "Bearer") ? tokens.get(auth.token) : undefined;
+    const credentials = new Set([...(oauthPeer === undefined ? [] : [oauthPeer]), ...requestSessionJwts(x).map((value) => sessionPeer(value, peers)).filter((peer): peer is string => peer !== null)]);
+    for (const issuer of credentials) {
+      const hosts = listed.get(issuer);
+      if (!hosts) continue;
+      if (x.direction !== "to-company" || x.peer !== issuer || !hosts.has(x.url.host)) {
+        found.push(check("token.unlisted-host", x, `a token from ${issuer} sent to ${x.url.host}`));
+      }
     }
   }
   return found;
 }
 
-/** A redirect followed with the Authorization or DPoP of the request that got it (Guides). */
+/** A protocol redirect followed with credentials, including newly signed Session JWTs (3). */
 export function redirectChecks(all: readonly Exchange[]): Check[] {
   const found: Check[] = [];
   for (const [i, x] of all.entries()) {
     if (x.probe || x.injected || x.status < 300 || x.status >= 400) continue;
-    if (!x.requestHeaders.has("authorization") && !x.requestHeaders.has("dpop")) continue;
+    const oauth = x.requestHeaders.has("authorization") || x.requestHeaders.has("dpop");
+    const session = x.requestHeaders.get("poppy-session");
+    if (!oauth && !session) continue;
     const location = x.responseHeaders.get("location");
     if (!location) continue;
     const target = new URL(location, x.url).href;
-    const followed = all.slice(i + 1).find((later) => later.url.href === target && (later.requestHeaders.has("authorization") || later.requestHeaders.has("dpop")));
+    const followed = all.slice(i + 1).find((later) => !later.probe && !later.injected && later.url.href === target && (
+      (oauth && (later.requestHeaders.has("authorization") || later.requestHeaders.has("dpop")))
+      || (!!session && (later.requestHeaders.has("poppy-session") || requestSessionJwts(later).length > 0
+        || [later.url.href, ...later.url.searchParams.values(), later.requestBody, ...later.requestHeaders.values()].some((value) => value.includes(session))))
+    ));
     if (followed) found.push(check("redirect.credentials-followed", followed, `${x.url.href} redirected to ${target}, followed with credentials`));
   }
   return found;

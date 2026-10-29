@@ -215,7 +215,7 @@ export function approvalTerms(company: Company, operation: OperationV2, asked: J
  * Company's terms on the card that now waits.
  */
 export class TermsRequested extends Error {
-  constructor(readonly result: string) {
+  constructor(readonly result: string, readonly approvalId: string) {
     super(result);
   }
 }
@@ -309,7 +309,42 @@ function batchKeyOf(issuer: string, request: string): { batchKey?: string } {
   return key ? { batchKey: key } : {};
 }
 
-const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "request", "status", "terms");
+const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "request", "status", "terms", "result", "terms_approval_id");
+
+type FinishedApproval = "declined" | "done" | "refused" | "failed" | "unknown";
+function finishedApproval(status: string): status is FinishedApproval {
+  return status === "declined" || status === "done" || status === "refused" || status === "failed" || status === "unknown";
+}
+
+/** Carry the Company's final decision back to the tool request that asked for its terms. */
+async function settleTermsApprovals(client: PoppyClient): Promise<void> {
+  // A child can finish before its parent receives TermsRequested, or during a restart.
+  // Re-read durable links rather than relying on the order in which cards arrived.
+  for (;;) {
+    const parents = rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'terms' AND terms_approval_id IS NOT NULL");
+    let changed = false;
+    for (const parent of parents) {
+      const child = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ? AND issuer = ? AND label = ?", parent.terms_approval_id, parent.issuer, parent.label);
+      if (!child || !finishedApproval(child.status)) continue;
+      const company = client.companyByIssuer(parent.issuer);
+      await client.host.showCard({
+        id: `approval-${parent.id}`, kind: "approval", company: company.name, domain: company.domain,
+        open: false, approvalId: parent.id, summary: parent.summary, status: child.status,
+        ...(parent.terms ? { terms: parent.terms } : {}),
+        ...(child.result ? { result: child.result } : {}),
+        ...approvalAttachments(parent.request), ...batchKeyOf(parent.issuer, parent.request)
+      });
+      // Persist the card first. A crash before this update leaves a durable link
+      // to replay on recovery, rather than a terminal row with a stale card.
+      const claimed = client.sql.exec(
+        "UPDATE poppy_approvals SET status = ?, result = ? WHERE id = ? AND status = 'terms' AND terms_approval_id = ? RETURNING id",
+        child.status, child.result, parent.id, child.id
+      ).toArray();
+      changed ||= claimed.length > 0;
+    }
+    if (!changed) break;
+  }
+}
 
 /**
  * Decide one local approval and do what it says. Returns what the model is to
@@ -369,7 +404,7 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
     return `[system] Done, as the User approved: ${row.summary}. Result: ${result}`;
   } catch (error) {
     if (error instanceof TermsRequested) {
-      client.sql.exec("UPDATE poppy_approvals SET status = 'terms', result = ? WHERE id = ?", error.result, id);
+      client.sql.exec("UPDATE poppy_approvals SET status = 'terms', result = ?, terms_approval_id = ? WHERE id = ?", error.result, error.approvalId, id);
       await card("terms", error.result);
       return `[system] Sent as the User approved, and ${company.name} asks the User to approve its exact terms first, on a new card; nothing has happened yet: ${row.summary}. Don't tell the User it was done.`;
     }
@@ -409,7 +444,14 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
 
 /** Decide one local approval, from its own card, and tell the model what happened. */
 export async function decideLocal(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<void> {
-  const notice = await decideOne(client, id, decision);
+  let notice = await decideOne(client, id, decision);
+  await settleTermsApprovals(client);
+  const settled = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  if (notice && settled?.terms_approval_id && finishedApproval(settled.status)) {
+    // The child may have been decided while the original request was still
+    // returning its terms. Do not tell the model it is still waiting.
+    notice = `[system] The Company's terms for ${settled.summary} are ${settled.status}.${settled.result ? ` Result: ${settled.result}` : ""}`;
+  }
   if (notice) await client.host.notifyModel(notice, `poppy-approval-${id}`);
 }
 
@@ -456,6 +498,7 @@ export async function decideLocalBatch(client: PoppyClient, decisions: readonly 
       lines.push(`This one couldn't be decided (${error instanceof PoppyError ? error.code : "error"}): ${item.row.summary}`);
     }
   }
+  await settleTermsApprovals(client);
   await tellBatch(client, batch, lines);
 }
 
@@ -484,6 +527,7 @@ const BATCH_STATUS: Record<string, string> = {
  * card, for the User to decide again.
  */
 export async function recoverApprovalBatches(client: PoppyClient): Promise<void> {
+  await settleTermsApprovals(client);
   for (const batch of rows(client.sql, approvalBatchesTable.pick("id", "ids"), "SELECT id, ids FROM poppy_approval_batches WHERE told = 0")) {
     let ids: unknown;
     try {
@@ -544,4 +588,5 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
       `poppy-approval-${row.id}`
     );
   }
+  await settleTermsApprovals(client);
 }

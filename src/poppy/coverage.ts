@@ -61,8 +61,8 @@ export function readAlternative(company: Company, value: unknown): Alternative |
   return { ...(instructions ? { instructions } : {}), references: references.slice(0, MOST_REFERENCES) };
 }
 
-/** Excluded tasks by URL, per agent, as API descriptions are (apis.ts). */
-const caches = new WeakMap<PoppyClient, Map<string, { readonly tasks: readonly ExcludedTask[]; readonly expiresAt: number }>>();
+/** Raw excluded-task documents by URL, per agent; references are filtered for each Company on every read. */
+const caches = new WeakMap<PoppyClient, Map<string, { readonly tasks: readonly Json[]; readonly expiresAt: number }>>();
 
 /**
  * The Company's excluded tasks (9.1), fetched with a GET and no token, as
@@ -77,22 +77,26 @@ export async function excludedTasks(client: PoppyClient, company: Company): Prom
   let cache = caches.get(client);
   if (!cache) caches.set(client, (cache = new Map()));
   const cached = cache.get(url);
-  if (cached && cached.expiresAt > Date.now()) return cached.tasks;
-  let fetched: Awaited<ReturnType<typeof fetchJson>>;
-  try {
-    fetched = await fetchJson(client.host.fetcher, url, { maxBytes: 100_000 });
-  } catch {
-    return "unavailable";
+  let entries: readonly Json[];
+  if (cached && cached.expiresAt > Date.now()) entries = cached.tasks;
+  else {
+    let fetched: Awaited<ReturnType<typeof fetchJson>>;
+    try {
+      fetched = await fetchJson(client.host.fetcher, url, { maxBytes: 100_000 });
+    } catch {
+      return "unavailable";
+    }
+    if (!isObject(fetched.json) || !Array.isArray(fetched.json.tasks)) return "unavailable";
+    entries = fetched.json.tasks.slice(0, MOST_TASKS);
+    cache.set(url, { tasks: entries, expiresAt: Date.now() + boundedCacheSeconds(fetched.maxAgeSeconds) * 1000 });
   }
-  if (!isObject(fetched.json) || !Array.isArray(fetched.json.tasks)) return "unavailable";
   const tasks: ExcludedTask[] = [];
-  for (const entry of fetched.json.tasks.slice(0, MOST_TASKS)) {
+  for (const entry of entries) {
     const task = isObject(entry) ? text(entry.task, TASK_LIMIT) : undefined;
     if (!task || !isObject(entry)) continue;
     const alternative = entry.alternative === undefined ? null : readAlternative(company, entry.alternative);
     tasks.push({ task, ...(alternative ? { alternative } : {}) });
   }
-  cache.set(url, { tasks, expiresAt: Date.now() + boundedCacheSeconds(fetched.maxAgeSeconds) * 1000 });
   return tasks;
 }
 

@@ -15,16 +15,17 @@ import { companyErrorCode } from "./error-codes";
 
 type Api = Company["apis"][number];
 
-type ApprovalBinding = { readonly account: string | null; readonly sessionId: string };
+type ApprovalBinding = { readonly account: string | null; readonly sessionId: string; readonly authorityGeneration?: number };
 async function approvalBinding(client: PoppyClient, company: Company, label: string, resource?: string): Promise<ApprovalBinding> {
   await client.token(company, { label, ...(resource ? { resource } : {}) });
   const session = client.session(company.issuer, label);
   if (!session) throw new PoppyError("approval_changed", "No Session for this approval", 0);
-  return { account: session.account, sessionId: session.session_id };
+  return { account: session.account, sessionId: session.session_id, authorityGeneration: session.authority_generation };
 }
 function checkApprovalBinding(client: PoppyClient, company: Company, label: string, binding?: ApprovalBinding): void {
   const session = client.session(company.issuer, label);
-  if (!binding || !session || session.session_id !== binding.sessionId || session.account !== binding.account) {
+  if (!binding || !session || session.session_id !== binding.sessionId || session.account !== binding.account ||
+      session.authority_generation !== (binding.authorityGeneration ?? 0)) {
     throw new PoppyError("approval_changed", "The account or Session changed. Review a fresh request before sending it.", 0);
   }
 }
@@ -928,6 +929,8 @@ export async function callOpenApi(
  * proposal we can't use.
  */
 registerExecutor("openapi", async (client, company, approval, label, execution) => {
+  const check = () => { execution.beforeDispatch(); checkApprovalBinding(client, company, label, approval.binding); };
+  check();
   if (approval.call.approval && !approvable(approval.call.approval, Date.now())) throw expired(company);
   const checked = await CheckedApiRequest.check(client, company, approval.call);
   if (checked.method !== approval.method || checked.url !== approval.url) {
@@ -937,13 +940,16 @@ registerExecutor("openapi", async (client, company, approval, label, execution) 
       0
     );
   }
-  const answer = await sendApi(client, label, checked, () => { execution.beforeDispatch(); checkApprovalBinding(client, company, label, approval.binding); });
+  const answer = await sendApi(client, label, checked, check);
   if (answer.kind === "unusable") {
     throw withAnswer(new PoppyError("unusable_proposal", `${company.name} asked for approval of an operation the agent can't use, so nothing was done`, 403), 403);
   }
   // The Company wants the User's approval of its terms (Ops 4): nothing was done, and its card waits.
-  if (answer.kind === "approval" && !approval.call.approval) throw new TermsRequested(`${company.name} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`);
-  // An approval answered with other terms (Ops 6, check 3): nothing was done, and a new card waits.
+  if (answer.kind === "approval" && (!approval.call.approval ||
+      answer.operation.operation_id !== approval.call.approval.operation_id || answer.operation.revision !== approval.call.approval.revision)) {
+    throw new TermsRequested(`${company.name} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`, answer.approvalId);
+  }
+  // An already-approved revision returned unchanged is a refusal, not a new card or a self-link.
   if (answer.kind === "approval") {
     throw withAnswer(new PoppyError("approval_required", `${company.name} asks for approval of new terms first, on a new card; nothing was done`, 403), 403);
   }
@@ -1241,9 +1247,17 @@ function checkMcpArgs(company: Company, name: string, inputSchema: Json | undefi
 
 /** An approved MCP call: sent only to an MCP server the Company still lists (`findApi`). */
 registerExecutor("mcp", async (client, company, approval, label, execution) => {
-  const result = await performMcp(client, company, label, approval.call, () => { execution.beforeDispatch(); checkApprovalBinding(client, company, label, approval.binding); });
+  const check = () => { execution.beforeDispatch(); checkApprovalBinding(client, company, label, approval.binding); };
+  check();
+  const result = await performMcp(client, company, label, approval.call, check);
   // The tool answered with an operation (Ops 4): its card waits, and nothing was done.
-  if (isObject(result) && isObject(result.approval_required)) throw new TermsRequested(`${company.name} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`);
+  if (isObject(result) && isObject(result.approval_required) && typeof result.proposed === "string") {
+    if (approval.call.approval && result.approval_required.operation_id === approval.call.approval.operation_id &&
+        result.approval_required.revision === approval.call.approval.revision) {
+      throw withAnswer(new PoppyError("approval_required", `${company.name} returned terms that were already approved, so the request was not completed`, 200), 200);
+    }
+    throw new TermsRequested(`${company.name} asks you to approve its exact terms first, on the next card. Nothing has happened yet.`, result.proposed);
+  }
   return JSON.stringify(result).slice(0, 2_000);
 });
 

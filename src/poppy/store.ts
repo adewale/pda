@@ -5,6 +5,8 @@ import { flag, jsonText, literal } from "../decode";
 import { integer, integerOf, nullable, one, table, text, textOf } from "../rows";
 import { issuerDecoder } from "./issuer";
 import { approvalTermsDecoder } from "./operations-v2";
+import { protocolRevision, supportsProtocol } from "./protocol-version";
+import { isObject } from "./json";
 
 /**
  * Poppy state in the person's SQLite, beside Pi's `pi_*` tables. Session
@@ -37,6 +39,7 @@ CREATE TABLE IF NOT EXISTS poppy_sessions (
   scope TEXT NOT NULL,
   updated_at INTEGER NOT NULL,
   used_account TEXT,
+  authority_generation INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (issuer, label)
 );
 CREATE TABLE IF NOT EXISTS poppy_accounts (
@@ -130,7 +133,8 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   status TEXT NOT NULL,
   result TEXT,
   created_at INTEGER NOT NULL,
-  terms TEXT
+  terms TEXT,
+  terms_approval_id TEXT
 );
 -- Approvals decided together on one card (operations.ts decideLocalBatch): the model is told once, when every one is done.
 -- A row with told = 0 after a restart is told then, from what its approvals' rows say.
@@ -180,13 +184,73 @@ export function migrate(sql: Sql): void {
   if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "used_account")) {
     sql.exec("ALTER TABLE poppy_sessions ADD COLUMN used_account TEXT");
   }
+  // A sign-out changes local authority even when a later sign-in keeps the protocol's sid.
+  if (!sql.exec("PRAGMA table_info(poppy_sessions)").toArray().some((column) => column.name === "authority_generation")) {
+    sql.exec("ALTER TABLE poppy_sessions ADD COLUMN authority_generation INTEGER NOT NULL DEFAULT 0");
+  }
   // Agents created before 28 October 2026: what an approval card shows of a Company's terms (Ops 5).
   if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some((column) => column.name === "terms")) {
     sql.exec("ALTER TABLE poppy_approvals ADD COLUMN terms TEXT");
   }
+  // The Company's terms card that continues an approved request, so both show its eventual outcome.
+  if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some((column) => column.name === "terms_approval_id")) {
+    sql.exec("ALTER TABLE poppy_approvals ADD COLUMN terms_approval_id TEXT");
+  }
+  retireIncompatibleSignIns(sql);
+  retireOperationCards(sql);
   migrateConversationIdentity(sql);
   // After the tables its triggers watch.
   migrateProtocolLog(sql);
+}
+
+/** Pending credentials must not keep every new task in an incompatible recovery loop. */
+function retireIncompatibleSignIns(sql: Sql): void {
+  const pending = sql.exec(`SELECT s.id, s.issuer, c.company FROM poppy_signins s
+    LEFT JOIN poppy_task_contexts c ON c.kind = 'signin' AND c.task_id = s.id AND c.issuer = s.issuer
+    WHERE s.status NOT IN ('done', 'failed', 'expired')`).toArray();
+  for (const row of pending) {
+    let company: Record<string, unknown> = {};
+    if (typeof row.company === "string") {
+      try {
+        const parsed: unknown = JSON.parse(row.company);
+        if (isObject(parsed)) company = parsed;
+      } catch { /* No trustworthy context to resume. */ }
+    }
+    const version = company.protocolVersion;
+    // All current sign-ins store this immutable context before their row. Missing contexts are legacy or unreadable.
+    if (typeof version === "string" && supportsProtocol(version) &&
+        (company.specificationRevision === undefined || company.specificationRevision === protocolRevision(version))) continue;
+    const card = {
+      id: `signin-${row.id}`,
+      kind: "notice",
+      company: typeof company.name === "string" ? company.name : String(row.issuer),
+      ...(typeof company.domain === "string" ? { domain: company.domain } : {}),
+      open: false,
+      text: "This unfinished sign-in could not be resumed after the protocol update. No credentials were resent. Start a new sign-in if the task still needs your account."
+    };
+    // Put the explanation first: an interrupted migration can repeat it before making the row terminal.
+    sql.exec("INSERT OR REPLACE INTO poppy_cards (id, card, open, updated_at) VALUES (?, ?, 0, ?)", card.id, JSON.stringify(card), Date.now());
+    // Retain any sealed answer for reconciliation; never decrypt, replay or expose it during migration.
+    sql.exec("UPDATE poppy_signins SET status = 'failed' WHERE id = ?", row.id);
+  }
+}
+
+/** Operations 1 cards outlive their removed tables; turn them into visible, dismissible history. */
+function retireOperationCards(sql: Sql): void {
+  for (const row of sql.exec("SELECT id, card, open, updated_at FROM poppy_cards WHERE json_valid(card) AND json_extract(card, '$.kind') = 'operation'").toArray()) {
+    const previous: unknown = JSON.parse(String(row.card));
+    if (!isObject(previous)) continue;
+    const card = {
+      id: String(row.id),
+      kind: "notice",
+      company: typeof previous.company === "string" ? previous.company : "",
+      ...(typeof previous.domain === "string" ? { domain: previous.domain } : {}),
+      open: false,
+      text: "This Operations 1 request was retired locally after the protocol update. This update did not cancel or confirm anything at the Company. Check its outcome there before starting it again."
+    };
+    // Do not bring every historical receipt back into the last-hour card list.
+    sql.exec("UPDATE poppy_cards SET card = ?, open = 0, updated_at = ? WHERE id = ?", JSON.stringify(card), row.open ? Date.now() : row.updated_at, row.id);
+  }
 }
 
 /** Old inboxes lack their source issuer, so a collision cannot be untangled safely. */
@@ -240,7 +304,9 @@ export const sessionsTable = table("poppy_sessions", {
   scope: text,
   updated_at: integer,
   /** 0.3: the account the Session was used with, kept after it continues signed out (5.4, 5.5); null before 0.3. */
-  used_account: nullable(text)
+  used_account: nullable(text),
+  /** Local authorization epoch, independent of the Session's protocol identity. */
+  authority_generation: integer
 });
 export const accountsTable = table("poppy_accounts", {
   issuer: issuerColumn,
@@ -318,7 +384,8 @@ export const approvalsTable = table("poppy_approvals", {
   status: text,
   result: nullable(text),
   created_at: integer,
-  terms: nullable(textOf(jsonText(approvalTermsDecoder)))
+  terms: nullable(textOf(jsonText(approvalTermsDecoder))),
+  terms_approval_id: nullable(text)
 });
 export const approvalBatchesTable = table("poppy_approval_batches", { id: text, ids: text, told: integer, created_at: integer });
 export const intentsTable = table("poppy_intents", { call_key: text, value: text, created_at: integer });

@@ -1831,7 +1831,7 @@ describe("7 APIs", () => {
         kind: "openapi",
         method: "POST",
         url: `${c.hosts.api}/orders/ord_7Hk2/exchanges`,
-        binding: { account: "default", sessionId: expect.any(String) },
+        binding: { account: "default", sessionId: expect.any(String), authorityGeneration: 0 },
         call: expect.objectContaining({ operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: exchangeWrite(c).body })
       });
     });
@@ -2435,7 +2435,7 @@ describe("Operations 2", () => {
     expect((await approved(c)).map((request) => `${request.status} ${request.error}`)).toEqual(["403 approval_required"]);
     expect((await c.stub.state()).performs).toBe(0);
     // The approved card says so, never "done"; the new revision waits on its own card.
-    expect(await cardOf(a, card.approvalId)).toMatchObject({ open: false, status: "refused", answer: { status: 403, error: "approval_required" } });
+    expect(await cardOf(a, card.approvalId)).toMatchObject({ open: false, status: "terms" });
     const revised = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
     expect(revised.approvalId).toMatch(/^apr2_/);
     expect(revised.approvalId).not.toBe(card.approvalId);
@@ -2445,6 +2445,7 @@ describe("Operations 2", () => {
     await approve(a, revised);
     expect((await approved(c)).map((request) => request.status)).toEqual([403, 201]);
     expect((await c.stub.state()).performs).toBe(1);
+    expect(await cardOf(a, card.approvalId)).toMatchObject({ open: false, status: "done" });
   });
 
   it("sends an approval once, even when the User approves twice at once (Ops 7)", async () => {

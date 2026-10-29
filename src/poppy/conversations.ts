@@ -128,6 +128,8 @@ export async function sendMessage(
     wait?: number;
     /** An approval the User gave on our card, never one the model chose (Ops 5, 6). */
     approval?: { operation_id: string; revision: string };
+    /** Recheck approval authority immediately before every dispatch, including retries. */
+    beforeDispatch?: () => void;
   }
 ): Promise<SendResult> {
   if (request.text !== undefined && looksLikeJson(request.text)) {
@@ -189,7 +191,10 @@ export async function sendMessage(
       url.searchParams.set("wait", String(request.wait));
       if (cursor) url.searchParams.set("cursor", cursor);
     }
-    return client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: url.href, body: toJson(body) }), tokenOptions(company, request.label));
+    return client.resourceJson(company, EndpointRequest.to(company, { method: "POST", url: url.href, body: toJson(body) }), {
+      ...tokenOptions(company, request.label),
+      ...(request.beforeDispatch ? { beforeDispatch: request.beforeDispatch } : {})
+    });
   };
   let response: Json;
   try {
@@ -362,12 +367,19 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
     await client.host.showCard({ id: `approval-unusable-${row.id}-${randomId()}`, kind: "notice", company: company.name, domain: company.domain, open: true, text: `${company.name} asked for your approval in a conversation, but its terms couldn't be used (${operation.problem}), so nothing was done.` });
     return;
   }
+  const session = client.session(company.issuer, row.label);
+  if (!session) throw new PoppyError("approval_changed", "No Session for this approval", 0);
   await proposeLocal(
     client,
     company,
     row.label,
     approvalSummary(company, operation),
-    { kind: "message-approval", conversationId: row.id, approval: { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at } },
+    {
+      kind: "message-approval",
+      conversationId: row.id,
+      approval: { operation_id: operation.operation_id, revision: operation.revision, expires_at: operation.expires_at },
+      binding: { account: session.account, sessionId: session.session_id, authorityGeneration: session.authority_generation }
+    },
     await approvalCardId(company, operation),
     // What the agent asked for was words, so the terms are checked against the summary only.
     approvalTerms(company, operation, undefined)
@@ -376,19 +388,27 @@ async function proposeMessageApproval(client: PoppyClient, company: Company, row
 
 /** An approved operation from a conversation: one message with the approval, in that conversation (Ops 6). */
 registerExecutor("message-approval", async (client, company, approval, label, execution) => {
-  if (!approvable(approval.approval, Date.now())) {
-    throw new PoppyError("approval_changed", `Not sent: ${company.name}'s terms expired before they were approved. Ask ${company.name} again for current terms.`, 0);
-  }
+  const beforeDispatch = () => {
+    execution.beforeDispatch();
+    const session = client.session(company.issuer, label);
+    if (!session || session.session_id !== approval.binding.sessionId || session.account !== approval.binding.account || session.authority_generation !== (approval.binding.authorityGeneration ?? 0)) {
+      throw new PoppyError("approval_changed", "The account or Session changed. Review a fresh request before sending it.", 0);
+    }
+    if (!approvable(approval.approval, Date.now())) {
+      throw new PoppyError("approval_changed", `Not sent: ${company.name}'s terms expired before they were approved. Ask ${company.name} again for current terms.`, 0);
+    }
+  };
   const row = conversation(client, approval.conversationId);
   if (!row || row.issuer !== company.issuer || row.label !== label) throw new PoppyError("conversation_not_found", "The conversation this approval is for is gone", 0);
-  execution.beforeDispatch();
+  beforeDispatch();
   await sendMessage(client, company, {
     label,
     callKey: `approval|${approval.approval.operation_id}|${approval.approval.revision}`,
     conversationId: row.id,
     sender: "agent",
     text: "The User approved this.",
-    approval: approvalJson(approval.approval)
+    approval: approvalJson(approval.approval),
+    beforeDispatch
   });
   return `Sent the User's approval to ${company.name} in conversation ${row.id}; its agent says how it went in a later message.`;
 });

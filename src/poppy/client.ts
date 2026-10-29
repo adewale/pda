@@ -181,7 +181,7 @@ export const tokenResponse = object({
 });
 type TokenResponse = Decoded<typeof tokenResponse>;
 
-const sessionRow = sessionsTable.pick("issuer", "label", "session_id", "account", "signed_in", "scope");
+const sessionRow = sessionsTable.pick("issuer", "label", "session_id", "account", "signed_in", "scope", "authority_generation");
 type SessionRow = RowOf<typeof sessionRow>;
 
 const accountRow = accountsTable.pick("issuer", "account", "token", "scope", "expires_at");
@@ -317,8 +317,8 @@ export class PoppyClient {
   readonly #nonces = new Map<string, string>();
   /** The delegated key and delegation each Company's User ID signs with (5.2), memory only. */
   readonly #delegated = new Map<Issuer, Promise<Delegated>>();
-  /** What each service's protected resource metadata said, by URL (4.5). */
-  readonly #serviceResources = new Map<string, { readonly resource: string | null; readonly expiresAt: number }>();
+  /** Cache public service metadata by URL; its issuer and host checks are specific to each Company (4.5). */
+  readonly #serviceResources = new Map<string, { readonly metadata: Json | null; readonly expiresAt: number }>();
   /**
    * One token-endpoint exchange at a time per Company. Refresh tokens can
    * rotate on use, so two parallel renewals (say, a send and a background
@@ -673,7 +673,7 @@ export class PoppyClient {
     return one(
       this.sql,
       sessionRow,
-      "SELECT issuer, label, session_id, account, signed_in, scope FROM poppy_sessions WHERE issuer = ? AND label = ?",
+      "SELECT issuer, label, session_id, account, signed_in, scope, authority_generation FROM poppy_sessions WHERE issuer = ? AND label = ?",
       issuer,
       label
     );
@@ -958,10 +958,12 @@ export class PoppyClient {
    * signed out, so signing in to another account later starts a new
    * Session (5.4) rather than mixing them.
    */
-  #writeSession(issuer: Issuer, label: string, sid: string, account: string | null, scope: string, used: string | null = account): void {
+  #writeSession(issuer: Issuer, label: string, sid: string, account: string | null, scope: string, used: string | null = account, authorityGeneration?: number): void {
+    // Reusing a sid/account after sign-out must not restore its earlier approvals.
+    const generation = authorityGeneration ?? this.session(issuer, label)?.authority_generation ?? 0;
     this.sql.exec(
-      `INSERT OR REPLACE INTO poppy_sessions (issuer, label, session_id, account, signed_in, scope, updated_at, used_account)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO poppy_sessions (issuer, label, session_id, account, signed_in, scope, updated_at, used_account, authority_generation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       issuer,
       label,
       sid,
@@ -969,7 +971,8 @@ export class PoppyClient {
       account ? 1 : 0,
       scope,
       Date.now(),
-      used
+      used,
+      generation
     );
   }
 
@@ -985,7 +988,10 @@ export class PoppyClient {
    */
   signOutSession(issuer: Issuer, label: string): void {
     const session = this.session(issuer, label);
-    if (session) this.#writeSession(issuer, label, session.session_id, null, "", this.#usedAccount(issuer, label) ?? session.account);
+    if (session) this.#writeSession(
+      issuer, label, session.session_id, null, "", this.#usedAccount(issuer, label) ?? session.account,
+      session.authority_generation + (session.signed_in ? 1 : 0)
+    );
     this.#forgetTokens(issuer, label);
   }
 
@@ -1010,31 +1016,34 @@ export class PoppyClient {
    * the default token.
    */
   async serviceResource(company: Company, service: string): Promise<string | undefined> {
-    const cached = this.#serviceResources.get(service);
-    if (cached && cached.expiresAt > this.host.now()) return cached.resource ?? undefined;
-    const url = new URL(service);
-    const path = url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "");
-    let resource: string | null = null;
-    let seconds: number | null = null;
-    try {
-      const { json, maxAgeSeconds } = await fetchJson(this.host.fetcher, `${url.origin}/.well-known/oauth-protected-resource${path}`, { maxRedirects: 0 });
-      seconds = maxAgeSeconds;
-      if (
-        isObject(json) &&
-        typeof json.resource === "string" &&
-        Array.isArray(json.authorization_servers) &&
-        json.authorization_servers.includes(company.issuer) &&
-        json.resource.toLowerCase() !== `https://${company.domain}` &&
-        URL.canParse(json.resource) &&
-        tokenHostAllowed(company, new URL(json.resource))
-      ) {
-        resource = json.resource;
+    let cached = this.#serviceResources.get(service);
+    if (!cached || cached.expiresAt <= this.host.now()) {
+      const url = new URL(service);
+      // RFC 9728 3.1 inserts the well-known segment before the exact service path.
+      const path = url.pathname === "/" ? "" : url.pathname;
+      let metadata: Json | null = null;
+      let seconds: number | null = null;
+      try {
+        const fetched = await fetchJson(this.host.fetcher, `${url.origin}/.well-known/oauth-protected-resource${path}`, { maxRedirects: 0 });
+        metadata = fetched.json;
+        seconds = fetched.maxAgeSeconds;
+      } catch {
+        // No metadata: the default token works there (4.5).
       }
-    } catch {
-      // No metadata, or none we can use: the default token works there (4.5).
+      cached = { metadata, expiresAt: this.host.now() + boundedCacheSeconds(seconds) * 1000 };
+      this.#serviceResources.set(service, cached);
     }
-    this.#serviceResources.set(service, { resource, expiresAt: this.host.now() + boundedCacheSeconds(seconds) * 1000 });
-    return resource ?? undefined;
+    const json = cached.metadata;
+    if (
+      isObject(json) &&
+      typeof json.resource === "string" &&
+      Array.isArray(json.authorization_servers) &&
+      json.authorization_servers.includes(company.issuer) &&
+      json.resource.toLowerCase() !== `https://${company.domain}` &&
+      URL.canParse(json.resource) &&
+      tokenHostAllowed(company, new URL(json.resource))
+    ) return json.resource;
+    return undefined;
   }
 
   /**
@@ -1145,17 +1154,28 @@ export class PoppyClient {
       );
     }
     const label = options.label ?? "main";
-    // A signed-in request to a service that takes only its own tokens asks for one (4.5).
-    let effective = options;
-    if (!options.resource && options.service && this.sessionFor(company, label).signed_in) {
-      const resource = await this.serviceResource(company, options.service);
-      if (resource) effective = { ...options, resource };
-    }
     let renewed = false;
     let restarted = false;
     for (let attempt = 0; attempt < 4; attempt++) {
       await this.#respectLimit(company.issuer);
+      const prepared = this.sessionFor(company, label);
+      const sameBinding = () => {
+        const current = this.session(company.issuer, label);
+        return current?.session_id === prepared.session_id && current.account === prepared.account && current.signed_in === prepared.signed_in && current.authority_generation === prepared.authority_generation;
+      };
+      // A signed-in request to a service that takes only its own tokens asks for one (4.5).
+      let effective = options;
+      if (!options.resource && options.service && prepared.signed_in) {
+        const resource = await this.serviceResource(company, options.service);
+        if (resource) effective = { ...options, resource };
+      }
       const token = await this.token(company, effective);
+      if (!sameBinding()) {
+        // A sign-in or sign-out may have won while refresh was pending. Its
+        // old response must neither travel nor populate the new Session's cache.
+        this.#forgetTokens(company.issuer, label);
+        continue;
+      }
       // Tokens never travel in a URL (5.6), whatever a description or a model supplies.
       if (token && url.href.includes(token.value)) {
         recordResource(this.sql, company, request, { token: token.type, nonce: false }, { refused: "token_in_url" });
@@ -1167,7 +1187,7 @@ export class PoppyClient {
       headers.set("Accept", request.accept ?? "application/json");
       if (request.body !== undefined && !request.form) headers.set("Content-Type", "application/json");
       // Every request carries the Session header, signed for it alone (5.2); `ath` binds it to the token.
-      const sid = this.sessionFor(company, label).session_id;
+      const sid = prepared.session_id;
       headers.set("Poppy-Session", await this.sessionHeader(company, sid, { method: request.method, url: url.href, ...(token ? { accessToken: token.value } : {}) }));
       if (!token) {
         // Signed out (5): the Session header alone.
@@ -1195,6 +1215,12 @@ export class PoppyClient {
       });
       // No await between the authority check and fetch: a revocation during
       // token renewal, nonce retries or a rate-limit wait wins before sending.
+      // Signing the Session JWT or DPoP proof also yields: the authority callback
+      // must observe the same binding as the already prepared outbound request.
+      if (!sameBinding()) {
+        this.#forgetTokens(company.issuer, label);
+        throw new PoppyError("approval_changed", "The account or Session changed while this request was being prepared. Start it again.", 0);
+      }
       options.beforeDispatch?.();
       // A deadline for the answer to start; the caller reads the body with `readBody`.
       const response = await withDeadline(this.timeouts.requestMs + (request.waitMs ?? 0), (signal) =>
