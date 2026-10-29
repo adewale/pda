@@ -1,0 +1,17 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+
+ Test Files  3 passed (3)
+      Tests  232 passed (232)
+   Start at  17:13:54
+   Duration  19.00s (transform 10.39s, setup 0ms, import 30.62s, tests 10.64s, environment 1ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

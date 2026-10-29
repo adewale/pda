@@ -1,0 +1,94 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+NOSENTRY SQLite alarm overdue, running despite AlarmManager mismatch; scheduledTime = 1793293479.289s; localAlarmTime = 1793293479.293s; currentTime = 1793293479.293291402s; actorId = c59723566c1cac4e6bcc280e1d699cc51f36c1a074f3877430c8807e16a4d610
+ ❯ |receipt-regression-before| test/poppy-receipt-recovery.test.ts (4 tests | 4 failed) 1057ms
+     × preserves a successful action when publishing its receipt fails, and recovery never resends it 330ms
+     × repairs a pending terminal receipt after restart while preserving its aged timestamp 283ms
+     × repairs a pending terminal receipt after restart while preserving its dismissed timestamp 275ms
+     × repairs a declined receipt after its card write fails without sending the declined action 164ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |receipt-regression-before| test/poppy-receipt-recovery.test.ts > approval receipts cannot change a committed Company outcome > preserves a successful action when publishing its receipt fails, and recovery never resends it
+AssertionError: expected { status: 'failed', …(1) } to deeply equal { status: 'done', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "notification_pending": 1,
+-   "status": "done",
++   "notification_pending": 0,
++   "status": "failed",
+  }
+
+ ❯ test/poppy-receipt-recovery.test.ts:38:12
+     36|         expect(interrupted).toBe(true);
+     37|         expect(client.sql.exec("SELECT status, notification_pending FR…
+     38|           .toEqual({ status: "done", notification_pending: 1 });
+       |            ^
+     39|         expect(result.ok).toBe(false);
+     40|         if (result.ok) throw new Error("Expected the receipt publicati…
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |receipt-regression-before| test/poppy-receipt-recovery.test.ts > approval receipts cannot change a committed Company outcome > repairs a pending terminal receipt after restart while preserving its aged timestamp
+ FAIL  |receipt-regression-before| test/poppy-receipt-recovery.test.ts > approval receipts cannot change a committed Company outcome > repairs a pending terminal receipt after restart while preserving its dismissed timestamp
+AssertionError: expected { …(9) } to match object { kind: 'approval', …(2) }
+(6 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "kind": "approval",
+    "open": false,
+-   "status": "done",
++   "status": "approved",
+  }
+
+ ❯ test/poppy-receipt-recovery.test.ts:68:36
+     66|     await a.stub.poppyRestart();
+     67|     const [saved] = JSON.parse(await a.stub.poppySql("SELECT card, ope…
+     68|     expect(JSON.parse(saved.card)).toMatchObject({ kind: "approval", s…
+       |                                    ^
+     69|     expect(saved).toMatchObject({ open: 0, updated_at: old });
+     70|     expect(await requests(c)).toEqual(sent);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |receipt-regression-before| test/poppy-receipt-recovery.test.ts > approval receipts cannot change a committed Company outcome > repairs a declined receipt after its card write fails without sending the declined action
+AssertionError: expected { …(8) } to match object { open: false, status: 'declined' }
+(6 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "open": false,
+-   "status": "declined",
++   "open": true,
++   "status": "pending",
+  }
+
+ ❯ test/poppy-receipt-recovery.test.ts:93:64
+     91|       await recoverInterruptedApprovals(client);
+     92|     });
+     93|     expect((await cards(a)).find(item => item.id === card.id)).toMatch…
+       |                                                                ^
+     94|     expect((await c.stub.state()).performs).toBe(0);
+     95|     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  17:04:25
+   Duration  13.95s (transform 5.33s, setup 0ms, import 11.50s, tests 1.06s, environment 0ms)

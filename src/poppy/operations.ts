@@ -391,7 +391,7 @@ function batchKeyOf(issuer: string, request: string): { batchKey?: string } {
   return key ? { batchKey: key } : {};
 }
 
-const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "request", "status", "terms", "result", "terms_approval_id", "action_key", "action_owner", "operation_id", "outcome_resolution", "outcome_resolved_at");
+const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "request", "status", "terms", "result", "terms_approval_id", "action_key", "action_owner", "operation_id", "notification_batch_id", "outcome_resolution", "outcome_resolved_at");
 
 /** Reconstruct a committed outcome if its process died before returning the original notice. */
 function recoveredDecisionNotice(client: PoppyClient, row: RowOf<typeof approvalRow>): string {
@@ -561,7 +561,7 @@ async function settleTermsApprovals(client: PoppyClient): Promise<void> {
  * be told, or null when it was already decided; the caller tells the model,
  * once for one card and once for a batch (`decideLocal`, `decideLocalBatch`).
  */
-async function decideOne(client: PoppyClient, id: string, decision: "approve" | "decline"): Promise<string | null> {
+async function decideOne(client: PoppyClient, id: string, decision: "approve" | "decline", batch?: string): Promise<string | null> {
   await backfillActionIdentities(client);
   const row = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
   if (!row || row.status !== "pending") return null;
@@ -569,10 +569,12 @@ async function decideOne(client: PoppyClient, id: string, decision: "approve" | 
   // Discovery may have yielded to another decision. Only one handler may
   // claim this exact pending request, including a decline racing an approval.
   const claimed = client.sql.exec(
-    "UPDATE poppy_approvals SET status = ?, notification_pending = 1, notification = NULL WHERE id = ? AND status = 'pending' AND issuer = ? AND label = ? AND request = ? AND summary = ? RETURNING id",
-    decision === "decline" ? "declined" : "executing", id, row.issuer, row.label, row.request, row.summary
+    "UPDATE poppy_approvals SET status = ?, notification_pending = 1, notification = NULL, notification_batch_id = ? WHERE id = ? AND status = 'pending' AND issuer = ? AND label = ? AND request = ? AND summary = ? RETURNING id",
+    decision === "decline" ? "declined" : "executing", batch ?? null, id, row.issuer, row.label, row.request, row.summary
   ).toArray();
   if (claimed.length === 0) return null;
+  // The claim is authoritative even if a crash precedes this compatibility snapshot.
+  if (batch) client.sql.exec("UPDATE poppy_approval_batches SET ids = (SELECT json_group_array(id) FROM poppy_approvals WHERE notification_batch_id = ?) WHERE id = ?", batch, batch);
   const card = (status: "approved" | "declined" | "done" | "terms" | "refused" | "failed" | "unknown", result?: string, answer?: { status: number; error?: string }) =>
     client.host.showCard({
       id: `approval-${id}`,
@@ -710,18 +712,18 @@ export async function decideLocalBatch(client: PoppyClient, decisions: readonly 
   client.sql.exec(
     "INSERT INTO poppy_approval_batches (id, ids, told, created_at) VALUES (?, ?, 0, ?)",
     batch,
-    JSON.stringify(waiting.map((item) => item.approvalId)),
+    "[]",
     Date.now()
   );
   const lines: string[] = [];
   for (const item of waiting) {
     try {
-      const notice = await decideOne(client, item.approvalId, item.decision);
+      const notice = await decideOne(client, item.approvalId, item.decision, batch);
       if (notice) lines.push(notice.replace(/^\[system\] /, ""));
     } catch (error) {
       // Publication can fail after the action committed. Report its durable outcome, never undo it.
       const committed = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", item.approvalId);
-      if (committed && finishedApproval(committed.status)) lines.push(recoveredDecisionNotice(client, committed).replace(/^\[system\] /, ""));
+      if (committed?.notification_batch_id === batch && finishedApproval(committed.status)) lines.push(recoveredDecisionNotice(client, committed).replace(/^\[system\] /, ""));
       else lines.push(`This one couldn't be decided (${error instanceof PoppyError ? error.code : "error"}): ${item.row.summary}`);
     }
   }
@@ -731,7 +733,7 @@ export async function decideLocalBatch(client: PoppyClient, decisions: readonly 
 
 async function tellBatch(client: PoppyClient, batch: string, lines: readonly string[]): Promise<void> {
   for (const row of rows(client.sql, approvalsTable.pick("id"),
-    "SELECT id FROM poppy_approvals WHERE id IN (SELECT value FROM json_each((SELECT ids FROM poppy_approval_batches WHERE id = ?)))", batch)) {
+    "SELECT id FROM poppy_approvals WHERE notification_batch_id = ? OR id IN (SELECT value FROM json_each((SELECT ids FROM poppy_approval_batches WHERE id = ?)))", batch, batch)) {
     await repairTerminalApprovalCard(client, row.id);
   }
   if (lines.length) {
@@ -741,7 +743,7 @@ async function tellBatch(client: PoppyClient, batch: string, lines: readonly str
   const saved = one(client.sql, approvalBatchesTable.pick("notification"), "SELECT notification FROM poppy_approval_batches WHERE id = ?", batch)?.notification;
   const acknowledge = () => {
     client.sql.exec("UPDATE poppy_approval_batches SET told = 1 WHERE id = ?", batch);
-    client.sql.exec("UPDATE poppy_approvals SET notification_pending = 0 WHERE id IN (SELECT value FROM json_each((SELECT ids FROM poppy_approval_batches WHERE id = ?)))", batch);
+    client.sql.exec("UPDATE poppy_approvals SET notification_pending = 0 WHERE notification_batch_id = ?", batch);
   };
   if (saved) await deliverSavedNotification(client, saved, acknowledge);
   else acknowledge();
@@ -774,7 +776,9 @@ export async function recoverApprovalBatches(client: PoppyClient): Promise<void>
     } catch {
       ids = [];
     }
-    const lines = (Array.isArray(ids) ? ids : []).flatMap((id) => {
+    const members = new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []);
+    for (const row of rows(client.sql, approvalsTable.pick("id"), "SELECT id FROM poppy_approvals WHERE notification_batch_id = ?", batch.id)) members.add(row.id);
+    const lines = [...members].flatMap((id) => {
       const row = typeof id === "string" ? one(client.sql, approvalsTable.pick("summary", "status", "result", "issuer", "outcome_resolution", "outcome_resolved_at"), "SELECT summary, status, result, issuer, outcome_resolution, outcome_resolved_at FROM poppy_approvals WHERE id = ?", id) : undefined;
       const resolution = row ? storedResolution(row) : undefined;
       if (row && ["waiting", "in_progress"].includes(approvalResult(row.status, resolution))) return [];
@@ -794,16 +798,10 @@ export async function recoverApprovalBatches(client: PoppyClient): Promise<void>
 /** Recover interrupted attempts without resending, and repair reconciled receipts without reviving history. */
 export async function recoverInterruptedApprovals(client: PoppyClient): Promise<void> {
   // One in a batch the model hasn't heard about yet is told with its batch (recoverApprovalBatches).
-  const batched = new Set(
-    rows(client.sql, approvalBatchesTable.pick("ids"), "SELECT ids FROM poppy_approval_batches WHERE told = 0").flatMap((row) => {
-      try {
-        const ids: unknown = JSON.parse(row.ids);
-        return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
-      } catch {
-        return [];
-      }
-    })
-  );
+  // Old batches lack authoritative ownership. Their individual pending notices remain eligible;
+  // a one-time duplicate is safer than discarding a decision another handler may have owned.
+  const batched = new Set(rows(client.sql, approvalsTable.pick("id"),
+    "SELECT a.id FROM poppy_approvals a JOIN poppy_approval_batches b ON b.id = a.notification_batch_id WHERE b.told = 0").map(row => row.id));
   for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE status = 'executing'")) {
     let company = "the company";
     try {

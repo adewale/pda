@@ -1,0 +1,39 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+ ❯ |interop| interop/test/account-refresh-races.test.ts (14 tests | 1 failed | 13 skipped) 59ms
+     × does not rebind a Session when sign-out wins after sign-in token storage 57ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |interop| interop/test/account-refresh-races.test.ts > refresh responses cannot replace a newer account family > does not rebind a Session when sign-out wins after sign-in token storage
+AssertionError: promise resolved "{ …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "account": "default",
++   "expires_at": null,
++   "issuer": "https://auth.shop.example",
++   "scope": "orders:read",
++   "token": "v1.uVsW-ir722UFPmir6UY5RG2m9bi8map3DShsp1P33hAnJfOpaetb",
+  }
+
+ ❯ interop/test/account-refresh-races.test.ts:131:35
+    129|       await signOut(f.client, f.company.issuer, "default");
+    130|     });
+    131|     try { await expect(f.stepUp()).rejects.toMatchObject({ code: "appr…
+       |                                   ^
+    132|     finally { storing.mockRestore(); }
+    133|     expect(await f.refreshToken()).toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 13 skipped (14)
+   Start at  17:23:41
+   Duration  551ms (transform 243ms, setup 0ms, import 341ms, tests 59ms, environment 0ms)

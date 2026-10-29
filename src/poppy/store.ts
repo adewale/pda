@@ -143,6 +143,7 @@ CREATE TABLE IF NOT EXISTS poppy_approvals (
   action_identity_checked INTEGER NOT NULL DEFAULT 0,
   notification_pending INTEGER NOT NULL DEFAULT 0,
   notification TEXT,
+  notification_batch_id TEXT,
   resolution_notification_pending INTEGER NOT NULL DEFAULT 0,
   resolution_notification TEXT,
   outcome_resolution TEXT,
@@ -231,6 +232,9 @@ export function migrate(sql: Sql): void {
   }
   sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_notification ON poppy_approvals (id) WHERE notification_pending = 1");
   if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "notification")) sql.exec("ALTER TABLE poppy_approvals ADD COLUMN notification TEXT");
+  // Claim ownership is explicit for new decisions. Legacy NULLs never authorize a batch to acknowledge them.
+  if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "notification_batch_id")) sql.exec("ALTER TABLE poppy_approvals ADD COLUMN notification_batch_id TEXT");
+  sql.exec("CREATE INDEX IF NOT EXISTS poppy_approvals_notification_batch ON poppy_approvals (notification_batch_id) WHERE notification_batch_id IS NOT NULL");
   // Only new User reconciliations arm this outbox; historical checked outcomes were already reported.
   if (!sql.exec("PRAGMA table_info(poppy_approvals)").toArray().some(column => column.name === "resolution_notification_pending")) {
     sql.exec("ALTER TABLE poppy_approvals ADD COLUMN resolution_notification_pending INTEGER NOT NULL DEFAULT 0");
@@ -476,6 +480,7 @@ export const approvalsTable = table("poppy_approvals", {
   action_identity_checked: integerOf(flag),
   notification_pending: integerOf(flag),
   notification: nullable(savedApprovalNotification),
+  notification_batch_id: nullable(text),
   resolution_notification_pending: integerOf(flag),
   resolution_notification: nullable(savedApprovalNotification),
   outcome_resolution: nullable(textOf(literal("performed", "not_performed"))),

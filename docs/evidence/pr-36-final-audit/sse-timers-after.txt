@@ -1,0 +1,14 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  17:11:39
+   Duration  237ms (transform 28ms, setup 0ms, import 43ms, tests 62ms, environment 0ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

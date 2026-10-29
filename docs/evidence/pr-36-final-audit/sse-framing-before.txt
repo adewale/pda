@@ -1,0 +1,43 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+ ❯ |personal-agent| test/poppy-sse-chunks.test.ts (3 tests | 1 failed) 4691ms
+     × retains multiline events and opaque cursors across every byte split with "\r\n" line endings 631ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |personal-agent| test/poppy-sse-chunks.test.ts > conversation SSE transport chunk boundaries > retains multiline events and opaque cursors across every byte split with "\r\n" line endings
+AssertionError: cursor at byte split 45: expected null to be 'evt_opaque_Zyx_0' // Object.is equality
+
+- Expected:
+"evt_opaque_Zyx_0"
+
++ Received:
+null
+
+ ❯ test/poppy-sse-chunks.test.ts:54:102
+     52|           await readConversation(client, opened.conversationId, 0);
+     53|           expect(recentMessages(client, opened.conversationId), `messa…
+     54|           expect(conversation(client, opened.conversationId)?.cursor, …
+       |                                                                                                      ^
+     55|           expect(notified, `delivery at byte split ${cut}`).toHaveBeen…
+     56|           await readConversation(client, opened.conversationId, 0);
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  17:01:25
+   Duration  17.10s (transform 4.92s, setup 0ms, import 11.01s, tests 4.69s, environment 0ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice

@@ -1,0 +1,136 @@
+
+ RUN  v4.1.12 /tmp/pda-browser-scope-before
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+ ❯ |personal-agent| test/browser-scope.test.ts (5 tests | 4 failed) 1064ms
+     × rejoins with narrowed scopes even when the Company refuses to revoke the previous grant 402ms
+     × invalidates a scope-only change before fill or a saved form can use the old cookie 165ms
+     × replaces a same-scope browser after fresh consent replaces the refresh-token family 235ms
+     × also binds a signed-out visitor context when the website has no browser-session endpoint 110ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |personal-agent| test/browser-scope.test.ts > browser cookies retain only their authorized access > rejoins with narrowed scopes even when the Company refuses to revoke the previous grant
+AssertionError: expected [ { account: 'acct_ada', …(1) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "account": "acct_ada",
++     "fields": [
++       [
++         "csrf",
++         "csrf-ses_e3w0oMDym9Y",
++       ],
++       [
++         "line1",
++         "",
++       ],
++       [
++         "city",
++         "London",
++       ],
++       [
++         "country",
++         "GB",
++       ],
++       [
++         "confirm",
++         "",
++       ],
++       [
++         "default",
++         "yes",
++       ],
++     ],
++   },
++ ]
+
+ ❯ test/browser-scope.test.ts:23:46
+     21|     expect(after).toMatchObject({ session_id: before.session_id, accou…
+     22|     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: id, …
+     23|     expect((await c.stub.state()).formPosts).toEqual([]);
+       |                                              ^
+     24|     expect((await cards(a)).find(card => card.approvalId === id)?.stat…
+     25|     const narrowed = await open("/orders");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |personal-agent| test/browser-scope.test.ts > browser cookies retain only their authorized access > invalidates a scope-only change before fill or a saved form can use the old cookie
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ test/browser-scope.test.ts:46:26
+     44|     const before = (await requests(c)).length;
+     45|     const fill = await a.stub.poppyTool("poppy_browse", { domain: c.do…
+     46|     expect(fill.isError).toBe(true);
+       |                          ^
+     47|     expect(fill.details).toContain("approval_changed");
+     48|     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: id, …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |personal-agent| test/browser-scope.test.ts > browser cookies retain only their authorized access > replaces a same-scope browser after fresh consent replaces the refresh-token family
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ test/browser-scope.test.ts:66:26
+     64|     await signInDirect(a, c, ["orders:read", "orders:write", "addresse…
+     65|     const fill = await a.stub.poppyTool("poppy_browse", { domain: c.do…
+     66|     expect(fill.isError).toBe(true);
+       |                          ^
+     67|     expect(fill.details).toContain("approval_changed");
+     68|     await a.stub.poppyFrame({ type: "poppy.approval", approvalId: id, …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |personal-agent| test/browser-scope.test.ts > browser cookies retain only their authorized access > also binds a signed-out visitor context when the website has no browser-session endpoint
+AssertionError: promise resolved "{ …(6) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "forms": [],
++   "links": [],
++   "status": 200,
++   "text": "Signed out
++ Sign in to see your orders.",
++   "title": "Mock Shop",
++   "url": "https://c5285d152eb3e.shop.test/orders",
+  }
+
+ ❯ test/browser-scope.test.ts:98:95
+     96|       expect(await browse(client, browser, C, "main", { kind: "open", …
+     97|       client.sql.exec("UPDATE poppy_sessions SET scope = 'orders:write…
+     98|       await expect(browse(client, browser, C, "main", { kind: "click",…
+       |                                                                                               ^
+     99|       expect(await browse(client, browser, C, "main", { kind: "open", …
+    100|       expect(contexts).toBe(2);
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 1 passed (5)
+   Start at  17:15:24
+   Duration  10.08s (transform 3.36s, setup 0ms, import 7.76s, tests 1.06s, environment 0ms)

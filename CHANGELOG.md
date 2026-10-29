@@ -35,6 +35,12 @@ Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](sp
 
 ### Fixed
 
+- A delayed refresh or retry response can no longer overwrite newer sign-in access, undo sign-out or restart a newer Session. Browser cookies and saved forms are invalidated when consent scopes or the account family change.
+- Approval receipt failures preserve completed Company outcomes. Reconciliation and batch notifications keep their ID/text across failure and restart, and a batch acknowledges only decisions it actually claimed.
+- Conversation streams handle CRLF split across chunks, bound individual events and unfinished text, cancel cleanly and release read timers. Concurrent feedback reports no longer duplicate a task or combine different Users in the mock's repetition oracle.
+- Incompatible conversations retire locally after an upgrade instead of running failing read jobs indefinitely. History and pending-message evidence remain, and Activity explicitly retains an unknown remote outcome.
+- The separately patched kit follows replacement DPoP nonces and signs fresh retry proofs. [Final adversarial audit, counterexamples and verification](docs/evidence/pr-36-final-audit/README.md).
+
 - Remaining 0.3 conformance gaps: Company-wide holds and User reconciliation for uncertain actions, MCP cache invalidation after withdrawal or scope changes, safe metadata recovery after `invalid_token`, and conservative missing scope hints. Verification now includes endpoint redirect controls, model-boundary guards and direct User alternatives, API/MCP lifecycle cases, restored 0.3 security lanes in CI and actual Chromium approval/recovery journeys. The [conformance review](docs/poppy-0.3-conformance.md) lists the fixes and keeps live and language-model limits explicit.
 - The PR 36 audit's nine findings: withdrawn conversation and browser approvals, account changes during browser join, interrupted legacy sign-ins, invisible Operations 1 cards, Company-dependent metadata and task caches, service metadata paths ending in `/`, Session JWT leak checks and tool steps left waiting after the Company's terms were decided. Sign-out now persists a local authority counter, so signing back into the same account cannot revive an old approval or browser context. [Fixes and regression evidence](docs/evidence/pr-36-audit/README.md).
 - The protocol log called token-endpoint requests "Session header"; they carry our client assertion.

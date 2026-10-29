@@ -16,6 +16,16 @@ PDA implements the pinned 29 October 2026 text of Poppy 0.3 alone. This is the c
 | Process-crash recovery | Eight actual SIGKILL cases terminate PDA and workerd, reuse SQLite and retain a separate Company process/request ledger. OpenAPI and MCP each cover four boundaries; no business request or effect repeats. [Receipt and recovered-notification defect](evidence/pr-36-interop-completion/README.md). |
 | Live services | Discovery has been checked at printwithpoppy.com. Authenticated live 0.3 journeys remain unverified. The [isolated hosted pair](../test/hosted/README.md) is prepared; account/OAuth inputs and the User's model key are still needed. |
 
+## Final adversarial audit
+
+[Six-reviewer audit and regressions](evidence/pr-36-final-audit/README.md) record the confirmed authorization, browser, approval, streaming, fixture and migration defects and their fixes. The audit includes pre-existing defects that remained relevant to this conversion; it does not label every finding a newly introduced regression.
+
+Refresh responses now compare the exact stored credential and account family before changing access. Retry responses cannot restart a newer Session. Browser contexts include granted scopes and account-family ownership. Approval execution, reconciliation and batch notices retain stable payloads; atomic batch ownership prevents one handler from acknowledging another's notice. Receipt failures cannot rewrite a Company outcome. Stream framing survives split CRLF and bounds unfinished data while clearing read timers. Concurrent feedback reports remain separate by User. Incompatible conversations stop locally with unknown remote outcome and preserved evidence.
+
+The migrations add nullable/flag fields, preserve historical data and do not replay old reconciliations. Batches created before claim ownership was stored may report an outcome once individually as well as in the batch; migration preserves a pending notice rather than guessing its owner. This is a compatibility limit, not a repeated Company action.
+
+The eight actual process-kill cases retain their documented execution scope. Deterministic Worker/Node regressions separately cover reconciliation, batch ownership, receipt failures, stale responses and scope changes. Hosted OAuth/model verification remains pending and is a deployment gate.
+
 ## Is the 0.3 verification sufficient?
 
 There is substantial evidence for the pinned implementation and its local safety properties. There is not yet enough evidence for broad cross-project interoperability or a production-verified 0.3 journey. The repository's full test count includes the rest of the application; it is not a count of independent protocol checks. The 96 CI interop cells use our code on both sides, including profiles of the same implementations.

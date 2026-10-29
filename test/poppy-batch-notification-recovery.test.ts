@@ -1,7 +1,8 @@
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { saveAttachment } from "../src/attachments";
-import { decideLocalBatch, proposeLocal, recoverApprovalBatches, resolveApprovalOutcome } from "../src/poppy/operations";
+import { decideLocal, decideLocalBatch, proposeLocal, recoverApprovalBatches, recoverInterruptedApprovals, resolveApprovalOutcome } from "../src/poppy/operations";
+import { migrate } from "../src/poppy/store";
 import { agent, cards, company, requests, tool } from "./agent-helpers";
 
 const photoPosts = (all: Awaited<ReturnType<typeof requests>>) => all.filter(request => request.method === "POST" && new URL(request.url).pathname === "/photos");
@@ -19,6 +20,99 @@ async function waitingPhotos(a: Awaited<ReturnType<typeof agent>>, c: Awaited<Re
 }
 
 describe("durable batch approval notifications", () => {
+  it("does not report a combined decision when single handlers claim every intended batch member", async () => {
+    const a = await agent();
+    const c = await company({ printShop: true });
+    const waiting = await waitingPhotos(a, c);
+    await runInDurableObject(a.stub, async instance => {
+      const client = instance.poppy.client;
+      let reached!: () => void, release!: () => void;
+      const paused = new Promise<void>(resolve => { reached = resolve; });
+      const resumed = new Promise<void>(resolve => { release = resolve; });
+      const original = client.resumeCompany.bind(client);
+      let holdOnce = true;
+      const discovery = vi.spyOn(client, "resumeCompany").mockImplementation(async (...args) => {
+        if (holdOnce && args[1] === "approval") { holdOnce = false; reached(); await resumed; }
+        return original(...args);
+      });
+      const notices: { text: string; id: string }[] = [];
+      const notify = vi.spyOn(client.host, "notifyModel").mockImplementation(async (text, id) => { notices.push({ text, id }); });
+      const batch = decideLocalBatch(client, waiting.map(card => ({ approvalId: card.approvalId, decision: "approve" })));
+      try {
+        await paused;
+        for (const card of waiting) await decideLocal(client, card.approvalId, "approve");
+        release();
+        await batch;
+        expect(notices).toHaveLength(2);
+        expect(notices.every(notice => notice.id.startsWith("poppy-approval-"))).toBe(true);
+        expect(client.sql.exec("SELECT ids, told FROM poppy_approval_batches").toArray()).toEqual([{ ids: "[]", told: 1 }]);
+      } finally { release(); await Promise.allSettled([batch]); discovery.mockRestore(); notify.mockRestore(); }
+    });
+    expect(photoPosts(await requests(c))).toHaveLength(2);
+  });
+
+  it("recovers claimed batch members when its compatibility snapshot was not written", async () => {
+    const a = await agent();
+    const c = await company({ printShop: true });
+    const waiting = await waitingPhotos(a, c);
+    await runInDurableObject(a.stub, async instance => {
+      const client = instance.poppy.client;
+      const notices: { text: string; id: string }[] = [];
+      let failOnce = true;
+      const notify = vi.spyOn(client.host, "notifyModel").mockImplementation(async (text, id) => {
+        if (failOnce) { failOnce = false; throw new Error("batch not delivered"); }
+        notices.push({ text, id });
+      });
+      try {
+        await expect(decideLocalBatch(client, waiting.map(card => ({ approvalId: card.approvalId, decision: "decline" })))).rejects.toThrow("batch not delivered");
+        // The durable ownership claims survive even at a death before the IDs/payload snapshots.
+        client.sql.exec("UPDATE poppy_approval_batches SET ids = '[]', notification = NULL");
+        await recoverInterruptedApprovals(client);
+        expect(notices).toEqual([]);
+        await recoverApprovalBatches(client);
+        expect(notices).toHaveLength(1);
+        expect(notices[0].id).toMatch(/^poppy-approvals-/);
+        for (const name of ["photo1.jpg", "photo2.jpg"]) expect(notices[0].text).toContain(name);
+        expect(client.sql.exec("SELECT notification_pending FROM poppy_approvals").toArray()).toEqual([{ notification_pending: 0 }, { notification_pending: 0 }]);
+      } finally { notify.mockRestore(); }
+    });
+    expect(photoPosts(await requests(c))).toEqual([]);
+  });
+
+  it("migrates legacy batches without adopting ambiguous individual notification ownership", async () => {
+    const a = await agent();
+    const c = await company({ printShop: true });
+    const waiting = await waitingPhotos(a, c);
+    await runInDurableObject(a.stub, async instance => {
+      const client = instance.poppy.client;
+      const notices: { text: string; id: string }[] = [];
+      let failOnce = true;
+      const notify = vi.spyOn(client.host, "notifyModel").mockImplementation(async (text, id) => {
+        notices.push({ text, id });
+        if (failOnce) { failOnce = false; throw new Error("legacy batch acknowledgement lost"); }
+      });
+      try {
+        await expect(decideLocalBatch(client, waiting.map(card => ({ approvalId: card.approvalId, decision: "decline" })))).rejects.toThrow("legacy batch acknowledgement lost");
+        const first = notices[0];
+        client.sql.exec("DROP INDEX poppy_approvals_notification_batch");
+        client.sql.exec("ALTER TABLE poppy_approvals DROP COLUMN notification_batch_id");
+        migrate(client.sql);
+        migrate(client.sql);
+        expect(client.sql.exec("SELECT notification_batch_id FROM poppy_approvals").toArray()).toEqual([{ notification_batch_id: null }, { notification_batch_id: null }]);
+        // An old intent snapshot cannot prove which handler owned a pending decision.
+        await recoverInterruptedApprovals(client);
+        expect(notices.filter(notice => notice.id.startsWith("poppy-approval-"))).toHaveLength(2);
+        await recoverApprovalBatches(client);
+        expect(notices.filter(notice => notice.id.startsWith("poppy-approvals-"))).toEqual([first, first]);
+        expect(client.sql.exec("SELECT notification_pending FROM poppy_approvals").toArray()).toEqual([{ notification_pending: 0 }, { notification_pending: 0 }]);
+        await recoverInterruptedApprovals(client);
+        await recoverApprovalBatches(client);
+        expect(notices).toHaveLength(4);
+      } finally { notify.mockRestore(); }
+    });
+    expect(photoPosts(await requests(c))).toEqual([]);
+  });
+
   it("retries the same exact batch payload even when recovery would format declined items differently", async () => {
     const a = await agent();
     const c = await company({ printShop: true });

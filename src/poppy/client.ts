@@ -964,6 +964,7 @@ export class PoppyClient {
         response.refresh_token_expires_in
       );
     } else this.#advanceAccountGeneration(company.issuer, account);
+    this.#checkAccountGeneration(company.issuer, account, previousGeneration + 1);
     this.#bindAccount(company, label, account, response.scope ?? "");
     const generation = this.accountGeneration(company.issuer, account);
     const bound = sessionAuthority(this.session(company.issuer, label));

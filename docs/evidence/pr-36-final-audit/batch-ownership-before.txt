@@ -1,0 +1,65 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+ ❯ |personal-agent| test/poppy-batch-single-notification.test.ts (3 tests | 2 failed) 404ms
+     × keeps a concurrent single decision's pending notice when a batch skips that decision 190ms
+     × retains a completed single decision's failed notification while another batch acknowledges its own work 112ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |personal-agent| test/poppy-batch-single-notification.test.ts > batch notifications belong only to the decisions the batch claimed > keeps a concurrent single decision's pending notice when a batch skips that decision
+AssertionError: expected { status: 'executing', …(1) } to deeply equal { status: 'executing', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "notification_pending": 1,
++   "notification_pending": 0,
+    "status": "executing",
+  }
+
+ ❯ test/poppy-batch-single-notification.test.ts:67:12
+     65|         expect(notices[0].text).not.toContain("photo1.jpg");
+     66|         expect(client.sql.exec("SELECT status, notification_pending FR…
+     67|           .toEqual({ status: "executing", notification_pending: 1 });
+       |            ^
+     68|         resumeSingle.release();
+     69|         await single;
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |personal-agent| test/poppy-batch-single-notification.test.ts > batch notifications belong only to the decisions the batch claimed > retains a completed single decision's failed notification while another batch acknowledges its own work
+AssertionError: expected { status: 'done', …(1) } to deeply equal { status: 'done', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "notification_pending": 1,
++   "notification_pending": 0,
+    "status": "done",
+  }
+
+ ❯ test/poppy-batch-single-notification.test.ts:114:12
+    112|         expect(batchNotices[0].text).not.toContain("photo1.jpg");
+    113|         expect(client.sql.exec("SELECT status, notification_pending FR…
+    114|           .toEqual({ status: "done", notification_pending: 1 });
+       |            ^
+    115|         await recoverInterruptedApprovals(client);
+    116|         expect(singleNotices).toHaveLength(2);
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  17:22:08
+   Duration  10.26s (transform 3.88s, setup 0ms, import 8.65s, tests 404ms, environment 0ms)

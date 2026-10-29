@@ -114,6 +114,27 @@ describe("refresh responses cannot replace a newer account family", () => {
     expect(f.client.session(f.company.issuer, "main")).toMatchObject({ session_id: before.session_id, account: null, signed_in: 0, authority_generation: before.authority_generation + 1 });
   });
 
+  it("does not rebind a Session when sign-out wins after sign-in token storage", async () => {
+    const f = await fixture(async (request) => {
+      expect(request.url).toBe(f.company.endpoints.revocation);
+      expect(new URLSearchParams(await request.text()).get("token")).toBe("new-signin-refresh");
+      return new Response(null, { status: 200 });
+    });
+    const before = f.client.session(f.company.issuer, "main")!;
+    const store = f.client.storeAccountToken.bind(f.client);
+    const storing = vi.spyOn(f.client, "storeAccountToken").mockImplementation(async (...args) => {
+      await store(...args);
+      // The withdrawal wins after durable storage, before completeSignIn's
+      // continuation can bind the Session or cache the response's access token.
+      await signOut(f.client, f.company.issuer, "default");
+    });
+    try { await expect(f.stepUp()).rejects.toMatchObject({ code: "approval_changed" }); }
+    finally { storing.mockRestore(); }
+    expect(await f.refreshToken()).toBeNull();
+    expect(f.client.session(f.company.issuer, "main")).toMatchObject({ session_id: before.session_id, account: null, signed_in: 0, authority_generation: before.authority_generation + 1 });
+    await expect(f.client.token(f.company)).resolves.toBeNull();
+  });
+
   it("does not overwrite newer sign-in access while a rotated refresh token is being sealed", async () => {
     const f = await fixture(async () => Response.json({ access_token: "old-family-access", token_type: "Bearer", expires_in: 3600, refresh_token: "old-family-rotated" }));
     const ready = deferred(), release = deferred();

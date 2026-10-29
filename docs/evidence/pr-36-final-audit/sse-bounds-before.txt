@@ -1,0 +1,93 @@
+
+ RUN  v4.1.12 /workspace/pda-pr36-audit
+
+▲ [WARNING] Proxy environment variables detected. We'll use your proxy for fetch requests.
+
+
+ ❯ |personal-agent| test/poppy-sse-chunks.test.ts (7 tests | 3 failed | 4 skipped) 15266ms
+     × cancels an oversized unfinished event while retaining committed messages and cursor 5138ms
+     × cancels an oversized complete event while retaining committed messages and cursor 5062ms
+     × cancels an oversized unfinished message while retaining committed messages and cursor 5064ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |personal-agent| test/poppy-sse-chunks.test.ts > conversation SSE transport chunk boundaries > cancels an oversized unfinished event while retaining committed messages and cursor
+AssertionError: promise resolved "1793293520819" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+1793293520819
+
+ ❯ test/poppy-sse-chunks.test.ts:101:73
+     99|           }), { headers: { "Content-Type": "text/event-stream" } });
+    100|         });
+    101|         await expect(readConversation(client, opened.conversationId, 0…
+       |                                                                         ^
+    102|         expect(cancelled).toBe(1);
+    103|         expect(conversation(client, opened.conversationId)).toMatchObj…
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |personal-agent| test/poppy-sse-chunks.test.ts > conversation SSE transport chunk boundaries > cancels an oversized complete event while retaining committed messages and cursor
+AssertionError: promise resolved "1793293525889" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+1793293525889
+
+ ❯ test/poppy-sse-chunks.test.ts:101:73
+     99|           }), { headers: { "Content-Type": "text/event-stream" } });
+    100|         });
+    101|         await expect(readConversation(client, opened.conversationId, 0…
+       |                                                                         ^
+    102|         expect(cancelled).toBe(1);
+    103|         expect(conversation(client, opened.conversationId)).toMatchObj…
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |personal-agent| test/poppy-sse-chunks.test.ts > conversation SSE transport chunk boundaries > cancels an oversized unfinished message while retaining committed messages and cursor
+AssertionError: promise resolved "1793293530953" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+1793293530953
+
+ ❯ test/poppy-sse-chunks.test.ts:101:73
+     99|           }), { headers: { "Content-Type": "text/event-stream" } });
+    100|         });
+    101|         await expect(readConversation(client, opened.conversationId, 0…
+       |                                                                         ^
+    102|         expect(cancelled).toBe(1);
+    103|         expect(conversation(client, opened.conversationId)).toMatchObj…
+ ❯ maybeHandleRunRequest workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:157:18
+ ❯ DurableObject.Wrapper.fetch workspace/pda-pr36-audit/node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs:552:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 4 skipped (7)
+   Start at  17:05:06
+   Duration  23.46s (transform 2.99s, setup 0ms, import 6.99s, tests 15.27s, environment 0ms)
+
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.1
+npm notice To update run: npm install -g npm@12.2.1
+npm notice
