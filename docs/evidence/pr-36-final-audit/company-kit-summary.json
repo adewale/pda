@@ -1,0 +1,2373 @@
+{
+  "original": {
+    "archiveSha256": "8b795dd6eb8dd04e6f6ccfdcf6abc63c4a522a8a4292f0ba9b759e8c6ac38e0a",
+    "source": "https://personalagentprotocol.org/kit/implement-personal-agent-protocol.zip",
+    "upstreamFilesVerified": 79,
+    "runtime": "local workerd through real HTTPS; certificate and hostname verified",
+    "validator": "unmodified upstream CLI",
+    "identity": "fresh upstream-generated test identity, provisioned at the dummy Company's existing allowlisted client_id",
+    "privateAddressSetting": "upstream --allow-private-addresses; transport accepts declared local hosts only",
+    "liveHostingVerified": false,
+    "liveSignInVerified": false,
+    "authenticatedActionVerifiedByKit": false,
+    "companyEffects": {
+      "mock": 0,
+      "hosted": 0
+    },
+    "transportFailures": [],
+    "reviewedFindings": "All upstream verdicts retained; only the documented DPoP prerequisite findings and explicit absent-feature skips remain. Accepted controls pass on the bearer profile.",
+    "rawLocalReceiptSha256": "babd8039eb2faf8c6d79c225f87126303808826a2948a278138f5f8d28c79395",
+    "rawLocalReceipt": "/tmp/pda-final-audit-final-kit-original.json",
+    "runs": [
+      {
+        "profile": "lenient",
+        "summary": {
+          "total": {
+            "pass": 111,
+            "fail": 1,
+            "warn": 7,
+            "skip": 1
+          },
+          "foundation": {
+            "pass": 54,
+            "fail": 0,
+            "warn": 7,
+            "skip": 0
+          },
+          "interfaces": {
+            "pass": 55,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          },
+          "sign-in": {
+            "pass": 1,
+            "fail": 1,
+            "warn": 0,
+            "skip": 0
+          },
+          "extensions": {
+            "pass": 1,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          }
+        },
+        "checkIdsByStatus": {
+          "pass": [
+            "discovery.https",
+            "discovery.redirects-https",
+            "discovery.redirects-well-known",
+            "discovery.json",
+            "discovery.schema",
+            "discovery.protocol-version",
+            "discovery.domain-matches-host",
+            "discovery.interface-present",
+            "discovery.extension-names",
+            "discovery.excluded-tasks",
+            "discovery.alternative-references",
+            "metadata.issuer-required",
+            "metadata.resource-metadata",
+            "metadata.issuer-chosen",
+            "metadata.published",
+            "metadata.schema",
+            "metadata.issuer-matches",
+            "metadata.protected-resources",
+            "metadata.token-endpoint",
+            "metadata.revocation-endpoint",
+            "metadata.grant-types",
+            "metadata.authorization-endpoint",
+            "metadata.device-authorization-endpoint",
+            "metadata.scopes-supported",
+            "metadata.scopes-described",
+            "metadata.same-auth",
+            "metadata.mediated-grant",
+            "session.start",
+            "session.continue",
+            "session.new-key",
+            "session.new-session",
+            "session.delegation-ps384",
+            "session.other-user",
+            "session.other-agent",
+            "session.missing",
+            "session.typ",
+            "session.unknown-key",
+            "session.kid-thumbprint",
+            "session.without-delegation",
+            "session.delegation-signature",
+            "session.delegation-expired",
+            "session.delegation-lifetime",
+            "session.delegation-typ",
+            "session.delegation-iss",
+            "session.delegation-kid",
+            "session.iat-after-delegation",
+            "session.claims",
+            "session.aud",
+            "session.htm",
+            "session.htu",
+            "session.iat",
+            "session.ath-without-token",
+            "session.invalid-everywhere",
+            "token.invented",
+            "token.in-url",
+            "openapi.loads",
+            "openapi.version",
+            "mcp.metadata",
+            "mcp.authorization-servers",
+            "mcp.no-token",
+            "mcp.invalid-token",
+            "feedback.no-session",
+            "feedback.accepted",
+            "feedback.invalid",
+            "web.page-headers",
+            "web.page-headers-suggested",
+            "web.join-cookie",
+            "web.join-cookie-suggested",
+            "web.authorize",
+            "web.authorize-reused",
+            "web.authorize-unknown",
+            "web.form-without-cookie",
+            "web.form-code-used",
+            "web.cookie-code-pairing",
+            "web.authorize-session",
+            "web.page-cookies",
+            "conversations.start",
+            "conversations.retry-same-id",
+            "conversations.message-id-conflict",
+            "conversations.follow-up",
+            "conversations.retry-follow-up",
+            "conversations.other-user",
+            "conversations.empty-message",
+            "conversations.invalid-message-id",
+            "conversations.message-id-boundaries",
+            "conversations.data-only",
+            "conversations.context-only",
+            "conversations.events-read",
+            "conversations.events-schema",
+            "conversations.user-message-recorded",
+            "conversations.message-preserved",
+            "conversations.retry-not-duplicated",
+            "conversations.event-order",
+            "conversations.state-events",
+            "conversations.cursor",
+            "conversations.wait",
+            "conversations.invalid-wait",
+            "conversations.unknown-cursor",
+            "conversations.cursor-other-conversation",
+            "conversations.message-id-other-conversation",
+            "conversations.sse",
+            "conversations.sse-last-event-id",
+            "conversations.not-found",
+            "conversations.close",
+            "conversations.close-event",
+            "conversations.close-again",
+            "conversations.closed-message",
+            "conversations.closed-handoff",
+            "conversations.direct-closed-parent",
+            "conversations.direct-unknown-parent",
+            "operations.not-returned"
+          ],
+          "fail": [
+            "mediated.unknown-sign-in"
+          ],
+          "warn": [
+            "assertion.ps384",
+            "assertion.signature",
+            "assertion.expired",
+            "assertion.claims",
+            "assertion.aud-array",
+            "assertion.aud-endpoint",
+            "assertion.jti-reuse"
+          ],
+          "skip": [
+            "feedback.alternative-references"
+          ]
+        },
+        "nonPassing": [
+          {
+            "id": "mediated.unknown-sign-in",
+            "title": "A Mediated Sign-In code for an unknown sign_in_id gets invalid_grant",
+            "status": "fail",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}"
+          },
+          {
+            "id": "assertion.ps384",
+            "title": "The token endpoint accepts a client assertion signed with PS384",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.signature",
+            "title": "The token endpoint refuses a client assertion whose signature doesn't verify",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.expired",
+            "title": "The token endpoint refuses an expired client assertion",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.claims",
+            "title": "The token endpoint refuses a client assertion without exp or sub",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.aud-array",
+            "title": "The token endpoint refuses a client assertion whose aud is an array",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.aud-endpoint",
+            "title": "The token endpoint refuses a client assertion whose aud is its own URL",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.jti-reuse",
+            "title": "The token endpoint refuses a client assertion whose jti it has already seen",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "feedback.alternative-references",
+            "title": "An alternative returned for a report names only APIs poppy.json lists",
+            "status": "skip",
+            "reason": "The report got no alternative to check."
+          }
+        ]
+      },
+      {
+        "profile": "strict",
+        "summary": {
+          "total": {
+            "pass": 111,
+            "fail": 1,
+            "warn": 7,
+            "skip": 1
+          },
+          "foundation": {
+            "pass": 54,
+            "fail": 0,
+            "warn": 7,
+            "skip": 0
+          },
+          "interfaces": {
+            "pass": 55,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          },
+          "sign-in": {
+            "pass": 1,
+            "fail": 1,
+            "warn": 0,
+            "skip": 0
+          },
+          "extensions": {
+            "pass": 1,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          }
+        },
+        "checkIdsByStatus": {
+          "pass": [
+            "discovery.https",
+            "discovery.redirects-https",
+            "discovery.redirects-well-known",
+            "discovery.json",
+            "discovery.schema",
+            "discovery.protocol-version",
+            "discovery.domain-matches-host",
+            "discovery.interface-present",
+            "discovery.extension-names",
+            "discovery.excluded-tasks",
+            "discovery.alternative-references",
+            "metadata.issuer-required",
+            "metadata.resource-metadata",
+            "metadata.issuer-chosen",
+            "metadata.published",
+            "metadata.schema",
+            "metadata.issuer-matches",
+            "metadata.protected-resources",
+            "metadata.token-endpoint",
+            "metadata.revocation-endpoint",
+            "metadata.grant-types",
+            "metadata.authorization-endpoint",
+            "metadata.device-authorization-endpoint",
+            "metadata.scopes-supported",
+            "metadata.scopes-described",
+            "metadata.same-auth",
+            "metadata.mediated-grant",
+            "session.start",
+            "session.continue",
+            "session.new-key",
+            "session.new-session",
+            "session.delegation-ps384",
+            "session.other-user",
+            "session.other-agent",
+            "session.missing",
+            "session.typ",
+            "session.unknown-key",
+            "session.kid-thumbprint",
+            "session.without-delegation",
+            "session.delegation-signature",
+            "session.delegation-expired",
+            "session.delegation-lifetime",
+            "session.delegation-typ",
+            "session.delegation-iss",
+            "session.delegation-kid",
+            "session.iat-after-delegation",
+            "session.claims",
+            "session.aud",
+            "session.htm",
+            "session.htu",
+            "session.iat",
+            "session.ath-without-token",
+            "session.invalid-everywhere",
+            "token.invented",
+            "token.in-url",
+            "openapi.loads",
+            "openapi.version",
+            "mcp.metadata",
+            "mcp.authorization-servers",
+            "mcp.no-token",
+            "mcp.invalid-token",
+            "feedback.no-session",
+            "feedback.accepted",
+            "feedback.invalid",
+            "web.page-headers",
+            "web.page-headers-suggested",
+            "web.join-cookie",
+            "web.join-cookie-suggested",
+            "web.authorize",
+            "web.authorize-reused",
+            "web.authorize-unknown",
+            "web.form-without-cookie",
+            "web.form-code-used",
+            "web.cookie-code-pairing",
+            "web.authorize-session",
+            "web.page-cookies",
+            "conversations.start",
+            "conversations.retry-same-id",
+            "conversations.message-id-conflict",
+            "conversations.follow-up",
+            "conversations.retry-follow-up",
+            "conversations.other-user",
+            "conversations.empty-message",
+            "conversations.invalid-message-id",
+            "conversations.message-id-boundaries",
+            "conversations.data-only",
+            "conversations.context-only",
+            "conversations.events-read",
+            "conversations.events-schema",
+            "conversations.user-message-recorded",
+            "conversations.message-preserved",
+            "conversations.retry-not-duplicated",
+            "conversations.event-order",
+            "conversations.state-events",
+            "conversations.cursor",
+            "conversations.wait",
+            "conversations.invalid-wait",
+            "conversations.unknown-cursor",
+            "conversations.cursor-other-conversation",
+            "conversations.message-id-other-conversation",
+            "conversations.sse",
+            "conversations.sse-last-event-id",
+            "conversations.not-found",
+            "conversations.close",
+            "conversations.close-event",
+            "conversations.close-again",
+            "conversations.closed-message",
+            "conversations.closed-handoff",
+            "conversations.direct-closed-parent",
+            "conversations.direct-unknown-parent",
+            "operations.not-returned"
+          ],
+          "fail": [
+            "mediated.unknown-sign-in"
+          ],
+          "warn": [
+            "assertion.ps384",
+            "assertion.signature",
+            "assertion.expired",
+            "assertion.claims",
+            "assertion.aud-array",
+            "assertion.aud-endpoint",
+            "assertion.jti-reuse"
+          ],
+          "skip": [
+            "feedback.alternative-references"
+          ]
+        },
+        "nonPassing": [
+          {
+            "id": "mediated.unknown-sign-in",
+            "title": "A Mediated Sign-In code for an unknown sign_in_id gets invalid_grant",
+            "status": "fail",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}"
+          },
+          {
+            "id": "assertion.ps384",
+            "title": "The token endpoint accepts a client assertion signed with PS384",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.signature",
+            "title": "The token endpoint refuses a client assertion whose signature doesn't verify",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.expired",
+            "title": "The token endpoint refuses an expired client assertion",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.claims",
+            "title": "The token endpoint refuses a client assertion without exp or sub",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.aud-array",
+            "title": "The token endpoint refuses a client assertion whose aud is an array",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.aud-endpoint",
+            "title": "The token endpoint refuses a client assertion whose aud is its own URL",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.jti-reuse",
+            "title": "The token endpoint refuses a client assertion whose jti it has already seen",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "feedback.alternative-references",
+            "title": "An alternative returned for a report names only APIs poppy.json lists",
+            "status": "skip",
+            "reason": "The report got no alternative to check."
+          }
+        ]
+      },
+      {
+        "profile": "bearer",
+        "summary": {
+          "total": {
+            "pass": 119,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          },
+          "foundation": {
+            "pass": 61,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          },
+          "interfaces": {
+            "pass": 55,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          },
+          "sign-in": {
+            "pass": 2,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          },
+          "extensions": {
+            "pass": 1,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          }
+        },
+        "checkIdsByStatus": {
+          "pass": [
+            "discovery.https",
+            "discovery.redirects-https",
+            "discovery.redirects-well-known",
+            "discovery.json",
+            "discovery.schema",
+            "discovery.protocol-version",
+            "discovery.domain-matches-host",
+            "discovery.interface-present",
+            "discovery.extension-names",
+            "discovery.excluded-tasks",
+            "discovery.alternative-references",
+            "metadata.issuer-required",
+            "metadata.resource-metadata",
+            "metadata.issuer-chosen",
+            "metadata.published",
+            "metadata.schema",
+            "metadata.issuer-matches",
+            "metadata.protected-resources",
+            "metadata.token-endpoint",
+            "metadata.revocation-endpoint",
+            "metadata.grant-types",
+            "metadata.authorization-endpoint",
+            "metadata.device-authorization-endpoint",
+            "metadata.scopes-supported",
+            "metadata.scopes-described",
+            "metadata.same-auth",
+            "metadata.mediated-grant",
+            "mediated.unknown-sign-in",
+            "session.start",
+            "session.continue",
+            "session.new-key",
+            "session.new-session",
+            "session.delegation-ps384",
+            "session.other-user",
+            "session.other-agent",
+            "assertion.ps384",
+            "assertion.signature",
+            "assertion.expired",
+            "assertion.claims",
+            "assertion.aud-array",
+            "assertion.aud-endpoint",
+            "assertion.jti-reuse",
+            "session.missing",
+            "session.typ",
+            "session.unknown-key",
+            "session.kid-thumbprint",
+            "session.without-delegation",
+            "session.delegation-signature",
+            "session.delegation-expired",
+            "session.delegation-lifetime",
+            "session.delegation-typ",
+            "session.delegation-iss",
+            "session.delegation-kid",
+            "session.iat-after-delegation",
+            "session.claims",
+            "session.aud",
+            "session.htm",
+            "session.htu",
+            "session.iat",
+            "session.ath-without-token",
+            "session.invalid-everywhere",
+            "token.invented",
+            "token.in-url",
+            "openapi.loads",
+            "openapi.version",
+            "mcp.metadata",
+            "mcp.authorization-servers",
+            "mcp.no-token",
+            "mcp.invalid-token",
+            "feedback.no-session",
+            "feedback.accepted",
+            "feedback.invalid",
+            "web.page-headers",
+            "web.page-headers-suggested",
+            "web.join-cookie",
+            "web.join-cookie-suggested",
+            "web.authorize",
+            "web.authorize-reused",
+            "web.authorize-unknown",
+            "web.form-without-cookie",
+            "web.form-code-used",
+            "web.cookie-code-pairing",
+            "web.authorize-session",
+            "web.page-cookies",
+            "conversations.start",
+            "conversations.retry-same-id",
+            "conversations.message-id-conflict",
+            "conversations.follow-up",
+            "conversations.retry-follow-up",
+            "conversations.other-user",
+            "conversations.empty-message",
+            "conversations.invalid-message-id",
+            "conversations.message-id-boundaries",
+            "conversations.data-only",
+            "conversations.context-only",
+            "conversations.events-read",
+            "conversations.events-schema",
+            "conversations.user-message-recorded",
+            "conversations.message-preserved",
+            "conversations.retry-not-duplicated",
+            "conversations.event-order",
+            "conversations.state-events",
+            "conversations.cursor",
+            "conversations.wait",
+            "conversations.invalid-wait",
+            "conversations.unknown-cursor",
+            "conversations.cursor-other-conversation",
+            "conversations.message-id-other-conversation",
+            "conversations.sse",
+            "conversations.sse-last-event-id",
+            "conversations.not-found",
+            "conversations.close",
+            "conversations.close-event",
+            "conversations.close-again",
+            "conversations.closed-message",
+            "conversations.closed-handoff",
+            "conversations.direct-closed-parent",
+            "conversations.direct-unknown-parent",
+            "operations.not-returned"
+          ],
+          "fail": [],
+          "warn": [],
+          "skip": [
+            "feedback.alternative-references"
+          ]
+        },
+        "nonPassing": [
+          {
+            "id": "feedback.alternative-references",
+            "title": "An alternative returned for a report names only APIs poppy.json lists",
+            "status": "skip",
+            "reason": "The report got no alternative to check."
+          }
+        ]
+      },
+      {
+        "profile": "hosted",
+        "summary": {
+          "total": {
+            "pass": 55,
+            "fail": 0,
+            "warn": 7,
+            "skip": 58
+          },
+          "foundation": {
+            "pass": 49,
+            "fail": 0,
+            "warn": 7,
+            "skip": 5
+          },
+          "interfaces": {
+            "pass": 6,
+            "fail": 0,
+            "warn": 0,
+            "skip": 50
+          },
+          "sign-in": {
+            "pass": 0,
+            "fail": 0,
+            "warn": 0,
+            "skip": 2
+          },
+          "extensions": {
+            "pass": 0,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          }
+        },
+        "checkIdsByStatus": {
+          "pass": [
+            "discovery.https",
+            "discovery.redirects-https",
+            "discovery.redirects-well-known",
+            "discovery.json",
+            "discovery.schema",
+            "discovery.protocol-version",
+            "discovery.domain-matches-host",
+            "discovery.interface-present",
+            "discovery.extension-names",
+            "metadata.issuer-required",
+            "metadata.resource-metadata",
+            "metadata.issuer-chosen",
+            "metadata.published",
+            "metadata.schema",
+            "metadata.issuer-matches",
+            "metadata.protected-resources",
+            "metadata.token-endpoint",
+            "metadata.revocation-endpoint",
+            "metadata.grant-types",
+            "metadata.authorization-endpoint",
+            "metadata.scopes-supported",
+            "metadata.scopes-described",
+            "session.start",
+            "session.continue",
+            "session.new-key",
+            "session.new-session",
+            "session.delegation-ps384",
+            "session.other-user",
+            "session.other-agent",
+            "session.missing",
+            "session.typ",
+            "session.unknown-key",
+            "session.kid-thumbprint",
+            "session.without-delegation",
+            "session.delegation-signature",
+            "session.delegation-expired",
+            "session.delegation-lifetime",
+            "session.delegation-typ",
+            "session.delegation-iss",
+            "session.delegation-kid",
+            "session.iat-after-delegation",
+            "session.claims",
+            "session.aud",
+            "session.htm",
+            "session.htu",
+            "session.iat",
+            "session.ath-without-token",
+            "token.invented",
+            "token.in-url",
+            "openapi.loads",
+            "openapi.version",
+            "mcp.metadata",
+            "mcp.authorization-servers",
+            "mcp.no-token",
+            "mcp.invalid-token"
+          ],
+          "fail": [],
+          "warn": [
+            "assertion.ps384",
+            "assertion.signature",
+            "assertion.expired",
+            "assertion.claims",
+            "assertion.aud-array",
+            "assertion.aud-endpoint",
+            "assertion.jti-reuse"
+          ],
+          "skip": [
+            "discovery.excluded-tasks",
+            "discovery.alternative-references",
+            "metadata.device-authorization-endpoint",
+            "metadata.same-auth",
+            "metadata.mediated-grant",
+            "mediated.unknown-sign-in",
+            "session.invalid-everywhere",
+            "feedback.no-session",
+            "feedback.accepted",
+            "feedback.alternative-references",
+            "feedback.invalid",
+            "web.page-headers",
+            "web.page-headers-suggested",
+            "web.join-cookie",
+            "web.join-cookie-suggested",
+            "web.authorize",
+            "web.authorize-reused",
+            "web.authorize-unknown",
+            "web.form-without-cookie",
+            "web.form-code-used",
+            "web.cookie-code-pairing",
+            "web.authorize-session",
+            "web.page-cookies",
+            "conversations.start",
+            "conversations.retry-same-id",
+            "conversations.message-id-conflict",
+            "conversations.follow-up",
+            "conversations.retry-follow-up",
+            "conversations.other-user",
+            "conversations.empty-message",
+            "conversations.invalid-message-id",
+            "conversations.message-id-boundaries",
+            "conversations.data-only",
+            "conversations.context-only",
+            "conversations.events-read",
+            "conversations.events-schema",
+            "conversations.user-message-recorded",
+            "conversations.message-preserved",
+            "conversations.retry-not-duplicated",
+            "conversations.event-order",
+            "conversations.state-events",
+            "conversations.cursor",
+            "conversations.wait",
+            "conversations.invalid-wait",
+            "conversations.unknown-cursor",
+            "conversations.cursor-other-conversation",
+            "conversations.message-id-other-conversation",
+            "conversations.sse",
+            "conversations.sse-last-event-id",
+            "conversations.not-found",
+            "conversations.close",
+            "conversations.close-event",
+            "conversations.close-again",
+            "conversations.closed-message",
+            "conversations.closed-handoff",
+            "conversations.direct-closed-parent",
+            "conversations.direct-unknown-parent",
+            "operations.not-returned"
+          ]
+        },
+        "nonPassing": [
+          {
+            "id": "discovery.excluded-tasks",
+            "title": "The excluded-tasks document loads and has the fields in 9.1",
+            "status": "skip",
+            "reason": "poppy.json lists no excluded_tasks."
+          },
+          {
+            "id": "discovery.alternative-references",
+            "title": "Each openapi or mcp reference in an alternative names an API listed in poppy.json",
+            "status": "skip",
+            "reason": "poppy.json lists no excluded_tasks."
+          },
+          {
+            "id": "metadata.device-authorization-endpoint",
+            "title": "The metadata has a device_authorization_endpoint when it offers Device Sign-In",
+            "status": "skip",
+            "reason": "grant_types_supported doesn't include urn:ietf:params:oauth:grant-type:device_code."
+          },
+          {
+            "id": "metadata.same-auth",
+            "title": "Other domains with the same issuer have the same auth in their poppy.json",
+            "status": "skip",
+            "reason": "The issuer's protected_resources lists no other domain."
+          },
+          {
+            "id": "metadata.mediated-grant",
+            "title": "With Mediated Sign-In listed, the issuer's metadata lists its grant type",
+            "status": "skip",
+            "reason": "poppy.json doesn't list Mediated Sign-In version 1."
+          },
+          {
+            "id": "mediated.unknown-sign-in",
+            "title": "A Mediated Sign-In code for an unknown sign_in_id gets invalid_grant",
+            "status": "skip",
+            "reason": "poppy.json doesn't list Mediated Sign-In version 1."
+          },
+          {
+            "id": "assertion.ps384",
+            "title": "The token endpoint accepts a client assertion signed with PS384",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.signature",
+            "title": "The token endpoint refuses a client assertion whose signature doesn't verify",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.expired",
+            "title": "The token endpoint refuses an expired client assertion",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.claims",
+            "title": "The token endpoint refuses a client assertion without exp or sub",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.aud-array",
+            "title": "The token endpoint refuses a client assertion whose aud is an array",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.aud-endpoint",
+            "title": "The token endpoint refuses a client assertion whose aud is its own URL",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "assertion.jti-reuse",
+            "title": "The token endpoint refuses a client assertion whose jti it has already seen",
+            "status": "warn",
+            "got": "400 Bad Request, error invalid_dpop_proof",
+            "expected": "400 {\"error\": \"invalid_grant\"}: the assertion accepted, the refresh token unknown"
+          },
+          {
+            "id": "session.invalid-everywhere",
+            "title": "Every endpoint that takes the Session header rejects a bad one with 400 invalid_session",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation, feedback, or browser-session endpoint."
+          },
+          {
+            "id": "feedback.no-session",
+            "title": "The feedback endpoint rejects a report without the Session header",
+            "status": "skip",
+            "reason": "poppy.json lists no feedback endpoint."
+          },
+          {
+            "id": "feedback.accepted",
+            "title": "The feedback endpoint accepts a report with a signed-out Session header",
+            "status": "skip",
+            "reason": "poppy.json lists no feedback endpoint."
+          },
+          {
+            "id": "feedback.alternative-references",
+            "title": "An alternative returned for a report names only APIs poppy.json lists",
+            "status": "skip",
+            "reason": "poppy.json lists no feedback endpoint."
+          },
+          {
+            "id": "feedback.invalid",
+            "title": "A malformed or overlong report returns invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no feedback endpoint."
+          },
+          {
+            "id": "web.page-headers",
+            "title": "The browser-session page can't be cached, framed, or kept as a reference",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.page-headers-suggested",
+            "title": "The browser-session page sends the headers the guides suggest",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.join-cookie",
+            "title": "The browser-session page sets a cookie that forms on other sites don't send",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.join-cookie-suggested",
+            "title": "The join cookie is a __Host- cookie that is Secure, HttpOnly, and SameSite=Strict",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.authorize",
+            "title": "Authorizing the page's code with the Session header returns 204",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.authorize-reused",
+            "title": "Authorizing the same code again returns 400 invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.authorize-unknown",
+            "title": "Authorizing a code the endpoint never issued returns 400 invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.form-without-cookie",
+            "title": "Submitting the form without the join cookie gets an error and sets no cookie",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.form-code-used",
+            "title": "Submitting a code a second time gets an error, even when the first attempt failed",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.cookie-code-pairing",
+            "title": "Submitting a code with the cookie from another page load gets an error",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.authorize-session",
+            "title": "Authorizing a code without a valid Session header returns invalid_session",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.page-cookies",
+            "title": "Loading the page doesn't change the browser's other cookies",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "conversations.start",
+            "title": "Starting a conversation returns 201 with conversation_id, status, and responder",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.retry-same-id",
+            "title": "Retrying the first message returns the same conversation",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.message-id-conflict",
+            "title": "Reusing a message ID with different content returns message_id_conflict",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.follow-up",
+            "title": "A later message returns 202 with status and responder",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.retry-follow-up",
+            "title": "Retrying a later message returns the original response",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.other-user",
+            "title": "Reading another User's conversation returns conversation_not_found",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.empty-message",
+            "title": "A message without content returns invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.invalid-message-id",
+            "title": "A message ID with characters not allowed returns invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.message-id-boundaries",
+            "title": "A 256-character message ID is accepted and a 257-character one isn't",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.data-only",
+            "title": "A message with only data is accepted",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.context-only",
+            "title": "A message with only context is accepted and recorded",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.events-read",
+            "title": "Reading events returns conversation_id, events, cursor, has_more, status, and responder",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.events-schema",
+            "title": "Events have the fields section 8.5 describes",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.user-message-recorded",
+            "title": "The first message is recorded as an event with role user",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.message-preserved",
+            "title": "A message is recorded as it was sent, with its author, text, data, and context",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.retry-not-duplicated",
+            "title": "A retried message is recorded only once",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.event-order",
+            "title": "Events have unique IDs, and messages are in the order they were sent",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.state-events",
+            "title": "Every change to status or responder has a state event",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.cursor",
+            "title": "A read from a cursor returns only later events, and the right cursor",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.wait",
+            "title": "A read with wait=1 returns within about a second when there's nothing new",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.invalid-wait",
+            "title": "A wait that isn't a whole number returns invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.unknown-cursor",
+            "title": "An unknown cursor returns invalid_cursor",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.cursor-other-conversation",
+            "title": "A cursor from another conversation returns invalid_cursor",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.message-id-other-conversation",
+            "title": "A message ID from another conversation, with different content, returns message_id_conflict",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.sse",
+            "title": "A read that asks for a stream gets SSE events with their IDs, or JSON as usual",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.sse-last-event-id",
+            "title": "A stream with both cursor and Last-Event-ID starts after Last-Event-ID",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.not-found",
+            "title": "An unknown Conversation ID returns conversation_not_found",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.close",
+            "title": "Closing returns 200 with status closed",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.close-event",
+            "title": "Closing adds a state event with status closed",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.close-again",
+            "title": "Closing again returns 200 and adds no event",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.closed-message",
+            "title": "A message to a closed conversation returns conversation_closed",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.closed-handoff",
+            "title": "A handoff request to a closed conversation returns conversation_closed",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.direct-closed-parent",
+            "title": "A Direct Conversation whose parent is closed returns conversation_closed",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.direct-unknown-parent",
+            "title": "A Direct Conversation whose parent doesn't exist returns conversation_not_found",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "operations.not-returned",
+            "title": "No operations are returned to a Personal Agent that doesn't list the Operations extension",
+            "status": "skip",
+            "reason": "No conversation responses to check (see the conversations checks)."
+          }
+        ]
+      }
+    ]
+  },
+  "dpop": {
+    "archiveSha256": "8b795dd6eb8dd04e6f6ccfdcf6abc63c4a522a8a4292f0ba9b759e8c6ac38e0a",
+    "source": "https://personalagentprotocol.org/kit/implement-personal-agent-protocol.zip",
+    "upstreamFilesVerified": 79,
+    "runtime": "local workerd through real HTTPS; certificate and hostname verified",
+    "validator": "separate temporary upstream copy with DPoP token-probe patch",
+    "patchSha256": "b005da5f1042a4343d1d6661334f1097f9b0995345fa17b0fb7cae8f51428edd",
+    "dpopScope": "ES256 token proofs; nonce preflight uses an independent assertion before the tested controls",
+    "identity": "fresh upstream-generated test identity, provisioned at the dummy Company's existing allowlisted client_id",
+    "privateAddressSetting": "upstream --allow-private-addresses; transport accepts declared local hosts only",
+    "liveHostingVerified": false,
+    "liveSignInVerified": false,
+    "authenticatedActionVerifiedByKit": false,
+    "companyEffects": {
+      "mock": 0,
+      "hosted": 0
+    },
+    "transportFailures": [],
+    "reviewedFindings": "The separately patched CLI supplies ES256 DPoP proofs. All applicable checks pass; only documented absent-feature skips remain. The pinned upstream source is unchanged.",
+    "proofControls": [
+      {
+        "profile": "lenient",
+        "results": [
+          {
+            "mutation": "valid",
+            "status": 400,
+            "error": "invalid_grant"
+          },
+          {
+            "mutation": "missing",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "signature",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "method",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "url",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "valid-after-denials",
+            "status": 400,
+            "error": "invalid_grant"
+          }
+        ]
+      },
+      {
+        "profile": "strict",
+        "results": [
+          {
+            "mutation": "valid",
+            "status": 400,
+            "error": "invalid_grant"
+          },
+          {
+            "mutation": "missing",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "signature",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "method",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "url",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "valid-after-denials",
+            "status": 400,
+            "error": "invalid_grant"
+          }
+        ]
+      },
+      {
+        "profile": "hosted",
+        "results": [
+          {
+            "mutation": "valid",
+            "status": 400,
+            "error": "invalid_grant"
+          },
+          {
+            "mutation": "missing",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "signature",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "method",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "url",
+            "status": 400,
+            "error": "invalid_dpop_proof"
+          },
+          {
+            "mutation": "valid-after-denials",
+            "status": 400,
+            "error": "invalid_grant"
+          }
+        ]
+      }
+    ],
+    "rawLocalReceiptSha256": "b580a9861d4b5bf5e47a874f86aa8ae7035b443cfab9e6f30dd265dcef03215c",
+    "rawLocalReceipt": "/tmp/pda-final-audit-final-kit-dpop.json",
+    "runs": [
+      {
+        "profile": "lenient",
+        "summary": {
+          "total": {
+            "pass": 119,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          },
+          "foundation": {
+            "pass": 61,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          },
+          "interfaces": {
+            "pass": 55,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          },
+          "sign-in": {
+            "pass": 2,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          },
+          "extensions": {
+            "pass": 1,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          }
+        },
+        "checkIdsByStatus": {
+          "pass": [
+            "discovery.https",
+            "discovery.redirects-https",
+            "discovery.redirects-well-known",
+            "discovery.json",
+            "discovery.schema",
+            "discovery.protocol-version",
+            "discovery.domain-matches-host",
+            "discovery.interface-present",
+            "discovery.extension-names",
+            "discovery.excluded-tasks",
+            "discovery.alternative-references",
+            "metadata.issuer-required",
+            "metadata.resource-metadata",
+            "metadata.issuer-chosen",
+            "metadata.published",
+            "metadata.schema",
+            "metadata.issuer-matches",
+            "metadata.protected-resources",
+            "metadata.token-endpoint",
+            "metadata.revocation-endpoint",
+            "metadata.grant-types",
+            "metadata.authorization-endpoint",
+            "metadata.device-authorization-endpoint",
+            "metadata.scopes-supported",
+            "metadata.scopes-described",
+            "metadata.same-auth",
+            "metadata.mediated-grant",
+            "mediated.unknown-sign-in",
+            "session.start",
+            "session.continue",
+            "session.new-key",
+            "session.new-session",
+            "session.delegation-ps384",
+            "session.other-user",
+            "session.other-agent",
+            "assertion.ps384",
+            "assertion.signature",
+            "assertion.expired",
+            "assertion.claims",
+            "assertion.aud-array",
+            "assertion.aud-endpoint",
+            "assertion.jti-reuse",
+            "session.missing",
+            "session.typ",
+            "session.unknown-key",
+            "session.kid-thumbprint",
+            "session.without-delegation",
+            "session.delegation-signature",
+            "session.delegation-expired",
+            "session.delegation-lifetime",
+            "session.delegation-typ",
+            "session.delegation-iss",
+            "session.delegation-kid",
+            "session.iat-after-delegation",
+            "session.claims",
+            "session.aud",
+            "session.htm",
+            "session.htu",
+            "session.iat",
+            "session.ath-without-token",
+            "session.invalid-everywhere",
+            "token.invented",
+            "token.in-url",
+            "openapi.loads",
+            "openapi.version",
+            "mcp.metadata",
+            "mcp.authorization-servers",
+            "mcp.no-token",
+            "mcp.invalid-token",
+            "feedback.no-session",
+            "feedback.accepted",
+            "feedback.invalid",
+            "web.page-headers",
+            "web.page-headers-suggested",
+            "web.join-cookie",
+            "web.join-cookie-suggested",
+            "web.authorize",
+            "web.authorize-reused",
+            "web.authorize-unknown",
+            "web.form-without-cookie",
+            "web.form-code-used",
+            "web.cookie-code-pairing",
+            "web.authorize-session",
+            "web.page-cookies",
+            "conversations.start",
+            "conversations.retry-same-id",
+            "conversations.message-id-conflict",
+            "conversations.follow-up",
+            "conversations.retry-follow-up",
+            "conversations.other-user",
+            "conversations.empty-message",
+            "conversations.invalid-message-id",
+            "conversations.message-id-boundaries",
+            "conversations.data-only",
+            "conversations.context-only",
+            "conversations.events-read",
+            "conversations.events-schema",
+            "conversations.user-message-recorded",
+            "conversations.message-preserved",
+            "conversations.retry-not-duplicated",
+            "conversations.event-order",
+            "conversations.state-events",
+            "conversations.cursor",
+            "conversations.wait",
+            "conversations.invalid-wait",
+            "conversations.unknown-cursor",
+            "conversations.cursor-other-conversation",
+            "conversations.message-id-other-conversation",
+            "conversations.sse",
+            "conversations.sse-last-event-id",
+            "conversations.not-found",
+            "conversations.close",
+            "conversations.close-event",
+            "conversations.close-again",
+            "conversations.closed-message",
+            "conversations.closed-handoff",
+            "conversations.direct-closed-parent",
+            "conversations.direct-unknown-parent",
+            "operations.not-returned"
+          ],
+          "fail": [],
+          "warn": [],
+          "skip": [
+            "feedback.alternative-references"
+          ]
+        },
+        "nonPassing": [
+          {
+            "id": "feedback.alternative-references",
+            "title": "An alternative returned for a report names only APIs poppy.json lists",
+            "status": "skip",
+            "reason": "The report got no alternative to check."
+          }
+        ]
+      },
+      {
+        "profile": "strict",
+        "summary": {
+          "total": {
+            "pass": 119,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          },
+          "foundation": {
+            "pass": 61,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          },
+          "interfaces": {
+            "pass": 55,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          },
+          "sign-in": {
+            "pass": 2,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          },
+          "extensions": {
+            "pass": 1,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          }
+        },
+        "checkIdsByStatus": {
+          "pass": [
+            "discovery.https",
+            "discovery.redirects-https",
+            "discovery.redirects-well-known",
+            "discovery.json",
+            "discovery.schema",
+            "discovery.protocol-version",
+            "discovery.domain-matches-host",
+            "discovery.interface-present",
+            "discovery.extension-names",
+            "discovery.excluded-tasks",
+            "discovery.alternative-references",
+            "metadata.issuer-required",
+            "metadata.resource-metadata",
+            "metadata.issuer-chosen",
+            "metadata.published",
+            "metadata.schema",
+            "metadata.issuer-matches",
+            "metadata.protected-resources",
+            "metadata.token-endpoint",
+            "metadata.revocation-endpoint",
+            "metadata.grant-types",
+            "metadata.authorization-endpoint",
+            "metadata.device-authorization-endpoint",
+            "metadata.scopes-supported",
+            "metadata.scopes-described",
+            "metadata.same-auth",
+            "metadata.mediated-grant",
+            "mediated.unknown-sign-in",
+            "session.start",
+            "session.continue",
+            "session.new-key",
+            "session.new-session",
+            "session.delegation-ps384",
+            "session.other-user",
+            "session.other-agent",
+            "assertion.ps384",
+            "assertion.signature",
+            "assertion.expired",
+            "assertion.claims",
+            "assertion.aud-array",
+            "assertion.aud-endpoint",
+            "assertion.jti-reuse",
+            "session.missing",
+            "session.typ",
+            "session.unknown-key",
+            "session.kid-thumbprint",
+            "session.without-delegation",
+            "session.delegation-signature",
+            "session.delegation-expired",
+            "session.delegation-lifetime",
+            "session.delegation-typ",
+            "session.delegation-iss",
+            "session.delegation-kid",
+            "session.iat-after-delegation",
+            "session.claims",
+            "session.aud",
+            "session.htm",
+            "session.htu",
+            "session.iat",
+            "session.ath-without-token",
+            "session.invalid-everywhere",
+            "token.invented",
+            "token.in-url",
+            "openapi.loads",
+            "openapi.version",
+            "mcp.metadata",
+            "mcp.authorization-servers",
+            "mcp.no-token",
+            "mcp.invalid-token",
+            "feedback.no-session",
+            "feedback.accepted",
+            "feedback.invalid",
+            "web.page-headers",
+            "web.page-headers-suggested",
+            "web.join-cookie",
+            "web.join-cookie-suggested",
+            "web.authorize",
+            "web.authorize-reused",
+            "web.authorize-unknown",
+            "web.form-without-cookie",
+            "web.form-code-used",
+            "web.cookie-code-pairing",
+            "web.authorize-session",
+            "web.page-cookies",
+            "conversations.start",
+            "conversations.retry-same-id",
+            "conversations.message-id-conflict",
+            "conversations.follow-up",
+            "conversations.retry-follow-up",
+            "conversations.other-user",
+            "conversations.empty-message",
+            "conversations.invalid-message-id",
+            "conversations.message-id-boundaries",
+            "conversations.data-only",
+            "conversations.context-only",
+            "conversations.events-read",
+            "conversations.events-schema",
+            "conversations.user-message-recorded",
+            "conversations.message-preserved",
+            "conversations.retry-not-duplicated",
+            "conversations.event-order",
+            "conversations.state-events",
+            "conversations.cursor",
+            "conversations.wait",
+            "conversations.invalid-wait",
+            "conversations.unknown-cursor",
+            "conversations.cursor-other-conversation",
+            "conversations.message-id-other-conversation",
+            "conversations.sse",
+            "conversations.sse-last-event-id",
+            "conversations.not-found",
+            "conversations.close",
+            "conversations.close-event",
+            "conversations.close-again",
+            "conversations.closed-message",
+            "conversations.closed-handoff",
+            "conversations.direct-closed-parent",
+            "conversations.direct-unknown-parent",
+            "operations.not-returned"
+          ],
+          "fail": [],
+          "warn": [],
+          "skip": [
+            "feedback.alternative-references"
+          ]
+        },
+        "nonPassing": [
+          {
+            "id": "feedback.alternative-references",
+            "title": "An alternative returned for a report names only APIs poppy.json lists",
+            "status": "skip",
+            "reason": "The report got no alternative to check."
+          }
+        ]
+      },
+      {
+        "profile": "bearer",
+        "summary": {
+          "total": {
+            "pass": 119,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          },
+          "foundation": {
+            "pass": 61,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          },
+          "interfaces": {
+            "pass": 55,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          },
+          "sign-in": {
+            "pass": 2,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          },
+          "extensions": {
+            "pass": 1,
+            "fail": 0,
+            "warn": 0,
+            "skip": 0
+          }
+        },
+        "checkIdsByStatus": {
+          "pass": [
+            "discovery.https",
+            "discovery.redirects-https",
+            "discovery.redirects-well-known",
+            "discovery.json",
+            "discovery.schema",
+            "discovery.protocol-version",
+            "discovery.domain-matches-host",
+            "discovery.interface-present",
+            "discovery.extension-names",
+            "discovery.excluded-tasks",
+            "discovery.alternative-references",
+            "metadata.issuer-required",
+            "metadata.resource-metadata",
+            "metadata.issuer-chosen",
+            "metadata.published",
+            "metadata.schema",
+            "metadata.issuer-matches",
+            "metadata.protected-resources",
+            "metadata.token-endpoint",
+            "metadata.revocation-endpoint",
+            "metadata.grant-types",
+            "metadata.authorization-endpoint",
+            "metadata.device-authorization-endpoint",
+            "metadata.scopes-supported",
+            "metadata.scopes-described",
+            "metadata.same-auth",
+            "metadata.mediated-grant",
+            "mediated.unknown-sign-in",
+            "session.start",
+            "session.continue",
+            "session.new-key",
+            "session.new-session",
+            "session.delegation-ps384",
+            "session.other-user",
+            "session.other-agent",
+            "assertion.ps384",
+            "assertion.signature",
+            "assertion.expired",
+            "assertion.claims",
+            "assertion.aud-array",
+            "assertion.aud-endpoint",
+            "assertion.jti-reuse",
+            "session.missing",
+            "session.typ",
+            "session.unknown-key",
+            "session.kid-thumbprint",
+            "session.without-delegation",
+            "session.delegation-signature",
+            "session.delegation-expired",
+            "session.delegation-lifetime",
+            "session.delegation-typ",
+            "session.delegation-iss",
+            "session.delegation-kid",
+            "session.iat-after-delegation",
+            "session.claims",
+            "session.aud",
+            "session.htm",
+            "session.htu",
+            "session.iat",
+            "session.ath-without-token",
+            "session.invalid-everywhere",
+            "token.invented",
+            "token.in-url",
+            "openapi.loads",
+            "openapi.version",
+            "mcp.metadata",
+            "mcp.authorization-servers",
+            "mcp.no-token",
+            "mcp.invalid-token",
+            "feedback.no-session",
+            "feedback.accepted",
+            "feedback.invalid",
+            "web.page-headers",
+            "web.page-headers-suggested",
+            "web.join-cookie",
+            "web.join-cookie-suggested",
+            "web.authorize",
+            "web.authorize-reused",
+            "web.authorize-unknown",
+            "web.form-without-cookie",
+            "web.form-code-used",
+            "web.cookie-code-pairing",
+            "web.authorize-session",
+            "web.page-cookies",
+            "conversations.start",
+            "conversations.retry-same-id",
+            "conversations.message-id-conflict",
+            "conversations.follow-up",
+            "conversations.retry-follow-up",
+            "conversations.other-user",
+            "conversations.empty-message",
+            "conversations.invalid-message-id",
+            "conversations.message-id-boundaries",
+            "conversations.data-only",
+            "conversations.context-only",
+            "conversations.events-read",
+            "conversations.events-schema",
+            "conversations.user-message-recorded",
+            "conversations.message-preserved",
+            "conversations.retry-not-duplicated",
+            "conversations.event-order",
+            "conversations.state-events",
+            "conversations.cursor",
+            "conversations.wait",
+            "conversations.invalid-wait",
+            "conversations.unknown-cursor",
+            "conversations.cursor-other-conversation",
+            "conversations.message-id-other-conversation",
+            "conversations.sse",
+            "conversations.sse-last-event-id",
+            "conversations.not-found",
+            "conversations.close",
+            "conversations.close-event",
+            "conversations.close-again",
+            "conversations.closed-message",
+            "conversations.closed-handoff",
+            "conversations.direct-closed-parent",
+            "conversations.direct-unknown-parent",
+            "operations.not-returned"
+          ],
+          "fail": [],
+          "warn": [],
+          "skip": [
+            "feedback.alternative-references"
+          ]
+        },
+        "nonPassing": [
+          {
+            "id": "feedback.alternative-references",
+            "title": "An alternative returned for a report names only APIs poppy.json lists",
+            "status": "skip",
+            "reason": "The report got no alternative to check."
+          }
+        ]
+      },
+      {
+        "profile": "hosted",
+        "summary": {
+          "total": {
+            "pass": 62,
+            "fail": 0,
+            "warn": 0,
+            "skip": 58
+          },
+          "foundation": {
+            "pass": 56,
+            "fail": 0,
+            "warn": 0,
+            "skip": 5
+          },
+          "interfaces": {
+            "pass": 6,
+            "fail": 0,
+            "warn": 0,
+            "skip": 50
+          },
+          "sign-in": {
+            "pass": 0,
+            "fail": 0,
+            "warn": 0,
+            "skip": 2
+          },
+          "extensions": {
+            "pass": 0,
+            "fail": 0,
+            "warn": 0,
+            "skip": 1
+          }
+        },
+        "checkIdsByStatus": {
+          "pass": [
+            "discovery.https",
+            "discovery.redirects-https",
+            "discovery.redirects-well-known",
+            "discovery.json",
+            "discovery.schema",
+            "discovery.protocol-version",
+            "discovery.domain-matches-host",
+            "discovery.interface-present",
+            "discovery.extension-names",
+            "metadata.issuer-required",
+            "metadata.resource-metadata",
+            "metadata.issuer-chosen",
+            "metadata.published",
+            "metadata.schema",
+            "metadata.issuer-matches",
+            "metadata.protected-resources",
+            "metadata.token-endpoint",
+            "metadata.revocation-endpoint",
+            "metadata.grant-types",
+            "metadata.authorization-endpoint",
+            "metadata.scopes-supported",
+            "metadata.scopes-described",
+            "session.start",
+            "session.continue",
+            "session.new-key",
+            "session.new-session",
+            "session.delegation-ps384",
+            "session.other-user",
+            "session.other-agent",
+            "assertion.ps384",
+            "assertion.signature",
+            "assertion.expired",
+            "assertion.claims",
+            "assertion.aud-array",
+            "assertion.aud-endpoint",
+            "assertion.jti-reuse",
+            "session.missing",
+            "session.typ",
+            "session.unknown-key",
+            "session.kid-thumbprint",
+            "session.without-delegation",
+            "session.delegation-signature",
+            "session.delegation-expired",
+            "session.delegation-lifetime",
+            "session.delegation-typ",
+            "session.delegation-iss",
+            "session.delegation-kid",
+            "session.iat-after-delegation",
+            "session.claims",
+            "session.aud",
+            "session.htm",
+            "session.htu",
+            "session.iat",
+            "session.ath-without-token",
+            "token.invented",
+            "token.in-url",
+            "openapi.loads",
+            "openapi.version",
+            "mcp.metadata",
+            "mcp.authorization-servers",
+            "mcp.no-token",
+            "mcp.invalid-token"
+          ],
+          "fail": [],
+          "warn": [],
+          "skip": [
+            "discovery.excluded-tasks",
+            "discovery.alternative-references",
+            "metadata.device-authorization-endpoint",
+            "metadata.same-auth",
+            "metadata.mediated-grant",
+            "mediated.unknown-sign-in",
+            "session.invalid-everywhere",
+            "feedback.no-session",
+            "feedback.accepted",
+            "feedback.alternative-references",
+            "feedback.invalid",
+            "web.page-headers",
+            "web.page-headers-suggested",
+            "web.join-cookie",
+            "web.join-cookie-suggested",
+            "web.authorize",
+            "web.authorize-reused",
+            "web.authorize-unknown",
+            "web.form-without-cookie",
+            "web.form-code-used",
+            "web.cookie-code-pairing",
+            "web.authorize-session",
+            "web.page-cookies",
+            "conversations.start",
+            "conversations.retry-same-id",
+            "conversations.message-id-conflict",
+            "conversations.follow-up",
+            "conversations.retry-follow-up",
+            "conversations.other-user",
+            "conversations.empty-message",
+            "conversations.invalid-message-id",
+            "conversations.message-id-boundaries",
+            "conversations.data-only",
+            "conversations.context-only",
+            "conversations.events-read",
+            "conversations.events-schema",
+            "conversations.user-message-recorded",
+            "conversations.message-preserved",
+            "conversations.retry-not-duplicated",
+            "conversations.event-order",
+            "conversations.state-events",
+            "conversations.cursor",
+            "conversations.wait",
+            "conversations.invalid-wait",
+            "conversations.unknown-cursor",
+            "conversations.cursor-other-conversation",
+            "conversations.message-id-other-conversation",
+            "conversations.sse",
+            "conversations.sse-last-event-id",
+            "conversations.not-found",
+            "conversations.close",
+            "conversations.close-event",
+            "conversations.close-again",
+            "conversations.closed-message",
+            "conversations.closed-handoff",
+            "conversations.direct-closed-parent",
+            "conversations.direct-unknown-parent",
+            "operations.not-returned"
+          ]
+        },
+        "nonPassing": [
+          {
+            "id": "discovery.excluded-tasks",
+            "title": "The excluded-tasks document loads and has the fields in 9.1",
+            "status": "skip",
+            "reason": "poppy.json lists no excluded_tasks."
+          },
+          {
+            "id": "discovery.alternative-references",
+            "title": "Each openapi or mcp reference in an alternative names an API listed in poppy.json",
+            "status": "skip",
+            "reason": "poppy.json lists no excluded_tasks."
+          },
+          {
+            "id": "metadata.device-authorization-endpoint",
+            "title": "The metadata has a device_authorization_endpoint when it offers Device Sign-In",
+            "status": "skip",
+            "reason": "grant_types_supported doesn't include urn:ietf:params:oauth:grant-type:device_code."
+          },
+          {
+            "id": "metadata.same-auth",
+            "title": "Other domains with the same issuer have the same auth in their poppy.json",
+            "status": "skip",
+            "reason": "The issuer's protected_resources lists no other domain."
+          },
+          {
+            "id": "metadata.mediated-grant",
+            "title": "With Mediated Sign-In listed, the issuer's metadata lists its grant type",
+            "status": "skip",
+            "reason": "poppy.json doesn't list Mediated Sign-In version 1."
+          },
+          {
+            "id": "mediated.unknown-sign-in",
+            "title": "A Mediated Sign-In code for an unknown sign_in_id gets invalid_grant",
+            "status": "skip",
+            "reason": "poppy.json doesn't list Mediated Sign-In version 1."
+          },
+          {
+            "id": "session.invalid-everywhere",
+            "title": "Every endpoint that takes the Session header rejects a bad one with 400 invalid_session",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation, feedback, or browser-session endpoint."
+          },
+          {
+            "id": "feedback.no-session",
+            "title": "The feedback endpoint rejects a report without the Session header",
+            "status": "skip",
+            "reason": "poppy.json lists no feedback endpoint."
+          },
+          {
+            "id": "feedback.accepted",
+            "title": "The feedback endpoint accepts a report with a signed-out Session header",
+            "status": "skip",
+            "reason": "poppy.json lists no feedback endpoint."
+          },
+          {
+            "id": "feedback.alternative-references",
+            "title": "An alternative returned for a report names only APIs poppy.json lists",
+            "status": "skip",
+            "reason": "poppy.json lists no feedback endpoint."
+          },
+          {
+            "id": "feedback.invalid",
+            "title": "A malformed or overlong report returns invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no feedback endpoint."
+          },
+          {
+            "id": "web.page-headers",
+            "title": "The browser-session page can't be cached, framed, or kept as a reference",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.page-headers-suggested",
+            "title": "The browser-session page sends the headers the guides suggest",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.join-cookie",
+            "title": "The browser-session page sets a cookie that forms on other sites don't send",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.join-cookie-suggested",
+            "title": "The join cookie is a __Host- cookie that is Secure, HttpOnly, and SameSite=Strict",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.authorize",
+            "title": "Authorizing the page's code with the Session header returns 204",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.authorize-reused",
+            "title": "Authorizing the same code again returns 400 invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.authorize-unknown",
+            "title": "Authorizing a code the endpoint never issued returns 400 invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.form-without-cookie",
+            "title": "Submitting the form without the join cookie gets an error and sets no cookie",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.form-code-used",
+            "title": "Submitting a code a second time gets an error, even when the first attempt failed",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.cookie-code-pairing",
+            "title": "Submitting a code with the cookie from another page load gets an error",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.authorize-session",
+            "title": "Authorizing a code without a valid Session header returns invalid_session",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "web.page-cookies",
+            "title": "Loading the page doesn't change the browser's other cookies",
+            "status": "skip",
+            "reason": "poppy.json lists no web.browser_session_endpoint."
+          },
+          {
+            "id": "conversations.start",
+            "title": "Starting a conversation returns 201 with conversation_id, status, and responder",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.retry-same-id",
+            "title": "Retrying the first message returns the same conversation",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.message-id-conflict",
+            "title": "Reusing a message ID with different content returns message_id_conflict",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.follow-up",
+            "title": "A later message returns 202 with status and responder",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.retry-follow-up",
+            "title": "Retrying a later message returns the original response",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.other-user",
+            "title": "Reading another User's conversation returns conversation_not_found",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.empty-message",
+            "title": "A message without content returns invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.invalid-message-id",
+            "title": "A message ID with characters not allowed returns invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.message-id-boundaries",
+            "title": "A 256-character message ID is accepted and a 257-character one isn't",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.data-only",
+            "title": "A message with only data is accepted",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.context-only",
+            "title": "A message with only context is accepted and recorded",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.events-read",
+            "title": "Reading events returns conversation_id, events, cursor, has_more, status, and responder",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.events-schema",
+            "title": "Events have the fields section 8.5 describes",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.user-message-recorded",
+            "title": "The first message is recorded as an event with role user",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.message-preserved",
+            "title": "A message is recorded as it was sent, with its author, text, data, and context",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.retry-not-duplicated",
+            "title": "A retried message is recorded only once",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.event-order",
+            "title": "Events have unique IDs, and messages are in the order they were sent",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.state-events",
+            "title": "Every change to status or responder has a state event",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.cursor",
+            "title": "A read from a cursor returns only later events, and the right cursor",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.wait",
+            "title": "A read with wait=1 returns within about a second when there's nothing new",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.invalid-wait",
+            "title": "A wait that isn't a whole number returns invalid_request",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.unknown-cursor",
+            "title": "An unknown cursor returns invalid_cursor",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.cursor-other-conversation",
+            "title": "A cursor from another conversation returns invalid_cursor",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.message-id-other-conversation",
+            "title": "A message ID from another conversation, with different content, returns message_id_conflict",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.sse",
+            "title": "A read that asks for a stream gets SSE events with their IDs, or JSON as usual",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.sse-last-event-id",
+            "title": "A stream with both cursor and Last-Event-ID starts after Last-Event-ID",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.not-found",
+            "title": "An unknown Conversation ID returns conversation_not_found",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.close",
+            "title": "Closing returns 200 with status closed",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.close-event",
+            "title": "Closing adds a state event with status closed",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.close-again",
+            "title": "Closing again returns 200 and adds no event",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.closed-message",
+            "title": "A message to a closed conversation returns conversation_closed",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.closed-handoff",
+            "title": "A handoff request to a closed conversation returns conversation_closed",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.direct-closed-parent",
+            "title": "A Direct Conversation whose parent is closed returns conversation_closed",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "conversations.direct-unknown-parent",
+            "title": "A Direct Conversation whose parent doesn't exist returns conversation_not_found",
+            "status": "skip",
+            "reason": "poppy.json lists no conversation endpoint (agent.protocols with type poppy)."
+          },
+          {
+            "id": "operations.not-returned",
+            "title": "No operations are returned to a Personal Agent that doesn't list the Operations extension",
+            "status": "skip",
+            "reason": "No conversation responses to check (see the conversations checks)."
+          }
+        ]
+      }
+    ]
+  }
+}

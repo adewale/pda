@@ -1,0 +1,168 @@
+{
+  "signedOutPage": true,
+  "publicAboutAndEcosystem": true,
+  "publicPagesNeedNoIdentityOrSocket": true,
+  "ecosystemMobileTablesAndDeepLinks": true,
+  "ecosystemMobileLandscape": true,
+  "publicLinksAndSectionTargets": true,
+  "oldEcosystemPathHasNoPageOrRedirect": true,
+  "authenticatedWorkspaceAndWebSocket": true,
+  "chatReply": true,
+  "chatSurvivesReload": true,
+  "companyApprovalJourneys": {
+    "journeys": [
+      {
+        "transport": "OpenAPI",
+        "viewport": "desktop",
+        "domain": "copenapijourney.shop.test",
+        "localApproval": {
+          "id": "apr_TEGMzHFROHBXNOoazp4FYg",
+          "status": "done"
+        },
+        "companyApproval": {
+          "id": "apr2_NDypWu8TkfXQxv65UPlveG",
+          "status": "done"
+        },
+        "browserWebSocketDecisions": [
+          {
+            "approvalId": "apr_TEGMzHFROHBXNOoazp4FYg",
+            "decision": "approve"
+          },
+          {
+            "approvalId": "apr2_NDypWu8TkfXQxv65UPlveG",
+            "decision": "approve"
+          }
+        ],
+        "companyWire": [
+          {
+            "status": 403,
+            "companyApprovalPresent": false
+          },
+          {
+            "status": 201,
+            "companyApprovalPresent": true
+          }
+        ],
+        "companyOperation": {
+          "id": "exc_yUB_Uv3R",
+          "state": "succeeded",
+          "revision": 1,
+          "confirms": 1,
+          "approvedBy": "user"
+        },
+        "performsBeforeEitherApproval": 0,
+        "performsAfterLocalApproval": 0,
+        "performsAfterTermsApprovalAndReload": 1,
+        "originalTranscript": "done",
+        "originalTranscriptSurvivesReload": true,
+        "activityInProgress": 0,
+        "activityResults": [
+          "done",
+          "done"
+        ],
+        "strictCompanyViolations": 0,
+        "strictCompanyWarnings": 0
+      },
+      {
+        "transport": "MCP",
+        "viewport": "mobile",
+        "domain": "cmcpjourney.shop.test",
+        "localApproval": {
+          "id": "apr_RF2oCzaGXbWfuyTvygwiJw",
+          "status": "done"
+        },
+        "companyApproval": {
+          "id": "apr2_GsPsXmeXatRk6ijheIpfQc",
+          "status": "done"
+        },
+        "browserWebSocketDecisions": [
+          {
+            "approvalId": "apr_RF2oCzaGXbWfuyTvygwiJw",
+            "decision": "approve"
+          },
+          {
+            "approvalId": "apr2_GsPsXmeXatRk6ijheIpfQc",
+            "decision": "approve"
+          }
+        ],
+        "companyWire": null,
+        "companyOperation": {
+          "id": "exc_I50rvlbw",
+          "state": "succeeded",
+          "revision": 1,
+          "confirms": 1,
+          "approvedBy": "user"
+        },
+        "performsBeforeEitherApproval": 0,
+        "performsAfterLocalApproval": 0,
+        "performsAfterTermsApprovalAndReload": 1,
+        "originalTranscript": "done",
+        "originalTranscriptSurvivesReload": true,
+        "activityInProgress": 0,
+        "activityResults": [
+          "done",
+          "done"
+        ],
+        "strictCompanyViolations": 0,
+        "strictCompanyWarnings": 0
+      }
+    ],
+    "recovery": {
+      "transport": "OpenAPI",
+      "viewport": "desktop",
+      "fault": "Company performs the action, then the response is lost",
+      "initialReceipt": "unknown",
+      "agedReceiptSurvivesReload": true,
+      "ageAtReloadHours": 2,
+      "unresolvedReceiptOffersDismiss": false,
+      "freshProposalBlocked": true,
+      "browserWebSocketResolution": {
+        "approvalId": "apr__gRrJMrA6idWbadB8D6_6A",
+        "outcome": "performed"
+      },
+      "preservedReceiptStatus": "unknown",
+      "userReportedOutcome": "performed",
+      "resolvedReceiptExpired": true,
+      "recoveryPreservesReceiptAge": true,
+      "newerSyntheticActivityRows": 205,
+      "originalDecisionOutsideActivity": true,
+      "userAttributionAfterResolvedReceiptExpiry": true,
+      "exchangeRequestsBeforeReconciliation": 1,
+      "exchangeRequestsAfterReconciliationAndReload": 1,
+      "performsBeforeReconciliation": 1,
+      "performsAfterReconciliationAndReload": 1,
+      "originalTranscriptAfterReload": "done, attributed to the User's check with the Company",
+      "activityResult": "done",
+      "activityInProgress": 0,
+      "strictCompanyViolations": 0,
+      "strictCompanyWarnings": 0
+    },
+    "messageWithheld": {
+      "actualBrowserToolCall": true,
+      "replyQuotedAsSent": false,
+      "verificationCodeSent": false,
+      "authorizationMessages": 1,
+      "strictViolations": 0,
+      "strictWarnings": 0
+    },
+    "screenshots": [
+      "approval-openapi-terms-desktop.png",
+      "approval-openapi-done-desktop.png",
+      "unknown-reconciled-history-desktop.png"
+    ],
+    "companySignInSetup": "strict mock authorization decision followed by production authenticated callback",
+    "userApprovals": "actual Chromium clicks sent over the production WebSocket",
+    "liveOAuthOrExternalPaymentsVerified": false
+  },
+  "deepRoutes": true,
+  "mobileLayout": true,
+  "revokedSessionShowsRecoveryAndRetainsDraft": true,
+  "logoutAndReloadSignsOut": true,
+  "uncaughtBrowserErrors": 0,
+  "runtime": "local workerd",
+  "assets": "production Vite build",
+  "builtThisRun": true,
+  "model": "synthetic test provider",
+  "authentication": "production signed-cookie verifier with synthetic test identity",
+  "liveOAuthOrModelVerified": false
+}

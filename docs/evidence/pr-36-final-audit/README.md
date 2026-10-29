@@ -29,7 +29,20 @@ The receipt, batch, stream and refresh patterns include pre-existing defects tha
 
 ## Verification
 
-Final source and verification receipts are recorded in the evidence follow-up. Each before/after log below is an actual local test run, with the original fixture and limits retained. The eight real process-crash cases cover the documented execution boundaries. Reconciliation, batch ownership, receipt publication and new async races have separate deterministic Worker/Node controls; this does not claim arbitrary process-crash coverage.
+The final source is `8ce3503bb10f18a9ff4ec3595aced9006e23b825`; the evidence follow-up changes documentation/artifacts only. [Validation receipt](validation.json) hashes the changed source and every retained artifact. Each before/after log below is an actual local run with its original fixture and limits retained.
+
+| Check | Final local result |
+| --- | --- |
+| Full repository suites | [2,084 passed, one existing skip, 114 files](tests-summary.txt); all 381 Appendix references and documented scenarios resolve |
+| TypeScript and spec integrity | Passed; 43 changelog dispositions and 13 pinned pages |
+| Actual execution process crashes | [All eight pass](process-crashes.json), no business resend/effect; CI mode enabled |
+| Independent print-with-poppy | [All ten supported scenarios pass](print-with-poppy.json), no warnings/errors/unsupported cells; actual source pin `8ce3503` |
+| Production build and Chromium | [Both approval journeys pass](browser.json), zero browser errors or strict-mock findings |
+| Company kit | [Fresh original/patched summary](company-kit-summary.json), every check ID/status and non-passing verdict retained; all 18 independent proof controls pass |
+| Independent Python | [21 pass](python.txt), existing generators/default limits retained; Company/Python fixture unchanged after its source-pinned run |
+| Final-head workflows | See [PR checks](https://github.com/adewale/pda/pull/36/checks); no deployment runs here |
+
+The summary trims repeated HTTP/spec quotations from local kit receipts while retaining each check's verdict and every non-passing result. Complete raw local receipts remain at the recorded `/tmp` paths with hashes; CI separately uploads full raw receipts for its final-head run. The original DPoP findings remain failures/warnings, and absent features remain skips. The eight real process-crash cases cover the documented execution boundaries. Reconciliation, batch ownership, receipt publication and new async races have separate deterministic Worker/Node controls; this does not claim arbitrary process-crash coverage.
 
 ## Counterexamples and focused controls
 
@@ -43,3 +56,31 @@ Final source and verification receipts are recorded in the evidence follow-up. E
 The patched-kit tests also use an intentionally permissive invalid-signature control to prove their denial oracle rejects a malformed proof accepted by a broken peer. Historical kit files and earlier evidence packages are unchanged.
 
 Legacy compatibility: old batches whose claim owner was never recorded may report an outcome individually as well as in the batch. The migration preserves pending information instead of adopting another handler's notice from an old intent snapshot. No Company request is repeated.
+
+## Visual evidence
+
+The maintained production renderer captured these interaction states from the tested source. Reviewer cue: the original OpenAPI request moves from **Waiting for you** at Company terms to **Done** after approval and reload. The independent Company effect counters are 0 before either approval, 0 after our first approval, and 1 after Company terms approval/reload.
+
+| Company terms await approval | Original request after approval and reload |
+| --- | --- |
+| ![Company terms await User approval before any business effect](approval-openapi-terms-desktop.png) | ![The original request remains Done after approval and reload, with exactly one effect](approval-openapi-done-desktop.png) |
+
+![A reconciled action retains User attribution after receipt expiry, 205 newer Activity rows and reload](unknown-reconciled-history-desktop.png)
+
+These are states from one current build, not a base/head pixel comparison. Identity, model and Company are synthetic; the production signed-cookie verifier, WebSocket, client and UI are in use. The browser recovery scene uses the maintained memory-recovery seam. The separate process receipt proves actual SIGKILL; screenshots do not. The new receipt/race defects are established by their failing/passing Worker/Node controls, rather than by pretending these screenshots capture each injected failure.
+
+## Reproduce
+
+```sh
+npm run check:spec
+npm run typecheck
+npm test
+CI=true npm run check:approval-crashes -- --output /tmp/approval-crashes.json
+node scripts/check-company-kit.mjs --reviewed-findings --output /tmp/company-kit-original.json
+node scripts/check-company-kit.mjs --with-dpop --reviewed-findings --output /tmp/company-kit-dpop.json
+node scripts/app-smoke.mjs --approval-journey --output /tmp/browser.json
+npm run test:hypothesis
+npm run interop -- --agents pda --companies print-with-poppy --require-supported --scenarios D,S0,OU,CM,SD,SX,SMC,SO,AO,AS
+```
+
+The native kit nonce regression also failed all three current controls with only the old patch substituted in an isolated copy: [before](kit-nonce-before.txt), [after](kit-nonce-after.txt), [source/command record](kit-nonce-reproduction.json). Shared source was never replaced.
