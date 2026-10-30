@@ -8,12 +8,12 @@ PDA implements the pinned 29 October 2026 text of Poppy 0.3 alone. This is the c
 
 | Area | Evidence and limit |
 | --- | --- |
-| Repository implementation | The [PR checks](https://github.com/adewale/pda/pull/36/checks) run types, specification integrity, Worker, durability, page, interop and property tests on the commit under review. Passing them does not certify every normative requirement. |
+| Repository implementation | The [PR checks](https://github.com/adewale/pda/pull/38/checks) run types, specification integrity, Worker, durability, page, interop and property tests on the commit under review. Passing them does not certify every normative requirement. |
 | Own interop and security lanes | CI selects applicable honest/network, malicious-Company and malicious-agent cells explicitly, and refuses skipped required cells. [Lane definitions](../.github/workflows/interop.yml). |
 | Official Company kit | The [pinned website kit and manual checklist review](company-kit-review.md) exercise our mock profiles and hosted dummy Company's handlers independently over local HTTPS. The original raw DPoP prerequisite findings remain explicit. A separately patched copy finishes those probes with valid DPoP and 18 independent proof controls; absent-feature skips remain skips. This verifies Company-side fixtures, not the full Personal Agent. |
-| Independent Company | The pinned print-with-poppy 0.3 demo was rerun against the current client and passed all ten supported scenarios. [Fresh receipts and source hashes](evidence/pr-36-interop-completion/README.md). Demo accounts, orders and payments are synthetic. |
-| Browser interaction | The fresh [application smoke run](evidence/pr-36-interop-completion/README.md#browser-evidence) uses the production build, authenticated WebSocket and strict mock. Identity, model and Company are synthetic. |
-| Process-crash recovery | Eight actual SIGKILL cases terminate PDA and workerd, reuse SQLite and retain a separate Company process/request ledger. OpenAPI and MCP each cover four boundaries; no business request or effect repeats. [Receipt and recovered-notification defect](evidence/pr-36-interop-completion/README.md). |
+| Independent Company | The current follow-up passes D, SD and OU against the pinned print-with-poppy demo, with no unsupported cells. [Current receipts](evidence/task-approvals/audit/README.md). The earlier ten-scenario run remains [dated PR 36 evidence](evidence/pr-36-interop-completion/README.md). All demo accounts, orders and payments are synthetic. |
+| Browser interaction | The [current browser run](evidence/task-approvals/audit/README.md) exercises one terms decision, reload/reconciliation, scoped exports and exact source/anchor equality through the production build and authenticated WebSocket. Identity, model and Company are synthetic; checkout is not opened. |
+| Process-crash recovery | [Sixteen actual SIGKILL cases](evidence/task-approvals/audit/process-crashes.json) retain independent Company processes/ledgers and reuse PDA SQLite: eight approval boundaries, six initial-task boundaries, and real Pi MCP settlement with an unsafe negative control. No business request or effect repeats; interrupted terms publication is repaired without execution. |
 | Live services | The owner's 29 October diagnostics record authenticated 0.3 calls at Cliffside Retail and Print with Poppy, with approval and checkout defects described below. Discovery-only, synthetic-demo and authenticated-production evidence remain separate. The correction itself has not been deployed. |
 
 ## Live follow-up: 29 October
@@ -25,6 +25,8 @@ The follow-up changes task requests to Company-driven approval, reuses pending t
 Automatic retry after an uncertain approved action remains conservative: its exact approval is retained, new actions remain held, and the User can reconcile the outcome. This change does not claim complete automatic same-approval recovery under Ops §7.
 
 ## Final adversarial audit
+
+The [PR 38 follow-up](evidence/task-approvals/audit/README.md) records the current replay, authority and diagnostic fixes and two independent re-reviews. Stored approval forms are now version 3 only; there is no old two-card execution path. The paragraphs below retain the earlier PR 36 audit's scope and limits.
 
 [Six-reviewer audit and regressions](evidence/pr-36-final-audit/README.md) record the confirmed authorization, browser, approval, streaming, fixture and migration defects and their fixes. The audit includes pre-existing defects that remained relevant to this conversion; it does not label every finding a newly introduced regression.
 
@@ -160,7 +162,7 @@ The audit's issues stay open in the upstream text unless that text changes. Loca
 | 37. Refresh-token optionality wording | Preserve or replace stored refresh tokens according to the response. |
 | 38. Bad or missing references | Upstream editorial correction; no runtime behavior invented. |
 | 39. Smaller wording/example slips | Keep implementation tied to normative sections; preserve the audit's editorial findings. |
-| 40. No marker for writes needing approval | Keep the initial local approval before Company terms. The two-card cost remains a deliberate safety choice. |
+| 40. No marker for writes needing approval | Withdrawn. Decision 38 sends task requests normally and lets the Company's exact terms choose the approval boundary. File disclosure and website submission remain separate consent. |
 | 41. OpenAPI cannot identify the Poppy token scheme | Refuse clearly non-Poppy writes; two generic Bearer schemes remain indistinguishable without upstream markup. |
 | 42. Browser code is used twice | Follow the detailed authorize-once, submit-once steps; the mock tracks both stages separately. |
 | 43. Issuer need not advertise callback `iss` | Check callback `iss`; the validator warns when the metadata declaration is absent. |

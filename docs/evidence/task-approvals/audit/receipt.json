@@ -1,0 +1,44 @@
+{
+  "rendererAndBrowserFixture": "f8400012a2d17a1f4d05095a98c615ce2be5d48e",
+  "fullSuiteRevision": "5473d11f3bb8b4a9c44ac3f7328feae5525ba754",
+  "interopRevision": "0d73e9488c318e3e9a70e27974e7b993f08cfba6",
+  "independentlyReviewedRevision": "f10b24e1acab871797bce422cc366d1e83b91943",
+  "sourceTree": "c7fa3a1379542cd22c15c3dd4814fb6ed57bb6ce",
+  "fullSuiteSourceTree": "c7fa3a1379542cd22c15c3dd4814fb6ed57bb6ce",
+  "tests": {
+    "files": 117,
+    "passed": 2124,
+    "failed": 0,
+    "skipped": 0
+  },
+  "processKills": {
+    "cases": 16,
+    "passed": 16,
+    "includesUnsafeNegativeControl": true
+  },
+  "interop": {
+    "ownPassed": 10,
+    "independentDemoPassed": 3,
+    "unsupported": 0
+  },
+  "limitations": [
+    "Synthetic identities, model and Companies; no live OAuth, checkout or payment verification.",
+    "Client-reported anchor equality is telemetry, not independent server proof.",
+    "Browser helper prints an RPC-stub disposal warning; uncaught browser errors and strict Company violations/warnings are zero.",
+    "Conservative uncertain-outcome holds remain; full automatic Ops 7 recovery is not added."
+  ],
+  "sha256": {
+    "README.md": "90e2ee3421d22cda83baa115aef7d80a8c61009f21a4755837e3b04001de15bd",
+    "approval-desktop.png": "4cb1727e629ad4b5028ca2b8d5ad37cbe710e149a68d2c0a8bc0bf31ab59b39a",
+    "approval-mobile.png": "2159a8048a4ba2fa7e8af2a7d9f40986703c88b25bae8998eda281079639f31d",
+    "browser.json": "e4e4ddb760b7e7985546805a34f24c6372a0335d3b26bbea7a7d9b38d588cbab",
+    "checkout-desktop.png": "939e17712357276845b55ca8ce57744f4da79612e7c2e5e684d1c3de8d62f670",
+    "diagnostics-desktop.png": "f9c6d30d47f16775f81c359f0947f71dcb1470156b344bff6987937a20111fbf",
+    "diagnostics-mobile.png": "3d60caec1f27256f81d917174af740a996f736cabc6a25897335677dd786b89b",
+    "interop.json": "1156a595ebd97bd586110f4cc3f1eef80b556d2846621f60cd20b29ec1b5b7ac",
+    "process-crashes.json": "44805815cf87c3c87f69e2d063742c006504641dd4828c15293be8c91ff96b50",
+    "review-diagnostics.md": "945c86f275f65eb534fb34217df8063d21c0ef20f27bffd584dcd93abd9c8d29",
+    "review-lifecycle.md": "f6c500eca3e862ec8c19d4bd2146f0866132c9200296210a3c5537c0edf7505c"
+  },
+  "processKillRevision": "8beb69469628a244169f6c7eaba9196735bc0a05"
+}
