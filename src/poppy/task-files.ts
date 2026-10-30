@@ -19,7 +19,8 @@ export class TaskFiles {
   /** `task` and `history` are original placed User inputs, not model summaries. */
   static fromUser(task: string, history: readonly string[]): TaskFiles {
     const selected = new Set(markersIn(task));
-    const narrative = taskText(task.replace(MARKER, "")).narrative;
+    const source = taskText(task.replace(MARKER, "")).narrative;
+    const narrative = source.replace(/\b(?:at|to|with|company|shop|store)\s+(?:"[^"]*"|'[^']*'|“[^”]*”|‘[^’]*’|«[^»]*»)/giu, text => " ".repeat(text.length));
     const names = new Map<string, Set<string>>();
     for (const text of history) {
       for (const match of text.matchAll(MARKER)) {
@@ -42,13 +43,19 @@ export class TaskFiles {
     // Even unresolved filename spans are data, not ordinary "this photo"
     // references. Network locators were already removed as opaque spans.
     // String offsets are UTF-16; replace spans without changing their offsets.
-    const plain = spans.filter(span => span.selectable || (/[\s.]/u.test(span.name) && !recipientCue(narrative, span.start))).reduce((text, span) => text.slice(0, span.start) + " ".repeat(span.end - span.start) + text.slice(span.end), narrative);
-    const unresolvedName = [...plain.matchAll(/\S+/gu)].some(match => /\.(?:jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)["'”’»)\],.!?;:]*$/iu.test(match[0]) && !recipientCue(plain, match.index));
+    const plain = spans.filter(span => span.selectable || /[\s.]/u.test(span.name)).reduce((text, span) => text.slice(0, span.start) + " ".repeat(span.end - span.start) + text.slice(span.end), narrative);
+    const unresolvedName = [...plain.matchAll(/\S+/gu)].some(match => /\.(?:jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)["'”’»)\],.!?;:]*$/iu.test(match[0]) && !recipientCue(source, match.index));
     const recent = history.slice().reverse().map(markersIn).find(ids => ids.length > 0) ?? [];
     // Match complete whitespace-delimited phrases, with sentence punctuation,
     // rather than borrowing a noun from any kind of filename continuation.
-    const plural = /(?:^|\s)[(\["'“‘«]*(?:these|those|my|the attached) (?:photos|pictures|images)["'”’»)\].,!?;:]*(?=\s|$)/iu.test(plain);
-    const singular = /(?:^|\s)[(\["'“‘«]*(?:(?:this|that|my|the attached) (?:photo|picture|image)|the (?:photo|picture|image) I (?:attached|uploaded|sent))["'”’»)\].,!?;:]*(?=\s|$)/iu.test(plain);
+    const ordinary = (pattern: RegExp) => {
+      for (const match of plain.matchAll(pattern)) {
+        if (!recipientCue(source, match.index + match[0].search(/\S/u))) return true;
+      }
+      return false;
+    };
+    const plural = ordinary(/(?:^|\s)[(\["'“‘«]*(?:these|those|my|the attached) (?:photos|pictures|images)["'”’»)\].,!?;:]*(?=\s|$)/giu);
+    const singular = ordinary(/(?:^|\s)[(\["'“‘«]*(?:(?:this|that|my|the attached) (?:photo|picture|image)|the (?:photo|picture|image) I (?:attached|uploaded|sent))["'”’»)\].,!?;:]*(?=\s|$)/giu);
     if (selected.size === 0 && !unresolvedName && (plural || (singular && new Set(recent).size === 1))) for (const id of recent) selected.add(id);
     return new TaskFiles(selected);
   }

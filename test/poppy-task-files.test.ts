@@ -110,6 +110,19 @@ describe("photos selected by the User's task", () => {
     expect(selected.includes([lake.id])).toBe(false);
   });
 
+  it.each(["this photo backup", "this photo", "some this photo"])("does not turn a quoted recipient into a recent-file reference: %s", name => {
+    const old = { ...privatePhoto, name: name.endsWith("backup") ? name : "other" };
+    const selected = TaskFiles.fromUser(`Check my order status at “${name}” (first.example).`, [attachmentMarker(old), marker]);
+    expect(selected.includes([old.id])).toBe(false);
+    expect(selected.includes([lake.id])).toBe(false);
+  });
+
+  it("does not select a historical filename inside a quoted recipient's title", () => {
+    const selected = TaskFiles.fromUser("Check orders at “Vendor private.jpg” (first.example).", [attachmentMarker(privatePhoto), marker]);
+    expect(selected.includes([privatePhoto.id])).toBe(false);
+    expect(selected.includes([lake.id])).toBe(false);
+  });
+
   it("does not select a historical filename from a quoted recipient", () => {
     const old = { ...privatePhoto, name: "first.example" };
     const selected = TaskFiles.fromUser(`Print at “first.example”\n${marker}`, [attachmentMarker(old), marker]);

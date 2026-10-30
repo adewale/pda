@@ -305,16 +305,16 @@ describe("printing a photo at a Company (the demo journey)", () => {
     expect(await photoRequests(c)).toEqual([]);
   });
 
-  it.each(["longer filename", "ambiguous filename", "IPv6 locator", "unknown filename", "unknown filename hyphen", "unknown filename format", "extensionless name", "quoted recipient"] as const)("does not disclose another saved file through a %s", async caseName => {
+  it.each(["longer filename", "ambiguous filename", "IPv6 locator", "unknown filename", "unknown filename hyphen", "unknown filename format", "extensionless name", "recipient reference", "recipient reference unknown", "quoted recipient"] as const)("does not disclose another saved file through a %s", async caseName => {
     const c = await company({ printShop: true, agentReplies: false });
     const a = await agent();
     let privateFile: AttachmentInfo;
-    if (caseName === "extensionless name") {
+    if (caseName === "extensionless name" || caseName.startsWith("recipient reference")) {
       const older = await attached(a, jpeg(2000), { name: "this photo backup" });
       await chat(a.socket, a.client, `Describe this.\n${attachmentMarker(older)}`);
       privateFile = await attached(a, jpeg(2000), { name: "private.jpg" });
       await chat(a.socket, a.client, `Describe this.\n${attachmentMarker(privateFile)}`);
-      await chat(a.socket, a.client, `Print the file this photo backup at ${c.domain}`);
+      await chat(a.socket, a.client, caseName.startsWith("recipient reference") ? `Check my order status at “${caseName.endsWith("unknown") ? "some this photo" : "this photo backup"}” (${c.domain}).` : `Print the file this photo backup at ${c.domain}`);
     } else if (caseName.startsWith("unknown filename") || caseName === "quoted recipient") {
       privateFile = await attached(a, jpeg(2000), { name: caseName === "quoted recipient" ? c.domain : "private.jpg" });
       await chat(a.socket, a.client, `Describe this.\n${attachmentMarker(privateFile)}`);
