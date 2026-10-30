@@ -91,6 +91,25 @@ describe("photos selected by the User's task", () => {
     expect(TaskFiles.fromUser(`Check orders at first.example. Tracking: ${locator}`, [attachmentMarker(privatePhoto)]).includes([privatePhoto.id])).toBe(false);
   });
 
+  it.each(["\u200b", "\u034f", "\u00ad"])("does not select a filename suffix after an IDNA-ignored character %s", ignored => {
+    expect(TaskFiles.fromUser(`Check orders at first.example. Tracking: orders${ignored}private.jpg`, [attachmentMarker(privatePhoto)]).includes([privatePhoto.id])).toBe(false);
+  });
+
+  it.each(["this photo.jpg", "those photos.png", "the photo I sent.webp"])("does not borrow the latest file from a phrase inside an unknown filename: %s", filename => {
+    expect(TaskFiles.fromUser(`Print ${filename} at first.example`, [marker]).includes([lake.id])).toBe(false);
+  });
+
+  it("does not select a historical filename from a quoted recipient", () => {
+    const old = { ...privatePhoto, name: "first.example" };
+    const selected = TaskFiles.fromUser(`Print at “first.example”\n${marker}`, [attachmentMarker(old), marker]);
+    expect(selected.includes([lake.id])).toBe(true);
+    expect(selected.includes([old.id])).toBe(false);
+  });
+
+  it.each(["été.jpg", "café.jpg"])("still selects the complete Unicode filename %s", name => {
+    expect(TaskFiles.fromUser(`Imprime ${name}`, [attachmentMarker({ ...lake, name })]).includes([lake.id])).toBe(true);
+  });
+
   it("keeps a questioned filename ahead of the latest-photo fallback", () => {
     const recent = lake;
     const selected = TaskFiles.fromUser("Can you print this photo, private.jpg?", [attachmentMarker(privatePhoto), attachmentMarker(recent)]);
@@ -169,6 +188,13 @@ describe("task recipient selection", () => {
     scope.update(`Print at first.example. Tracking: orders${separator}second.example/status`, true);
     expect(scope.allow("second.example")).toBe(false);
     expect(scope.allow("orders.second.example")).toBe(true);
+  });
+
+  it.each(["\u200b", "\u034f", "\u00ad"])("canonicalizes a whole bare hostname containing an IDNA-ignored character %s", ignored => {
+    const scope = new TaskCompanyScope();
+    scope.update(`Print at first.example. Tracking: orders${ignored}second.example`, true);
+    expect(scope.allow("second.example")).toBe(false);
+    expect(scope.allow("orderssecond.example")).toBe(true);
   });
 
   it("keeps opaque dotless data from choosing a Company", () => {

@@ -8,7 +8,7 @@ export function recipient(value: string): string {
 }
 
 export function recipientCue(text: string, at: number): boolean {
-  return /\b(?:at|to|with|company|shop|store)\s+$/iu.test(text.slice(Math.max(0, at - 100), at));
+  return /\b(?:at|to|with|company|shop|store)\s+[(\["'“‘«]*$/iu.test(text.slice(Math.max(0, at - 100), at));
 }
 
 type Locator = { host: string; qualified: boolean; start: number; named: boolean };

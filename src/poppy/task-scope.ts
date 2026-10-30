@@ -42,9 +42,13 @@ export class TaskCompanyScope {
       }).map(locator => locator.host));
       // A literal destination already constrains the first call, not only
       // later calls after Company content. Filenames and emails aren't one.
-      for (const word of this.#task.split(" ")) {
-        const named = word.replace(/\.+$/, "");
-        if (/^(?:[\p{L}\p{N}_-]+\.)+[\p{L}][\p{L}\p{N}_-]*$/u.test(named)) this.#domains.add(recipient(named));
+      for (const match of narrative.matchAll(/[^\s("'“”‘’<>\[\]{}]+/gu)) {
+        if (!match[0].includes(".")) continue;
+        const host = recipient(match[0]);
+        const bare = host.replace(/:[0-9]+$/, "");
+        const dns = bare.includes(".") && /[a-z]/i.test(bare.split(".").at(-1) ?? "");
+        const ipv4 = /^\d+(?:\.\d+){3}[.,!?;]*$/.test(match[0]);
+        if (host && (dns || ipv4)) this.#domains.add(host);
       }
       if (ambiguousDestination) this.#domains.add(""); // Ambiguity cannot enable an inferred recipient.
       const remembered = this.first?.(key);
@@ -60,8 +64,7 @@ export class TaskCompanyScope {
     if (!host) return false;
     if (this.#domains.has(host)) return true;
     const words = this.#task.toLowerCase();
-    const named = words.split(/[^\p{L}\p{N}_.@-]+/u).some((word) => word.replace(/\.+$/, "") === host);
-    if (named || (!this.#foreign && this.#domains.size === 0 && words && (this.first?.(this.#key, host) ?? host) === host)) {
+    if (!this.#foreign && this.#domains.size === 0 && words && (this.first?.(this.#key, host) ?? host) === host) {
       this.#domains.add(host);
       return true;
     }

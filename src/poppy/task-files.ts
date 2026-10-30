@@ -44,8 +44,8 @@ export class TaskFiles {
     // String offsets are UTF-16; replace spans without changing their offsets.
     const plain = spans.filter(span => span.selectable).reduce((text, span) => text.slice(0, span.start) + " ".repeat(span.end - span.start) + text.slice(span.end), narrative);
     const recent = history.slice().reverse().map(markersIn).find(ids => ids.length > 0) ?? [];
-    const plural = /\b(?:these|those|my|the attached) (?:photos|pictures|images)\b/i.test(plain);
-    const singular = /\b(?:(?:this|that|my|the attached) (?:photo|picture|image)|the (?:photo|picture|image) I (?:attached|uploaded|sent))\b/i.test(plain);
+    const plural = /\b(?:these|those|my|the attached) (?:photos|pictures|images)\b(?!\.[\p{L}\p{N}])/iu.test(plain);
+    const singular = /\b(?:(?:this|that|my|the attached) (?:photo|picture|image)|the (?:photo|picture|image) I (?:attached|uploaded|sent))\b(?!\.[\p{L}\p{N}])/iu.test(plain);
     if (selected.size === 0 && (plural || (singular && new Set(recent).size === 1))) for (const id of recent) selected.add(id);
     return new TaskFiles(selected);
   }
@@ -58,7 +58,7 @@ function fileSpans(text: string, name: string): { start: number; end: number; se
     const before = Array.from(text.slice(0, span.start)).at(-1) ?? "";
     const after = Array.from(text.slice(span.end))[0] ?? "";
     const quoted = ["''", '\"\"', "‘’", "“”", "«»"].includes(before + after);
-    const selectable = (/\.(?:jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)$/i.test(name) && !recipientCue(text, span.start)) || quoted || /\b(?:named|called|filename is) $/i.test(text.slice(0, span.start));
+    const selectable = !recipientCue(text, span.start) && (/\.(?:jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)$/i.test(name) || quoted || /\b(?:named|called|filename is) $/i.test(text.slice(0, span.start)));
     return { ...span, selectable };
   });
 }
@@ -68,7 +68,7 @@ export function maximalSpans<T extends { start: number; end: number }>(spans: re
 }
 
 export function nameSpans(text: string, name: string): { start: number; end: number }[] {
-  const part = /[\p{L}\p{N}_.-]/u;
+  const part = /[\p{L}\p{M}\p{N}\p{Cf}_.-]/u;
   const spans: { start: number; end: number }[] = [];
   let at = text.indexOf(name);
   while (at >= 0) {
