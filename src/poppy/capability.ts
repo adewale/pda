@@ -1,5 +1,5 @@
 import { LifecycleCapability, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle";
-import { code, id, literal, origin, plainUnits, recordCard, reportError, type Fields, type Units } from "../log";
+import { code, currentEvent, id, literal, origin, plainUnits, recordCard, reportError, type Fields, type Units } from "../log";
 import { buildActivity } from "./activity";
 import { apiOperationFor } from "./apis";
 import type { PoppyBrowser } from "./browser";
@@ -28,12 +28,13 @@ import {
 } from "./signin";
 import { pendingSignOuts, recoverSignOuts, retryRevocation, retrySignOut } from "./signout";
 import { protocolIndex, protocolLog, registerApiNamer } from "./protocol-log";
-import { rows } from "../rows";
+import { one, rows } from "../rows";
 import { cardsTable, migrate } from "./store";
 import type { Card, PoppyClientFrame, PoppyServerFrame } from "./wire";
 import { issuerDecoder, type Issuer } from "./issuer";
 import { clientFrame } from "./frames";
-import { object, optional, string, tryDecode } from "../decode";
+import { array, jsonText, object, optional, string, tryDecode } from "../decode";
+import { isDiagnosticFlowId } from "./approval-outcome";
 import { writeCard, type CardWriteOptions } from "./cards";
 import { approvalDecisions } from "./approval-decisions";
 
@@ -382,7 +383,7 @@ export class PoppyCapability extends LifecycleCapability {
     const decoded = tryDecode(clientFrame, parsed, "page frame");
     if (!decoded.ok) return true;
     const frame = decoded.value;
-    this.#lastActivity = Date.now();
+    if (frame.type !== "poppy.result_links.checked") this.#lastActivity = Date.now();
     try {
       if (QUIET_FRAMES.has(frame.type)) await this.#handleFrame(socket, frame);
       else await this.#units.frame(code(frame.type) ?? literal("poppy.unknown"), frameFields(frame), () => this.#handleFrame(socket, frame));
@@ -451,6 +452,22 @@ export class PoppyCapability extends LifecycleCapability {
       case "poppy.signin.cancel":
         await cancelSignIn(client, frame.signInId);
         return;
+      case "poppy.result_links.checked": {
+        const target = frame.cardId.startsWith("result-") ? frame.cardId.slice(7) : "";
+        if (!isDiagnosticFlowId(target)) return;
+        const stored = one(client.sql, cardsTable.pick("card"), "SELECT card FROM poppy_cards WHERE id = ?", frame.cardId);
+        if (!stored) return;
+        const decoded = tryDecode(jsonText(object({ kind: string, links: array(object({ label: string, url: string })) })), stored.card, "result links");
+        if (!decoded.ok || decoded.value.kind !== "notice" || frame.checks.some(check => check.index >= decoded.value.links.length)) return;
+        const attributeEqual = frame.checks.filter(check => check.attribute_equal).length;
+        const resolvedEqual = frame.checks.filter(check => check.resolved_equal).length;
+        currentEvent()?.set({ approval_id: id(target), result_link_rendered: {
+          client_reported: true, links: frame.checks.length,
+          attribute_equal: attributeEqual, attribute_different: frame.checks.length - attributeEqual,
+          resolved_equal: resolvedEqual, resolved_different: frame.checks.length - resolvedEqual
+        } });
+        return;
+      }
       case "poppy.approval":
         await decideLocal(client, frame.approvalId, frame.decision);
         return;

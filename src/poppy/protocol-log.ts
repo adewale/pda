@@ -140,7 +140,7 @@ export function migrateProtocolLog(sql: Sql): void {
       WHEN new.terms IS NOT NULL AND old.status = 'pending' AND new.status IN ('declined', 'executing') BEGIN
       INSERT INTO poppy_protocol_log (key, issuer, at, step, outcome, summary, result)
       VALUES (new.issuer, new.issuer, ${SQL_NOW}, 'operation.decided', 'info',
-        'Operation ' || substr(CAST(coalesce(json_extract(new.request, '$.call.approval.operation_id'), json_extract(new.request, '$.approval.operation_id')) AS TEXT), 1, 64),
+        'Operation ' || substr(coalesce(new.operation_id, 'unavailable'), 1, 64),
         CASE new.status WHEN 'declined' THEN 'Declined by the User, on their card: never sent' ELSE 'Approved by the User, on their card: sending the approval' END);
     END`
   };

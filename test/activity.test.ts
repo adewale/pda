@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { ACTIVITY_LOG_LIMIT } from "../src/poppy/activity";
 import type { ActivityEntry, ActivityTask, PoppyServerFrame } from "../src/poppy/wire";
 import { agent, cards, company, signInDirect, tool, until, type Agent, type Company } from "./agent-helpers";
-import { legacyTool } from "./legacy-approval";
 import worker from "./worker";
 
 /**
@@ -174,19 +173,16 @@ describe("poppy.activity", () => {
     p.socket.close();
   });
 
-  it("logs a local approval with how it would act, and leaves an approved API call's response out", async () => {
+  it("logs routine task dispatch without inventing approval and leaves its API response out", async () => {
     const c = await company({ operations: false });
     const a = await agent();
     await signIn(a, c);
-    await legacyTool(a, "poppy_api_call", { domain: c.domain, ...exchange });
-    const card = (await cards(a)).find((item) => item.kind === "approval")!;
+    await tool(a, "poppy_api_call", { domain: c.domain, ...exchange });
+    expect((await cards(a)).filter(item => item.kind === "approval")).toEqual([]);
     const p = await page(a);
-    expect(find(p.latest().log, "approval")).toMatchObject({ how: "api", decidedBy: null, result: "waiting", quote: card.summary });
-    const before = p.frames.length;
-    await a.stub.poppyFrame({ type: "poppy.approval", approvalId: card.approvalId, decision: "approve" });
-    const done = await p.next((frame) => find(frame.log, "approval")?.result === "done", before);
-    expect(find(done.log, "approval")!.decidedBy).toBe("you");
-    expect(find(done.log, "approval")!.outcome).toBeUndefined();
+    expect(find(p.latest().log, "approval")).toMatchObject({ how: "api", what: "Requested for your task", decidedBy: null, result: "done" });
+    expect(find(p.latest().log, "approval")!.outcome).toBeUndefined();
+    expect((await c.stub.state()).performs).toBe(1);
     p.socket.close();
   });
 });

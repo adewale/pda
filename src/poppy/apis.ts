@@ -13,6 +13,7 @@ import { intent, type Sql } from "./store";
 import type { NewApproval } from "./approvals";
 import { sameAuthority, sessionAuthority, type ApprovalAuthority } from "./authority";
 import { companyErrorCode } from "./error-codes";
+import { isTaskRequest } from "./approval-outcome";
 
 type Api = Company["apis"][number];
 
@@ -931,6 +932,9 @@ export async function callOpenApi(
  * proposal we can't use.
  */
 registerExecutor("openapi", async (client, company, approval, label, execution) => {
+  if (!isTaskRequest(execution.approvalId) && !approval.call.approval && !Object.keys(approval.call.files ?? {}).length) {
+    throw new PoppyError("approval_changed", "Preliminary API-write approvals are no longer supported. Ask for current Company terms.", 0);
+  }
   const check = () => { execution.beforeDispatch(); checkApprovalBinding(client, company, label, approval.binding); };
   check();
   if (approval.call.approval && !approvable(approval.call.approval, Date.now())) throw expired(company);
@@ -1253,6 +1257,9 @@ function checkMcpArgs(company: Company, name: string, inputSchema: Json | undefi
 
 /** An approved MCP call: sent only to an MCP server the Company still lists (`findApi`). */
 registerExecutor("mcp", async (client, company, approval, label, execution) => {
+  if (!isTaskRequest(execution.approvalId) && !approval.call.approval) {
+    throw new PoppyError("approval_changed", "Preliminary MCP approvals are no longer supported. Ask for current Company terms.", 0);
+  }
   const check = () => { execution.beforeDispatch(); checkApprovalBinding(client, company, label, approval.binding); };
   check();
   const result = await performMcp(client, company, label, approval.call, check, execution.approvalId);

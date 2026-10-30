@@ -7,13 +7,12 @@
 import { evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { agent, cards, chat, company, connect, fetchWorker, ORIGIN, person, requests, signInDirect, stopAgent, testEnv, until, type Agent, type Company } from "./agent-helpers";
-import { legacyTool as tool } from "./legacy-approval";
+import { tool } from "./agent-helpers";
 
 const exchange = (c: Company) => ({ domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
 /**
- * An operation waiting for the User: our card for the write approved, the
- * Company answered `approval_required` (Ops 4), and its terms wait on a
- * card of their own, whose approval sends the same request with
+ * An operation waiting for the User: the task request received Company
+ * terms (Ops 4); their single card sends the stored request with
  * `Poppy-Approval` (Ops 6).
  */
 async function proposal() {
@@ -21,8 +20,6 @@ async function proposal() {
   const a = await agent();
   await signInDirect(a, c);
   expect((await tool(a, "poppy_api_call", exchange(c))).isError).toBe(false);
-  const ours = (await cards(a)).find((item) => item.kind === "approval" && item.open)!;
-  await a.stub.poppyFrame({ type: "poppy.approval", approvalId: ours.approvalId, decision: "approve" });
   const card = (await cards(a)).find((item) => item.kind === "approval" && item.open && item.terms)!;
   expect(card).toMatchObject({ status: "pending", open: true });
   expect((await c.stub.state()).performs).toBe(0);

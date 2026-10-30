@@ -25,6 +25,10 @@ import { code, currentEvent, domain, id, inScope, join, LIMITS, literal, modelId
 import type { ModelCall } from "./model-router";
 import { protocolIndex, protocolLog } from "./poppy/protocol-log";
 import type { Issuer } from "./poppy/issuer";
+import { integer, object, tryDecode } from "./decode";
+import { one } from "./rows";
+import { FlowDiagnostics } from "./flow-diagnostics";
+import { clientFrame } from "./poppy/frames";
 
 /** How many of its own events an agent keeps for "Copy diagnostics". */
 export const DIAGNOSTIC_EVENTS = 200;
@@ -86,6 +90,7 @@ export type AgentLogOptions = {
 export class AgentLog extends LifecycleCapability implements Units {
   readonly agentId: Safe<"agent">;
   readonly #options: AgentLogOptions;
+  readonly #flows: FlowDiagnostics;
   #turn: TurnState | null = null;
   /** Our own submissions, by operation id: who started them. Bounded. */
   readonly #registered = new Map<string, Registered>();
@@ -100,6 +105,7 @@ export class AgentLog extends LifecycleCapability implements Units {
     this.#options = options;
     this.agentId = options.agentId;
     for (const statement of SCHEMA) options.sql.exec(statement);
+    this.#flows = new FlowDiagnostics(options.sql);
   }
 
   // ---------------------------------------------------------------- Units
@@ -122,7 +128,8 @@ export class AgentLog extends LifecycleCapability implements Units {
   }
 
   #keep(line: string, event: WideEvent): void {
-    this.#options.sql.exec("INSERT INTO agent_log (at, kind, level, line) VALUES (?, ?, ?, ?)", Date.now(), event.kind, event.level, line);
+    const saved = one(this.#options.sql, object({ seq: integer }), "INSERT INTO agent_log (at, kind, level, line) VALUES (?, ?, ?, ?) RETURNING seq", Date.now(), event.kind, event.level, line);
+    if (saved) this.#flows.keep(saved.seq, line, event);
   }
 
   // ---------------------------------------------------------------- Turns
@@ -386,7 +393,12 @@ export class AgentLog extends LifecycleCapability implements Units {
     if (typeof message !== "string") return false;
     const type = /"type"\s*:\s*"([a-z.]+)"/.exec(message)?.[1];
     if (type === "poppy.diagnostics") {
-      socket.send(JSON.stringify({ type: "poppy.diagnostics", text: this.diagnostics(), at: Date.now() }));
+      let parsed: unknown;
+      try { parsed = JSON.parse(message); } catch { return true; }
+      const decoded = tryDecode(clientFrame, parsed, "diagnostics request");
+      if (!decoded.ok || decoded.value.type !== "poppy.diagnostics") return true;
+      const flowId = decoded.value.flowId;
+      socket.send(JSON.stringify({ type: "poppy.diagnostics", ...(flowId ? { flowId } : {}), text: flowId ? this.flowDiagnostics(flowId) : this.diagnostics(), at: Date.now() }));
       return true;
     }
     if (type === "submit") {
@@ -403,6 +415,11 @@ export class AgentLog extends LifecycleCapability implements Units {
   }
 
   // ---------------------------------------------------------------- Diagnostics
+
+  /** One linked task/approval lifecycle, independent of unrelated newest-200 eviction. */
+  flowDiagnostics(flowId: string, now = Date.now()): string {
+    return this.#flows.export(flowId, this.agentId, now);
+  }
 
   /** The newest events, oldest first, as JSON lines. */
   events(): string[] {

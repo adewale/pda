@@ -1,9 +1,10 @@
 import { world } from "./client-fixture";
 import { describe, expect, it } from "vitest";
-import { callMcpTool, callOpenApi, CheckedApiRequest } from "../../src/poppy/apis";
+import { callMcpTool, callOpenApi } from "../../src/poppy/apis";
+import { readApproval } from "../../src/poppy/approvals";
 import { closeConversation, conversation, openConversations, readConversation, sendMessage } from "../../src/poppy/conversations";
 import { type Company } from "../../src/poppy/discovery";
-import { decideLocal, proposeLocal } from "../../src/poppy/operations";
+import { decideLocal } from "../../src/poppy/operations";
 import { completeDirectSignIn, signOut, startSignIn } from "../../src/poppy/signin";
 import type { Card } from "../../src/poppy/wire";
 import { MockCompany } from "../mock-company/index";
@@ -11,8 +12,8 @@ import { gs, propertyAsync, assertTransitions } from "./hegel";
 
 /**
  * A model-based property: any sequence of honest things a User and their
- * agent do (sign in, talk, refresh, ask for a write, approve or decline our
- * card and then the Company's terms, sign out) runs
+ * agent do (sign in, talk, refresh, request an action, approve or decline
+ * the Company's terms, replay a task, sign out) runs
  * our client (src/poppy, in Node) against the strict mock Company in
  * process, through a fetcher, with no sockets. After every step the mock has
  * recorded no violation, and the client and the Company agree with a small
@@ -34,17 +35,26 @@ it("task requests reuse pending Company terms across fresh model calls before on
   const signIn = w.cards.get(`signin-${signed.signInId}`) as Extract<Card, { kind: "signin_link" }>;
   const callback = await w.mock.approveAuthorization(signIn.url, { approve: true, account: "acct_ada" });
   expect((await completeDirectSignIn(w.client, new URL(callback))).ok).toBe(true);
-  const ask = () => channel === "openapi" ? exchange(w, "main", crypto.randomUUID())
-    : callMcpTool(w.client, w.company, "main", { tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, callKey: crypto.randomUUID() });
-  const first = await ask() as { proposed: string };
+  const keys = Array.from({ length: repeats + 1 }, () => crypto.randomUUID());
+  const ask = (callKey: string) => channel === "openapi" ? exchange(w, "main", callKey)
+    : callMcpTool(w.client, w.company, "main", { tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, callKey });
+  const first = await ask(keys[0]!) as { proposed: string };
   expect(first.proposed).toMatch(/^apr2_/);
   const before = (await w.mock.state()).requests.length;
-  for (let i = 0; i < repeats; i++) expect((await ask() as { proposed: string }).proposed).toBe(first.proposed);
+  for (const key of keys.slice(1)) expect((await ask(key) as { proposed: string }).proposed).toBe(first.proposed);
   expect((await w.mock.state()).requests).toHaveLength(before);
   expect(w.notices.filter(notice => notice.operationId.startsWith("poppy-approval-"))).toEqual([]);
   await decideLocal(w.client, first.proposed, approve ? "approve" : "decline");
   await decideLocal(w.client, first.proposed, "approve");
+  const beforeReplay = (await w.mock.state()).requests.length;
+  if (approve) {
+    const saved = await ask(keys[0]!);
+    for (const key of keys) expect(await ask(key)).toEqual(saved);
+  } else {
+    for (const key of keys) await expect(ask(key)).rejects.toMatchObject({ code: "approval_changed" });
+  }
   const state = await w.mock.state();
+  expect(state.requests).toHaveLength(beforeReplay);
   expect(state.performs).toBe(approve ? 1 : 0);
   expect(state.violations).toEqual([]);
   expect(state.warnings).toEqual([]);
@@ -75,15 +85,14 @@ type Model = {
   signedIn: boolean;
   /** Operation id → its state, as the Company should hold it (Ops 2: proposed until an approved request performs it). */
   operations: Map<string, string>;
-  /** Our approval cards still waiting on the User, and the Company's terms cards (`apr2_`). */
-  ours: Set<string>;
+  /** The Company's terms cards (`apr2_`) still waiting on the User. */
   terms: Map<string, string>;
   /** Exchanges actually made. */
   performs: number;
   conversations: Set<string>;
 };
 
-const newModel = (): Model => ({ signedIn: false, operations: new Map(), ours: new Set(), terms: new Map(), performs: 0, conversations: new Set() });
+const newModel = (): Model => ({ signedIn: false, operations: new Map(), terms: new Map(), performs: 0, conversations: new Set() });
 
 /** The exchange the mock's API refuses with an operation until the User approves its terms. */
 const exchange = (w: Pick<World, "client" | "company">, label: string, callKey: string) =>
@@ -104,55 +113,28 @@ function operationOf(sql: World["sql"], card: string): string {
   return (JSON.parse(String(row.request)) as { call: { approval: { operation_id: string } } }).call.approval.operation_id;
 }
 
-/** A local card already stored by an older deployment; retain the generated recovery/authority histories. */
-async function propose(w: Pick<World, "client" | "company">, label: string): Promise<string> {
-  const checked = await CheckedApiRequest.check(w.client, w.company, {
-    operation: "exchangeItem", params: { order_id: "ord_7Hk2" },
-    body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" }, idempotencyKey: crypto.randomUUID()
-  });
-  await w.client.token(w.company, { label });
-  const session = w.client.session(w.company.issuer, label)!;
-  return proposeLocal(w.client, w.company, label, checked.describe(), {
-    kind: "openapi", call: checked.call, method: checked.method, url: checked.url,
-    binding: { account: session.account, sessionId: session.session_id, authorityGeneration: session.authority_generation }
-  });
-}
-
-/**
- * Approve our card: the request goes without an approval, the Company
- * refuses it with an operation, and its terms wait on a card of their own.
- * Returns that card's id and the operation's.
- */
-async function approveOurs(w: Pick<World, "client" | "sql" | "mock">, id: string): Promise<{ terms: string; operation: string }> {
-  const before = approvals(w);
-  await decideLocal(w.client, id, "approve");
-  const after = approvals(w);
-  expect(after.get(id), String(w.sql.exec("SELECT result FROM poppy_approvals WHERE id = ?", id).toArray()[0]?.result)).toBe("terms");
-  // The same request is the same operation until it is performed (Ops 3): one open at a time.
-  const open = (await w.mock.state()).operations.filter((op) => op.state === "proposed");
-  expect(open).toHaveLength(1);
-  const operation = open[0]!.id;
-  // A new card, or one declined before and asked again; else the revision already has a card waiting.
-  const waiting = [...after].filter(([key, status]) => key.startsWith("apr2_") && status === "pending").map(([key]) => key);
-  const asked = waiting.filter((key) => before.get(key) !== "pending");
-  expect(asked.length).toBeLessThanOrEqual(1);
-  const terms = asked[0] ?? waiting.find((key) => operationOf(w.sql, key) === operation);
-  expect(terms).toBeDefined();
-  expect(operationOf(w.sql, terms!)).toBe(operation);
-  return { terms: terms!, operation };
+/** The current request obtains Company terms immediately; no preliminary-card fixture. */
+async function propose(w: Pick<World, "client" | "company">, label: string): Promise<{ terms: string; operation: string }> {
+  const response = await exchange(w, label, crypto.randomUUID());
+  if (typeof response !== "object" || response === null || Array.isArray(response) || typeof response.proposed !== "string") throw new Error("Expected Company terms");
+  const terms = response.proposed;
+  const row = w.client.sql.exec("SELECT request FROM poppy_approvals WHERE id = ?", terms).toArray()[0]!;
+  const saved = readApproval(String(row.request));
+  if (!saved.ok || saved.value.kind !== "openapi" || !saved.value.call.approval) throw new Error("Expected stored API terms");
+  return { terms, operation: saved.value.call.approval.operation_id };
 }
 
 /** Terms cards the User may approve: any before the jacket is exchanged; after, only those of the operation that exchanged it, which the Company answers with its first response (Ops 7). */
 const approvableTerms = (model: Model) =>
   [...model.terms].filter(([, operation]) => !model.performs || model.operations.get(operation) === "succeeded").map(([id]) => id);
 
-type Command = "signIn" | "signOut" | "message" | "read" | "close" | "refresh" | "propose" | "approveOurs" | "approveTerms" | "decline";
+type Command = "signIn" | "signOut" | "message" | "read" | "close" | "refresh" | "propose" | "approveTerms" | "decline";
 /**
  * Select every live object in creation order. Sorting random opaque IDs
  * changes which binding a generated index selects between replay attempts,
  * making shrinking non-deterministic. Sort only for set comparisons below.
  */
-const waitingCards = (model: Model) => [...model.ours, ...model.terms.keys()];
+const waitingCards = (model: Model) => [...model.terms.keys()];
 function enabled(model: Model): Command[] {
   const commands: Command[] = ["signIn", "message", "refresh"];
   if (model.conversations.size) commands.push("read", "close");
@@ -160,7 +142,6 @@ function enabled(model: Model): Command[] {
     commands.push("signOut");
     // The jacket can be exchanged once: no new write is asked for after it is.
     if (!model.performs) commands.push("propose");
-    if (model.ours.size) commands.push("approveOurs");
     if (approvableTerms(model).length) commands.push("approveTerms");
   }
   if (waitingCards(model).length) commands.push("decline");
@@ -203,7 +184,6 @@ async function refusedWhenGone(w: Pick<World, "client" | "company" | "sql">, moc
 /** `refusedWhenGone` for the single-client model, which then forgets the card. */
 async function refusedAsChanged(w: Pick<World, "client" | "company" | "sql" | "mock">, model: Model, id: string): Promise<boolean> {
   if (!(await refusedWhenGone(w, w.mock, id))) return false;
-  model.ours.delete(id);
   model.terms.delete(id);
   return true;
 }
@@ -252,19 +232,10 @@ async function run(w: World, model: Model, command: Command, tc: Parameters<Para
       return;
     case "propose": {
       const before = await w.mock.state();
-      model.ours.add(await propose(w, "main"));
-      // Our card first: nothing reaches the Company until the User approves it.
-      expect((await w.mock.state()).operations).toEqual(before.operations);
-      return;
-    }
-    case "approveOurs": {
-      const id = tc.draw(gs.sampledFrom([...model.ours]));
-      if (await refusedAsChanged(w, model, id)) return;
-      const { terms, operation } = await approveOurs(w, id);
-      model.ours.delete(id);
-      // The same request again is the same operation (Ops 3); its latest revision gets one card.
+      const { terms, operation } = await propose(w, "main");
       model.terms.set(terms, operation);
       model.operations.set(operation, "proposed");
+      expect((await w.mock.state()).performs).toBe(before.performs);
       return;
     }
     case "approveTerms": {
@@ -283,7 +254,6 @@ async function run(w: World, model: Model, command: Command, tc: Parameters<Para
       const id = tc.draw(gs.sampledFrom(waitingCards(model)));
       await decideLocal(w.client, id, "decline");
       expect(approvals(w).get(id)).toBe("declined");
-      model.ours.delete(id);
       model.terms.delete(id);
       return;
     }
@@ -376,7 +346,7 @@ describe("sealed refresh token ownership controls", () => {
 it("performs an operation once when the User approves its terms twice at once", async () => {
   const w = await world({});
   await signInto(w, w.mock, "main", "acct_ada");
-  const { terms, operation } = await approveOurs(w, await propose(w, "main"));
+  const { terms, operation } = await propose(w, "main");
   await Promise.all([0, 1].map(() => decideLocal(w.client, terms, "approve")));
   const state = await w.mock.state();
   expect(state.operations).toEqual([expect.objectContaining({ id: operation, state: "succeeded", confirms: 1 })]);
@@ -418,11 +388,10 @@ type IsolatedModel = {
   conversations: Map<string, { label: number; texts: string[]; closed: boolean }>;
   /** Operation id → the label whose request it is, and its state at the Company. */
   operations: Map<string, { label: number; state: string }>;
-  /** Our cards and the Company's terms cards (→ their operation), each with its label. */
-  ours: Map<string, number>;
+  /** Company terms cards and their operation, each with its label. */
   terms: Map<string, { label: number; operation: string }>;
 };
-type IsolationCommand = "signIn" | "signOut" | "refresh" | "orders" | "message" | "read" | "close" | "propose" | "approveOurs" | "approveTerms" | "decline";
+type IsolationCommand = "signIn" | "signOut" | "refresh" | "orders" | "message" | "read" | "close" | "propose" | "approveTerms" | "decline";
 
 describe("two PDA clients and two accounts in one generated world", () => {
   it("keeps identities, sessions, refresh tokens, conversations and operations isolated after every action", propertyAsync(async (tc) => {
@@ -437,7 +406,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
     const clients: IsolatedClient[] = [w, await w.createClient()];
     const labels = [...tc.draw(gs.sets(gs.fromRegex("[a-z]{1,8}", { fullmatch: true }), { minSize: 2, maxSize: 2 }))];
     const accounts = tc.draw(gs.booleans()) ? ["acct_ada", "acct_grace"] : ["acct_grace", "acct_ada"];
-    const models: IsolatedModel[] = clients.map(() => ({ signedIn: new Set(), conversations: new Map(), operations: new Map(), ours: new Map(), terms: new Map() }));
+    const models: IsolatedModel[] = clients.map(() => ({ signedIn: new Set(), conversations: new Map(), operations: new Map(), terms: new Map() }));
     const performed = new Set<string>();
     const userIds = clients.map(({ client, company }) => client.userId(company.issuer));
     expect(new Set(userIds).size).toBe(2);
@@ -490,7 +459,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
         }
         expect(new Set(openConversations(client).map((row) => row.id))).toEqual(new Set([...model.conversations].filter(([, entry]) => !entry.closed).map(([id]) => id)));
         const pending = sql.exec("SELECT id FROM poppy_approvals WHERE status = 'pending'").toArray().map((row) => String(row.id)).sort();
-        expect(pending).toEqual([...model.ours.keys(), ...model.terms.keys()].sort());
+        expect(pending).toEqual([...model.terms.keys()].sort());
         for (const id of pending) expect(clients[1 - who]!.sql.exec("SELECT id FROM poppy_approvals WHERE id = ?", id).toArray()).toEqual([]);
         for (const [id, expected] of model.conversations) {
           const remote = state.conversations.find((row) => row.id === id)!;
@@ -515,9 +484,8 @@ describe("two PDA clients and two accounts in one generated world", () => {
         if (model.signedIn.has(label)) {
           actions.push("signOut", "orders");
           if (!performed.has(accounts[label]!)) actions.push("propose");
-          if ([...model.ours.values()].includes(label)) actions.push("approveOurs");
           if (approvable(model, label).length) actions.push("approveTerms");
-          if ([...model.ours.values()].includes(label) || [...model.terms.values()].some((card) => card.label === label)) actions.push("decline");
+          if ([...model.terms.values()].some((card) => card.label === label)) actions.push("decline");
         }
         if ([...model.conversations.values()].some((item) => item.label === label && !item.closed)) actions.push("read", "close");
         choices.push(...actions.map((action) => [who, label, action] as const));
@@ -554,13 +522,7 @@ describe("two PDA clients and two accounts in one generated world", () => {
         if (action === "read") await readFresh(actor, w.mock, id, `Update: ${tc.draw(gs.text({ maxSize: 100 }))}`);
         else { await closeConversation(client, company, id); entry.closed = true; }
       } else if (action === "propose") {
-        model.ours.set(await propose(actor, labels[label]!), label);
-      } else if (action === "approveOurs") {
-        const id = tc.draw(gs.sampledFrom([...model.ours].filter(([, owner]) => owner === label).map(([key]) => key)));
-        const known = new Set(state0(models));
-        if (await refusedWhenGone(actor, w.mock, id)) { model.ours.delete(id); counts[action] = (counts[action] ?? 0) + 1; await agrees(); continue; }
-        const { terms, operation } = await approveOursAmong(actor, w.mock, id, known);
-        model.ours.delete(id);
+        const { terms, operation } = await propose(actor, labels[label]!);
         model.terms.set(terms, { label, operation });
         model.operations.set(operation, { label, state: "proposed" });
       } else if (action === "approveTerms") {
@@ -574,10 +536,9 @@ describe("two PDA clients and two accounts in one generated world", () => {
         if (op.state !== "succeeded") performed.add(accounts[label]!);
         op.state = "succeeded";
       } else if (action === "decline") {
-        const id = tc.draw(gs.sampledFrom([...[...model.ours].filter(([, owner]) => owner === label).map(([key]) => key), ...[...model.terms].filter(([, card]) => card.label === label).map(([key]) => key)]));
+        const id = tc.draw(gs.sampledFrom([...model.terms].filter(([, card]) => card.label === label).map(([key]) => key)));
         await decideLocal(client, id, "decline");
         expect(approvals(actor).get(id)).toBe("declined");
-        model.ours.delete(id);
         model.terms.delete(id);
       } else throw new Error(`Unexecuted command: ${action}`);
       counts[action] = (counts[action] ?? 0) + 1;
@@ -587,32 +548,6 @@ describe("two PDA clients and two accounts in one generated world", () => {
   // Each default run performs hundreds of real four-account sign-in flows.
   }), Number(process.env.HEGEL_CASES ?? "0") > 0 ? 0 : 120_000);
 });
-
-/** Every operation either client's model knows. */
-function state0(models: readonly IsolatedModel[]): string[] {
-  return models.flatMap((model) => [...model.operations.keys()]);
-}
-
-/**
- * `approveOurs` in a world with other Users' and accounts' operations: the
- * operation is the one open operation that is new or this card's label's.
- */
-async function approveOursAmong(w: Pick<World, "client" | "sql">, mock: World["mock"], id: string, known: ReadonlySet<string>): Promise<{ terms: string; operation: string }> {
-  const before = approvals(w);
-  await decideLocal(w.client, id, "approve");
-  const after = approvals(w);
-  expect(after.get(id)).toBe("terms");
-  const waiting = [...after].filter(([key, status]) => key.startsWith("apr2_") && status === "pending").map(([key]) => key);
-  const asked = waiting.filter((key) => before.get(key) !== "pending");
-  expect(asked.length).toBeLessThanOrEqual(1);
-  const label = String(w.sql.exec("SELECT label FROM poppy_approvals WHERE id = ?", id).toArray()[0]!.label);
-  const mine = waiting.filter((key) => String(w.sql.exec("SELECT label FROM poppy_approvals WHERE id = ?", key).toArray()[0]!.label) === label);
-  const terms = asked[0] ?? mine.find((key) => known.has(operationOf(w.sql, key)));
-  expect(terms).toBeDefined();
-  const operation = operationOf(w.sql, terms!);
-  expect((await mock.state()).operations.find((op) => op.id === operation)?.state).toBe("proposed");
-  return { terms: terms!, operation };
-}
 
 describe("refresh and revocation with real tokens", () => {
   it("refreshes, then revokes once at sign-out, under any token and nonce behaviour", propertyAsync(async (tc) => {

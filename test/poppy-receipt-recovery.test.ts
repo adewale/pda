@@ -2,10 +2,10 @@ import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { decideLocal, recoverInterruptedApprovals } from "../src/poppy/operations";
 import { agent, cards, company, requests, signInDirect } from "./agent-helpers";
-import { legacyTool as tool } from "./legacy-approval";
+import { tool } from "./agent-helpers";
 
 async function pending() {
-  const c = await company({ operations: false });
+  const c = await company();
   const a = await agent();
   await signInDirect(a, c);
   expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: {

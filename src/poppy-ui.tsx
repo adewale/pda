@@ -605,6 +605,32 @@ function Receipt({ result, detail, company, children, action, note }: { result: 
   );
 }
 
+/** Browser-observed string equality only; no signed URL reaches the telemetry frame. */
+function NoticeLinks({ card, send, enabled }: { card: Extract<Card, { kind: "notice" }>; send: Send; enabled: boolean }) {
+  const anchors = useRef(new Map<number, HTMLAnchorElement>());
+  const reported = useRef<string | null>(null);
+  const result = card.id.startsWith("result-");
+  useEffect(() => {
+    if (!result || !enabled) return;
+    const checks = (card.links ?? []).flatMap((link, index) => {
+      const anchor = anchors.current.get(index);
+      return anchor ? [{ index, attribute_equal: anchor.getAttribute("href") === link.url, resolved_equal: anchor.href === link.url }] : [];
+    });
+    const signature = JSON.stringify({ cardId: card.id, checks });
+    if (!checks.length || reported.current === signature) return;
+    if (send({ type: "poppy.result_links.checked", cardId: card.id, checks })) reported.current = signature;
+  }, [card.id, card.links, result, enabled, send]);
+  return <ul className="mt-1 space-y-1">{card.links?.map((link, index) => {
+    const parsed = httpsHref(link.url);
+    if (!parsed) return null;
+    const divider = link.label.lastIndexOf(" · ");
+    const caption = result && divider >= 0 ? link.label.slice(0, divider) : link.label;
+    return <li key={index}><a ref={anchor => { if (anchor) anchors.current.set(index, anchor); else anchors.current.delete(index); }} href={link.url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+      {result ? <><bdi>{caption}</bdi>{" · "}<bdi dir="ltr">{new URL(parsed).hostname}</bdi></> : link.label}
+    </a></li>;
+  })}</ul>;
+}
+
 /** A request's outcome when no step in the chat shows it. */
 function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; onAsk?: ((text: string) => void) | undefined }) {
   // A receipt's buttons are disabled while the page isn't connected; the banner at the top says why, so each line doesn't.
@@ -625,10 +651,7 @@ function ClosedCard({ card, send: sendFrame, onAsk }: { card: Card; send: Send; 
           <InfoIcon size={16} aria-hidden className="mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1 text-pretty break-words">
             <p>{card.company ? <span className="font-medium">{card.company} · </span> : null}{card.text}{note}</p>
-            {card.links?.length ? <ul className="mt-1 space-y-1">{card.links.map((link, index) => {
-              const href = httpsHref(link.url);
-              return href ? <li key={index}><a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{link.label}</a></li> : null;
-            })}</ul> : null}
+            {card.links?.length ? <NoticeLinks card={card} send={send} enabled={!disabled} /> : null}
           </div>
           {dismiss}
         </div>

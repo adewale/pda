@@ -9,15 +9,16 @@
 import { approvalAttachments, approvalBatchKey, readApproval, storedApproval, type ApprovalKind, type ApprovalOf, type NewApproval } from "./approvals";
 import { answerOf, PoppyClient, PoppyError, unreadableAnswerOf } from "./client";
 import { tokenHostAllowed, type Company } from "./discovery";
-import { canonicalJson, isObject, parseStrictJson, toJson, type Json } from "./json";
+import { canonicalJson, isObject, toJson, type Json } from "./json";
+import { json, jsonText } from "../decode";
 import { randomId, sha256 } from "./jwt";
 import type { OperationV2 } from "./operations-v2";
 import type { ApprovalTerms } from "./wire";
 import { one, rows, type RowOf } from "../rows";
-import { approvalBatchesTable, approvalsTable, cardsTable } from "./store";
+import { approvalBatchesTable, approvalsTable, cardsTable, intent, taskCallsTable } from "./store";
 import { approvalResult, checkedOutcomeText, isTaskRequest, storedResolution } from "./approval-outcome";
 import type { CardWriteOptions } from "./cards";
-import { resultLinks } from "./result-links";
+import { inspectResultLinks } from "./result-links";
 import { currentEvent, currentTool, id as logId } from "../log";
 
 /**
@@ -325,26 +326,40 @@ export async function proposeLocal(
   /** A known approval_required response may hand its current executing request to a terms card. */
   replacesExecuting?: string,
   /** Task dispatch is durable too, but does not ask the User to approve an HTTP request. */
-  publish = true
+  publish = true,
+  /** Persist a task call's canonical reference in the same synchronous step as selection. */
+  recordTask?: (id: string) => string
 ): Promise<string> {
+  if (publish && ((approval.kind === "mcp" && !approval.call.approval) ||
+      (approval.kind === "openapi" && !approval.call.approval && !Object.keys(approval.call.files ?? {}).length))) {
+    throw new PoppyError("approval_changed", "Preliminary API-write approvals are not supported. Start the task again for the Company's current terms.", 0);
+  }
   const id = fixedId ?? randomId("apr_");
   const action = await actionIdentity(label, approval);
   await backfillActionIdentities(client);
   const stored = storedApproval(approval);
   const attachments = approvalAttachments(stored);
   const existing = one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ?", id);
+  if (publish && terms && existing?.status === "unknown" && existing.outcome_resolution === "not_performed" && replacesExecuting) {
+    // A fresh, checked attempt gets its own decision record; preserve the original
+    // uncertain receipt and the User's assertion instead of reopening history.
+    const retryId = intent(client.sql, `reapproval|${replacesExecuting}|${id}`, () => randomId("apr2_"));
+    return proposeLocal(client, company, label, summary, approval, retryId, terms, replacesExecuting);
+  }
   if (!publish && existing) {
     if (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored) throw new PoppyError("approval_changed", "This tool call already made a different request. Nothing will be sent again.", 0);
-    return id;
+    return recordTask?.(id) ?? id;
   }
   if (!publish) {
-    requireKnownOutcome(client, company.issuer, action);
+    await expirePendingTerms(client, company.issuer, action);
     const waiting = rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE issuer = ? AND action_owner = ? AND action_key = ? AND status IN ('pending', 'executing', 'terms')", company.issuer, action.owner, action.key)
       .find(row => {
         const saved = readApproval(row.request);
-        return saved.ok && canonicalJson(toJson(saved.value.binding ?? null)) === canonicalJson(toJson(approval.binding ?? null));
+        return saved.ok && (isTaskRequest(row.id) || ((saved.value.kind === "openapi" || saved.value.kind === "mcp") && saved.value.call.approval !== undefined)) &&
+          canonicalJson(toJson(saved.value.binding ?? null)) === canonicalJson(toJson(approval.binding ?? null));
       });
-    if (waiting) return waiting.terms_approval_id ?? waiting.id;
+    requireKnownOutcome(client, company.issuer, action, waiting ? [waiting.id] : []);
+    if (waiting) return recordTask?.(waiting.terms_approval_id ?? waiting.id) ?? waiting.terms_approval_id ?? waiting.id;
   }
   const replacing = replacesExecuting ? one(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE id = ? AND issuer = ? AND status = 'executing'", replacesExecuting, company.issuer) : undefined;
   requireKnownOutcome(client, company.issuer, action, [
@@ -387,7 +402,7 @@ export async function proposeLocal(
   }
   // The known refusal handed this executing request to its terms card before the User can act reentrantly.
   if (replacing && replacing.id !== id) client.sql.exec("UPDATE poppy_approvals SET terms_approval_id = ? WHERE id = ? AND status = 'executing'", id, replacing.id);
-  if (!publish) return id;
+  if (!publish) return recordTask?.(id) ?? id;
   await client.host.showCard({
     id: `approval-${id}`,
     kind: "approval",
@@ -411,13 +426,32 @@ function batchKeyOf(issuer: string, request: string): { batchKey?: string } {
 
 const approvalRow = approvalsTable.pick("id", "issuer", "label", "summary", "request", "status", "terms", "result", "terms_approval_id", "action_key", "action_owner", "operation_id", "notification_batch_id", "outcome_resolution", "outcome_resolved_at");
 
+/** A fresh task may request new terms, but never revive or send an expired revision. */
+async function expirePendingTerms(client: PoppyClient, issuer: string, action: ActionIdentity): Promise<void> {
+  for (const row of rows(client.sql, approvalRow, "SELECT * FROM poppy_approvals WHERE issuer = ? AND action_owner = ? AND action_key = ? AND status = 'pending' AND terms IS NOT NULL", issuer, action.owner, action.key)) {
+    if (!row.terms || Date.parse(row.terms.expiresAt) > Date.now()) continue;
+    client.sql.exec("UPDATE poppy_approvals SET status = 'failed', result = 'Not sent: the Company terms expired before the User decided. Request current terms.' WHERE id = ? AND status = 'pending'", row.id);
+    await repairTerminalApprovalCard(client, row.id);
+  }
+  await settleTermsApprovals(client);
+}
+
 /**
  * Send a task-authorized request, retaining its exact payload and outcome across replay.
  * Only a Company's operation (or a separate file-disclosure decision) asks for a click.
  * A fresh model call for a request already awaiting terms reuses those terms, without another send.
  */
-export async function dispatchTaskRequest(client: PoppyClient, company: Company, label: string, summary: string, request: NewApproval, fixedId: string): Promise<Json> {
-  const id = await proposeLocal(client, company, label, summary, request, fixedId, undefined, undefined, false);
+export async function dispatchTaskRequest(client: PoppyClient, company: Company, label: string, summary: string, request: Extract<NewApproval, { kind: "openapi" | "mcp" }>, fixedId: string): Promise<Json> {
+  const hash = await sha256(canonicalJson(toJson({ issuer: company.issuer, label, request })));
+  const bound = one(client.sql, taskCallsTable.row, "SELECT * FROM poppy_task_calls WHERE call_id = ?", fixedId);
+  if (bound && bound.request_hash !== hash) throw new PoppyError("approval_changed", "This tool call already made a different task request. Nothing will be sent again.", 0);
+  const record = (target: string): string => {
+    client.sql.exec("INSERT OR IGNORE INTO poppy_task_calls (call_id, request_id, request_hash) VALUES (?, ?, ?)", fixedId, target, hash);
+    const saved = one(client.sql, taskCallsTable.row, "SELECT * FROM poppy_task_calls WHERE call_id = ?", fixedId);
+    if (!saved || saved.request_hash !== hash) throw new PoppyError("approval_changed", "The task call's durable identity changed. Nothing will be sent.", 0);
+    return saved.request_id;
+  };
+  const id = bound?.request_id ?? await proposeLocal(client, company, label, summary, request, fixedId, undefined, undefined, false, record);
   const trace = currentTool();
   if (trace) {
     const parent = isTaskRequest(id) ? id : one(client.sql, approvalsTable.pick("id"), "SELECT id FROM poppy_approvals WHERE terms_approval_id = ? AND id GLOB 'req_*' LIMIT 1", id)?.id;
@@ -427,6 +461,7 @@ export async function dispatchTaskRequest(client: PoppyClient, company: Company,
   if (isTaskRequest(id)) {
     let failure: unknown;
     await decideOne(client, id, "approve", undefined, { failed: error => { failure = error; } });
+    await settleTermsApprovals(client);
     client.sql.exec("UPDATE poppy_approvals SET notification_pending = 0 WHERE id = ? AND status IN ('done', 'terms', 'refused', 'failed')", id);
     if (failure && !(failure instanceof TermsRequested)) throw failure;
   }
@@ -436,7 +471,7 @@ export async function dispatchTaskRequest(client: PoppyClient, company: Company,
     if (trace) trace.approval_id = logId(row.terms_approval_id ?? id);
     return { proposed: row.terms_approval_id ?? id, note: "Waiting for the User's decision on the Company's terms. Do not make this request again." };
   }
-  if (row.status === "done" && row.result) return parseStrictJson(row.result);
+  if (row.status === "done" && row.result) return jsonText(json)(row.result, "stored task result");
   if (row.status === "pending" || row.status === "executing") return { status: "in_progress", note: "This request is already being handled. Do not send it again." };
   throw new PoppyError("approval_changed", row.result ?? "This request was already handled. Check its outcome rather than sending it again.", 0);
 }
@@ -444,10 +479,12 @@ export async function dispatchTaskRequest(client: PoppyClient, company: Company,
 /** Links reach the User without a model having to transcribe a signed checkout URL. */
 async function showResultLinks(client: PoppyClient, id: string, company: string, result: string): Promise<void> {
   let value: Json;
-  try { value = parseStrictJson(result); } catch { return; }
-  const links = resultLinks(value);
+  try { value = jsonText(json)(result, "stored Company result"); } catch { return; }
+  const { links, rejected } = inspectResultLinks(value);
+  const event = currentEvent();
+  event?.set({ result_link_rejections: rejected });
   if (!links.length) return;
-  currentEvent()?.count("result_links", links.length);
+  event?.count("result_links", links.length);
   await client.host.showCard({
     id: `result-${id}`, kind: "notice", company, open: false,
     text: "Links returned by the Company. Each opens in a new tab; opening checkout is not confirmation of payment.",

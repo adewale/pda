@@ -209,32 +209,36 @@ function diagnosticsFileName(at: number): string {
  * needs no access to the logs. Asked for when Activity opens, so the copy is
  * ready when the button is pressed, and again after each copy.
  */
-export function Diagnostics({ diagnostics, send }: { diagnostics: ProtocolView["diagnostics"]; send: Send }) {
+export function Diagnostics({ diagnostics, send, flows = [] }: { diagnostics: ProtocolView["diagnostics"]; send: Send; flows?: readonly { id: string; label: string }[] }) {
   const [said, setSaid] = useState("");
+  const [scope, setScope] = useState("");
+  const scopeId = useId();
   const connected = useConnected();
+  const matching = diagnostics && (diagnostics.flowId ?? "") === scope ? diagnostics : undefined;
+  const request = scope ? { type: "poppy.diagnostics" as const, flowId: scope } : { type: "poppy.diagnostics" as const };
   useEffect(() => {
-    if (connected) send({ type: "poppy.diagnostics" });
-  }, [connected, send]);
+    if (connected) send(scope ? { type: "poppy.diagnostics", flowId: scope } : { type: "poppy.diagnostics" });
+  }, [connected, send, scope]);
   const copy = async () => {
-    if (!diagnostics) {
-      send({ type: "poppy.diagnostics" });
+    if (!matching) {
+      send(request);
       setSaid("Still getting them from your agent; try again in a moment.");
       return;
     }
     try {
-      await navigator.clipboard.writeText(diagnostics.text);
+      await navigator.clipboard.writeText(matching.text);
       setSaid("Copied. Paste them into your message to the operator.");
     } catch {
       setSaid("Couldn't copy here; use Download instead.");
     }
-    send({ type: "poppy.diagnostics" });
+    send(request);
   };
   const download = () => {
-    if (!diagnostics) return;
-    const url = URL.createObjectURL(new Blob([diagnostics.text], { type: "text/plain;charset=utf-8" }));
+    if (!matching) return;
+    const url = URL.createObjectURL(new Blob([matching.text], { type: "text/plain;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = diagnosticsFileName(diagnostics.at);
+    link.download = scope ? `agent-flow-${scope}-${new Date(matching.at).toISOString().slice(0, 10)}.txt` : diagnosticsFileName(matching.at);
     document.body.appendChild(link);
     link.click();
     link.remove();
@@ -243,10 +247,15 @@ export function Diagnostics({ diagnostics, send }: { diagnostics: ProtocolView["
   };
   return (
     <div className="flex flex-wrap items-center gap-2">
+      <label htmlFor={scopeId} className="text-[13px]">Diagnostic scope</label>
+      <select id={scopeId} value={scope} onChange={event => { setScope(event.target.value); setSaid(""); }} className="min-h-10 max-w-full rounded-lg border border-kumo-hairline bg-kumo-base px-3 text-[13px]">
+        <option value="">Recent agent events</option>
+        {flows.map(flow => <option key={flow.id} value={flow.id}>{flow.label}</option>)}
+      </select>
       <Action variant="secondary" icon={<CopyIcon size={16} aria-hidden />} onClick={() => void copy()}>
         Copy diagnostics
       </Action>
-      <Action variant="secondary" icon={<DownloadSimpleIcon size={16} aria-hidden />} onClick={download} disabled={!diagnostics}>
+      <Action variant="secondary" icon={<DownloadSimpleIcon size={16} aria-hidden />} onClick={download} disabled={!matching}>
         Download diagnostics
       </Action>
       <span role="status" className="text-[13px] text-kumo-subtle">

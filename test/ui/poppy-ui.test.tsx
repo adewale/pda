@@ -448,6 +448,15 @@ describe("the Company's domain (spec issue N14)", () => {
 });
 
 describe("notice card", () => {
+  it("reports only source/rendered-link equality for result notices", () => {
+    const url = "https://CHECKOUT.EXAMPLE:443/pay?session=a%2Fb%2Bc#receipt";
+    const { sent } = renderCards({ ...noticeCard, id: "result-req_example", links: [{ label: "Checkout", url }] });
+    const anchor = screen.getByRole("link", { name: /Checkout/ });
+    expect(anchor.getAttribute("href")).toBe(url);
+    expect(sent).toEqual([{ type: "poppy.result_links.checked", cardId: "result-req_example", checks: [{ index: 0, attribute_equal: true, resolved_equal: false }] }]);
+    expect(JSON.stringify(sent)).not.toContain("session=");
+    expect(JSON.stringify(sent)).not.toContain("receipt");
+  });
   it("links the Company's returned checkout without changing its signed query or sending a frame", () => {
     const url = "https://checkout.example/pay?session=a%2Fb%2Bc&return=%2Forders%3Fpaid%3D1#receipt";
     const { container, sent } = renderCards({ ...noticeCard, text: "Links returned by Acme", links: [{ label: "Order checkout · checkout.example", url }] });

@@ -163,6 +163,11 @@ CREATE TABLE IF NOT EXISTS poppy_intents (
   value TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS poppy_task_calls (
+  call_id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  request_hash TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS poppy_cards (
   id TEXT PRIMARY KEY,
   card TEXT NOT NULL,
@@ -488,6 +493,7 @@ export const approvalsTable = table("poppy_approvals", {
 });
 export const approvalBatchesTable = table("poppy_approval_batches", { id: text, ids: text, told: integer, created_at: integer, notification: nullable(savedApprovalNotification) });
 export const intentsTable = table("poppy_intents", { call_key: text, value: text, created_at: integer });
+export const taskCallsTable = table("poppy_task_calls", { call_id: text, request_id: text, request_hash: text });
 export const cardsTable = table("poppy_cards", { card: text, id: text, open: integer, updated_at: integer });
 
 /** The format of everything `Sealer.seal` writes: `v1.<base64url(iv | ciphertext)>`. */

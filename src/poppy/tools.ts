@@ -392,8 +392,9 @@ export function poppyExtension(client: () => PoppyClient, browser: () => PoppyBr
             api: Type.Optional(Type.String()),
             session: Label
           }),
-          // Unsafe: a tool call has no idempotency key, so an interrupted one is reported, never repeated.
-          replay: "unsafe"
+          // Non-read-only calls retain a fixed request/outcome before dispatch.
+          // Harness replay returns that record; it never repeats an uncertain action.
+          replay: "safe"
         },
         async ({ domain, tool: name, args, api, session }, callKey) =>
           callMcpTool(client(), await company(domain), session ?? "main", { tool: name, args: json(args ?? {}, "args"), callKey, ...(api ? { apiUrl: api } : {}) })

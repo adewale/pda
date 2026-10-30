@@ -1,21 +1,25 @@
 import { evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
-import { agent, cards, company, requests, signInDirect } from "./agent-helpers";
-import { legacyTool } from "./legacy-approval";
+import { agent, cards, company, requests, signInDirect, tool } from "./agent-helpers";
 
-describe("ordinary approved write outcomes", () => {
+async function pending(transport: "OpenAPI" | "MCP") {
+  const c = await company();
+  const a = await agent();
+  await signInDirect(a, c);
+  const held = transport === "OpenAPI"
+    ? await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } })
+    : await tool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
+  expect(held.isError, held.text).toBe(false);
+  const id = JSON.parse(held.details).proposed;
+  expect((await cards(a)).find(card => card.approvalId === id)).toMatchObject({ terms: expect.any(Object), status: "pending" });
+  expect((await c.stub.state()).performs).toBe(0);
+  return { a, c, id };
+}
+
+describe("Company-approved write outcomes", () => {
   for (const [transport, failure] of [["OpenAPI", "stream"], ["MCP", "stream"], ["MCP", "invalid-json"]] as const) {
     it(`keeps an actual ${transport} write with ${failure} response failure uncertain and never repeats its approval`, async () => {
-      const c = await company({ operations: false });
-      const a = await agent();
-      await signInDirect(a, c);
-      const name = transport === "OpenAPI" ? "poppy_api_call" : "poppy_mcp_call";
-      const args = transport === "OpenAPI"
-        ? { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } }
-        : { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
-      const held = await legacyTool(a, name, args);
-      expect(held.isError, held.text).toBe(false);
-      const id = JSON.parse(held.text).proposed;
+      const { a, c, id } = await pending(transport);
       let receivedStatus = 0;
       await runInDurableObject(a.stub, async instance => {
         const client = instance.poppy.client;
@@ -46,11 +50,7 @@ describe("ordinary approved write outcomes", () => {
   }
 
   it("does not label an explicit MCP tool error as a completed approved action", async () => {
-    const c = await company({ operations: false });
-    const a = await agent();
-    await signInDirect(a, c);
-    const held = await legacyTool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
-    const id = JSON.parse(held.text).proposed;
+    const { a, c, id } = await pending("MCP");
     await runInDurableObject(a.stub, async instance => {
       const client = instance.poppy.client;
       const resource = client.resource.bind(client);
@@ -67,11 +67,7 @@ describe("ordinary approved write outcomes", () => {
   });
 
   it("does not claim an approved MCP tool was sent when fresh Session initialization fails", async () => {
-    const c = await company({ operations: false });
-    const a = await agent();
-    await signInDirect(a, c);
-    const held = await legacyTool(a, "poppy_mcp_call", { domain: c.domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
-    const id = JSON.parse(held.text).proposed;
+    const { a, c, id } = await pending("MCP");
     await evictDurableObject(a.stub);
     let toolCalls = 0;
     await runInDurableObject(a.stub, async instance => {

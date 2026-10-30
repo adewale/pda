@@ -2,10 +2,10 @@ import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { decideLocal, recoverInterruptedApprovals } from "../src/poppy/operations";
 import { agent, cards, company, signInDirect } from "./agent-helpers";
-import { legacyTool as tool } from "./legacy-approval";
+import { tool } from "./agent-helpers";
 
 async function pending() {
-  const c = await company({ operations: false });
+  const c = await company();
   const a = await agent();
   await signInDirect(a, c);
   expect((await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } })).isError).toBe(false);
@@ -53,8 +53,6 @@ describe("durable approval notifications", () => {
     let termsId;
     for (let attempt = 0; attempt < 2; attempt++) {
       await tool(a, "poppy_api_call", { domain: c.domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } });
-      const parent = (await cards(a)).find(card => card.kind === "approval" && card.open)!;
-      await a.stub.poppyFrame({ type: "poppy.approval", approvalId: parent.approvalId, decision: "approve" });
       const terms = (await cards(a)).find(card => card.kind === "approval" && card.open)!;
       if (termsId) expect(terms.approvalId).toBe(termsId);
       termsId = terms.approvalId;
