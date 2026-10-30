@@ -142,13 +142,23 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
       assert.ok(scoped.text.includes('"attribute_equal":1'));
     }
     await page.waitForFunction(() => [...document.querySelectorAll("button")].some(button => button.textContent.trim() === "Download diagnostics" && !button.disabled));
-    const section = await page.$("select").then(select => select.evaluateHandle(element => element.closest("section")));
+    await page.$eval("select", select => select.closest("section").scrollIntoView({ block: "center" }));
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const layout = await page.$eval("select", select => {
+      const section = select.closest("section");
+      const bounds = section.getBoundingClientRect();
+      const controlsFit = [select, ...section.querySelectorAll("p, button")].every(element => {
+        const rect = element.getBoundingClientRect();
+        return rect.left >= 0 && rect.right <= innerWidth;
+      });
+      return { controlsFit, clip: { x: bounds.x + scrollX, y: bounds.y + scrollY, width: bounds.width, height: bounds.height } };
+    });
+    assert.ok(layout.controlsFit, `Selected diagnostic controls must fit the ${viewport} viewport`);
     if (output) {
       const destination = `${output}.diagnostic-scope-${viewport}.png`;
-      writeFileSync(destination, Buffer.from(await section.asElement().screenshot({ type: "png" })));
+      writeFileSync(destination, Buffer.from(await page.screenshot({ type: "png", clip: layout.clip })));
       screenshots.push(destination);
     }
-    await section.dispose();
     const state = await company.state();
     assert.equal(state.performs, 1, "Reloading the transcript and Activity must not repeat the operation");
     assert.deepEqual(state.violations, [], "Strict Company protocol violations");
