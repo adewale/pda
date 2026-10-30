@@ -353,6 +353,7 @@ export async function proposeLocal(
   if (existing && (existing.issuer !== company.issuer || existing.label !== label || existing.request !== stored || existing.summary !== summary)) {
     throw new PoppyError("approval_changed", "This tool call already proposed a different request. Use a new call for fresh approval.", 0);
   }
+  if (publish) traceApproval(id);
   if (existing && existing.status !== "pending") return id;
   if (!existing) {
     client.rememberCompany("approval", id, company);
@@ -385,6 +386,17 @@ export async function proposeLocal(
     ...batchKeyOf(company.issuer, stored)
   });
   return id;
+}
+
+function traceApproval(approvalId: string): void {
+  const safe = logId(approvalId);
+  if (!safe) return;
+  const tool = currentTool();
+  if (tool) tool.approval_id = safe;
+  const event = currentEvent();
+  const previous = event?.fields.approval_ids;
+  const ids = Array.isArray(previous) ? previous.flatMap(value => logId(value) ?? []) : [];
+  event?.set({ approval_ids: [...new Set([...ids, safe])].slice(-BATCH_LIMIT) });
 }
 
 function batchKeyOf(issuer: string, request: string): { batchKey?: string } {
@@ -796,6 +808,8 @@ export async function decideLocalBatch(client: PoppyClient, decisions: readonly 
   if (keys.size !== 1 || keys.has(undefined)) {
     throw new PoppyError("batch_refused", "These requests can't be decided together. Decide each on its own card.", 0);
   }
+  // Only IDs read from validated, owned rows—not arbitrary frame strings.
+  currentEvent()?.set({ approval_ids: waiting.map(item => logId(item.row.id)).flatMap(value => value ?? []) });
   const batch = randomId("apb_");
   client.sql.exec(
     "INSERT INTO poppy_approval_batches (id, ids, told, created_at) VALUES (?, ?, 0, ?)",

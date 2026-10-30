@@ -1,5 +1,7 @@
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { AgentLog } from "../src/agent-log";
+import { saveAttachment } from "../src/attachments";
 import { id as logId } from "../src/log";
 import { FLOW_DIAGNOSTIC_LIMITS } from "../src/flow-diagnostics";
 import { agent, cards, company, connect, signInDirect, tool, until } from "./agent-helpers";
@@ -21,7 +23,10 @@ describe("one action's diagnostic export", () => {
     for (let i = 0; i < 205; i++) await a.stub.poppyFrame({ type: "poppy.card.dismiss", id: `unrelated-${i}` });
     expect(await a.stub.diagnostics()).not.toContain('"call_id":"flow-original"');
     await a.stub.poppyRestart();
-    const after = await runInDurableObject(a.stub, instance => instance.log.flowDiagnostics(asked.proposed));
+    const after = await runInDurableObject(a.stub, (instance, state) => {
+      const reopened = new AgentLog({ sql: state.storage.sql, agentId: instance.log.agentId });
+      return reopened.flowDiagnostics(asked.proposed);
+    });
     expect(after).toContain('"call_id":"flow-original"');
     expect(after).toContain(asked.proposed);
     expect(after).not.toContain("unrelated-");
@@ -29,6 +34,33 @@ describe("one action's diagnostic export", () => {
     expect(after).not.toContain("Stormline");
     expect(after).not.toContain(a.identity.email!);
     expect((await c.stub.state()).performs).toBe(1);
+  });
+
+  it("captures each file-consent proposal and its shared batch decision without file contents or names", async () => {
+    const c = await company({ printShop: true });
+    const a = await agent();
+    const photos = await runInDurableObject(a.stub, instance => [1, 2].map(index => {
+      const bytes = new Uint8Array(1000).fill(index);
+      bytes.set([0xff, 0xd8, 0xff]);
+      return saveAttachment(instance.poppy.client.sql, { name: `private-photo-${index}.jpg`, bytes });
+    }));
+    const proposed: string[] = [];
+    for (const [index, photo] of photos.entries()) proposed.push(JSON.parse((await tool(a, "poppy_api_call", { domain: c.domain, operation: "uploadPhoto", files: { photo: photo.id } }, `file-flow-${index}`)).details).proposed);
+    const waiting = (await cards(a)).filter(card => card.kind === "approval" && card.open);
+    expect(waiting).toHaveLength(2);
+    for (const [index, approvalId] of proposed.entries()) {
+      const text = await runInDurableObject(a.stub, instance => instance.log.flowDiagnostics(approvalId));
+      expect(text).toContain(`"call_id":"file-flow-${index}"`);
+    }
+    await a.stub.poppyFrame({ type: "poppy.approvals", decisions: waiting.map(card => ({ approvalId: card.approvalId, decision: "decline" })) });
+    for (const card of waiting) {
+      const text = await runInDurableObject(a.stub, instance => instance.log.flowDiagnostics(card.approvalId));
+      expect(text).toContain('"frame":"poppy.approvals"');
+      expect(text).toContain('"status":"declined"');
+      expect(text).not.toContain("private-photo-");
+      expect(text).not.toContain(photos[0]!.id);
+    }
+    expect((await c.stub.state()).performs).toBe(0);
   });
 
   it("answers a flow lookup only on its owner's asking socket", async () => {

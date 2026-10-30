@@ -22,7 +22,7 @@ async function clickApproval(page, summary = null) {
   await handle.dispose();
 }
 
-export async function approvalJourneys({ runtime, page, network, agentName, cookie, output, companyDriven = false }) {
+export async function approvalJourneys({ runtime, page, network, agentName, cookie, output }) {
   const agents = await runtime.getDurableObjectNamespace("PersonalAgent");
   const companies = await runtime.getDurableObjectNamespace("MOCK_COMPANY");
   const agent = agents.getByName(agentName);
@@ -30,11 +30,21 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
   const screenshots = [];
   const decisions = [];
   const resolutions = [];
+  const linkChecks = [];
+  const diagnostics = [];
+  const onReply = event => {
+    try {
+      const frame = JSON.parse(event.response.payloadData);
+      if (frame.type === "poppy.diagnostics") diagnostics.push(frame);
+    } catch { /* Other socket frames are irrelevant to this receipt. */ }
+  };
+  network.on("Network.webSocketFrameReceived", onReply);
   const onFrame = event => {
     try {
       const frame = JSON.parse(event.response.payloadData);
       if (frame.type === "poppy.approval") decisions.push({ approvalId: frame.approvalId, decision: frame.decision });
       if (frame.type === "poppy.approval.resolve") resolutions.push({ approvalId: frame.approvalId, outcome: frame.outcome });
+      if (frame.type === "poppy.result_links.checked") linkChecks.push(frame);
     } catch { /* Other socket frames are irrelevant to this receipt. */ }
   };
   network.on("Network.webSocketFrameSent", onFrame);
@@ -82,14 +92,10 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     const ours = await until(async () => JSON.parse(await agent.poppyCards()), cards => cards.some(card => card.kind === "approval" && card.open && card.domain === domain), "Local approval not stored");
     const local = ours.find(card => card.kind === "approval" && card.open && card.domain === domain);
     assert.equal((await company.state()).performs, 0, "A displayed local approval cannot perform a write");
-    if (companyDriven) {
-      assert.ok(local.terms, "The first visible card must contain the Company's exact terms");
-      assert.equal(ours.filter(card => card.kind === "approval" && card.domain === domain).length, 1);
-    } else assert.deepEqual((await company.state()).operations, [], "Local approval holds the initial operation request");
+    assert.ok(local.terms, "The first visible card must contain the Company's exact terms");
+    assert.equal(ours.filter(card => card.kind === "approval" && card.domain === domain).length, 1);
     await capture(`approval-${transport.toLowerCase()}-initial-${viewport}`);
-    if (!companyDriven) await clickApproval(page);
-    const termsCards = await until(async () => JSON.parse(await agent.poppyCards()), cards => cards.some(card => card.kind === "approval" && card.open && card.domain === domain && (companyDriven || card.approvalId !== local.approvalId) && card.terms), "Company terms not received");
-    const terms = termsCards.find(card => card.kind === "approval" && card.open && card.domain === domain && card.terms);
+    const terms = local;
     assert.match(terms.summary, /Exchange the Stormline Jacket/);
     assert.equal((await company.state()).performs, 0, "Company terms must wait for a separate User click");
     assert.deepEqual((await company.state()).operations.map(operation => [operation.state, operation.confirms]), [["proposed", 0]]);
@@ -98,7 +104,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     await capture(`approval-${transport.toLowerCase()}-terms-${viewport}`);
     await clickApproval(page, terms.terms.summary);
     await until(() => company.state(), state => state.performs === 1, "Approved Company operation did not perform");
-    const approvalIds = companyDriven ? [terms.approvalId] : [local.approvalId, terms.approvalId];
+    const approvalIds = [terms.approvalId];
     const decided = await until(async () => JSON.parse(await agent.poppyCards()), cards => approvalIds.every(id => cards.find(card => card.approvalId === id)?.status === "done"), "The approval must settle Done");
     await page.waitForSelector(`[data-tool="${tool}"][data-status="done"]`, { timeout: 20_000 });
     assert.equal(await page.$(`[data-tool="${tool}"][data-status="waiting"]`), null, "Original transcript step must stop waiting");
@@ -107,23 +113,42 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     await page.waitForSelector(`[data-tool="${tool}"][data-status="done"]`);
     await showStep(`[data-tool="${tool}"][data-status="done"]`);
     await capture(`approval-${transport.toLowerCase()}-done-${viewport}`);
-    if (companyDriven && transport === "OpenAPI") {
+    if (transport === "OpenAPI") {
       const checkout = "https://checkout.example/pay?session=synthetic%2Fcheckout%2Bproof&return=%2Forders#receipt";
       const anchor = await page.waitForSelector('a[href="' + checkout + '"]');
       assert.equal(await anchor.evaluate(element => element.getAttribute("href")), checkout);
+      assert.equal(await anchor.evaluate(element => element.href), checkout);
+      await until(() => linkChecks, checks => checks.some(check => check.cardId === `result-${terms.approvalId}` && check.checks.some(link => link.index === 0 && link.attribute_equal && link.resolved_equal)), "The real renderer must report exact source/anchor equality without URL values");
+      assert.equal(JSON.stringify(linkChecks).includes("synthetic%2Fcheckout"), false);
+      await until(() => agent.poppySql("SELECT count(*) AS n FROM agent_flow_log WHERE line LIKE ?", '%"client_reported":true%'), text => JSON.parse(text)[0].n > 0, "Server must retain the client-reported equality counts before export");
       await anchor.evaluate(element => element.scrollIntoView({ block: "center" }));
       await capture("checkout-link-desktop");
     }
     const activity = JSON.parse(await agent.poppyActivity());
     assert.deepEqual(activity.inProgress, [], "No approval may remain in Activity's in-progress list");
-    const localEntry = activity.log.find(entry => entry.id === `approval-${local.approvalId}`);
     const termsEntry = activity.log.find(entry => entry.id === `approval-${terms.approvalId}`);
-    if (!companyDriven) assert.equal(localEntry?.result, "done", JSON.stringify(activity));
     assert.equal(termsEntry?.result, "done", JSON.stringify(activity));
     await page.goto("https://agent.test/activity", { waitUntil: "networkidle0" });
     await page.waitForFunction(() => document.body.innerText.includes("Nothing running"));
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await capture(`approval-${transport.toLowerCase()}-activity-${viewport}`);
+    await page.waitForSelector("select");
+    await page.select("select", terms.approvalId);
+    const scoped = await until(() => diagnostics.findLast(frame => frame.flowId === terms.approvalId), frame => frame?.text.includes('"status":"done"'), "The selected action must receive its matching scoped export");
+    assert.equal(scoped.text.includes("replacement_sku"), false);
+    assert.equal(scoped.text.includes("synthetic%2Fcheckout"), false);
+    if (transport === "OpenAPI") {
+      assert.ok(scoped.text.includes('"client_reported":true'));
+      assert.ok(scoped.text.includes('"attribute_equal":1'));
+    }
+    await page.waitForFunction(() => [...document.querySelectorAll("button")].some(button => button.textContent.trim() === "Download diagnostics" && !button.disabled));
+    const section = await page.$("select").then(select => select.evaluateHandle(element => element.closest("section")));
+    if (output) {
+      const destination = `${output}.diagnostic-scope-${viewport}.png`;
+      writeFileSync(destination, Buffer.from(await section.asElement().screenshot({ type: "png" })));
+      screenshots.push(destination);
+    }
+    await section.dispose();
     const state = await company.state();
     assert.equal(state.performs, 1, "Reloading the transcript and Activity must not repeat the operation");
     assert.deepEqual(state.violations, [], "Strict Company protocol violations");
@@ -135,18 +160,18 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     if (wire) assert.deepEqual(wire, [{ status: 403, companyApprovalPresent: false }, { status: 201, companyApprovalPresent: true }]);
     receipts.push({
       transport, viewport, domain,
-      localApproval: companyDriven ? null : { id: local.approvalId, status: decided.find(card => card.approvalId === local.approvalId).status },
       companyApproval: { id: terms.approvalId, status: decided.find(card => card.approvalId === terms.approvalId).status },
       browserWebSocketDecisions: journeyDecisions,
       companyWire: wire,
       companyOperation: state.operations[0],
-      performsBeforeEitherApproval: 0,
-      performsAfterLocalApproval: 0,
+      performsBeforeTermsApproval: 0,
+      scopedDiagnostics: { scopeMatches: true, bodyAndSignedQueryExcluded: true },
+      ...(transport === "OpenAPI" ? { renderedLinkEquality: { attributeEqual: true, resolvedEqual: true, clientReported: true, noUrlInReport: true } } : {}),
       performsAfterTermsApprovalAndReload: state.performs,
       originalTranscript: "done",
       originalTranscriptSurvivesReload: true,
       activityInProgress: activity.inProgress.length,
-      activityResults: companyDriven ? [termsEntry.result] : [localEntry.result, termsEntry.result],
+      activityResults: [termsEntry.result],
       strictCompanyViolations: state.violations.length,
       strictCompanyWarnings: state.warnings.length
     });
@@ -154,7 +179,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
   // The Company acts, but its response is lost: only an explicit User reconciliation can clear the block.
   const unknownCompany = companies.getByName("cunknownjourney");
   const unknownDomain = "cunknownjourney.shop.test";
-  await signInCompany(unknownCompany, unknownDomain, { operations: companyDriven });
+  await signInCompany(unknownCompany, unknownDomain, { operations: true });
   const warm = await agent.poppyTool("poppy_api_call", { domain: unknownDomain, operation: "listOrders" });
   assert.equal(warm.isError, false, "Warm the ordinary token/nonce exchange before losing the action's answer");
   await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
@@ -262,6 +287,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
   assert.deepEqual(verificationState.violations, []);
   assert.deepEqual(verificationState.warnings, []);
   network.off("Network.webSocketFrameSent", onFrame);
+  network.off("Network.webSocketFrameReceived", onReply);
   return {
     journeys: receipts, recovery, messageWithheld: { actualBrowserToolCall: true, replyQuotedAsSent: false, verificationCodeSent: false, authorizationMessages: 1, strictViolations: 0, strictWarnings: 0 }, screenshots,
     companySignInSetup: "strict mock authorization decision followed by production authenticated callback",

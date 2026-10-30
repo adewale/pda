@@ -1,7 +1,8 @@
 # Company-driven task approvals and checkout links
 
 Baseline: `4c92a2d890d771feedf7a8fc7274d86644626f70`.
-Implementation: `b04764ebdeda37be17f40e08ae921c945f6d5b34`.
+Initial implementation: `b04764ebdeda37be17f40e08ae921c945f6d5b34`.
+These captures are historical evidence at that revision, not screenshots of the later audit fixes.
 The [receipt](receipt.json) pins the fixture and image hashes. These are local browser runs, not production screenshots.
 
 ## Approval flow
@@ -49,5 +50,5 @@ The committed receipts retain the runner's assertions and replace absolute scree
 
 - Five initial task-request regressions failed before the implementation. Removing pending-request reuse again made OpenAPI and MCP observe another POST. Restoring the 2,000-character cut made the complete-result test fail with unterminated JSON. Both mutations were restored.
 - The browser also checks lost-answer holds, explicit User reconciliation, reload, receipt expiry and durable historical attribution. Its first corrected run exposed an internal task record becoming a second reconciled receipt; the implementation and a dedicated regression now keep it hidden.
-- Existing generated histories retain their full generators and safety assertions. Their preliminary cards now use an explicit legacy-card fixture; a separate current-flow property covers pending-term reuse and approve/decline across fresh calls and token/nonce configurations.
+- The initial revision retained a legacy-card fixture. The audit follow-up removes that fixture and the production compatibility path; generated histories now drive current Company terms directly, without reducing their domains or safety oracles. Current browser checks likewise have no preliminary-card mode.
 - No real OAuth provider, model, external payment service or real order is exercised. One fixture is not broad cross-project conformance. Automatic uncertain-action retry remains the existing conservative policy, rather than complete Ops §7 recovery.

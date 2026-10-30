@@ -41,7 +41,8 @@ export class FlowDiagnostics {
   keep(seq: number, line: string, event: WideEvent): void {
     const decoded = tryDecode(array(refs), event.fields.tool_calls ?? [], "logged tool calls");
     const ids = new Set<string>();
-    const candidates = [event.fields.approval_id, ...(decoded.ok ? decoded.value.flatMap(call => [call.task_request_id, call.approval_id]) : [])];
+    const batch = tryDecode(array(string), event.fields.approval_ids ?? [], "logged approvals");
+    const candidates = [event.fields.approval_id, ...(batch.ok ? batch.value : []), ...(decoded.ok ? decoded.value.flatMap(call => [call.task_request_id, call.approval_id]) : [])];
     for (const candidate of candidates) {
       if (typeof candidate !== "string" || !isDiagnosticFlowId(candidate)) continue;
       const root = this.#root(candidate);
@@ -78,7 +79,7 @@ export class FlowDiagnostics {
       "Poppy Demo Agent flow diagnostics", `Agent: ${agentId}`, `Flow: ${root}`, `Requested: ${requested}`,
       `Copied: ${new Date(now).toISOString()}`,
       `Retention: up to ${FLOW_DIAGNOSTIC_LIMITS.events} events / ${FLOW_DIAGNOSTIC_LIMITS.bytes} bytes per flow, for the ${FLOW_DIAGNOSTIC_LIMITS.flows} most recently logged flows.`,
-      "Scope: one linked API action and its approval revisions; shared turn/frame context may include other work. No unrelated Company protocol logs.",
+      "Scope: one linked action and its approval revisions; shared turn/frame context may include other work. No unrelated Company protocol logs.",
       "Never included: request/response bodies, Company text, tokens, signed URL queries or fragments. Events pruned before this feature cannot be recovered.",
       ...(states.length ? ["Lifecycle (current durable state, not a request or response):", ...states.map(state => JSON.stringify(state))] : []),
       ...(events.length ? ["Events, oldest first:", ...events.map(row => row.line)] : ["No retained records for this flow; it may predate capture or have aged out."]), ""

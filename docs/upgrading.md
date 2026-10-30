@@ -18,8 +18,12 @@ PDA release numbers, Poppy wire versions, the interop control protocol, validato
 6. Add an Unreleased changelog entry: operator-visible effects, breaking changes, migration and rollback steps, exact protocol revision, upstream changelog link, and validation actually completed. Don't invent historical release numbers.
 7. Deploy only after checks pass. Verify signed-out discovery and reads first, then a test-account sign-in and an approved sandbox operation. Record deployed commit and evidence. Never count offline or sandbox success as a live production check.
 
-## Compatibility and rollback
+## Pre-1.0 approval reset
+
+There is no compatibility path for the old two-card API flow. Stored approvals now require version 3 with explicit authority bindings and withdrawal generations. Earlier pending forms are refused, not migrated or executed; the User must start those tasks again. Preserve historical receipts and unknown-outcome holds: refusal to execute an old record is not proof that its earlier attempt did nothing. File-disclosure consent and website-form confirmation remain separate current flows.
+
+## State and rollback
 
 Keep stable User IDs and sealed refresh tokens keyed by the exact issuer. Add schema columns rather than changing encryption contexts or deleting account records. Treat discovery caches as disposable. In-flight sign-ins and approvals must retain their domain and profile context; a changed protocol or issuer needs reconciliation before an action resumes. An issuer change never transfers credentials or consent.
 
-Keep the previous deploy available. Rollback can read additive state, but an old binary does not support a new wire version, and a binary from before 28 October can't speak 0.3: the 0.3 migration dropped Operations 1's tables, and its Sessions and tokens are 0.3's. Never resend an approved request whose outcome is unknown (Operations 2, 7); ask the Company, or the User, first. Retain revocation work and show pending revocations to the User.
+Keep the previous deploy available, but do not roll an active task ledger back to a binary that ignores its durable call mappings or immutable decisions: replay could dispatch again. Reconcile in-flight work before rollback. An old binary does not support a new wire version, and a binary from before 28 October can't speak 0.3: the 0.3 migration dropped Operations 1's tables, and its Sessions and tokens are 0.3's. Never resend an approved request whose outcome is unknown (Operations 2, 7); ask the Company, or the User, first. Retain revocation work and show pending revocations to the User.
