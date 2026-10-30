@@ -13,6 +13,10 @@ import { pathToFileURL } from "node:url";
 const root = path.resolve(import.meta.dirname, "..");
 const outputIndex = process.argv.indexOf("--output");
 const output = outputIndex < 0 ? null : process.argv[outputIndex + 1];
+// Focus one boundary while retaining the complete default matrix.
+const pointIndex = process.argv.indexOf("--point");
+const onlyPoint = pointIndex < 0 ? null : process.argv[pointIndex + 1];
+if (pointIndex >= 0) assert.ok(onlyPoint, "--point requires a boundary name");
 const directory = mkdtempSync(path.join(tmpdir(), "pda-approval-process-crash-"));
 const children = new Set();
 const results = [];
@@ -86,6 +90,7 @@ try {
   const cookie = (await createSession(identity, bindings.SESSION_SECRET)).split(";", 1)[0];
   const name = await agentNameFor(identity);
   for (const channel of ["openapi", "mcp"]) for (const point of ["before-dispatch", "after-effect", "after-commit", "after-notification"]) {
+    if (onlyPoint && point !== onlyPoint) continue;
     const runDirectory = path.join(directory, `${channel}-${point}`);
     const settings = path.join(directory, `${channel}-${point}.json`);
     writeFileSync(settings, JSON.stringify({ config, bindings, cookie, bundle, script: path.join(bundle, "process-worker.js"), persistence: { pda: path.join(runDirectory, "pda"), company: path.join(runDirectory, "company") } }), { mode: 0o600 });
@@ -157,6 +162,142 @@ try {
     await kill(pda);
     await kill(company);
   }
+  // Initial task dispatch and Pi tool settlement are different crash windows from
+  // clicking Company terms. Keep both, with an independent surviving ledger.
+  const probes = [
+    ...["openapi", "mcp"].flatMap(channel => ["task-before-dispatch", "task-after-effect", "task-after-terms-link"].map(point => ({ channel, point }))),
+    { channel: "mcp", point: "tool-settlement", replay: "safe" },
+    { channel: "mcp", point: "tool-settlement", replay: "unsafe" }
+  ];
+  for (const { channel, point, replay } of probes) {
+    if (onlyPoint && point !== onlyPoint) continue;
+    const label = `${channel}-${point}${replay ? `-${replay}` : ""}`;
+    const runDirectory = path.join(directory, label);
+    const settings = path.join(directory, `${label}.json`);
+    writeFileSync(settings, JSON.stringify({ config, bindings, cookie, bundle, script: path.join(bundle, "process-worker.js"), persistence: { pda: path.join(runDirectory, "pda"), company: path.join(runDirectory, "company") } }), { mode: 0o600 });
+    const company = await start(settings, "company");
+    let pda = await start(settings, "pda");
+    await company.rpc({ action: "peer", port: pda.port });
+    await pda.rpc({ action: "peer", port: company.port });
+    await pda.rpc({ action: "authenticate" });
+    const companyCall = (method, ...args) => company.call("crash", method, ...args);
+    const call = (method, ...args) => pda.call(name, method, ...args);
+    const domain = "crash.shop.test";
+    // No Operations extension is a current 0.3 routine write, not a legacy approval flow.
+    await companyCall("configure", { protocolVersion: "0.3", strictAssertions: true, dpopTokens: true, operations: point === "task-after-terms-link" });
+    assert.equal((await call("poppyTool", "poppy_sign_in", { domain, scopes: ["orders:read", "orders:write"], reason: "Initial task crash verification" })).isError, false);
+    const signin = JSON.parse(await call("poppyCards")).find(card => card.kind === "signin_link" && card.open);
+    await call("crashCompleteSignIn", await companyCall("approveAuthorization", signin.url, { approve: true, account: "acct_ada" }));
+    const tool = channel === "openapi" ? "poppy_api_call" : "poppy_mcp_call";
+    const args = channel === "openapi"
+      ? { domain, operation: "exchangeItem", params: { order_id: "ord_7Hk2" }, body: { item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } }
+      : { domain, tool: "exchange_item", args: { order_id: "ord_7Hk2", item_id: "itm_4Qa", replacement_sku: "stormline-insulated-m" } };
+    const noticesBefore = await call("poppyNotices");
+    const callId = `initial-${label}`;
+    const ask = id => call("poppyTool", tool, args, id);
+    await call("crashArm", point, "", replay ?? "safe");
+    const reached = pda.barrier(point);
+    const pending = point === "tool-settlement"
+      ? pda.rpc({ action: "frame", frame: { type: "submit", id: crypto.randomUUID(), input: `Place this exchange. @@obey ${tool} ${Buffer.from(JSON.stringify(args)).toString("base64url")}` } })
+      : ask(callId);
+    const interrupted = pending.catch(error => error.message);
+    await reached;
+    const atCrash = await companyCall("state");
+    const expectedEffects = ["task-after-effect", "tool-settlement"].includes(point) ? 1 : 0;
+    assert.equal(atCrash.performs, expectedEffects);
+    const ledgerBefore = await company.rpc({ action: "ledger" });
+    assert.equal(ledgerBefore.businessRequests.length, point === "task-before-dispatch" ? 0 : 1, "Only the exact exchange request is business dispatch; metadata and token traffic are excluded");
+    assert.ok(ledgerBefore.businessRequests.every(request => request.channel === channel && !request.approved));
+    const rowsBefore = JSON.parse(await call("poppySql", "SELECT id, status, result, terms_approval_id FROM poppy_approvals WHERE id GLOB 'req_*'"));
+    assert.equal(rowsBefore.length, 1);
+    assert.equal(rowsBefore[0].status, point === "task-before-dispatch" ? "pending" : point === "tool-settlement" ? "done" : "executing");
+    assert.equal(JSON.parse(await call("poppySql", "SELECT * FROM poppy_task_calls")).length, 1, "The interrupted tool must already have its durable binding");
+    if (point === "task-after-terms-link") {
+      assert.ok(rowsBefore[0].terms_approval_id);
+      assert.equal(JSON.parse(await call("poppyCards")).filter(card => card.kind === "approval").length, 0, "Kill precedes terms publication");
+    }
+    let saved;
+    if (point === "tool-settlement") {
+      saved = JSON.parse(JSON.parse(await call("poppySql", "SELECT result FROM test_saved_tool"))[0].result);
+      assert.equal(saved.isError ?? false, false);
+      assert.deepEqual(JSON.parse(await call("crashToolResults")), [], "Pi has not yet committed its tool result");
+      // The random exchange id is an exact-result witness, not a command-name/count proxy.
+      assert.ok(JSON.stringify(saved).includes(JSON.parse(rowsBefore[0].result).structuredContent.exchange.exchange_id));
+    }
+    const oldPid = pda.pid;
+    await kill(pda);
+    await interrupted;
+    pda = await start(settings, "pda");
+    assert.notEqual(pda.pid, oldPid);
+    await pda.rpc({ action: "peer", port: company.port });
+    await company.rpc({ action: "peer", port: pda.port });
+    await pda.rpc({ action: "authenticate" });
+    const expectedStatus = point === "task-before-dispatch" ? "failed" : point === "task-after-effect" ? "unknown" : point === "task-after-terms-link" ? "terms" : "done";
+    const recovered = JSON.parse(await call("poppySql", "SELECT id, status, result, terms_approval_id FROM poppy_approvals WHERE id GLOB 'req_*'"));
+    assert.equal(recovered.length, 1);
+    assert.equal(recovered[0].status, expectedStatus);
+    assert.equal(JSON.parse(await call("poppySql", "SELECT id FROM poppy_approvals WHERE id GLOB 'req_*' AND status IN ('pending', 'executing')")).length, 0, "Recovery cannot strand internal pending requests");
+    if (point === "tool-settlement") {
+      const deadline = Date.now() + 15_000;
+      let settled;
+      for (;;) {
+        settled = JSON.parse(await call("crashToolResults")).filter(result => result.toolName === tool);
+        if (settled.length) break;
+        if (Date.now() >= deadline) throw new Error("Pi did not settle the interrupted MCP call");
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      assert.equal(settled.length, 1);
+      if (replay === "safe") {
+        assert.equal(settled[0].isError, false);
+        assert.deepEqual(settled[0].content, saved.output);
+        assert.deepEqual(settled[0].details, saved.details);
+      } else {
+        assert.equal(settled[0].isError, true, "Negative control: stored unsafe intent must NOT recover the successful result");
+        assert.match(JSON.stringify(settled[0]), /interrupted/);
+        assert.notDeepEqual(settled[0].content, saved.output);
+      }
+      assert.equal(JSON.parse(await call("poppySql", "SELECT result FROM test_saved_tool")).length, 1);
+    } else {
+      const retried = await ask(callId);
+      if (point === "task-after-terms-link") {
+        assert.equal(retried.isError, false);
+        assert.equal(JSON.parse(retried.text).proposed, recovered[0].terms_approval_id);
+        const coalesced = await ask(`${callId}-coalesced`);
+        assert.equal(coalesced.isError, false);
+        assert.equal(JSON.parse(coalesced.text).proposed, recovered[0].terms_approval_id);
+        assert.equal(JSON.parse(await call("poppySql", "SELECT * FROM poppy_task_calls")).length, 2);
+      } else {
+        assert.equal(retried.isError, true);
+        if (point === "task-after-effect") {
+          assert.match(retried.text, /Interrupted|unknown/i);
+          const fresh = await ask(`${callId}-fresh`);
+          assert.equal(fresh.isError, true);
+          assert.match(fresh.text, /unknown outcome/);
+          assert.equal(JSON.parse(await call("poppySql", "SELECT status FROM poppy_approvals WHERE id = ?", recovered[0].id))[0].status, "unknown");
+        } else assert.match(retried.text, /Nothing was sent/);
+      }
+    }
+    const recoveredCards = JSON.parse(await call("poppyCards")).filter(card => card.kind === "approval");
+    assert.equal(recoveredCards.length, point === "tool-settlement" ? 0 : 1, "Only Company terms or an interrupted-task failure may have a card; no extra internal receipts");
+    if (point === "task-after-terms-link") {
+      const [terms] = JSON.parse(await call("poppySql", "SELECT status, terms FROM poppy_approvals WHERE id = ?", recovered[0].terms_approval_id));
+      assert.equal(terms.status, "pending", "Recovery publishes the terms, never decides them");
+      assert.equal(recoveredCards[0].approvalId, recovered[0].terms_approval_id);
+      assert.equal(recoveredCards[0].open, true);
+      assert.deepEqual(recoveredCards[0].terms, JSON.parse(terms.terms), "Recover the exact saved Company terms");
+      assert.deepEqual(await call("poppyNotices"), noticesBefore, "An intermediate terms handoff must not wake the model");
+    }
+    const after = await companyCall("state");
+    assert.equal(after.performs, expectedEffects);
+    assert.deepEqual(await company.rpc({ action: "ledger" }), ledgerBefore, "Restart/replay may renew metadata or tokens, never resend the business write");
+    assert.deepEqual(after.violations, []);
+    assert.deepEqual(after.warnings, []);
+    results.push({ channel, point, ...(replay ? { replay, negativeControl: replay === "unsafe", exactSavedResultRecovered: replay === "safe" } : {}), signal: "SIGKILL", oldPdaPid: oldPid, newPdaPid: pda.pid, companyPid: company.pid, companyNeverRestarted: true, effectsBeforeCrash: atCrash.performs, effectsAfterRecovery: after.performs, status: expectedStatus, noResend: true, noStrandedPendingTasks: true });
+    process.stdout.write(`${label}: passed${replay === "unsafe" ? " (negative control: interrupted, not saved success)" : ""}\n`);
+    await kill(pda);
+    await kill(company);
+  }
+  assert.ok(results.length, `No crash probes matched ${onlyPoint}`);
   const receipt = { tests: results, runtime: "separate OS process groups and workerd runtimes; PDA SQLite reused after SIGKILL", liveAuthenticationVerified: false };
   if (output) writeFileSync(output, JSON.stringify(receipt, null, 2) + "\n");
 } finally {
