@@ -3,18 +3,21 @@ import { attachmentInfo, humanSize, readAttachment, type AttachmentInfo } from "
 import { answerOf, PoppyClient, PoppyError, scopeSet, withAnswer, withoutAnswer, withUnreadableAnswer, type TokenOptions } from "./client";
 import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company } from "./discovery";
 import { fetchJson } from "./fetch";
-import { isObject, parseStrictJson, toJson, type Json } from "./json";
-import { approvalTerms, dispatchTaskRequest, OperationOutcomeUnknown, proposeLocal, registerExecutor, TermsRequested, type ApprovalExecution } from "./operations";
+import { canonicalJson, isObject, parseStrictJson, toJson, type Json } from "./json";
+import { approvalTerms, dispatchTaskRequest, OperationOutcomeUnknown, proposeLocal, registerExecutor, resumeRecordedTask, taskProjection, TermsRequested, type ApprovalExecution } from "./operations";
+import { TaskFiles } from "./task-files";
 import type { Issuer } from "./issuer";
 import { randomId } from "./jwt";
 import { approvable, approvalCardId, approvalForModel, approvalHeader, approvalJson, approvalSummary, parseOperationV2, type ApprovalV2, type OperationV2 } from "./operations-v2";
 import { EndpointRequest, type RequestInit } from "./outgoing";
-import { approvalsTable, intent, taskCallsTable, type Sql } from "./store";
+import { approvalsTable, intent, intentsTable, taskCallsTable, type Sql } from "./store";
 import { readApproval, type NewApproval } from "./approvals";
 import { one } from "../rows";
 import { sameAuthority, sessionAuthority, type ApprovalAuthority } from "./authority";
 import { companyErrorCode } from "./error-codes";
 import { isTaskRequest } from "./approval-outcome";
+import { domainFromInput } from "../domain";
+import { array, jsonText, nullable, object, string } from "../decode";
 
 type Api = Company["apis"][number];
 
@@ -727,7 +730,8 @@ export class CheckedApiRequest {
     /** The full URL: server, filled path and query. */
     readonly url: string,
     /** The User's files an upload sends: names, types and sizes, never the bytes. */
-    readonly attachments: readonly AttachmentInfo[]
+    readonly attachments: readonly AttachmentInfo[],
+    readonly identifiers: readonly string[]
   ) {
     this.#sql = sql;
     this.#now = now;
@@ -832,7 +836,8 @@ export class CheckedApiRequest {
       ...(key !== undefined ? { idempotencyKey: typeof key === "string" ? key : key() } : {}),
       ...(request.approval ? { approval: request.approval } : {})
     };
-    const checked = new CheckedApiRequest(client.sql, () => client.host.now(), company, api, op, call, url.href, files ? uploadedFiles(client, company, op, files) : []);
+    const identifiers = [...new Set([request.operation, op.operationId, `${op.method} ${op.path}`])].filter(name => findOperation(document, name) === op);
+    const checked = new CheckedApiRequest(client.sql, () => client.host.now(), company, api, op, call, url.href, files ? uploadedFiles(client, company, op, files) : [], identifiers);
     // A JSON body (not a form's fields) is checked against the operation's schema.
     if (!checked.multipart) checkBody(company, op, call.body);
     return checked;
@@ -908,25 +913,69 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
  * Call an OpenAPI operation in the Session. Every rule is checked first
  * (`CheckedApiRequest.check`), before a token request or a card. Task requests
  * run normally; a Company operation waits on its exact-terms card (Ops 4–6).
- * Uploads retain separate consent to disclose the User's files. Writes are
- * recorded before dispatch so replay returns their outcome rather than
- * creating another operation.
+ * Photos selected by the User for this task need no second disclosure click.
+ * Other files retain their disclosure card. Writes are recorded before dispatch
+ * so replay returns their outcome rather than creating another operation.
  */
+export type OpenApiTaskRequest = {
+  apiUrl?: string;
+  operation: string;
+  params?: Record<string, string | number | boolean>;
+  body?: Json;
+  files?: Record<string, string>;
+  callKey: string;
+};
+
+const apiAliases = jsonText(object({ operation: string, identifiers: array(string), apiUrl: string, originalApiUrl: nullable(string) }));
+
+function rememberApiAliases(client: PoppyClient, request: OpenApiTaskRequest, checked: CheckedApiRequest): void {
+  intent(client.sql, `api-aliases|${request.callKey}`, () => JSON.stringify({ operation: request.operation, identifiers: checked.identifiers, apiUrl: checked.api.url, originalApiUrl: request.apiUrl ?? null }));
+}
+
+function apiInput(client: PoppyClient, domain: string, label: string, request: OpenApiTaskRequest): { value: string; key: string; requestId?: string; canReplay: boolean } {
+  const { callKey, operation, apiUrl, params, files, ...fields } = request;
+  const aliases = one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `api-aliases|${callKey}`);
+  const saved = aliases ? apiAliases(aliases.value, "API input aliases") : undefined;
+  const named = saved?.identifiers.includes(operation) ? saved.operation : operation;
+  const api = saved && (apiUrl === undefined || apiUrl === saved.apiUrl) ? saved.originalApiUrl ?? undefined : apiUrl;
+  const value = canonicalJson(toJson({ domain: domainFromInput(domain), label, ...fields, operation: named, params: params ?? {}, ...(files && Object.keys(files).length ? { files } : {}), ...(api !== undefined ? { apiUrl: api } : {}) }));
+  const key = `api-input|${callKey}`;
+  const previous = one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", key);
+  if (previous && previous.value !== value) throw new PoppyError("approval_changed", "This tool call already asked for a different API request. Nothing will be sent again.", 0);
+  const requestId = one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `request|${callKey}`)?.value;
+  const bound = requestId !== undefined && hasTaskCall(client, requestId);
+  // A pre-existing mapping without this input proof still takes the ordinary
+  // checked/hash-verified path; never stamp new arguments onto an old outcome.
+  if (!previous && !bound) intent(client.sql, key, () => value);
+  return { value, key, ...(requestId ? { requestId } : {}), canReplay: previous !== undefined && bound };
+}
+
+function taskReference(client: PoppyClient, callId: string, result: Json): Json {
+  const bound = one(client.sql, taskCallsTable.pick("request_id"), "SELECT request_id FROM poppy_task_calls WHERE call_id = ?", callId);
+  if (!bound || !isObject(result)) throw new PoppyError("invalid_response", "The task's recorded outcome is unavailable. Nothing will be resent.", 0);
+  return { ...result, poppyTask: taskProjection(client, bound.request_id) };
+}
+
+/** Recover only a recorded call with the exact original input, before discovery or file reads. */
+export async function replayOpenApiCall(client: PoppyClient, domain: string, label: string, request: OpenApiTaskRequest, beforeDispatch?: () => void): Promise<Json | undefined> {
+  const input = apiInput(client, domain, label, request);
+  if (!input.canReplay || !input.requestId) return undefined;
+  const result = await resumeRecordedTask(client, input.requestId, beforeDispatch);
+  return result === undefined ? undefined : taskReference(client, input.requestId, result);
+}
+
 export async function callOpenApi(
   client: PoppyClient,
   company: Company,
   label: string,
-  request: {
-    apiUrl?: string;
-    operation: string;
-    params?: Record<string, string | number | boolean>;
-    body?: Json;
-    /** For a `multipart/form-data` upload: each file field's attachment id. */
-    files?: Record<string, string>;
-    callKey: string;
-  }
+  request: OpenApiTaskRequest,
+  taskFiles: TaskFiles = TaskFiles.none(),
+  domain = company.domain,
+  beforeDispatch?: () => void
 ): Promise<Json> {
-  const guard = requestGuard(client, company, label, bindingSnapshot(client, company, label), true);
+  const guard = requestGuard(client, company, label, bindingSnapshot(client, company, label), true, beforeDispatch);
+  const replay = await replayOpenApiCall(client, domain, label, request, beforeDispatch);
+  if (replay !== undefined) return replay;
   const checked = await CheckedApiRequest.check(client, company, {
     ...request,
     idempotencyKey: () => intent(client.sql, `idem|${request.callKey}`, () => crypto.randomUUID())
@@ -940,17 +989,33 @@ export async function callOpenApi(
       { kind: "openapi", call: checked.call, method: checked.method, url: checked.url, binding: guard.binding(), ...(checked.attachments.length ? { attachments: [...checked.attachments] } : {}) },
       intent(client.sql, `approval|${request.callKey}`, () => randomId("apr_"))
     );
-  if (checked.attachments.length) {
-    // The User's photo leaves their agent only when they say so, at any Company:
-    // the Operations extension covers what a Company does, not what we send it.
-    return { proposed: await ask(), note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
-  }
   const requestId = intent(client.sql, `request|${request.callKey}`, () => randomId("req_"));
-  if (checked.method === "GET" && !hasTaskCall(client, requestId)) return answerForModel(await sendApi(client, label, checked, guard), company);
-  return dispatchTaskRequest(client, company, label, checked.describe(), {
+  if (!hasTaskCall(client, requestId)) rememberApiAliases(client, request, checked);
+  if (checked.attachments.length && !hasTaskCall(client, requestId)) {
+    const ids = checked.attachments.map(file => file.id).sort();
+    const context = { issuer: company.issuer, label, ids, binding: guard.binding() };
+    const task = JSON.stringify({ ...context, route: "task" });
+    const consent = JSON.stringify({ ...context, route: "consent" });
+    // Freeze the route and its files/authority synchronously, before either
+    // path can yield while creating its durable record. A later selection
+    // cannot turn a pending, declined or completed disclosure into a new send.
+    const priorConsent = one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `approval|${request.callKey}`);
+    const route = intent(client.sql, `file-policy|${request.callKey}`, () => !priorConsent && taskFiles.includes(ids) ? task : consent);
+    if (route !== task && route !== consent) throw new PoppyError("approval_changed", "This upload call already selected different files or authority. Nothing will be sent again.", 0);
+    if (route === consent) {
+      return { proposed: await ask(), note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
+    }
+  }
+  // File disclosure always has a durable lifecycle, regardless of method hints.
+  if (!checked.attachments.length && checked.method === "GET" && !hasTaskCall(client, requestId)) return answerForModel(await sendApi(client, label, checked, guard), company);
+  const result = await dispatchTaskRequest(client, company, label, checked.describe(), {
     kind: "openapi", call: checked.call, method: checked.method, url: checked.url,
-    binding: guard.binding()
-  }, requestId);
+    binding: guard.binding(), ...(checked.attachments.length ? { attachments: [...checked.attachments] } : {})
+  }, requestId, beforeDispatch);
+  const input = apiInput(client, domain, label, request);
+  intent(client.sql, input.key, () => input.value);
+  rememberApiAliases(client, request, checked);
+  return taskReference(client, requestId, result);
 }
 
 /**

@@ -62,6 +62,7 @@ export function testFetcher(env: Env, clock?: () => number): Fetcher {
  *
  * - `throw`: the Company handles it, then the connection fails before the answer arrives;
  * - `gateway`: the Company handles it, then a gateway answers 504 instead;
+ * - `pause`: the Company handles it, then its intact answer waits for `poppyReleaseHeld`;
  * - `hold`: the Company handles it, then the answer is held until `poppyReleaseHeld`,
  *   and the connection fails; meanwhile the test can act as a later step would;
  * - `lose`: the request fails before it reaches the Company;
@@ -75,7 +76,7 @@ export type NetworkFault = {
   readonly method: string;
   readonly url: string;
   readonly grant?: string;
-  readonly mode: "throw" | "gateway" | "hold" | "lose" | "stall" | "error" | "null";
+  readonly mode: "throw" | "gateway" | "hold" | "pause" | "lose" | "stall" | "error" | "null";
 };
 
 type Faults = { pending: NetworkFault[]; held: (() => void)[]; stalled: { cancelled: boolean }[] };
@@ -106,6 +107,10 @@ function faultyFetcher(fetcher: Fetcher, faults: () => Faults): Fetcher {
     if (fault!.mode === "error") return Response.json({ error: "server_error" }, { status: 500 });
     if (fault!.mode === "null") return Response.json(null);
     const response = await fetcher(request);
+    if (fault!.mode === "pause") {
+      await new Promise<void>(resolve => held.push(resolve));
+      return response;
+    }
     if (fault!.mode === "stall") {
       const first = new Uint8Array((await response.arrayBuffer()).slice(0, 1));
       const stall = { cancelled: false };
@@ -931,7 +936,9 @@ export class PersonalAgent extends ProductionAgent {
     faultsOf(this).pending.push(fault);
   }
 
-  /** Let every held answer go (as a failed connection); returns how many there were. */
+  async poppyHeldCount(): Promise<number> { return faultsOf(this).held.length; }
+
+  /** Release paused answers intact and held faults as failed connections; return their count. */
   async poppyReleaseHeld(): Promise<number> {
     const held = faultsOf(this).held.splice(0);
     for (const release of held) release();

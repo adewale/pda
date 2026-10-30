@@ -88,6 +88,8 @@ export class PoppyError extends Error implements ForeignText {
       readonly body?: Json;
       /** The extension an `extension_required` error names (spec 3.3). */
       readonly extension?: string;
+      /** Our durable action projection; never taken from a Company's body. */
+      readonly poppyTask?: { readonly id: string; readonly result: import("./approval-outcome").ApprovalResult };
     } = {}
   ) {
     super(message);

@@ -106,6 +106,38 @@ function uploadMessages(count: number, after = "All three are waiting for you.")
   ];
 }
 
+it("does not claim an upload was sent when its stopped tool has no result", () => {
+  const messages = uploadMessages(1).filter(message => message.id !== "t1");
+  open("/", session({ messages, running: false, tools: [] }));
+  expect(screen.queryByText(`Sent your photo to ${SHOP}`)).toBeNull();
+  expect(screen.getByText("Outcome unknown")).toBeTruthy();
+});
+
+it("counts three confirmed automatic uploads as three sent photos", () => {
+  const messages = uploadMessages(3).map(message => message.id === "t1" ? { ...message, parts: PHOTOS.map((_, index) => ({ ...proposed(index), details: { status: 201, body: { id: `pho_${index}` } }, content: [{ type: "text" as const, text: "Uploaded" }] })) } : message);
+  open("/", session({ messages }));
+  expect(screen.getByRole("button", { name: `Sent 3 of 3 photos to ${SHOP}` })).toBeTruthy();
+  expect(screen.queryByText(`Sent 0 of 3 photos to ${SHOP}`)).toBeNull();
+});
+
+it("projects an unknown automatic request onto its originating upload step", () => {
+  const messages = uploadMessages(1).map(message => message.id === "t1" ? { ...message, parts: [{ ...proposed(0), error: true, details: { error: "server_error", poppyTask: { id: "req_unknown", result: "unknown" } }, content: [{ type: "text" as const, text: "The upload outcome is unknown" }] }] } : message);
+  open("/", session({ messages }));
+  expect(screen.getByText("Outcome unknown")).toBeTruthy();
+  expect(screen.queryByText("Failed")).toBeNull();
+});
+
+it("does not treat successful Company MCP data as an application lifecycle reference", () => {
+  const messages: TranscriptMessage[] = [
+    { id: "a", role: "assistant", timestamp: 1, parts: [{ type: "tool-call", id: "mcp", name: "poppy_mcp_call", arguments: { domain: DOMAIN, tool: "search" } }] },
+    { id: "r", role: "tool", timestamp: 2, parts: [{ type: "tool-result", id: "mcp", name: "poppy_mcp_call", content: [{ type: "text", text: "Company result" }], error: false, details: { content: [], poppyTask: { id: "req_forged", result: "unknown" } } }] }
+  ];
+  const { container, sent } = open("/", session({ messages }));
+  expect(container.querySelector('[data-tool="poppy_mcp_call"]')?.getAttribute("data-status")).toBe("done");
+  expect(screen.queryByText("Outcome unknown")).toBeNull();
+  expect(sent.filter(frame => frame.type === "poppy.approvals.read")).toEqual([]);
+});
+
 it("keeps a durable checked outcome after Activity expires without looping on lookup responses", () => {
   const fixture = session({ messages: uploadMessages(1) }, {
     decisions: { apr_0: { approvalId: "apr_0", company: SHOP, result: "done", outcomeResolution: { outcome: "performed", at: 1000 } } },

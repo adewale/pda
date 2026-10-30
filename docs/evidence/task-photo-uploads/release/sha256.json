@@ -1,0 +1,117 @@
+[
+  {
+    "path": "README.md",
+    "bytes": 4993,
+    "sha256": "2c289140717651efc9a4ecbc799cde3c6412fee45701cc1dc95fb3be6ef56942"
+  },
+  {
+    "path": "after-desktop.png",
+    "bytes": 136491,
+    "sha256": "03a296de6975436960c786da65a0b7284197aabfb2dd11720feccdb4def32843"
+  },
+  {
+    "path": "after-mobile.png",
+    "bytes": 63643,
+    "sha256": "78eb3a6885772b9d241b3189c42a3c2086a56d8cea9cef307069823505f6b1dd"
+  },
+  {
+    "path": "before-desktop.png",
+    "bytes": 108341,
+    "sha256": "0b89e8c3d4166d86317864245fc685a1e5feb988b4ace5fd267b1dd7f960ea84"
+  },
+  {
+    "path": "before-mobile.png",
+    "bytes": 56589,
+    "sha256": "1fe12d2038be1ce70ae55bb415cebfab83d7d15f3ecaf4e30e3c6a7a41a07987"
+  },
+  {
+    "path": "browser-after.json",
+    "bytes": 2108,
+    "sha256": "b6c8614d2c1e480c3d4b3fa7821ffb8f2caf841dab26af6ff8ab05e5290a5594"
+  },
+  {
+    "path": "browser-before.json",
+    "bytes": 2328,
+    "sha256": "6520fee317747022f742051967b8a0b3106524f09d1f78b68827afae6ecad243"
+  },
+  {
+    "path": "done-desktop.png",
+    "bytes": 110316,
+    "sha256": "cbcf18ee8d67f933cf5c6065ef80111b22705e893633699e4854399c88b817ef"
+  },
+  {
+    "path": "done-mobile.png",
+    "bytes": 65506,
+    "sha256": "022d4926e2e0f9024ba485499ba55cbccbfc908526197c57b7f9de55ca3a95cb"
+  },
+  {
+    "path": "interop.json",
+    "bytes": 6533,
+    "sha256": "4325beee276a34d0f93cda035895121faec7538e391e3fe5dfc801bafa91f0ca"
+  },
+  {
+    "path": "privacy-desktop.png",
+    "bytes": 546623,
+    "sha256": "ce028823439f8bfff402d610d98fdf3a1ceebffe79e14f88abff60509c96707e"
+  },
+  {
+    "path": "privacy-mobile.png",
+    "bytes": 464893,
+    "sha256": "1032fb23cf64996242dc3693cd490e2717f144d57dcd7e7a6aaf0a37aca6af32"
+  },
+  {
+    "path": "process-crashes.json",
+    "bytes": 6176,
+    "sha256": "54ee582e621ffeb9c56adc67823cc3778dbefde7632730b66002f9583535e868"
+  },
+  {
+    "path": "receipt.json",
+    "bytes": 6536,
+    "sha256": "bf8d5a772e7c50348a510f48d3b8d1c6d9805dbdd6516e910dca77130e000a8b"
+  },
+  {
+    "path": "reviews/deictic-followup.md",
+    "bytes": 2496,
+    "sha256": "61a3c24b76ec9257aaaf724e32296d27224beac2ae6aee0bb5949605303b3607"
+  },
+  {
+    "path": "reviews/extensionless-followup.md",
+    "bytes": 2238,
+    "sha256": "2a4afe28e289af3f37b6fbf2d3d1fe55a8afe6cf56bbf67051867d856a820df3"
+  },
+  {
+    "path": "reviews/recipient-followup.md",
+    "bytes": 2157,
+    "sha256": "ea49845a1bbdc40498ddfff06bf498c221c8dbc1f36a5e7e428123b4fa61eb8f"
+  },
+  {
+    "path": "reviews/release-security.md",
+    "bytes": 2307,
+    "sha256": "324ce07bee4d4593dd58abfcba73adbf9df4d87a1baa92b296d19aa54036cecb"
+  },
+  {
+    "path": "reviews/release-ui-lifecycle.md",
+    "bytes": 2361,
+    "sha256": "da205dd24a57a45ec8d94b03acce338f631bcb9cf611e67d10625baa2c53cb8c"
+  },
+  {
+    "path": "reviews/security-clearance.md",
+    "bytes": 1158,
+    "sha256": "9967f5685c1cbbcbf1d2245f0d1a044bc96a5c47a1eb6e92e5bfa7effe185448"
+  },
+  {
+    "path": "reviews/third-lifecycle.md",
+    "bytes": 933,
+    "sha256": "7f9bec07ee20c5de4cda46b3734b6c0bb7cd3f89cfe37c5bab64220ae27b46ce"
+  },
+  {
+    "path": "reviews/third-security.md",
+    "bytes": 3937,
+    "sha256": "a4255a8e3aa96ade55980780e340f78bb607b5a997faad092fd1ff7812ace8aa"
+  },
+  {
+    "path": "reviews/third-ui.md",
+    "bytes": 3857,
+    "sha256": "caa5244fe2a18316ca7c7126e7eb98f412a4c368553e04934bd6e9eecfeb5a2b"
+  }
+]

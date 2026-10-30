@@ -247,7 +247,8 @@ export class PersonalAgent extends DurableObject<Env> {
           this.log.instrument(
             poppyExtension(
               () => this.poppy.client,
-              () => this.poppy.browser
+              () => this.poppy.browser,
+              this.turnAuthority.userTask
             )
           )
         );
@@ -313,6 +314,7 @@ export class PersonalAgent extends DurableObject<Env> {
           if (typeof message === "string") {
             let parsed: unknown;
             try { parsed = JSON.parse(message); } catch { /* Upstream reports malformed JSON. */ }
+            if (typeof parsed === "object" && parsed !== null && "type" in parsed && (parsed.type === "abort" || parsed.type === "reset")) this.turnAuthority.withdraw();
             if (typeof parsed === "object" && parsed !== null && "type" in parsed && parsed.type === "submit") {
               const input = parsed as { type: "submit"; operationId?: unknown; id?: unknown };
               const supplied = typeof input.operationId === "string" ? input.operationId : typeof input.id === "string" ? input.id : crypto.randomUUID();

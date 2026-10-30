@@ -1,0 +1,69 @@
+{
+  "colorScheme": "light",
+  "signedOutPage": true,
+  "publicAboutAndEcosystem": true,
+  "publicPagesNeedNoIdentityOrSocket": true,
+  "ecosystemMobileTablesAndDeepLinks": true,
+  "ecosystemMobileLandscape": true,
+  "publicLinksAndSectionTargets": true,
+  "oldEcosystemPathHasNoPageOrRedirect": true,
+  "privacyPolicyDesktopAndMobile": true,
+  "authenticatedWorkspaceAndWebSocket": true,
+  "chatReply": true,
+  "chatSurvivesReload": true,
+  "photoJourneys": {
+    "baselineConsent": false,
+    "negativeControl": false,
+    "journeys": [
+      {
+        "viewport": "desktop",
+        "attachmentViaRealComposer": true,
+        "uploads": 1,
+        "approvals": 1,
+        "companyOperations": 1,
+        "approvedOrderRequests": 1,
+        "orderStatuses": [
+          403,
+          201
+        ],
+        "survivesReload": true,
+        "checkoutOpened": false,
+        "strictViolations": 0,
+        "strictWarnings": 0
+      },
+      {
+        "viewport": "mobile",
+        "attachmentViaRealComposer": true,
+        "uploads": 1,
+        "approvals": 1,
+        "companyOperations": 1,
+        "approvedOrderRequests": 1,
+        "orderStatuses": [
+          403,
+          201
+        ],
+        "survivesReload": true,
+        "checkoutOpened": false,
+        "strictViolations": 0,
+        "strictWarnings": 0
+      }
+    ],
+    "screenshots": [
+      "/tmp/pda-photo-upload-audit/17c5ba9-browser.json.photo-terms-desktop.png",
+      "/tmp/pda-photo-upload-audit/17c5ba9-browser.json.photo-done-desktop.png",
+      "/tmp/pda-photo-upload-audit/17c5ba9-browser.json.photo-terms-mobile.png",
+      "/tmp/pda-photo-upload-audit/17c5ba9-browser.json.photo-done-mobile.png"
+    ]
+  },
+  "deepRoutes": true,
+  "mobileLayout": true,
+  "revokedSessionShowsRecoveryAndRetainsDraft": true,
+  "logoutAndReloadSignsOut": true,
+  "uncaughtBrowserErrors": 0,
+  "runtime": "local workerd",
+  "assets": "production Vite build",
+  "builtThisRun": true,
+  "model": "synthetic test provider",
+  "authentication": "production signed-cookie verifier with synthetic test identity",
+  "liveOAuthOrModelVerified": false
+}

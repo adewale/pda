@@ -376,6 +376,12 @@ describe("local approval card", () => {
     return container.textContent ?? "";
   };
 
+  it("attributes an adopted disclosure to the task selection, not a card approval", () => {
+    const text = receipt({ status: "done", taskRequested: true, result: '{"status":201}' });
+    expect(text).toContain("Done · for your task · Acme");
+    expect(text).not.toContain("as you approved");
+  });
+
   it("says an approved write the Company did is done", () => {
     const text = receipt({ status: "done", result: '{"status":201}' });
     expect(text).toContain("Done · as you approved · Acme");

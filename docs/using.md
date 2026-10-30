@@ -44,17 +44,17 @@ You can send while the page is still connecting or reconnecting. The message sho
 **Reminders and tasks.**
 
 - "Remind me at 5pm to call the bank." At that time a reminder card appears in the chat, and on your devices if you turned notifications on. No model call is made. If the card can't be shown, your agent tries again after 1, 5 and 30 minutes; if every try fails, Settings → Scheduled says the reminder didn't reach you, and Activity says why.
-- "Every weekday at 9, check whether my print order has shipped." A task runs your agent in the background with your words, as a model call on your key or the demo, and tells you when it has run. Anything it would change still waits for your approval. A task that fails three runs in a row is paused; cancel it and ask again.
+- "Every weekday at 9, check whether my print order has shipped." A task runs your agent in the background with your words, as a model call on your key or the demo, and tells you when it has run. If a Company requires approval, its exact terms still wait for you. A task that fails three runs in a row is paused; cancel it and ask again.
 - Times are in your time zone, at most a year ahead, and nothing repeats more often than daily: once, daily, on weekdays, or weekly on a day. Up to 20 can wait at once.
 - Only you can set or cancel one, by asking in the chat. A company's message, a web page or a task's own run can't.
 
 ## Approvals and standing permissions
 
-Nothing that changes your account at a company happens until you approve it. Each request opens in the **Needs you** panel above the message box, with **Approve** and **Decline**. You can keep chatting while it is open. Collapse the panel, or press Escape while working in it, without answering; the **Needs you** button keeps the pending count and opens it again. Anything you entered in a sign-in form stays there while the panel is collapsed.
+Your agent makes requests for the task you asked for. A company may carry out a routine request immediately. When it asks for approval, its exact terms open in the **Needs you** panel above the message box, with **Approve** and **Decline**. You can keep chatting while it is open. Collapse the panel, or press Escape while working in it, without answering; the **Needs you** button keeps the pending count and opens it again. Anything you entered in a sign-in form stays there while the panel is collapsed.
 
 - **A company's proposal** shows the company's summary, its total in large figures, and its terms. The button says the total ("Approve $14.50"). Approving lets your agent confirm exactly that.
-- **Our own card** covers every other change your agent would make: it shows the exact request, and only Approve sends it, once.
-- **Sending a photo** always needs a card showing the photo and the company it goes to. Several photos going to the same place at one company share one card: each photo is a tile, ticked to start, and the button counts what it sends ("Send 9 of 10 photos"). Untick any you don't want sent; your agent hears that you declined them. Once you decide, each tile shows how its photo went. A photo for another company, or anything that isn't a photo, keeps its own card.
+- **Our own card** still covers website form submission and disclosure of a saved photo you haven't selected for this task. It does not appear before every API request.
+- **Sending a selected photo** needs no second permission click. Attach it to your request, name an earlier photo by its unique image filename (quote unusual or extensionless names), or refer to the most recent photo ("print that photo"). The agent can upload it to the Company the task is for; the Company's order terms still need your approval. A Company cannot select another stored photo or add another recipient. If the photo isn't selected or its reference is ambiguous, a disclosure card shows the photo and destination before sending. Several such photos going to the same place share one card; untick any you don't want sent. Stop/reset withdraw previous task grants. After this policy upgrade, restate an older unfinished task in a fresh message rather than assuming its old context permits an automatic upload.
 
 When you've decided, the outcome shows on the line in the chat where your agent asked: "Sent “lake.jpg” to Print Shop", or "Couldn't send “meadow.gif”" with the company's status code and **Ask your agent to try again**. The company's raw answer, and every exchange in order, are behind **Details** and in **Activity → Protocol**; a link from Details opens that company's log. Links in an answer that carry a signature or a token show as "…" after the address, because anyone holding one could use it.
 - **Standing permissions are paused.** Every new operation asks you to approve its exact revision. Older permissions remain visible on the Company's page and can be removed; they no longer authorize new work. The old summary-prefix matcher could not check the full action and every term.
@@ -65,7 +65,7 @@ Signing in to a company, signing out, and talking to a company's staff directly 
 
 ## Photos
 
-Attach a photo with **Attach a photo** beside the message box, or paste or drop one in: JPEG, PNG, WebP or GIF, up to 10 MB each. The agent sees a smaller copy so it can talk about it. The photo stays in your own agent and is deleted 30 days after you attached it; after that it can't be seen, shown to the agent or sent anywhere. It goes to a company only when you approve a card that shows it, and only to that company's own servers. Your agent keeps up to 100 MB of photos. HEIC photos aren't taken yet; most browsers convert them when you pick a file, but a pasted HEIC is refused.
+Attach a photo with **Attach a photo** beside the message box, or paste or drop one in: JPEG, PNG, WebP or GIF, up to 10 MB each. The model provider receives a smaller preview when available, or a sufficiently small original otherwise; that original may retain image metadata. The photo stays in your own agent and is deleted 30 days after you attached it; after that it can't be seen, shown to the agent or sent anywhere. When you ask for a task using a selected photo, it can go to that company's own servers without another upload-approval card. A different stored photo needs your disclosure approval. Deleting the local photo later does not delete copies already sent to a Company or model provider. Your agent keeps up to 100 MB of photos. HEIC photos aren't taken yet; most browsers convert them when you pick a file, but a pasted HEIC is refused.
 
 ## Settings
 
@@ -100,7 +100,7 @@ A run-through that touches every part. Each step says what you should see; if yo
 6. **A reminder.** Say "Remind me in 3 minutes to stretch." The tool line reads "Set a reminder", and Settings → Scheduled lists it. Close the tab. After three minutes, a notification arrives if you turned them on; reopen the page and a "Reminder: …" card is in **Needs you**.
 7. **A task.** Say "In 5 minutes, tell me the time in Tokyo." Settings → Scheduled lists it as a task. After it runs, a notice says "Your scheduled task ran", and Activity's log has a line for it.
 8. **The validator.** Open `/validator` on the same address, which anyone can use without signing in, and check `spotmeplease.com` or `withpoppyseed.dev`. The report lists errors (a broken MUST) and warnings (a departed SHOULD).
-9. **A company.** Ask "Does withpoppyseed.dev support Poppy?" The tool line reads "Looked up what withpoppyseed.dev offers personal agents". Activity → Protocol lists the exchanges for that company with their spec sections. A company may not have approved this agent yet, and the agent then says so. It has run against only one live company so far, print-with-poppy's store, as far as asking to upload a photo, so whatever happens next is worth reporting.
+9. **A company.** Ask "Does withpoppyseed.dev support Poppy?" The tool line reads "Looked up what withpoppyseed.dev offers personal agents". Activity → Protocol lists the exchanges for that company with their spec sections. A company may not have approved this agent yet, and the agent then says so. The local acceptance test uses a synthetic print shop, not a real checkout. Don't repeat a real order just to test the interface.
 
 ## What it can't do yet
 
@@ -110,5 +110,4 @@ A run-through that touches every part. Each step says what you should see; if yo
 - **Browse a company's website when the site needs JavaScript.** Inside a company Session the agent's browser runs no scripts; only `read_url`, signed out and read only, renders pages.
 - **Resume a paused task:** cancel it in Settings and ask again.
 - **A proper iPhone home-screen icon:** iOS doesn't use the SVG logo.
-- **A whole task at a live company:** it has run against one, print-with-poppy's store, only as far as asking to upload a photo; everything else only against our mock company and other projects' demos and SDKs.
 - More than one conversation, or a choice of model: each deployment sets one model for the demo and one for each vendor's keys.

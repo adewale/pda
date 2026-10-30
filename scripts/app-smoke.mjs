@@ -4,20 +4,23 @@ import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { createHash, X509Certificate } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { Miniflare, Log, LogLevel, convertV4MiniflareOptions } from "miniflare";
-import { build } from "esbuild";
+import { build, stop } from "esbuild";
 import { exportJWK, generateKeyPair } from "jose";
 import puppeteer from "@cloudflare/puppeteer";
 import { approvalJourneys } from "./app-approval-journey.mjs";
+import { photoJourneys } from "./app-photo-journey.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
 const outputIndex = args.indexOf("--output");
 const output = outputIndex < 0 ? null : args[outputIndex + 1];
 if (outputIndex >= 0 && !output) throw new Error("--output needs a path");
+if (args.includes("--baseline-photo-consent") && !args.includes("--photo-journey")) throw new Error("--baseline-photo-consent is only for the historical photo evidence run");
 const directory = mkdtempSync(path.join(tmpdir(), "pda-app-smoke-"));
 let runtime;
 let browser;
@@ -33,7 +36,7 @@ try {
   const workerDirectory = path.join(directory, "worker");
   let workerConfig = "test/wrangler.jsonc";
   let workerEntry = "worker.js";
-  if (args.includes("--approval-journey")) {
+  if (args.includes("--approval-journey") || args.includes("--photo-journey")) {
     const fixtureConfig = JSON.parse(readFileSync(path.join(root, workerConfig), "utf8").replace(/^\s*\/\/.*$/gm, ""));
     fixtureConfig.main = path.join(root, "test/browser/approval-journey-worker.ts");
     workerEntry = "approval-journey-worker.js";
@@ -83,6 +86,8 @@ try {
   browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
   const anonymous = await browser.createBrowserContext();
   const signedOut = activePage = await anonymous.newPage();
+  await signedOut.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "light" }]);
+  evidence.colorScheme = "light";
   if (args.includes("--ecosystem-viewport")) await signedOut.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
   signedOut.on("pageerror", error => failures.push(error.name));
   await signedOut.goto("https://agent.test/", { waitUntil: "networkidle0" });
@@ -146,12 +151,22 @@ try {
   assert.equal(new URL(retired.url()).pathname, "/ecosystem");
   assert.equal(await retired.$(".ecosystem-table"), null);
   evidence.oldEcosystemPathHasNoPageOrRedirect = true;
+  await signedOut.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
+  await signedOut.goto("https://agent.test/privacy", { waitUntil: "networkidle0" });
+  await signedOut.waitForSelector("main h1");
+  assert.equal(await signedOut.$eval("h1", element => element.textContent), "Privacy policy");
+  if (output) writeFileSync(`${output}.privacy-desktop.png`, Buffer.from(await signedOut.screenshot({ fullPage: true })));
+  await signedOut.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+  assert.equal(await signedOut.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  if (output) writeFileSync(`${output}.privacy-mobile.png`, Buffer.from(await signedOut.screenshot({ fullPage: true })));
+  evidence.privacyPolicyDesktopAndMobile = true;
   await anonymous.close();
   const authenticated = await browser.createBrowserContext();
   const identity = { provider: "github", sub: "4141", email: "owner@example.com", domain: null };
   const signedCookie = await createSession(identity, config.vars.SESSION_SECRET);
   const token = signedCookie.split(";", 1)[0].slice("__Host-session=".length);
   const page = activePage = await authenticated.newPage();
+  await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "light" }]);
   await page.setCookie({ name: "__Host-session", value: token, url: "https://agent.test/", path: "/", secure: true, httpOnly: true, sameSite: "Lax" });
   const network = await page.target().createCDPSession();
   let websocketHandshakes = 0;
@@ -172,6 +187,9 @@ try {
   evidence.chatSurvivesReload = true;
   if (args.includes("--approval-journey")) {
     evidence.companyApprovalJourneys = await approvalJourneys({ runtime, page, network, agentName: await agentNameFor(identity), cookie: signedCookie.split(";", 1)[0], output });
+  }
+  if (args.includes("--photo-journey")) {
+    evidence.photoJourneys = await photoJourneys({ runtime, page, network, agentName: await agentNameFor(identity), output, baselineConsent: args.includes("--baseline-photo-consent"), negativeControl: args.includes("--photo-negative-control") });
   }
   for (const route of ["/settings", "/companies", "/activity"]) {
     await page.goto(`https://agent.test${route}`, { waitUntil: "networkidle0" });
@@ -216,8 +234,15 @@ try {
   if (output && activePage) await activePage.screenshot({ type: "png", fullPage: true }).then(bytes => writeFileSync(`${output}.failure.png`, Buffer.from(bytes))).catch(() => {});
   throw error;
 } finally {
-  await browser?.close().catch(() => {});
+  process.stderr.write("cleanup: closing browser\n");
+  const closing = browser?.close().catch(() => {});
+  if (closing) await Promise.race([closing, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
+  const stopped = child?.pid && child.exitCode === null && child.signalCode === null ? once(child, "exit").catch(() => {}) : null;
   child?.kill("SIGKILL");
+  if (stopped) await stopped;
+  process.stderr.write("cleanup: Chromium exited; disposing workerd\n");
   await runtime?.dispose();
+  process.stderr.write("cleanup: workerd disposed\n");
   rmSync(directory, { recursive: true, force: true });
+  stop(); // Release this one-shot CLI's esbuild service as well as workerd.
 }

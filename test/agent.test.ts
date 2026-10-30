@@ -626,7 +626,18 @@ describe("configuration", () => {
     expect(html).toContain('href="mailto:privacy@example.com"');
     expect(html).toContain("only for the <code>openid</code> and <code>email</code> scopes");
     expect(html).toContain("Google API Services User Data Policy</a>, including the Limited Use requirements");
-    expect(html).toContain("Attached photos are deleted after 30 days");
+    expect(html).toContain("attached photos are deleted after 30 days");
+    expect(html).toContain("it may upload that photo without another approval");
+    expect(html).toContain("A different stored photo still needs your disclosure approval");
+    expect(html).toContain("shows its exact terms and waits for your decision");
+    expect(html).not.toContain("Proposed account actions require your confirmation");
+    expect(html).toContain("The operator can access the stored data");
+    expect(html).toContain("Model providers process submitted data under their own terms and account settings");
+    expect(html).toContain("the original image when no preview is available and the file is small enough");
+    expect(html).toContain("credentials entered in that form go only to the Company's sign-in endpoint, never to the model");
+    expect(html).toContain("up to 50 recently logged actions");
+    expect(html).toContain("count and size limits, not a time limit");
+    expect(html).toContain("Deleting a note does not remove the original conversation");
     expect(html).toContain("notes about you are kept in its storage until you delete them");
     expect(html).toContain("The address itself can contain private information in its hostname, path or query");
     expect(html).toContain("General page reads send no cookies or account credentials");
@@ -635,6 +646,7 @@ describe("configuration", () => {
     expect(html).toContain("receive messages and requests your model generates");
     expect(html).toContain("Notes marked as something you said can only be deleted in Settings");
     expect(html).toContain("and your agent and everything it stores will be deleted within 30 days");
+    expect(html).toContain("This does not delete copies held by model providers or Companies");
     // The operator's logs (src/log.ts): how the agent worked, never what anyone said, for Workers Logs' retention.
     expect(html).toContain("They don't record what you, your agent or anyone else said, and hold no tokens, keys, codes or your email");
     expect(html).toContain("kept for Cloudflare Workers Logs' retention period: 7 days on Workers Paid, 3 days on Workers Free");

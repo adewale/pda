@@ -10,7 +10,7 @@ Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](sp
 
 - A Company whose `poppy.json` declares 0.1 or 0.2 is refused before its issuer is used, and can't be used until it moves to 0.3; an agent's accounts there go unused, and aren't revoked. Print with Poppy moved on 28 October (`b340741`, and printwithpoppy.com declares 0.3).
 - The client metadata document is `/poppy/client.json` again, listing Operations 2; `/poppy/0.3/client.json` is gone. A Company that allowlisted it sees a new `client_id`, and the User signs in again.
-- Operations 1 is gone: proposals, confirm and cancel, tracking, standing permissions, the `poppy_operation` tool and its card. A migration drops `poppy_operations`, `poppy_proposals` and `poppy_permissions`. A Company's terms are an approval card, after our own card for the write.
+- Operations 1 is gone: proposals, confirm and cancel, tracking, standing permissions, the `poppy_operation` tool and its card. A migration drops `poppy_operations`, `poppy_proposals` and `poppy_permissions`. A Company's terms use one exact-revision approval card; there is no preliminary API-write card.
 - Sign-in asks for the Company's own scopes; `poppy:read` and `poppy:write` are gone.
 
 ### Added
@@ -35,7 +35,9 @@ Protocol baseline: **0.3, the text retrieved on 29 October 2026** ([snapshot](sp
 
 ### Changed
 
-- Task API requests and MCP calls now run before the Company asks for approval of its exact terms. The preliminary per-write card is removed; photos still need disclosure consent and website forms still need approval. This replaces decisions 36/37's blanket confirmation policy ([decision 38](docs/decisions.md#38-task-requests-use-the-companys-approval-boundary)).
+- A photo selected for the User's task can upload to that task's Company without another permission click; the print journey asks once for the Company's order terms. Unselected saved photos still need disclosure consent. Company content cannot supply file selection or add recipients through filenames, email domains or URL queries. Uploads retain their first routing decision and durable outcome across replay ([decision 39](docs/decisions.md#39-a-requested-photo-upload-does-not-need-a-second-permission-click)).
+- The privacy policy now describes task-authorized uploads, model image previews, operator access, provider/account-dependent processing, separate diagnostic retention and what local deletion does not erase. [The review](docs/privacy-review.md) records the remaining deletion, memory and retention UX problems without claiming they are fixed.
+- Task API requests and MCP calls now run before the Company asks for approval of its exact terms. The preliminary per-write card is removed; unselected photos still need disclosure consent and website forms still need approval. This replaces decisions 36/37's blanket confirmation policy ([decision 38](docs/decisions.md#38-task-requests-use-the-companys-approval-boundary)).
 
 ### Fixed
 

@@ -1,5 +1,6 @@
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import { CompactionTask, hook, type CompactionPolicy, type Extension } from "@earendil-works/pi-durable";
+import { SUMMARY_MESSAGE_PREFIX } from "./summary-format";
 
 /**
  * Compaction: how much of the never-ending conversation the model sees.
@@ -48,7 +49,7 @@ export const SUMMARY_MAX_TOKENS = Math.floor(0.8 * CONTEXT_BUDGET.reserveTokens)
 const TOOL_RESULT_MAX_CHARS = 2000;
 
 /** How pi-durable begins the message that carries a summary to the model. */
-export const SUMMARY_MESSAGE_PREFIX = "The conversation history before this point was compacted";
+export { SUMMARY_MESSAGE_PREFIX } from "./summary-format";
 
 /** Background notices from the Poppy client start with these (src/poppy). */
 const COMPANY_NOTICE = "[company message]";

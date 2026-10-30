@@ -4,12 +4,12 @@
  * where, how and with what access, in the words the rest of the page uses.
  * Pure, so it is tested on its own (test/ui/tool-line.test.ts).
  */
-import { isApprovalId, type ApprovalResult } from "../poppy/approval-outcome";
+import { isApprovalId, isDiagnosticFlowId, type ApprovalResult } from "../poppy/approval-outcome";
 import { messageDelivery } from "../poppy/message-result";
 
 export type ToolHow = "API" | "their agent" | "website" | "sign-in" | "web page" | "memory" | "clock" | "calculator" | "schedule";
 export type ToolAccess = "view" | "view and change";
-export type ToolState = "running" | "done" | "failed" | "waiting";
+export type ToolState = "running" | "done" | "failed" | "waiting" | "unknown";
 
 export type ToolLine = {
   /** What the agent did, in the past tense. */
@@ -19,11 +19,15 @@ export type ToolLine = {
   readonly how: ToolHow | null;
   readonly access: ToolAccess | null;
   readonly state: ToolState;
+  /** An affirmative action outcome, when the tool supplies one without a card. */
+  readonly result?: ApprovalResult;
 };
 
 /** What the page knows about a call's result. */
 export type ToolOutcome = {
   readonly error: boolean;
+  /** A stopped call has no recorded result; never manufacture success. */
+  readonly missing?: true;
   /** The tool's structured result, where it has one. */
   readonly details?: unknown;
   /** Its text, for results that are only text. */
@@ -49,6 +53,20 @@ export function proposedBy(outcome: ToolOutcome | undefined): { approvalId: stri
   if (isApprovalId(proposed)) return { approvalId: proposed };
   return null;
 }
+
+/** A safe lifecycle reference written by our task dispatcher, including failures. */
+export function taskBy(outcome: ToolOutcome | undefined, name: string): { approvalId: string; result: ApprovalResult } | null {
+  if (name !== "poppy_api_call") return null; // Raw MCP successes are Company data, not application metadata.
+  const task = isRecord(outcome?.details) ? outcome.details.poppyTask : undefined;
+  if (!isRecord(task) || typeof task.id !== "string" || !isDiagnosticFlowId(task.id)) return null;
+  switch (task.result) {
+    case "waiting": case "in_progress": case "done": case "declined": case "failed": case "unknown":
+      return { approvalId: task.id, result: task.result };
+    default: return null;
+  }
+}
+
+export function requestBy(outcome: ToolOutcome | undefined, name: string): { approvalId: string } | null { return proposedBy(outcome) ?? taskBy(outcome, name); }
 
 type Args = Record<string, unknown>;
 
@@ -90,8 +108,9 @@ function proposed(outcome: ToolOutcome | undefined): boolean {
   return typeof outcome.text === "string" && /"proposed"\s*:/.test(outcome.text);
 }
 
-function stateOf(outcome: ToolOutcome | undefined): ToolState {
+function stateOf(outcome: ToolOutcome | undefined, name: string): ToolState {
   if (!outcome) return "running";
+  if (outcome.missing || taskBy(outcome, name)?.result === "unknown") return "unknown";
   if (outcome.error) return "failed";
   return proposed(outcome) ? "waiting" : "done";
 }
@@ -119,7 +138,7 @@ function size(bytes: number): string {
 
 /** The lines for the general tools (src/tools/): read_url, memory, time and maths. Null for any other name. */
 function generalLine(name: string, a: Args, outcome: ToolOutcome | undefined): ToolLine | null {
-  const state = stateOf(outcome);
+  const state = stateOf(outcome, name);
   const details = isRecord(outcome?.details) ? outcome.details : {};
   const line = (text: string, how: ToolHow, quote?: string): ToolLine => ({ text, ...(quote ? { quote } : {}), how, access: null, state });
   switch (name) {
@@ -200,7 +219,7 @@ export function describeToolCall(
   const a: Args = isRecord(args) ? args : {};
   const domain = str(a.domain);
   const company = domain ? (companies.get(domain.toLowerCase()) ?? domain) : "the Company";
-  const state = stateOf(outcome);
+  const state = stateOf(outcome, name);
   const line = (text: string, how: ToolHow | null, accessLevel: ToolAccess | null = null, quote?: string): ToolLine => ({
     text,
     ...(quote ? { quote } : {}),
@@ -241,11 +260,11 @@ export function describeToolCall(
     case "poppy_api_call": {
       const operation = str(a.operation) ?? "";
       const match = /^(GET|POST|PUT|PATCH|DELETE)\s+(\S+)/i.exec(operation);
-      // An upload names the User's photos by attachment id; sending one always waits for their approval.
+      // An upload may run for the task, wait for disclosure consent, or wait for Company terms.
       const files = isRecord(a.files) ? Object.keys(a.files).length : 0;
       if (files) {
         const photos = decision?.photos?.length ? clip(decision.photos.map((photo) => `“${photo}”`).join(", "), 80) : files === 1 ? "your photo" : "your photos";
-        const upload = (text: string, state: ToolState = "done"): ToolLine => ({ text, how: "API", access: "view and change", state });
+        const upload = (text: string, state: ToolState = "done"): ToolLine => ({ text, how: "API", access: "view and change", state, result: decision?.result ?? (state === "done" ? "done" : state === "running" ? "in_progress" : state) });
         switch (decision?.result) {
           case "in_progress":
             return upload(`Sending ${photos} to ${company}`, "running");
@@ -256,9 +275,14 @@ export function describeToolCall(
           case "failed":
             return upload(`Couldn't send ${photos} to ${company}`, "failed");
           case "unknown":
-            return upload(`Sent ${photos} to ${company}, but the outcome is unknown`, "failed");
+            return upload(`Couldn't confirm sending ${photos} to ${company}`, "unknown");
           default:
-            return line(`Asked you to approve sending ${photos} to ${company}`, "API", "view and change");
+            if (state === "waiting") return line(`Asked you to approve sending ${photos} to ${company}`, "API", "view and change");
+            if (state === "failed") return upload(`Couldn't confirm sending ${photos} to ${company}`, "failed");
+            if (state === "running" || (isRecord(outcome?.details) && outcome.details.status === "in_progress")) return upload(`Sending ${photos} to ${company}`, "running");
+            const status = isRecord(outcome?.details) ? outcome.details.status : undefined;
+            if (state !== "unknown" && (taskBy(outcome, name)?.result === "done" || (typeof status === "number" && status >= 200 && status < 300 && status !== 202))) return upload(`Sent ${photos} to ${company}`);
+            return upload(`Couldn't confirm sending ${photos} to ${company}`, "unknown");
         }
       }
       if (match && match[1]!.toUpperCase() === "GET") return line(`Read ${noun(match[2]!)} at ${company}`, "API", "view");

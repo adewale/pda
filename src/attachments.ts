@@ -1,5 +1,6 @@
 import type { ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
 import { base64url } from "./base64url";
+import { SUMMARY_MESSAGE_PREFIX } from "./summary-format";
 
 /**
  * Photos the User attaches to a chat message, kept in their own agent's
@@ -20,10 +21,12 @@ import { base64url } from "./base64url";
  *   Company; the agent's `attachments` job (`src/attachment-images.ts`)
  *   deletes each one when its time comes, whether or not anything reads it.
  * - **Who sees them.** The User, on their own page (`GET /api/attachments/<id>`).
- *   The model sees a smaller copy as an image in the message it was attached
- *   to (`src/attachment-images.ts`), never the bytes in a tool argument: tools name
- *   an attachment by its id. A Company gets one only in an upload the User
- *   approved on a card (`src/poppy/apis.ts`). Nothing logs them.
+ *   The model sees a preview, or the small original when no preview exists,
+ *   in the message it was attached to (`src/attachment-images.ts`), never
+ *   the bytes in a tool argument: tools name
+ *   an attachment by its id. A Company gets one in an upload for the User's
+ *   task using a photo they selected; a different saved photo still needs
+ *   disclosure consent (`src/poppy/apis.ts`, `task-files.ts`). Nothing logs them.
  */
 
 export const ATTACHMENT_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
@@ -283,7 +286,7 @@ export function withAttachmentImages(messages: readonly Message[], image: (id: s
   messages.forEach((message, index) => {
     const text = textOf(message);
     const lead = text.trimStart();
-    if (!lead || (lead.startsWith("[") && !STARTS_WITH_MARKER.test(lead))) return;
+    if (!lead || lead.startsWith(SUMMARY_MESSAGE_PREFIX) || (lead.startsWith("[") && !STARTS_WITH_MARKER.test(lead))) return;
     for (const id of markersIn(text)) wanted.push({ index, id });
   });
   const shown = wanted.slice(-MODEL_IMAGES);

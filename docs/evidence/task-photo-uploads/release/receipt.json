@@ -1,0 +1,185 @@
+{
+  "applicationSource": "17c5ba9b2acecf62086b90a4029244871f7b04e2",
+  "baselineApplicationSource": "4ecbeb99c8e8dbce5449329f5ba5b5b4dea04283",
+  "capturedAt": "2026-10-30T19:30:09.201Z",
+  "generator": {
+    "node": "v24.22.2",
+    "chromium": "Google Chrome 156.0.8078.76",
+    "renderer": "production Vite; dependencies pinned by package-lock at applicationSource"
+  },
+  "applicationTrees": {
+    "src": "5dad920220c0a9258428194581138b5441d6c779",
+    "public": "73351745ddc01ce20f2fea6fff7575009b3810a0"
+  },
+  "ciFollowup": {
+    "failedRun": "https://github.com/adewale/pda/actions/runs/41113861187",
+    "file": "test/poppy-feedback-race.test.ts",
+    "adjustment": "Establish first transport and queued admission with a barrier; retain original assertions. Test only; application unchanged.",
+    "mutation": "Removing the queued rejection recovery makes the corrected retry regression fail.",
+    "mutationLogSha256": "818d88a4c441fac7110fdfa250dbeec50008b5da71cf78dd9ca32c29ef393e3d"
+  },
+  "claim": "The same real-composer photo-print fixture requires two approvals before, one exact-Company-terms approval after.",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 1000
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "colorScheme": "light",
+  "fixture": "photoJourneys in scripts/app-photo-journey.mjs; synthetic lake.jpg; cphotodesktop.shop.test and cphotomobile.shop.test",
+  "harness": [
+    {
+      "path": "scripts/app-smoke.mjs",
+      "sha256": "38a76257c1c546ae863e6db13d1c4cbeb9443b4d14d9fb4a9102292423171fe0"
+    },
+    {
+      "path": "scripts/app-photo-journey.mjs",
+      "sha256": "389a85485800b220825191a9cda4c2dd4032397a0dd93e13cc58b6a5d7fa5bfb"
+    },
+    {
+      "path": "test/browser/approval-journey-worker.ts",
+      "sha256": "2e31d5a9eb6a14fae77104e638830a452fe439866f823f5ab3aadb8ccd903f4b"
+    }
+  ],
+  "baselineHarness": {
+    "source": "17c5ba9b2acecf62086b90a4029244871f7b04e2",
+    "onlyOverlay": [
+      "scripts/app-smoke.mjs",
+      "scripts/app-photo-journey.mjs",
+      "test/browser/approval-journey-worker.ts"
+    ],
+    "applicationPathsUnchanged": true,
+    "command": "node scripts/app-smoke.mjs --photo-journey --baseline-photo-consent --output /tmp/before.json",
+    "exitCode": 0
+  },
+  "browser": {
+    "command": "node scripts/app-smoke.mjs --photo-journey --output /tmp/after.json",
+    "exitCode": 0,
+    "productionViteBuild": true,
+    "localWorkerd": true,
+    "realChromium": true,
+    "checkoutOpened": false
+  },
+  "negativeControl": {
+    "command": "node scripts/app-smoke.mjs --photo-journey --photo-negative-control --output /tmp/negative.json",
+    "expectedExitCode": 1,
+    "actualExitCode": 1,
+    "assertion": "The current Company's exact checkout receipt must survive reload",
+    "logSha256": "67e8faec0a38f581a354f84549b8bdf0e5029f29202aeadfd743dfe3c78a803f"
+  },
+  "tests": {
+    "command": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 npm test",
+    "exitCode": 0,
+    "total": 2284,
+    "files": 118,
+    "skipped": 0,
+    "workers": 1405,
+    "durability": 3,
+    "page": 268,
+    "interop": 415,
+    "properties": 193,
+    "hegelCases": "default 100, unchanged generators/assertions",
+    "logSha256": "f8304378fadfb1cba7cd2636c901808a382896fd187cf9a057d5745e5b6eaae5"
+  },
+  "typecheck": {
+    "exitCode": 0,
+    "logSha256": "c89379c3aeb62f895e1b8ff826e8ab70007bc33527cd5da346035cffa19a0007"
+  },
+  "spec": {
+    "exitCode": 0,
+    "dispositions": 43,
+    "pages": 13,
+    "logSha256": "085ec8be0e69dff5cc3e392d401b1730a90baa01e42b7947839c803505559cf1"
+  },
+  "crashes": {
+    "command": "npm run check:approval-crashes -- --output /tmp/crashes.json",
+    "exitCode": 0,
+    "probes": 16,
+    "physicalProcessKill": true,
+    "companyLedgerSurvived": true,
+    "includesUnsafeMcpNegativeControl": true,
+    "selectedMultipartSpecificMatrix": false
+  },
+  "reviews": [
+    {
+      "file": "reviews/third-security.md",
+      "source": "91a8536ace2b6b22cb1c1773f0f7e50197be0c6f",
+      "execution": false
+    },
+    {
+      "file": "reviews/third-lifecycle.md",
+      "source": "91a8536ace2b6b22cb1c1773f0f7e50197be0c6f",
+      "execution": false
+    },
+    {
+      "file": "reviews/third-ui.md",
+      "source": "91a8536ace2b6b22cb1c1773f0f7e50197be0c6f",
+      "execution": false
+    },
+    {
+      "file": "reviews/release-security.md",
+      "source": "d277eaa7498f2b8e668d73d141e3c5274fcf8772",
+      "execution": false
+    },
+    {
+      "file": "reviews/release-ui-lifecycle.md",
+      "source": "d277eaa7498f2b8e668d73d141e3c5274fcf8772",
+      "execution": false
+    },
+    {
+      "file": "reviews/deictic-followup.md",
+      "source": "2eef6fdcc51b099b114ab9e632fe9cda6434c151",
+      "execution": false
+    },
+    {
+      "file": "reviews/extensionless-followup.md",
+      "source": "af46bc754fccca2cd9fd5c83100abba4e10e5033",
+      "execution": false
+    },
+    {
+      "file": "reviews/recipient-followup.md",
+      "source": "2690ecb027dc7a94aeed55a62e0a9fcfef6e7d68",
+      "execution": false
+    },
+    {
+      "file": "reviews/security-clearance.md",
+      "source": "17c5ba9b2acecf62086b90a4029244871f7b04e2",
+      "execution": false
+    }
+  ],
+  "mutationEvidence": [
+    {
+      "file": "whole-token-91a8536-red.log",
+      "sha256": "b032c8e9275a646c53355bce892c98b9d22d7ce3c16d5107ed8668d17fae62fa"
+    },
+    {
+      "file": "deictic-token-red.log",
+      "sha256": "657d99e017aa8dbaf9b5e3ecb2f5bc0474e183d14621a0828f27a3eac3859c3d"
+    },
+    {
+      "file": "extensionless-red.log",
+      "sha256": "70a2fa47478c7470676043719636f68a4a0aa72a430797074d81a737d9cd28f5"
+    },
+    {
+      "file": "recipient-reference-red.log",
+      "sha256": "de1b3ed8b40d76e65337f832212d426d9b8ec7fea5099a70b2e06d3c4205393e"
+    },
+    {
+      "file": "recipient-wrappers-red.log",
+      "sha256": "1eaaf90e2e341ff5934b366b635720e5996b3a5698bc65bc6bbfa3b13aa8b6fd"
+    }
+  ],
+  "limitations": [
+    "Synthetic signed identity and model only; no live OAuth/provider verification.",
+    "No checkout navigation, payment, print or email service; no production transaction.",
+    "File/recipient availability is not proof of semantic intent or universal injection immunity.",
+    "Shared crash probes are not a selected-multipart-specific physical crash matrix.",
+    "Source reviewers did not execute these gates.",
+    "Provider/Gateway settings and missing deletion/export/retention controls remain unresolved.",
+    "Only exit-zero positive browser runs are acceptance receipts; earlier cleanup timeouts are excluded."
+  ]
+}
