@@ -82,6 +82,22 @@ describe("photos selected by the User's task", () => {
     }
   });
 
+  it.each([
+    "[2001:4860:4860::8888]/?file=private.jpg",
+    "[2001:4860:4860::8888]/private.jpg",
+    "//[2001:4860:4860::8888]/?file=private.jpg",
+    "0x8080808/private.jpg"
+  ])("does not select a saved file from an outer network locator %s", locator => {
+    expect(TaskFiles.fromUser(`Check orders at first.example. Tracking: ${locator}`, [attachmentMarker(privatePhoto)]).includes([privatePhoto.id])).toBe(false);
+  });
+
+  it("keeps a questioned filename ahead of the latest-photo fallback", () => {
+    const recent = lake;
+    const selected = TaskFiles.fromUser("Can you print this photo, private.jpg?", [attachmentMarker(privatePhoto), attachmentMarker(recent)]);
+    expect(selected.includes([privatePhoto.id])).toBe(true);
+    expect(selected.includes([recent.id])).toBe(false);
+  });
+
   it("does not turn an ordinary reference into an extensionless historical filename", () => {
     const ordinary = attachmentMarker({ ...lake, name: "photo" });
     expect(TaskFiles.fromUser("Print that photo", [ordinary, attachmentMarker(privatePhoto)]).includes([lake.id])).toBe(false);
@@ -146,6 +162,21 @@ describe("task recipient selection", () => {
     unicode.update("Print this photo at bücher.example.", false);
     expect(unicode.allow("cher.example")).toBe(false);
     expect(unicode.allow("xn--bcher-kva.example")).toBe(true);
+  });
+
+  it.each(["。", "．", "｡"])("preserves a whole hostname with the URL-normalized separator %s", separator => {
+    const scope = new TaskCompanyScope();
+    scope.update(`Print at first.example. Tracking: orders${separator}second.example/status`, true);
+    expect(scope.allow("second.example")).toBe(false);
+    expect(scope.allow("orders.second.example")).toBe(true);
+  });
+
+  it("keeps opaque dotless data from choosing a Company", () => {
+    const scope = new TaskCompanyScope();
+    scope.update("What can this shop do? OpaqueEncodedValue/item", false);
+    expect(scope.allow("first.example")).toBe(true);
+    scope.update("What can this shop do? OpaqueEncodedValue/item", true);
+    expect(scope.allow("second.example")).toBe(false);
   });
 
   it("does not read an email URL's query as a Company recipient", () => {

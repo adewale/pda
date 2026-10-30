@@ -92,6 +92,10 @@ export async function photoJourneys({ runtime, page, network, agentName, output,
         assert.equal(await page.evaluate(() => document.body.innerText.includes("Asked you to approve sending your photo")), false);
       }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      if (viewport === "mobile" && !baselineConsent) await page.evaluate(domain => {
+        const upload = [...document.querySelectorAll('[data-tool="poppy_api_call"]')].find(element => element.innerText.includes(domain) && /Sent your photo/.test(element.innerText));
+        upload?.scrollIntoView({ block: "center" }); // User-equivalent scrolling for the evidence frame.
+      }, domain);
       await capture(`terms-${viewport}`);
       await approve(page);
       await until(ownCards, cards => cards.find(card => card.approvalId === terms.approvalId)?.status === "done", "Print terms did not settle");

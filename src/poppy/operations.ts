@@ -1012,7 +1012,7 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
     }
     client.sql.exec(
       "UPDATE poppy_approvals SET status = 'unknown', result = ?, notification_pending = 1 WHERE id = ?",
-      `Interrupted ${isTaskRequest(row.id) ? "during your task" : "after you approved"}, so it may or may not have reached ${company}. Check with ${company} before asking again.`,
+      `Interrupted ${taskRequested(client.sql, row.id) ? "during your task" : "after you approved"}, so it may or may not have reached ${company}. Check with ${company} before asking again.`,
       row.id
     );
     await client.host.showCard({
@@ -1023,6 +1023,7 @@ export async function recoverInterruptedApprovals(client: PoppyClient): Promise<
       approvalId: row.id,
       summary: row.summary,
       status: "unknown",
+      ...(taskRequested(client.sql, row.id) ? { taskRequested: true } : {}),
       ...(row.terms ? { terms: row.terms } : {}),
       result: `It may have happened: check with ${company} before asking again.`,
       ...approvalAttachments(row.request)

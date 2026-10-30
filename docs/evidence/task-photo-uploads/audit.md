@@ -41,6 +41,18 @@ The supervisor reproduced nine selection/recipient failures before correction. D
 
 The corrected source passed **2,209 tests in 118 files**, none skipped: Workers 1,330; durability 3; page 268; interop unit/contract 415; properties 193. Typecheck, the docs-name check and the pinned-spec check passed. The unchanged Hegel properties retain their original generators and assertions. Browser/crash runs at the preceding pin are not silently promoted to this source revision; final receipts identify their own pin.
 
+## Third independent review and corrections
+
+Three fresh source-only reviews inspected `91a8536ace2b6b22cb1c1773f0f7e50197be0c6f`. The durable-lifecycle lane found no blocker; security and UI/policy found the following remaining issues:
+
+- Bracketed IPv6 locator paths/queries could select an unrelated historical filename. URL-normalized Unicode hostname separators could expose an inner hostname suffix as another recipient. The lexer now consumes the complete outer network token and uses WHATWG URL parsing for its authority, rather than finding DNS-shaped substrings. Numeric hosts, IPv6 and IDNA separator variants remain whole; unsupported network data stays opaque to filename matching. Known filename data is compared canonically without normalizing file-selection text. Seven focused regressions failed on an otherwise unchanged `91a8536` application; the corrected source passes them. Obedient-model histories require a disclosure card with zero uploads for the IPv6 theft, and zero second-Company requests for all three Unicode separators.
+- An interrupted adopted `apr_` request still stored “after you approved” and lost its task attribution on the recovered card. Recovery now uses the durable attribution marker, without changing authority or the unknown-outcome hold. A storage-checkpoint regression failed before correction; it requires unknown status, no human-click claim, retained card attribution and no resend. This simulates the durable boundary; it is not a physical selected-multipart process-crash probe.
+- The tool table retained the blanket consent-card promise. It now describes immutable per-call routing and disclosure cards only for unselected files.
+
+The full run also caught an over-refusal: ordinary question punctuation was being treated as a dotless network authority, preventing the MCP-injection fixture from reaching its hostile description. Dotless opaque data no longer chooses a Company, and trailing question punctuation preserves filename references instead of falling through to a newer photo. The safety oracle was not weakened. An intermediate added-test typo was corrected. Typecheck and 125 focused selection, lifecycle and prompt-injection tests pass; final full-suite and runtime receipts are recorded separately.
+
+Browser evidence now fixes the color scheme to light on both sides, rather than inheriting a sunset-dependent OS theme. Mobile evidence uses ordinary scrolling to frame the confirmed upload. Neither change alters application behavior or edits screenshot pixels.
+
 ## Verification at the preceding fix candidate
 
 The supervisor ran `npm run typecheck`, `npm test` and `npm run check:spec`. The full suite passed **2,186 tests in 118 files**, none skipped: Workers 1,309; durability 3; page 266; interop unit/contract 415; properties 193. Hegel used its default case count, including the unchanged coalescing property. The docs-name check verified 386 Appendix A names and nine adversarial scenarios/four named tests; existence is not behavioral coverage. The spec check verified 43 dispositions and 13 pinned pages.

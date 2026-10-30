@@ -19,6 +19,7 @@ export class TaskCompanyScope {
       // A filename, email address or a URL's query/path is not the User
       // choosing another recipient. URLs name only their actual host and port.
       const dataWords = new Set(filenames.flatMap(name => name.toLowerCase().split(/[^\p{L}\p{N}_.@-]+/u).map(word => word.replace(/\.+$/, ""))));
+      const dataHosts = new Set([...filenames, ...dataWords].map(recipient));
       const base = task.replace(MARKER, "");
       const names = maximalSpans(filenames.flatMap(name => nameSpans(base, name).map(span => ({ ...span, name }))));
       const parsed = taskText(base);
@@ -35,7 +36,7 @@ export class TaskCompanyScope {
       this.#domains = new Set(parsed.locators.filter(locator => {
         if (locator.qualified || !locator.host) return true;
         const compoundName = names.some(span => span.start < locator.start && locator.start < span.end);
-        const allowed = !compoundName && (locator.named || !dataWords.has(locator.host.replace(/:[0-9]+$/, "")));
+        const allowed = !compoundName && (locator.named || !dataHosts.has(locator.host.replace(/:[0-9]+$/, "")));
         ambiguousDestination ||= !allowed;
         return allowed;
       }).map(locator => locator.host));

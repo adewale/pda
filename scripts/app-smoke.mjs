@@ -85,6 +85,8 @@ try {
   browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
   const anonymous = await browser.createBrowserContext();
   const signedOut = activePage = await anonymous.newPage();
+  await signedOut.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "light" }]);
+  evidence.colorScheme = "light";
   if (args.includes("--ecosystem-viewport")) await signedOut.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
   signedOut.on("pageerror", error => failures.push(error.name));
   await signedOut.goto("https://agent.test/", { waitUntil: "networkidle0" });
@@ -163,6 +165,7 @@ try {
   const signedCookie = await createSession(identity, config.vars.SESSION_SECRET);
   const token = signedCookie.split(";", 1)[0].slice("__Host-session=".length);
   const page = activePage = await authenticated.newPage();
+  await page.emulateMediaFeatures([{ name: "prefers-color-scheme", value: "light" }]);
   await page.setCookie({ name: "__Host-session", value: token, url: "https://agent.test/", path: "/", secure: true, httpOnly: true, sameSite: "Lax" });
   const network = await page.target().createCDPSession();
   let websocketHandshakes = 0;
