@@ -157,7 +157,7 @@ export async function approvalJourneys({ runtime, page, network, agentName, cook
     assert.ok(layout.controlsFit, `Selected diagnostic controls must fit the ${viewport} viewport`);
     if (output) {
       const destination = `${output}.diagnostic-scope-${viewport}.png`;
-      writeFileSync(destination, Buffer.from(await page.screenshot({ type: "png", clip: layout.clip })));
+      writeFileSync(destination, Buffer.from(await page.screenshot(viewport === "mobile" ? { type: "png" } : { type: "png", clip: layout.clip })));
       screenshots.push(destination);
     }
     const state = await company.state();
