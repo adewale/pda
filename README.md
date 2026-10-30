@@ -2,7 +2,7 @@
 
 **A Personal Agent for [Poppy](https://personalagentprotocol.org/), the Personal Agent Protocol, built alongside the tools we used to test it: a validator, a strict mock Company, an interop harness, and written-up spec issues for each draft.** It is for the draft's authors and for people implementing either side of the protocol.
 
-Poppy is a draft standard. PDA speaks **0.3 alone**, as retrieved on 29 October 2026; it dropped 0.1 and 0.2 on 28 October ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)), and the change is unreleased on the `poppy-0.3` branch ([changelog](CHANGELOG.md), [plan and status](docs/poppy-0.3-plan.md#then-03-as-rewritten-on-28-october)). This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, names a Session on every request with a signed `Poppy-Session` header, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page before an action that changes your account. The status is alpha. At 0.1 and 0.2 the deployed agent signed in and out at one live Company, Alpine Retail, a colleague's test store (13 and 14 October), and got as far as asking to upload a photo at print-with-poppy's live store (12 October) ([live evidence](docs/live-0.2-testing.md)). The [current verification report](docs/poppy-0.3-conformance.md#current-verification) records the 0.3 checks, independent demo evidence and live limits.
+Poppy is a draft standard. PDA speaks **0.3 alone**, as retrieved on 29 October 2026; it dropped 0.1 and 0.2 on 28 October ([decision 37](docs/decisions.md#37-03-alone-what-dropping-01-and-02-overturns-and-settles)) ([changelog](CHANGELOG.md), [plan and status](docs/poppy-0.3-plan.md#then-03-as-rewritten-on-28-october)). This project's agent runs on Cloudflare Workers with one Durable Object per person and Claude Sonnet 5.5 through Pi. It finds a Company that publishes `poppy.json`, names a Session on every request with a signed `Poppy-Session` header, has you sign in on the Company's own page when it needs your account, talks to the Company's agent, calls its APIs, and asks you on the page when the Company returns an operation for approval. The status is alpha. At 0.1 and 0.2 the deployed agent signed in and out at one live Company, Alpine Retail, a colleague's test store (13 and 14 October), and got as far as asking to upload a photo at print-with-poppy's live store (12 October) ([live evidence](docs/live-0.2-testing.md)). The [current verification report](docs/poppy-0.3-conformance.md#current-verification) records the 0.3 checks, independent demo evidence and live limits.
 
 ## Components and supported Poppy versions
 
@@ -10,7 +10,7 @@ The implementation follows the text retrieved on **29 October 2026** ([snapshot]
 
 | Component | Poppy versions | What it does |
 | --- | --- | --- |
-| [PDA application and client](pda-spec.md) | 0.3 | Signs in to Companies, uses their APIs and conversations, and asks for approval of the Company's exact terms when it returns an operation (Operations 2); file uploads retain separate disclosure consent |
+| [PDA application and client](pda-spec.md) | 0.3 | Signs in to Companies, uses their APIs and conversations, and asks for approval of the Company's exact terms when it returns an operation (Operations 2); selected task photos upload without another permission click; unselected files need disclosure consent |
 | [Document validator](docs/validator.md) | 0.3 | Checks Company discovery, OAuth and protected resource metadata, client metadata and keys. One library backs the web form, HTTP API and CLI |
 | [Reference/mock Company](interop/README.md#the-fake-implementations) | 0.3 | Serves Company endpoints and records violations. Tests select lenient, strict, deliberately flawed or adversarial behavior |
 | [Fake test Personal Agents](interop/README.md#the-fake-implementations) | 0.3 | Exercise Companies with lenient, strict or sloppy behavior; the restored malicious agent sends mutated 0.3 requests to our own mocks |
@@ -22,15 +22,15 @@ PDA uses the document validator during discovery, and the fake agents wrap PDA's
 
 ## See it work: ordering a print
 
-[print-with-poppy](https://github.com/spenciefy/print-with-poppy) is a photo-printing store built for agents, and it was our demo because its code isn't ours. It moved to 0.3 on 28 October (`b340741`), and on 29 October our validator found printwithpoppy.com's documents valid at 0.3. Our agent hasn't run the journey there at 0.3 yet: the store admits only agents on its allowlist, and it takes real payments. Until then the journey runs against our mock Company's print shop, which describes its API as print-with-poppy's store does (`test/print-journey.test.ts`).
+[print-with-poppy](https://github.com/spenciefy/print-with-poppy) is a photo-printing store built for agents, and it was our demo because its code isn't ours. It moved to 0.3 on 28 October (`b340741`), and on 29 October our validator found printwithpoppy.com's documents valid at 0.3. Repeatable checks use its pinned demo and our strict mock Company's print shop, not a real checkout (`test/print-journey.test.ts`). A real order is not a harmless interface test.
 
 | Step | You or the agent | Spec | On the page | Status |
 | --- | --- | --- | --- | --- |
 | 1 | You attach a photo and ask: "Print this as a 6×4 at the print shop" | | Chat, with the photo | Works in tests |
 | 2 | The agent fetches `poppy.json`, the domain's protected resource metadata and the OAuth metadata, and the validator checks them | §3 | Activity: discovery and its verdict | Works in tests |
 | 3 | Every request names its Session in a `Poppy-Session` header, signed with a delegated key; signed out, that's all it carries | §5.2 | Activity: the Session | Works in tests |
-| 4 | It reads the store's OpenAPI catalog and asks before sending your photo; you approve, and it uploads the photo | §7 | A card showing the photo | Works in tests |
-| 5 | It asks before placing the order; you approve, and the store answers `approval_required` with its price and terms | Operations 2, §4 | Our card, then an approval card with the store's terms and total | Works in tests |
+| 4 | It reads the store's OpenAPI catalog and uploads the photo you selected for this task, without asking again | §7 | An upload step in the chat | Works in tests |
+| 5 | It requests the order; the store answers `approval_required` with its price and terms | Operations 2, §4 | One approval card with the store's terms and total | Works in tests |
 | 6 | You approve the terms; the agent sends the same order with `Poppy-Approval`, and the store returns the order and its checkout link | Operations 2, §6 | A receipt with the store's answer | Works in tests |
 
 Every step's exchanges also appear in Activity's protocol log, with their spec sections, and can be copied as text for an interop report.
@@ -54,18 +54,18 @@ At 0.2, on 12 October, the owner's deployed agent got as far as step 4 at printw
 - Remember things you tell it: "Remember I'm vegetarian." See and delete User-supplied notes in Settings; the agent can remove its own deductions.
 - Dates, time zones and sums: "What date is 90 days from today?", "What time is it in Tokyo?", "What's 15% of €84.20?"
 - Reminders: "Remind me at 5pm to call the bank." It shows in the chat at that time, and on your phone or laptop if you turn on notifications in Settings.
-- Tasks on a schedule: "Every weekday at 9, check whether my print order has shipped." The agent does it in the background and tells you; anything it would change still waits for your approval. Settings lists every reminder and task, with Cancel.
+- Tasks on a schedule: "Every weekday at 9, check whether my print order has shipped." The agent does it in the background and tells you; a Company's operation still waits for your approval of its exact terms. Settings lists every reminder and task, with Cancel.
 
 **You stay in control**
 
-- Nothing that changes your account happens until you approve it on a card.
-- A write waits for your approval on our own card, and when the company asks, for your approval of its exact terms as well.
+- Requests run for the task you asked for; routine requests may complete without another click.
+- When a Company asks for approval, you see its exact terms and decide on the page. No model tool can approve them.
 - Activity shows what the agent did, where and with what access, and every protocol exchange behind it.
-- Your photos leave the agent only in an upload you approved, to the one company it names.
+- A photo selected for your task can upload to that task's Company without another permission click. An unselected saved photo still needs disclosure consent.
 
 **Pay for the model your way:** the operator's daily demo allowance if you're on its list, or your own Anthropic or OpenAI key.
 
-**Your data** stays in your own agent's storage; [the privacy policy](https://poppydemoagent.dev/privacy) says what is kept and for how long.
+**Your agent's local state** lives in its own storage; task information also goes to the model provider and relevant Companies. [The privacy policy](https://poppydemoagent.dev/privacy) says what is kept and for how long.
 
 Signing in for the first time, with a run-through that checks each part works: [docs/using.md](docs/using.md). Which of these is a Poppy feature and which is ours, each tool the model can call, and what needs your approval: [docs/capabilities.md](docs/capabilities.md).
 
@@ -105,7 +105,7 @@ None of this has been sent to the draft's authors yet. They take feedback by ema
 ## How it's built
 
 - **One agent per person.** Each Google or GitHub sign-in gets its own Durable Object running Pi, with its conversation, Poppy state, tokens and keys in its own SQLite. One person's agent can't read another's, and work survives crashes and deploys.
-- **Approval stays on the page.** Company text reaches the model labelled as information, never as approval. A write waits for your approval of exactly what will be sent. When the Company then asks for approval (Operations 2's `approval_required`), its terms go on a card of their own, checked against the request, and only your approval of them sends the request again with `Poppy-Approval`. Sending your photo or file always waits for you.
+- **Approval stays on the page.** Company text reaches the model labelled as information, never as approval. Task requests run normally; when the Company asks for approval (Operations 2's `approval_required`), its exact terms go on a card, and only your decision sends the stored request again with `Poppy-Approval`. Selected task photos need no redundant disclosure click; unselected photos and website forms keep local consent cards.
 - **Secrets stay out of the model.** Access tokens, delegated keys and DPoP keys live only in memory; refresh tokens and pasted model keys are sealed with AES-GCM and bound to their row; the model's tools never take or return a credential.
 - **General tools beside Poppy.** `read_url` reads one public page with no cookies or credentials, renders a page that needs JavaScript in Browser Run, where the page can send only GET and HEAD requests to public hosts, and hands it to a reader with no tools, so the agent gets an answer about the page, labelled untrusted, never the page itself; `remember`, `recall` and `forget` keep short notes in the agent's own SQLite, never secrets; `now`, `date_math` and `calculate` do time zones, calendar arithmetic and exact decimal sums. All are ours, in `src/tools/`; Browser Run is the only service they use beyond the page itself.
 - **Reminders and tasks on the agent's own alarm.** `remind_me`, `schedule_task`, `list_scheduled` and `cancel_scheduled` keep rows in the agent's SQLite, and the Durable Object's alarm runs each on time, with no page open. A reminder makes no model call; a task is a background turn with no extra powers, metered like any other. Only a turn the User's own message started can set or cancel one. Notifications go by Web Push, encrypted for each browser, only to the browsers' own push services.
@@ -117,7 +117,7 @@ The design is [pda-spec.md](pda-spec.md); how to use the agent and check it work
 ## Status and limitations
 
 - **Live:** https://poppydemoagent.dev. Anyone with a Google or GitHub account can sign in (sign-up has been open since 15 October); the operator pays for the model only for the people on its demo list, and everyone else adds their own Anthropic or OpenAI key in Settings. The validator at `/validator`, open to anyone, and the privacy policy at `/privacy`. Web Push and Browser Run are switched on there. Which parts have been checked live, and which haven't, is [deployment-tasks.md §2](docs/deployment-tasks.md#2-live-checks).
-- **One live Company at 0.3, not yet used.** printwithpoppy.com has declared 0.3 since 28 October, and its documents pass our validator; the agent hasn't been run there at 0.3. Of the 33 public Companies we check, it is the only one whose documents pass at 0.3 (29 October): the rest declare 0.1 or 0.2, which the agent refuses, or follow an earlier 0.3 draft ([ecosystem](docs/ecosystem.md#current-ecosystem)). At 0.2, on 12 October, print-with-poppy's store got as far as the upload's approval card.
+- **Company coverage is limited.** The [dated ecosystem survey](docs/ecosystem.md#current-ecosystem) and [verification report](docs/poppy-0.3-conformance.md#current-verification) distinguish document checks, isolated demos and live observations. An order-creation response or checkout link is not proof of payment or printing.
 - **Not tried live:** the demo lane has answered through the live gateway, but its gateway-side spend rules, a turn after a compaction, reminders and tasks firing, notifications on real devices, and a Browser Run render are tested only against fakes so far ([deployment-tasks.md](docs/deployment-tasks.md#2-live-checks)).
 - **JavaScript:** `read_url` renders a page that needs it in Browser Run, signed out and read only. Browsing a Company's site in a Session (`poppy_browse`) still runs no JavaScript, so a site that needs it to show a page or send a form can't be used there.
 - **Not built:** skills, web search, reminders by email, and "delete my agent" (today the operator deletes an agent by hand when asked, as the privacy policy promises).

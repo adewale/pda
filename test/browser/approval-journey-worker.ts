@@ -11,8 +11,39 @@ function text(context: TranscriptContext): string {
   return typeof user?.content === "string" ? user.content : user?.content.filter(part => part.type === "text").map(part => part.type === "text" ? part.text : "").join("") ?? "";
 }
 
+function photoOrder(photoId: string) {
+  return { email: "ada@example.com", ship_to: { name: "Ada Lovelace", line1: "12 St James's Square", city: "London", postal_code: "SW1Y 4JH", country: "GB" }, items: [{ photo_id: photoId, copies: 1 }] };
+}
+
+function photoResponse(context: TranscriptContext, prompt: string): AssistantMessage | null {
+  const request = /^Please print this photo at (cphoto(?:desktop|mobile)\.shop\.test)\./.exec(prompt);
+  // The baseline's disclosure decision starts a separate model turn. This
+  // fixture recognizes only its synthetic upload notice, not order receipts.
+  const notice = prompt.startsWith("[system]") && /Mock Shop cphoto(?:desktop|mobile)/.test(prompt) && prompt.includes("POST /photos");
+  if (!request && !notice) return null;
+  const domain = request?.[1] ?? /Mock Shop (cphoto(?:desktop|mobile))/.exec(prompt)![1] + ".shop.test";
+  let latest = context.messages.length - 1;
+  while (latest >= 0 && context.messages[latest]!.role !== "user") latest--;
+  const after = context.messages.slice(latest + 1);
+  const called = (operation: string) => after.some(message => message.role === "assistant" && message.content.some(part => part.type === "toolCall" && part.name === "poppy_api_call" && part.arguments.operation === operation));
+  const answer = (args: Record<string, unknown>) => fauxAssistantMessage([fauxToolCall("poppy_api_call", { domain, ...args })], { stopReason: "toolUse" });
+  if (request && !called("uploadPhoto")) {
+    const id = /\[attachment (att_[A-Za-z0-9_-]{22})/.exec(prompt)?.[1];
+    return id ? answer({ operation: "uploadPhoto", files: { photo: id } }) : fauxAssistantMessage([fauxText("Please select the photo.")]);
+  }
+  const result = after.find(message => message.role === "toolResult" && message.toolName === "poppy_api_call");
+  const details = result?.role === "toolResult" ? result.details : undefined;
+  const body = details && typeof details === "object" && "body" in details ? details.body : undefined;
+  const photoId = notice ? /"id":"(pho_[A-Za-z0-9_-]+)"/.exec(prompt)?.[1]
+    : body && typeof body === "object" && "id" in body && typeof body.id === "string" ? body.id : undefined;
+  if (photoId && !called("orderPrints")) return answer({ operation: "orderPrints", body: photoOrder(photoId) });
+  return fauxAssistantMessage([fauxText("The print request and its approval card show the current status.")]);
+}
+
 function respond(context: TranscriptContext): AssistantMessage {
   const prompt = text(context);
+  const photo = photoResponse(context, prompt);
+  if (photo) return photo;
   const request = /^Please exchange my Stormline Jacket for the insulated medium at ([a-z0-9.-]+) using (OpenAPI|MCP)\.$/.exec(prompt);
   const verification = /^Please send a verification reply at ([a-z0-9.-]+) in ([A-Za-z0-9_-]+)\.$/.exec(prompt);
   let response;

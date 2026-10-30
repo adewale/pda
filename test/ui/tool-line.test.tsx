@@ -65,6 +65,15 @@ describe("describeToolCall", () => {
     expect(line).toMatchObject({ text: "Asked you to approve sending your photo to Manzanita", how: "API", access: "view and change" });
   });
 
+  it.each([
+    [undefined, "Sending your photo to Manzanita", "running"],
+    [{ error: false, details: { status: 201 } }, "Sent your photo to Manzanita", "done"],
+    [{ error: false, details: { status: "in_progress" } }, "Sending your photo to Manzanita", "running"],
+    [{ error: true }, "Couldn't confirm sending your photo to Manzanita", "failed"]
+  ] as const)("describes a task-authorized upload from its actual outcome: %j", (outcome, text, state) => {
+    expect(describeToolCall("poppy_api_call", { domain: "manzanita.example", operation: "uploadPhoto", files: { photo: "att_AbCdEfGhIjKlMnOpQrStUv" } }, outcome, names)).toMatchObject({ text, state });
+  });
+
   it("says a write that went through changed something", () => {
     const line = describeToolCall("poppy_api_call", { domain: "manzanita.example", operation: "DELETE /saved/{id}" }, { error: false, details: { status: 204 } }, names)!;
     expect(line).toMatchObject({ text: "Made a change at Manzanita: saved", access: "view and change", state: "done" });

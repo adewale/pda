@@ -5,11 +5,12 @@ import { boundedCacheSeconds, protocolEndpoint, tokenHostAllowed, type Company }
 import { fetchJson } from "./fetch";
 import { isObject, parseStrictJson, toJson, type Json } from "./json";
 import { approvalTerms, dispatchTaskRequest, OperationOutcomeUnknown, proposeLocal, registerExecutor, TermsRequested, type ApprovalExecution } from "./operations";
+import { TaskFiles } from "./task-files";
 import type { Issuer } from "./issuer";
 import { randomId } from "./jwt";
 import { approvable, approvalCardId, approvalForModel, approvalHeader, approvalJson, approvalSummary, parseOperationV2, type ApprovalV2, type OperationV2 } from "./operations-v2";
 import { EndpointRequest, type RequestInit } from "./outgoing";
-import { approvalsTable, intent, taskCallsTable, type Sql } from "./store";
+import { approvalsTable, intent, intentsTable, taskCallsTable, type Sql } from "./store";
 import { readApproval, type NewApproval } from "./approvals";
 import { one } from "../rows";
 import { sameAuthority, sessionAuthority, type ApprovalAuthority } from "./authority";
@@ -908,9 +909,9 @@ async function sendApi(client: PoppyClient, label: string, checked: CheckedApiRe
  * Call an OpenAPI operation in the Session. Every rule is checked first
  * (`CheckedApiRequest.check`), before a token request or a card. Task requests
  * run normally; a Company operation waits on its exact-terms card (Ops 4–6).
- * Uploads retain separate consent to disclose the User's files. Writes are
- * recorded before dispatch so replay returns their outcome rather than
- * creating another operation.
+ * Photos selected by the User for this task need no second disclosure click.
+ * Other files retain their disclosure card. Writes are recorded before dispatch
+ * so replay returns their outcome rather than creating another operation.
  */
 export async function callOpenApi(
   client: PoppyClient,
@@ -924,7 +925,8 @@ export async function callOpenApi(
     /** For a `multipart/form-data` upload: each file field's attachment id. */
     files?: Record<string, string>;
     callKey: string;
-  }
+  },
+  taskFiles: TaskFiles = TaskFiles.none()
 ): Promise<Json> {
   const guard = requestGuard(client, company, label, bindingSnapshot(client, company, label), true);
   const checked = await CheckedApiRequest.check(client, company, {
@@ -940,16 +942,26 @@ export async function callOpenApi(
       { kind: "openapi", call: checked.call, method: checked.method, url: checked.url, binding: guard.binding(), ...(checked.attachments.length ? { attachments: [...checked.attachments] } : {}) },
       intent(client.sql, `approval|${request.callKey}`, () => randomId("apr_"))
     );
-  if (checked.attachments.length) {
-    // The User's photo leaves their agent only when they say so, at any Company:
-    // the Operations extension covers what a Company does, not what we send it.
-    return { proposed: await ask(), note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
-  }
   const requestId = intent(client.sql, `request|${request.callKey}`, () => randomId("req_"));
+  if (checked.attachments.length && !hasTaskCall(client, requestId)) {
+    const ids = checked.attachments.map(file => file.id).sort();
+    const context = { issuer: company.issuer, label, ids, binding: guard.binding() };
+    const task = JSON.stringify({ ...context, route: "task" });
+    const consent = JSON.stringify({ ...context, route: "consent" });
+    // Freeze the route and its files/authority synchronously, before either
+    // path can yield while creating its durable record. A later selection
+    // cannot turn a pending, declined or completed disclosure into a new send.
+    const priorConsent = one(client.sql, intentsTable.pick("value"), "SELECT value FROM poppy_intents WHERE call_key = ?", `approval|${request.callKey}`);
+    const route = intent(client.sql, `file-policy|${request.callKey}`, () => !priorConsent && taskFiles.includes(ids) ? task : consent);
+    if (route !== task && route !== consent) throw new PoppyError("approval_changed", "This upload call already selected different files or authority. Nothing will be sent again.", 0);
+    if (route === consent) {
+      return { proposed: await ask(), note: "Waiting for the User to approve sending the file on a card; nothing has been sent yet." };
+    }
+  }
   if (checked.method === "GET" && !hasTaskCall(client, requestId)) return answerForModel(await sendApi(client, label, checked, guard), company);
   return dispatchTaskRequest(client, company, label, checked.describe(), {
     kind: "openapi", call: checked.call, method: checked.method, url: checked.url,
-    binding: guard.binding()
+    binding: guard.binding(), ...(checked.attachments.length ? { attachments: [...checked.attachments] } : {})
   }, requestId);
 }
 

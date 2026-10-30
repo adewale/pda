@@ -241,7 +241,7 @@ export function describeToolCall(
     case "poppy_api_call": {
       const operation = str(a.operation) ?? "";
       const match = /^(GET|POST|PUT|PATCH|DELETE)\s+(\S+)/i.exec(operation);
-      // An upload names the User's photos by attachment id; sending one always waits for their approval.
+      // An upload may run for the task, wait for disclosure consent, or wait for Company terms.
       const files = isRecord(a.files) ? Object.keys(a.files).length : 0;
       if (files) {
         const photos = decision?.photos?.length ? clip(decision.photos.map((photo) => `“${photo}”`).join(", "), 80) : files === 1 ? "your photo" : "your photos";
@@ -258,7 +258,10 @@ export function describeToolCall(
           case "unknown":
             return upload(`Sent ${photos} to ${company}, but the outcome is unknown`, "failed");
           default:
-            return line(`Asked you to approve sending ${photos} to ${company}`, "API", "view and change");
+            if (state === "waiting") return line(`Asked you to approve sending ${photos} to ${company}`, "API", "view and change");
+            if (state === "failed") return upload(`Couldn't confirm sending ${photos} to ${company}`, "failed");
+            if (state === "running" || (isRecord(outcome?.details) && outcome.details.status === "in_progress")) return upload(`Sending ${photos} to ${company}`, "running");
+            return upload(`Sent ${photos} to ${company}`);
         }
       }
       if (match && match[1]!.toUpperCase() === "GET") return line(`Read ${noun(match[2]!)} at ${company}`, "API", "view");

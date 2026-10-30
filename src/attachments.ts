@@ -22,8 +22,9 @@ import { base64url } from "./base64url";
  * - **Who sees them.** The User, on their own page (`GET /api/attachments/<id>`).
  *   The model sees a smaller copy as an image in the message it was attached
  *   to (`src/attachment-images.ts`), never the bytes in a tool argument: tools name
- *   an attachment by its id. A Company gets one only in an upload the User
- *   approved on a card (`src/poppy/apis.ts`). Nothing logs them.
+ *   an attachment by its id. A Company gets one in an upload for the User's
+ *   task using a photo they selected; a different saved photo still needs
+ *   disclosure consent (`src/poppy/apis.ts`, `task-files.ts`). Nothing logs them.
  */
 
 export const ATTACHMENT_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;

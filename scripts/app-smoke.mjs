@@ -12,12 +12,14 @@ import { build } from "esbuild";
 import { exportJWK, generateKeyPair } from "jose";
 import puppeteer from "@cloudflare/puppeteer";
 import { approvalJourneys } from "./app-approval-journey.mjs";
+import { photoJourneys } from "./app-photo-journey.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
 const outputIndex = args.indexOf("--output");
 const output = outputIndex < 0 ? null : args[outputIndex + 1];
 if (outputIndex >= 0 && !output) throw new Error("--output needs a path");
+if (args.includes("--baseline-photo-consent") && !args.includes("--photo-journey")) throw new Error("--baseline-photo-consent is only for the historical photo evidence run");
 const directory = mkdtempSync(path.join(tmpdir(), "pda-app-smoke-"));
 let runtime;
 let browser;
@@ -33,7 +35,7 @@ try {
   const workerDirectory = path.join(directory, "worker");
   let workerConfig = "test/wrangler.jsonc";
   let workerEntry = "worker.js";
-  if (args.includes("--approval-journey")) {
+  if (args.includes("--approval-journey") || args.includes("--photo-journey")) {
     const fixtureConfig = JSON.parse(readFileSync(path.join(root, workerConfig), "utf8").replace(/^\s*\/\/.*$/gm, ""));
     fixtureConfig.main = path.join(root, "test/browser/approval-journey-worker.ts");
     workerEntry = "approval-journey-worker.js";
@@ -146,6 +148,15 @@ try {
   assert.equal(new URL(retired.url()).pathname, "/ecosystem");
   assert.equal(await retired.$(".ecosystem-table"), null);
   evidence.oldEcosystemPathHasNoPageOrRedirect = true;
+  await signedOut.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
+  await signedOut.goto("https://agent.test/privacy", { waitUntil: "networkidle0" });
+  await signedOut.waitForSelector("main h1");
+  assert.equal(await signedOut.$eval("h1", element => element.textContent), "Privacy policy");
+  if (output) writeFileSync(`${output}.privacy-desktop.png`, Buffer.from(await signedOut.screenshot({ fullPage: true })));
+  await signedOut.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+  assert.equal(await signedOut.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  if (output) writeFileSync(`${output}.privacy-mobile.png`, Buffer.from(await signedOut.screenshot({ fullPage: true })));
+  evidence.privacyPolicyDesktopAndMobile = true;
   await anonymous.close();
   const authenticated = await browser.createBrowserContext();
   const identity = { provider: "github", sub: "4141", email: "owner@example.com", domain: null };
@@ -172,6 +183,9 @@ try {
   evidence.chatSurvivesReload = true;
   if (args.includes("--approval-journey")) {
     evidence.companyApprovalJourneys = await approvalJourneys({ runtime, page, network, agentName: await agentNameFor(identity), cookie: signedCookie.split(";", 1)[0], output });
+  }
+  if (args.includes("--photo-journey")) {
+    evidence.photoJourneys = await photoJourneys({ runtime, page, network, agentName: await agentNameFor(identity), output, baselineConsent: args.includes("--baseline-photo-consent") });
   }
   for (const route of ["/settings", "/companies", "/activity"]) {
     await page.goto(`https://agent.test${route}`, { waitUntil: "networkidle0" });
